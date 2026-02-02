@@ -7,7 +7,7 @@ toolchain go1.24.5
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.10.3
-	github.com/bytedance/sonic v1.14.1
+	github.com/bytedance/sonic v1.15.0
 	github.com/charmbracelet/fang v0.4.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/cloudwego/eino v0.7.11
@@ -15,6 +15,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.2
 	github.com/cloudwego/eino-ext/components/model/openai v0.0.0-20250903035842-96774a3ec845
 	github.com/eino-contrib/jsonschema v1.0.3
+	github.com/getkin/kin-openapi v0.120.0
 	github.com/mark3labs/mcp-filesystem-server v0.11.1
 	github.com/mark3labs/mcp-go v0.44.0-beta.2
 	github.com/ollama/ollama v0.11.8
@@ -53,7 +54,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic/loader v0.3.0 // indirect
+	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/charmbracelet/colorprofile v0.3.2 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/lipgloss/v2 v2.0.0-beta1 // indirect
@@ -70,7 +71,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
-	github.com/getkin/kin-openapi v0.120.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.22.0 // indirect
@@ -128,7 +128,7 @@ require (
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	golang.org/x/arch v0.20.0 // indirect
+	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
@@ -159,6 +159,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 )
