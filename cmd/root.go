@@ -16,7 +16,6 @@ import (
 	"github.com/mark3labs/mcphost/internal/hooks"
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/session"
-	"github.com/mark3labs/mcphost/internal/tokens"
 	"github.com/mark3labs/mcphost/internal/tools"
 	"github.com/mark3labs/mcphost/internal/ui"
 	"github.com/spf13/cobra"
@@ -362,9 +361,6 @@ func runMCPHost(ctx context.Context) error {
 }
 
 func runNormalMode(ctx context.Context) error {
-	// Initialize token counters
-	tokens.InitializeTokenCounters()
-
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")

@@ -8,7 +8,6 @@ import (
 	"image/color"
 
 	"github.com/mark3labs/mcphost/internal/models"
-	"github.com/mark3labs/mcphost/internal/tokens"
 )
 
 // UsageStats encapsulates detailed token usage and cost breakdown for a single
@@ -64,13 +63,9 @@ func NewUsageTracker(modelInfo *models.ModelInfo, provider string, width int, is
 	}
 }
 
-// EstimateTokens provides a rough estimate of the number of tokens in the given text.
-// This uses a simple heuristic of approximately 4 characters per token, which is a
-// reasonable approximation for most models but not precise. Actual token counts may vary
-// significantly based on the specific tokenizer used by each model.
-func EstimateTokens(text string) int {
-	// Rough approximation: ~4 characters per token for most models
-	// This is not accurate but gives a reasonable estimate
+// estimateTokens provides a rough estimate of the number of tokens in the given text.
+// Uses a simple heuristic of ~4 characters per token.
+func estimateTokens(text string) int {
 	return len(text) / 4
 }
 
@@ -126,16 +121,8 @@ func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, 
 // the usage statistics. This method is used when actual token counts are not available
 // from the API response.
 func (ut *UsageTracker) EstimateAndUpdateUsage(inputText, outputText string) {
-	inputTokens := tokens.EstimateTokens(inputText)
-	outputTokens := tokens.EstimateTokens(outputText)
-	ut.UpdateUsage(inputTokens, outputTokens, 0, 0)
-}
-
-// EstimateAndUpdateUsageFromText is an alias for EstimateAndUpdateUsage, providing
-// backward compatibility. It estimates token counts from text and updates usage statistics.
-func (ut *UsageTracker) EstimateAndUpdateUsageFromText(inputText, outputText string) {
-	inputTokens := tokens.EstimateTokens(inputText)
-	outputTokens := tokens.EstimateTokens(outputText)
+	inputTokens := estimateTokens(inputText)
+	outputTokens := estimateTokens(outputText)
 	ut.UpdateUsage(inputTokens, outputTokens, 0, 0)
 }
 

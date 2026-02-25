@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/mcphost/internal/config"
@@ -354,73 +352,4 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 // Close closes the agent and cleans up resources.
 func (a *Agent) Close() error {
 	return a.toolManager.Close()
-}
-
-// escListenerModel is a simple Bubble Tea model for ESC key detection
-type escListenerModel struct {
-	escPressed chan bool
-}
-
-func (m escListenerModel) Init() tea.Cmd {
-	return nil
-}
-
-func (m escListenerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if msg, ok := msg.(tea.KeyPressMsg); ok {
-		if msg.String() == "esc" {
-			select {
-			case m.escPressed <- true:
-			default:
-			}
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m escListenerModel) View() tea.View {
-	return tea.NewView("")
-}
-
-// listenForESC listens for ESC key press using Bubble Tea and returns true if detected
-func (a *Agent) listenForESC(stopChan chan bool, readyChan chan bool) bool {
-	escPressed := make(chan bool, 1)
-
-	model := escListenerModel{
-		escPressed: escPressed,
-	}
-
-	p := tea.NewProgram(model, tea.WithoutRenderer())
-
-	go func() {
-		if _, err := p.Run(); err != nil {
-			select {
-			case escPressed <- false:
-			default:
-			}
-		}
-	}()
-
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		select {
-		case readyChan <- true:
-		default:
-		}
-	}()
-
-	select {
-	case <-stopChan:
-		p.Kill()
-		time.Sleep(50 * time.Millisecond)
-		return false
-	case pressed := <-escPressed:
-		p.Kill()
-		time.Sleep(50 * time.Millisecond)
-		return pressed
-	case <-time.After(30 * time.Second):
-		p.Kill()
-		time.Sleep(50 * time.Millisecond)
-		return false
-	}
 }

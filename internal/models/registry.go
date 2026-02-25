@@ -53,15 +53,6 @@ var providerEnvVars = map[string][]string{
 	"bedrock":                 {"AWS_ACCESS_KEY_ID"},
 	"google-vertex-anthropic": {"GOOGLE_APPLICATION_CREDENTIALS"},
 	"ollama":                  {},
-	"mistral":                 {"MISTRAL_API_KEY"},
-	"groq":                    {"GROQ_API_KEY"},
-	"deepseek":                {"DEEPSEEK_API_KEY"},
-	"xai":                     {"XAI_API_KEY"},
-	"fireworks":               {"FIREWORKS_API_KEY"},
-	"together":                {"TOGETHER_API_KEY"},
-	"perplexity":              {"PERPLEXITY_API_KEY"},
-	"alibaba":                 {"DASHSCOPE_API_KEY"},
-	"cohere":                  {"COHERE_API_KEY"},
 }
 
 // ModelsRegistry provides validation and information about models.
