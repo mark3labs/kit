@@ -53,6 +53,7 @@ var providerEnvVars = map[string][]string{
 	"bedrock":                 {"AWS_ACCESS_KEY_ID"},
 	"google-vertex-anthropic": {"GOOGLE_APPLICATION_CREDENTIALS"},
 	"ollama":                  {},
+	"vercel":                  {"VERCEL_API_KEY"},
 }
 
 // ModelsRegistry provides validation and information about models.
@@ -70,11 +71,19 @@ func NewModelsRegistry() *ModelsRegistry {
 	}
 }
 
-// buildFromCatwalk converts catwalk embedded data into our internal format.
+// buildFromCatwalk converts catwalk provider data into our internal format.
+// It tries the on-disk cache first and falls back to the embedded database.
 func buildFromCatwalk() map[string]ProviderInfo {
+	// Try cached data first (from `mcphost update-models`)
+	catwalkProviders, _ := LoadCachedProviders()
+	if len(catwalkProviders) == 0 {
+		// Fall back to compile-time embedded data
+		catwalkProviders = embedded.GetAll()
+	}
+
 	providers := make(map[string]ProviderInfo)
 
-	for _, cp := range embedded.GetAll() {
+	for _, cp := range catwalkProviders {
 		providerID := string(cp.ID)
 
 		modelsMap := make(map[string]ModelInfo, len(cp.Models))
@@ -131,7 +140,7 @@ func buildFromCatwalk() map[string]ProviderInfo {
 	}
 
 	// Ensure providers that mcphost explicitly supports are always present
-	// even if catwalk doesn't list them (e.g. ollama, google-vertex-anthropic)
+	// even if catwalk doesn't list them (e.g. ollama, kronk, google-vertex-anthropic)
 	ensureProvider(providers, "ollama", "Ollama", nil)
 	ensureProvider(providers, "google-vertex-anthropic", "Google Vertex (Anthropic)",
 		providerEnvVars["google-vertex-anthropic"])
@@ -151,19 +160,39 @@ func ensureProvider(providers map[string]ProviderInfo, id, name string, env []st
 	}
 }
 
+// LookupModel returns model metadata from the catwalk database if available.
+// Returns nil when the model or provider is not in the database — this is
+// expected for new models, custom fine-tunes, or providers catwalk doesn't
+// track yet. Callers should treat a nil return as "unknown model" and
+// continue with sensible defaults.
+func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
+	providerInfo, exists := r.providers[provider]
+	if !exists {
+		return nil
+	}
+
+	modelInfo, exists := providerInfo.Models[modelID]
+	if !exists {
+		return nil
+	}
+
+	return &modelInfo
+}
+
 // ValidateModel validates if a model exists and returns detailed information.
+// Deprecated: Use LookupModel instead — it returns nil for unknown models
+// rather than an error, letting the provider API be the authority.
 func (r *ModelsRegistry) ValidateModel(provider, modelID string) (*ModelInfo, error) {
+	if info := r.LookupModel(provider, modelID); info != nil {
+		return info, nil
+	}
+
 	providerInfo, exists := r.providers[provider]
 	if !exists {
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
 
-	modelInfo, exists := providerInfo.Models[modelID]
-	if !exists {
-		return nil, fmt.Errorf("model %s not found for provider %s", modelID, provider)
-	}
-
-	return &modelInfo, nil
+	return nil, fmt.Errorf("model %s not found for provider %s", modelID, providerInfo.ID)
 }
 
 // GetRequiredEnvVars returns the required environment variables for a provider.
@@ -177,13 +206,20 @@ func (r *ModelsRegistry) GetRequiredEnvVars(provider string) ([]string, error) {
 }
 
 // ValidateEnvironment checks if required environment variables are set.
+// Returns nil for providers not in the registry (unknown providers are
+// assumed to handle auth themselves or via --provider-api-key).
 func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) error {
-	envVars, err := r.GetRequiredEnvVars(provider)
-	if err != nil {
-		return err
+	if apiKey != "" {
+		return nil
 	}
 
-	if apiKey != "" {
+	envVars, err := r.GetRequiredEnvVars(provider)
+	if err != nil {
+		// Unknown provider — nothing to validate
+		return nil
+	}
+
+	if len(envVars) == 0 {
 		return nil
 	}
 
@@ -199,20 +235,14 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 		)
 	}
 
-	var foundVar bool
 	for _, envVar := range envVars {
 		if os.Getenv(envVar) != "" {
-			foundVar = true
-			break
+			return nil
 		}
 	}
 
-	if !foundVar {
-		return fmt.Errorf("missing required environment variables for %s: %s (at least one required)",
-			provider, strings.Join(envVars, ", "))
-	}
-
-	return nil
+	return fmt.Errorf("missing required environment variables for %s: %s (at least one required)",
+		provider, strings.Join(envVars, ", "))
 }
 
 // SuggestModels returns similar model names when an invalid model is provided.
@@ -268,4 +298,10 @@ var globalRegistry = NewModelsRegistry()
 // GetGlobalRegistry returns the global models registry instance.
 func GetGlobalRegistry() *ModelsRegistry {
 	return globalRegistry
+}
+
+// ReloadGlobalRegistry rebuilds the global registry from the current
+// data sources (cache → embedded). Call after updating the cache.
+func ReloadGlobalRegistry() {
+	globalRegistry = NewModelsRegistry()
 }

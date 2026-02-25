@@ -21,6 +21,7 @@ import (
 	"charm.land/fantasy/providers/openai"
 	"charm.land/fantasy/providers/openaicompat"
 	"charm.land/fantasy/providers/openrouter"
+	"charm.land/fantasy/providers/vercel"
 
 	"github.com/mark3labs/mcphost/internal/auth"
 	"github.com/mark3labs/mcphost/internal/ui/progress"
@@ -78,6 +79,9 @@ type ProviderResult struct {
 	Model fantasy.LanguageModel
 	// Message contains optional feedback for the user
 	Message string
+	// Closer is an optional cleanup function for providers that hold
+	// resources (e.g. kronk's loaded models). May be nil.
+	Closer io.Closer
 }
 
 // ParseModelString parses a model string in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5").
@@ -108,8 +112,9 @@ func ParseModelString(modelString string) (provider, model string, err error) {
 }
 
 // CreateProvider creates a fantasy LanguageModel based on the provider configuration.
-// It validates the model, checks required environment variables, and initializes
-// the appropriate provider.
+// Model metadata is looked up from the catwalk database for cost tracking and
+// capability detection, but unknown models are passed through to the provider
+// API — catwalk is advisory, not a gatekeeper.
 //
 // Supported providers: anthropic, openai, google, ollama, azure, google-vertex-anthropic,
 // openrouter, bedrock
@@ -119,32 +124,34 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return nil, err
 	}
 
-	// Resolve model aliases before validation (for OAuth compatibility)
+	// Resolve model aliases (for OAuth compatibility)
 	if provider == "anthropic" || provider == "google-vertex-anthropic" {
 		modelName = resolveModelAlias(provider, modelName)
 	}
 
-	// Get the global registry for validation
 	registry := GetGlobalRegistry()
 
-	// Validate the model exists (skip for ollama as it's not in models.dev, and skip when using custom provider URL)
-	if provider != "ollama" && config.ProviderURL == "" {
-		modelInfo, err := registry.ValidateModel(provider, modelName)
-		if err != nil {
-			suggestions := registry.SuggestModels(provider, modelName)
-			if len(suggestions) > 0 {
-				return nil, fmt.Errorf("%v. Did you mean one of: %s", err, strings.Join(suggestions, ", "))
-			}
-			return nil, err
+	// Look up model metadata from catwalk (advisory, not blocking).
+	// When the model is known we validate config limits and print
+	// suggestions on likely typos; when unknown we let the provider
+	// API be the authority.
+	modelInfo := registry.LookupModel(provider, modelName)
+	if modelInfo == nil && provider != "ollama" && config.ProviderURL == "" {
+		// Model not in catwalk — warn with suggestions but don't block.
+		if suggestions := registry.SuggestModels(provider, modelName); len(suggestions) > 0 {
+			fmt.Fprintf(os.Stderr, "Warning: model %q not found in model database for provider %s. Similar models: %s\n",
+				modelName, provider, strings.Join(suggestions, ", "))
 		}
+	}
 
-		if err := registry.ValidateEnvironment(provider, config.ProviderAPIKey); err != nil {
-			return nil, err
-		}
+	// Validate environment variables (required regardless of catwalk status)
+	if err := registry.ValidateEnvironment(provider, config.ProviderAPIKey); err != nil {
+		return nil, err
+	}
 
-		if err := validateModelConfig(config, modelInfo); err != nil {
-			return nil, err
-		}
+	// Validate config against known model limits when metadata is available
+	if modelInfo != nil {
+		validateModelConfig(config, modelInfo)
 	}
 
 	switch provider {
@@ -164,23 +171,25 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return createOpenRouterProvider(ctx, config, modelName)
 	case "bedrock":
 		return createBedrockProvider(ctx, config, modelName)
+	case "vercel":
+		return createVercelProvider(ctx, config, modelName)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s. Supported: anthropic, openai, google, ollama, azure, google-vertex-anthropic, openrouter, bedrock", provider)
+		return nil, fmt.Errorf("unsupported provider: %s. Supported: anthropic, openai, google, ollama, azure, google-vertex-anthropic, openrouter, bedrock, vercel", provider)
 	}
 }
 
-// validateModelConfig validates configuration parameters against model capabilities
-func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) error {
+// validateModelConfig adjusts configuration parameters against known model capabilities.
+// It silently clears temperature for models that don't support it, and warns (but
+// does not block) when max_tokens exceeds the model's known output limit.
+func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
 	if config.Temperature != nil && !modelInfo.Temperature {
 		config.Temperature = nil
 	}
 
-	if config.MaxTokens > modelInfo.Limit.Output {
-		return fmt.Errorf("max_tokens (%d) exceeds model's output limit (%d) for %s",
+	if modelInfo.Limit.Output > 0 && config.MaxTokens > modelInfo.Limit.Output {
+		fmt.Fprintf(os.Stderr, "Warning: max_tokens (%d) exceeds model's known output limit (%d) for %s\n",
 			config.MaxTokens, modelInfo.Limit.Output, modelInfo.ID)
 	}
-
-	return nil
 }
 
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -397,6 +406,44 @@ func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelNam
 	}
 
 	return &ProviderResult{Model: model}, nil
+}
+
+func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	apiKey := config.ProviderAPIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("VERCEL_API_KEY")
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("Vercel API key not provided. Use --provider-api-key flag or VERCEL_API_KEY environment variable")
+	}
+
+	var opts []vercel.Option
+	opts = append(opts, vercel.WithAPIKey(apiKey))
+
+	if config.ProviderURL != "" {
+		opts = append(opts, vercel.WithBaseURL(config.ProviderURL))
+	}
+
+	provider, err := vercel.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vercel provider: %w", err)
+	}
+
+	model, err := provider.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vercel model: %w", err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+// providerCloser adapts a Close(context.Context) error method to io.Closer.
+type providerCloser struct {
+	fn func(context.Context) error
+}
+
+func (c *providerCloser) Close() error {
+	return c.fn(context.Background())
 }
 
 func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {

@@ -111,35 +111,33 @@ func TestDeepSeekChatCLIMode(t *testing.T) {
 // TestProviderURLValidationSkip tests that model validation is properly skipped
 // when a custom provider URL is provided
 func TestProviderURLValidationSkip(t *testing.T) {
+	// Validation is now advisory — unknown models are passed through to
+	// the provider API rather than being rejected by the local registry.
+	// All these cases should NOT produce a "not found for provider" error.
 	testCases := []struct {
 		name        string
 		model       string
 		providerURL string
-		shouldSkip  bool
 	}{
 		{
-			name:        "OpenAI with custom URL should skip validation",
+			name:        "OpenAI with custom URL passes through",
 			model:       "openai/custom-model",
 			providerURL: "https://api.custom.com/v1",
-			shouldSkip:  true,
 		},
 		{
-			name:        "OpenAI without custom URL should validate",
+			name:        "OpenAI without custom URL passes through (advisory validation)",
 			model:       "openai/custom-model",
 			providerURL: "",
-			shouldSkip:  false,
 		},
 		{
-			name:        "Ollama should always skip validation",
+			name:        "Ollama always passes through",
 			model:       "ollama/custom-model",
 			providerURL: "",
-			shouldSkip:  true,
 		},
 		{
-			name:        "Anthropic with custom URL should skip validation",
+			name:        "Anthropic with custom URL passes through",
 			model:       "anthropic/custom-model",
 			providerURL: "https://api.custom.com/v1",
-			shouldSkip:  true,
 		},
 	}
 
@@ -154,16 +152,10 @@ func TestProviderURLValidationSkip(t *testing.T) {
 			ctx := context.Background()
 			_, err := models.CreateProvider(ctx, providerConfig)
 
-			if tc.shouldSkip {
-				// Validation should be skipped, so we shouldn't get "model not found" error
-				if err != nil && strings.Contains(err.Error(), "not found for provider") {
-					t.Errorf("Expected validation to be skipped, but got validation error: %v", err)
-				}
-			} else {
-				// Validation should run, so we should get "model not found" error for custom models
-				if err == nil || !strings.Contains(err.Error(), "not found for provider") {
-					t.Errorf("Expected validation error for custom model, but got: %v", err)
-				}
+			// Should never get a "not found for provider" error — unknown
+			// models are passed through to the provider API.
+			if err != nil && strings.Contains(err.Error(), "not found for provider") {
+				t.Errorf("Expected unknown model to pass through, but got validation error: %v", err)
 			}
 		})
 	}

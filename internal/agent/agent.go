@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"charm.land/fantasy"
 
@@ -49,6 +50,7 @@ type Agent struct {
 	toolManager      *tools.MCPToolManager
 	fantasyAgent     fantasy.Agent
 	model            fantasy.LanguageModel
+	providerCloser   io.Closer // optional cleanup for providers like kronk
 	maxSteps         int
 	systemPrompt     string
 	loadingMessage   string
@@ -121,6 +123,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		toolManager:      toolManager,
 		fantasyAgent:     fantasyAgent,
 		model:            providerResult.Model,
+		providerCloser:   providerResult.Closer,
 		maxSteps:         agentConfig.MaxSteps,
 		systemPrompt:     agentConfig.SystemPrompt,
 		loadingMessage:   providerResult.Message,
@@ -351,5 +354,11 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 
 // Close closes the agent and cleans up resources.
 func (a *Agent) Close() error {
-	return a.toolManager.Close()
+	toolErr := a.toolManager.Close()
+	if a.providerCloser != nil {
+		if err := a.providerCloser.Close(); err != nil && toolErr == nil {
+			toolErr = err
+		}
+	}
+	return toolErr
 }
