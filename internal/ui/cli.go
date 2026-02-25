@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"charm.land/fantasy"
@@ -231,130 +230,6 @@ func (c *CLI) DisplayDebugConfig(config map[string]any) {
 	c.displayContainer()
 }
 
-// DisplayHelp renders and displays comprehensive help information showing all
-// available slash commands, keyboard shortcuts, and usage instructions in a
-// formatted system message block.
-func (c *CLI) DisplayHelp() {
-	help := `## Available Commands
-
-- ` + "`/help`" + `: Show this help message
-- ` + "`/tools`" + `: List all available tools
-- ` + "`/servers`" + `: List configured MCP servers
-- ` + "`/usage`" + `: Show token usage and cost statistics
-- ` + "`/reset-usage`" + `: Reset usage statistics
-- ` + "`/clear`" + `: Clear message history
-- ` + "`/quit`" + `: Exit the application
-- ` + "`Ctrl+C`" + `: Exit at any time
-- ` + "`ESC`" + `: Cancel ongoing LLM generation
-
-You can also just type your message to chat with the AI assistant.`
-
-	// Display as a system message
-	msg := c.messageRenderer.RenderSystemMessage(help, time.Now())
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
-}
-
-// DisplayTools renders and displays a formatted list of all available tools
-// that can be used by the AI assistant. Each tool is numbered and shown in
-// a system message block for easy reference.
-func (c *CLI) DisplayTools(tools []string) {
-	var content strings.Builder
-	content.WriteString("## Available Tools\n\n")
-
-	if len(tools) == 0 {
-		content.WriteString("No tools are currently available.")
-	} else {
-		for i, tool := range tools {
-			content.WriteString(fmt.Sprintf("%d. `%s`\n", i+1, tool))
-		}
-	}
-
-	// Display as a system message
-	msg := c.messageRenderer.RenderSystemMessage(content.String(), time.Now())
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
-}
-
-// DisplayServers renders and displays a formatted list of all configured MCP
-// (Model Context Protocol) servers. Each server is numbered and shown in a
-// system message block for easy reference.
-func (c *CLI) DisplayServers(servers []string) {
-	var content strings.Builder
-	content.WriteString("## Configured MCP Servers\n\n")
-
-	if len(servers) == 0 {
-		content.WriteString("No MCP servers are currently configured.")
-	} else {
-		for i, server := range servers {
-			content.WriteString(fmt.Sprintf("%d. `%s`\n", i+1, server))
-		}
-	}
-
-	// Display as a system message
-	msg := c.messageRenderer.RenderSystemMessage(content.String(), time.Now())
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
-}
-
-// IsSlashCommand determines whether the provided input string is a slash command
-// by checking if it starts with a forward slash (/). Returns true for commands
-// like "/help", "/tools", etc.
-func (c *CLI) IsSlashCommand(input string) bool {
-	return strings.HasPrefix(input, "/")
-}
-
-// SlashCommandResult encapsulates the outcome of processing a slash command,
-// indicating whether the command was recognized and handled, and whether the
-// conversation history should be cleared as a result of the command.
-type SlashCommandResult struct {
-	Handled      bool
-	ClearHistory bool
-}
-
-// HandleSlashCommand processes and executes slash commands, returning a result
-// that indicates whether the command was handled and any side effects. The servers
-// and tools parameters provide context for commands that display available resources.
-// Supported commands include /help, /tools, /servers, /clear, /usage, /reset-usage, and /quit.
-func (c *CLI) HandleSlashCommand(input string, servers []string, tools []string) SlashCommandResult {
-	switch input {
-	case "/help":
-		c.DisplayHelp()
-		return SlashCommandResult{Handled: true}
-	case "/tools":
-		c.DisplayTools(tools)
-		return SlashCommandResult{Handled: true}
-	case "/servers":
-		c.DisplayServers(servers)
-		return SlashCommandResult{Handled: true}
-
-	case "/clear":
-		c.ClearMessages()
-		c.DisplayInfo("Conversation cleared. Starting fresh.")
-		return SlashCommandResult{Handled: true, ClearHistory: true}
-	case "/usage":
-		c.DisplayUsageStats()
-		return SlashCommandResult{Handled: true}
-	case "/reset-usage":
-		c.ResetUsageStats()
-		return SlashCommandResult{Handled: true}
-	case "/quit":
-		fmt.Println("\n  Goodbye!")
-		os.Exit(0)
-		return SlashCommandResult{Handled: true}
-	default:
-		return SlashCommandResult{Handled: false}
-	}
-}
-
-// ClearMessages removes all messages from the display container and refreshes
-// the screen. This is typically used when starting a new conversation or
-// clearing the chat history.
-func (c *CLI) ClearMessages() {
-	c.messageContainer.Clear()
-	c.displayContainer()
-}
-
 // displayContainer renders and displays the message container for one-shot
 // (non-streaming) messages. Streaming messages are handled separately by a
 // dedicated Bubble Tea program for flicker-free updates.
@@ -382,15 +257,6 @@ func (c *CLI) displayContainer() {
 	c.messageContainer.messages = nil
 }
 
-// UpdateUsage estimates and records token usage based on input and output text.
-// This method uses text-based estimation when actual token counts are not available
-// from the AI provider's response metadata.
-func (c *CLI) UpdateUsage(inputText, outputText string) {
-	if c.usageTracker != nil {
-		c.usageTracker.EstimateAndUpdateUsage(inputText, outputText)
-	}
-}
-
 // UpdateUsageFromResponse records token usage using metadata from the fantasy
 // response when available. Falls back to text-based estimation if the metadata is
 // missing or appears unreliable. This provides more accurate usage tracking when
@@ -413,52 +279,6 @@ func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText stri
 		// Fallback to estimation if no metadata is available
 		c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content.Text())
 	}
-}
-
-// DisplayUsageStats renders and displays comprehensive token usage statistics
-// including the last request's token counts and costs, as well as session totals.
-// Shows a message if usage tracking is not available for the current model.
-func (c *CLI) DisplayUsageStats() {
-	if c.usageTracker == nil {
-		c.DisplayInfo("Usage tracking is not available for this model.")
-		return
-	}
-
-	sessionStats := c.usageTracker.GetSessionStats()
-	lastStats := c.usageTracker.GetLastRequestStats()
-
-	var content strings.Builder
-	content.WriteString("## Usage Statistics\n\n")
-
-	if lastStats != nil {
-		content.WriteString(fmt.Sprintf("**Last Request:** %d input + %d output tokens = $%.6f\n",
-			lastStats.InputTokens, lastStats.OutputTokens, lastStats.TotalCost))
-	}
-
-	content.WriteString(fmt.Sprintf("**Session Total:** %d input + %d output tokens = $%.6f (%d requests)\n",
-		sessionStats.TotalInputTokens, sessionStats.TotalOutputTokens, sessionStats.TotalCost, sessionStats.RequestCount))
-
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderSystemMessage(content.String(), time.Now())
-	} else {
-		msg = c.messageRenderer.RenderSystemMessage(content.String(), time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
-}
-
-// ResetUsageStats clears all accumulated usage statistics, resetting token counts
-// and costs to zero. Displays a confirmation message after resetting or an info
-// message if usage tracking is not available.
-func (c *CLI) ResetUsageStats() {
-	if c.usageTracker == nil {
-		c.DisplayInfo("Usage tracking is not available for this model.")
-		return
-	}
-
-	c.usageTracker.Reset()
-	c.DisplayInfo("Usage statistics have been reset.")
 }
 
 // DisplayUsageAfterResponse renders and displays token usage information immediately
