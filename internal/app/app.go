@@ -167,9 +167,6 @@ func (a *App) ClearMessages() {
 // response text to w. It does not interact with a tea.Program. Blocks until
 // the step completes or ctx is cancelled.
 func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
-	msgs := a.store.GetAll()
-	msgs = append(msgs, fantasy.NewUserMessage(prompt))
-
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -177,7 +174,7 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, msgs, nil /* program */, nil /* writer */)
+	result, err := a.executeStep(stepCtx, prompt, nil /* program */, nil /* writer */)
 	if err != nil {
 		stopReason := "error"
 		if stepCtx.Err() != nil {
@@ -189,9 +186,6 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 
 	// Fire Stop hook on successful completion.
 	a.fireStopHook(result.FinalResponse, "completed")
-
-	// Persist updated history.
-	a.store.Replace(result.ConversationMessages)
 
 	responseText := ""
 	if result.FinalResponse != nil {
@@ -255,13 +249,9 @@ func (a *App) drainQueue(firstPrompt string) {
 	}
 }
 
-// runPrompt executes a single prompt: adds the user message, runs the agent
-// step, and sends the appropriate event to the program.
+// runPrompt executes a single prompt: adds the user message to the store,
+// runs the agent step, and sends the appropriate event to the program.
 func (a *App) runPrompt(prompt string) {
-	// Build message slice.
-	msgs := a.store.GetAll()
-	msgs = append(msgs, fantasy.NewUserMessage(prompt))
-
 	// Create a per-step cancellable context.
 	stepCtx, cancel := context.WithCancel(a.rootCtx)
 	a.mu.Lock()
@@ -274,7 +264,7 @@ func (a *App) runPrompt(prompt string) {
 	prog := a.program
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, msgs, prog, nil)
+	result, err := a.executeStep(stepCtx, prompt, prog, nil)
 	if err != nil {
 		// Fire Stop hook on error/cancellation.
 		stopReason := "error"
@@ -285,9 +275,6 @@ func (a *App) runPrompt(prompt string) {
 		a.sendEvent(StepErrorEvent{Err: err})
 		return
 	}
-
-	// Persist updated conversation.
-	a.store.Replace(result.ConversationMessages)
 
 	// Fire Stop hook on successful completion.
 	a.fireStopHook(result.FinalResponse, "completed")
@@ -303,14 +290,24 @@ func (a *App) runPrompt(prompt string) {
 // --------------------------------------------------------------------------
 
 // executeStep runs a single agentic step using the agent in opts.
+// It adds the user prompt to the MessageStore before calling the agent, and
+// replaces the store with the full updated conversation on success.
 // prog is the tea.Program used to send intermediate events; it may be nil
 // (e.g. in RunOnce). w is an optional writer for quiet non-interactive output.
-func (a *App) executeStep(ctx context.Context, msgs []fantasy.Message, prog *tea.Program, _ io.Writer) (*agent.GenerateWithLoopResult, error) {
+func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program, _ io.Writer) (*agent.GenerateWithLoopResult, error) {
 	sendFn := func(msg tea.Msg) {
 		if prog != nil {
 			prog.Send(msg)
 		}
 	}
+
+	// Add user message to the store immediately so history is consistent
+	// even if the step is later cancelled.
+	userMsg := fantasy.NewUserMessage(prompt)
+	a.store.Add(userMsg)
+
+	// Build the full message slice for the agent call.
+	msgs := a.store.GetAll()
 
 	// Signal spinner start.
 	sendFn(SpinnerEvent{Show: true})
@@ -394,6 +391,11 @@ func (a *App) executeStep(ctx context.Context, msgs []fantasy.Message, prog *tea
 	if err != nil {
 		return nil, err
 	}
+
+	// Replace the store with the full updated conversation returned by the agent
+	// (includes tool call/result messages added during the step).
+	a.store.Replace(result.ConversationMessages)
+
 	return result, nil
 }
 
