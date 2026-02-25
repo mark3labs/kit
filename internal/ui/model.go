@@ -265,6 +265,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case submitMsg:
+		// Handle /quit (and its aliases) before sending to the app layer:
+		// look up the command and check if it resolves to "/quit".
+		if cmd := GetCommandByName(msg.Text); cmd != nil && cmd.Name == "/quit" {
+			return m, tea.Quit
+		}
 		if m.appCtrl != nil {
 			// app.Run() handles queueing internally if a step is in progress.
 			m.appCtrl.Run(msg.Text)

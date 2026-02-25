@@ -459,6 +459,9 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("failed to create agent: %v", err)
 	}
 	defer func() { _ = mcpAgent.Close() }()
+	// TODO(TAS-18): once app.App is created here, add: defer appInstance.Close()
+	// app.Close() stops background goroutines and waits for in-flight steps to
+	// finish before returning — satisfying TAS-14's graceful-quit requirement.
 
 	// Initialize hook executor if hooks are configured
 	// Get model name for display
