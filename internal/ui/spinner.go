@@ -3,11 +3,12 @@ package ui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Spinner provides an animated loading indicator that displays while long-running
@@ -34,7 +35,7 @@ func (m spinnerModel) Init() tea.Cmd {
 
 func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		m.quitting = true
 		return m, tea.Quit
 	case spinner.TickMsg:
@@ -49,9 +50,9 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m spinnerModel) View() string {
+func (m spinnerModel) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	// Enhanced spinner display with better styling
@@ -66,9 +67,9 @@ func (m spinnerModel) View() string {
 		Foreground(theme.Text).
 		Italic(true)
 
-	return fmt.Sprintf(" %s %s",
+	return tea.NewView(fmt.Sprintf(" %s %s",
 		spinnerStyle.Render(m.spinner.View()),
-		messageStyle.Render(m.message))
+		messageStyle.Render(m.message)))
 }
 
 // quitMsg is sent when we want to quit the spinner
@@ -104,7 +105,7 @@ func NewSpinner(message string) *Spinner {
 // NewThemedSpinner creates a new animated spinner with custom color styling.
 // This allows for different spinner colors based on the operation type or status.
 // The spinner runs independently in its own tea.Program.
-func NewThemedSpinner(message string, color lipgloss.AdaptiveColor) *Spinner {
+func NewThemedSpinner(message string, color color.Color) *Spinner {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = s.Style.Foreground(color)

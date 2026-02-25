@@ -1,13 +1,15 @@
 package ui
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"image/color"
+
+	"charm.land/lipgloss/v2"
 )
 
 // blockRenderer handles rendering of content blocks with configurable options
 type blockRenderer struct {
 	align         *lipgloss.Position
-	borderColor   *lipgloss.AdaptiveColor
+	borderColor   *color.Color
 	fullWidth     bool
 	paddingTop    int
 	paddingBottom int
@@ -42,9 +44,9 @@ func WithAlign(align lipgloss.Position) renderingOption {
 // WithBorderColor returns a renderingOption that sets the border color
 // for the block. The color parameter uses lipgloss.AdaptiveColor to support
 // both light and dark terminal themes automatically.
-func WithBorderColor(color lipgloss.AdaptiveColor) renderingOption {
-	return func(c *blockRenderer) {
-		c.borderColor = &color
+func WithBorderColor(c color.Color) renderingOption {
+	return func(br *blockRenderer) {
+		br.borderColor = &c
 	}
 }
 
@@ -141,16 +143,13 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	}
 
 	// Default to transparent/no border color
-	borderColor := lipgloss.AdaptiveColor{Light: "", Dark: ""}
+	var borderColor color.Color = lipgloss.NoColor{}
 	if renderer.borderColor != nil {
 		borderColor = *renderer.borderColor
 	}
 
 	// Very muted color for the opposite border
-	mutedOppositeBorder := lipgloss.AdaptiveColor{
-		Light: "#F3F4F6", // Very light gray, barely visible
-		Dark:  "#1F2937", // Very dark gray, barely visible
-	}
+	mutedOppositeBorder := AdaptiveColor("#F3F4F6", "#1F2937")
 
 	switch align {
 	case lipgloss.Left:

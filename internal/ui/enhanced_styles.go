@@ -2,11 +2,26 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
+	"os"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // Enhanced styling utilities and theme definitions
+
+// isDarkBg caches the terminal background detection result at package init.
+var isDarkBg = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+
+// AdaptiveColor picks between a light-mode and dark-mode hex color string
+// based on the detected terminal background. This replaces the old
+// lipgloss.AdaptiveColor{Light: ..., Dark: ...} pattern from v1.
+func AdaptiveColor(light, dark string) color.Color {
+	if isDarkBg {
+		return lipgloss.Color(dark)
+	}
+	return lipgloss.Color(light)
+}
 
 // Global theme instance
 var currentTheme = DefaultTheme()
@@ -27,22 +42,22 @@ func SetTheme(theme Theme) {
 // both light and dark terminal modes through adaptive colors. It includes semantic
 // colors for different message types and UI elements, based on the Catppuccin color palette.
 type Theme struct {
-	Primary     lipgloss.AdaptiveColor
-	Secondary   lipgloss.AdaptiveColor
-	Success     lipgloss.AdaptiveColor
-	Warning     lipgloss.AdaptiveColor
-	Error       lipgloss.AdaptiveColor
-	Info        lipgloss.AdaptiveColor
-	Text        lipgloss.AdaptiveColor
-	Muted       lipgloss.AdaptiveColor
-	VeryMuted   lipgloss.AdaptiveColor
-	Background  lipgloss.AdaptiveColor
-	Border      lipgloss.AdaptiveColor
-	MutedBorder lipgloss.AdaptiveColor
-	System      lipgloss.AdaptiveColor
-	Tool        lipgloss.AdaptiveColor
-	Accent      lipgloss.AdaptiveColor
-	Highlight   lipgloss.AdaptiveColor
+	Primary     color.Color
+	Secondary   color.Color
+	Success     color.Color
+	Warning     color.Color
+	Error       color.Color
+	Info        color.Color
+	Text        color.Color
+	Muted       color.Color
+	VeryMuted   color.Color
+	Background  color.Color
+	Border      color.Color
+	MutedBorder color.Color
+	System      color.Color
+	Tool        color.Color
+	Accent      color.Color
+	Highlight   color.Color
 }
 
 // DefaultTheme creates and returns the default MCPHost theme based on the Catppuccin
@@ -50,70 +65,22 @@ type Theme struct {
 // pleasant visual experience with carefully selected colors for different UI elements.
 func DefaultTheme() Theme {
 	return Theme{
-		Primary: lipgloss.AdaptiveColor{
-			Light: "#8839ef", // Latte Mauve
-			Dark:  "#cba6f7", // Mocha Mauve
-		},
-		Secondary: lipgloss.AdaptiveColor{
-			Light: "#04a5e5", // Latte Sky
-			Dark:  "#89dceb", // Mocha Sky
-		},
-		Success: lipgloss.AdaptiveColor{
-			Light: "#40a02b", // Latte Green
-			Dark:  "#a6e3a1", // Mocha Green
-		},
-		Warning: lipgloss.AdaptiveColor{
-			Light: "#df8e1d", // Latte Yellow
-			Dark:  "#f9e2af", // Mocha Yellow
-		},
-		Error: lipgloss.AdaptiveColor{
-			Light: "#d20f39", // Latte Red
-			Dark:  "#f38ba8", // Mocha Red
-		},
-		Info: lipgloss.AdaptiveColor{
-			Light: "#1e66f5", // Latte Blue
-			Dark:  "#89b4fa", // Mocha Blue
-		},
-		Text: lipgloss.AdaptiveColor{
-			Light: "#4c4f69", // Latte Text
-			Dark:  "#cdd6f4", // Mocha Text
-		},
-		Muted: lipgloss.AdaptiveColor{
-			Light: "#6c6f85", // Latte Subtext 0
-			Dark:  "#a6adc8", // Mocha Subtext 0
-		},
-		VeryMuted: lipgloss.AdaptiveColor{
-			Light: "#9ca0b0", // Latte Overlay 0
-			Dark:  "#6c7086", // Mocha Overlay 0
-		},
-		Background: lipgloss.AdaptiveColor{
-			Light: "#eff1f5", // Latte Base
-			Dark:  "#1e1e2e", // Mocha Base
-		},
-		Border: lipgloss.AdaptiveColor{
-			Light: "#acb0be", // Latte Surface 2
-			Dark:  "#585b70", // Mocha Surface 2
-		},
-		MutedBorder: lipgloss.AdaptiveColor{
-			Light: "#ccd0da", // Latte Surface 0
-			Dark:  "#313244", // Mocha Surface 0
-		},
-		System: lipgloss.AdaptiveColor{
-			Light: "#179299", // Latte Teal
-			Dark:  "#94e2d5", // Mocha Teal
-		},
-		Tool: lipgloss.AdaptiveColor{
-			Light: "#fe640b", // Latte Peach
-			Dark:  "#fab387", // Mocha Peach
-		},
-		Accent: lipgloss.AdaptiveColor{
-			Light: "#ea76cb", // Latte Pink
-			Dark:  "#f5c2e7", // Mocha Pink
-		},
-		Highlight: lipgloss.AdaptiveColor{
-			Light: "#df8e1d", // Latte Yellow (for highlights)
-			Dark:  "#45475a", // Mocha Surface 1 (subtle highlight)
-		},
+		Primary:     AdaptiveColor("#8839ef", "#cba6f7"), // Latte/Mocha Mauve
+		Secondary:   AdaptiveColor("#04a5e5", "#89dceb"), // Latte/Mocha Sky
+		Success:     AdaptiveColor("#40a02b", "#a6e3a1"), // Latte/Mocha Green
+		Warning:     AdaptiveColor("#df8e1d", "#f9e2af"), // Latte/Mocha Yellow
+		Error:       AdaptiveColor("#d20f39", "#f38ba8"), // Latte/Mocha Red
+		Info:        AdaptiveColor("#1e66f5", "#89b4fa"), // Latte/Mocha Blue
+		Text:        AdaptiveColor("#4c4f69", "#cdd6f4"), // Latte/Mocha Text
+		Muted:       AdaptiveColor("#6c6f85", "#a6adc8"), // Latte/Mocha Subtext 0
+		VeryMuted:   AdaptiveColor("#9ca0b0", "#6c7086"), // Latte/Mocha Overlay 0
+		Background:  AdaptiveColor("#eff1f5", "#1e1e2e"), // Latte/Mocha Base
+		Border:      AdaptiveColor("#acb0be", "#585b70"), // Latte/Mocha Surface 2
+		MutedBorder: AdaptiveColor("#ccd0da", "#313244"), // Latte/Mocha Surface 0
+		System:      AdaptiveColor("#179299", "#94e2d5"), // Latte/Mocha Teal
+		Tool:        AdaptiveColor("#fe640b", "#fab387"), // Latte/Mocha Peach
+		Accent:      AdaptiveColor("#ea76cb", "#f5c2e7"), // Latte/Mocha Pink
+		Highlight:   AdaptiveColor("#df8e1d", "#45475a"), // Latte Yellow / Mocha Surface 1
 	}
 }
 
@@ -127,6 +94,11 @@ func StyleCard(width int, theme Theme) lipgloss.Style {
 		BorderForeground(theme.Border).
 		Padding(1, 2).
 		MarginBottom(1)
+}
+
+// IsDarkBackground returns the cached terminal background detection result.
+func IsDarkBackground() bool {
+	return isDarkBg
 }
 
 // StyleHeader creates a lipgloss style for primary headers using the theme's
@@ -187,9 +159,9 @@ func StyleInfo(theme Theme) lipgloss.Style {
 
 // CreateSeparator generates a horizontal separator line with the specified width,
 // character, and color. Useful for visually dividing sections of content in the UI.
-func CreateSeparator(width int, char string, color lipgloss.AdaptiveColor) string {
+func CreateSeparator(width int, char string, c color.Color) string {
 	return lipgloss.NewStyle().
-		Foreground(color).
+		Foreground(c).
 		Width(width).
 		Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, char))
 }
@@ -214,10 +186,10 @@ func CreateProgressBar(width int, percentage float64, theme Theme) string {
 
 // CreateBadge generates a styled badge or label with inverted colors (text on
 // colored background) for highlighting important tags, statuses, or categories.
-func CreateBadge(text string, color lipgloss.AdaptiveColor) string {
+func CreateBadge(text string, c color.Color) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#000000"}).
-		Background(color).
+		Foreground(AdaptiveColor("#FFFFFF", "#000000")).
+		Background(c).
 		Padding(0, 1).
 		Bold(true).
 		Render(text)
@@ -226,7 +198,7 @@ func CreateBadge(text string, color lipgloss.AdaptiveColor) string {
 // CreateGradientText creates styled text with a gradient-like effect. Currently
 // implements a simplified version using the start color only, as true gradients
 // require more complex terminal capabilities.
-func CreateGradientText(text string, startColor, endColor lipgloss.AdaptiveColor) string {
+func CreateGradientText(text string, startColor, endColor color.Color) string {
 	// For now, just use the start color - true gradients would require more complex implementation
 	return lipgloss.NewStyle().
 		Foreground(startColor).
@@ -238,32 +210,32 @@ func CreateGradientText(text string, startColor, endColor lipgloss.AdaptiveColor
 
 // StyleCompactSymbol creates a lipgloss style for message type indicators in
 // compact mode, using bold colored text to distinguish different message categories.
-func StyleCompactSymbol(symbol string, color lipgloss.AdaptiveColor) lipgloss.Style {
+func StyleCompactSymbol(symbol string, c color.Color) lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(color).
+		Foreground(c).
 		Bold(true)
 }
 
 // StyleCompactLabel creates a lipgloss style for message labels in compact mode
 // with fixed width for alignment and bold colored text for readability.
-func StyleCompactLabel(color lipgloss.AdaptiveColor) lipgloss.Style {
+func StyleCompactLabel(c color.Color) lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(color).
+		Foreground(c).
 		Bold(true).
 		Width(8)
 }
 
 // StyleCompactContent creates a simple lipgloss style for message content in
 // compact mode, applying only color without additional formatting.
-func StyleCompactContent(color lipgloss.AdaptiveColor) lipgloss.Style {
+func StyleCompactContent(c color.Color) lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(color)
+		Foreground(c)
 }
 
 // FormatCompactLine assembles a complete compact mode message line with consistent
 // spacing and styling. Combines a symbol, fixed-width label, and content with their
 // respective colors to create a uniform appearance across all message types.
-func FormatCompactLine(symbol, label, content string, symbolColor, labelColor, contentColor lipgloss.AdaptiveColor) string {
+func FormatCompactLine(symbol, label, content string, symbolColor, labelColor, contentColor color.Color) string {
 	styledSymbol := StyleCompactSymbol(symbol, symbolColor).Render(symbol)
 	styledLabel := StyleCompactLabel(labelColor).Render(label)
 	styledContent := StyleCompactContent(contentColor).Render(content)

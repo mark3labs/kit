@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -463,8 +463,8 @@ func (m escListenerModel) Init() tea.Cmd {
 
 func (m escListenerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyEsc {
+	case tea.KeyPressMsg:
+		if msg.String() == "esc" {
 			// Signal ESC was pressed
 			select {
 			case m.escPressed <- true:
@@ -476,8 +476,8 @@ func (m escListenerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m escListenerModel) View() string {
-	return "" // No visual output needed
+func (m escListenerModel) View() tea.View {
+	return tea.NewView("") // No visual output needed
 }
 
 // listenForESC listens for ESC key press using Bubble Tea and returns true if detected

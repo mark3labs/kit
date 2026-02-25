@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/progress"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/progress"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
@@ -57,7 +57,7 @@ type ProgressModel struct {
 // progress bar and initial "Initializing..." status message.
 func NewProgressModel() ProgressModel {
 	return ProgressModel{
-		progress: progress.New(progress.WithDefaultGradient()),
+		progress: progress.New(progress.WithDefaultBlend()),
 		status:   "Initializing...",
 	}
 }
@@ -73,17 +73,18 @@ func (m ProgressModel) Init() tea.Cmd {
 // triggers program exit on completion or cancellation.
 func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		m.progress.Width = msg.Width - padding*2 - 4
-		if m.progress.Width > maxWidth {
-			m.progress.Width = maxWidth
+		newWidth := msg.Width - padding*2 - 4
+		if newWidth > maxWidth {
+			newWidth = maxWidth
 		}
+		m.progress.SetWidth(newWidth)
 		return m, nil
 
 	case progressErrMsg:
@@ -107,8 +108,8 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case progress.FrameMsg:
-		progressModel, cmd := m.progress.Update(msg)
-		m.progress = progressModel.(progress.Model)
+		var cmd tea.Cmd
+		m.progress, cmd = m.progress.Update(msg)
 		return m, cmd
 
 	default:
@@ -119,23 +120,23 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements the tea.Model interface, rendering the progress bar with
 // status information and help text. Displays error messages if present or
 // a completion message when the download finishes.
-func (m ProgressModel) View() string {
+func (m ProgressModel) View() tea.View {
 	if m.err != nil {
-		return fmt.Sprintf("Error: %s\n", m.err.Error())
+		return tea.NewView(fmt.Sprintf("Error: %s\n", m.err.Error()))
 	}
 
 	if m.complete {
-		return fmt.Sprintf("\n%s%s\n\n%sComplete!\n",
+		return tea.NewView(fmt.Sprintf("\n%s%s\n\n%sComplete!\n",
 			strings.Repeat(" ", padding),
 			m.progress.View(),
-			strings.Repeat(" ", padding))
+			strings.Repeat(" ", padding)))
 	}
 
 	pad := strings.Repeat(" ", padding)
-	return fmt.Sprintf("\n%s%s\n%s%s\n\n%s",
+	return tea.NewView(fmt.Sprintf("\n%s%s\n%s%s\n\n%s",
 		pad, m.progress.View(),
 		pad, m.status,
-		pad+helpStyle("Press 'q' or Ctrl+C to cancel"))
+		pad+helpStyle("Press 'q' or Ctrl+C to cancel")))
 }
 
 // ProgressReader wraps an io.Reader to intercept and parse Ollama pull operation

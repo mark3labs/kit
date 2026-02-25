@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/cloudwego/eino/schema"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
@@ -251,22 +250,22 @@ func LoadConfigWithEnvSubstitution(configPath string) error {
 
 func configToUiTheme(theme config.Theme) ui.Theme {
 	return ui.Theme{
-		Primary:     lipgloss.AdaptiveColor(theme.Primary),
-		Secondary:   lipgloss.AdaptiveColor(theme.Secondary),
-		Success:     lipgloss.AdaptiveColor(theme.Success),
-		Warning:     lipgloss.AdaptiveColor(theme.Warning),
-		Error:       lipgloss.AdaptiveColor(theme.Error),
-		Info:        lipgloss.AdaptiveColor(theme.Info),
-		Text:        lipgloss.AdaptiveColor(theme.Text),
-		Muted:       lipgloss.AdaptiveColor(theme.Muted),
-		VeryMuted:   lipgloss.AdaptiveColor(theme.VeryMuted),
-		Background:  lipgloss.AdaptiveColor(theme.Background),
-		Border:      lipgloss.AdaptiveColor(theme.Border),
-		MutedBorder: lipgloss.AdaptiveColor(theme.MutedBorder),
-		System:      lipgloss.AdaptiveColor(theme.System),
-		Tool:        lipgloss.AdaptiveColor(theme.Tool),
-		Accent:      lipgloss.AdaptiveColor(theme.Accent),
-		Highlight:   lipgloss.AdaptiveColor(theme.Highlight),
+		Primary:     ui.AdaptiveColor(theme.Primary.Light, theme.Primary.Dark),
+		Secondary:   ui.AdaptiveColor(theme.Secondary.Light, theme.Secondary.Dark),
+		Success:     ui.AdaptiveColor(theme.Success.Light, theme.Success.Dark),
+		Warning:     ui.AdaptiveColor(theme.Warning.Light, theme.Warning.Dark),
+		Error:       ui.AdaptiveColor(theme.Error.Light, theme.Error.Dark),
+		Info:        ui.AdaptiveColor(theme.Info.Light, theme.Info.Dark),
+		Text:        ui.AdaptiveColor(theme.Text.Light, theme.Text.Dark),
+		Muted:       ui.AdaptiveColor(theme.Muted.Light, theme.Muted.Dark),
+		VeryMuted:   ui.AdaptiveColor(theme.VeryMuted.Light, theme.VeryMuted.Dark),
+		Background:  ui.AdaptiveColor(theme.Background.Light, theme.Background.Dark),
+		Border:      ui.AdaptiveColor(theme.Border.Light, theme.Border.Dark),
+		MutedBorder: ui.AdaptiveColor(theme.MutedBorder.Light, theme.MutedBorder.Dark),
+		System:      ui.AdaptiveColor(theme.System.Light, theme.System.Dark),
+		Tool:        ui.AdaptiveColor(theme.Tool.Light, theme.Tool.Dark),
+		Accent:      ui.AdaptiveColor(theme.Accent.Light, theme.Accent.Dark),
+		Highlight:   ui.AdaptiveColor(theme.Highlight.Light, theme.Highlight.Dark),
 	}
 }
 

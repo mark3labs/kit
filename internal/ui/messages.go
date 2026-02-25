@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // MessageType represents different categories of messages displayed in the UI,
@@ -87,6 +87,10 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	// Format timestamp and username
 	timeStr := timestamp.Local().Format("15:04")
 	username := getSystemUsername()
+
+	// Convert single newlines to paragraph breaks so they survive glamour's
+	// markdown rendering (glamour treats single \n as a soft break).
+	content = strings.ReplaceAll(content, "\n", "\n\n")
 
 	// Render the message content
 	messageContent := r.renderMarkdown(content, r.width-8) // Account for padding and borders

@@ -1,11 +1,19 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcphost/internal/models"
 )
+
+// stripAnsi removes ANSI escape codes from a string for test comparisons.
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripAnsi(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
+}
 
 func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 	// Create a mock model info with costs and context limit
@@ -26,7 +34,7 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 	oauthTracker := NewUsageTracker(modelInfo, "anthropic", 80, true)
 	oauthTracker.UpdateUsage(1500, 500, 0, 0) // 2000 total tokens
 
-	rendered := oauthTracker.RenderUsageInfo()
+	rendered := stripAnsi(oauthTracker.RenderUsageInfo())
 
 	// Should show tokens and percentage, but cost should show "$0.00"
 	if !strings.Contains(rendered, "Tokens: 2.0K") {
@@ -43,7 +51,7 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 	regularTracker := NewUsageTracker(modelInfo, "anthropic", 80, false)
 	regularTracker.UpdateUsage(1500, 500, 0, 0) // Same token usage
 
-	regularRendered := regularTracker.RenderUsageInfo()
+	regularRendered := stripAnsi(regularTracker.RenderUsageInfo())
 
 	// Should show tokens and actual cost
 	if !strings.Contains(regularRendered, "Tokens: 2.0K") {

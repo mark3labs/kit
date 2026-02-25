@@ -3,10 +3,10 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // SlashCommandInput provides an interactive text input field with intelligent
@@ -41,13 +41,21 @@ func NewSlashCommandInput(width int, title string) *SlashCommandInput {
 	ta.SetHeight(3)        // Default to 3 lines like huh
 	ta.Focus()
 
+	// Override InsertNewline so only ctrl+j and alt+enter insert newlines.
+	// Enter always submits the input.
+	ta.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("ctrl+j", "alt+enter"),
+		key.WithHelp("ctrl+j", "insert newline"),
+	)
+
 	// Style the textarea to match huh theme
-	ta.FocusedStyle.Base = lipgloss.NewStyle()
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	styles := ta.Styles()
+	styles.Focused.Base = lipgloss.NewStyle()
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Focused.Prompt = lipgloss.NewStyle()
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	ta.SetStyles(styles)
 
 	return &SlashCommandInput{
 		textarea:    ta,
@@ -78,25 +86,13 @@ func (s *SlashCommandInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg: // Check for quit keys first (when popup is not shown)
+	case tea.KeyPressMsg: // Check for quit keys first (when popup is not shown)
 		if !s.showPopup {
 			switch msg.String() {
 			case "ctrl+c", "esc":
 				s.quitting = true
 				return s, tea.Quit
-			case "ctrl+d": // Submit on Ctrl+D like huh
-				s.value = s.textarea.Value()
-				s.quitting = true
-				return s, tea.Quit
-			}
-
-			// Check for newline keys first
-			if msg.String() == "ctrl+j" || msg.String() == "alt+enter" {
-				// Insert newline at cursor position
-				s.textarea, cmd = s.textarea.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
-				return s, cmd
-			} else if msg.String() == "enter" && !strings.Contains(s.textarea.Value(), "\n") {
-				// Submit on Enter only if it's single line
+			case "ctrl+d", "enter": // Enter always submits
 				s.value = s.textarea.Value()
 				s.quitting = true
 				return s, tea.Quit
@@ -178,7 +174,7 @@ func (s *SlashCommandInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements the tea.Model interface, rendering the complete input field
 // including the title, text area, autocomplete popup (when active), and help text.
 // The view adapts based on whether single or multi-line input is detected.
-func (s *SlashCommandInput) View() string {
+func (s *SlashCommandInput) View() tea.View {
 	// Add left padding to entire component (2 spaces like other UI elements)
 	containerStyle := lipgloss.NewStyle().PaddingLeft(2)
 
@@ -228,20 +224,14 @@ func (s *SlashCommandInput) View() string {
 		Foreground(lipgloss.Color("240")).
 		MarginTop(1)
 
-	// Show different help based on whether we have multiline content
-	helpText := "enter submit"
-	if strings.Contains(s.textarea.Value(), "\n") {
-		helpText = "ctrl+d submit • enter new line"
-	} else {
-		helpText = "enter submit • ctrl+j / alt+enter new line"
-	}
+	helpText := "enter submit • ctrl+j / alt+enter new line"
 
 	view.WriteString("\n")
 	view.WriteString(helpStyle.Render(helpText))
 	s.renderedLines += 2 // newline + help text
 
 	// Apply container padding to entire view
-	return containerStyle.Render(view.String())
+	return tea.NewView(containerStyle.Render(view.String()))
 }
 
 // renderPopup renders the autocomplete popup

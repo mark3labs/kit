@@ -1,9 +1,9 @@
 package ui
 
 import (
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/spf13/viper"
 )
@@ -42,7 +42,7 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 
 	err := config.FilepathOr("markdown-theme", &mdTheme)
 	fromConfig := err == nil && viper.InConfig("markdown-theme")
-	if fromConfig && lipgloss.HasDarkBackground() {
+	if fromConfig && IsDarkBackground() {
 		textColor = mdTheme.Text.Light
 		mutedColor = mdTheme.Muted.Light
 		headingColor = mdTheme.Heading.Light
@@ -68,7 +68,7 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 		stringColor = mdTheme.String.Dark
 		numberColor = mdTheme.Number.Dark
 		commentColor = mdTheme.Comment.Dark
-	} else if lipgloss.HasDarkBackground() {
+	} else if IsDarkBackground() {
 		textColor = "#F9FAFB"  // Light text for dark backgrounds
 		mutedColor = "#9CA3AF" // Light muted for dark backgrounds
 		// Dark background colors
@@ -117,12 +117,12 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 				Prefix: "┃ ",
 			},
 			Indent:      uintPtr(1),
-			IndentToken: stringPtr(lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: bgColor, Dark: bgColor}).Render(" ")),
+			IndentToken: stringPtr(lipgloss.NewStyle().Background(lipgloss.Color(bgColor)).Render(" ")),
 		},
 		List: ansi.StyleList{
 			LevelIndent: 0, // Remove list indentation
 			StyleBlock: ansi.StyleBlock{
-				IndentToken: stringPtr(lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: bgColor, Dark: bgColor}).Render(" ")),
+				IndentToken: stringPtr(lipgloss.NewStyle().Background(lipgloss.Color(bgColor)).Render(" ")),
 				StylePrimitive: ansi.StylePrimitive{
 					Color: stringPtr(textColor),
 				},

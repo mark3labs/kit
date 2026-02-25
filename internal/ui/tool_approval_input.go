@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type ToolApprovalInput struct {
@@ -29,12 +29,13 @@ func NewToolApprovalInput(toolName, toolArgs string, width int) *ToolApprovalInp
 	ta.Focus()
 
 	// Style the textarea to match huh theme
-	ta.FocusedStyle.Base = lipgloss.NewStyle()
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	styles := ta.Styles()
+	styles.Focused.Base = lipgloss.NewStyle()
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Focused.Prompt = lipgloss.NewStyle()
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	ta.SetStyles(styles)
 
 	return &ToolApprovalInput{
 		textarea: ta,
@@ -51,7 +52,7 @@ func (t *ToolApprovalInput) Init() tea.Cmd {
 
 func (t *ToolApprovalInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "y", "Y":
 			t.approved = true
@@ -80,9 +81,9 @@ func (t *ToolApprovalInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return t, nil
 }
 
-func (t *ToolApprovalInput) View() string {
+func (t *ToolApprovalInput) View() tea.View {
 	if t.done {
-		return "we are done"
+		return tea.NewView("we are done")
 	}
 	// Add left padding to entire component (2 spaces like other UI elements)
 	containerStyle := lipgloss.NewStyle().PaddingLeft(2)
@@ -131,5 +132,5 @@ func (t *ToolApprovalInput) View() string {
 	}
 	view.WriteString(yesText + "/" + noText + "\n")
 
-	return containerStyle.Render(inputBoxStyle.Render(view.String()))
+	return tea.NewView(containerStyle.Render(inputBoxStyle.Render(view.String())))
 }

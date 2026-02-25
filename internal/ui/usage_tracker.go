@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"image/color"
+
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/tokens"
 )
@@ -167,7 +169,7 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 
 	// Calculate percentage based on context limit with color coding
 	var percentageStr string
-	var percentageColor lipgloss.AdaptiveColor
+	var percentageColor color.Color
 	if ut.modelInfo.Limit.Context > 0 {
 		percentage := float64(totalTokens) / float64(ut.modelInfo.Limit.Context) * 100
 

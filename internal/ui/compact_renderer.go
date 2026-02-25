@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // CompactRenderer handles rendering messages in a space-efficient compact format,
@@ -40,6 +40,10 @@ func (r *CompactRenderer) RenderUserMessage(content string, timestamp time.Time)
 	theme := getTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Secondary).Render(">")
 	label := lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render("User")
+
+	// Convert single newlines to paragraph breaks so they survive glamour's
+	// markdown rendering (glamour treats single \n as a soft break).
+	content = strings.ReplaceAll(content, "\n", "\n\n")
 
 	// Format content for user messages (preserve formatting, no truncation)
 	compactContent := r.formatUserAssistantContent(content)
