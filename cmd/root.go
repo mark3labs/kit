@@ -485,116 +485,119 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
-	// Create an adapter for the agent to match the UI interface
-	agentAdapter := &agentUIAdapter{agent: mcpAgent}
-
-	// Create CLI interface using the factory
-	cli, err := ui.SetupCLI(&ui.CLISetupOptions{
-		Agent:          agentAdapter,
-		ModelString:    modelString,
-		Debug:          viper.GetBool("debug"),
-		Compact:        viper.GetBool("compact"),
-		Quiet:          quietFlag,
-		ShowDebug:      false, // Will be handled separately below
-		ProviderAPIKey: viper.GetString("provider-api-key"),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to setup CLI: %v", err)
-	}
-
-	// Display buffered debug messages if any
-	if bufferedLogger != nil && cli != nil {
-		messages := bufferedLogger.GetMessages()
-		if len(messages) > 0 {
-			// Combine all messages into a single debug output
-			combinedMessage := strings.Join(messages, "\n  ")
-			cli.DisplayDebugMessage(combinedMessage)
-		}
-	}
-
-	// Display debug configuration if debug mode is enabled
-	if !quietFlag && cli != nil && viper.GetBool("debug") {
-		debugConfig := map[string]any{
-			"model":         viper.GetString("model"),
-			"max-steps":     viper.GetInt("max-steps"),
-			"max-tokens":    viper.GetInt("max-tokens"),
-			"temperature":   viper.GetFloat64("temperature"),
-			"top-p":         viper.GetFloat64("top-p"),
-			"top-k":         viper.GetInt("top-k"),
-			"provider-url":  viper.GetString("provider-url"),
-			"system-prompt": viper.GetString("system-prompt"),
+	// Create CLI for non-interactive mode only. SetupCLI is the factory for the
+	// non-interactive (quiet and non-quiet) path; interactive mode uses the full
+	// Bubble Tea TUI (AppModel) which handles its own rendering.
+	// cli is nil in interactive mode and in quiet non-interactive mode.
+	var cli *ui.CLI
+	if promptFlag != "" {
+		agentAdapter := &agentUIAdapter{agent: mcpAgent}
+		cli, err = ui.SetupCLI(&ui.CLISetupOptions{
+			Agent:          agentAdapter,
+			ModelString:    modelString,
+			Debug:          viper.GetBool("debug"),
+			Compact:        viper.GetBool("compact"),
+			Quiet:          quietFlag,
+			ShowDebug:      false, // Handled separately below
+			ProviderAPIKey: viper.GetString("provider-api-key"),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to setup CLI: %v", err)
 		}
 
-		// Add TLS skip verify if enabled
-		if viper.GetBool("tls-skip-verify") {
-			debugConfig["tls-skip-verify"] = true
+		// Display buffered debug messages if any (non-interactive path only).
+		if bufferedLogger != nil && cli != nil {
+			msgs := bufferedLogger.GetMessages()
+			if len(msgs) > 0 {
+				combinedMessage := strings.Join(msgs, "\n  ")
+				cli.DisplayDebugMessage(combinedMessage)
+			}
 		}
 
-		// Add Ollama-specific parameters if using Ollama
-		if parsedProvider == "ollama" {
-			debugConfig["num-gpu-layers"] = viper.GetInt("num-gpu-layers")
-			debugConfig["main-gpu"] = viper.GetInt("main-gpu")
-		}
-
-		// Only include non-empty stop sequences
-		stopSequences := viper.GetStringSlice("stop-sequences")
-		if len(stopSequences) > 0 {
-			debugConfig["stop-sequences"] = stopSequences
-		}
-
-		// Only include API keys if they're set (but don't show the actual values for security)
-		if viper.GetString("provider-api-key") != "" {
-			debugConfig["provider-api-key"] = "[SET]"
-		}
-
-		// Add MCP server configuration for debugging
-		if len(mcpConfig.MCPServers) > 0 {
-			mcpServers := make(map[string]any)
-			loadedServers := mcpAgent.GetLoadedServerNames()
-			loadedServerSet := make(map[string]bool)
-			for _, name := range loadedServers {
-				loadedServerSet[name] = true
+		// Display debug configuration if debug mode is enabled (non-interactive path only).
+		if !quietFlag && cli != nil && viper.GetBool("debug") {
+			debugConfig := map[string]any{
+				"model":         viper.GetString("model"),
+				"max-steps":     viper.GetInt("max-steps"),
+				"max-tokens":    viper.GetInt("max-tokens"),
+				"temperature":   viper.GetFloat64("temperature"),
+				"top-p":         viper.GetFloat64("top-p"),
+				"top-k":         viper.GetInt("top-k"),
+				"provider-url":  viper.GetString("provider-url"),
+				"system-prompt": viper.GetString("system-prompt"),
 			}
 
-			for name, server := range mcpConfig.MCPServers {
-				serverInfo := map[string]any{
-					"type":   server.Type,
-					"status": "failed", // Default to failed
+			// Add TLS skip verify if enabled
+			if viper.GetBool("tls-skip-verify") {
+				debugConfig["tls-skip-verify"] = true
+			}
+
+			// Add Ollama-specific parameters if using Ollama
+			if parsedProvider == "ollama" {
+				debugConfig["num-gpu-layers"] = viper.GetInt("num-gpu-layers")
+				debugConfig["main-gpu"] = viper.GetInt("main-gpu")
+			}
+
+			// Only include non-empty stop sequences
+			stopSequences := viper.GetStringSlice("stop-sequences")
+			if len(stopSequences) > 0 {
+				debugConfig["stop-sequences"] = stopSequences
+			}
+
+			// Only include API keys if they're set (but don't show the actual values for security)
+			if viper.GetString("provider-api-key") != "" {
+				debugConfig["provider-api-key"] = "[SET]"
+			}
+
+			// Add MCP server configuration for debugging
+			if len(mcpConfig.MCPServers) > 0 {
+				mcpServers := make(map[string]any)
+				loadedServers := mcpAgent.GetLoadedServerNames()
+				loadedServerSet := make(map[string]bool)
+				for _, name := range loadedServers {
+					loadedServerSet[name] = true
 				}
 
-				// Mark as loaded if it's in the loaded servers list
-				if loadedServerSet[name] {
-					serverInfo["status"] = "loaded"
-				}
-
-				if len(server.Command) > 0 {
-					serverInfo["command"] = server.Command
-				}
-				if len(server.Environment) > 0 {
-					// Mask sensitive environment variables
-					maskedEnv := make(map[string]string)
-					for k, v := range server.Environment {
-						if strings.Contains(strings.ToLower(k), "token") ||
-							strings.Contains(strings.ToLower(k), "key") ||
-							strings.Contains(strings.ToLower(k), "secret") {
-							maskedEnv[k] = "[MASKED]"
-						} else {
-							maskedEnv[k] = v
-						}
+				for name, server := range mcpConfig.MCPServers {
+					serverInfo := map[string]any{
+						"type":   server.Type,
+						"status": "failed", // Default to failed
 					}
-					serverInfo["environment"] = maskedEnv
+
+					// Mark as loaded if it's in the loaded servers list
+					if loadedServerSet[name] {
+						serverInfo["status"] = "loaded"
+					}
+
+					if len(server.Command) > 0 {
+						serverInfo["command"] = server.Command
+					}
+					if len(server.Environment) > 0 {
+						// Mask sensitive environment variables
+						maskedEnv := make(map[string]string)
+						for k, v := range server.Environment {
+							if strings.Contains(strings.ToLower(k), "token") ||
+								strings.Contains(strings.ToLower(k), "key") ||
+								strings.Contains(strings.ToLower(k), "secret") {
+								maskedEnv[k] = "[MASKED]"
+							} else {
+								maskedEnv[k] = v
+							}
+						}
+						serverInfo["environment"] = maskedEnv
+					}
+					if server.URL != "" {
+						serverInfo["url"] = server.URL
+					}
+					if server.Name != "" {
+						serverInfo["name"] = server.Name
+					}
+					mcpServers[name] = serverInfo
 				}
-				if server.URL != "" {
-					serverInfo["url"] = server.URL
-				}
-				if server.Name != "" {
-					serverInfo["name"] = server.Name
-				}
-				mcpServers[name] = serverInfo
+				debugConfig["mcpServers"] = mcpServers
 			}
-			debugConfig["mcpServers"] = mcpServers
+			cli.DisplayDebugConfig(debugConfig)
 		}
-		cli.DisplayDebugConfig(debugConfig)
 	}
 
 	// Prepare data for slash commands
@@ -768,7 +771,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, promptFlag, quietFlag, noExitFlag, cli, modelName)
+		return runNonInteractiveModeApp(ctx, appInstance, promptFlag, quietFlag, noExitFlag, modelName)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -776,7 +779,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, cli, modelName)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName)
 }
 
 // AgenticLoopConfig configures the behavior of the unified agentic loop.
@@ -1403,14 +1406,14 @@ func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI,
 //
 // When --no-exit is set, after RunOnce completes the interactive BubbleTea TUI
 // is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, cli *ui.CLI, modelName string) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, modelName string) error {
 	if err := appInstance.RunOnce(ctx, prompt, os.Stdout); err != nil {
 		return err
 	}
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, cli, modelName)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName)
 	}
 
 	return nil
@@ -1426,20 +1429,14 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt 
 //     so that agent events are routed to the TUI.
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
-// The old SetupCLI / runInteractiveLoop flow is bypassed entirely for interactive mode.
-// cli may be nil if SetupCLI was not called (quiet path); its debug output is displayed
-// before handing control to the TUI.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, _ *ui.CLI, modelName string) error {
+// SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName string) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
 		termWidth = 80
 		termHeight = 24
 	}
-
-	// Display startup info via the legacy CLI before handing off to TUI.
-	// (The CLI was already initialised with model info, tool counts, etc. in runNormalMode.)
-	// Nothing additional needed here — factory.SetupCLI already displayed it above.
 
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
 		CompactMode: viper.GetBool("compact"),
