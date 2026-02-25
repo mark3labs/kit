@@ -19,7 +19,6 @@ import (
 	"github.com/mark3labs/mcphost/internal/models/anthropic"
 	"github.com/mark3labs/mcphost/internal/models/openai"
 	"github.com/mark3labs/mcphost/internal/ui/progress"
-	"github.com/ollama/ollama/api"
 	"google.golang.org/genai"
 
 	"github.com/mark3labs/mcphost/internal/auth"
@@ -218,6 +217,12 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			return nil, err
 		}
 		return &ProviderResult{Model: model, Message: ""}, nil
+	case "google-vertex-anthropic":
+		model, err := createVertexAnthropicProvider(ctx, config, modelName)
+		if err != nil {
+			return nil, err
+		}
+		return &ProviderResult{Model: model, Message: ""}, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
@@ -329,6 +334,67 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 
 	if config.ProviderURL != "" {
 		claudeConfig.BaseURL = &config.ProviderURL
+	}
+
+	if config.Temperature != nil {
+		claudeConfig.Temperature = config.Temperature
+	}
+
+	if config.TopP != nil && *config.TopP != 0.95 {
+		claudeConfig.TopP = config.TopP
+	}
+
+	if config.TopK != nil {
+		claudeConfig.TopK = config.TopK
+	}
+
+	if len(config.StopSequences) > 0 {
+		claudeConfig.StopSequences = config.StopSequences
+	}
+
+	return anthropic.NewCustomChatModel(ctx, claudeConfig)
+}
+
+func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (model.ToolCallingChatModel, error) {
+	projectID := os.Getenv("GOOGLE_VERTEX_PROJECT")
+	if projectID == "" {
+		projectID = os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("GCLOUD_PROJECT")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("CLOUDSDK_CORE_PROJECT")
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("Google Vertex project ID not provided. Set ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable")
+	}
+
+	region := os.Getenv("GOOGLE_VERTEX_LOCATION")
+	if region == "" {
+		region = os.Getenv("ANTHROPIC_VERTEX_REGION")
+	}
+	if region == "" {
+		region = os.Getenv("CLOUD_ML_REGION")
+	}
+	if region == "" {
+		region = "global"
+	}
+
+	maxTokens := config.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 4096 // Default value
+	}
+
+	claudeConfig := &einoclaude.Config{
+		ByVertex:        true,
+		VertexProjectID: projectID,
+		VertexRegion:    region,
+		Model:           modelName,
+		MaxTokens:       maxTokens,
 	}
 
 	if config.Temperature != nil {
@@ -473,7 +539,7 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 type OllamaLoadingResult struct {
 	// Options contains the actual Ollama options used for loading
 	// May differ from requested options if fallback occurred (e.g., CPU instead of GPU)
-	Options *api.Options
+	Options *ollama.Options
 
 	// Message describes the loading result
 	// Example: "Model loaded successfully on GPU" or
@@ -482,7 +548,7 @@ type OllamaLoadingResult struct {
 }
 
 // loadOllamaModelWithFallback loads an Ollama model with GPU settings and automatic CPU fallback
-func loadOllamaModelWithFallback(ctx context.Context, baseURL, modelName string, options *api.Options, tlsSkipVerify bool) (*OllamaLoadingResult, error) {
+func loadOllamaModelWithFallback(ctx context.Context, baseURL, modelName string, options *ollama.Options, tlsSkipVerify bool) (*OllamaLoadingResult, error) {
 	client := createHTTPClientWithTLSConfig(tlsSkipVerify)
 
 	// Phase 1: Check if model exists locally
@@ -590,7 +656,7 @@ func pullOllamaModelWithProgress(ctx context.Context, client *http.Client, baseU
 }
 
 // loadOllamaModelWithOptions loads a model with specific options using a warmup request
-func loadOllamaModelWithOptions(ctx context.Context, client *http.Client, baseURL, modelName string, options *api.Options) (*api.Options, error) {
+func loadOllamaModelWithOptions(ctx context.Context, client *http.Client, baseURL, modelName string, options *ollama.Options) (*ollama.Options, error) {
 	// Create a copy of options for warmup to avoid modifying the original
 	warmupOptions := *options
 	warmupOptions.NumPredict = 1 // Limit response length for warmup
@@ -667,8 +733,8 @@ func createOllamaProviderWithResult(ctx context.Context, config *ProviderConfig,
 		baseURL = config.ProviderURL
 	}
 
-	// Set up options for Ollama using the api.Options struct
-	options := &api.Options{}
+	// Set up options for Ollama using the ollama.Options struct
+	options := &ollama.Options{}
 
 	if config.Temperature != nil {
 		options.Temperature = *config.Temperature
@@ -700,7 +766,7 @@ func createOllamaProviderWithResult(ctx context.Context, config *ProviderConfig,
 	}
 
 	// Create a clean copy of options for the final model
-	finalOptions := &api.Options{}
+	finalOptions := &ollama.Options{}
 	*finalOptions = *options // Copy all fields
 
 	// Try to pre-load the model with GPU settings and automatic CPU fallback
