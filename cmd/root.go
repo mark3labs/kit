@@ -876,7 +876,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 
 	// Start initial spinner (skip if quiet)
 	if !config.Quiet && cli != nil {
-		currentSpinner = ui.NewSpinner("Thinking...")
+		currentSpinner = ui.NewSpinner("")
 		currentSpinner.Start()
 	}
 
@@ -1060,7 +1060,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 				responseWasStreamed = false
 				streamingStarted = false
 				// Start spinner again for next LLM call
-				currentSpinner = ui.NewSpinner("Thinking...")
+				currentSpinner = ui.NewSpinner("")
 				currentSpinner.Start()
 			}
 		},
@@ -1086,7 +1086,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 				_ = cli.DisplayAssistantMessageWithModel(content, config.ModelName)
 				lastDisplayedContent = content
 				// Start spinner again for tool calls
-				currentSpinner = ui.NewSpinner("Thinking...")
+				currentSpinner = ui.NewSpinner("")
 				currentSpinner.Start()
 			} else if responseWasStreamed {
 				// Content was already streamed, just track it and manage spinner
@@ -1096,7 +1096,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 					currentSpinner = nil
 				}
 				// Start spinner again for tool calls
-				currentSpinner = ui.NewSpinner("Thinking...")
+				currentSpinner = ui.NewSpinner("")
 				currentSpinner.Start()
 			}
 		},
@@ -1116,7 +1116,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 				return false, err
 			}
 			// Start spinner again for tool calls
-			currentSpinner = ui.NewSpinner("Thinking...")
+			currentSpinner = ui.NewSpinner("")
 			currentSpinner.Start()
 
 			return allow, nil
