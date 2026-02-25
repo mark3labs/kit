@@ -294,6 +294,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── App layer events ─────────────────────────────────────────────────────
 
 	case app.SpinnerEvent:
+		// SpinnerEvent{Show: true} means a new agent step has started (either
+		// freshly or from the queue after a previous step completed). Transition
+		// to stateWorking so the TUI reflects the active state. This is
+		// especially important for queued prompts: after StepCompleteEvent
+		// resets state to stateInput, the next queued step fires SpinnerEvent
+		// and we must go back to stateWorking.
+		if msg.Show {
+			m.state = stateWorking
+		}
 		if m.stream != nil {
 			_, cmd := m.stream.Update(msg)
 			cmds = append(cmds, cmd)
