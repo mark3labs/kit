@@ -19,16 +19,16 @@ import (
 // overall conversation flow between the user and AI assistants.
 type CLI struct {
 	messageRenderer  *MessageRenderer
-	compactRenderer  *CompactRenderer // Add compact renderer
+	compactRenderer  *CompactRenderer
 	messageContainer *MessageContainer
 	usageTracker     *UsageTracker
 	width            int
 	height           int
-	compactMode      bool   // Add compact mode flag
-	debug            bool   // Add debug mode flag
-	modelName        string // Store current model name
-	lastStreamHeight int    // track how far back we need to move the cursor to overwrite streaming messages
-	usageDisplayed   bool   // track if usage info was displayed after last assistant message
+	compactMode      bool
+	debug            bool
+	modelName        string
+	streamProgram    *tea.Program  // active Bubble Tea program for streaming display
+	streamDone       chan struct{} // closed when the streaming program exits
 }
 
 // NewCLI creates and initializes a new CLI instance with the specified display modes.
@@ -81,8 +81,8 @@ func (c *CLI) GetPrompt() (string, error) {
 	// Usage info is now displayed immediately after responses via DisplayUsageAfterResponse()
 	// No need to display it here to avoid duplication
 
+	c.finishStreaming()               // ensure any active streaming display is stopped
 	c.messageContainer.messages = nil // clear previous messages (they should have been printed already)
-	c.lastStreamHeight = 0            // Reset last stream height for new prompt
 
 	// No divider needed - removed for cleaner appearance
 
@@ -155,6 +155,7 @@ func (c *CLI) DisplayAssistantMessage(message string) error {
 // with the specified model name shown in the message header. The message is
 // formatted according to the current display mode and includes timestamp information.
 func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error {
+	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderAssistantMessage(message, time.Now(), modelName)
@@ -170,9 +171,8 @@ func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error 
 // is being executed. Shows the tool name and its arguments formatted appropriately
 // for the current display mode. This is typically shown while a tool is running.
 func (c *CLI) DisplayToolCallMessage(toolName, toolArgs string) {
-
+	c.finishStreaming()               // ensure any active streaming display is stopped
 	c.messageContainer.messages = nil // clear previous messages (they should have been printed already)
-	c.lastStreamHeight = 0            // Reset last stream height for new prompt
 
 	var msg UIMessage
 	if c.compactMode {
@@ -203,35 +203,51 @@ func (c *CLI) DisplayToolMessage(toolName, toolArgs, toolResult string, isError 
 }
 
 // StartStreamingMessage initializes a new streaming message display for real-time
-// AI responses. The message will be progressively updated as content arrives.
+// AI responses. A Bubble Tea program is started to handle flicker-free in-place
+// updates using synchronized output and proper cursor management.
 // The modelName parameter indicates which AI model is generating the response.
 func (c *CLI) StartStreamingMessage(modelName string) {
-	// Add an empty assistant message that we'll update during streaming
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderAssistantMessage("", time.Now(), modelName)
-	} else {
-		msg = c.messageRenderer.RenderAssistantMessage("", time.Now(), modelName)
-	}
-	msg.Streaming = true
-	c.lastStreamHeight = 0 // Reset last stream height for new message
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	c.finishStreaming() // stop any previous streaming program
+
+	model := newStreamingDisplay(c.compactMode, c.width, modelName)
+	c.streamDone = make(chan struct{})
+	c.streamProgram = tea.NewProgram(model, tea.WithInput(nil))
+
+	done := c.streamDone
+	p := c.streamProgram
+	go func() {
+		_, _ = p.Run()
+		close(done)
+	}()
 }
 
 // UpdateStreamingMessage updates the currently streaming message with new content.
 // This method should be called after StartStreamingMessage to progressively display
 // AI responses as they are generated in real-time.
 func (c *CLI) UpdateStreamingMessage(content string) {
-	// Update the last message (which should be the streaming assistant message)
-	c.messageContainer.UpdateLastMessage(content)
-	c.displayContainer()
+	if c.streamProgram != nil {
+		c.streamProgram.Send(streamContentMsg(content))
+	}
+}
+
+// finishStreaming stops the active streaming Bubble Tea program, if any.
+// It sends a quit message and waits for the program to exit cleanly.
+// This is idempotent and safe to call when no streaming is active.
+func (c *CLI) finishStreaming() {
+	if c.streamProgram == nil {
+		return
+	}
+	c.streamProgram.Send(streamDoneMsg{})
+	<-c.streamDone // wait for the program goroutine to exit
+	c.streamProgram = nil
+	c.streamDone = nil
 }
 
 // DisplayError renders and displays an error message with distinctive formatting
 // to ensure visibility. The error is timestamped and styled according to the
 // current display mode's error theme.
 func (c *CLI) DisplayError(err error) {
+	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderErrorMessage(err.Error(), time.Now())
@@ -259,6 +275,7 @@ func (c *CLI) DisplayInfo(message string) {
 // DisplayCancellation displays a system message indicating that the current
 // AI generation has been cancelled by the user (typically via ESC key).
 func (c *CLI) DisplayCancellation() {
+	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now())
@@ -440,15 +457,14 @@ func (c *CLI) ClearMessages() {
 	c.displayContainer()
 }
 
-// displayContainer renders and displays the message container
+// displayContainer renders and displays the message container for one-shot
+// (non-streaming) messages. Streaming messages are handled separately by a
+// dedicated Bubble Tea program for flicker-free updates.
 func (c *CLI) displayContainer() {
-
-	// Add left padding to the entire container
 	content := c.messageContainer.Render()
 
-	// Check if we're displaying a user message
-	// User messages should not have additional left padding since they're right-aligned
-	// This only applies in non-compact mode
+	// User messages should not have additional left padding since they're right-aligned.
+	// This only applies in non-compact mode.
 	paddingLeft := 2
 	if !c.compactMode && len(c.messageContainer.messages) > 0 {
 		lastMessage := c.messageContainer.messages[len(c.messageContainer.messages)-1]
@@ -459,32 +475,13 @@ func (c *CLI) displayContainer() {
 
 	paddedContent := lipgloss.NewStyle().
 		PaddingLeft(paddingLeft).
-		Width(c.width). // overwrite (no content) while agent is streaming
+		Width(c.width).
 		Render(content)
-
-	if c.lastStreamHeight > 0 {
-		// Move cursor up by the height of the last streamed message
-		fmt.Printf("\033[%dF", c.lastStreamHeight)
-	} else if c.usageDisplayed {
-		// If we're not overwriting a streaming message but usage was displayed,
-		// move up to account for the usage info (2 lines: content + padding)
-		fmt.Printf("\033[2F")
-		c.usageDisplayed = false
-	}
 
 	fmt.Println(paddedContent)
 
-	// clear message history except the "in-progress" message
-	if len(c.messageContainer.messages) > 0 {
-		// keep the last message, clear the rest (in case of streaming)
-		last := c.messageContainer.messages[len(c.messageContainer.messages)-1]
-		c.messageContainer.messages = []UIMessage{}
-		if last.Streaming {
-			// If the last message is still streaming, we keep it
-			c.messageContainer.messages = append(c.messageContainer.messages, last)
-			c.lastStreamHeight = lipgloss.Height(paddedContent)
-		}
-	}
+	// Clear messages after display; one-shot messages don't need to persist.
+	c.messageContainer.messages = nil
 }
 
 // UpdateUsage estimates and records token usage based on input and output text.
@@ -570,6 +567,8 @@ func (c *CLI) ResetUsageStats() {
 // following an AI response. This provides real-time feedback about the cost and
 // token consumption of each interaction.
 func (c *CLI) DisplayUsageAfterResponse() {
+	c.finishStreaming() // ensure streaming display is stopped before printing usage
+
 	if c.usageTracker == nil {
 		return
 	}
@@ -580,8 +579,7 @@ func (c *CLI) DisplayUsageAfterResponse() {
 			PaddingLeft(2).
 			PaddingTop(1).
 			Render(usageInfo)
-		fmt.Print(paddedUsage)
-		c.usageDisplayed = true
+		fmt.Println(paddedUsage)
 	}
 }
 
