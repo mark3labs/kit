@@ -1,0 +1,31 @@
+{
+  "$schema": "https://btca.dev/btca.schema.json",
+  "resources": [
+    {
+      "type": "git",
+      "name": "bubbletea",
+      "url": "https://github.com/charmbracelet/bubbletea",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "lipgloss",
+      "url": "https://github.com/charmbracelet/lipgloss",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "bubbles",
+      "url": "https://github.com/charmbracelet/bubbles",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "glamour",
+      "url": "https://github.com/charmbracelet/glamour",
+      "branch": "main"
+    }
+  ],
+  "model": "claude-haiku-4-5",
+  "provider": "opencode"
+}
