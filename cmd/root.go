@@ -12,6 +12,7 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
+	"github.com/mark3labs/mcphost/internal/app"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/hooks"
 	"github.com/mark3labs/mcphost/internal/models"
@@ -459,9 +460,6 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("failed to create agent: %v", err)
 	}
 	defer func() { _ = mcpAgent.Close() }()
-	// TODO(TAS-18): once app.App is created here, add: defer appInstance.Close()
-	// app.Close() stops background goroutines and waits for in-flight steps to
-	// finish before returning — satisfying TAS-14's graceful-quit requirement.
 
 	// Initialize hook executor if hooks are configured
 	// Get model name for display
@@ -736,6 +734,36 @@ func runNormalMode(ctx context.Context) error {
 		})
 	}
 
+	// Determine approval function per mode.
+	// Non-interactive: auto-approve unless --approve-tool-run is set (interactive TUI approval
+	// is handled by app.buildApprovalFunc when a tea.Program is registered via SetProgram).
+	approveToolRun := viper.GetBool("approve-tool-run")
+	var toolApprovalFunc app.ToolApprovalFunc
+	if promptFlag != "" && !approveToolRun {
+		// Non-interactive and no explicit approval required → auto-approve.
+		toolApprovalFunc = app.AutoApproveFunc
+	}
+	// In interactive mode (promptFlag == "") the TUI handles approval via program.Send();
+	// toolApprovalFunc remains nil here and is ignored when a tea.Program is set.
+
+	// Create the app.App instance now that session messages are loaded.
+	appOpts := app.Options{
+		Agent:            mcpAgent,
+		ToolApprovalFunc: toolApprovalFunc,
+		HookExecutor:     hookExecutor,
+		SessionManager:   sessionManager,
+		MCPConfig:        mcpConfig,
+		ModelName:        modelName,
+		ServerNames:      serverNames,
+		ToolNames:        toolNames,
+		StreamingEnabled: viper.GetBool("stream"),
+		Quiet:            quietFlag,
+		Debug:            viper.GetBool("debug"),
+		CompactMode:      viper.GetBool("compact"),
+	}
+	appInstance := app.New(appOpts, messages)
+	defer appInstance.Close()
+
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
 		return runNonInteractiveMode(ctx, mcpAgent, cli, promptFlag, modelName, messages, quietFlag, noExitFlag, mcpConfig, sessionManager, hookExecutor)
@@ -746,7 +774,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	approveToolRun := viper.GetBool("approve-tool-run")
+	_ = appInstance // TODO(TAS-19): wire appInstance into the interactive tea.Program
 	return runInteractiveMode(ctx, mcpAgent, cli, serverNames, toolNames, modelName, messages, sessionManager, hookExecutor, approveToolRun)
 }
 
