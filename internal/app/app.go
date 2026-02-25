@@ -105,20 +105,24 @@ func (a *App) Run(prompt string) {
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
 
 	if a.closed {
+		a.mu.Unlock()
 		return
 	}
 
 	if a.busy {
 		a.queue = append(a.queue, prompt)
-		a.sendEvent(QueueUpdatedEvent{Length: len(a.queue)})
+		qLen := len(a.queue)
+		a.mu.Unlock()
+		// sendEvent must be called without a.mu held (see sendEvent comment).
+		a.sendEvent(QueueUpdatedEvent{Length: qLen})
 		return
 	}
 
 	a.busy = true
 	a.wg.Add(1)
+	a.mu.Unlock()
 	go a.drainQueue(prompt)
 }
 
@@ -147,8 +151,9 @@ func (a *App) QueueLength() int {
 // Satisfies ui.AppController.
 func (a *App) ClearQueue() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.queue = a.queue[:0]
+	a.mu.Unlock()
+	// sendEvent must be called without a.mu held (see sendEvent comment).
 	a.sendEvent(QueueUpdatedEvent{Length: 0})
 }
 
@@ -254,8 +259,10 @@ func (a *App) drainQueue(firstPrompt string) {
 		}
 		prompt = a.queue[0]
 		a.queue = a.queue[1:]
-		a.sendEvent(QueueUpdatedEvent{Length: len(a.queue)})
+		qLen := len(a.queue)
 		a.mu.Unlock()
+		// sendEvent must be called without a.mu held (see sendEvent comment).
+		a.sendEvent(QueueUpdatedEvent{Length: qLen})
 	}
 }
 

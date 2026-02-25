@@ -3,11 +3,30 @@ package app
 import (
 	"context"
 
+	"charm.land/fantasy"
+
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/hooks"
 	"github.com/mark3labs/mcphost/internal/session"
 )
+
+// AgentRunner is the minimal interface the app layer requires from the agent
+// package. *agent.Agent satisfies this interface. Defining it here allows
+// unit tests to supply stub implementations without spinning up a real LLM.
+type AgentRunner interface {
+	GenerateWithLoopAndStreaming(
+		ctx context.Context,
+		messages []fantasy.Message,
+		onToolCall agent.ToolCallHandler,
+		onToolExecution agent.ToolExecutionHandler,
+		onToolResult agent.ToolResultHandler,
+		onResponse agent.ResponseHandler,
+		onToolCallContent agent.ToolCallContentHandler,
+		onStreamingResponse agent.StreamingResponseHandler,
+		onToolApproval agent.ToolApprovalHandler,
+	) (*agent.GenerateWithLoopResult, error)
+}
 
 // ToolApprovalFunc is the callback invoked by the app layer when the agent needs
 // user approval before executing a tool call. It must return true to approve or
@@ -36,7 +55,8 @@ var AutoApproveFunc ToolApprovalFunc = func(_ context.Context, _, _ string) (boo
 // in cmd/root.go but is owned by the app layer rather than the CLI.
 type Options struct {
 	// Agent is the agent used to run the agentic loop. Required.
-	Agent *agent.Agent
+	// *agent.Agent satisfies this interface; tests may supply stubs.
+	Agent AgentRunner
 
 	// ToolApprovalFunc is called when the agent needs user confirmation before
 	// running a tool. Required; use AutoApproveFunc for non-interactive mode.
