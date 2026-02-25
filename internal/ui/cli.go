@@ -2,12 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
@@ -27,8 +25,6 @@ type CLI struct {
 	compactMode      bool
 	debug            bool
 	modelName        string
-	streamProgram    *tea.Program  // active Bubble Tea program for streaming display
-	streamDone       chan struct{} // closed when the streaming program exits
 }
 
 // NewCLI creates and initializes a new CLI instance with the specified display modes.
@@ -81,49 +77,6 @@ func (c *CLI) SetModelName(modelName string) {
 	}
 }
 
-// GetPrompt displays an interactive prompt and waits for user input. It provides
-// slash command support, multi-line editing, and cancellation handling. Returns
-// the user's input as a string, or an error if the operation was cancelled or
-// failed. Returns io.EOF for clean exit signals.
-func (c *CLI) GetPrompt() (string, error) {
-	// Usage info is now displayed immediately after responses via DisplayUsageAfterResponse()
-	// No need to display it here to avoid duplication
-
-	c.finishStreaming()               // ensure any active streaming display is stopped
-	c.messageContainer.messages = nil // clear previous messages (they should have been printed already)
-
-	// No divider needed - removed for cleaner appearance
-
-	// Create our custom slash command input
-	input := NewSlashCommandInput(c.width, "Enter your prompt (Type /help for commands, Ctrl+C to quit, ESC to cancel generation)")
-
-	// Run as a tea program
-	p := tea.NewProgram(input)
-	finalModel, err := p.Run()
-
-	if err != nil {
-		return "", err
-	}
-
-	// Get the value from the final model
-	if finalInput, ok := finalModel.(*SlashCommandInput); ok {
-		// Clear the input field from the display
-		linesToClear := finalInput.RenderedLines()
-		// We need to clear linesToClear - 1 lines because we're already on the line after the last rendered line
-		for i := 0; i < linesToClear-1; i++ {
-			fmt.Print("\033[1A\033[2K") // Move up one line and clear it
-		}
-
-		if finalInput.Cancelled() {
-			return "", io.EOF // Signal clean exit
-		}
-		value := strings.TrimSpace(finalInput.Value())
-		return value, nil
-	}
-
-	return "", fmt.Errorf("unexpected model type")
-}
-
 // ShowSpinner displays an animated spinner with the specified message while
 // executing the provided action function. The spinner automatically stops when
 // the action completes. Returns any error returned by the action function.
@@ -163,7 +116,6 @@ func (c *CLI) DisplayAssistantMessage(message string) error {
 // with the specified model name shown in the message header. The message is
 // formatted according to the current display mode and includes timestamp information.
 func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error {
-	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderAssistantMessage(message, time.Now(), modelName)
@@ -179,9 +131,6 @@ func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error 
 // is being executed. Shows the tool name and its arguments formatted appropriately
 // for the current display mode. This is typically shown while a tool is running.
 func (c *CLI) DisplayToolCallMessage(toolName, toolArgs string) {
-	c.finishStreaming()               // ensure any active streaming display is stopped
-	c.messageContainer.messages = nil // clear previous messages (they should have been printed already)
-
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderToolCallMessage(toolName, toolArgs, time.Now())
@@ -210,52 +159,10 @@ func (c *CLI) DisplayToolMessage(toolName, toolArgs, toolResult string, isError 
 	c.displayContainer()
 }
 
-// StartStreamingMessage initializes a new streaming message display for real-time
-// AI responses. A Bubble Tea program is started to handle flicker-free in-place
-// updates using synchronized output and proper cursor management.
-// The modelName parameter indicates which AI model is generating the response.
-func (c *CLI) StartStreamingMessage(modelName string) {
-	c.finishStreaming() // stop any previous streaming program
-
-	model := newStreamingDisplay(c.compactMode, c.width, modelName)
-	c.streamDone = make(chan struct{})
-	c.streamProgram = tea.NewProgram(model, tea.WithInput(nil))
-
-	done := c.streamDone
-	p := c.streamProgram
-	go func() {
-		_, _ = p.Run()
-		close(done)
-	}()
-}
-
-// UpdateStreamingMessage updates the currently streaming message with new content.
-// This method should be called after StartStreamingMessage to progressively display
-// AI responses as they are generated in real-time.
-func (c *CLI) UpdateStreamingMessage(content string) {
-	if c.streamProgram != nil {
-		c.streamProgram.Send(streamContentMsg(content))
-	}
-}
-
-// finishStreaming stops the active streaming Bubble Tea program, if any.
-// It sends a quit message and waits for the program to exit cleanly.
-// This is idempotent and safe to call when no streaming is active.
-func (c *CLI) finishStreaming() {
-	if c.streamProgram == nil {
-		return
-	}
-	c.streamProgram.Send(streamDoneMsg{})
-	<-c.streamDone // wait for the program goroutine to exit
-	c.streamProgram = nil
-	c.streamDone = nil
-}
-
 // DisplayError renders and displays an error message with distinctive formatting
 // to ensure visibility. The error is timestamped and styled according to the
 // current display mode's error theme.
 func (c *CLI) DisplayError(err error) {
-	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderErrorMessage(err.Error(), time.Now())
@@ -283,7 +190,6 @@ func (c *CLI) DisplayInfo(message string) {
 // DisplayCancellation displays a system message indicating that the current
 // AI generation has been cancelled by the user (typically via ESC key).
 func (c *CLI) DisplayCancellation() {
-	c.finishStreaming() // ensure streaming display is stopped before printing
 	var msg UIMessage
 	if c.compactMode {
 		msg = c.compactRenderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now())
@@ -396,22 +302,6 @@ func (c *CLI) DisplayServers(servers []string) {
 // like "/help", "/tools", etc.
 func (c *CLI) IsSlashCommand(input string) bool {
 	return strings.HasPrefix(input, "/")
-}
-
-// GetToolApproval asks the user for permission to execute the tool with the given
-// arguments. Returns true if the user approves.
-func (c *CLI) GetToolApproval(toolName, toolArgs string) (bool, error) {
-	input := NewToolApprovalInput(toolName, toolArgs, c.width)
-	p := tea.NewProgram(input)
-	finalModel, err := p.Run()
-	if err != nil {
-		return false, err
-	}
-
-	if finalInput, ok := finalModel.(*ToolApprovalInput); ok {
-		return finalInput.approved, nil
-	}
-	return false, fmt.Errorf("GetToolApproval: unexpected error type")
 }
 
 // SlashCommandResult encapsulates the outcome of processing a slash command,
@@ -575,8 +465,6 @@ func (c *CLI) ResetUsageStats() {
 // following an AI response. This provides real-time feedback about the cost and
 // token consumption of each interaction.
 func (c *CLI) DisplayUsageAfterResponse() {
-	c.finishStreaming() // ensure streaming display is stopped before printing usage
-
 	if c.usageTracker == nil {
 		return
 	}

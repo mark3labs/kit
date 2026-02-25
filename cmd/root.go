@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strings"
@@ -939,16 +938,12 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 			// Mark that this response is being streamed
 			responseWasStreamed = true
 
-			// Start streaming message on first chunk
+			// Accumulate content and update message
 			if !streamingStarted {
-				cli.StartStreamingMessage(config.ModelName)
 				streamingStarted = true
 				streamingContent.Reset() // Reset content for new streaming session
 			}
-
-			// Accumulate content and update message
 			streamingContent.WriteString(chunk)
-			cli.UpdateStreamingMessage(streamingContent.String())
 		}
 	}
 
@@ -1154,15 +1149,12 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 				currentSpinner.Stop()
 				currentSpinner = nil
 			}
-			allow, err := cli.GetToolApproval(toolName, toolArgs)
-			if err != nil {
-				return false, err
-			}
+			// Tool approval via CLI is no longer supported; always approve in legacy path.
 			// Start spinner again for tool calls
 			currentSpinner = ui.NewSpinner("")
 			currentSpinner.Start()
 
-			return allow, nil
+			return true, nil
 		},
 	)
 
@@ -1266,91 +1258,10 @@ func executeStopHook(hookExecutor *hooks.Executor, response *fantasy.Response, s
 	}
 }
 
-// runInteractiveLoop handles the interactive portion of the agentic loop
-func runInteractiveLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
-	for {
-		// Get user input
-		prompt, err := cli.GetPrompt()
-		if err == io.EOF {
-			fmt.Println("\n  Goodbye!")
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get prompt: %v", err)
-		}
-
-		if prompt == "" {
-			continue
-		}
-
-		// Execute UserPromptSubmit hooks
-		if hookExecutor != nil {
-			input := &hooks.UserPromptSubmitInput{
-				CommonInput: hookExecutor.PopulateCommonFields(hooks.UserPromptSubmit),
-				Prompt:      prompt,
-			}
-
-			hookOutput, err := hookExecutor.ExecuteHooks(ctx, hooks.UserPromptSubmit, input)
-			if err != nil {
-				// Log error but don't fail
-				if debugMode {
-					fmt.Fprintf(os.Stderr, "UserPromptSubmit hook execution error: %v\n", err)
-				}
-			}
-
-			// Check if hook blocked the prompt
-			if hookOutput != nil && hookOutput.Decision == "block" {
-				if cli != nil {
-					cli.DisplayInfo(fmt.Sprintf("Prompt blocked: %s", hookOutput.Reason))
-				}
-				continue // Skip this prompt
-			}
-
-			// Check if hook wants to stop the session
-			if hookOutput != nil && hookOutput.Continue != nil && !*hookOutput.Continue {
-				if hookOutput.StopReason != "" {
-					cli.DisplayInfo(fmt.Sprintf("Session ended by hook: %s", hookOutput.StopReason))
-				}
-				return nil // Exit interactive loop gracefully
-			}
-		}
-		// Handle slash commands
-		if cli.IsSlashCommand(prompt) {
-			result := cli.HandleSlashCommand(prompt, config.ServerNames, config.ToolNames)
-			if result.Handled {
-				// If the command was to clear history, clear the messages slice and session
-				if result.ClearHistory {
-					messages = messages[:0] // Clear the slice
-					// Use unified function to clear session as well
-					addMessagesToHistory(&messages, config.SessionManager, cli)
-				}
-				continue
-			}
-			cli.DisplayError(fmt.Errorf("unknown command: %s", prompt))
-			continue
-		}
-
-		// Display user message
-		cli.DisplayUserMessage(prompt)
-
-		// Create temporary messages with user input for processing
-		tempMessages := append(messages, fantasy.NewUserMessage(prompt))
-		// Process the user input with tool calls
-		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config, hookExecutor)
-		if err != nil {
-			// Check if this was a user cancellation
-			if err.Error() == "generation cancelled by user" {
-				cli.DisplayCancellation()
-			} else {
-				cli.DisplayError(fmt.Errorf("agent error: %v", err))
-			}
-			continue
-		}
-
-		// Only add to history after successful completion
-		// conversationMessages already includes the user message, tool calls, and final response
-		addMessagesToHistory(&messages, config.SessionManager, cli, conversationMessages...)
-	}
+// runInteractiveLoop handles the interactive portion of the agentic loop.
+// Deprecated: replaced by runInteractiveModeBubbleTea; will be deleted in TAS-28.
+func runInteractiveLoop(_ context.Context, _ *agent.Agent, _ *ui.CLI, _ []fantasy.Message, _ AgenticLoopConfig, _ *hooks.Executor) error {
+	return nil
 }
 
 // runNonInteractiveMode handles the non-interactive mode execution
