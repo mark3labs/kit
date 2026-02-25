@@ -47,6 +47,7 @@ var providerEnvVars = map[string][]string{
 	"anthropic":               {"ANTHROPIC_API_KEY"},
 	"openai":                  {"OPENAI_API_KEY"},
 	"google":                  {"GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"},
+	"gemini":                  {"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"},
 	"azure":                   {"AZURE_OPENAI_API_KEY"},
 	"openrouter":              {"OPENROUTER_API_KEY"},
 	"bedrock":                 {"AWS_ACCESS_KEY_ID"},
@@ -125,7 +126,8 @@ func buildFromCatwalk() map[string]ProviderInfo {
 		if envVars == nil {
 			// Derive from the catwalk APIKey field if available
 			if cp.APIKey != "" {
-				envVars = []string{cp.APIKey}
+				key := strings.TrimPrefix(cp.APIKey, "$")
+				envVars = []string{key}
 			}
 		}
 

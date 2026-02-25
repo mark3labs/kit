@@ -204,7 +204,7 @@ mcpServers:
       DEBUG: "${env://DEBUG:-false}"
       LOG_LEVEL: "${env://LOG_LEVEL:-info}"
 
-model: "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 provider-api-key: "${env://OPENAI_API_KEY}"  # Required - will fail if not set
 ```
 
@@ -216,7 +216,7 @@ export OPENAI_API_KEY="your_openai_key"
 
 # Optionally override defaults
 export DEBUG="true"
-export MODEL="openai:gpt-4"
+export MODEL="openai/gpt-4"
 
 # Run mcphost
 mcphost
@@ -584,7 +584,7 @@ mcpServers:
     type: "local"
     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "${env://WORK_DIR:-/tmp}"]
 
-model: "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 ---
 Hello ${name:-World}! Please list ${repo_type:-public} repositories for user ${username}.
 Working directory is ${env://WORK_DIR:-/tmp}.
@@ -723,7 +723,7 @@ mcphost -p "What is the weather like today?"
 mcphost -p "What is 2+2?" --quiet
 
 # Use with different models
-mcphost -m ollama:qwen2.5:3b -p "Explain quantum computing" --quiet
+mcphost -m ollama/qwen2.5:3b -p "Explain quantum computing" --quiet
 ```
 
 ### Model Generation Parameters
@@ -751,10 +751,10 @@ These parameters work with all supported providers (OpenAI, Anthropic, Google, O
 
 ### Available Models
 Models can be specified using the `--model` (`-m`) flag:
-- **Anthropic Claude** (default): `anthropic:claude-sonnet-4-20250514`, `anthropic:claude-3-5-sonnet-latest`, `anthropic:claude-3-5-haiku-latest`
-- **OpenAI**: `openai:gpt-4`, `openai:gpt-4-turbo`, `openai:gpt-3.5-turbo`
-- **Google Gemini**: `google:gemini-2.0-flash`, `google:gemini-1.5-pro`
-- **Ollama models**: `ollama:llama3.2`, `ollama:qwen2.5:3b`, `ollama:mistral`
+- **Anthropic Claude** (default): `anthropic/claude-sonnet-4-5-20250929`, `anthropic/claude-3-5-sonnet-latest`, `anthropic/claude-3-5-haiku-latest`
+- **OpenAI**: `openai/gpt-4`, `openai/gpt-4-turbo`, `openai/gpt-3.5-turbo`
+- **Google Gemini**: `google/gemini-2.0-flash`, `google/gemini-1.5-pro`
+- **Ollama models**: `ollama/llama3.2`, `ollama/qwen2.5:3b`, `ollama/mistral`
 - **OpenAI-compatible**: Any model via custom endpoint with `--provider-url`
 
 ### Examples
@@ -762,13 +762,13 @@ Models can be specified using the `--model` (`-m`) flag:
 #### Interactive Mode
 ```bash
 # Use Ollama with Qwen model
-mcphost -m ollama:qwen2.5:3b
+mcphost -m ollama/qwen2.5:3b
 
 # Use OpenAI's GPT-4
-mcphost -m openai:gpt-4
+mcphost -m openai/gpt-4
 
 # Use OpenAI-compatible model with custom URL and API key
-mcphost --model openai:<your-model-name> \
+mcphost --model openai/<your-model-name> \
 --provider-url <your-base-url> \
 --provider-api-key <your-api-key>
 ```
@@ -800,7 +800,7 @@ mcphost -p "Generate a random UUID" --quiet | tr '[:lower:]' '[:upper:]'
 - `--system-prompt string`: system-prompt file location
 - `--debug`: Enable debug logging
 - `--max-steps int`: Maximum number of agent steps (0 for unlimited, default: 0)
-- `-m, --model string`: Model to use (format: provider:model) (default "anthropic:claude-sonnet-4-20250514")
+- `-m, --model string`: Model to use (format: provider/model) (default "anthropic/claude-sonnet-4-5-20250929")
 - `-p, --prompt string`: **Run in non-interactive mode with the given prompt**
 - `--quiet`: **Suppress all output except the AI response (only works with --prompt)**
 - `--compact`: **Enable compact output mode without fancy styling (ideal for scripting and automation)**
@@ -845,7 +845,7 @@ mcpServers:
     url: "https://api.example.com/mcp"
 
 # Application settings
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 max-steps: 20
 debug: false
 system-prompt: "/path/to/system-prompt.txt"

@@ -37,9 +37,9 @@ func resolveModelAlias(provider, modelName string) string {
 
 	aliasMap := map[string]string{
 		"claude-opus-latest":     "claude-opus-4-20250514",
-		"claude-sonnet-latest":   "claude-sonnet-4-20250514",
+		"claude-sonnet-latest":   "claude-sonnet-4-5-20250929",
 		"claude-4-opus-latest":   "claude-opus-4-20250514",
-		"claude-4-sonnet-latest": "claude-sonnet-4-20250514",
+		"claude-4-sonnet-latest": "claude-sonnet-4-5-20250929",
 
 		"claude-3-5-haiku-latest":  "claude-3-5-haiku-20241022",
 		"claude-3-5-sonnet-latest": "claude-3-5-sonnet-20241022",
@@ -80,6 +80,33 @@ type ProviderResult struct {
 	Message string
 }
 
+// ParseModelString parses a model string in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5").
+// It splits on the first "/" to extract the provider and model name.
+// For backward compatibility, the legacy "provider:model" format is also accepted with a
+// deprecation warning printed to stderr.
+// Returns the provider name, model name, and any error.
+func ParseModelString(modelString string) (provider, model string, err error) {
+	if strings.Contains(modelString, "/") {
+		parts := strings.SplitN(modelString, "/", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0], parts[1], nil
+		}
+		return "", "", fmt.Errorf("invalid model format %q: expected provider/model (e.g. anthropic/claude-sonnet-4-5)", modelString)
+	}
+
+	// Legacy colon-separated format
+	if strings.Contains(modelString, ":") {
+		parts := strings.SplitN(modelString, ":", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			fmt.Fprintf(os.Stderr, "Warning: model format %q uses deprecated colon separator. Use %s/%s instead.\n",
+				modelString, parts[0], parts[1])
+			return parts[0], parts[1], nil
+		}
+	}
+
+	return "", "", fmt.Errorf("invalid model format %q: expected provider/model (e.g. anthropic/claude-sonnet-4-5)", modelString)
+}
+
 // CreateProvider creates a fantasy LanguageModel based on the provider configuration.
 // It validates the model, checks required environment variables, and initializes
 // the appropriate provider.
@@ -87,13 +114,10 @@ type ProviderResult struct {
 // Supported providers: anthropic, openai, google, ollama, azure, google-vertex-anthropic,
 // openrouter, bedrock
 func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
-	parts := strings.SplitN(config.ModelString, ":", 2)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid model format. Expected provider:model, got %s", config.ModelString)
+	provider, modelName, err := ParseModelString(config.ModelString)
+	if err != nil {
+		return nil, err
 	}
-
-	provider := parts[0]
-	modelName := parts[1]
 
 	// Resolve model aliases before validation (for OAuth compatibility)
 	if provider == "anthropic" || provider == "google-vertex-anthropic" {
@@ -128,7 +152,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return createAnthropicProvider(ctx, config, modelName)
 	case "openai":
 		return createOpenAIProvider(ctx, config, modelName)
-	case "google":
+	case "google", "gemini":
 		return createGoogleProvider(ctx, config, modelName)
 	case "ollama":
 		return createOllamaProvider(ctx, config, modelName)

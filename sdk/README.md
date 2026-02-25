@@ -55,7 +55,7 @@ You can override specific settings:
 
 ```go
 host, err := sdk.New(ctx, &sdk.Options{
-    Model:        "ollama:llama3",           // Override model
+    Model:        "ollama/llama3",            // Override model
     SystemPrompt: "You are a helpful bot",   // Override system prompt
     ConfigFile:   "/path/to/config.yml",     // Use specific config file
     MaxSteps:     10,                        // Override max steps

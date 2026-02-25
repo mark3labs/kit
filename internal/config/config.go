@@ -374,7 +374,7 @@ func createDefaultConfig(homeDir string) error {
 mcpServers:
 
 # Application settings (all optional)
-# model: "anthropic:claude-sonnet-4-20250514"  # Default model to use
+# model: "anthropic/claude-sonnet-4-5-20250929"  # Default model to use
 # max-steps: 10                                # Maximum agent steps (0 for unlimited)
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file

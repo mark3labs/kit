@@ -28,7 +28,7 @@ mcpServers:
     options:
       allowed_directories: ["${env://WORK_DIR:-/tmp}"]
 
-model: "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 debug: ${env://DEBUG:-false}
 ---
 List ${repo_type:-public} repositories for user ${username}.
@@ -91,8 +91,8 @@ Working directory is ${env://WORK_DIR:-/tmp}.
 	}
 
 	// Verify global config values
-	if scriptConfig.Model != "anthropic:claude-sonnet-4-20250514" {
-		t.Errorf("Expected model=anthropic:claude-sonnet-4-20250514, got %s", scriptConfig.Model)
+	if scriptConfig.Model != "anthropic/claude-sonnet-4-5-20250929" {
+		t.Errorf("Expected model=anthropic/claude-sonnet-4-5-20250929, got %s", scriptConfig.Model)
 	}
 	if !scriptConfig.Debug {
 		t.Error("Expected debug=true")
@@ -250,7 +250,7 @@ mcpServers:
     options:
       allowed_directories: ["/tmp"]
 
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 ---
 List files in ${directory:-/tmp} for user ${username}.
 `
@@ -278,7 +278,7 @@ List files in ${directory:-/tmp} for user ${username}.
 	}
 
 	// Verify that config is unchanged
-	if scriptConfig.Model != "anthropic:claude-sonnet-4-20250514" {
+	if scriptConfig.Model != "anthropic/claude-sonnet-4-5-20250929" {
 		t.Errorf("Expected model unchanged, got %s", scriptConfig.Model)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/tools"
 	"github.com/mark3labs/mcphost/internal/ui"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -34,7 +35,7 @@ model settings, and other options.
 
 Example script file:
 ---
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 max-steps: 10
 mcpServers:
   filesystem:
@@ -520,7 +521,7 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 		finalModel = mcpConfig.Model
 	}
 	if finalModel == "" {
-		finalModel = "anthropic:claude-sonnet-4-20250514" // default
+		finalModel = "anthropic/claude-sonnet-4-5-20250929" // default
 	}
 
 	finalSystemPrompt := viper.GetString("system-prompt")
@@ -626,10 +627,9 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 	defer mcpAgent.Close()
 
 	// Get model name for display
-	parts := strings.SplitN(finalModel, ":", 2)
-	modelName := "Unknown"
-	if len(parts) == 2 {
-		modelName = parts[1]
+	_, modelName, _ := models.ParseModelString(finalModel)
+	if modelName == "" {
+		modelName = "Unknown"
 	}
 
 	// Create an adapter for the agent to match the UI interface

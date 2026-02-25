@@ -28,7 +28,7 @@ func main() {
 	// Example 2: Override model
 	fmt.Println("=== Example 2: Custom model ===")
 	host2, err := sdk.New(ctx, &sdk.Options{
-		Model: "ollama:qwen3:8b",
+		Model: "ollama/qwen3:8b",
 	})
 	if err != nil {
 		log.Fatal(err)

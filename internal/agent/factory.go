@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/models"
@@ -54,7 +53,8 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 	var err error
 
 	// Show spinner for Ollama models if requested and not quiet
-	if opts.ShowSpinner && strings.HasPrefix(opts.ModelConfig.ModelString, "ollama:") && !opts.Quiet && opts.SpinnerFunc != nil {
+	parsedProvider, _, _ := models.ParseModelString(opts.ModelConfig.ModelString)
+	if opts.ShowSpinner && parsedProvider == "ollama" && !opts.Quiet && opts.SpinnerFunc != nil {
 		err = opts.SpinnerFunc("Loading Ollama model...", func() error {
 			agent, err = NewAgent(ctx, agentConfig)
 			return err
@@ -71,12 +71,13 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 }
 
 // ParseModelName extracts provider and model name from a model string.
-// Model strings are formatted as "provider:model" (e.g., "anthropic:claude-3-5-sonnet-20241022").
-// If the string doesn't contain a colon, returns "unknown" for both provider and model.
+// Model strings are formatted as "provider/model" (e.g., "anthropic/claude-sonnet-4-5-20250929").
+// The legacy "provider:model" format is also accepted for backward compatibility.
+// If the string cannot be parsed, returns "unknown" for both provider and model.
 func ParseModelName(modelString string) (provider, model string) {
-	parts := strings.SplitN(modelString, ":", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	p, m, err := models.ParseModelString(modelString)
+	if err != nil {
+		return "unknown", "unknown"
 	}
-	return "unknown", "unknown"
+	return p, m
 }

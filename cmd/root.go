@@ -96,16 +96,16 @@ through a unified interface. It supports various tools through MCP servers
 and provides streaming responses.
 
 Available models can be specified using the --model flag:
-- Anthropic Claude (default): anthropic:claude-sonnet-4-20250514
-- OpenAI: openai:gpt-4
-- Ollama models: ollama:modelname
-- Google: google:modelname
+- Anthropic Claude (default): anthropic/claude-sonnet-4-5-20250929
+- OpenAI: openai/gpt-4
+- Ollama models: ollama/modelname
+- Google: google/modelname
 
 Examples:
   # Interactive mode
-  mcphost -m ollama:qwen2.5:3b
-  mcphost -m openai:gpt-4
-  mcphost -m google:gemini-2.0-flash
+  mcphost -m ollama/qwen2.5:3b
+  mcphost -m openai/gpt-4
+  mcphost -m google/gemini-2.0-flash
   
   # Non-interactive mode
   mcphost -p "What is the weather like today?"
@@ -284,8 +284,8 @@ func init() {
 		StringVar(&systemPromptFile, "system-prompt", "", "system prompt text or path to text file")
 
 	rootCmd.PersistentFlags().
-		StringVarP(&modelFlag, "model", "m", "anthropic:claude-sonnet-4-20250514",
-			"model to use (format: provider:model)")
+		StringVarP(&modelFlag, "model", "m", "anthropic/claude-sonnet-4-5-20250929",
+			"model to use (format: provider/model)")
 	rootCmd.PersistentFlags().
 		BoolVar(&debugMode, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().
@@ -467,10 +467,9 @@ func runNormalMode(ctx context.Context) error {
 	// Initialize hook executor if hooks are configured
 	// Get model name for display
 	modelString := viper.GetString("model")
-	parts := strings.SplitN(modelString, ":", 2)
-	modelName := "Unknown"
-	if len(parts) == 2 {
-		modelName = parts[1]
+	parsedProvider, modelName, _ := models.ParseModelString(modelString)
+	if modelName == "" {
+		modelName = "Unknown"
 	}
 
 	var hookExecutor *hooks.Executor
@@ -533,7 +532,7 @@ func runNormalMode(ctx context.Context) error {
 		}
 
 		// Add Ollama-specific parameters if using Ollama
-		if strings.HasPrefix(viper.GetString("model"), "ollama:") {
+		if parsedProvider == "ollama" {
 			debugConfig["num-gpu-layers"] = viper.GetInt("num-gpu-layers")
 			debugConfig["main-gpu"] = viper.GetInt("main-gpu")
 		}
@@ -733,7 +732,7 @@ func runNormalMode(ctx context.Context) error {
 		// Set metadata
 		sessionManager.SetMetadata(session.Metadata{
 			MCPHostVersion: "dev", // TODO: Get actual version
-			Provider:       parts[0],
+			Provider:       parsedProvider,
 			Model:          modelName,
 		})
 	}

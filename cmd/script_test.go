@@ -244,7 +244,7 @@ func TestSubstituteVariables(t *testing.T) {
 func TestBackwardCompatibility(t *testing.T) {
 	// Test that existing scripts without default syntax continue to work
 	content := `---
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 ---
 Hello ${name}! Please analyze ${directory}.`
 
@@ -262,7 +262,7 @@ Hello ${name}! Please analyze ${directory}.`
 	// Should substitute correctly
 	result := substituteVariables(content, variables)
 	expected := `---
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 ---
 Hello John! Please analyze /tmp.`
 
@@ -302,7 +302,7 @@ Test prompt with compact mode`
 
 func TestParseScriptContentMCPServersNewFormat(t *testing.T) {
 	content := `---
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 mcpServers:
   filesystem:
     type: "local"
@@ -379,7 +379,7 @@ Test prompt with new format MCP servers`
 
 func TestParseScriptContentMCPServersLegacyFormat(t *testing.T) {
 	content := `---
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 mcpServers:
   legacy-stdio:
     transport: "stdio"

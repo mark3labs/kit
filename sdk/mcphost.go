@@ -26,7 +26,7 @@ type MCPHost struct {
 // prompts, configuration, and behavior settings. All fields are optional
 // and will use CLI defaults if not specified.
 type Options struct {
-	Model        string // Override model (e.g., "anthropic:claude-3-sonnet")
+	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
 	ConfigFile   string // Override config file path
 	MaxSteps     int    // Override max steps (0 = use default)
@@ -225,7 +225,7 @@ func (m *MCPHost) ClearSession() {
 }
 
 // GetModelString returns the current model string identifier (e.g.,
-// "anthropic:claude-3-sonnet" or "openai:gpt-4") being used by the agent.
+// "anthropic/claude-sonnet-4-5-20250929" or "openai/gpt-4") being used by the agent.
 func (m *MCPHost) GetModelString() string {
 	return m.modelString
 }

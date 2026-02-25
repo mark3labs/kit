@@ -30,7 +30,7 @@ mcpServers:
       DATABASE_URL: "${env://DATABASE_URL:-sqlite:///tmp/default.db}"
       API_KEY: "${env://DB_API_KEY}"
 
-model: "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 provider-api-key: "${env://OPENAI_API_KEY:-}"
 debug: ${env://DEBUG:-false}
 `
@@ -103,8 +103,8 @@ debug: ${env://DEBUG:-false}
 	}
 
 	// Check global config values
-	if config.Model != "anthropic:claude-sonnet-4-20250514" {
-		t.Errorf("Expected model=anthropic:claude-sonnet-4-20250514, got %s", config.Model)
+	if config.Model != "anthropic/claude-sonnet-4-5-20250929" {
+		t.Errorf("Expected model=anthropic/claude-sonnet-4-5-20250929, got %s", config.Model)
 	}
 	if !config.Debug {
 		t.Error("Expected debug=true")
@@ -161,7 +161,7 @@ func TestJSONConfigWithEnvSubstitution(t *testing.T) {
       }
     }
   },
-  "model": "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+  "model": "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 }`
 
 	err := os.WriteFile(configPath, []byte(configContent), 0644)

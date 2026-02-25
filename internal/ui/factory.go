@@ -31,11 +31,11 @@ type CLISetupOptions struct {
 
 // parseModelName extracts provider and model name from model string
 func parseModelName(modelString string) (provider, model string) {
-	parts := strings.SplitN(modelString, ":", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	p, m, err := models.ParseModelString(modelString)
+	if err != nil {
+		return "unknown", "unknown"
 	}
-	return "unknown", "unknown"
+	return p, m
 }
 
 // SetupCLI creates, configures, and initializes a CLI instance with the provided

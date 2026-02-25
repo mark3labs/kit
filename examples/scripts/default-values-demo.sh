@@ -1,7 +1,7 @@
 #!/usr/bin/env -S mcphost script
 ---
 # Demo script showcasing default values in MCPHost scripts
-model: "anthropic:claude-sonnet-4-20250514"
+model: "anthropic/claude-sonnet-4-5-20250929"
 mcpServers:
   filesystem:
     type: "builtin"

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -115,9 +114,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// Determine provider type from model string
 	providerType := "default"
 	if agentConfig.ModelConfig != nil && agentConfig.ModelConfig.ModelString != "" {
-		parts := strings.SplitN(agentConfig.ModelConfig.ModelString, ":", 2)
-		if len(parts) >= 1 {
-			providerType = parts[0]
+		if p, _, err := models.ParseModelString(agentConfig.ModelConfig.ModelString); err == nil {
+			providerType = p
 		}
 	}
 

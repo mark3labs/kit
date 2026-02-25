@@ -20,7 +20,7 @@ func TestDeepSeekChatScriptMode(t *testing.T) {
 
 	scriptContent := `#!/usr/bin/env -S mcphost script
 ---
-model: "openai:deepseek-chat"
+model: "openai/deepseek-chat"
 provider-url: "https://api.deepseek.com/v1"
 provider-api-key: "${env://DEEPSEEK_API_KEY}"
 ---
@@ -44,8 +44,8 @@ Calculate 3 times 4 equal to?
 	}
 
 	// Verify the script config has the correct values
-	if scriptConfig.Model != "openai:deepseek-chat" {
-		t.Errorf("Expected model=openai:deepseek-chat, got %s", scriptConfig.Model)
+	if scriptConfig.Model != "openai/deepseek-chat" {
+		t.Errorf("Expected model=openai/deepseek-chat, got %s", scriptConfig.Model)
 	}
 	if scriptConfig.ProviderURL != "https://api.deepseek.com/v1" {
 		t.Errorf("Expected provider-url=https://api.deepseek.com/v1, got %s", scriptConfig.ProviderURL)
@@ -87,7 +87,7 @@ Calculate 3 times 4 equal to?
 func TestDeepSeekChatCLIMode(t *testing.T) {
 	// Test the CLI mode behavior - this should work
 	providerConfig := &models.ProviderConfig{
-		ModelString:    "openai:deepseek-chat",
+		ModelString:    "openai/deepseek-chat",
 		ProviderAPIKey: "sk-test-key",
 		ProviderURL:    "https://api.deepseek.com/v1", // This should skip validation
 		MaxTokens:      0,
@@ -119,25 +119,25 @@ func TestProviderURLValidationSkip(t *testing.T) {
 	}{
 		{
 			name:        "OpenAI with custom URL should skip validation",
-			model:       "openai:custom-model",
+			model:       "openai/custom-model",
 			providerURL: "https://api.custom.com/v1",
 			shouldSkip:  true,
 		},
 		{
 			name:        "OpenAI without custom URL should validate",
-			model:       "openai:custom-model",
+			model:       "openai/custom-model",
 			providerURL: "",
 			shouldSkip:  false,
 		},
 		{
 			name:        "Ollama should always skip validation",
-			model:       "ollama:custom-model",
+			model:       "ollama/custom-model",
 			providerURL: "",
 			shouldSkip:  true,
 		},
 		{
 			name:        "Anthropic with custom URL should skip validation",
-			model:       "anthropic:custom-model",
+			model:       "anthropic/custom-model",
 			providerURL: "https://api.custom.com/v1",
 			shouldSkip:  true,
 		},

@@ -17,7 +17,7 @@ mcpServers:
     options:
       allowed_directories: ["${env://WORK_DIR:-/tmp}"]
 
-model: "${env://MODEL:-anthropic:claude-sonnet-4-20250514}"
+model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 debug: ${env://DEBUG:-false}
 ---
 List ${repo_type:-public} repositories for user ${username}.
