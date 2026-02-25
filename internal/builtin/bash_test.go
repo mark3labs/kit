@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -23,13 +24,7 @@ func TestBashServerRegistry(t *testing.T) {
 
 	// Test that bash server is registered
 	servers := registry.ListServers()
-	found := false
-	for _, name := range servers {
-		if name == "bash" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(servers, "bash")
 
 	if !found {
 		t.Error("bash server not found in registry")

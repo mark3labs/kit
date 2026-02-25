@@ -36,12 +36,12 @@ func (l *CLIDebugLogger) LogDebug(message string) {
 	// Check if this is a multi-line debug output (like connection info)
 	if strings.Contains(message, "[DEBUG]") || strings.Contains(message, "[POOL]") {
 		// Extract the tag and content
-		if strings.HasPrefix(message, "[DEBUG]") {
-			content := strings.TrimPrefix(message, "[DEBUG]")
+		if after, ok := strings.CutPrefix(message, "[DEBUG]"); ok {
+			content := after
 			content = strings.TrimSpace(content)
 			formattedMessage = fmt.Sprintf("🔍 DEBUG: %s", content)
-		} else if strings.HasPrefix(message, "[POOL]") {
-			content := strings.TrimPrefix(message, "[POOL]")
+		} else if after, ok := strings.CutPrefix(message, "[POOL]"); ok {
+			content := after
 			content = strings.TrimSpace(content)
 
 			// Add appropriate emoji based on the message content

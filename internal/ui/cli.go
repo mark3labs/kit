@@ -8,8 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
-	"github.com/cloudwego/eino/schema"
 	"golang.org/x/term"
 )
 
@@ -498,38 +498,27 @@ func (c *CLI) UpdateUsage(inputText, outputText string) {
 	}
 }
 
-// UpdateUsageFromResponse records token usage using metadata from the AI provider's
+// UpdateUsageFromResponse records token usage using metadata from the fantasy
 // response when available. Falls back to text-based estimation if the metadata is
 // missing or appears unreliable. This provides more accurate usage tracking when
 // providers supply token count information.
-func (c *CLI) UpdateUsageFromResponse(response *schema.Message, inputText string) {
+func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText string) {
 	if c.usageTracker == nil {
 		return
 	}
 
-	// Try to extract token usage from response metadata
-	if response.ResponseMeta != nil && response.ResponseMeta.Usage != nil {
-		usage := response.ResponseMeta.Usage
+	usage := response.Usage
+	inputTokens := int(usage.InputTokens)
+	outputTokens := int(usage.OutputTokens)
 
-		// Use actual token counts from the response
-		inputTokens := int(usage.PromptTokens)
-		outputTokens := int(usage.CompletionTokens)
-
-		// Validate that the metadata seems reasonable
-		// If token counts are 0 or seem unrealistic, fall back to estimation
-		if inputTokens > 0 && outputTokens > 0 {
-			// Handle cache tokens if available (some providers support this)
-			cacheReadTokens := 0
-			cacheWriteTokens := 0
-
-			c.usageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
-		} else {
-			// Metadata exists but seems incomplete/unreliable, use estimation
-			c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content)
-		}
+	// Validate that the metadata seems reasonable
+	if inputTokens > 0 && outputTokens > 0 {
+		cacheReadTokens := int(usage.CacheReadTokens)
+		cacheWriteTokens := int(usage.CacheCreationTokens)
+		c.usageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 	} else {
 		// Fallback to estimation if no metadata is available
-		c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content)
+		c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content.Text())
 	}
 }
 

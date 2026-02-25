@@ -3,11 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/components/model"
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -63,7 +64,7 @@ type MCPConnectionPool struct {
 	connections map[string]*MCPConnection
 	config      *ConnectionPoolConfig
 	mu          sync.RWMutex
-	model       model.ToolCallingChatModel
+	model       fantasy.LanguageModel
 	ctx         context.Context
 	cancel      context.CancelFunc
 	debug       bool
@@ -75,7 +76,7 @@ type MCPConnectionPool struct {
 // goroutine for periodic health checks that runs until Close is called.
 // The model parameter is used for MCP servers that require sampling support.
 // Thread-safe for concurrent use immediately after creation.
-func NewMCPConnectionPool(config *ConnectionPoolConfig, model model.ToolCallingChatModel, debug bool) *MCPConnectionPool {
+func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool) *MCPConnectionPool {
 	if config == nil {
 		config = DefaultConnectionPoolConfig()
 	}
@@ -406,7 +407,7 @@ func (p *MCPConnectionPool) initializeClient(ctx context.Context, client client.
 	}
 
 	if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
-		p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Initialized MCP client"))
+		p.debugLogger.LogDebug("[POOL] Initialized MCP client")
 	}
 	return nil
 }
@@ -430,9 +431,7 @@ func (p *MCPConnectionPool) startHealthCheck() {
 func (p *MCPConnectionPool) checkConnectionsHealth() {
 	p.mu.RLock()
 	connections := make(map[string]*MCPConnection)
-	for k, v := range p.connections {
-		connections[k] = v
-	}
+	maps.Copy(connections, p.connections)
 	p.mu.RUnlock()
 
 	for serverName, conn := range connections {
@@ -494,14 +493,14 @@ func (p *MCPConnectionPool) HandleConnectionError(serverName string, err error) 
 // The returned map includes health status, last usage time, error counts, and
 // last error for each connection. Useful for monitoring and debugging connection
 // pool behavior. The returned data is a snapshot and safe for concurrent access.
-func (p *MCPConnectionPool) GetConnectionStats() map[string]interface{} {
+func (p *MCPConnectionPool) GetConnectionStats() map[string]any {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 	for serverName, conn := range p.connections {
 		conn.mu.RLock()
-		stats[serverName] = map[string]interface{}{
+		stats[serverName] = map[string]any{
 			"is_healthy":  conn.isHealthy,
 			"last_used":   conn.lastUsed,
 			"last_error":  conn.lastError,

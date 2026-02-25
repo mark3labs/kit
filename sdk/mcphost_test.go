@@ -35,7 +35,7 @@ func TestNewWithOptions(t *testing.T) {
 	ctx := context.Background()
 
 	opts := &sdk.Options{
-		Model:    "anthropic:claude-3-haiku-20240307",
+		Model:    "anthropic:claude-sonnet-4-20250514",
 		MaxSteps: 5,
 		Quiet:    true,
 	}

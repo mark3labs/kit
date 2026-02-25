@@ -82,7 +82,7 @@ Working directory is ${env://WORK_DIR:-/tmp}.
 		t.Fatal("Filesystem server not found in script config")
 	}
 
-	allowedDirs, ok := fsServer.Options["allowed_directories"].([]interface{})
+	allowedDirs, ok := fsServer.Options["allowed_directories"].([]any)
 	if !ok {
 		t.Fatal("allowed_directories should be an array")
 	}

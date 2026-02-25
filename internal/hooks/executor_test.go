@@ -42,7 +42,7 @@ echo '{"decision": "approve", "reason": "Approved by test"}'
 		name     string
 		config   *HookConfig
 		event    HookEvent
-		input    interface{}
+		input    any
 		expected *HookOutput
 		wantErr  bool
 	}{
@@ -87,7 +87,7 @@ echo '{"decision": "approve", "reason": "Approved by test"}'
 			expected: &HookOutput{
 				Decision: "block",
 				Reason:   "Blocked by policy\n",
-				Continue: boolPtr(false),
+				Continue: new(false),
 			},
 		},
 		{
@@ -166,8 +166,9 @@ echo '{"decision": "approve", "reason": "Approved by test"}'
 	}
 }
 
+//go:fix inline
 func boolPtr(b bool) *bool {
-	return &b
+	return new(b)
 }
 
 func compareHookOutputs(a, b *HookOutput) bool {

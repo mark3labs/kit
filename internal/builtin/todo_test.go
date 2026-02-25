@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -23,13 +24,7 @@ func TestTodoServerRegistry(t *testing.T) {
 
 	// Test that todo server is registered
 	servers := registry.ListServers()
-	found := false
-	for _, name := range servers {
-		if name == "todo" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(servers, "todo")
 
 	if !found {
 		t.Error("todo server not found in registry")

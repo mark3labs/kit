@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/hooks"
@@ -177,8 +177,8 @@ func parseCustomVariables(_ *cobra.Command) map[string]string {
 		}
 
 		// Parse custom variables with --args: prefix
-		if strings.HasPrefix(arg, "--args:") {
-			varName := strings.TrimPrefix(arg, "--args:")
+		if after, ok := strings.CutPrefix(arg, "--args:"); ok {
+			varName := after
 			if varName == "" {
 				continue // Skip malformed --args: without name
 			}
@@ -312,7 +312,7 @@ func parseScriptContent(content string, variables map[string]string) (*config.Co
 	var promptLines []string
 	var inFrontmatter bool
 	var foundFrontmatter bool
-	var frontmatterEnd int = -1
+	var frontmatterEnd = -1
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -699,13 +699,12 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 	tools := mcpAgent.GetTools()
 	var toolNames []string
 	for _, tool := range tools {
-		if info, err := tool.Info(ctx); err == nil {
-			toolNames = append(toolNames, info.Name)
-		}
+		info := tool.Info()
+		toolNames = append(toolNames, info.Name)
 	}
 
 	// Configure and run unified agentic loop
-	var messages []*schema.Message
+	var messages []fantasy.Message
 	config := AgenticLoopConfig{
 		IsInteractive:    prompt == "", // If no prompt, start in interactive mode
 		InitialPrompt:    prompt,

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,13 +78,7 @@ mcpServers:
 
 	// Check command has substituted value
 	expectedInCommand := "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_test_token_123"
-	found := false
-	for _, arg := range githubServer.Command {
-		if arg == expectedInCommand {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(githubServer.Command, expectedInCommand)
 	if !found {
 		t.Errorf("Expected '%s' in command, got: %v", expectedInCommand, githubServer.Command)
 	}

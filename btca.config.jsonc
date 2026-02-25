@@ -23,6 +23,18 @@
       "type": "git",
       "name": "glamour",
       "url": "https://github.com/charmbracelet/glamour",
+      "branch": "v2-exp"
+    },
+    {
+      "type": "git",
+      "name": "fantasy",
+      "url": "https://github.com/charmbracelet/fantasy",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "catwalk",
+      "url": "https://github.com/charmbracelet/catwalk",
       "branch": "main"
     }
   ],

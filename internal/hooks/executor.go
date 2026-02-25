@@ -74,7 +74,7 @@ func (e *Executor) PopulateCommonFields(event HookEvent) CommonInput {
 // it matches hooks based on tool name patterns. Hooks are executed in parallel
 // with configurable timeouts. Returns a combined HookOutput from all executed
 // hooks, with blocking decisions taking precedence.
-func (e *Executor) ExecuteHooks(ctx context.Context, event HookEvent, input interface{}) (*HookOutput, error) {
+func (e *Executor) ExecuteHooks(ctx context.Context, event HookEvent, input any) (*HookOutput, error) {
 	matchers, ok := e.config.Hooks[event]
 	if !ok || len(matchers) == 0 {
 		return nil, nil
@@ -119,7 +119,7 @@ func (e *Executor) ExecuteHooks(ctx context.Context, event HookEvent, input inte
 }
 
 // executeHook runs a single hook command
-func (e *Executor) executeHook(ctx context.Context, hook HookEntry, input interface{}) *hookResult {
+func (e *Executor) executeHook(ctx context.Context, hook HookEntry, input any) *hookResult {
 	// Prepare input JSON
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
@@ -187,7 +187,7 @@ func matchesPattern(pattern, toolName string) bool {
 }
 
 // extractToolName gets the tool name from various input types
-func extractToolName(input interface{}) string {
+func extractToolName(input any) string {
 	switch v := input.(type) {
 	case *PreToolUseInput:
 		return v.ToolName

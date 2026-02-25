@@ -24,15 +24,15 @@ mcpServers:
 
 	// Test 1: Direct YAML parsing
 	t.Run("DirectYAMLParsing", func(t *testing.T) {
-		var yamlData map[string]interface{}
+		var yamlData map[string]any
 		err := yaml.Unmarshal([]byte(yamlContent), &yamlData)
 		if err != nil {
 			t.Fatalf("YAML unmarshal error: %v", err)
 		}
 
-		servers := yamlData["mcpServers"].(map[string]interface{})
-		testServer := servers["test"].(map[string]interface{})
-		env := testServer["environment"].(map[string]interface{})
+		servers := yamlData["mcpServers"].(map[string]any)
+		testServer := servers["test"].(map[string]any)
+		env := testServer["environment"].(map[string]any)
 
 		if env["KEY1"] != "value1" {
 			t.Errorf("Expected KEY1=value1, got %v", env["KEY1"])

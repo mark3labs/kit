@@ -80,10 +80,7 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		newWidth := msg.Width - padding*2 - 4
-		if newWidth > maxWidth {
-			newWidth = maxWidth
-		}
+		newWidth := min(msg.Width-padding*2-4, maxWidth)
 		m.progress.SetWidth(newWidth)
 		return m, nil
 
@@ -167,14 +164,12 @@ func NewProgressReader(reader io.Reader) *ProgressReader {
 	}
 
 	// Start the TUI in a goroutine
-	pr.wg.Add(1)
-	go func() {
-		defer pr.wg.Done()
+	pr.wg.Go(func() {
 		if _, err := program.Run(); err != nil {
 			// Handle error silently for now
 		}
 		close(pr.done)
-	}()
+	})
 
 	return pr
 }

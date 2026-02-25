@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JohannesKaufmann/html-to-markdown"
+	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
+	"github.com/tidwall/gjson"
+
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/tidwall/gjson"
 )
 
 const (
@@ -26,15 +26,14 @@ const (
 )
 
 // httpServerModel holds the model for the HTTP server
-var httpServerModel model.ToolCallingChatModel
+var httpServerModel fantasy.LanguageModel
 
 // NewHTTPServer creates a new MCP server providing advanced HTTP fetching capabilities.
 // The server includes tools for fetching web content, summarizing pages, extracting
 // specific information, and filtering JSON responses. If an LLM model is provided,
 // AI-powered summarization and extraction tools are enabled. Returns an error if
 // server initialization fails.
-func NewHTTPServer(llmModel model.ToolCallingChatModel) (*server.MCPServer, error) {
-	// Store the model globally for use in tool handlers
+func NewHTTPServer(llmModel fantasy.LanguageModel) (*server.MCPServer, error) {
 	httpServerModel = llmModel
 
 	s := server.NewMCPServer("http-server", "1.0.0", server.WithToolCapabilities(true))
@@ -63,7 +62,7 @@ func NewHTTPServer(llmModel model.ToolCallingChatModel) (*server.MCPServer, erro
 
 	s.AddTool(fetchTool, executeHTTPFetch)
 
-	// Only add the summarize tool if we have a model
+	// Only add AI-powered tools if we have a model
 	if llmModel != nil {
 		summarizeTool := mcp.NewTool("fetch_summarize",
 			mcp.WithDescription(httpSummarizeDescription),
@@ -114,7 +113,6 @@ func NewHTTPServer(llmModel model.ToolCallingChatModel) (*server.MCPServer, erro
 
 // executeHTTPFetch handles the fetch tool execution
 func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Extract parameters
 	urlStr, err := request.RequireString("url")
 	if err != nil {
 		return mcp.NewToolResultError("url parameter is required and must be a string"), nil
@@ -125,32 +123,23 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 		return mcp.NewToolResultError("format parameter is required and must be a string"), nil
 	}
 
-	// Validate format
 	if format != "html" && format != "markdown" {
 		return mcp.NewToolResultError("format must be 'html' or 'markdown'"), nil
 	}
 
-	// Get bodyOnly parameter (optional, defaults to false)
 	bodyOnly := request.GetBool("bodyOnly", false)
 
-	// Parse timeout (optional)
 	timeout := httpDefaultFetchTimeout
 	if timeoutSec := request.GetFloat("timeout", 0); timeoutSec > 0 {
 		timeoutDuration := time.Duration(timeoutSec) * time.Second
-		if timeoutDuration > httpMaxFetchTimeout {
-			timeout = httpMaxFetchTimeout
-		} else {
-			timeout = timeoutDuration
-		}
+		timeout = min(timeoutDuration, httpMaxFetchTimeout)
 	}
 
-	// Validate URL
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %v", err)), nil
 	}
 
-	// Ensure URL has a scheme
 	if parsedURL.Scheme == "" {
 		urlStr = "https://" + urlStr
 		parsedURL, err = url.Parse(urlStr)
@@ -159,52 +148,43 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 		}
 	}
 
-	// Only allow HTTP and HTTPS
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return mcp.NewToolResultError("URL must use http:// or https://"), nil
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: timeout,
 	}
 
-	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %v", err)), nil
 	}
 
-	// Set headers to mimic a real browser
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed: %v", err)), nil
 	}
 	defer resp.Body.Close()
 
-	// Check status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed with status code: %d", resp.StatusCode)), nil
 	}
 
-	// Check content length
 	if resp.ContentLength > httpMaxResponseSize {
 		return mcp.NewToolResultError("response too large (exceeds 5MB limit)"), nil
 	}
 
-	// Read response body with size limit
 	limitedReader := io.LimitReader(resp.Body, httpMaxResponseSize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
 	}
 
-	// Check if we exceeded the size limit
 	if len(bodyBytes) > httpMaxResponseSize {
 		return mcp.NewToolResultError("response too large (exceeds 5MB limit)"), nil
 	}
@@ -215,7 +195,6 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 		contentType = "unknown"
 	}
 
-	// Extract body content if requested
 	if bodyOnly && strings.Contains(contentType, "text/html") {
 		content, err = extractBodyContent(content)
 		if err != nil {
@@ -223,12 +202,10 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 		}
 	}
 
-	// Process content based on format
 	var output string
 	switch format {
 	case "html":
 		output = content
-
 	case "markdown":
 		if strings.Contains(contentType, "text/html") {
 			output, err = httpConvertHTMLToMarkdown(content)
@@ -236,12 +213,10 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 				return mcp.NewToolResultError(fmt.Sprintf("failed to convert HTML to markdown: %v", err)), nil
 			}
 		} else {
-			// Non-HTML content, wrap in code block
 			output = "```\n" + content + "\n```"
 		}
 	}
 
-	// Create result with metadata
 	title := fmt.Sprintf("%s (%s)", urlStr, contentType)
 	result := mcp.NewToolResultText(output)
 	result.Meta = &mcp.Meta{
@@ -263,14 +238,11 @@ func extractBodyContent(htmlContent string) (string, error) {
 		return "", err
 	}
 
-	// Find the body tag
 	bodySelection := doc.Find("body")
 	if bodySelection.Length() == 0 {
-		// No body tag found, return the original content
 		return htmlContent, nil
 	}
 
-	// Get the inner HTML of the body tag
 	bodyHTML, err := bodySelection.Html()
 	if err != nil {
 		return "", err
@@ -283,7 +255,6 @@ func extractBodyContent(htmlContent string) (string, error) {
 func httpConvertHTMLToMarkdown(htmlContent string) (string, error) {
 	converter := md.NewConverter("", true, nil)
 
-	// Remove unwanted elements
 	converter.Remove("script")
 	converter.Remove("style")
 	converter.Remove("meta")
@@ -300,43 +271,39 @@ func httpConvertHTMLToMarkdown(htmlContent string) (string, error) {
 
 // executeHTTPFetchSummarize handles the fetch_summarize tool execution
 func executeHTTPFetchSummarize(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Get URL
 	urlStr, err := request.RequireString("url")
 	if err != nil {
 		return mcp.NewToolResultError("url parameter is required and must be a string"), nil
 	}
 
-	// Get optional instructions
 	instructions := request.GetString("instructions", "Provide a concise summary of this content.")
 
-	// Fetch content as text (reuse existing logic)
 	content, err := httpFetchAndExtractText(ctx, urlStr)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch content: %v", err)), nil
 	}
 
-	// Check if we have a model available
 	if httpServerModel == nil {
 		return mcp.NewToolResultError("LLM model not available for summarization"), nil
 	}
 
-	// Create messages for the LLM
-	messages := []*schema.Message{
-		schema.UserMessage(fmt.Sprintf("%s\n\nContent to summarize:\n%s", instructions, content)),
+	// Use fantasy model for summarization
+	call := fantasy.Call{
+		Prompt: fantasy.Prompt{
+			fantasy.NewUserMessage(fmt.Sprintf("%s\n\nContent to summarize:\n%s", instructions, content)),
+		},
 	}
 
-	// Generate summary using the model directly
-	response, err := httpServerModel.Generate(ctx, messages)
+	response, err := httpServerModel.Generate(ctx, call)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Summarization failed: %v", err)), nil
 	}
 
-	// Return summary
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: response.Content,
+				Text: response.Content.Text(),
 			},
 		},
 	}, nil
@@ -344,30 +311,25 @@ func executeHTTPFetchSummarize(ctx context.Context, request mcp.CallToolRequest)
 
 // executeHTTPFetchExtract handles the fetch_extract tool execution
 func executeHTTPFetchExtract(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Get URL
 	urlStr, err := request.RequireString("url")
 	if err != nil {
 		return mcp.NewToolResultError("url parameter is required and must be a string"), nil
 	}
 
-	// Get extraction instructions
 	instructions, err := request.RequireString("instructions")
 	if err != nil {
 		return mcp.NewToolResultError("instructions parameter is required and must be a string"), nil
 	}
 
-	// Fetch content as text (reuse existing logic)
 	content, err := httpFetchAndExtractText(ctx, urlStr)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch content: %v", err)), nil
 	}
 
-	// Check if we have a model available
 	if httpServerModel == nil {
 		return mcp.NewToolResultError("LLM model not available for extraction"), nil
 	}
 
-	// Create extraction prompt
 	extractionPrompt := fmt.Sprintf(`Extract the requested information from the following web content.
 
 Extraction Instructions: %s
@@ -377,23 +339,22 @@ Web Content:
 
 Please extract only the requested information. If the requested information is not found, respond with "Information not found" and explain what was searched for.`, instructions, content)
 
-	// Create messages for the LLM
-	messages := []*schema.Message{
-		schema.UserMessage(extractionPrompt),
+	call := fantasy.Call{
+		Prompt: fantasy.Prompt{
+			fantasy.NewUserMessage(extractionPrompt),
+		},
 	}
 
-	// Generate extraction using the model directly
-	response, err := httpServerModel.Generate(ctx, messages)
+	response, err := httpServerModel.Generate(ctx, call)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Extraction failed: %v", err)), nil
 	}
 
-	// Return extracted data
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: response.Content,
+				Text: response.Content.Text(),
 			},
 		},
 	}, nil
@@ -401,16 +362,13 @@ Please extract only the requested information. If the requested information is n
 
 // httpFetchAndExtractText fetches content from URL and extracts as text
 func httpFetchAndExtractText(ctx context.Context, urlStr string) (string, error) {
-	// Parse timeout (use default)
 	timeout := httpDefaultFetchTimeout
 
-	// Validate URL
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return "", fmt.Errorf("invalid URL: %v", err)
 	}
 
-	// Ensure URL has a scheme
 	if parsedURL.Scheme == "" {
 		urlStr = "https://" + urlStr
 		parsedURL, err = url.Parse(urlStr)
@@ -419,52 +377,43 @@ func httpFetchAndExtractText(ctx context.Context, urlStr string) (string, error)
 		}
 	}
 
-	// Only allow HTTP and HTTPS
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return "", fmt.Errorf("URL must use http:// or https://")
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: timeout,
 	}
 
-	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
 	}
 
-	// Set headers to mimic a real browser
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Check status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
-	// Check content length
 	if resp.ContentLength > httpMaxResponseSize {
 		return "", fmt.Errorf("response too large (exceeds 5MB limit)")
 	}
 
-	// Read response body with size limit
 	limitedReader := io.LimitReader(resp.Body, httpMaxResponseSize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %v", err)
 	}
 
-	// Check if we exceeded the size limit
 	if len(bodyBytes) > httpMaxResponseSize {
 		return "", fmt.Errorf("response too large (exceeds 5MB limit)")
 	}
@@ -472,7 +421,6 @@ func httpFetchAndExtractText(ctx context.Context, urlStr string) (string, error)
 	content := string(bodyBytes)
 	contentType := resp.Header.Get("Content-Type")
 
-	// Extract text content
 	if strings.Contains(contentType, "text/html") {
 		return httpExtractTextFromHTML(content)
 	}
@@ -486,13 +434,10 @@ func httpExtractTextFromHTML(htmlContent string) (string, error) {
 		return "", err
 	}
 
-	// Remove script, style, and other non-content elements
 	doc.Find("script, style, noscript, iframe, object, embed").Remove()
 
-	// Extract text content
 	text := doc.Text()
 
-	// Clean up whitespace
 	lines := strings.Split(text, "\n")
 	var cleanLines []string
 	for _, line := range lines {
@@ -507,7 +452,6 @@ func httpExtractTextFromHTML(htmlContent string) (string, error) {
 
 // executeHTTPFetchFilteredJSON handles the fetch_filtered_json tool execution
 func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Extract parameters
 	urlStr, err := request.RequireString("url")
 	if err != nil {
 		return mcp.NewToolResultError("url parameter is required and must be a string"), nil
@@ -518,24 +462,17 @@ func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolReque
 		return mcp.NewToolResultError("path parameter is required and must be a string"), nil
 	}
 
-	// Parse timeout (optional)
 	timeout := httpDefaultFetchTimeout
 	if timeoutSec := request.GetFloat("timeout", 0); timeoutSec > 0 {
 		timeoutDuration := time.Duration(timeoutSec) * time.Second
-		if timeoutDuration > httpMaxFetchTimeout {
-			timeout = httpMaxFetchTimeout
-		} else {
-			timeout = timeoutDuration
-		}
+		timeout = min(timeoutDuration, httpMaxFetchTimeout)
 	}
 
-	// Validate URL
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid URL: %v", err)), nil
 	}
 
-	// Ensure URL has a scheme
 	if parsedURL.Scheme == "" {
 		urlStr = "https://" + urlStr
 		parsedURL, err = url.Parse(urlStr)
@@ -544,75 +481,62 @@ func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolReque
 		}
 	}
 
-	// Only allow HTTP and HTTPS
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return mcp.NewToolResultError("URL must use http:// or https://"), nil
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{
 		Timeout: timeout,
 	}
 
-	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %v", err)), nil
 	}
 
-	// Set headers to mimic a real browser and accept JSON
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed: %v", err)), nil
 	}
 	defer resp.Body.Close()
 
-	// Check status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed with status code: %d", resp.StatusCode)), nil
 	}
 
-	// Check content length
 	if resp.ContentLength > httpMaxResponseSize {
 		return mcp.NewToolResultError("response too large (exceeds 5MB limit)"), nil
 	}
 
-	// Read response body with size limit
 	limitedReader := io.LimitReader(resp.Body, httpMaxResponseSize+1)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
 	}
 
-	// Check if we exceeded the size limit
 	if len(bodyBytes) > httpMaxResponseSize {
 		return mcp.NewToolResultError("response too large (exceeds 5MB limit)"), nil
 	}
 
 	content := string(bodyBytes)
 
-	// Validate that the content is valid JSON
 	if !json.Valid(bodyBytes) {
 		return mcp.NewToolResultError("response is not valid JSON"), nil
 	}
 
-	// Apply gjson path to filter the JSON
 	result := gjson.Get(content, path)
 	if !result.Exists() {
 		return mcp.NewToolResultError(fmt.Sprintf("gjson path '%s' did not match any data", path)), nil
 	}
 
-	// Get the filtered JSON as a string
 	var filteredJSON string
 	if result.IsArray() || result.IsObject() {
 		filteredJSON = result.Raw
 	} else {
-		// For primitive values, wrap in quotes if it's a string
 		if result.Type == gjson.String {
 			filteredJSON = fmt.Sprintf(`"%s"`, result.Str)
 		} else {
@@ -620,7 +544,6 @@ func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolReque
 		}
 	}
 
-	// Create result with metadata
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/json"

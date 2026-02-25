@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cloudwego/eino/schema"
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/cmd"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
@@ -78,7 +78,7 @@ func New(ctx context.Context, opts *Options) (*MCPHost, error) {
 		return nil, fmt.Errorf("failed to load system prompt: %v", err)
 	}
 
-	// Create model configuration (same as CLI in root.go:387-406)
+	// Create model configuration (same as CLI in root.go)
 	temperature := float32(viper.GetFloat64("temperature"))
 	topP := float32(viper.GetFloat64("top-p"))
 	topK := int32(viper.GetInt("top-k"))
@@ -100,7 +100,7 @@ func New(ctx context.Context, opts *Options) (*MCPHost, error) {
 		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
 	}
 
-	// Create agent using existing factory (same as CLI in root.go:431-440)
+	// Create agent using existing factory
 	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
 		ModelConfig:      modelConfig,
 		MCPConfig:        mcpConfig,
@@ -132,10 +132,10 @@ func (m *MCPHost) Prompt(ctx context.Context, message string) (string, error) {
 	messages := m.sessionMgr.GetMessages()
 
 	// Add new user message
-	userMsg := schema.UserMessage(message)
+	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
-	// Call agent (same as CLI does in root.go:902)
+	// Call agent
 	result, err := m.agent.GenerateWithLoop(ctx, messages,
 		nil, // onToolCall
 		nil, // onToolExecution
@@ -149,12 +149,11 @@ func (m *MCPHost) Prompt(ctx context.Context, message string) (string, error) {
 	}
 
 	// Update session with all messages from the conversation
-	// This preserves the complete history including tool calls
 	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
 		return "", fmt.Errorf("failed to update session: %v", err)
 	}
 
-	return result.FinalResponse.Content, nil
+	return result.FinalResponse.Content.Text(), nil
 }
 
 // PromptWithCallbacks sends a message with callbacks for monitoring tool execution
@@ -171,7 +170,7 @@ func (m *MCPHost) PromptWithCallbacks(
 	messages := m.sessionMgr.GetMessages()
 
 	// Add new user message
-	userMsg := schema.UserMessage(message)
+	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
 	// Call agent with callbacks
@@ -193,7 +192,7 @@ func (m *MCPHost) PromptWithCallbacks(
 		return "", fmt.Errorf("failed to update session: %v", err)
 	}
 
-	return result.FinalResponse.Content, nil
+	return result.FinalResponse.Content.Text(), nil
 }
 
 // GetSessionManager returns the current session manager for direct access

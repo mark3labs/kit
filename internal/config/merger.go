@@ -51,10 +51,10 @@ func fixEnvironmentCase(config *Config) {
 
 	// Check if we have mcpServers in the raw config
 	if mcpServersRaw, ok := rawConfig["mcpservers"]; ok {
-		if mcpServersMap, ok := mcpServersRaw.(map[string]interface{}); ok {
+		if mcpServersMap, ok := mcpServersRaw.(map[string]any); ok {
 			// Iterate through each server
 			for serverName, serverDataRaw := range mcpServersMap {
-				if serverData, ok := serverDataRaw.(map[string]interface{}); ok {
+				if serverData, ok := serverDataRaw.(map[string]any); ok {
 					// Check if this server has an environment field
 					if _, hasEnv := serverData["environment"]; hasEnv {
 						// Get the server config from our parsed config

@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	"github.com/cloudwego/eino/schema"
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/session"
 )
 
@@ -13,14 +13,14 @@ type Message = session.Message
 // with its name, arguments, and result within a conversation.
 type ToolCall = session.ToolCall
 
-// ConvertToSchemaMessage converts an SDK message to the underlying schema message
+// ConvertToFantasyMessage converts an SDK message to the underlying fantasy message
 // format used by the agent for LLM interactions.
-func ConvertToSchemaMessage(msg *Message) *schema.Message {
-	return msg.ConvertToSchemaMessage()
+func ConvertToFantasyMessage(msg *Message) fantasy.Message {
+	return msg.ConvertToFantasyMessage()
 }
 
-// ConvertFromSchemaMessage converts a schema message from the agent to an SDK
+// ConvertFromFantasyMessage converts a fantasy message from the agent to an SDK
 // message format for use in the SDK API.
-func ConvertFromSchemaMessage(msg *schema.Message) Message {
-	return session.ConvertFromSchemaMessage(msg)
+func ConvertFromFantasyMessage(msg fantasy.Message) Message {
+	return session.ConvertFromFantasyMessage(msg)
 }

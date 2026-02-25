@@ -1,46 +1,164 @@
-//go:generate go run generate_models.go
-
 package models
 
 import (
 	"fmt"
 	"os"
 	"strings"
+
+	"charm.land/catwalk/pkg/embedded"
 )
+
+// ModelInfo represents information about a specific model.
+type ModelInfo struct {
+	ID          string
+	Name        string
+	Attachment  bool
+	Reasoning   bool
+	Temperature bool
+	Cost        Cost
+	Limit       Limit
+}
+
+// Cost represents the pricing information for a model.
+type Cost struct {
+	Input      float64
+	Output     float64
+	CacheRead  *float64
+	CacheWrite *float64
+}
+
+// Limit represents the context and output limits for a model.
+type Limit struct {
+	Context int
+	Output  int
+}
+
+// ProviderInfo represents information about a model provider.
+type ProviderInfo struct {
+	ID     string
+	Env    []string
+	Name   string
+	Models map[string]ModelInfo
+}
+
+// providerEnvVars maps provider IDs to their required environment variables.
+// Catwalk provides APIKey field names but we need the actual env var names.
+var providerEnvVars = map[string][]string{
+	"anthropic":               {"ANTHROPIC_API_KEY"},
+	"openai":                  {"OPENAI_API_KEY"},
+	"google":                  {"GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"},
+	"azure":                   {"AZURE_OPENAI_API_KEY"},
+	"openrouter":              {"OPENROUTER_API_KEY"},
+	"bedrock":                 {"AWS_ACCESS_KEY_ID"},
+	"google-vertex-anthropic": {"GOOGLE_APPLICATION_CREDENTIALS"},
+	"ollama":                  {},
+	"mistral":                 {"MISTRAL_API_KEY"},
+	"groq":                    {"GROQ_API_KEY"},
+	"deepseek":                {"DEEPSEEK_API_KEY"},
+	"xai":                     {"XAI_API_KEY"},
+	"fireworks":               {"FIREWORKS_API_KEY"},
+	"together":                {"TOGETHER_API_KEY"},
+	"perplexity":              {"PERPLEXITY_API_KEY"},
+	"alibaba":                 {"DASHSCOPE_API_KEY"},
+	"cohere":                  {"COHERE_API_KEY"},
+}
 
 // ModelsRegistry provides validation and information about models.
 // It maintains a registry of all supported LLM providers and their models,
 // including capabilities, pricing, and configuration requirements.
-// The registry data is generated from models.dev and provides a single
-// source of truth for model validation and discovery.
+// The registry data comes from the catwalk embedded database.
 type ModelsRegistry struct {
-	// providers maps provider IDs to their information and available models
 	providers map[string]ProviderInfo
 }
 
-// NewModelsRegistry creates a new models registry with static data.
-// The registry is populated with model information generated from models.dev,
-// providing comprehensive metadata about available models across all supported providers.
-//
-// Returns:
-//   - *ModelsRegistry: A new registry instance populated with current model data
+// NewModelsRegistry creates a new models registry populated from the catwalk embedded database.
 func NewModelsRegistry() *ModelsRegistry {
 	return &ModelsRegistry{
-		providers: GetModelsData(),
+		providers: buildFromCatwalk(),
+	}
+}
+
+// buildFromCatwalk converts catwalk embedded data into our internal format.
+func buildFromCatwalk() map[string]ProviderInfo {
+	providers := make(map[string]ProviderInfo)
+
+	for _, cp := range embedded.GetAll() {
+		providerID := string(cp.ID)
+
+		modelsMap := make(map[string]ModelInfo, len(cp.Models))
+		for _, cm := range cp.Models {
+			var cacheRead, cacheWrite *float64
+			if cm.CostPer1MInCached > 0 {
+				v := cm.CostPer1MInCached
+				cacheRead = &v
+			}
+			if cm.CostPer1MOutCached > 0 {
+				v := cm.CostPer1MOutCached
+				cacheWrite = &v
+			}
+
+			hasTemperature := true // most models support temperature
+			if cm.Options.Temperature != nil && *cm.Options.Temperature == 0 {
+				hasTemperature = false
+			}
+
+			modelsMap[cm.ID] = ModelInfo{
+				ID:          cm.ID,
+				Name:        cm.Name,
+				Attachment:  cm.SupportsImages,
+				Reasoning:   cm.CanReason,
+				Temperature: hasTemperature,
+				Cost: Cost{
+					Input:      cm.CostPer1MIn,
+					Output:     cm.CostPer1MOut,
+					CacheRead:  cacheRead,
+					CacheWrite: cacheWrite,
+				},
+				Limit: Limit{
+					Context: int(cm.ContextWindow),
+					Output:  int(cm.DefaultMaxTokens),
+				},
+			}
+		}
+
+		envVars := providerEnvVars[providerID]
+		if envVars == nil {
+			// Derive from the catwalk APIKey field if available
+			if cp.APIKey != "" {
+				envVars = []string{cp.APIKey}
+			}
+		}
+
+		providers[providerID] = ProviderInfo{
+			ID:     providerID,
+			Env:    envVars,
+			Name:   cp.Name,
+			Models: modelsMap,
+		}
+	}
+
+	// Ensure providers that mcphost explicitly supports are always present
+	// even if catwalk doesn't list them (e.g. ollama, google-vertex-anthropic)
+	ensureProvider(providers, "ollama", "Ollama", nil)
+	ensureProvider(providers, "google-vertex-anthropic", "Google Vertex (Anthropic)",
+		providerEnvVars["google-vertex-anthropic"])
+
+	return providers
+}
+
+// ensureProvider ensures a provider entry exists in the map.
+func ensureProvider(providers map[string]ProviderInfo, id, name string, env []string) {
+	if _, exists := providers[id]; !exists {
+		providers[id] = ProviderInfo{
+			ID:     id,
+			Env:    env,
+			Name:   name,
+			Models: make(map[string]ModelInfo),
+		}
 	}
 }
 
 // ValidateModel validates if a model exists and returns detailed information.
-// It checks whether a specific model is available for a given provider and
-// returns comprehensive information about the model's capabilities and limits.
-//
-// Parameters:
-//   - provider: The provider ID (e.g., "anthropic", "openai", "google")
-//   - modelID: The specific model ID (e.g., "claude-3-sonnet-20240620", "gpt-4")
-//
-// Returns:
-//   - *ModelInfo: Detailed information about the model including pricing, limits, and capabilities
-//   - error: Returns an error if the provider is unsupported or model is not found
 func (r *ModelsRegistry) ValidateModel(provider, modelID string) (*ModelInfo, error) {
 	providerInfo, exists := r.providers[provider]
 	if !exists {
@@ -56,20 +174,6 @@ func (r *ModelsRegistry) ValidateModel(provider, modelID string) (*ModelInfo, er
 }
 
 // GetRequiredEnvVars returns the required environment variables for a provider.
-// These are the environment variable names that should contain API keys or
-// other authentication credentials for the specified provider.
-//
-// Parameters:
-//   - provider: The provider ID (e.g., "anthropic", "openai", "google")
-//
-// Returns:
-//   - []string: List of environment variable names the provider checks for credentials
-//   - error: Returns an error if the provider is unsupported
-//
-// Example:
-//
-//	For "anthropic", returns ["ANTHROPIC_API_KEY"]
-//	For "google", returns ["GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]
 func (r *ModelsRegistry) GetRequiredEnvVars(provider string) ([]string, error) {
 	providerInfo, exists := r.providers[provider]
 	if !exists {
@@ -80,28 +184,17 @@ func (r *ModelsRegistry) GetRequiredEnvVars(provider string) ([]string, error) {
 }
 
 // ValidateEnvironment checks if required environment variables are set.
-// It verifies that at least one of the provider's required environment variables
-// contains an API key, unless an API key is explicitly provided via configuration.
-//
-// Parameters:
-//   - provider: The provider ID to validate environment for
-//   - apiKey: An API key provided via configuration (if empty, checks environment variables)
-//
-// Returns:
-//   - error: Returns nil if validation passes, or an error describing missing credentials
 func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) error {
 	envVars, err := r.GetRequiredEnvVars(provider)
 	if err != nil {
 		return err
 	}
 
-	// If API key is provided via config, we don't need to check env vars
 	if apiKey != "" {
 		return nil
 	}
 
 	// Add alternative environment variable names for google-vertex-anthropic
-	// These match the env vars checked by eino-claude and other tools
 	if provider == "google-vertex-anthropic" {
 		envVars = append(envVars,
 			"ANTHROPIC_VERTEX_PROJECT_ID",
@@ -113,7 +206,6 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 		)
 	}
 
-	// Check if at least one environment variable is set
 	var foundVar bool
 	for _, envVar := range envVars {
 		if os.Getenv(envVar) != "" {
@@ -131,15 +223,6 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 }
 
 // SuggestModels returns similar model names when an invalid model is provided.
-// It helps users discover the correct model ID by finding models that partially
-// match the provided input, useful for correcting typos or finding alternatives.
-//
-// Parameters:
-//   - provider: The provider ID to search within
-//   - invalidModel: The invalid or misspelled model name to find suggestions for
-//
-// Returns:
-//   - []string: A list of up to 5 suggested model IDs that partially match the input
 func (r *ModelsRegistry) SuggestModels(provider, invalidModel string) []string {
 	providerInfo, exists := r.providers[provider]
 	if !exists {
@@ -149,12 +232,10 @@ func (r *ModelsRegistry) SuggestModels(provider, invalidModel string) []string {
 	var suggestions []string
 	invalidLower := strings.ToLower(invalidModel)
 
-	// Look for models that contain parts of the invalid model name
 	for modelID, modelInfo := range providerInfo.Models {
 		modelIDLower := strings.ToLower(modelID)
 		modelNameLower := strings.ToLower(modelInfo.Name)
 
-		// Check if the invalid model is a substring of existing models
 		if strings.Contains(modelIDLower, invalidLower) ||
 			strings.Contains(modelNameLower, invalidLower) ||
 			strings.Contains(invalidLower, strings.ToLower(strings.Split(modelID, "-")[0])) {
@@ -162,7 +243,6 @@ func (r *ModelsRegistry) SuggestModels(provider, invalidModel string) []string {
 		}
 	}
 
-	// Limit suggestions to avoid overwhelming output
 	if len(suggestions) > 5 {
 		suggestions = suggestions[:5]
 	}
@@ -171,11 +251,6 @@ func (r *ModelsRegistry) SuggestModels(provider, invalidModel string) []string {
 }
 
 // GetSupportedProviders returns a list of all supported providers.
-// This includes all providers that have models registered in the system,
-// such as "anthropic", "openai", "google", "alibaba", etc.
-//
-// Returns:
-//   - []string: A list of all provider IDs available in the registry
 func (r *ModelsRegistry) GetSupportedProviders() []string {
 	var providers []string
 	for providerID := range r.providers {
@@ -185,15 +260,6 @@ func (r *ModelsRegistry) GetSupportedProviders() []string {
 }
 
 // GetModelsForProvider returns all models for a specific provider.
-// This is useful for listing available models when a user wants to see
-// all options for a particular provider.
-//
-// Parameters:
-//   - provider: The provider ID to get models for
-//
-// Returns:
-//   - map[string]ModelInfo: A map of model IDs to their detailed information
-//   - error: Returns an error if the provider is unsupported
 func (r *ModelsRegistry) GetModelsForProvider(provider string) (map[string]ModelInfo, error) {
 	providerInfo, exists := r.providers[provider]
 	if !exists {
@@ -207,12 +273,6 @@ func (r *ModelsRegistry) GetModelsForProvider(provider string) (map[string]Model
 var globalRegistry = NewModelsRegistry()
 
 // GetGlobalRegistry returns the global models registry instance.
-// This provides a singleton registry that can be accessed throughout
-// the application for model validation and information retrieval.
-// The registry is initialized once with data from models.dev.
-//
-// Returns:
-//   - *ModelsRegistry: The global registry instance
 func GetGlobalRegistry() *ModelsRegistry {
 	return globalRegistry
 }

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
+	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/hooks"
@@ -608,13 +608,12 @@ func runNormalMode(ctx context.Context) error {
 	tools := mcpAgent.GetTools()
 	var toolNames []string
 	for _, tool := range tools {
-		if info, err := tool.Info(ctx); err == nil {
-			toolNames = append(toolNames, info.Name)
-		}
+		info := tool.Info()
+		toolNames = append(toolNames, info.Name)
 	}
 
 	// Main interaction logic
-	var messages []*schema.Message
+	var messages []fantasy.Message
 	var sessionManager *session.Manager
 	if sessionPath != "" {
 		_, err := os.Stat(sessionPath)
@@ -637,7 +636,8 @@ func runNormalMode(ctx context.Context) error {
 
 		// Convert session messages to schema messages
 		for _, msg := range loadedSession.Messages {
-			messages = append(messages, msg.ConvertToSchemaMessage())
+			fantasyMsg := msg.ConvertToFantasyMessage()
+			messages = append(messages, fantasyMsg)
 		}
 
 		// If we're also saving, use the loaded session with the session manager
@@ -658,9 +658,10 @@ func runNormalMode(ctx context.Context) error {
 
 			// Display all previous messages as they would have appeared
 			for _, sessionMsg := range loadedSession.Messages {
-				if sessionMsg.Role == "user" {
+				switch sessionMsg.Role {
+				case "user":
 					cli.DisplayUserMessage(sessionMsg.Content)
-				} else if sessionMsg.Role == "assistant" {
+				case "assistant":
 					// Display tool calls if present
 					if len(sessionMsg.ToolCalls) > 0 {
 						for _, tc := range sessionMsg.ToolCalls {
@@ -679,7 +680,7 @@ func runNormalMode(ctx context.Context) error {
 					if sessionMsg.Content != "" {
 						cli.DisplayAssistantMessage(sessionMsg.Content)
 					}
-				} else if sessionMsg.Role == "tool" {
+				case "tool":
 					// Display tool result
 					if sessionMsg.ToolCallID != "" {
 						if toolCall, exists := toolCallMap[sessionMsg.ToolCallID]; exists {
@@ -773,7 +774,7 @@ type AgenticLoopConfig struct {
 }
 
 // addMessagesToHistory adds messages to the conversation history and saves to session if available
-func addMessagesToHistory(messages *[]*schema.Message, sessionManager *session.Manager, cli *ui.CLI, newMessages ...*schema.Message) {
+func addMessagesToHistory(messages *[]fantasy.Message, sessionManager *session.Manager, cli *ui.CLI, newMessages ...fantasy.Message) {
 	// Add to local history
 	*messages = append(*messages, newMessages...)
 
@@ -790,7 +791,7 @@ func addMessagesToHistory(messages *[]*schema.Message, sessionManager *session.M
 }
 
 // replaceMessagesHistory replaces the conversation history and saves to session if available
-func replaceMessagesHistory(messages *[]*schema.Message, sessionManager *session.Manager, cli *ui.CLI, newMessages []*schema.Message) {
+func replaceMessagesHistory(messages *[]fantasy.Message, sessionManager *session.Manager, cli *ui.CLI, newMessages []fantasy.Message) {
 	// Replace local history
 	*messages = newMessages
 
@@ -807,7 +808,7 @@ func replaceMessagesHistory(messages *[]*schema.Message, sessionManager *session
 }
 
 // runAgenticLoop handles all execution modes with a single unified loop
-func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []*schema.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
+func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
 	// Handle initial prompt for non-interactive modes
 	if !config.IsInteractive && config.InitialPrompt != "" {
 		// Execute UserPromptSubmit hooks for non-interactive mode
@@ -837,7 +838,7 @@ func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		}
 
 		// Create temporary messages with user input for processing (don't add to history yet)
-		tempMessages := append(messages, schema.UserMessage(config.InitialPrompt))
+		tempMessages := append(messages, fantasy.NewUserMessage(config.InitialPrompt))
 
 		// Process the initial prompt with tool calls
 		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config, hookExecutor)
@@ -875,7 +876,7 @@ func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 }
 
 // runAgenticStep processes a single step of the agentic loop (handles tool calls)
-func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []*schema.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) (*schema.Message, []*schema.Message, error) {
+func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) (*fantasy.Response, []fantasy.Message, error) {
 	var currentSpinner *ui.Spinner
 
 	// Start initial spinner (skip if quiet)
@@ -1153,12 +1154,21 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 	if len(messages) > 0 {
 		// Find the last user message
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == schema.User {
-				lastUserMessage = messages[i].Content
+			if messages[i].Role == fantasy.MessageRoleUser {
+				// Extract text from message parts
+				for _, part := range messages[i].Content {
+					if tp, ok := part.(fantasy.TextPart); ok {
+						lastUserMessage = tp.Text
+						break
+					}
+				}
 				break
 			}
 		}
 	}
+
+	// Get text content from response
+	responseText := response.Content.Text()
 
 	// Update usage tracking for ALL responses (streaming and non-streaming)
 	if !config.Quiet && cli != nil {
@@ -1167,15 +1177,15 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 
 	// Display assistant response with model name
 	// Skip if: quiet mode, same content already displayed, or if streaming completed the full response
-	streamedFullResponse := responseWasStreamed && streamingContent.String() == response.Content
-	if !config.Quiet && cli != nil && response.Content != lastDisplayedContent && response.Content != "" && !streamedFullResponse {
-		if err := cli.DisplayAssistantMessageWithModel(response.Content, config.ModelName); err != nil {
+	streamedFullResponse := responseWasStreamed && streamingContent.String() == responseText
+	if !config.Quiet && cli != nil && responseText != lastDisplayedContent && responseText != "" && !streamedFullResponse {
+		if err := cli.DisplayAssistantMessageWithModel(responseText, config.ModelName); err != nil {
 			cli.DisplayError(fmt.Errorf("display error: %v", err))
 			return nil, nil, err
 		}
 	} else if config.Quiet {
 		// In quiet mode, only output the final response content to stdout
-		fmt.Print(response.Content)
+		fmt.Print(responseText)
 	}
 
 	// Display usage information immediately after the response (for both streaming and non-streaming)
@@ -1191,15 +1201,14 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 }
 
 // executeStopHook executes the Stop hook if a hook executor is available
-func executeStopHook(hookExecutor *hooks.Executor, response *schema.Message, stopReason string, modelName string) {
+func executeStopHook(hookExecutor *hooks.Executor, response *fantasy.Response, stopReason string, modelName string) {
 	if hookExecutor != nil {
 		// Prepare metadata
 		var meta json.RawMessage
 		if response != nil {
-			metaData := map[string]interface{}{
+			metaData := map[string]any{
 				"model":          modelName,
-				"role":           string(response.Role),
-				"has_tool_calls": len(response.ToolCalls) > 0,
+				"has_tool_calls": len(response.Content.ToolCalls()) > 0,
 			}
 			if metaBytes, err := json.Marshal(metaData); err == nil {
 				meta = json.RawMessage(metaBytes)
@@ -1208,7 +1217,7 @@ func executeStopHook(hookExecutor *hooks.Executor, response *schema.Message, sto
 
 		responseContent := ""
 		if response != nil {
-			responseContent = response.Content
+			responseContent = response.Content.Text()
 		}
 
 		input := &hooks.StopInput{
@@ -1225,7 +1234,7 @@ func executeStopHook(hookExecutor *hooks.Executor, response *schema.Message, sto
 }
 
 // runInteractiveLoop handles the interactive portion of the agentic loop
-func runInteractiveLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []*schema.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
+func runInteractiveLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
 	for {
 		// Get user input
 		prompt, err := cli.GetPrompt()
@@ -1292,7 +1301,7 @@ func runInteractiveLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI,
 		cli.DisplayUserMessage(prompt)
 
 		// Create temporary messages with user input for processing
-		tempMessages := append(messages, schema.UserMessage(prompt))
+		tempMessages := append(messages, fantasy.NewUserMessage(prompt))
 		// Process the user input with tool calls
 		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config, hookExecutor)
 		if err != nil {
@@ -1312,7 +1321,7 @@ func runInteractiveLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI,
 }
 
 // runNonInteractiveMode handles the non-interactive mode execution
-func runNonInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, prompt, modelName string, messages []*schema.Message, quiet, noExit bool, mcpConfig *config.Config, sessionManager *session.Manager, hookExecutor *hooks.Executor) error {
+func runNonInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, prompt, modelName string, messages []fantasy.Message, quiet, noExit bool, mcpConfig *config.Config, sessionManager *session.Manager, hookExecutor *hooks.Executor) error {
 	// Prepare data for slash commands (needed if continuing to interactive mode)
 	var serverNames []string
 	for name := range mcpConfig.MCPServers {
@@ -1322,9 +1331,8 @@ func runNonInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.C
 	tools := mcpAgent.GetTools()
 	var toolNames []string
 	for _, tool := range tools {
-		if info, err := tool.Info(ctx); err == nil {
-			toolNames = append(toolNames, info.Name)
-		}
+		info := tool.Info()
+		toolNames = append(toolNames, info.Name)
 	}
 
 	// Configure and run unified agentic loop
@@ -1345,7 +1353,7 @@ func runNonInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.C
 }
 
 // runInteractiveMode handles the interactive mode execution
-func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, serverNames, toolNames []string, modelName string, messages []*schema.Message, sessionManager *session.Manager, hookExecutor *hooks.Executor, approveToolRun bool) error {
+func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, serverNames, toolNames []string, modelName string, messages []fantasy.Message, sessionManager *session.Manager, hookExecutor *hooks.Executor, approveToolRun bool) error {
 	// Configure and run unified agentic loop
 	config := AgenticLoopConfig{
 		IsInteractive:    true,

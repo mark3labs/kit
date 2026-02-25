@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,13 +27,7 @@ func TestHTTPServerRegistry(t *testing.T) {
 
 	// Test that HTTP server is registered
 	servers := registry.ListServers()
-	found := false
-	for _, name := range servers {
-		if name == "http" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(servers, "http")
 
 	if !found {
 		t.Error("http server not found in registry")

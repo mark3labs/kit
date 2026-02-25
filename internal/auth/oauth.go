@@ -109,7 +109,7 @@ func (c *OAuthClient) ExchangeCode(code, verifier string) (*AnthropicCredentials
 	parsedCode, parsedState := c.parseCodeAndState(code)
 
 	// Build request body
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"code":          parsedCode,
 		"grant_type":    "authorization_code",
 		"client_id":     c.ClientID,
@@ -131,7 +131,7 @@ func (c *OAuthClient) ExchangeCode(code, verifier string) (*AnthropicCredentials
 // rotated), and new expiration timestamp. Returns an error if the refresh fails or
 // the refresh token is invalid.
 func (c *OAuthClient) RefreshToken(refreshToken string) (*AnthropicCredentials, error) {
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
 		"client_id":     c.ClientID,
@@ -141,7 +141,7 @@ func (c *OAuthClient) RefreshToken(refreshToken string) (*AnthropicCredentials, 
 }
 
 // makeTokenRequest makes a token request to the OAuth server
-func (c *OAuthClient) makeTokenRequest(body map[string]interface{}) (*AnthropicCredentials, error) {
+func (c *OAuthClient) makeTokenRequest(body map[string]any) (*AnthropicCredentials, error) {
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
@@ -162,7 +162,7 @@ func (c *OAuthClient) makeTokenRequest(body map[string]interface{}) (*AnthropicC
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errorResp map[string]interface{}
+		var errorResp map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
 			return nil, fmt.Errorf("token request failed: %v", errorResp)
 		}

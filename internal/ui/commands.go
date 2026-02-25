@@ -1,5 +1,7 @@
 package ui
 
+import "slices"
+
 // SlashCommand represents a user-invokable slash command with its metadata.
 // Commands can have multiple aliases and are organized by category for better
 // discoverability and help display.
@@ -68,10 +70,8 @@ func GetCommandByName(name string) *SlashCommand {
 		if cmd.Name == name {
 			return cmd
 		}
-		for _, alias := range cmd.Aliases {
-			if alias == name {
-				return cmd
-			}
+		if slices.Contains(cmd.Aliases, name) {
+			return cmd
 		}
 	}
 	return nil

@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-	"github.com/eino-contrib/jsonschema"
 	"github.com/mark3labs/mcphost/internal/config"
 )
 
@@ -84,7 +82,6 @@ func TestMCPToolManager_ToolWithoutProperties(t *testing.T) {
 	manager := NewMCPToolManager()
 
 	// Create a config with a builtin todo server (which has tools with properties)
-	// and test the schema conversion logic
 	cfg := &config.Config{
 		MCPServers: map[string]config.MCPServerConfig{
 			"todo-server": {
@@ -111,69 +108,68 @@ func TestMCPToolManager_ToolWithoutProperties(t *testing.T) {
 
 	// Test that we can get tool info for each tool
 	for _, tool := range tools {
-		info, err := tool.Info(ctx)
-		if err != nil {
-			t.Errorf("Failed to get tool info: %v", err)
-			continue
+		info := tool.Info()
+
+		// Check that the tool has a valid name
+		if info.Name == "" {
+			t.Error("Tool has empty name")
 		}
 
-		// Check that the tool has a valid schema
-		if info.ParamsOneOf == nil {
-			t.Errorf("Tool %s has nil ParamsOneOf", info.Name)
-		}
-
-		t.Logf("Tool: %s, Description: %s", info.Name, info.Desc)
+		t.Logf("Tool: %s, Description: %s", info.Name, info.Description)
 	}
 }
 
 // TestIssue89_ObjectSchemaMissingProperties tests the fix for issue #89
-// This is a regression test for the "object schema missing properties" error
-// that occurs when tools have no input parameters and use OpenAI function calling
+// This verifies that object schemas with nil properties get an empty properties map
 func TestIssue89_ObjectSchemaMissingProperties(t *testing.T) {
-	// Create a schema that would cause the OpenAI validation error
-	// This simulates what might happen with tools that have no input properties
-	brokenSchema := &jsonschema.Schema{
-		Type: "object",
-		// Properties is nil - this causes "object schema missing properties" error in OpenAI
+	// Create a schema that would cause issues with tools that have no input properties
+	brokenSchema := map[string]any{
+		"type": "object",
+		// Properties is nil - this used to cause "object schema missing properties" error
 	}
 
 	// Verify the problematic state
-	if brokenSchema.Type == "object" && brokenSchema.Properties == nil {
-		t.Log("Found object schema with nil properties - this causes OpenAI validation error")
+	if brokenSchema["type"] == "object" && brokenSchema["properties"] == nil {
+		t.Log("Found object schema with nil properties - this previously caused validation errors")
 	}
 
-	// Apply the fix from issue #89
-	if brokenSchema.Type == "object" && brokenSchema.Properties == nil {
-		brokenSchema.Properties = jsonschema.NewProperties()
+	// Apply the fix - add empty properties
+	if brokenSchema["type"] == "object" && brokenSchema["properties"] == nil {
+		brokenSchema["properties"] = map[string]any{}
 	}
 
 	// Verify the fix worked
-	if brokenSchema.Type == "object" && brokenSchema.Properties == nil {
+	if brokenSchema["properties"] == nil {
 		t.Error("Fix failed: object schema still has nil properties")
 	}
 
-	// Test that we can create a ParamsOneOf from the fixed schema
-	// This is what would fail before the fix
-	paramsOneOf := schema.NewParamsOneOfByJSONSchema(brokenSchema)
-	if paramsOneOf == nil {
-		t.Error("Failed to create ParamsOneOf from fixed schema - OpenAI function calling would fail")
+	// Verify it marshals cleanly
+	data, err := json.Marshal(brokenSchema)
+	if err != nil {
+		t.Errorf("Failed to marshal fixed schema: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Errorf("Failed to unmarshal fixed schema: %v", err)
+	}
+
+	if result["type"] != "object" {
+		t.Error("Schema type should be 'object'")
 	}
 }
 
 // TestConvertExclusiveBoundsToBoolean tests the JSON Schema draft-07 to draft-04 conversion
-// for exclusiveMinimum and exclusiveMaximum fields.
-// Draft-07: exclusiveMinimum/exclusiveMaximum are numeric values (the actual bounds)
-// Draft-04: exclusiveMinimum/exclusiveMaximum are booleans that modify minimum/maximum
 func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected map[string]interface{}
+		expected map[string]any
 	}{
 		{
 			name:  "exclusiveMinimum as number",
 			input: `{"type": "number", "exclusiveMinimum": 0}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":             "number",
 				"minimum":          float64(0),
 				"exclusiveMinimum": true,
@@ -182,7 +178,7 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "exclusiveMaximum as number",
 			input: `{"type": "number", "exclusiveMaximum": 100}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":             "number",
 				"maximum":          float64(100),
 				"exclusiveMaximum": true,
@@ -191,7 +187,7 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "both exclusive bounds as numbers",
 			input: `{"type": "integer", "exclusiveMinimum": 1, "exclusiveMaximum": 10}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":             "integer",
 				"minimum":          float64(1),
 				"exclusiveMinimum": true,
@@ -202,7 +198,7 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "already boolean exclusiveMinimum (draft-04 style)",
 			input: `{"type": "number", "minimum": 0, "exclusiveMinimum": true}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":             "number",
 				"minimum":          float64(0),
 				"exclusiveMinimum": true,
@@ -211,7 +207,7 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "no exclusive bounds",
 			input: `{"type": "string", "minLength": 1}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type":      "string",
 				"minLength": float64(1),
 			},
@@ -219,10 +215,10 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "nested properties with exclusive bounds",
 			input: `{"type": "object", "properties": {"age": {"type": "integer", "exclusiveMinimum": 0}}}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"age": map[string]interface{}{
+				"properties": map[string]any{
+					"age": map[string]any{
 						"type":             "integer",
 						"minimum":          float64(0),
 						"exclusiveMinimum": true,
@@ -233,9 +229,9 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "array items with exclusive bounds",
 			input: `{"type": "array", "items": {"type": "number", "exclusiveMaximum": 100}}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type":             "number",
 					"maximum":          float64(100),
 					"exclusiveMaximum": true,
@@ -245,9 +241,9 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "allOf with exclusive bounds",
 			input: `{"allOf": [{"type": "number", "exclusiveMinimum": 0}]}`,
-			expected: map[string]interface{}{
-				"allOf": []interface{}{
-					map[string]interface{}{
+			expected: map[string]any{
+				"allOf": []any{
+					map[string]any{
 						"type":             "number",
 						"minimum":          float64(0),
 						"exclusiveMinimum": true,
@@ -258,9 +254,9 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "additionalProperties with exclusive bounds",
 			input: `{"type": "object", "additionalProperties": {"type": "integer", "exclusiveMinimum": 0, "exclusiveMaximum": 255}}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type": "object",
-				"additionalProperties": map[string]interface{}{
+				"additionalProperties": map[string]any{
 					"type":             "integer",
 					"minimum":          float64(0),
 					"exclusiveMinimum": true,
@@ -272,15 +268,15 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		{
 			name:  "Chrome DevTools MCP style schema (real-world example)",
 			input: `{"type": "object", "properties": {"timeout": {"type": "integer", "exclusiveMinimum": 0}, "quality": {"type": "number", "minimum": 0, "maximum": 100}}}`,
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"timeout": map[string]interface{}{
+				"properties": map[string]any{
+					"timeout": map[string]any{
 						"type":             "integer",
 						"minimum":          float64(0),
 						"exclusiveMinimum": true,
 					},
-					"quality": map[string]interface{}{
+					"quality": map[string]any{
 						"type":    "number",
 						"minimum": float64(0),
 						"maximum": float64(100),
@@ -294,7 +290,7 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := convertExclusiveBoundsToBoolean([]byte(tt.input))
 
-			var got map[string]interface{}
+			var got map[string]any
 			if err := json.Unmarshal(result, &got); err != nil {
 				t.Fatalf("Failed to unmarshal result: %v", err)
 			}
@@ -317,7 +313,7 @@ func TestConvertExclusiveBoundsToBoolean_InvalidJSON(t *testing.T) {
 }
 
 // deepEqual compares two maps recursively
-func deepEqual(a, b map[string]interface{}) bool {
+func deepEqual(a, b map[string]any) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -327,13 +323,13 @@ func deepEqual(a, b map[string]interface{}) bool {
 			return false
 		}
 		switch av := v.(type) {
-		case map[string]interface{}:
-			bvm, ok := bv.(map[string]interface{})
+		case map[string]any:
+			bvm, ok := bv.(map[string]any)
 			if !ok || !deepEqual(av, bvm) {
 				return false
 			}
-		case []interface{}:
-			bva, ok := bv.([]interface{})
+		case []any:
+			bva, ok := bv.([]any)
 			if !ok || !sliceEqual(av, bva) {
 				return false
 			}
@@ -347,19 +343,19 @@ func deepEqual(a, b map[string]interface{}) bool {
 }
 
 // sliceEqual compares two slices recursively
-func sliceEqual(a, b []interface{}) bool {
+func sliceEqual(a, b []any) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
 		switch av := a[i].(type) {
-		case map[string]interface{}:
-			bvm, ok := b[i].(map[string]interface{})
+		case map[string]any:
+			bvm, ok := b[i].(map[string]any)
 			if !ok || !deepEqual(av, bvm) {
 				return false
 			}
-		case []interface{}:
-			bva, ok := b[i].([]interface{})
+		case []any:
+			bva, ok := b[i].([]any)
 			if !ok || !sliceEqual(av, bva) {
 				return false
 			}

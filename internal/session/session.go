@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
+	"charm.land/fantasy"
 )
 
 // Session represents a complete conversation session with metadata.
@@ -30,9 +30,7 @@ type Session struct {
 }
 
 // Metadata contains session metadata that provides context about the
-// environment and configuration used during the conversation. This helps
-// with debugging and understanding the session's context when reviewing
-// conversation history.
+// environment and configuration used during the conversation.
 type Metadata struct {
 	// MCPHostVersion is the version of MCPHost used for this session
 	MCPHostVersion string `json:"mcphost_version"`
@@ -61,8 +59,6 @@ type Message struct {
 }
 
 // ToolCall represents a tool invocation within an assistant message.
-// When the assistant decides to use a tool, it creates a ToolCall with
-// the necessary information to execute that tool.
 type ToolCall struct {
 	// ID is a unique identifier for this tool call, used to link results
 	ID string `json:"id"`
@@ -73,9 +69,6 @@ type ToolCall struct {
 }
 
 // NewSession creates a new session with default values.
-// It initializes a session with version 1.0, current timestamps,
-// empty message list, and empty metadata. The returned session
-// is ready to receive messages and can be saved to a file.
 func NewSession() *Session {
 	return &Session{
 		Version:   "1.0",
@@ -87,9 +80,6 @@ func NewSession() *Session {
 }
 
 // AddMessage adds a message to the session.
-// If the message doesn't have an ID, one will be auto-generated.
-// If the message doesn't have a timestamp, the current time will be used.
-// The session's UpdatedAt timestamp is automatically updated.
 func (s *Session) AddMessage(msg Message) {
 	if msg.ID == "" {
 		msg.ID = generateMessageID()
@@ -103,20 +93,12 @@ func (s *Session) AddMessage(msg Message) {
 }
 
 // SetMetadata sets the session metadata.
-// This replaces the existing metadata with the provided metadata
-// and updates the session's UpdatedAt timestamp. Use this to record
-// information about the provider, model, and MCPHost version.
 func (s *Session) SetMetadata(metadata Metadata) {
 	s.Metadata = metadata
 	s.UpdatedAt = time.Now()
 }
 
 // SaveToFile saves the session to a JSON file.
-// The session is serialized as indented JSON for readability.
-// The UpdatedAt timestamp is automatically updated before saving.
-// The file is created with 0644 permissions if it doesn't exist,
-// or overwritten if it does exist.
-// Returns an error if marshaling fails or file writing fails.
 func (s *Session) SaveToFile(filePath string) error {
 	s.UpdatedAt = time.Now()
 
@@ -129,11 +111,6 @@ func (s *Session) SaveToFile(filePath string) error {
 }
 
 // LoadFromFile loads a session from a JSON file.
-// It reads the file at the specified path and deserializes it into
-// a Session struct. This is useful for resuming previous conversations
-// or reviewing session history.
-// Returns the loaded session on success, or an error if the file
-// cannot be read or the JSON is invalid.
 func LoadFromFile(filePath string) (*Session, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -148,85 +125,102 @@ func LoadFromFile(filePath string) (*Session, error) {
 	return &session, nil
 }
 
-// ConvertFromSchemaMessage converts a schema.Message to a session Message.
-// This function bridges between the eino schema message format and the
-// session's internal message format. It preserves role, content, and
-// tool-related information while adding a timestamp.
-// Tool calls from assistant messages and tool call IDs from tool messages
-// are properly converted and preserved.
-func ConvertFromSchemaMessage(msg *schema.Message) Message {
+// ConvertFromFantasyMessage converts a fantasy.Message to a session Message.
+// This function bridges between the fantasy message format and the
+// session's internal message format for JSON persistence.
+func ConvertFromFantasyMessage(msg fantasy.Message) Message {
 	sessionMsg := Message{
 		Role:      string(msg.Role),
-		Content:   msg.Content,
 		Timestamp: time.Now(),
 	}
 
-	// Convert tool calls if present (for assistant messages)
-	if len(msg.ToolCalls) > 0 {
-		sessionMsg.ToolCalls = make([]ToolCall, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
-			sessionMsg.ToolCalls[i] = ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
+	// Extract text content and tool calls from message parts
+	var textParts []string
+	for _, part := range msg.Content {
+		switch p := part.(type) {
+		case fantasy.TextPart:
+			textParts = append(textParts, p.Text)
+		case fantasy.ToolCallPart:
+			sessionMsg.ToolCalls = append(sessionMsg.ToolCalls, ToolCall{
+				ID:        p.ToolCallID,
+				Name:      p.ToolName,
+				Arguments: p.Input,
+			})
+		case fantasy.ToolResultPart:
+			// Tool result messages — store the tool call ID
+			sessionMsg.ToolCallID = p.ToolCallID
+			// Marshal result for storage
+			if p.Output != nil {
+				if resultBytes, err := json.Marshal(p.Output); err == nil {
+					textParts = append(textParts, string(resultBytes))
+				}
 			}
 		}
 	}
 
-	// Handle tool result messages - extract tool call ID from ToolCallID field
-	if msg.Role == schema.Tool && msg.ToolCallID != "" {
-		sessionMsg.ToolCallID = msg.ToolCallID
+	// Join all text parts
+	for i, t := range textParts {
+		if i > 0 {
+			sessionMsg.Content += "\n"
+		}
+		sessionMsg.Content += t
 	}
 
 	return sessionMsg
 }
 
-// ConvertToSchemaMessage converts a session Message to a schema.Message.
+// ConvertToFantasyMessage converts a session Message to a fantasy.Message.
 // This method bridges between the session's internal message format and
-// the eino schema message format used by the LLM providers.
-// It properly handles tool calls for assistant messages and tool call IDs
-// for tool result messages. Arguments are converted to string format as
-// required by the schema.
-func (m *Message) ConvertToSchemaMessage() *schema.Message {
-	msg := &schema.Message{
-		Role:    schema.RoleType(m.Role),
-		Content: m.Content,
+// the fantasy message format used by the LLM providers.
+func (m *Message) ConvertToFantasyMessage() fantasy.Message {
+	msg := fantasy.Message{
+		Role: fantasy.MessageRole(m.Role),
 	}
 
-	// Convert tool calls if present (for assistant messages)
-	if len(m.ToolCalls) > 0 {
-		msg.ToolCalls = make([]schema.ToolCall, len(m.ToolCalls))
-		for i, tc := range m.ToolCalls {
-			// Arguments are already stored as a string, use them directly
-			var argsStr string
-			if str, ok := tc.Arguments.(string); ok {
-				argsStr = str
-			} else {
-				// Fallback: marshal to JSON if not a string
-				if argBytes, err := json.Marshal(tc.Arguments); err == nil {
-					argsStr = string(argBytes)
-				}
-			}
-
-			msg.ToolCalls[i] = schema.ToolCall{
-				ID: tc.ID,
-				Function: schema.FunctionCall{
-					Name:      tc.Name,
-					Arguments: argsStr,
-				},
-			}
+	// Build content parts based on role
+	switch m.Role {
+	case "assistant":
+		// Add text content if present
+		if m.Content != "" {
+			msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
 		}
-	}
+		// Add tool calls if present
+		for _, tc := range m.ToolCalls {
+			var inputStr string
+			if str, ok := tc.Arguments.(string); ok {
+				inputStr = str
+			} else if argBytes, err := json.Marshal(tc.Arguments); err == nil {
+				inputStr = string(argBytes)
+			}
 
-	// Handle tool result messages - set the tool call ID
-	if m.Role == "tool" && m.ToolCallID != "" {
-		msg.ToolCallID = m.ToolCallID
+			msg.Content = append(msg.Content, fantasy.ToolCallPart{
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+				Input:      inputStr,
+			})
+		}
+	case "tool":
+		// Tool result message
+		msg.Role = fantasy.MessageRoleTool
+		var resultContent fantasy.ToolResultOutputContent
+		resultContent = fantasy.ToolResultOutputContentText{Text: m.Content}
+
+		msg.Content = append(msg.Content, fantasy.ToolResultPart{
+			ToolCallID: m.ToolCallID,
+			Output:     resultContent,
+		})
+	case "user":
+		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
+	case "system":
+		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
+	default:
+		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
 	}
 
 	return msg
 }
 
-// generateMessageID generates a unique message ID
+// generateMessageID generates a unique message ID.
 func generateMessageID() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,13 +27,7 @@ func TestFetchServerRegistry(t *testing.T) {
 
 	// Test that fetch server is registered
 	servers := registry.ListServers()
-	found := false
-	for _, name := range servers {
-		if name == "fetch" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(servers, "fetch")
 
 	if !found {
 		t.Error("fetch server not found in registry")

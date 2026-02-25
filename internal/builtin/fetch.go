@@ -73,11 +73,7 @@ func executeFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTo
 	timeout := defaultFetchTimeout
 	if timeoutSec := request.GetFloat("timeout", 0); timeoutSec > 0 {
 		timeoutDuration := time.Duration(timeoutSec) * time.Second
-		if timeoutDuration > maxFetchTimeout {
-			timeout = maxFetchTimeout
-		} else {
-			timeout = timeoutDuration
-		}
+		timeout = min(timeoutDuration, maxFetchTimeout)
 	}
 
 	// Validate URL

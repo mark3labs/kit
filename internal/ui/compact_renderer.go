@@ -296,10 +296,11 @@ func (r *CompactRenderer) formatCompactContent(content string) string {
 	content = strings.TrimSpace(content)
 
 	// Truncate if too long (unless in debug mode)
-	maxLen := r.width - 28 // Reserve space for symbol and label more conservatively
-	if maxLen < 40 {
-		maxLen = 40 // Minimum width for readability
-	}
+	maxLen := max(
+		// Reserve space for symbol and label more conservatively
+		r.width-28,
+		// Minimum width for readability
+		40)
 	if !r.debug && len(content) > maxLen {
 		content = content[:maxLen-3] + "..."
 	}
@@ -315,10 +316,9 @@ func (r *CompactRenderer) formatUserAssistantContent(content string) string {
 
 	// Calculate available width more conservatively
 	// Account for: symbol (1) + spaces (2) + label (up to 20 chars) + space (1) + margin (4)
-	availableWidth := r.width - 28
-	if availableWidth < 40 {
-		availableWidth = 40 // Minimum width for readability
-	}
+	availableWidth := max(r.width-28,
+		// Minimum width for readability
+		40)
 
 	// Use glamour to render markdown content with proper width
 	rendered := toMarkdown(content, availableWidth)
@@ -407,10 +407,9 @@ func (r *CompactRenderer) formatToolResult(result string) string {
 	}
 
 	// Calculate available width more conservatively
-	availableWidth := r.width - 28
-	if availableWidth < 40 {
-		availableWidth = 40 // Minimum width for readability
-	}
+	availableWidth := max(r.width-28,
+		// Minimum width for readability
+		40)
 
 	// First wrap the text to prevent long lines (tool results are usually plain text, not markdown)
 	wrappedResult := r.wrapText(result, availableWidth)

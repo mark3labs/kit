@@ -84,11 +84,7 @@ func executeBash(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	timeout := defaultTimeout
 	if timeoutMs := request.GetFloat("timeout", 0); timeoutMs > 0 {
 		timeoutDuration := time.Duration(timeoutMs) * time.Millisecond
-		if timeoutDuration > maxTimeout {
-			timeout = maxTimeout
-		} else {
-			timeout = timeoutDuration
-		}
+		timeout = min(timeoutDuration, maxTimeout)
 	}
 
 	// Check for banned commands
