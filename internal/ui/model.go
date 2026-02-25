@@ -138,6 +138,8 @@ type streamComponentIface interface {
 	tea.Model
 	// Reset clears accumulated state between agent steps.
 	Reset()
+	// SetHeight constrains the render output to at most h lines (0 = unconstrained).
+	SetHeight(h int)
 }
 
 // approvalComponentIface is the interface the parent requires from ApprovalComponent.
@@ -183,6 +185,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
 	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
+
+	// Propagate initial height distribution to children.
+	m.distributeHeight()
 
 	return m
 }
@@ -527,8 +532,14 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
 	return tea.Println(rendered)
 }
 
-// distributeHeight recalculates child component heights after a window resize.
-// The input region has a fixed height; the stream region gets the remainder.
+// distributeHeight recalculates child component heights after a window resize
+// and propagates the computed stream height to the StreamComponent.
+//
+// Layout (line counts):
+//
+//	stream region  = total - separator(1) - input(5)
+//	separator      = 1 line
+//	input region   = 5 lines: title(1) + textarea(3) + help(1)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
 	const inputLines = 5 // title (1) + textarea (3) + help (1)
@@ -538,9 +549,9 @@ func (m *AppModel) distributeHeight() {
 		streamHeight = 0
 	}
 
-	// Propagate sizes once child components are attached.
-	// (TAS-26 will handle WindowSizeMsg propagation in detail.)
-	_ = streamHeight
+	if m.stream != nil {
+		m.stream.SetHeight(streamHeight)
+	}
 }
 
 // repeatRune returns a string consisting of n repetitions of r.

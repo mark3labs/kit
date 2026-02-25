@@ -96,6 +96,10 @@ type StreamComponent struct {
 
 	// width is the current terminal column count.
 	width int
+
+	// height constrains the render output to at most this many lines.
+	// 0 means unconstrained.
+	height int
 }
 
 // NewStreamComponent creates a new StreamComponent ready to be embedded in AppModel.
@@ -112,6 +116,16 @@ func NewStreamComponent(compactMode bool, width int, modelName string) *StreamCo
 		compactRenderer: NewCompactRenderer(width, false),
 		width:           width,
 	}
+}
+
+// SetHeight constrains the stream region render height. When height > 0, the
+// render output is clamped to that many lines (trailing lines are discarded).
+// A value of 0 means unconstrained.
+func (s *StreamComponent) SetHeight(h int) {
+	if h < 0 {
+		h = 0
+	}
+	s.height = h
 }
 
 // Reset clears all accumulated state so the component is ready for the next
@@ -222,12 +236,13 @@ func (s *StreamComponent) View() tea.View {
 
 // render builds the full content string for the stream region.
 func (s *StreamComponent) render() string {
+	var content string
 	switch s.phase {
 	case streamPhaseIdle:
 		return ""
 
 	case streamPhaseSpinner:
-		return s.renderSpinner()
+		content = s.renderSpinner()
 
 	case streamPhaseStreaming:
 		var parts []string
@@ -247,11 +262,23 @@ func (s *StreamComponent) render() string {
 			parts = append(parts, activeLine)
 		}
 
-		return strings.Join(parts, "\n")
+		content = strings.Join(parts, "\n")
 
 	default:
 		return ""
 	}
+
+	// Clamp to height if constrained: keep the last h lines so the most
+	// recent output is always visible.
+	if s.height > 0 && content != "" {
+		lines := strings.Split(content, "\n")
+		if len(lines) > s.height {
+			lines = lines[len(lines)-s.height:]
+			content = strings.Join(lines, "\n")
+		}
+	}
+
+	return content
 }
 
 // renderSpinner renders the KITT-style scanning animation with a message label.
