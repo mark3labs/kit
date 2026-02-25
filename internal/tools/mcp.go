@@ -6,13 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcphost/internal/builtin"
 	"github.com/mark3labs/mcphost/internal/config"
 )
 
@@ -66,75 +62,6 @@ func (m *MCPToolManager) SetDebugLogger(logger DebugLogger) {
 	if m.connectionPool != nil {
 		m.connectionPool.SetDebugLogger(logger)
 	}
-}
-
-// samplingHandler implements the MCP sampling handler interface using a fantasy LanguageModel
-type samplingHandler struct {
-	model fantasy.LanguageModel
-}
-
-// CreateMessage handles sampling requests from MCP servers by forwarding them to the configured LLM model.
-// It converts MCP message formats to fantasy message formats, invokes the model for generation,
-// and converts the response back to MCP format. Returns an error if no model is available
-// or if generation fails.
-func (h *samplingHandler) CreateMessage(ctx context.Context, request mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
-	if h.model == nil {
-		return nil, fmt.Errorf("no model available for sampling")
-	}
-
-	// Build fantasy messages from MCP sampling request
-	var messages []fantasy.Message
-
-	// Add system message if provided
-	if request.SystemPrompt != "" {
-		messages = append(messages, fantasy.NewSystemMessage(request.SystemPrompt))
-	}
-
-	// Convert sampling messages
-	for _, msg := range request.Messages {
-		var content string
-		if textContent, ok := msg.Content.(mcp.TextContent); ok {
-			content = textContent.Text
-		} else {
-			content = fmt.Sprintf("%v", msg.Content)
-		}
-
-		switch msg.Role {
-		case mcp.RoleUser:
-			messages = append(messages, fantasy.NewUserMessage(content))
-		case mcp.RoleAssistant:
-			messages = append(messages, fantasy.Message{
-				Role:    fantasy.MessageRoleAssistant,
-				Content: []fantasy.MessagePart{fantasy.TextPart{Text: content}},
-			})
-		default:
-			messages = append(messages, fantasy.NewUserMessage(content))
-		}
-	}
-
-	// Generate response using the fantasy model
-	call := fantasy.Call{
-		Prompt: fantasy.Prompt(messages),
-	}
-	response, err := h.model.Generate(ctx, call)
-	if err != nil {
-		return nil, fmt.Errorf("model generation failed: %w", err)
-	}
-
-	// Convert response back to MCP format
-	result := &mcp.CreateMessageResult{
-		Model:      h.model.Model(),
-		StopReason: "endTurn",
-	}
-	result.SamplingMessage = mcp.SamplingMessage{
-		Role: mcp.RoleAssistant,
-		Content: mcp.TextContent{
-			Type: "text",
-			Text: response.Content.Text(),
-		},
-	}
-
-	return result, nil
 }
 
 // LoadTools loads tools from all configured MCP servers based on the provided configuration.
@@ -229,16 +156,15 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 
 		// Extract properties and required from the schema
 		parameters := make(map[string]any)
-		var required []string
+		required := []string{}
 
 		if props, ok := schemaMap["properties"].(map[string]any); ok {
 			parameters = props
 		}
 
-		// Fix for issue #89: Ensure object schemas have a properties field
-		if schemaType, ok := schemaMap["type"].(string); ok && schemaType == "object" && len(parameters) == 0 {
-			// Keep empty parameters map - fantasy handles this fine
-		}
+		// Fix for issue #89: Ensure object schemas have a properties field.
+		// When schema type is "object" with no properties, we keep the
+		// empty parameters map — fantasy handles this fine.
 
 		if req, ok := schemaMap["required"].([]any); ok {
 			for _, r := range req {
@@ -312,148 +238,6 @@ func (m *MCPToolManager) shouldExcludeTool(toolName string, serverConfig config.
 	return false
 }
 
-func (m *MCPToolManager) createMCPClient(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
-	transportType := serverConfig.GetTransportType()
-
-	switch transportType {
-	case "stdio":
-		var env []string
-		var command string
-		var args []string
-
-		if len(serverConfig.Command) > 0 {
-			command = serverConfig.Command[0]
-			if len(serverConfig.Command) > 1 {
-				args = serverConfig.Command[1:]
-			} else if len(serverConfig.Args) > 0 {
-				args = serverConfig.Args
-			}
-		}
-
-		if serverConfig.Environment != nil {
-			for k, v := range serverConfig.Environment {
-				env = append(env, fmt.Sprintf("%s=%s", k, v))
-			}
-		}
-
-		if serverConfig.Env != nil {
-			for k, v := range serverConfig.Env {
-				env = append(env, fmt.Sprintf("%s=%v", k, v))
-			}
-		}
-
-		stdioTransport := transport.NewStdio(command, env, args...)
-		stdioClient := client.NewClient(stdioTransport)
-
-		if err := stdioTransport.Start(ctx); err != nil {
-			return nil, fmt.Errorf("failed to start stdio transport: %v", err)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-		return stdioClient, nil
-
-	case "sse":
-		var options []transport.ClientOption
-
-		if len(serverConfig.Headers) > 0 {
-			headers := make(map[string]string)
-			for _, header := range serverConfig.Headers {
-				parts := strings.SplitN(header, ":", 2)
-				if len(parts) == 2 {
-					key := strings.TrimSpace(parts[0])
-					value := strings.TrimSpace(parts[1])
-					headers[key] = value
-				}
-			}
-			if len(headers) > 0 {
-				options = append(options, transport.WithHeaders(headers))
-			}
-		}
-
-		sseClient, err := client.NewSSEMCPClient(serverConfig.URL, options...)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := sseClient.Start(ctx); err != nil {
-			return nil, fmt.Errorf("failed to start SSE client: %v", err)
-		}
-
-		return sseClient, nil
-
-	case "streamable":
-		var options []transport.StreamableHTTPCOption
-
-		if len(serverConfig.Headers) > 0 {
-			headers := make(map[string]string)
-			for _, header := range serverConfig.Headers {
-				parts := strings.SplitN(header, ":", 2)
-				if len(parts) == 2 {
-					key := strings.TrimSpace(parts[0])
-					value := strings.TrimSpace(parts[1])
-					headers[key] = value
-				}
-			}
-			if len(headers) > 0 {
-				options = append(options, transport.WithHTTPHeaders(headers))
-			}
-		}
-
-		streamableClient, err := client.NewStreamableHttpClient(serverConfig.URL, options...)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := streamableClient.Start(ctx); err != nil {
-			return nil, fmt.Errorf("failed to start streamable HTTP client: %v", err)
-		}
-
-		return streamableClient, nil
-
-	case "inprocess":
-		return m.createBuiltinClient(ctx, serverName, serverConfig)
-
-	default:
-		return nil, fmt.Errorf("unsupported transport type '%s' for server %s", transportType, serverName)
-	}
-}
-
-func (m *MCPToolManager) initializeClient(ctx context.Context, client client.MCPClient) error {
-	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "mcphost",
-		Version: "1.0.0",
-	}
-	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
-
-	_, err := client.Initialize(initCtx, initRequest)
-	if err != nil {
-		return fmt.Errorf("initialization timeout or failed: %v", err)
-	}
-	return nil
-}
-
-// createBuiltinClient creates an in-process MCP client for builtin servers
-func (m *MCPToolManager) createBuiltinClient(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
-	registry := builtin.NewRegistry()
-
-	builtinServer, err := registry.CreateServer(serverConfig.Name, serverConfig.Options, m.model)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create builtin server: %v", err)
-	}
-
-	inProcessClient, err := client.NewInProcessClient(builtinServer.GetServer())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create in-process client: %v", err)
-	}
-
-	return inProcessClient, nil
-}
-
 // debugLogConnectionInfo logs detailed connection information for debugging
 func (m *MCPToolManager) debugLogConnectionInfo(serverName string, serverConfig config.MCPServerConfig) {
 	if m.debugLogger == nil || !m.debugLogger.IsDebugEnabled() {
@@ -497,8 +281,9 @@ func convertExclusiveBoundsToBoolean(schemaJSON []byte) []byte {
 	return result
 }
 
-// convertSchemaRecursive recursively processes a schema map and converts
-// numeric exclusiveMinimum/exclusiveMaximum to boolean format.
+// convertSchemaRecursive recursively processes a schema map to:
+//   - Convert numeric exclusiveMinimum/exclusiveMaximum to boolean format (draft-07 → draft-04)
+//   - Remove null "required" fields that cause OpenAI API validation errors
 func convertSchemaRecursive(schema map[string]any) {
 	if exMin, ok := schema["exclusiveMinimum"]; ok {
 		if num, isNum := exMin.(float64); isNum {
@@ -511,6 +296,17 @@ func convertSchemaRecursive(schema map[string]any) {
 		if num, isNum := exMax.(float64); isNum {
 			schema["maximum"] = num
 			schema["exclusiveMaximum"] = true
+		}
+	}
+
+	// Fix null "required" fields — OpenAI rejects "required": null,
+	// it must be an array or absent entirely.
+	if req, exists := schema["required"]; exists {
+		if req == nil {
+			delete(schema, "required")
+		} else if _, isArr := req.([]any); !isArr {
+			// Not an array — remove invalid value
+			delete(schema, "required")
 		}
 	}
 

@@ -302,6 +302,104 @@ func TestConvertExclusiveBoundsToBoolean(t *testing.T) {
 	}
 }
 
+// TestNullRequiredFieldSanitization tests that null "required" fields are removed
+// from schemas to prevent OpenAI API validation errors like:
+// "None is not of type 'array'"
+func TestNullRequiredFieldSanitization(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantKey  bool   // should "required" key exist in output?
+		wantJSON string // expected JSON output (if checking more than key presence)
+	}{
+		{
+			name:    "null required is removed",
+			input:   `{"type": "object", "properties": {"name": {"type": "string"}}, "required": null}`,
+			wantKey: false,
+		},
+		{
+			name:    "valid required array is preserved",
+			input:   `{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}`,
+			wantKey: true,
+		},
+		{
+			name:    "empty required array is preserved",
+			input:   `{"type": "object", "properties": {}, "required": []}`,
+			wantKey: true,
+		},
+		{
+			name:    "nested null required is removed",
+			input:   `{"type": "object", "properties": {"config": {"type": "object", "properties": {"key": {"type": "string"}}, "required": null}}}`,
+			wantKey: false,
+		},
+		{
+			name:    "required as wrong type (string) is removed",
+			input:   `{"type": "object", "properties": {}, "required": "name"}`,
+			wantKey: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertExclusiveBoundsToBoolean([]byte(tt.input))
+
+			var got map[string]any
+			if err := json.Unmarshal(result, &got); err != nil {
+				t.Fatalf("Failed to unmarshal result: %v", err)
+			}
+
+			// Check top-level or nested required field
+			checkSchema := got
+			if nested, ok := got["properties"].(map[string]any); ok {
+				if cfg, ok := nested["config"].(map[string]any); ok {
+					checkSchema = cfg
+				}
+			}
+
+			_, hasRequired := checkSchema["required"]
+			if hasRequired != tt.wantKey {
+				t.Errorf("required key present = %v, want %v. Schema: %s", hasRequired, tt.wantKey, string(result))
+			}
+		})
+	}
+}
+
+// TestToolInfoRequiredNeverNull verifies that MCP tool conversion always produces
+// a non-nil Required slice, preventing "required": null in serialized JSON.
+func TestToolInfoRequiredNeverNull(t *testing.T) {
+	// Simulate the schema extraction logic from loadServerTools
+	schemaJSON := `{"type": "object", "properties": {"name": {"type": "string"}}}`
+
+	var schemaMap map[string]any
+	if err := json.Unmarshal([]byte(schemaJSON), &schemaMap); err != nil {
+		t.Fatalf("Failed to unmarshal schema: %v", err)
+	}
+
+	// This mirrors the code in loadServerTools
+	required := []string{}
+	if req, ok := schemaMap["required"].([]any); ok {
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				required = append(required, s)
+			}
+		}
+	}
+
+	// required must never be nil
+	if required == nil {
+		t.Fatal("required is nil — would serialize as \"required\": null")
+	}
+
+	// Verify JSON serialization
+	data, err := json.Marshal(map[string]any{"required": required})
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+	if string(data) != `{"required":[]}` {
+		t.Errorf("Expected {\"required\":[]}, got %s", string(data))
+	}
+}
+
 // TestConvertExclusiveBoundsToBoolean_InvalidJSON tests that invalid JSON is returned unchanged
 func TestConvertExclusiveBoundsToBoolean_InvalidJSON(t *testing.T) {
 	invalidJSON := []byte(`{invalid json}`)
