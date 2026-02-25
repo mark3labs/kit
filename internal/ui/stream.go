@@ -9,6 +9,51 @@ import (
 	"github.com/mark3labs/mcphost/internal/app"
 )
 
+// knightRiderFrames generates a KITT-style scanning animation where a bright
+// red light bounces back and forth across a row of dots with a trailing glow.
+// Used by StreamComponent (TUI inline spinner) and Spinner (stderr goroutine spinner).
+func knightRiderFrames() []string {
+	const numDots = 8
+	const dot = "▪"
+
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
+	med := lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#440000"))
+	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#222222"))
+
+	// Scanner bounces: 0→7→0
+	positions := make([]int, 0, 2*numDots-2)
+	for i := 0; i < numDots; i++ {
+		positions = append(positions, i)
+	}
+	for i := numDots - 2; i > 0; i-- {
+		positions = append(positions, i)
+	}
+
+	frames := make([]string, len(positions))
+	for f, pos := range positions {
+		var b strings.Builder
+		for i := 0; i < numDots; i++ {
+			d := pos - i
+			if d < 0 {
+				d = -d
+			}
+			switch {
+			case d == 0:
+				b.WriteString(bright.Render(dot))
+			case d == 1:
+				b.WriteString(med.Render(dot))
+			case d == 2:
+				b.WriteString(dim.Render(dot))
+			default:
+				b.WriteString(off.Render(dot))
+			}
+		}
+		frames[f] = b.String()
+	}
+	return frames
+}
+
 // streamSpinnerTickMsg is the internal tick message that drives the KITT-style
 // spinner animation inside StreamComponent.
 type streamSpinnerTickMsg struct{}
