@@ -155,6 +155,10 @@ type approvalComponentIface interface {
 //
 // To use with the concrete *app.App type, pass it directly — *app.App
 // satisfies AppController once the app layer is implemented (TAS-4).
+//
+// NewAppModel constructs all child components (InputComponent, StreamComponent)
+// using the provided options. ApprovalComponent is created dynamically per-step
+// in Update when a ToolApprovalNeededEvent arrives.
 func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	width := opts.Width
 	if width == 0 {
@@ -176,8 +180,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		height:      height,
 	}
 
-	// Child components are nil until they are attached via setters or until the
-	// concrete implementations are in place (TAS-15, TAS-16, TAS-17).
+	// Wire up child components now that we have the concrete implementations.
+	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
+	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
 
 	return m
 }

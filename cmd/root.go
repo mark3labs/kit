@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/app"
@@ -21,6 +22,7 @@ import (
 	"github.com/mark3labs/mcphost/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 )
 
 var (
@@ -774,8 +776,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	_ = appInstance // TODO(TAS-19): wire appInstance into the interactive tea.Program
-	return runInteractiveMode(ctx, mcpAgent, cli, serverNames, toolNames, modelName, messages, sessionManager, hookExecutor, approveToolRun)
+	return runInteractiveModeBubbleTea(ctx, appInstance, cli, modelName)
 }
 
 // AgenticLoopConfig configures the behavior of the unified agentic loop.
@@ -1373,7 +1374,7 @@ func runNonInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.C
 	return runAgenticLoop(ctx, mcpAgent, cli, messages, config, hookExecutor)
 }
 
-// runInteractiveMode handles the interactive mode execution
+// runInteractiveMode handles the interactive mode execution (legacy path, kept for reference)
 func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, serverNames, toolNames []string, modelName string, messages []fantasy.Message, sessionManager *session.Manager, hookExecutor *hooks.Executor, approveToolRun bool) error {
 	// Configure and run unified agentic loop
 	config := AgenticLoopConfig{
@@ -1390,4 +1391,45 @@ func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI,
 	}
 
 	return runAgenticLoop(ctx, mcpAgent, cli, messages, config, hookExecutor)
+}
+
+// runInteractiveModeBubbleTea starts the new unified Bubble Tea interactive TUI.
+//
+// It:
+//  1. Gets the terminal dimensions (falls back to 80x24 if unavailable).
+//  2. Creates a ui.AppModel (parent model) with the appInstance as the controller,
+//     wiring up all child components (InputComponent, StreamComponent).
+//  3. Creates a single tea.NewProgram and registers it with appInstance via SetProgram
+//     so that agent events are routed to the TUI.
+//  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
+//
+// The old SetupCLI / runInteractiveLoop flow is bypassed entirely for interactive mode.
+// cli may be nil if SetupCLI was not called (quiet path); its debug output is displayed
+// before handing control to the TUI.
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, _ *ui.CLI, modelName string) error {
+	// Determine terminal size; fall back gracefully.
+	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || termWidth == 0 {
+		termWidth = 80
+		termHeight = 24
+	}
+
+	// Display startup info via the legacy CLI before handing off to TUI.
+	// (The CLI was already initialised with model info, tool counts, etc. in runNormalMode.)
+	// Nothing additional needed here — factory.SetupCLI already displayed it above.
+
+	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
+		CompactMode: viper.GetBool("compact"),
+		ModelName:   modelName,
+		Width:       termWidth,
+		Height:      termHeight,
+	})
+
+	program := tea.NewProgram(appModel)
+
+	// Register the program with the app layer so agent events are sent to the TUI.
+	appInstance.SetProgram(program)
+
+	_, runErr := program.Run()
+	return runErr
 }
