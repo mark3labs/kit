@@ -768,7 +768,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveMode(ctx, mcpAgent, cli, promptFlag, modelName, messages, quietFlag, noExitFlag, mcpConfig, sessionManager, hookExecutor)
+		return runNonInteractiveModeApp(ctx, appInstance, promptFlag, quietFlag, noExitFlag, cli, modelName)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -1391,6 +1391,29 @@ func runInteractiveMode(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI,
 	}
 
 	return runAgenticLoop(ctx, mcpAgent, cli, messages, config, hookExecutor)
+}
+
+// runNonInteractiveModeApp executes a single prompt via the app layer and exits,
+// or transitions to the interactive BubbleTea TUI when --no-exit is set.
+//
+// RunOnce does not create a tea.Program, so there is no spinner or tool-call
+// display; only the final response text is written to os.Stdout.  This
+// satisfies both the normal and --quiet non-interactive cases (quiet simply
+// means "no intermediate output", which RunOnce already guarantees).
+//
+// When --no-exit is set, after RunOnce completes the interactive BubbleTea TUI
+// is started so the user can continue the conversation.
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, cli *ui.CLI, modelName string) error {
+	if err := appInstance.RunOnce(ctx, prompt, os.Stdout); err != nil {
+		return err
+	}
+
+	// If --no-exit was requested, hand off to the interactive TUI.
+	if noExit {
+		return runInteractiveModeBubbleTea(ctx, appInstance, cli, modelName)
+	}
+
+	return nil
 }
 
 // runInteractiveModeBubbleTea starts the new unified Bubble Tea interactive TUI.
