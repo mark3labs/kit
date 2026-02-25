@@ -32,11 +32,11 @@ mcpServers:
 	}
 
 	// Set environment variables
-	os.Setenv("GITHUB_TOKEN", "ghp_test_token_123")
-	os.Setenv("LOG_LEVEL", "debug")
+	_ = os.Setenv("GITHUB_TOKEN", "ghp_test_token_123")
+	_ = os.Setenv("LOG_LEVEL", "debug")
 	defer func() {
-		os.Unsetenv("GITHUB_TOKEN")
-		os.Unsetenv("LOG_LEVEL")
+		_ = os.Unsetenv("GITHUB_TOKEN")
+		_ = os.Unsetenv("LOG_LEVEL")
 	}()
 
 	// Step 1: Load config with environment substitution (simulating what happens in cmd/root.go)

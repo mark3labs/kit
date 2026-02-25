@@ -1,42 +1,40 @@
 package cmd
 
 import (
-	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"charm.land/catwalk/pkg/catwalk"
 
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/spf13/cobra"
 )
 
-const defaultCatwalkURL = "https://catwalk.charm.sh"
+const defaultModelsURL = "https://models.dev/api.json"
 
 var updateModelsCmd = &cobra.Command{
 	Use:   "update-models [source]",
-	Short: "Update the local model database from a catwalk server",
+	Short: "Update the local model database from models.dev",
 	Long: `Update the local model database used for cost tracking, capability
 detection, and model suggestions.
 
-When run without arguments, fetches from the default catwalk server
-(https://catwalk.charm.sh). Override with CATWALK_URL env var.
+When run without arguments, fetches from models.dev.
 
 Sources:
-  (none)      Fetch from default catwalk server (or CATWALK_URL)
-  <url>       Fetch from a custom catwalk server
+  (none)      Fetch from models.dev (or MCPHOST_MODELS_URL override)
+  <url>       Fetch from a custom URL
   <file>      Load from a local JSON file
   embedded    Reset to the built-in database shipped with this binary
 
 Examples:
   mcphost update-models
-  mcphost update-models https://catwalk.example.com
-  mcphost update-models /path/to/providers.json
+  mcphost update-models https://models.dev/api.json
+  mcphost update-models /path/to/models.json
   mcphost update-models embedded`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runUpdateModels,
@@ -57,42 +55,68 @@ func runUpdateModels(_ *cobra.Command, args []string) error {
 		return resetToEmbedded()
 
 	case source == "":
-		// Default: fetch from CATWALK_URL or the public Charm server
-		url := cmp.Or(os.Getenv("CATWALK_URL"), defaultCatwalkURL)
+		url := defaultModelsURL
+		if override := os.Getenv("MCPHOST_MODELS_URL"); override != "" {
+			url = override
+		}
 		fmt.Fprintf(os.Stderr, "Fetching models from %s...\n", url)
-		return fetchFromServer(catwalk.NewWithURL(url))
+		return fetchFromURL(url)
 
 	case strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://"):
 		fmt.Fprintf(os.Stderr, "Fetching models from %s...\n", source)
-		return fetchFromServer(catwalk.NewWithURL(source))
+		return fetchFromURL(source)
 
 	default:
 		return loadFromFile(source)
 	}
 }
 
-func fetchFromServer(client *catwalk.Client) error {
+func fetchFromURL(url string) error {
 	// Load existing ETag for conditional fetch
 	_, etag := models.LoadCachedProviders()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	providers, err := client.GetProviders(ctx, etag)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		if errors.Is(err, catwalk.ErrNotModified) {
-			fmt.Fprintln(os.Stderr, "Model database is already up to date.")
-			return nil
-		}
-		return fmt.Errorf("failed to fetch providers: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Compute new ETag from the fetched data
-	data, err := json.Marshal(providers)
-	if err != nil {
-		return fmt.Errorf("failed to marshal providers: %w", err)
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
 	}
-	newETag := catwalk.Etag(data)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch models: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotModified {
+		fmt.Fprintln(os.Stderr, "Model database is already up to date.")
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	providers, err := parseModelsDB(data)
+	if err != nil {
+		return err
+	}
+
+	// Use ETag from response, or compute from content
+	newETag := resp.Header.Get("ETag")
+	if newETag == "" {
+		newETag = computeETag(data)
+	}
 
 	if err := models.StoreCachedProviders(providers, newETag); err != nil {
 		return fmt.Errorf("failed to cache providers: %w", err)
@@ -113,16 +137,12 @@ func loadFromFile(path string) error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var providers []catwalk.Provider
-	if err := json.Unmarshal(data, &providers); err != nil {
-		return fmt.Errorf("failed to parse provider data: %w", err)
+	providers, err := parseModelsDB(data)
+	if err != nil {
+		return err
 	}
 
-	if len(providers) == 0 {
-		return fmt.Errorf("file contains no provider data")
-	}
-
-	etag := catwalk.Etag(data)
+	etag := computeETag(data)
 	if err := models.StoreCachedProviders(providers, etag); err != nil {
 		return fmt.Errorf("failed to cache providers: %w", err)
 	}
@@ -143,4 +163,27 @@ func resetToEmbedded() error {
 
 	fmt.Fprintln(os.Stderr, "Model database reset to embedded version.")
 	return nil
+}
+
+// parseModelsDB parses a models.dev JSON payload. It accepts both the raw
+// models.dev format (map of provider ID → provider object) and our cache
+// envelope format (for backward compatibility with cached files).
+func parseModelsDB(data []byte) (models.ModelsDBProviders, error) {
+	// Try direct models.dev format first (map[string]provider)
+	var providers models.ModelsDBProviders
+	if err := json.Unmarshal(data, &providers); err != nil {
+		return nil, fmt.Errorf("failed to parse model data: %w", err)
+	}
+
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("model data contains no providers")
+	}
+
+	return providers, nil
+}
+
+// computeETag generates a content-based ETag from the raw data.
+func computeETag(data []byte) string {
+	h := sha256.Sum256(data)
+	return fmt.Sprintf(`"%x"`, h[:8])
 }

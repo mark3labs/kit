@@ -17,7 +17,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer host.Close()
+	defer func() { _ = host.Close() }()
 
 	response, err := host.Prompt(ctx, "What is 2+2?")
 	if err != nil {
@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer host2.Close()
+	defer func() { _ = host2.Close() }()
 
 	response, err = host2.Prompt(ctx, "Tell me a short joke")
 	if err != nil {
@@ -47,7 +47,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer host3.Close()
+	defer func() { _ = host3.Close() }()
 
 	response, err = host3.PromptWithCallbacks(
 		ctx,
@@ -77,7 +77,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer host4.Close()
+	defer func() { _ = host4.Close() }()
 
 	// First message
 	_, err = host4.Prompt(ctx, "Remember that my favorite color is blue")

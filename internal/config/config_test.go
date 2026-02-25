@@ -211,12 +211,12 @@ func TestEnsureConfigExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Set HOME to temp directory
 	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
 
 	// Test config creation
 	err = EnsureConfigExists()
@@ -562,12 +562,12 @@ func TestEnsureConfigExistsWhenFileExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Set HOME to temp directory
 	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
 
 	// Create an existing config file
 	configPath := filepath.Join(tempDir, ".mcphost.yml")

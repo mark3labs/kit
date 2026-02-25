@@ -20,7 +20,7 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create MCPHost with defaults: %v", err)
 	}
-	defer host.Close()
+	defer func() { _ = host.Close() }()
 
 	if host.GetModelString() == "" {
 		t.Error("Model string should not be empty")
@@ -44,7 +44,7 @@ func TestNewWithOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create MCPHost with options: %v", err)
 	}
-	defer host.Close()
+	defer func() { _ = host.Close() }()
 
 	if host.GetModelString() != opts.Model {
 		t.Errorf("Expected model %s, got %s", opts.Model, host.GetModelString())
@@ -62,7 +62,7 @@ func TestSessionManagement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create MCPHost: %v", err)
 	}
-	defer host.Close()
+	defer func() { _ = host.Close() }()
 
 	// Test clear session
 	host.ClearSession()

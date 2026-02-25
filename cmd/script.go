@@ -258,7 +258,7 @@ func parseScriptFile(filename string, variables map[string]string) (*config.Conf
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 
@@ -624,7 +624,7 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %v", err)
 	}
-	defer mcpAgent.Close()
+	defer func() { _ = mcpAgent.Close() }()
 
 	// Get model name for display
 	_, modelName, _ := models.ParseModelString(finalModel)

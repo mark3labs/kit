@@ -169,7 +169,7 @@ func executeHTTPFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed: %v", err)), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed with status code: %d", resp.StatusCode)), nil
@@ -398,7 +398,7 @@ func httpFetchAndExtractText(ctx context.Context, urlStr string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("request failed with status code: %d", resp.StatusCode)
@@ -502,7 +502,7 @@ func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed: %v", err)), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed with status code: %d", resp.StatusCode)), nil
@@ -562,14 +562,6 @@ func executeHTTPFetchFilteredJSON(ctx context.Context, request mcp.CallToolReque
 	}
 
 	return mcpResult, nil
-}
-
-// httpGetTextFromSamplingResult extracts text from sampling result
-func httpGetTextFromSamplingResult(result *mcp.CreateMessageResult) string {
-	if textContent, ok := result.Content.(mcp.TextContent); ok {
-		return textContent.Text
-	}
-	return fmt.Sprintf("%v", result.Content)
 }
 
 const httpFetchDescription = `Performs HTTP GET requests and returns content in HTML or Markdown format.

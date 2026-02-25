@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-
-	"charm.land/catwalk/pkg/catwalk"
 )
 
 // cacheFile is the file name for the cached provider data.
@@ -15,8 +13,8 @@ const cacheFile = "providers.json"
 
 // cacheEnvelope wraps the provider data with an ETag for HTTP caching.
 type cacheEnvelope struct {
-	ETag      string             `json:"etag,omitempty"`
-	Providers []catwalk.Provider `json:"providers"`
+	ETag      string                      `json:"etag,omitempty"`
+	Providers map[string]modelsDBProvider `json:"providers"`
 }
 
 // dataDir returns the mcphost data directory following XDG Base Directory spec.
@@ -52,7 +50,7 @@ func cachePath() (string, error) {
 
 // LoadCachedProviders reads the cached provider data from disk.
 // Returns nil, "" if no cache exists or the cache is unreadable.
-func LoadCachedProviders() ([]catwalk.Provider, string) {
+func LoadCachedProviders() (map[string]modelsDBProvider, string) {
 	path, err := cachePath()
 	if err != nil {
 		return nil, ""
@@ -76,7 +74,7 @@ func LoadCachedProviders() ([]catwalk.Provider, string) {
 }
 
 // StoreCachedProviders writes provider data to the cache file on disk.
-func StoreCachedProviders(providers []catwalk.Provider, etag string) error {
+func StoreCachedProviders(providers map[string]modelsDBProvider, etag string) error {
 	path, err := cachePath()
 	if err != nil {
 		return err
@@ -100,7 +98,7 @@ func StoreCachedProviders(providers []catwalk.Provider, etag string) error {
 }
 
 // RemoveCachedProviders deletes the cache file, causing the registry to
-// fall back to the embedded catwalk database on next load.
+// fall back to the embedded model database on next load.
 func RemoveCachedProviders() error {
 	path, err := cachePath()
 	if err != nil {

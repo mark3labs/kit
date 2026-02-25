@@ -326,29 +326,29 @@ func init() {
 
 	// Ollama-specific parameters
 	flags.Int32Var(&numGPU, "num-gpu-layers", -1, "number of model layers to offload to GPU for Ollama models (-1 for auto-detect)")
-	flags.MarkHidden("num-gpu-layers") // Advanced option, hidden from help
+	_ = flags.MarkHidden("num-gpu-layers") // Advanced option, hidden from help
 	flags.Int32Var(&mainGPU, "main-gpu", 0, "main GPU device to use for Ollama models")
 
 	// Bind flags to viper for config file support
-	viper.BindPFlag("system-prompt", rootCmd.PersistentFlags().Lookup("system-prompt"))
-	viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
-	viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
-	viper.BindPFlag("prompt", rootCmd.PersistentFlags().Lookup("prompt"))
-	viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
-	viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
-	viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
-	viper.BindPFlag("no-hooks", rootCmd.PersistentFlags().Lookup("no-hooks"))
-	viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
-	viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
-	viper.BindPFlag("max-tokens", rootCmd.PersistentFlags().Lookup("max-tokens"))
-	viper.BindPFlag("temperature", rootCmd.PersistentFlags().Lookup("temperature"))
-	viper.BindPFlag("top-p", rootCmd.PersistentFlags().Lookup("top-p"))
-	viper.BindPFlag("top-k", rootCmd.PersistentFlags().Lookup("top-k"))
-	viper.BindPFlag("stop-sequences", rootCmd.PersistentFlags().Lookup("stop-sequences"))
-	viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))
-	viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
-	viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
-	viper.BindPFlag("approve-tool-run", rootCmd.PersistentFlags().Lookup("approve-tool-run"))
+	_ = viper.BindPFlag("system-prompt", rootCmd.PersistentFlags().Lookup("system-prompt"))
+	_ = viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
+	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
+	_ = viper.BindPFlag("prompt", rootCmd.PersistentFlags().Lookup("prompt"))
+	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
+	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
+	_ = viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
+	_ = viper.BindPFlag("no-hooks", rootCmd.PersistentFlags().Lookup("no-hooks"))
+	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
+	_ = viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
+	_ = viper.BindPFlag("max-tokens", rootCmd.PersistentFlags().Lookup("max-tokens"))
+	_ = viper.BindPFlag("temperature", rootCmd.PersistentFlags().Lookup("temperature"))
+	_ = viper.BindPFlag("top-p", rootCmd.PersistentFlags().Lookup("top-p"))
+	_ = viper.BindPFlag("top-k", rootCmd.PersistentFlags().Lookup("top-k"))
+	_ = viper.BindPFlag("stop-sequences", rootCmd.PersistentFlags().Lookup("stop-sequences"))
+	_ = viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))
+	_ = viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
+	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
+	_ = viper.BindPFlag("approve-tool-run", rootCmd.PersistentFlags().Lookup("approve-tool-run"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -458,7 +458,7 @@ func runNormalMode(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %v", err)
 	}
-	defer mcpAgent.Close()
+	defer func() { _ = mcpAgent.Close() }()
 
 	// Initialize hook executor if hooks are configured
 	// Get model name for display
@@ -673,7 +673,7 @@ func runNormalMode(ctx context.Context) error {
 
 					// Display assistant response (only if there's content)
 					if sessionMsg.Content != "" {
-						cli.DisplayAssistantMessage(sessionMsg.Content)
+						_ = cli.DisplayAssistantMessage(sessionMsg.Content)
 					}
 				case "tool":
 					// Display tool result
@@ -726,7 +726,7 @@ func runNormalMode(ctx context.Context) error {
 		sessionManager = session.NewManager(saveSessionPath)
 
 		// Set metadata
-		sessionManager.SetMetadata(session.Metadata{
+		_ = sessionManager.SetMetadata(session.Metadata{
 			MCPHostVersion: "dev", // TODO: Get actual version
 			Provider:       parsedProvider,
 			Model:          modelName,
@@ -988,11 +988,6 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 				// Reset the flag for next tool
 				toolIsBlocked = false
 
-				// Override the result with a block message
-				blockedResult := fmt.Sprintf(`{"error": "Tool execution blocked", "message": "%s"}`, blockReason)
-				result = blockedResult
-				isError = true
-
 				// Display the blocked message
 				if !config.Quiet && cli != nil {
 					cli.DisplayToolMessage(toolName, toolArgs, fmt.Sprintf("Tool execution blocked: %s", blockReason), true)
@@ -1088,7 +1083,7 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 					currentSpinner.Stop()
 					currentSpinner = nil
 				}
-				cli.DisplayAssistantMessageWithModel(content, config.ModelName)
+				_ = cli.DisplayAssistantMessageWithModel(content, config.ModelName)
 				lastDisplayedContent = content
 				// Start spinner again for tool calls
 				currentSpinner = ui.NewSpinner("Thinking...")
@@ -1224,7 +1219,7 @@ func executeStopHook(hookExecutor *hooks.Executor, response *fantasy.Response, s
 		}
 
 		// Execute Stop hook (ignore errors as we're exiting anyway)
-		hookExecutor.ExecuteHooks(context.Background(), hooks.Stop, input)
+		_, _ = hookExecutor.ExecuteHooks(context.Background(), hooks.Stop, input)
 	}
 }
 

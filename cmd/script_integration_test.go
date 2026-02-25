@@ -42,13 +42,13 @@ Working directory is ${env://WORK_DIR:-/tmp}.
 	}
 
 	// Set up environment variables
-	os.Setenv("GITHUB_TOKEN", "ghp_test_token")
-	os.Setenv("DEBUG", "true")
-	os.Setenv("WORK_DIR", "/home/user/projects")
+	_ = os.Setenv("GITHUB_TOKEN", "ghp_test_token")
+	_ = os.Setenv("DEBUG", "true")
+	_ = os.Setenv("WORK_DIR", "/home/user/projects")
 	defer func() {
-		os.Unsetenv("GITHUB_TOKEN")
-		os.Unsetenv("DEBUG")
-		os.Unsetenv("WORK_DIR")
+		_ = os.Unsetenv("GITHUB_TOKEN")
+		_ = os.Unsetenv("DEBUG")
+		_ = os.Unsetenv("WORK_DIR")
 	}()
 
 	// Set up script arguments
@@ -131,7 +131,7 @@ Test script with required env var.
 	}
 
 	// Make sure the environment variable is not set
-	os.Unsetenv("REQUIRED_TOKEN")
+	_ = os.Unsetenv("REQUIRED_TOKEN")
 
 	// Parse the script - should fail
 	variables := map[string]string{}
@@ -201,8 +201,8 @@ Base path is ${env://BASE_PATH:-/tmp} and suffix is ${path_suffix:-default}.
 	}
 
 	// Set environment variable
-	os.Setenv("BASE_PATH", "/home/user")
-	defer os.Unsetenv("BASE_PATH")
+	_ = os.Setenv("BASE_PATH", "/home/user")
+	defer func() { _ = os.Unsetenv("BASE_PATH") }()
 
 	// Set script argument
 	variables := map[string]string{

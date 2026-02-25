@@ -8,16 +8,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-const defaultMargin = 1
-
-// Helper functions for style pointers
+// uintPtr returns a pointer to u. Used by ansi.StyleConfig fields.
 //
-//go:fix inline
-func boolPtr(b bool) *bool { return new(b) }
-
-//go:fix inline
-func stringPtr(s string) *string { return new(s) }
-
 //go:fix inline
 func uintPtr(u uint) *uint { return new(u) }
 
@@ -39,70 +31,71 @@ func GetMarkdownRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-// generateMarkdownStyleConfig creates an ansi.StyleConfig for markdown rendering
-func generateMarkdownStyleConfig() ansi.StyleConfig {
+// colorScheme holds resolved color values for markdown rendering.
+type colorScheme struct {
+	text    string
+	muted   string
+	heading string
+	emph    string
+	strong  string
+	link    string
+	code    string
+	err     string
+	keyword string
+	str     string
+	number  string
+	comment string
+}
 
-	var textColor, mutedColor string
-	var headingColor, emphColor, strongColor, linkColor, codeColor, errorColor, keywordColor, stringColor, numberColor, commentColor string
+// resolveColorScheme determines the color palette based on user config and background.
+func resolveColorScheme() colorScheme {
 	var mdTheme config.MarkdownTheme
-
 	err := config.FilepathOr("markdown-theme", &mdTheme)
 	fromConfig := err == nil && viper.InConfig("markdown-theme")
+
 	if fromConfig && IsDarkBackground() {
-		textColor = mdTheme.Text.Light
-		mutedColor = mdTheme.Muted.Light
-		headingColor = mdTheme.Heading.Light
-		emphColor = mdTheme.Emph.Light
-		strongColor = mdTheme.Strong.Light
-		linkColor = mdTheme.Link.Light
-		codeColor = mdTheme.Code.Light
-		errorColor = mdTheme.Error.Light
-		keywordColor = mdTheme.Keyword.Light
-		stringColor = mdTheme.String.Light
-		numberColor = mdTheme.Number.Light
-		commentColor = mdTheme.Comment.Light
-	} else if fromConfig {
-		textColor = mdTheme.Text.Dark
-		mutedColor = mdTheme.Muted.Dark
-		headingColor = mdTheme.Heading.Dark
-		emphColor = mdTheme.Emph.Dark
-		strongColor = mdTheme.Strong.Dark
-		linkColor = mdTheme.Link.Dark
-		codeColor = mdTheme.Code.Dark
-		errorColor = mdTheme.Error.Dark
-		keywordColor = mdTheme.Keyword.Dark
-		stringColor = mdTheme.String.Dark
-		numberColor = mdTheme.Number.Dark
-		commentColor = mdTheme.Comment.Dark
-	} else if IsDarkBackground() {
-		textColor = "#F9FAFB"  // Light text for dark backgrounds
-		mutedColor = "#9CA3AF" // Light muted for dark backgrounds
-		// Dark background colors
-		headingColor = "#22D3EE" // Cyan
-		emphColor = "#FDE047"    // Yellow
-		strongColor = "#F9FAFB"  // Light gray
-		linkColor = "#60A5FA"    // Blue
-		codeColor = "#D1D5DB"    // Light gray
-		errorColor = "#F87171"   // Red
-		keywordColor = "#C084FC" // Purple
-		stringColor = "#34D399"  // Green
-		numberColor = "#FBBF24"  // Orange
-		commentColor = "#9CA3AF" // Muted gray
-	} else {
-		textColor = "#1F2937"  // Dark text for light backgrounds
-		mutedColor = "#6B7280" // Dark muted for light backgrounds
-		// Light background colors
-		headingColor = "#0891B2" // Dark cyan
-		emphColor = "#D97706"    // Orange
-		strongColor = "#1F2937"  // Dark gray
-		linkColor = "#2563EB"    // Blue
-		codeColor = "#374151"    // Dark gray
-		errorColor = "#DC2626"   // Red
-		keywordColor = "#7C3AED" // Purple
-		stringColor = "#059669"  // Green
-		numberColor = "#D97706"  // Orange
-		commentColor = "#6B7280" // Muted gray
+		return colorScheme{
+			text: mdTheme.Text.Light, muted: mdTheme.Muted.Light,
+			heading: mdTheme.Heading.Light, emph: mdTheme.Emph.Light,
+			strong: mdTheme.Strong.Light, link: mdTheme.Link.Light,
+			code: mdTheme.Code.Light, err: mdTheme.Error.Light,
+			keyword: mdTheme.Keyword.Light, str: mdTheme.String.Light,
+			number: mdTheme.Number.Light, comment: mdTheme.Comment.Light,
+		}
 	}
+	if fromConfig {
+		return colorScheme{
+			text: mdTheme.Text.Dark, muted: mdTheme.Muted.Dark,
+			heading: mdTheme.Heading.Dark, emph: mdTheme.Emph.Dark,
+			strong: mdTheme.Strong.Dark, link: mdTheme.Link.Dark,
+			code: mdTheme.Code.Dark, err: mdTheme.Error.Dark,
+			keyword: mdTheme.Keyword.Dark, str: mdTheme.String.Dark,
+			number: mdTheme.Number.Dark, comment: mdTheme.Comment.Dark,
+		}
+	}
+	if IsDarkBackground() {
+		return colorScheme{
+			text: "#F9FAFB", muted: "#9CA3AF",
+			heading: "#22D3EE", emph: "#FDE047",
+			strong: "#F9FAFB", link: "#60A5FA",
+			code: "#D1D5DB", err: "#F87171",
+			keyword: "#C084FC", str: "#34D399",
+			number: "#FBBF24", comment: "#9CA3AF",
+		}
+	}
+	return colorScheme{
+		text: "#1F2937", muted: "#6B7280",
+		heading: "#0891B2", emph: "#D97706",
+		strong: "#1F2937", link: "#2563EB",
+		code: "#374151", err: "#DC2626",
+		keyword: "#7C3AED", str: "#059669",
+		number: "#D97706", comment: "#6B7280",
+	}
+}
+
+// generateMarkdownStyleConfig creates an ansi.StyleConfig for markdown rendering
+func generateMarkdownStyleConfig() ansi.StyleConfig {
+	cs := resolveColorScheme()
 
 	// Don't apply background in markdown - let the block renderer handle it
 	bgColor := ""
@@ -112,13 +105,13 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 			StylePrimitive: ansi.StylePrimitive{
 				BlockPrefix: "",
 				BlockSuffix: "",
-				Color:       new(textColor),
+				Color:       &cs.text,
 			},
 			Margin: uintPtr(0), // Remove margin to prevent spacing
 		},
 		BlockQuote: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Color:  new(mutedColor),
+				Color:  &cs.muted,
 				Italic: new(true),
 				Prefix: "┃ ",
 			},
@@ -130,83 +123,82 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 			StyleBlock: ansi.StyleBlock{
 				IndentToken: new(lipgloss.NewStyle().Background(lipgloss.Color(bgColor)).Render(" ")),
 				StylePrimitive: ansi.StylePrimitive{
-					Color: new(textColor),
+					Color: &cs.text,
 				},
 			},
 		},
 		Heading: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockSuffix: "\n",
-				Color:       new(headingColor),
+				Color:       &cs.heading,
 				Bold:        new(true),
 			},
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "# ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		H2: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "## ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		H3: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "### ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		H4: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "#### ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		H5: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "##### ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		H6: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				Prefix: "###### ",
-				Color:  new(headingColor),
+				Color:  &cs.heading,
 				Bold:   new(true),
 			},
 		},
 		Strikethrough: ansi.StylePrimitive{
 			CrossedOut: new(true),
-			Color:      new(mutedColor),
+			Color:      &cs.muted,
 		},
 		Emph: ansi.StylePrimitive{
-			Color: new(emphColor),
-
+			Color:  &cs.emph,
 			Italic: new(true),
 		},
 		Strong: ansi.StylePrimitive{
 			Bold:  new(true),
-			Color: new(strongColor),
+			Color: &cs.strong,
 		},
 		HorizontalRule: ansi.StylePrimitive{
-			Color:  new(mutedColor),
+			Color:  &cs.muted,
 			Format: "\n─────────────────────────────────────────\n",
 		},
 		Item: ansi.StylePrimitive{
 			BlockPrefix: "• ",
-			Color:       new(textColor),
+			Color:       &cs.text,
 		},
 		Enumeration: ansi.StylePrimitive{
 			BlockPrefix: ". ",
-			Color:       new(textColor),
+			Color:       &cs.text,
 		},
 		Task: ansi.StyleTask{
 			StylePrimitive: ansi.StylePrimitive{},
@@ -214,30 +206,25 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 			Unticked:       "[ ] ",
 		},
 		Link: ansi.StylePrimitive{
-			Color: new(linkColor),
-
+			Color:     &cs.link,
 			Underline: new(true),
 		},
 		LinkText: ansi.StylePrimitive{
-			Color: new(linkColor),
-
-			Bold: new(true),
+			Color: &cs.link,
+			Bold:  new(true),
 		},
 		Image: ansi.StylePrimitive{
-			Color: new(linkColor),
-
+			Color:     &cs.link,
 			Underline: new(true),
 			Format:    "🖼 {{.text}}",
 		},
 		ImageText: ansi.StylePrimitive{
-			Color: new(linkColor),
-
+			Color:  &cs.link,
 			Format: "{{.text}}",
 		},
 		Code: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Color: new(codeColor),
-
+				Color:  &cs.code,
 				Prefix: "",
 				Suffix: "",
 			},
@@ -246,92 +233,50 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 			StyleBlock: ansi.StyleBlock{
 				StylePrimitive: ansi.StylePrimitive{
 					Prefix: "",
-					Color:  new(codeColor),
+					Color:  &cs.code,
 				},
 				Margin: uintPtr(0), // Remove margin
 			},
 			Chroma: &ansi.Chroma{
-				Text: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				Error: ansi.StylePrimitive{
-					Color: new(errorColor),
-				},
-				Comment: ansi.StylePrimitive{
-					Color: new(commentColor),
-				},
-				CommentPreproc: ansi.StylePrimitive{
-					Color: new(keywordColor),
-				},
-				Keyword: ansi.StylePrimitive{
-					Color: new(keywordColor),
-				},
+				Text:           ansi.StylePrimitive{Color: &cs.text},
+				Error:          ansi.StylePrimitive{Color: &cs.err},
+				Comment:        ansi.StylePrimitive{Color: &cs.comment},
+				CommentPreproc: ansi.StylePrimitive{Color: &cs.keyword},
+				Keyword:        ansi.StylePrimitive{Color: &cs.keyword},
 				KeywordReserved: ansi.StylePrimitive{
-					Color: new(keywordColor),
+					Color: &cs.keyword,
 				},
 				KeywordNamespace: ansi.StylePrimitive{
-					Color: new(keywordColor),
+					Color: &cs.keyword,
 				},
-				KeywordType: ansi.StylePrimitive{
-					Color: new(keywordColor),
-				},
-				Operator: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				Punctuation: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				Name: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				NameBuiltin: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				NameTag: ansi.StylePrimitive{
-					Color: new(keywordColor),
-				},
-				NameAttribute: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				NameClass: ansi.StylePrimitive{
-					Color: new(keywordColor),
-				},
-				NameConstant: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				NameDecorator: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				NameFunction: ansi.StylePrimitive{
-					Color: new(textColor),
-				},
-				LiteralNumber: ansi.StylePrimitive{
-					Color: new(numberColor),
-				},
-				LiteralString: ansi.StylePrimitive{
-					Color: new(stringColor),
-				},
+				KeywordType:   ansi.StylePrimitive{Color: &cs.keyword},
+				Operator:      ansi.StylePrimitive{Color: &cs.text},
+				Punctuation:   ansi.StylePrimitive{Color: &cs.text},
+				Name:          ansi.StylePrimitive{Color: &cs.text},
+				NameBuiltin:   ansi.StylePrimitive{Color: &cs.text},
+				NameTag:       ansi.StylePrimitive{Color: &cs.keyword},
+				NameAttribute: ansi.StylePrimitive{Color: &cs.text},
+				NameClass:     ansi.StylePrimitive{Color: &cs.keyword},
+				NameConstant:  ansi.StylePrimitive{Color: &cs.text},
+				NameDecorator: ansi.StylePrimitive{Color: &cs.text},
+				NameFunction:  ansi.StylePrimitive{Color: &cs.text},
+				LiteralNumber: ansi.StylePrimitive{Color: &cs.number},
+				LiteralString: ansi.StylePrimitive{Color: &cs.str},
 				LiteralStringEscape: ansi.StylePrimitive{
-					Color: new(keywordColor),
+					Color: &cs.keyword,
 				},
-				GenericDeleted: ansi.StylePrimitive{
-					Color: new(errorColor),
-				},
+				GenericDeleted: ansi.StylePrimitive{Color: &cs.err},
 				GenericEmph: ansi.StylePrimitive{
-					Color: new(emphColor),
-
+					Color:  &cs.emph,
 					Italic: new(true),
 				},
-				GenericInserted: ansi.StylePrimitive{
-					Color: new(stringColor),
-				},
+				GenericInserted: ansi.StylePrimitive{Color: &cs.str},
 				GenericStrong: ansi.StylePrimitive{
-					Color: new(strongColor),
-
-					Bold: new(true),
+					Color: &cs.strong,
+					Bold:  new(true),
 				},
 				GenericSubheading: ansi.StylePrimitive{
-					Color: new(headingColor),
+					Color: &cs.heading,
 				},
 			},
 		},
@@ -348,14 +293,14 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 		},
 		DefinitionDescription: ansi.StylePrimitive{
 			BlockPrefix: "\n ❯ ",
-			Color:       new(linkColor),
+			Color:       &cs.link,
 		},
 		Text: ansi.StylePrimitive{
-			Color: new(textColor),
+			Color: &cs.text,
 		},
 		Paragraph: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Color: new(textColor),
+				Color: &cs.text,
 			},
 		},
 	}

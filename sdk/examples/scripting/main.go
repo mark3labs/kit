@@ -20,7 +20,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer host.Close()
+	defer func() { _ = host.Close() }()
 
 	// Process command line arguments
 	if len(os.Args) < 2 {

@@ -123,7 +123,7 @@ func executeFetch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTo
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("request failed: %v", err)), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

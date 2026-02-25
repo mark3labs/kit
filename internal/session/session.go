@@ -223,6 +223,6 @@ func (m *Message) ConvertToFantasyMessage() fantasy.Message {
 // generateMessageID generates a unique message ID.
 func generateMessageID() string {
 	bytes := make([]byte, 8)
-	rand.Read(bytes)
+	_, _ = rand.Read(bytes)
 	return "msg_" + hex.EncodeToString(bytes)
 }

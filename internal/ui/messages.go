@@ -594,31 +594,6 @@ func (r *MessageRenderer) formatBashOutput(result string, width int, theme Theme
 		Render(finalResult)
 }
 
-// truncateText truncates text to fit within the specified width
-func (r *MessageRenderer) truncateText(text string, maxWidth int) string {
-	// In debug mode, don't truncate - just replace newlines with spaces
-	if r.debug {
-		return strings.ReplaceAll(text, "\n", " ")
-	}
-
-	// Replace newlines with spaces for single-line display
-	text = strings.ReplaceAll(text, "\n", " ")
-
-	if lipgloss.Width(text) <= maxWidth {
-		return text
-	}
-
-	// Simple truncation - could be improved with proper unicode handling
-	for i := len(text) - 1; i >= 0; i-- {
-		truncated := text[:i] + "..."
-		if lipgloss.Width(truncated) <= maxWidth {
-			return truncated
-		}
-	}
-
-	return "..."
-}
-
 // renderMarkdown renders markdown content using glamour
 func (r *MessageRenderer) renderMarkdown(content string, width int) string {
 	rendered := toMarkdown(content, width)

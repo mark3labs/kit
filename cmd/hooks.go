@@ -32,7 +32,7 @@ var hooksListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "EVENT\tMATCHER\tCOMMAND\tTIMEOUT")
+		_, _ = fmt.Fprintln(w, "EVENT\tMATCHER\tCOMMAND\tTIMEOUT")
 
 		for event, matchers := range config.Hooks {
 			for _, matcher := range matchers {
@@ -41,7 +41,7 @@ var hooksListCmd = &cobra.Command{
 					if hook.Timeout > 0 {
 						timeout = fmt.Sprintf("%ds", hook.Timeout)
 					}
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 						event, matcher.Matcher, hook.Command, timeout)
 				}
 			}

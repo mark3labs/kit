@@ -12,7 +12,7 @@ func TestCredentialManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create a credential manager with a test path
 	cm := &CredentialManager{
@@ -129,19 +129,19 @@ func TestGetAnthropicAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Save original environment
 	originalAPIKey := os.Getenv("ANTHROPIC_API_KEY")
 	originalXDGConfig := os.Getenv("XDG_CONFIG_HOME")
 	defer func() {
-		os.Setenv("ANTHROPIC_API_KEY", originalAPIKey)
-		os.Setenv("XDG_CONFIG_HOME", originalXDGConfig)
+		_ = os.Setenv("ANTHROPIC_API_KEY", originalAPIKey)
+		_ = os.Setenv("XDG_CONFIG_HOME", originalXDGConfig)
 	}()
 
 	// Set up test environment
-	os.Setenv("XDG_CONFIG_HOME", tempDir)
-	os.Unsetenv("ANTHROPIC_API_KEY")
+	_ = os.Setenv("XDG_CONFIG_HOME", tempDir)
+	_ = os.Unsetenv("ANTHROPIC_API_KEY")
 
 	// Test 1: Flag value takes precedence
 	flagKey := "sk-ant-flag-key-12345678901234567890"
@@ -186,7 +186,7 @@ func TestGetAnthropicAPIKey(t *testing.T) {
 	}
 
 	envKey := "sk-ant-env-key-12345678901234567890"
-	os.Setenv("ANTHROPIC_API_KEY", envKey)
+	_ = os.Setenv("ANTHROPIC_API_KEY", envKey)
 
 	apiKey, source, err = GetAnthropicAPIKey("")
 	if err != nil {
@@ -200,7 +200,7 @@ func TestGetAnthropicAPIKey(t *testing.T) {
 	}
 
 	// Test 4: No credentials available
-	os.Unsetenv("ANTHROPIC_API_KEY")
+	_ = os.Unsetenv("ANTHROPIC_API_KEY")
 
 	_, _, err = GetAnthropicAPIKey("")
 	if err == nil {
@@ -214,7 +214,7 @@ func TestCredentialStorePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	credentialsPath := filepath.Join(tempDir, "credentials.json")
 

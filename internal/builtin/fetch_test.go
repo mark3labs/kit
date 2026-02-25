@@ -67,7 +67,7 @@ func TestFetchHTML(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(testHTML))
+		_, _ = w.Write([]byte(testHTML))
 	}))
 	defer server.Close()
 
@@ -130,7 +130,7 @@ func TestFetchText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(testHTML))
+		_, _ = w.Write([]byte(testHTML))
 	}))
 	defer server.Close()
 
@@ -200,7 +200,7 @@ func TestFetchMarkdown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(testHTML))
+		_, _ = w.Write([]byte(testHTML))
 	}))
 	defer server.Close()
 
@@ -319,7 +319,7 @@ func TestFetchPlainText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(testText))
+		_, _ = w.Write([]byte(testText))
 	}))
 	defer server.Close()
 

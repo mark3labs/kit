@@ -54,7 +54,7 @@ func TestExecuteHTTPFetch(t *testing.T) {
 		switch r.URL.Path {
 		case "/html":
 			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte(`<!DOCTYPE html>
+			_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html>
 <head><title>Test Page</title></head>
 <body>
@@ -64,12 +64,12 @@ func TestExecuteHTTPFetch(t *testing.T) {
 </html>`))
 		case "/text":
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("This is plain text content"))
+			_, _ = w.Write([]byte("This is plain text content"))
 		case "/large":
 			// Return content larger than 5MB
 			w.Header().Set("Content-Type", "text/plain")
 			largeContent := strings.Repeat("x", 6*1024*1024)
-			w.Write([]byte(largeContent))
+			_, _ = w.Write([]byte(largeContent))
 		case "/error":
 			w.WriteHeader(http.StatusInternalServerError)
 		default:

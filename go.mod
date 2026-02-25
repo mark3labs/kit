@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.0
-	charm.land/catwalk v0.22.1
 	charm.land/fantasy v0.10.0
 	charm.land/lipgloss/v2 v2.0.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
@@ -55,7 +54,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260223171050-89c142e4aa73 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
-	github.com/charmbracelet/x/etag v0.2.0 // indirect
 	github.com/charmbracelet/x/exp/charmtone v0.0.0-20260223200540-d6a276319c45 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20260223200540-d6a276319c45 // indirect
 	github.com/charmbracelet/x/json v0.2.0 // indirect

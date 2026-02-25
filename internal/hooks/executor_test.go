@@ -166,11 +166,6 @@ echo '{"decision": "approve", "reason": "Approved by test"}'
 	}
 }
 
-//go:fix inline
-func boolPtr(b bool) *bool {
-	return new(b)
-}
-
 func compareHookOutputs(a, b *HookOutput) bool {
 	if a == nil && b == nil {
 		return true

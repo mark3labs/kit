@@ -41,13 +41,13 @@ debug: ${env://DEBUG:-false}
 	}
 
 	// Set up environment variables
-	os.Setenv("GITHUB_TOKEN", "ghp_test_token")
-	os.Setenv("DEBUG", "true")
-	os.Setenv("DB_API_KEY", "secret_key")
+	_ = os.Setenv("GITHUB_TOKEN", "ghp_test_token")
+	_ = os.Setenv("DEBUG", "true")
+	_ = os.Setenv("DB_API_KEY", "secret_key")
 	defer func() {
-		os.Unsetenv("GITHUB_TOKEN")
-		os.Unsetenv("DEBUG")
-		os.Unsetenv("DB_API_KEY")
+		_ = os.Unsetenv("GITHUB_TOKEN")
+		_ = os.Unsetenv("DEBUG")
+		_ = os.Unsetenv("DB_API_KEY")
 	}()
 
 	// Test the loadConfigWithEnvSubstitution function
@@ -131,7 +131,7 @@ mcpServers:
 	}
 
 	// Make sure the environment variable is not set
-	os.Unsetenv("REQUIRED_GITHUB_TOKEN")
+	_ = os.Unsetenv("REQUIRED_GITHUB_TOKEN")
 
 	// Test that loading fails with a clear error
 	viper.Reset()
@@ -170,8 +170,8 @@ func TestJSONConfigWithEnvSubstitution(t *testing.T) {
 	}
 
 	// Set one environment variable, leave others to use defaults
-	os.Setenv("VAR2", "custom_value")
-	defer os.Unsetenv("VAR2")
+	_ = os.Setenv("VAR2", "custom_value")
+	defer func() { _ = os.Unsetenv("VAR2") }()
 
 	viper.Reset()
 	err = loadConfigWithEnvSubstitution(configPath)

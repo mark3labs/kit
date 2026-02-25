@@ -13,8 +13,6 @@ import (
 	"golang.org/x/term"
 )
 
-var promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-
 // CLI manages the command-line interface for MCPHost, providing message rendering,
 // user input handling, and display management. It supports both standard and compact
 // display modes, handles streaming responses, tracks token usage, and manages the

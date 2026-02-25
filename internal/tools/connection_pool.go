@@ -132,7 +132,7 @@ func (p *MCPConnectionPool) GetConnection(ctx context.Context, serverName string
 					p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Connection %s unhealthy, removing", serverName))
 				}
 			}
-			conn.client.Close()
+			_ = conn.client.Close()
 			delete(p.connections, serverName)
 		}
 	}
@@ -178,14 +178,14 @@ func (p *MCPConnectionPool) GetConnectionWithHealthCheck(ctx context.Context, se
 				if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
 					p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Connection %s failed health check, removing", serverName))
 				}
-				conn.client.Close()
+				_ = conn.client.Close()
 				delete(p.connections, serverName)
 			}
 		} else {
 			if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
 				p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Connection %s unhealthy, removing", serverName))
 			}
-			conn.client.Close()
+			_ = conn.client.Close()
 			delete(p.connections, serverName)
 		}
 	}
@@ -239,7 +239,7 @@ func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName str
 	}
 
 	if err := p.initializeClient(ctx, client); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, err
 	}
 

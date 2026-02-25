@@ -33,8 +33,8 @@ Calculate 3 times 4 equal to?
 	}
 
 	// Set up environment variable
-	os.Setenv("DEEPSEEK_API_KEY", "sk-test-key")
-	defer os.Unsetenv("DEEPSEEK_API_KEY")
+	_ = os.Setenv("DEEPSEEK_API_KEY", "sk-test-key")
+	defer func() { _ = os.Unsetenv("DEEPSEEK_API_KEY") }()
 
 	// Parse the script file
 	variables := map[string]string{}

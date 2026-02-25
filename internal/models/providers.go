@@ -112,12 +112,14 @@ func ParseModelString(modelString string) (provider, model string, err error) {
 }
 
 // CreateProvider creates a fantasy LanguageModel based on the provider configuration.
-// Model metadata is looked up from the catwalk database for cost tracking and
+// Model metadata is looked up from the models.dev database for cost tracking and
 // capability detection, but unknown models are passed through to the provider
-// API — catwalk is advisory, not a gatekeeper.
+// API — the database is advisory, not a gatekeeper.
 //
-// Supported providers: anthropic, openai, google, ollama, azure, google-vertex-anthropic,
-// openrouter, bedrock
+// Native providers: anthropic, openai, google, ollama, azure, google-vertex-anthropic,
+// openrouter, bedrock, vercel.
+// Any provider in models.dev with an api URL or openai-compatible npm package
+// is auto-routed through fantasy's openaicompat provider.
 func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
 	provider, modelName, err := ParseModelString(config.ModelString)
 	if err != nil {
@@ -131,20 +133,20 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 
 	registry := GetGlobalRegistry()
 
-	// Look up model metadata from catwalk (advisory, not blocking).
+	// Look up model metadata (advisory, not blocking).
 	// When the model is known we validate config limits and print
 	// suggestions on likely typos; when unknown we let the provider
 	// API be the authority.
 	modelInfo := registry.LookupModel(provider, modelName)
 	if modelInfo == nil && provider != "ollama" && config.ProviderURL == "" {
-		// Model not in catwalk — warn with suggestions but don't block.
+		// Model not in database — warn with suggestions but don't block.
 		if suggestions := registry.SuggestModels(provider, modelName); len(suggestions) > 0 {
 			fmt.Fprintf(os.Stderr, "Warning: model %q not found in model database for provider %s. Similar models: %s\n",
 				modelName, provider, strings.Join(suggestions, ", "))
 		}
 	}
 
-	// Validate environment variables (required regardless of catwalk status)
+	// Validate environment variables
 	if err := registry.ValidateEnvironment(provider, config.ProviderAPIKey); err != nil {
 		return nil, err
 	}
@@ -174,8 +176,161 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	case "vercel":
 		return createVercelProvider(ctx, config, modelName)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s. Supported: anthropic, openai, google, ollama, azure, google-vertex-anthropic, openrouter, bedrock, vercel", provider)
+		return autoRouteProvider(ctx, config, provider, modelName, registry)
 	}
+}
+
+// autoRouteProvider attempts to create a provider by looking up its npm package
+// in the models.dev database and routing through the appropriate fantasy provider.
+// For openai-compatible providers, it uses the api URL from models.dev.
+func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, modelName string, registry *ModelsRegistry) (*ProviderResult, error) {
+	providerInfo := registry.GetProviderInfo(provider)
+	if providerInfo == nil {
+		return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", provider)
+	}
+
+	// Determine the fantasy provider for this npm package
+	fantasyProvider := npmToFantasyProvider[providerInfo.NPM]
+	if fantasyProvider == "" && providerInfo.API != "" {
+		// Unknown npm but has API URL → route through openaicompat
+		fantasyProvider = "openaicompat"
+	}
+
+	switch fantasyProvider {
+	case "openaicompat":
+		return createAutoRoutedOpenAICompatProvider(ctx, config, modelName, providerInfo)
+	case "anthropic":
+		if config.ProviderURL == "" && providerInfo.API != "" {
+			config.ProviderURL = providerInfo.API
+		}
+		return createAutoRoutedAnthropicProvider(ctx, config, modelName, providerInfo)
+	case "openai":
+		if config.ProviderURL == "" && providerInfo.API != "" {
+			config.ProviderURL = providerInfo.API
+		}
+		return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no fantasy mapping)", provider, providerInfo.NPM)
+	}
+}
+
+// createAutoRoutedOpenAICompatProvider creates an openaicompat provider using
+// the api URL and env vars from models.dev.
+func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
+	apiURL := config.ProviderURL
+	if apiURL == "" {
+		apiURL = info.API
+	}
+	if apiURL == "" {
+		return nil, fmt.Errorf("provider %s requires --provider-url (no API URL in database)", info.ID)
+	}
+
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
+			info.Name, strings.Join(info.Env, " / "))
+	}
+
+	var opts []openaicompat.Option
+	opts = append(opts, openaicompat.WithBaseURL(apiURL))
+	opts = append(opts, openaicompat.WithAPIKey(apiKey))
+	opts = append(opts, openaicompat.WithName(info.ID))
+
+	if config.TLSSkipVerify {
+		opts = append(opts, openaicompat.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	}
+
+	p, err := openaicompat.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+	}
+
+	model, err := p.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+// createAutoRoutedAnthropicProvider creates an anthropic provider for
+// third-party providers with anthropic-compatible APIs (e.g. minimax).
+func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
+			info.Name, strings.Join(info.Env, " / "))
+	}
+
+	var opts []anthropic.Option
+	opts = append(opts, anthropic.WithAPIKey(apiKey))
+
+	if config.ProviderURL != "" {
+		opts = append(opts, anthropic.WithBaseURL(config.ProviderURL))
+	}
+
+	if config.TLSSkipVerify {
+		opts = append(opts, anthropic.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	}
+
+	p, err := anthropic.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+	}
+
+	model, err := p.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+// createAutoRoutedOpenAIProvider creates an openai provider for
+// third-party providers with openai-compatible APIs.
+func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
+			info.Name, strings.Join(info.Env, " / "))
+	}
+
+	var opts []openai.Option
+	opts = append(opts, openai.WithAPIKey(apiKey))
+
+	if config.ProviderURL != "" {
+		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
+	}
+
+	if config.TLSSkipVerify {
+		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	}
+
+	p, err := openai.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+	}
+
+	model, err := p.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+// resolveAPIKey returns the first non-empty API key from the explicit key
+// or the environment variables.
+func resolveAPIKey(explicitKey string, envVars []string) string {
+	if explicitKey != "" {
+		return explicitKey
+	}
+	for _, envVar := range envVars {
+		if v := os.Getenv(envVar); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // validateModelConfig adjusts configuration parameters against known model capabilities.
@@ -240,7 +395,7 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 		os.Getenv("CLOUDSDK_CORE_PROJECT"),
 	)
 	if projectID == "" {
-		return nil, fmt.Errorf("Google Vertex project ID not provided. Set ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable")
+		return nil, fmt.Errorf("google Vertex project ID not provided, set ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT, or GCLOUD_PROJECT environment variable")
 	}
 
 	region := firstNonEmpty(
@@ -309,7 +464,7 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 		os.Getenv("GOOGLE_GENERATIVE_AI_API_KEY"),
 	)
 	if apiKey == "" {
-		return nil, fmt.Errorf("Google API key not provided. Use --provider-api-key flag or GOOGLE_API_KEY/GEMINI_API_KEY/GOOGLE_GENERATIVE_AI_API_KEY environment variable")
+		return nil, fmt.Errorf("google API key not provided, use --provider-api-key flag or GOOGLE_API_KEY/GEMINI_API_KEY/GOOGLE_GENERATIVE_AI_API_KEY environment variable")
 	}
 
 	var opts []google.Option
@@ -334,7 +489,7 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName 
 		apiKey = os.Getenv("AZURE_OPENAI_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("Azure OpenAI API key not provided. Use --provider-api-key flag or AZURE_OPENAI_API_KEY environment variable")
+		return nil, fmt.Errorf("azure OpenAI API key not provided, use --provider-api-key flag or AZURE_OPENAI_API_KEY environment variable")
 	}
 
 	baseURL := config.ProviderURL
@@ -342,7 +497,7 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName 
 		baseURL = os.Getenv("AZURE_OPENAI_BASE_URL")
 	}
 	if baseURL == "" {
-		return nil, fmt.Errorf("Azure OpenAI Base URL not provided. Use --provider-url flag or AZURE_OPENAI_BASE_URL environment variable")
+		return nil, fmt.Errorf("azure OpenAI base URL not provided, use --provider-url flag or AZURE_OPENAI_BASE_URL environment variable")
 	}
 
 	var opts []azure.Option
@@ -414,7 +569,7 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 		apiKey = os.Getenv("VERCEL_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("Vercel API key not provided. Use --provider-api-key flag or VERCEL_API_KEY environment variable")
+		return nil, fmt.Errorf("vercel API key not provided, use --provider-api-key flag or VERCEL_API_KEY environment variable")
 	}
 
 	var opts []vercel.Option
@@ -435,15 +590,6 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	return &ProviderResult{Model: model}, nil
-}
-
-// providerCloser adapts a Close(context.Context) error method to io.Closer.
-type providerCloser struct {
-	fn func(context.Context) error
-}
-
-func (c *providerCloser) Close() error {
-	return c.fn(context.Background())
 }
 
 func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -585,7 +731,7 @@ func checkOllamaModelExists(client *http.Client, baseURL, modelName string) erro
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("model not found locally")
@@ -614,7 +760,7 @@ func pullOllamaModelWithProgress(ctx context.Context, client *http.Client, baseU
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -623,7 +769,7 @@ func pullOllamaModelWithProgress(ctx context.Context, client *http.Client, baseU
 
 	if showProgress {
 		progressReader := progress.NewProgressReader(resp.Body)
-		defer progressReader.Close()
+		defer func() { _ = progressReader.Close() }()
 		_, err = io.ReadAll(progressReader)
 	} else {
 		_, err = io.ReadAll(resp.Body)
@@ -658,7 +804,7 @@ func loadOllamaModelWithOptions(ctx context.Context, client *http.Client, baseUR
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

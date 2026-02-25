@@ -165,9 +165,7 @@ func NewProgressReader(reader io.Reader) *ProgressReader {
 
 	// Start the TUI in a goroutine
 	pr.wg.Go(func() {
-		if _, err := program.Run(); err != nil {
-			// Handle error silently for now
-		}
+		_, _ = program.Run()
 		close(pr.done)
 	})
 

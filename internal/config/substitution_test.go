@@ -155,16 +155,16 @@ func TestEnvSubstituter_SubstituteEnvVars(t *testing.T) {
 			originalEnv := make(map[string]string)
 			for k, v := range tt.envVars {
 				originalEnv[k] = os.Getenv(k)
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 
 			// Clean up environment variables after test
 			defer func() {
 				for k := range tt.envVars {
 					if originalValue, existed := originalEnv[k]; existed {
-						os.Setenv(k, originalValue)
+						_ = os.Setenv(k, originalValue)
 					} else {
-						os.Unsetenv(k)
+						_ = os.Unsetenv(k)
 					}
 				}
 			}()
@@ -353,8 +353,8 @@ func TestIntegrationEnvAndArgsSubstitution(t *testing.T) {
 	}`
 
 	// Set up environment
-	os.Setenv("GITHUB_TOKEN", "ghp_real_token")
-	defer os.Unsetenv("GITHUB_TOKEN")
+	_ = os.Setenv("GITHUB_TOKEN", "ghp_real_token")
+	defer func() { _ = os.Unsetenv("GITHUB_TOKEN") }()
 
 	// Step 1: Apply env substitution
 	envSubstituter := &EnvSubstituter{}

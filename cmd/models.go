@@ -8,12 +8,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var modelsAllFlag bool
+
 var modelsCmd = &cobra.Command{
 	Use:   "models [provider]",
 	Short: "List available models from the model database",
-	Long: `List models known to mcphost from the catwalk database.
+	Long: `List models known to mcphost from the models.dev database.
 
-When run without arguments, shows all providers and their models.
+By default, shows only providers that mcphost can use (native fantasy
+providers plus openai-compatible auto-routed providers). Use --all
+to show every provider in the database.
+
 When a provider name is given, shows only that provider's models.
 
 Note: models not listed here can still be used — the database is
@@ -21,13 +26,15 @@ advisory. Run 'mcphost update-models' to refresh.
 
 Examples:
   mcphost models
+  mcphost models --all
   mcphost models anthropic
-  mcphost models openai`,
+  mcphost models deepseek`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runModels,
 }
 
 func init() {
+	modelsCmd.Flags().BoolVar(&modelsAllFlag, "all", false, "show all providers in the database, not just fantasy-compatible ones")
 	rootCmd.AddCommand(modelsCmd)
 }
 
@@ -38,11 +45,16 @@ func runModels(_ *cobra.Command, args []string) error {
 		return printProvider(registry, args[0])
 	}
 
-	return printAllProviders(registry)
+	return printAllProviders(registry, modelsAllFlag)
 }
 
-func printAllProviders(registry *models.ModelsRegistry) error {
-	providerIDs := registry.GetSupportedProviders()
+func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
+	var providerIDs []string
+	if showAll {
+		providerIDs = registry.GetSupportedProviders()
+	} else {
+		providerIDs = registry.GetFantasyProviders()
+	}
 	sort.Strings(providerIDs)
 
 	// Filter to providers that have models

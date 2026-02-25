@@ -36,6 +36,12 @@
       "name": "catwalk",
       "url": "https://github.com/charmbracelet/catwalk",
       "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "crush",
+      "url": "https://github.com/charmbracelet/crush",
+      "branch": "main"
     }
   ],
   "model": "claude-haiku-4-5",

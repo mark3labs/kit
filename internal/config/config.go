@@ -301,7 +301,7 @@ func createDefaultConfig(homeDir string) error {
 	if err != nil {
 		return fmt.Errorf("error creating config file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Write a comprehensive YAML template with examples
 	content := `# MCPHost Configuration File
@@ -407,7 +407,6 @@ func FilepathOr[T any](key string, value *T) error {
 	var field any
 	err := viper.UnmarshalKey(key, &field)
 	if err != nil {
-		value = nil
 		return err
 	}
 	switch f := field.(type) {
