@@ -58,6 +58,14 @@ func (c *CLI) SetUsageTracker(tracker *UsageTracker) {
 	}
 }
 
+// GetUsageTracker returns the usage tracker attached to this CLI, or nil if no
+// tracker has been configured. Callers that need a usage-tracker-agnostic handle
+// can assign the returned *UsageTracker wherever an app.UsageUpdater is expected —
+// *UsageTracker satisfies that interface.
+func (c *CLI) GetUsageTracker() *UsageTracker {
+	return c.usageTracker
+}
+
 // GetDebugLogger returns a CLIDebugLogger instance that routes debug output
 // through the CLI's rendering system for consistent message formatting and display.
 func (c *CLI) GetDebugLogger() *CLIDebugLogger {

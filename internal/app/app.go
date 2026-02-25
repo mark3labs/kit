@@ -184,6 +184,9 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 		return err
 	}
 
+	// Record token usage for the completed step.
+	a.updateUsage(result, prompt)
+
 	// Fire Stop hook on successful completion.
 	a.fireStopHook(result.FinalResponse, "completed")
 
@@ -275,6 +278,9 @@ func (a *App) runPrompt(prompt string) {
 		a.sendEvent(StepErrorEvent{Err: err})
 		return
 	}
+
+	// Record token usage for the completed step.
+	a.updateUsage(result, prompt)
 
 	// Fire Stop hook on successful completion.
 	a.fireStopHook(result.FinalResponse, "completed")
@@ -522,6 +528,31 @@ func (a *App) firePostToolUseHook(ctx context.Context, toolName, toolArgs, resul
 		return nil
 	}
 	return output
+}
+
+// updateUsage records token usage from a completed agent step into the configured
+// UsageTracker (if any). It uses the actual token counts from the agent result's
+// TotalUsage field when available; otherwise it falls back to text-based estimation.
+func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt string) {
+	if a.opts.UsageTracker == nil || result == nil {
+		return
+	}
+
+	usage := result.TotalUsage
+	inputTokens := int(usage.InputTokens)
+	outputTokens := int(usage.OutputTokens)
+	if inputTokens > 0 && outputTokens > 0 {
+		cacheReadTokens := int(usage.CacheReadTokens)
+		cacheWriteTokens := int(usage.CacheCreationTokens)
+		a.opts.UsageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+	} else {
+		// Fall back to text-based estimation when the provider omits token counts.
+		responseText := ""
+		if result.FinalResponse != nil {
+			responseText = result.FinalResponse.Content.Text()
+		}
+		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, responseText)
+	}
 }
 
 // fireStopHook fires the Stop hook after a step completes, errors, or is cancelled.

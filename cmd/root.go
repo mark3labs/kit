@@ -766,6 +766,14 @@ func runNormalMode(ctx context.Context) error {
 		Debug:            viper.GetBool("debug"),
 		CompactMode:      viper.GetBool("compact"),
 	}
+
+	// Wire usage tracker from the CLI (non-interactive non-quiet mode only).
+	// In quiet mode or interactive mode, cli is nil and no tracker is attached.
+	if cli != nil {
+		if tracker := cli.GetUsageTracker(); tracker != nil {
+			appOpts.UsageTracker = tracker
+		}
+	}
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
 
