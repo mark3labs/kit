@@ -53,11 +53,7 @@ func (t *mcpFantasyTool) Run(ctx context.Context, call fantasy.ToolCall) (fantas
 		Request: mcp.Request{
 			Method: "tools/call",
 		},
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Name:      t.mapping.originalName,
 			Arguments: arguments,
 		},
