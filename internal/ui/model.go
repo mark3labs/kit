@@ -354,10 +354,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.canceling = false
 
 	case app.StepErrorEvent:
-		// Render the error inline in the stream area, then return to input.
+		// Render the error above the BT region via tea.Println, reset stream, return to input.
+		if msg.Err != nil {
+			cmds = append(cmds, m.printErrorResponse(msg))
+		}
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
-			cmds = append(cmds, cmd)
+			m.stream.Reset()
 		}
 		m.state = stateInput
 		m.canceling = false
@@ -478,6 +480,25 @@ func (m *AppModel) printCompletedResponse(evt app.StepCompleteEvent) tea.Cmd {
 		rendered = msg.Content
 	} else {
 		msg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+		rendered = msg.Content
+	}
+
+	return tea.Println(rendered)
+}
+
+// printErrorResponse builds a tea.Cmd that emits a styled error message above
+// the BT-managed region using tea.Println. This is used on StepErrorEvent.
+func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
+	if evt.Err == nil {
+		return nil
+	}
+
+	var rendered string
+	if m.compactMode {
+		msg := m.compactRdr.RenderErrorMessage(evt.Err.Error(), time.Now())
+		rendered = msg.Content
+	} else {
+		msg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
 		rendered = msg.Content
 	}
 
