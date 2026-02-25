@@ -346,7 +346,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Store the response channel and transition to approval state.
 		m.approvalChan = msg.ResponseChan
 		m.state = stateApproval
-		// TODO (TAS-17): construct ApprovalComponent with msg.ToolName/ToolArgs.
+		// Construct the ApprovalComponent and init it (returns nil cmd, but good practice).
+		approvalComp := NewApprovalComponent(msg.ToolName, msg.ToolArgs, m.width)
+		cmds = append(cmds, approvalComp.Init())
+		m.approval = approvalComp
 
 	case app.StepCompleteEvent:
 		// Emit the completed response above the BT region via tea.Println,
