@@ -54,6 +54,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/ru"},
 	},
 	{
+		Name:        "/clear-queue",
+		Description: "Clear all queued messages",
+		Category:    "System",
+		Aliases:     []string{"/cq"},
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",
