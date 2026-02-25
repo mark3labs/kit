@@ -240,6 +240,13 @@ func (a *App) drainQueue(firstPrompt string) {
 		a.runPrompt(prompt)
 
 		a.mu.Lock()
+		// Stop draining if the app is shutting down.
+		if a.closed || a.rootCtx.Err() != nil {
+			a.busy = false
+			a.queue = a.queue[:0]
+			a.mu.Unlock()
+			return
+		}
 		if len(a.queue) == 0 {
 			a.busy = false
 			a.mu.Unlock()
