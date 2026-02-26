@@ -107,8 +107,8 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
-		WithAlign(lipgloss.Right),
-		WithBorderColor(theme.Secondary),
+		WithAlign(lipgloss.Left),
+		WithBorderColor(theme.Primary),
 		WithMarginBottom(1),
 	)
 
@@ -151,12 +151,11 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
 		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
 
-	// Use the new block renderer
+	// Use the new block renderer — no borders for agent messages.
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.Primary),
+		WithNoBorder(),
 		WithMarginBottom(1),
 	)
 

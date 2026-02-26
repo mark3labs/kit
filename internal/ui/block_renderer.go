@@ -11,6 +11,7 @@ type blockRenderer struct {
 	align         *lipgloss.Position
 	borderColor   *color.Color
 	fullWidth     bool
+	noBorder      bool
 	paddingTop    int
 	paddingBottom int
 	paddingLeft   int
@@ -29,6 +30,14 @@ type renderingOption func(*blockRenderer)
 func WithFullWidth() renderingOption {
 	return func(c *blockRenderer) {
 		c.fullWidth = true
+	}
+}
+
+// WithNoBorder returns a renderingOption that disables all borders on the
+// block, rendering content with only padding.
+func WithNoBorder() renderingOption {
+	return func(c *blockRenderer) {
+		c.noBorder = true
 	}
 }
 
@@ -134,44 +143,53 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		PaddingBottom(renderer.paddingBottom).
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
-		Foreground(theme.Text).
-		BorderStyle(lipgloss.ThickBorder())
+		Foreground(theme.Text)
 
-	align := lipgloss.Left
-	if renderer.align != nil {
-		align = *renderer.align
-	}
+	// Border width used for full-width calculation.
+	borderChars := 0
 
-	// Default to transparent/no border color
-	var borderColor color.Color = lipgloss.NoColor{}
-	if renderer.borderColor != nil {
-		borderColor = *renderer.borderColor
-	}
+	if renderer.noBorder {
+		// No borders — just padding.
+	} else {
+		style = style.BorderStyle(lipgloss.ThickBorder())
 
-	// Very muted color for the opposite border
-	mutedOppositeBorder := AdaptiveColor("#F3F4F6", "#1F2937")
+		align := lipgloss.Left
+		if renderer.align != nil {
+			align = *renderer.align
+		}
 
-	// Align determines which border gets the accent color.
-	// All blocks span full width — no horizontal floating.
-	switch align {
-	case lipgloss.Right:
-		style = style.
-			BorderRight(true).
-			BorderLeft(true).
-			BorderRightForeground(borderColor).
-			BorderLeftForeground(mutedOppositeBorder)
-	default: // Left (and fallback)
-		style = style.
-			BorderLeft(true).
-			BorderRight(true).
-			BorderLeftForeground(borderColor).
-			BorderRightForeground(mutedOppositeBorder)
+		// Default to transparent/no border color
+		var borderColor color.Color = lipgloss.NoColor{}
+		if renderer.borderColor != nil {
+			borderColor = *renderer.borderColor
+		}
+
+		// Very muted color for the opposite border
+		mutedOppositeBorder := AdaptiveColor("#F3F4F6", "#1F2937")
+
+		// Align determines which border gets the accent color.
+		switch align {
+		case lipgloss.Right:
+			style = style.
+				BorderRight(true).
+				BorderLeft(true).
+				BorderRightForeground(borderColor).
+				BorderLeftForeground(mutedOppositeBorder)
+			borderChars = 2
+		default: // Left (and fallback)
+			style = style.
+				BorderLeft(true).
+				BorderRight(true).
+				BorderLeftForeground(borderColor).
+				BorderRightForeground(mutedOppositeBorder)
+			borderChars = 2
+		}
 	}
 
 	if renderer.fullWidth {
-		// Subtract 2 for left + right border characters so the total
-		// rendered width equals containerWidth exactly.
-		style = style.Width(renderer.width - 2)
+		// Subtract border characters so the total rendered width
+		// equals containerWidth exactly.
+		style = style.Width(renderer.width - borderChars)
 	}
 
 	content = style.Render(content)
