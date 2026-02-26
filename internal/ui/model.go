@@ -559,6 +559,7 @@ func (m *AppModel) renderQueuedMessages() string {
 			m.width,
 			WithAlign(lipgloss.Left),
 			WithBorderColor(theme.Muted),
+			WithFullWidth(),
 		)
 		blocks = append(blocks, rendered)
 	}
