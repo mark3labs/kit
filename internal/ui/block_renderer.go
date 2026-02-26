@@ -146,10 +146,18 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		option(renderer)
 	}
 
+	// Embed vertical padding as content newlines rather than style
+	// PaddingTop/PaddingBottom — lipgloss adds those as raw newlines
+	// that don't receive the background color, causing visible banding.
+	for range renderer.paddingTop {
+		content = "\n" + content
+	}
+	for range renderer.paddingBottom {
+		content = content + "\n"
+	}
+
 	theme := GetTheme()
 	style := lipgloss.NewStyle().
-		PaddingTop(renderer.paddingTop).
-		PaddingBottom(renderer.paddingBottom).
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
 		Foreground(theme.Text)
