@@ -166,8 +166,6 @@ type Config struct {
 	Stream         *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
 	Theme          any                        `json:"theme" yaml:"theme"`
 	MarkdownTheme  any                        `json:"markdown-theme" yaml:"markdown-theme"`
-	ApproveToolRun bool                       `json:"approve-tool-run" yaml:"approve-tool-run"`
-
 	// Model generation parameters
 	MaxTokens     int      `json:"max-tokens,omitempty" yaml:"max-tokens,omitempty"`
 	Temperature   *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`

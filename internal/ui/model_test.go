@@ -143,63 +143,6 @@ func TestStateTransition_InputToWorking(t *testing.T) {
 	}
 }
 
-// TestStateTransition_WorkingToApproval verifies that a ToolApprovalNeededEvent
-// while in stateWorking transitions the model to stateApproval and creates the
-// ApprovalComponent.
-func TestStateTransition_WorkingToApproval(t *testing.T) {
-	ctrl := &stubAppController{}
-	m, _, _ := newTestAppModel(ctrl)
-	m.state = stateWorking
-
-	responseChan := make(chan bool, 1)
-	m = sendMsg(m, app.ToolApprovalNeededEvent{
-		ToolName:     "test_tool",
-		ToolArgs:     `{"arg":"val"}`,
-		ResponseChan: responseChan,
-	})
-
-	if m.state != stateApproval {
-		t.Fatalf("expected stateApproval after ToolApprovalNeededEvent, got %v", m.state)
-	}
-	if m.approval == nil {
-		t.Fatal("expected approval component to be set")
-	}
-	if m.approvalChan == nil {
-		t.Fatal("expected approvalChan to be set")
-	}
-}
-
-// TestStateTransition_ApprovalToWorking verifies that an approvalResultMsg
-// while in stateApproval sends the result on approvalChan and transitions back
-// to stateWorking.
-func TestStateTransition_ApprovalToWorking(t *testing.T) {
-	ctrl := &stubAppController{}
-	m, _, _ := newTestAppModel(ctrl)
-	m.state = stateApproval
-
-	responseChan := make(chan bool, 1)
-	m.approvalChan = responseChan
-
-	m = sendMsg(m, approvalResultMsg{Approved: true})
-
-	if m.state != stateWorking {
-		t.Fatalf("expected stateWorking after approvalResultMsg, got %v", m.state)
-	}
-	if m.approvalChan != nil {
-		t.Fatal("expected approvalChan to be cleared")
-	}
-
-	// Verify the approval result was sent on the channel.
-	select {
-	case approved := <-responseChan:
-		if !approved {
-			t.Fatal("expected approved=true to be sent on responseChan")
-		}
-	default:
-		t.Fatal("expected a value on responseChan")
-	}
-}
-
 // TestStateTransition_WorkingToInput_StepComplete verifies that StepCompleteEvent
 // transitions from stateWorking back to stateInput and resets the stream component.
 func TestStateTransition_WorkingToInput_StepComplete(t *testing.T) {

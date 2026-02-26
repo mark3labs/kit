@@ -57,7 +57,6 @@ func (s *stubAgent) GenerateWithLoopAndStreaming(
 	_ agent.ResponseHandler,
 	_ agent.ToolCallContentHandler,
 	_ agent.StreamingResponseHandler,
-	_ agent.ToolApprovalHandler,
 ) (*agent.GenerateWithLoopResult, error) {
 	// Optional blocking: wait for a signal or ctx cancellation.
 	if s.blockCh != nil {
@@ -359,105 +358,6 @@ func TestCancelCurrentStep_safeWhenIdle(t *testing.T) {
 	defer app.Close()
 	// Should not panic.
 	app.CancelCurrentStep()
-}
-
-// --------------------------------------------------------------------------
-// Cancel during tool approval (ToolApprovalFunc unblocks via ctx)
-// --------------------------------------------------------------------------
-
-// TestCancelDuringApproval verifies that cancelling the step while the
-// ToolApprovalFunc is waiting unblocks the func via ctx.Done() and the step
-// terminates cleanly.
-func TestCancelDuringApproval(t *testing.T) {
-	approvalUnblocked := make(chan struct{}, 1)
-
-	// ToolApprovalFunc blocks until ctx is cancelled.
-	approvalFunc := func(ctx context.Context, _, _ string) (bool, error) {
-		<-ctx.Done()
-		approvalUnblocked <- struct{}{}
-		return false, ctx.Err()
-	}
-
-	// captureApprovalStub calls onToolApproval() which delegates to approvalFunc.
-	stub := newCaptureApprovalStub()
-
-	app := New(Options{
-		Agent:            stub,
-		ToolApprovalFunc: approvalFunc,
-	}, nil)
-	defer app.Close()
-
-	app.Run("trigger approval")
-
-	// Wait for the stub to signal it's started (and therefore calling approval).
-	select {
-	case <-stub.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("step never started")
-	}
-
-	// Give the approval func a moment to block on ctx.Done().
-	time.Sleep(10 * time.Millisecond)
-
-	app.CancelCurrentStep()
-
-	// Approval func should unblock when ctx is cancelled.
-	select {
-	case <-approvalUnblocked:
-	case <-time.After(2 * time.Second):
-		t.Fatal("approval func did not unblock after cancel")
-	}
-
-	ok := waitForCondition(2*time.Second, func() bool {
-		app.mu.Lock()
-		defer app.mu.Unlock()
-		return !app.busy
-	})
-	if !ok {
-		t.Fatal("app did not become idle after cancel-during-approval")
-	}
-}
-
-// captureApprovalStub is a specialised stubAgent that calls the captured
-// ToolApprovalHandler (which is the app-layer's approval wrapper that delegates
-// to Options.ToolApprovalFunc) to simulate the agent needing tool approval.
-type captureApprovalStub struct {
-	started chan struct{}
-}
-
-func newCaptureApprovalStub() *captureApprovalStub {
-	return &captureApprovalStub{started: make(chan struct{}, 1)}
-}
-
-func (s *captureApprovalStub) GenerateWithLoopAndStreaming(
-	ctx context.Context,
-	_ []fantasy.Message,
-	_ agent.ToolCallHandler,
-	_ agent.ToolExecutionHandler,
-	_ agent.ToolResultHandler,
-	_ agent.ResponseHandler,
-	_ agent.ToolCallContentHandler,
-	_ agent.StreamingResponseHandler,
-	onToolApproval agent.ToolApprovalHandler,
-) (*agent.GenerateWithLoopResult, error) {
-	// Signal that we've started.
-	select {
-	case s.started <- struct{}{}:
-	default:
-	}
-
-	// Call onToolApproval, which will delegate to ToolApprovalFunc and block.
-	if onToolApproval != nil {
-		approved, err := onToolApproval("test_tool", "{}")
-		if err != nil {
-			return nil, err
-		}
-		if !approved {
-			return nil, errors.New("tool denied")
-		}
-	}
-
-	return makeResult("after approval"), nil
 }
 
 // --------------------------------------------------------------------------

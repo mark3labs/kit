@@ -2,17 +2,14 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/mcphost/internal/agent"
-	"github.com/mark3labs/mcphost/internal/hooks"
 )
 
 // App is the application-layer orchestrator. It owns the agentic loop,
@@ -93,17 +90,8 @@ func (a *App) SetProgram(p *tea.Program) {
 // executed immediately in a background goroutine; otherwise it is appended
 // to the queue and a QueueUpdatedEvent is sent to the program.
 //
-// Before queuing, the UserPromptSubmit hook is fired. If the hook blocks the
-// prompt, a HookBlockedEvent is sent and the prompt is dropped.
-//
 // Satisfies ui.AppController.
 func (a *App) Run(prompt string) {
-	// Fire UserPromptSubmit hook before accepting the prompt.
-	if blocked, reason := a.fireUserPromptSubmitHook(prompt); blocked {
-		a.sendEvent(HookBlockedEvent{Message: fmt.Sprintf("Prompt blocked by hook: %s", reason)})
-		return
-	}
-
 	a.mu.Lock()
 
 	if a.closed {
@@ -181,19 +169,11 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 
 	result, err := a.executeStep(stepCtx, prompt, nil /* program */, nil /* writer */)
 	if err != nil {
-		stopReason := "error"
-		if stepCtx.Err() != nil {
-			stopReason = "cancelled"
-		}
-		a.fireStopHook(nil, stopReason)
 		return err
 	}
 
 	// Record token usage for the completed step.
 	a.updateUsage(result, prompt)
-
-	// Fire Stop hook on successful completion.
-	a.fireStopHook(result.FinalResponse, "completed")
 
 	responseText := ""
 	if result.FinalResponse != nil {
@@ -283,21 +263,12 @@ func (a *App) runPrompt(prompt string) {
 
 	result, err := a.executeStep(stepCtx, prompt, prog, nil)
 	if err != nil {
-		// Fire Stop hook on error/cancellation.
-		stopReason := "error"
-		if stepCtx.Err() != nil {
-			stopReason = "cancelled"
-		}
-		a.fireStopHook(nil, stopReason)
 		a.sendEvent(StepErrorEvent{Err: err})
 		return
 	}
 
 	// Record token usage for the completed step.
 	a.updateUsage(result, prompt)
-
-	// Fire Stop hook on successful completion.
-	a.fireStopHook(result.FinalResponse, "completed")
 
 	a.sendEvent(StepCompleteEvent{
 		Response: result.FinalResponse,
@@ -332,58 +303,17 @@ func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program,
 	// Signal spinner start.
 	sendFn(SpinnerEvent{Show: true})
 
-	// Wire the approval callback.
-	onApproval := a.buildApprovalFunc(ctx, prog)
-
-	// Per-step state tracking for hook callbacks.
-	var (
-		currentToolName string
-		currentToolArgs string
-		toolIsBlocked   bool
-		blockReason     string
-	)
-
 	result, err := a.opts.Agent.GenerateWithLoopAndStreaming(ctx, msgs,
-		// onToolCall — store name/args for subsequent hook callbacks
+		// onToolCall
 		func(toolName, toolArgs string) {
-			currentToolName = toolName
-			currentToolArgs = toolArgs
 			sendFn(ToolCallStartedEvent{ToolName: toolName, ToolArgs: toolArgs})
 		},
-		// onToolExecution — fire PreToolUse on isStarting=true
+		// onToolExecution
 		func(toolName string, isStarting bool) {
-			if isStarting {
-				if blocked, reason := a.firePreToolUseHook(ctx, currentToolName, currentToolArgs); blocked {
-					toolIsBlocked = true
-					blockReason = reason
-					if blockReason == "" {
-						blockReason = "Tool execution blocked by security policy"
-					}
-					sendFn(HookBlockedEvent{Message: fmt.Sprintf("Tool execution blocked by hook: %s", blockReason)})
-				}
-			}
 			sendFn(ToolExecutionEvent{ToolName: toolName, IsStarting: isStarting})
 		},
-		// onToolResult — fire PostToolUse; honour block flag
+		// onToolResult
 		func(toolName, toolArgs, result string, isError bool) {
-			if toolIsBlocked {
-				// Reset flag; result event carries "blocked" info.
-				toolIsBlocked = false
-				blockMsg := fmt.Sprintf("Tool execution blocked: %s", blockReason)
-				blockReason = ""
-				sendFn(ToolResultEvent{
-					ToolName: toolName,
-					ToolArgs: toolArgs,
-					Result:   blockMsg,
-					IsError:  true,
-				})
-				return
-			}
-			// Fire PostToolUse hook.
-			if postOut := a.firePostToolUseHook(ctx, currentToolName, currentToolArgs, result); postOut != nil && postOut.SuppressOutput {
-				// Hook asked to suppress output; skip sending the result event.
-				return
-			}
 			sendFn(ToolResultEvent{
 				ToolName: toolName,
 				ToolArgs: toolArgs,
@@ -404,8 +334,6 @@ func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program,
 			sendFn(SpinnerEvent{Show: false})
 			sendFn(StreamChunkEvent{Content: chunk})
 		},
-		// onToolApproval
-		onApproval,
 	)
 
 	if err != nil {
@@ -417,43 +345,6 @@ func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program,
 	a.store.Replace(result.ConversationMessages)
 
 	return result, nil
-}
-
-// buildApprovalFunc returns the ToolApprovalHandler to use for a step.
-// In interactive mode (prog != nil) it sends a ToolApprovalNeededEvent and
-// blocks until the TUI responds; otherwise it delegates to opts.ToolApprovalFunc.
-func (a *App) buildApprovalFunc(ctx context.Context, prog *tea.Program) agent.ToolApprovalHandler {
-	if prog == nil {
-		// Non-interactive: use the configured approval func.
-		return func(toolName, toolArgs string) (bool, error) {
-			if a.opts.ToolApprovalFunc == nil {
-				return true, nil
-			}
-			return a.opts.ToolApprovalFunc(ctx, toolName, toolArgs)
-		}
-	}
-
-	return func(toolName, toolArgs string) (bool, error) {
-		// Parse toolArgs for display. If it's not JSON just use raw string.
-		displayArgs := toolArgs
-		if json.Valid([]byte(toolArgs)) {
-			displayArgs = toolArgs
-		}
-
-		responseCh := make(chan bool, 1)
-		prog.Send(ToolApprovalNeededEvent{
-			ToolName:     toolName,
-			ToolArgs:     displayArgs,
-			ResponseChan: responseCh,
-		})
-
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		case approved := <-responseCh:
-			return approved, nil
-		}
-	}
 }
 
 // --------------------------------------------------------------------------
@@ -469,79 +360,6 @@ func (a *App) sendEvent(msg tea.Msg) {
 	if prog != nil {
 		prog.Send(msg)
 	}
-}
-
-// --------------------------------------------------------------------------
-// Internal: hook helpers
-// --------------------------------------------------------------------------
-
-// fireUserPromptSubmitHook fires the UserPromptSubmit hook.
-// Returns (blocked bool, reason string).
-func (a *App) fireUserPromptSubmitHook(prompt string) (bool, string) {
-	if a.opts.HookExecutor == nil {
-		return false, ""
-	}
-	input := &hooks.UserPromptSubmitInput{
-		CommonInput: a.opts.HookExecutor.PopulateCommonFields(hooks.UserPromptSubmit),
-		Prompt:      prompt,
-	}
-	output, err := a.opts.HookExecutor.ExecuteHooks(context.Background(), hooks.UserPromptSubmit, input)
-	if err != nil {
-		if a.opts.Debug {
-			fmt.Fprintf(os.Stderr, "UserPromptSubmit hook execution error: %v\n", err)
-		}
-		return false, ""
-	}
-	if output != nil && output.Decision == "block" {
-		return true, output.Reason
-	}
-	return false, ""
-}
-
-// firePreToolUseHook fires the PreToolUse hook before a tool executes.
-// Returns (blocked bool, reason string).
-func (a *App) firePreToolUseHook(ctx context.Context, toolName, toolArgs string) (bool, string) {
-	if a.opts.HookExecutor == nil {
-		return false, ""
-	}
-	input := &hooks.PreToolUseInput{
-		CommonInput: a.opts.HookExecutor.PopulateCommonFields(hooks.PreToolUse),
-		ToolName:    toolName,
-		ToolInput:   json.RawMessage(toolArgs),
-	}
-	output, err := a.opts.HookExecutor.ExecuteHooks(ctx, hooks.PreToolUse, input)
-	if err != nil {
-		if a.opts.Debug {
-			fmt.Fprintf(os.Stderr, "PreToolUse hook execution error: %v\n", err)
-		}
-		return false, ""
-	}
-	if output != nil && output.Decision == "block" {
-		return true, output.Reason
-	}
-	return false, ""
-}
-
-// firePostToolUseHook fires the PostToolUse hook after a tool executes.
-// Returns the hook output (may be nil if no hooks configured or on error).
-func (a *App) firePostToolUseHook(ctx context.Context, toolName, toolArgs, result string) *hooks.HookOutput {
-	if a.opts.HookExecutor == nil || result == "" {
-		return nil
-	}
-	input := &hooks.PostToolUseInput{
-		CommonInput:  a.opts.HookExecutor.PopulateCommonFields(hooks.PostToolUse),
-		ToolName:     toolName,
-		ToolInput:    json.RawMessage(toolArgs),
-		ToolResponse: json.RawMessage(result),
-	}
-	output, err := a.opts.HookExecutor.ExecuteHooks(ctx, hooks.PostToolUse, input)
-	if err != nil {
-		if a.opts.Debug {
-			fmt.Fprintf(os.Stderr, "PostToolUse hook execution error: %v\n", err)
-		}
-		return nil
-	}
-	return output
 }
 
 // updateUsage records token usage from a completed agent step into the configured
@@ -567,39 +385,4 @@ func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt strin
 		}
 		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, responseText)
 	}
-}
-
-// fireStopHook fires the Stop hook after a step completes, errors, or is cancelled.
-// response may be nil for error/cancelled steps.
-func (a *App) fireStopHook(response *fantasy.Response, stopReason string) {
-	if a.opts.HookExecutor == nil {
-		return
-	}
-
-	var meta json.RawMessage
-	if response != nil {
-		metaData := map[string]any{
-			"model":          a.opts.ModelName,
-			"has_tool_calls": len(response.Content.ToolCalls()) > 0,
-		}
-		if metaBytes, err := json.Marshal(metaData); err == nil {
-			meta = json.RawMessage(metaBytes)
-		}
-	}
-
-	responseContent := ""
-	if response != nil {
-		responseContent = response.Content.Text()
-	}
-
-	input := &hooks.StopInput{
-		CommonInput:    a.opts.HookExecutor.PopulateCommonFields(hooks.Stop),
-		StopHookActive: true,
-		Response:       responseContent,
-		StopReason:     stopReason,
-		Meta:           meta,
-	}
-
-	// Execute Stop hook (ignore errors — we're completing regardless).
-	_, _ = a.opts.HookExecutor.ExecuteHooks(context.Background(), hooks.Stop, input)
 }

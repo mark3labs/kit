@@ -9,12 +9,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/hooks"
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/session"
 	"github.com/mark3labs/mcphost/internal/tools"
@@ -677,21 +675,6 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 		cli.DisplayDebugConfig(debugConfig)
 	}
 
-	// Initialize hooks
-	var hookExecutor *hooks.Executor
-	if hooksConfig := viper.Get("hooks"); hooksConfig != nil {
-		if hc, ok := hooksConfig.(*hooks.HookConfig); ok {
-			// Generate a session ID for this run
-			sessionID := fmt.Sprintf("mcphost-%d", time.Now().Unix())
-			transcriptPath := "" // We could add transcript logging later
-			hookExecutor = hooks.NewExecutor(hc, sessionID, transcriptPath)
-
-			// Set model and interactive mode
-			hookExecutor.SetModel(finalModel)
-			hookExecutor.SetInteractive(prompt == "")
-		}
-	}
-
 	// Prepare data for slash commands
 	var serverNames []string
 	for name := range mcpConfig.MCPServers {
@@ -718,7 +701,7 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 		MCPConfig:        mcpConfig,
 	}
 
-	return runAgenticLoop(ctx, mcpAgent, cli, messages, config, hookExecutor)
+	return runAgenticLoop(ctx, mcpAgent, cli, messages, config)
 }
 
 // AgenticLoopConfig configures the behavior of the unified agentic loop.
@@ -729,7 +712,6 @@ type AgenticLoopConfig struct {
 	IsInteractive    bool   // true for interactive mode, false for non-interactive
 	InitialPrompt    string // initial prompt for non-interactive mode
 	ContinueAfterRun bool   // true to continue to interactive mode after initial run (--no-exit)
-	ApproveToolRun   bool   // only used in interactive mode
 
 	// UI configuration
 	Quiet bool // suppress all output except final response
@@ -760,30 +742,9 @@ func replaceMessagesHistory(messages *[]fantasy.Message, sessionManager *session
 }
 
 // runAgenticLoop handles all execution modes with a single unified loop
-func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) error {
+func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig) error {
 	// Handle initial prompt for non-interactive modes
 	if !config.IsInteractive && config.InitialPrompt != "" {
-		// Execute UserPromptSubmit hooks for non-interactive mode
-		if hookExecutor != nil {
-			input := &hooks.UserPromptSubmitInput{
-				CommonInput: hookExecutor.PopulateCommonFields(hooks.UserPromptSubmit),
-				Prompt:      config.InitialPrompt,
-			}
-
-			hookOutput, err := hookExecutor.ExecuteHooks(ctx, hooks.UserPromptSubmit, input)
-			if err != nil {
-				// Log error but don't fail
-				if debugMode {
-					fmt.Fprintf(os.Stderr, "UserPromptSubmit hook execution error: %v\n", err)
-				}
-			}
-
-			// Check if hook blocked the prompt
-			if hookOutput != nil && hookOutput.Decision == "block" {
-				return fmt.Errorf("prompt blocked by hook: %s", hookOutput.Reason)
-			}
-		}
-
 		// Display user message (skip if quiet)
 		if !config.Quiet && cli != nil {
 			cli.DisplayUserMessage(config.InitialPrompt)
@@ -793,7 +754,7 @@ func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		tempMessages := append(messages, fantasy.NewUserMessage(config.InitialPrompt))
 
 		// Process the initial prompt with tool calls
-		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config, hookExecutor)
+		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config)
 		if err != nil {
 			// Check if this was a user cancellation
 			if err.Error() == "generation cancelled by user" && cli != nil {
@@ -824,7 +785,7 @@ func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 }
 
 // runAgenticStep processes a single step of the agentic loop (handles tool calls)
-func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig, hookExecutor *hooks.Executor) (*fantasy.Response, []fantasy.Message, error) {
+func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig) (*fantasy.Response, []fantasy.Message, error) {
 	var currentSpinner *ui.Spinner
 
 	// Start initial spinner (skip if quiet)
@@ -863,19 +824,9 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 	streamingStarted = false
 	streamingContent.Reset()
 
-	// Variables to store tool information for hooks
-	var currentToolName string
-	var currentToolArgs string
-	var toolIsBlocked bool
-	var blockReason string
-
 	result, err := mcpAgent.GenerateWithLoopAndStreaming(ctx, messages,
 		// Tool call handler - called when a tool is about to be executed
 		func(toolName, toolArgs string) {
-			// Store tool info for use in execution handler
-			currentToolName = toolName
-			currentToolArgs = toolArgs
-
 			if !config.Quiet && cli != nil {
 				// Stop spinner before displaying tool call
 				if currentSpinner != nil {
@@ -888,35 +839,6 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		// Tool execution handler - called when tool execution starts/ends
 		func(toolName string, isStarting bool) {
 			if isStarting {
-				// Execute PreToolUse hooks
-				if hookExecutor != nil {
-					input := &hooks.PreToolUseInput{
-						CommonInput: hookExecutor.PopulateCommonFields(hooks.PreToolUse),
-						ToolName:    currentToolName,
-						ToolInput:   json.RawMessage(currentToolArgs),
-					}
-
-					hookOutput, err := hookExecutor.ExecuteHooks(ctx, hooks.PreToolUse, input)
-					if err != nil {
-						// Log error but don't fail the tool execution
-						if debugMode {
-							fmt.Fprintf(os.Stderr, "Hook execution error: %v\n", err)
-						}
-					}
-
-					// Check if hook blocked the execution
-					if hookOutput != nil && hookOutput.Decision == "block" {
-						toolIsBlocked = true
-						blockReason = hookOutput.Reason
-						if blockReason == "" {
-							blockReason = "Tool execution blocked by security policy"
-						}
-						if !config.Quiet && cli != nil {
-							cli.DisplayInfo(fmt.Sprintf("Tool execution blocked by hook: %s", blockReason))
-						}
-					}
-				}
-
 				if !config.Quiet && cli != nil {
 					// Start spinner for tool execution
 					currentSpinner = ui.NewSpinner(fmt.Sprintf("Executing %s...", toolName))
@@ -932,48 +854,6 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		},
 		// Tool result handler - called when a tool execution completes
 		func(toolName, toolArgs, result string, isError bool) {
-			// Check if this tool was blocked
-			if toolIsBlocked {
-				// Reset the flag for next tool
-				toolIsBlocked = false
-
-				// Display the blocked message
-				if !config.Quiet && cli != nil {
-					cli.DisplayToolMessage(toolName, toolArgs, fmt.Sprintf("Tool execution blocked: %s", blockReason), true)
-				}
-
-				// Reset block reason
-				blockReason = ""
-				return
-			}
-
-			// Execute PostToolUse hooks
-			var postToolHookOutput *hooks.HookOutput
-			if hookExecutor != nil && result != "" {
-				input := &hooks.PostToolUseInput{
-					CommonInput:  hookExecutor.PopulateCommonFields(hooks.PostToolUse),
-					ToolName:     currentToolName,
-					ToolInput:    json.RawMessage(currentToolArgs),
-					ToolResponse: json.RawMessage(result),
-				}
-
-				hookOutput, err := hookExecutor.ExecuteHooks(ctx, hooks.PostToolUse, input)
-				if err != nil {
-					// Log error but don't fail
-					if debugMode {
-						fmt.Fprintf(os.Stderr, "PostToolUse hook execution error: %v\n", err)
-					}
-				}
-				postToolHookOutput = hookOutput
-			}
-
-			// Check if hook wants to suppress output
-			if postToolHookOutput != nil && postToolHookOutput.SuppressOutput {
-				// Skip displaying tool result to user
-				// Note: Result still goes to LLM unless ModifyOutput is used
-				return
-			}
-
 			if !config.Quiet && cli != nil {
 				// Parse tool result content - it might be JSON-encoded MCP content
 				resultContent := result
@@ -1051,22 +931,6 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		},
 		// Add streaming callback handler
 		streamingCallback,
-		// Tool call approval handler - called before tool execution to get user approval
-		func(toolName, toolArgs string) (bool, error) {
-			if !config.IsInteractive || !config.ApproveToolRun {
-				return true, nil
-			}
-			if currentSpinner != nil {
-				currentSpinner.Stop()
-				currentSpinner = nil
-			}
-			// Tool approval via CLI is no longer supported; always approve in legacy path.
-			// Start spinner again for tool calls
-			currentSpinner = ui.NewSpinner("")
-			currentSpinner.Start()
-
-			return true, nil
-		},
 	)
 
 	// Make sure spinner is stopped if still running
@@ -1129,42 +993,6 @@ func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, mes
 		cli.DisplayUsageAfterResponse()
 	}
 
-	// Execute Stop hook after agent has finished responding
-	executeStopHook(hookExecutor, response, "completed", config.ModelName)
-
 	// Return the final response and all conversation messages
 	return response, conversationMessages, nil
-}
-
-// executeStopHook executes the Stop hook if a hook executor is available
-func executeStopHook(hookExecutor *hooks.Executor, response *fantasy.Response, stopReason string, modelName string) {
-	if hookExecutor != nil {
-		// Prepare metadata
-		var meta json.RawMessage
-		if response != nil {
-			metaData := map[string]any{
-				"model":          modelName,
-				"has_tool_calls": len(response.Content.ToolCalls()) > 0,
-			}
-			if metaBytes, err := json.Marshal(metaData); err == nil {
-				meta = json.RawMessage(metaBytes)
-			}
-		}
-
-		responseContent := ""
-		if response != nil {
-			responseContent = response.Content.Text()
-		}
-
-		input := &hooks.StopInput{
-			CommonInput:    hookExecutor.PopulateCommonFields(hooks.Stop),
-			StopHookActive: true,
-			Response:       responseContent,
-			StopReason:     stopReason,
-			Meta:           meta,
-		}
-
-		// Execute Stop hook (ignore errors as we're exiting anyway)
-		_, _ = hookExecutor.ExecuteHooks(context.Background(), hooks.Stop, input)
-	}
 }

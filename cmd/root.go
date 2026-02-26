@@ -7,14 +7,12 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/app"
 	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/hooks"
 	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/session"
 	"github.com/mark3labs/mcphost/internal/tools"
@@ -38,7 +36,6 @@ var (
 	streamFlag       bool           // Enable streaming output
 	compactMode      bool           // Enable compact output mode
 	scriptMCPConfig  *config.Config // Used to override config in script mode
-	approveToolRun   bool
 
 	// Session management
 	saveSessionPath string
@@ -57,7 +54,6 @@ var (
 	mainGPU int32
 
 	// Hooks control
-	noHooks bool
 
 	// TLS configuration
 	tlsSkipVerify bool
@@ -201,19 +197,6 @@ func InitConfig() {
 	viper.SetEnvPrefix("MCPHOST")
 	viper.AutomaticEnv()
 
-	// Load hooks configuration unless disabled
-	if !viper.GetBool("no-hooks") {
-		hooksConfig, err := hooks.LoadHooksConfig()
-		if err != nil {
-			// Hooks are optional, so just log a warning
-			if debugMode {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load hooks configuration: %v\n", err)
-			}
-		} else {
-			viper.Set("hooks", hooksConfig)
-		}
-	}
-
 }
 
 // LoadConfigWithEnvSubstitution loads a config file with environment variable substitution.
@@ -302,12 +285,6 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&compactMode, "compact", false, "enable compact output mode without fancy styling")
 	rootCmd.PersistentFlags().
-		BoolVar(&noHooks, "no-hooks", false, "disable all hooks execution")
-	rootCmd.PersistentFlags().
-		BoolVar(&approveToolRun, "approve-tool-run", false, "enable requiring user approval for every tool call")
-
-	// Session management flags
-	rootCmd.PersistentFlags().
 		StringVar(&saveSessionPath, "save-session", "", "save session to file after each message")
 	rootCmd.PersistentFlags().
 		StringVar(&loadSessionPath, "load-session", "", "load session from file at startup")
@@ -339,7 +316,7 @@ func init() {
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
 	_ = viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
-	_ = viper.BindPFlag("no-hooks", rootCmd.PersistentFlags().Lookup("no-hooks"))
+
 	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
 	_ = viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
 	_ = viper.BindPFlag("max-tokens", rootCmd.PersistentFlags().Lookup("max-tokens"))
@@ -350,7 +327,6 @@ func init() {
 	_ = viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))
 	_ = viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
 	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
-	_ = viper.BindPFlag("approve-tool-run", rootCmd.PersistentFlags().Lookup("approve-tool-run"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -468,20 +444,6 @@ func runNormalMode(ctx context.Context) error {
 	parsedProvider, modelName, _ := models.ParseModelString(modelString)
 	if modelName == "" {
 		modelName = "Unknown"
-	}
-
-	var hookExecutor *hooks.Executor
-	if hooksConfig := viper.Get("hooks"); hooksConfig != nil {
-		if hc, ok := hooksConfig.(*hooks.HookConfig); ok {
-			// Generate a session ID for this run
-			sessionID := fmt.Sprintf("mcphost-%d", time.Now().Unix())
-			transcriptPath := "" // We could add transcript logging later
-			hookExecutor = hooks.NewExecutor(hc, sessionID, transcriptPath)
-
-			// Set model and interactive mode
-			hookExecutor.SetModel(modelString)
-			hookExecutor.SetInteractive(promptFlag == "") // Interactive if no prompt flag
-		}
 	}
 
 	// Create CLI for non-interactive mode only. SetupCLI is the factory for the
@@ -738,23 +700,9 @@ func runNormalMode(ctx context.Context) error {
 		})
 	}
 
-	// Determine approval function per mode.
-	// Non-interactive: auto-approve unless --approve-tool-run is set (interactive TUI approval
-	// is handled by app.buildApprovalFunc when a tea.Program is registered via SetProgram).
-	approveToolRun := viper.GetBool("approve-tool-run")
-	var toolApprovalFunc app.ToolApprovalFunc
-	if promptFlag != "" && !approveToolRun {
-		// Non-interactive and no explicit approval required → auto-approve.
-		toolApprovalFunc = app.AutoApproveFunc
-	}
-	// In interactive mode (promptFlag == "") the TUI handles approval via program.Send();
-	// toolApprovalFunc remains nil here and is ignored when a tea.Program is set.
-
 	// Create the app.App instance now that session messages are loaded.
 	appOpts := app.Options{
 		Agent:            mcpAgent,
-		ToolApprovalFunc: toolApprovalFunc,
-		HookExecutor:     hookExecutor,
 		SessionManager:   sessionManager,
 		MCPConfig:        mcpConfig,
 		ModelName:        modelName,

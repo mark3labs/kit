@@ -20,10 +20,6 @@ const (
 	// stateWorking means the agent is running. The stream component is active.
 	// The input component remains visible and editable for queueing messages.
 	stateWorking
-
-	// stateApproval means a tool approval dialog is active. The user must
-	// approve or deny before the agent can continue.
-	stateApproval
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -90,10 +86,6 @@ type AppModel struct {
 	// Placeholder until StreamComponent is implemented in TAS-16.
 	stream streamComponentIface
 
-	// approval is the child tool approval dialog component.
-	// Placeholder until ApprovalComponent is implemented in TAS-17.
-	approval approvalComponentIface
-
 	// renderer renders completed assistant messages for tea.Println output.
 	renderer *MessageRenderer
 
@@ -112,10 +104,6 @@ type AppModel struct {
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
-
-	// approvalChan is the response channel for the current tool approval.
-	// Set when a ToolApprovalNeededEvent arrives; cleared after sending the result.
-	approvalChan chan<- bool
 
 	// width and height track the terminal dimensions.
 	width  int
@@ -145,12 +133,6 @@ type streamComponentIface interface {
 	GetRenderedContent() string
 }
 
-// approvalComponentIface is the interface the parent requires from ApprovalComponent.
-// It will be satisfied by the real ApprovalComponent created in TAS-17.
-type approvalComponentIface interface {
-	tea.Model
-}
-
 // --------------------------------------------------------------------------
 // Constructor
 // --------------------------------------------------------------------------
@@ -162,8 +144,7 @@ type approvalComponentIface interface {
 // satisfies AppController once the app layer is implemented (TAS-4).
 //
 // NewAppModel constructs all child components (InputComponent, StreamComponent)
-// using the provided options. ApprovalComponent is created dynamically per-step
-// in Update when a ToolApprovalNeededEvent arrives.
+// using the provided options.
 func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	width := opts.Width
 	if width == 0 {
@@ -262,11 +243,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Route key events to the focused child.
-		if m.state == stateApproval && m.approval != nil {
-			updated, cmd := m.approval.Update(msg)
-			m.approval, _ = updated.(approvalComponentIface)
-			cmds = append(cmds, cmd)
-		} else if m.input != nil {
+		if m.input != nil {
 			updated, cmd := m.input.Update(msg)
 			m.input, _ = updated.(inputComponentIface)
 			cmds = append(cmds, cmd)
@@ -292,14 +269,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state != stateWorking {
 			m.state = stateWorking
 		}
-
-	// ── Approval result ──────────────────────────────────────────────────────
-	case approvalResultMsg:
-		if m.approvalChan != nil {
-			m.approvalChan <- msg.Approved
-			m.approvalChan = nil
-		}
-		m.state = stateWorking
 
 	// ── App layer events ─────────────────────────────────────────────────────
 
@@ -361,24 +330,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream.Reset() // stop spinner
 		}
 
-	case app.HookBlockedEvent:
-		// Print hook blocked message immediately to scrollback.
-		cmds = append(cmds, m.printHookBlocked(msg))
-
 	case app.MessageCreatedEvent:
 		// Informational — no action needed by parent.
 
 	case app.QueueUpdatedEvent:
 		m.queueCount = msg.Length
-
-	case app.ToolApprovalNeededEvent:
-		// Store the response channel and transition to approval state.
-		m.approvalChan = msg.ResponseChan
-		m.state = stateApproval
-		// Construct the ApprovalComponent and init it (returns nil cmd, but good practice).
-		approvalComp := NewApprovalComponent(msg.ToolName, msg.ToolArgs, m.width)
-		cmds = append(cmds, approvalComp.Init())
-		m.approval = approvalComp
 
 	case app.StepCompleteEvent:
 		// Flush any remaining streamed text to scrollback, then reset stream
@@ -412,10 +368,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, cmd := m.stream.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		if m.state == stateApproval && m.approval != nil {
-			_, cmd := m.approval.Update(msg)
-			cmds = append(cmds, cmd)
-		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -445,14 +397,6 @@ func (m *AppModel) View() tea.View {
 func (m *AppModel) renderStream() string {
 	if m.stream == nil {
 		return ""
-	}
-
-	if m.state == stateApproval && m.approval != nil {
-		// Show both stream context and the approval dialog stacked.
-		return lipgloss.JoinVertical(lipgloss.Left,
-			m.stream.View().Content,
-			m.approval.View().Content,
-		)
 	}
 
 	// Show canceling warning if set.
@@ -556,16 +500,6 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) tea.Cmd {
 		msg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 		rendered = msg.Content
 	}
-	return tea.Println(rendered)
-}
-
-// printHookBlocked renders a hook-blocked notice and emits it above the BT region.
-func (m *AppModel) printHookBlocked(evt app.HookBlockedEvent) tea.Cmd {
-	theme := GetTheme()
-	rendered := lipgloss.NewStyle().
-		Foreground(theme.Error).
-		Bold(true).
-		Render("  ⛔ Hook blocked: " + evt.Message)
 	return tea.Println(rendered)
 }
 

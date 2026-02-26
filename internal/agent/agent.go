@@ -41,9 +41,6 @@ type StreamingResponseHandler func(content string)
 // ToolCallContentHandler is a function type for handling content that accompanies tool calls.
 type ToolCallContentHandler func(content string)
 
-// ToolApprovalHandler is a function type for handling user approval of tool calls.
-type ToolApprovalHandler func(toolName, toolArgs string) (bool, error)
-
 // Agent represents an AI agent with MCP tool integration using the fantasy library.
 // It manages the interaction between an LLM and various tools through the MCP protocol.
 type Agent struct {
@@ -135,10 +132,10 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 // GenerateWithLoop processes messages with a custom loop that displays tool calls in real-time.
 func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message,
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
-	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler, onToolApproval ToolApprovalHandler,
+	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, onToolApproval)
+		onResponse, onToolCallContent, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
@@ -147,7 +144,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fantasy.Message,
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
-	onStreamingResponse StreamingResponseHandler, onToolApproval ToolApprovalHandler,
+	onStreamingResponse StreamingResponseHandler,
 ) (*GenerateWithLoopResult, error) {
 
 	// Fantasy requires the current user input as Prompt, with prior messages as history.
@@ -176,17 +173,6 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			OnToolCall: func(tc fantasy.ToolCallContent) error {
 				currentToolName = tc.ToolName
 				currentToolArgs = tc.Input
-
-				// Check approval if handler is set
-				if onToolApproval != nil {
-					approved, err := onToolApproval(tc.ToolName, tc.Input)
-					if err != nil {
-						return err
-					}
-					if !approved {
-						return fmt.Errorf("tool call %s rejected by user", tc.ToolName)
-					}
-				}
 
 				// Notify about the tool call
 				if onToolCall != nil {
