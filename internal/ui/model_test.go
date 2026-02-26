@@ -23,8 +23,9 @@ type stubAppController struct {
 	queueLen         int
 }
 
-func (s *stubAppController) Run(prompt string) {
+func (s *stubAppController) Run(prompt string) int {
 	s.runCalls = append(s.runCalls, prompt)
+	return s.queueLen
 }
 
 func (s *stubAppController) CancelCurrentStep() {
@@ -286,36 +287,63 @@ func TestESCCancel_clearedOnStepComplete(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// Queue badge update
+// Queued messages
 // --------------------------------------------------------------------------
 
-// TestQueueBadge_updatesOnEvent verifies that QueueUpdatedEvent sets queueCount.
-func TestQueueBadge_updatesOnEvent(t *testing.T) {
-	ctrl := &stubAppController{}
+// TestQueuedMessages_storedOnQueuedSubmit verifies that submitting a prompt
+// while the agent is busy stores the text in queuedMessages (not scrollback).
+func TestQueuedMessages_storedOnQueuedSubmit(t *testing.T) {
+	ctrl := &stubAppController{queueLen: 1} // simulate busy (will return 1)
 	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
 
-	if m.queueCount != 0 {
-		t.Fatalf("expected queueCount=0 initially, got %d", m.queueCount)
+	_, cmd := m.Update(submitMsg{Text: "queued prompt"})
+
+	if len(m.queuedMessages) != 1 {
+		t.Fatalf("expected 1 queued message, got %d", len(m.queuedMessages))
 	}
-
-	m = sendMsg(m, app.QueueUpdatedEvent{Length: 3})
-
-	if m.queueCount != 3 {
-		t.Fatalf("expected queueCount=3 after QueueUpdatedEvent, got %d", m.queueCount)
+	if m.queuedMessages[0] != "queued prompt" {
+		t.Fatalf("expected queued message text 'queued prompt', got %q", m.queuedMessages[0])
+	}
+	// Should NOT produce a tea.Println cmd (message is anchored, not in scrollback).
+	if cmd != nil {
+		t.Fatal("expected nil cmd for queued submit (message should not print to scrollback)")
 	}
 }
 
-// TestQueueBadge_resetsToZero verifies that a QueueUpdatedEvent with Length=0
-// resets the badge count.
-func TestQueueBadge_resetsToZero(t *testing.T) {
+// TestQueuedMessages_poppedOnQueueUpdated verifies that QueueUpdatedEvent pops
+// consumed messages from queuedMessages and prints them to scrollback.
+func TestQueuedMessages_poppedOnQueueUpdated(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
-	m.queueCount = 5
+	m.queuedMessages = []string{"first", "second", "third"}
+
+	// Simulate drainQueue popping one item (length goes from 3 to 2).
+	_, cmd := m.Update(app.QueueUpdatedEvent{Length: 2})
+
+	if len(m.queuedMessages) != 2 {
+		t.Fatalf("expected 2 queued messages after pop, got %d", len(m.queuedMessages))
+	}
+	if m.queuedMessages[0] != "second" {
+		t.Fatalf("expected first remaining message 'second', got %q", m.queuedMessages[0])
+	}
+	// Should produce a cmd (tea.Println for the popped user message).
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (tea.Println) for popped message")
+	}
+}
+
+// TestQueuedMessages_allPoppedOnDrain verifies that QueueUpdatedEvent with
+// Length=0 pops all remaining queued messages.
+func TestQueuedMessages_allPoppedOnDrain(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.queuedMessages = []string{"alpha", "beta"}
 
 	m = sendMsg(m, app.QueueUpdatedEvent{Length: 0})
 
-	if m.queueCount != 0 {
-		t.Fatalf("expected queueCount=0 after QueueUpdatedEvent{Length:0}, got %d", m.queueCount)
+	if len(m.queuedMessages) != 0 {
+		t.Fatalf("expected 0 queued messages after drain, got %d", len(m.queuedMessages))
 	}
 }
 

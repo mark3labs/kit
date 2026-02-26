@@ -209,11 +209,13 @@ func TestInputComponent_ClearNilCtrl_NoPanic(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// TestInputComponent_ClearQueueCallsClearQueue verifies that /clear-queue (and
-// its alias /cq) calls appCtrl.ClearQueue() and returns no submitMsg.
+// TestInputComponent_ClearQueue_ForwardsAsSubmitMsg verifies that /clear-queue
+// (and its alias /cq) are forwarded as submitMsg to the parent model (so the
+// parent can call ClearQueue and update queueCount directly, avoiding a
+// deadlock from calling prog.Send within Update).
 // --------------------------------------------------------------------------
 
-func TestInputComponent_ClearQueueCallsClearQueue(t *testing.T) {
+func TestInputComponent_ClearQueue_ForwardsAsSubmitMsg(t *testing.T) {
 	aliases := []string{"/clear-queue", "/cq"}
 	for _, alias := range aliases {
 		t.Run(alias, func(t *testing.T) {
@@ -224,14 +226,21 @@ func TestInputComponent_ClearQueueCallsClearQueue(t *testing.T) {
 
 			_, cmd := sendInputMsg(c, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-			if ctrl.clearQueueCalled != 1 {
-				t.Fatalf("%s: expected ClearQueue() called once, got %d", alias, ctrl.clearQueueCalled)
+			// ClearQueue should NOT be called directly by InputComponent.
+			if ctrl.clearQueueCalled != 0 {
+				t.Fatalf("%s: expected ClearQueue() not called, got %d", alias, ctrl.clearQueueCalled)
 			}
-			if cmd != nil {
-				msg := runCmd(cmd)
-				if _, ok := msg.(submitMsg); ok {
-					t.Fatalf("%s: /clear-queue should not emit submitMsg, got submitMsg", alias)
-				}
+			// Instead, a submitMsg should be emitted so the parent handles it.
+			if cmd == nil {
+				t.Fatalf("%s: expected submitMsg cmd, got nil", alias)
+			}
+			msg := runCmd(cmd)
+			sm, ok := msg.(submitMsg)
+			if !ok {
+				t.Fatalf("%s: expected submitMsg, got %T", alias, msg)
+			}
+			if sm.Text != alias {
+				t.Fatalf("%s: expected submitMsg text %q, got %q", alias, alias, sm.Text)
 			}
 		})
 	}

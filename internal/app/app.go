@@ -24,7 +24,7 @@ import (
 //
 // App satisfies the ui.AppController interface defined in internal/ui/model.go:
 //
-//	Run(prompt string)
+//	Run(prompt string) int
 //	CancelCurrentStep()
 //	QueueLength() int
 //	ClearQueue()
@@ -88,30 +88,36 @@ func (a *App) SetProgram(p *tea.Program) {
 
 // Run queues a prompt for execution. If the app is idle the prompt is
 // executed immediately in a background goroutine; otherwise it is appended
-// to the queue and a QueueUpdatedEvent is sent to the program.
+// to the queue.
+//
+// Returns the current queue depth after the operation: 0 means the prompt
+// was started immediately (or the app is closed), >0 means it was queued.
+// The caller is responsible for updating any UI state (e.g. queue badge)
+// based on the returned value — Run does NOT send events to the program,
+// because it may be called synchronously from within Bubble Tea's Update
+// loop where prog.Send would deadlock.
 //
 // Satisfies ui.AppController.
-func (a *App) Run(prompt string) {
+func (a *App) Run(prompt string) int {
 	a.mu.Lock()
 
 	if a.closed {
 		a.mu.Unlock()
-		return
+		return 0
 	}
 
 	if a.busy {
 		a.queue = append(a.queue, prompt)
 		qLen := len(a.queue)
 		a.mu.Unlock()
-		// sendEvent must be called without a.mu held (see sendEvent comment).
-		a.sendEvent(QueueUpdatedEvent{Length: qLen})
-		return
+		return qLen
 	}
 
 	a.busy = true
 	a.wg.Add(1)
 	a.mu.Unlock()
 	go a.drainQueue(prompt)
+	return 0
 }
 
 // CancelCurrentStep cancels the currently executing agent step. Safe to call
@@ -134,15 +140,16 @@ func (a *App) QueueLength() int {
 	return len(a.queue)
 }
 
-// ClearQueue discards all queued prompts and sends a QueueUpdatedEvent.
+// ClearQueue discards all queued prompts. The caller is responsible for
+// updating any UI state (e.g. queue badge) — ClearQueue does NOT send
+// events to the program, because it may be called synchronously from
+// within Bubble Tea's Update loop where prog.Send would deadlock.
 //
 // Satisfies ui.AppController.
 func (a *App) ClearQueue() {
 	a.mu.Lock()
 	a.queue = a.queue[:0]
 	a.mu.Unlock()
-	// sendEvent must be called without a.mu held (see sendEvent comment).
-	a.sendEvent(QueueUpdatedEvent{Length: 0})
 }
 
 // ClearMessages empties the conversation history.

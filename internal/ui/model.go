@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -28,14 +29,19 @@ const (
 // makes the parent model easily testable with a mock.
 type AppController interface {
 	// Run queues or immediately starts a new agent step with the given prompt.
-	// If an agent step is already in progress the prompt is queued and a
-	// QueueUpdatedEvent is sent to the program.
-	Run(prompt string)
+	// Returns the current queue depth: 0 means the prompt started immediately
+	// (or the app is closed), >0 means it was queued. The caller must update
+	// UI state (e.g. queueCount) based on the return value — Run does NOT
+	// send events to the program to avoid deadlocking when called from
+	// within Update().
+	Run(prompt string) int
 	// CancelCurrentStep cancels any in-progress agent step.
 	CancelCurrentStep()
 	// QueueLength returns the number of prompts currently waiting in the queue.
 	QueueLength() int
-	// ClearQueue discards all queued prompts and emits a QueueUpdatedEvent.
+	// ClearQueue discards all queued prompts. The caller must update UI state
+	// (e.g. queueCount) — ClearQueue does NOT send events to the program to
+	// avoid deadlocking when called from within Update().
 	ClearQueue()
 	// ClearMessages clears the conversation history.
 	ClearMessages()
@@ -83,7 +89,9 @@ type AppModelOptions struct {
 //
 //	┌─ stream region (variable height) ─────────────────┐
 //	│                                                    │
-//	├─ separator line (with optional queue badge) ───────┤
+//	├─ separator line (with optional queue count) ───────┤
+//	│  queued  How do I fix the build?                   │
+//	│  queued  Also check the tests                      │
 //	└─ input region (fixed height from textarea) ────────┘
 //
 // Completed responses are emitted above the BT-managed region via tea.Println()
@@ -116,8 +124,10 @@ type AppModel struct {
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
 
-	// queueCount is cached from the last QueueUpdatedEvent for badge rendering.
-	queueCount int
+	// queuedMessages stores the text of prompts that were queued (not yet
+	// submitted to the agent). They are rendered with a "queued" badge above
+	// the input and move to scrollback when the agent picks them up.
+	queuedMessages []string
 
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
@@ -324,11 +334,24 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// Regular prompt — print user message and forward to the app layer.
-		cmds = append(cmds, m.printUserMessage(msg.Text))
+		// Regular prompt — forward to the app layer.
 		if m.appCtrl != nil {
-			// app.Run() handles queueing internally if a step is in progress.
-			m.appCtrl.Run(msg.Text)
+			// Run returns the queue depth: >0 means the prompt was queued
+			// (agent is busy). We update queuedMessages directly here
+			// instead of relying on an event from prog.Send(), which would
+			// deadlock when called synchronously from within Update().
+			if qLen := m.appCtrl.Run(msg.Text); qLen > 0 {
+				// Queued: anchor the message text above the input with a
+				// "queued" badge. It will be printed to scrollback when
+				// the agent picks it up (on QueueUpdatedEvent).
+				m.queuedMessages = append(m.queuedMessages, msg.Text)
+				m.distributeHeight()
+			} else {
+				// Started immediately: print to scrollback now.
+				cmds = append(cmds, m.printUserMessage(msg.Text))
+			}
+		} else {
+			cmds = append(cmds, m.printUserMessage(msg.Text))
 		}
 		if m.state != stateWorking {
 			m.state = stateWorking
@@ -398,7 +421,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Informational — no action needed by parent.
 
 	case app.QueueUpdatedEvent:
-		m.queueCount = msg.Length
+		// drainQueue popped item(s) from the queue. Move consumed messages
+		// from the anchored display to scrollback (they are now being processed
+		// or about to be).
+		for len(m.queuedMessages) > msg.Length {
+			text := m.queuedMessages[0]
+			m.queuedMessages = m.queuedMessages[1:]
+			cmds = append(cmds, m.printUserMessage(text))
+		}
+		m.distributeHeight()
 
 	case app.StepCompleteEvent:
 		// Flush any remaining streamed text to scrollback, then reset stream
@@ -438,17 +469,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model. It renders the stacked layout:
-// stream region + separator + input region.
+// stream region + separator + [queued messages] + input region.
 func (m *AppModel) View() tea.View {
 	streamView := m.renderStream()
 	separator := m.renderSeparator()
 	inputView := m.renderInput()
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		streamView,
-		separator,
-		inputView,
-	)
+	parts := []string{streamView, separator}
+
+	if queuedView := m.renderQueuedMessages(); queuedView != "" {
+		parts = append(parts, queuedView)
+	}
+
+	parts = append(parts, inputView)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	return tea.NewView(content)
 }
@@ -478,15 +513,16 @@ func (m *AppModel) renderStream() string {
 	return m.stream.View().Content
 }
 
-// renderSeparator renders the separator line with an optional queue badge.
+// renderSeparator renders the separator line with an optional queue count badge.
 func (m *AppModel) renderSeparator() string {
 	theme := GetTheme()
 	lineStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	queueLen := len(m.queuedMessages)
 
-	if m.queueCount > 0 {
+	if queueLen > 0 {
 		badge := lipgloss.NewStyle().
 			Foreground(theme.Secondary).
-			Render(fmt.Sprintf("%d queued", m.queueCount))
+			Render(fmt.Sprintf("%d queued", queueLen))
 
 		// Fill the separator with dashes up to the badge.
 		dashWidth := m.width - lipgloss.Width(badge) - 1
@@ -506,6 +542,40 @@ func (m *AppModel) renderInput() string {
 		return ""
 	}
 	return m.input.View().Content
+}
+
+// renderQueuedMessages renders queued prompts with "queued" badges, anchored
+// between the separator and input. Each message is shown on a single line
+// with a styled badge so the user can see what is pending.
+func (m *AppModel) renderQueuedMessages() string {
+	if len(m.queuedMessages) == 0 {
+		return ""
+	}
+	theme := GetTheme()
+
+	badgeStyle := lipgloss.NewStyle().
+		Foreground(theme.Secondary).
+		Bold(true)
+	badge := badgeStyle.Render("queued")
+	badgeWidth := lipgloss.Width(badge)
+
+	textStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	// Indent to align with the input container (2-space left padding).
+	indent := "  "
+
+	var lines []string
+	for _, msg := range m.queuedMessages {
+		// Truncate long messages to fit on one line:
+		// indent(2) + badge + gap(2) + text must fit within m.width.
+		maxTextWidth := m.width - len(indent) - badgeWidth - 2
+		display := msg
+		if maxTextWidth > 3 && len(display) > maxTextWidth {
+			display = display[:maxTextWidth-3] + "..."
+		}
+		line := indent + badge + "  " + textStyle.Render(display)
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // --------------------------------------------------------------------------
@@ -613,6 +683,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		if m.appCtrl != nil {
 			m.appCtrl.ClearQueue()
 		}
+		m.queuedMessages = m.queuedMessages[:0]
+		m.distributeHeight()
 		return nil
 	default:
 		return m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
@@ -722,18 +794,21 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 }
 
 // distributeHeight recalculates child component heights after a window resize
-// and propagates the computed stream height to the StreamComponent.
+// or queue change, and propagates the computed stream height to the
+// StreamComponent.
 //
 // Layout (line counts):
 //
-//	stream region  = total - separator(1) - input(5)
+//	stream region  = total - separator(1) - queued(N) - input(5)
 //	separator      = 1 line
+//	queued msgs    = len(queuedMessages) lines (0 when queue is empty)
 //	input region   = 5 lines: title(1) + textarea(3) + help(1)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
 	const inputLines = 5 // title (1) + textarea (3) + help (1)
+	queuedLines := len(m.queuedMessages)
 
-	streamHeight := m.height - separatorLines - inputLines
+	streamHeight := m.height - separatorLines - queuedLines - inputLines
 	if streamHeight < 0 {
 		streamHeight = 0
 	}

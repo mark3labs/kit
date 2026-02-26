@@ -17,7 +17,10 @@ import (
 // Slash commands handled locally (not forwarded to app layer):
 //   - /quit, /q, /exit  → tea.Quit
 //   - /clear, /cls, /c  → appCtrl.ClearMessages() then clear the textarea
-//   - /clear-queue      → appCtrl.ClearQueue() then clear the textarea
+//
+// /clear-queue is forwarded to the parent via submitMsg so the parent can
+// update queueCount directly (calling ClearQueue from within Update would
+// require prog.Send which deadlocks).
 //
 // All other input is returned via submitMsg for the parent to forward to
 // app.Run().
@@ -196,6 +199,10 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	}
 
 	// Resolve via canonical command lookup so aliases are handled uniformly.
+	// Only /quit and /clear are handled locally — /clear-queue must go
+	// through the parent model so it can update queueCount directly
+	// (calling ClearQueue here would skip the UI state update since we
+	// can't send events from within Update without deadlocking).
 	if sc := GetCommandByName(trimmed); sc != nil {
 		switch sc.Name {
 		case "/quit":
@@ -206,12 +213,6 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 				s.appCtrl.ClearMessages()
 			}
 			// Don't forward to app.Run(); just clear silently.
-			return nil
-
-		case "/clear-queue":
-			if s.appCtrl != nil {
-				s.appCtrl.ClearQueue()
-			}
 			return nil
 		}
 	}
