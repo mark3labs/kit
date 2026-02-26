@@ -15,7 +15,7 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64
-    binary: mcphost
+    binary: kit
     ldflags:
       - -s -w -X main.version={{.Version}}
 

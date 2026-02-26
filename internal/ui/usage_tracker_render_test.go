@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcphost/internal/models"
+	"github.com/mark3labs/kit/internal/models"
 )
 
 // stripAnsi removes ANSI escape codes from a string for test comparisons.

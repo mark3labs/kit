@@ -5,9 +5,9 @@ import (
 
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/mcphost/internal/agent"
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/session"
+	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // AgentRunner is the minimal interface the app layer requires from the agent

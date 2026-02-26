@@ -1,4 +1,4 @@
-module github.com/mark3labs/mcphost
+module github.com/mark3labs/kit
 
 go 1.26.0
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mark3labs/mcphost/internal/models"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -13,22 +13,22 @@ var modelsAllFlag bool
 var modelsCmd = &cobra.Command{
 	Use:   "models [provider]",
 	Short: "List available models from the model database",
-	Long: `List models known to mcphost from the models.dev database.
+	Long: `List models known to kit from the models.dev database.
 
-By default, shows only providers that mcphost can use (native fantasy
+By default, shows only providers that kit can use (native fantasy
 providers plus openai-compatible auto-routed providers). Use --all
 to show every provider in the database.
 
 When a provider name is given, shows only that provider's models.
 
 Note: models not listed here can still be used — the database is
-advisory. Run 'mcphost update-models' to refresh.
+advisory. Run 'kit update-models' to refresh.
 
 Examples:
-  mcphost models
-  mcphost models --all
-  mcphost models anthropic
-  mcphost models deepseek`,
+  kit models
+  kit models --all
+  kit models anthropic
+  kit models deepseek`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runModels,
 }
@@ -67,7 +67,7 @@ func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
 	}
 
 	if len(withModels) == 0 {
-		fmt.Println("No models in database. Run 'mcphost update-models' to fetch.")
+		fmt.Println("No models in database. Run 'kit update-models' to fetch.")
 		return nil
 	}
 
@@ -102,7 +102,7 @@ func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
 func printProvider(registry *models.ModelsRegistry, provider string) error {
 	m, err := registry.GetModelsForProvider(provider)
 	if err != nil {
-		return fmt.Errorf("unknown provider %q. Run 'mcphost models' to see all providers", provider)
+		return fmt.Errorf("unknown provider %q. Run 'kit models' to see all providers", provider)
 	}
 
 	if len(m) == 0 {

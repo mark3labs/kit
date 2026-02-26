@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/mark3labs/mcphost/internal/app"
+	"github.com/mark3labs/kit/internal/app"
 )
 
 // appState represents the current state of the parent TUI model.

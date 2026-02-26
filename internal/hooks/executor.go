@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Executor handles hook execution for MCPHost lifecycle events. It manages
+// Executor handles hook execution for KIT lifecycle events. It manages
 // hook configuration, executes matching hooks in parallel, and processes
 // their outputs to determine application behavior.
 type Executor struct {

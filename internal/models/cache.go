@@ -17,18 +17,18 @@ type cacheEnvelope struct {
 	Providers map[string]modelsDBProvider `json:"providers"`
 }
 
-// dataDir returns the mcphost data directory following XDG Base Directory spec.
+// dataDir returns the kit data directory following XDG Base Directory spec.
 //
-//	Linux/macOS: $XDG_DATA_HOME/mcphost  (default ~/.local/share/mcphost)
-//	Windows:     %LOCALAPPDATA%/mcphost
+//	Linux/macOS: $XDG_DATA_HOME/kit  (default ~/.local/share/kit)
+//	Windows:     %LOCALAPPDATA%/kit
 func dataDir() (string, error) {
 	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-		return filepath.Join(xdg, "mcphost"), nil
+		return filepath.Join(xdg, "kit"), nil
 	}
 
 	if runtime.GOOS == "windows" {
 		if local := os.Getenv("LOCALAPPDATA"); local != "" {
-			return filepath.Join(local, "mcphost"), nil
+			return filepath.Join(local, "kit"), nil
 		}
 	}
 
@@ -36,7 +36,7 @@ func dataDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".local", "share", "mcphost"), nil
+	return filepath.Join(home, ".local", "share", "kit"), nil
 }
 
 // cachePath returns the full path to the cache file.

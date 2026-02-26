@@ -1,9 +1,8 @@
 .aider*
 .env
 aidocs/
-.mcp.json
 *.log
-mcphost
+kit
 .idea
 test/
 build/

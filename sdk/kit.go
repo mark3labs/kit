@@ -5,23 +5,23 @@ import (
 	"fmt"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcphost/cmd"
-	"github.com/mark3labs/mcphost/internal/agent"
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/session"
+	"github.com/mark3labs/kit/cmd"
+	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/session"
 	"github.com/spf13/viper"
 )
 
-// MCPHost provides programmatic access to mcphost functionality, allowing
+// Kit provides programmatic access to kit functionality, allowing
 // integration of MCP tools and LLM interactions into Go applications. It manages
 // agents, sessions, and model configurations.
-type MCPHost struct {
+type Kit struct {
 	agent       *agent.Agent
 	sessionMgr  *session.Manager
 	modelString string
 }
 
-// Options configures MCPHost creation with optional overrides for model,
+// Options configures Kit creation with optional overrides for model,
 // prompts, configuration, and behavior settings. All fields are optional
 // and will use CLI defaults if not specified.
 type Options struct {
@@ -33,10 +33,10 @@ type Options struct {
 	Quiet        bool   // Suppress debug output
 }
 
-// New creates an MCPHost instance using the same initialization as the CLI.
+// New creates a Kit instance using the same initialization as the CLI.
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
-func New(ctx context.Context, opts *Options) (*MCPHost, error) {
+func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
@@ -83,7 +83,7 @@ func New(ctx context.Context, opts *Options) (*MCPHost, error) {
 	// Create session manager
 	sessionMgr := session.NewManager("")
 
-	return &MCPHost{
+	return &Kit{
 		agent:       a,
 		sessionMgr:  sessionMgr,
 		modelString: viper.GetString("model"),
@@ -93,7 +93,7 @@ func New(ctx context.Context, opts *Options) (*MCPHost, error) {
 // Prompt sends a message to the agent and returns the response. The agent may
 // use tools as needed to generate the response. The conversation history is
 // automatically maintained in the session. Returns an error if generation fails.
-func (m *MCPHost) Prompt(ctx context.Context, message string) (string, error) {
+func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 	// Get messages from session
 	messages := m.sessionMgr.GetMessages()
 
@@ -124,7 +124,7 @@ func (m *MCPHost) Prompt(ctx context.Context, message string) (string, error) {
 // PromptWithCallbacks sends a message with callbacks for monitoring tool execution
 // and streaming responses. The callbacks allow real-time observation of tool calls,
 // results, and response generation. Returns the final response or an error.
-func (m *MCPHost) PromptWithCallbacks(
+func (m *Kit) PromptWithCallbacks(
 	ctx context.Context,
 	message string,
 	onToolCall func(name, args string),
@@ -161,13 +161,13 @@ func (m *MCPHost) PromptWithCallbacks(
 
 // GetSessionManager returns the current session manager for direct access
 // to conversation history and session manipulation.
-func (m *MCPHost) GetSessionManager() *session.Manager {
+func (m *Kit) GetSessionManager() *session.Manager {
 	return m.sessionMgr
 }
 
 // LoadSession loads a previously saved session from a file, restoring the
 // conversation history. Returns an error if the file cannot be loaded or parsed.
-func (m *MCPHost) LoadSession(path string) error {
+func (m *Kit) LoadSession(path string) error {
 	s, err := session.LoadFromFile(path)
 	if err != nil {
 		return err
@@ -178,25 +178,25 @@ func (m *MCPHost) LoadSession(path string) error {
 
 // SaveSession saves the current session to a file for later restoration.
 // Returns an error if the session cannot be written to the specified path.
-func (m *MCPHost) SaveSession(path string) error {
+func (m *Kit) SaveSession(path string) error {
 	return m.sessionMgr.GetSession().SaveToFile(path)
 }
 
 // ClearSession clears the current session history, starting a new conversation
 // with an empty message history.
-func (m *MCPHost) ClearSession() {
+func (m *Kit) ClearSession() {
 	m.sessionMgr = session.NewManager("")
 }
 
 // GetModelString returns the current model string identifier (e.g.,
 // "anthropic/claude-sonnet-4-5-20250929" or "openai/gpt-4") being used by the agent.
-func (m *MCPHost) GetModelString() string {
+func (m *Kit) GetModelString() string {
 	return m.modelString
 }
 
 // Close cleans up resources including MCP server connections and model resources.
-// Should be called when the MCPHost instance is no longer needed. Returns an
+// Should be called when the Kit instance is no longer needed. Returns an
 // error if cleanup fails.
-func (m *MCPHost) Close() error {
+func (m *Kit) Close() error {
 	return m.agent.Close()
 }

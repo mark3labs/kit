@@ -9,15 +9,15 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mark3labs/mcphost/internal/app"
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/ui"
+	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/ui"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-// scriptCmd represents the script command for executing MCPHost script files.
+// scriptCmd represents the script command for executing KIT script files.
 // Script files can contain YAML frontmatter configuration followed by a prompt,
 // allowing for reproducible AI interactions with custom configurations and
 // variable substitution support.
@@ -47,7 +47,7 @@ Variables in the script can be substituted using ${variable} syntax.
 Variables can have default values using ${variable:-default} syntax.
 Pass variables using --args:variable value syntax:
 
-  mcphost script myscript.sh --args:directory /tmp --args:name "John"
+  kit script myscript.sh --args:directory /tmp --args:name "John"
 
 This will replace ${directory} with "/tmp" and ${name} with "John" in the script.
 Variables with defaults (${var:-default}) are optional and use the default if not provided.`,

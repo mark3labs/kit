@@ -5,18 +5,18 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/mark3labs/mcphost/internal/hooks"
+	"github.com/mark3labs/kit/internal/hooks"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// hooksCmd represents the hooks command for managing MCPHost hook configurations.
+// hooksCmd represents the hooks command for managing KIT hook configurations.
 // Hooks allow users to execute custom scripts or commands at various points
-// during MCPHost execution, such as before/after tool use or when prompts are submitted.
+// during KIT execution, such as before/after tool use or when prompts are submitted.
 var hooksCmd = &cobra.Command{
 	Use:   "hooks",
-	Short: "Manage MCPHost hooks",
-	Long:  "Commands for managing and testing MCPHost hooks configuration",
+	Short: "Manage KIT hooks",
+	Long:  "Commands for managing and testing KIT hooks configuration",
 }
 
 // hooksListCmd represents the list subcommand for displaying all configured hooks.
@@ -74,7 +74,7 @@ var hooksValidateCmd = &cobra.Command{
 }
 
 // hooksInitCmd represents the init subcommand for generating an example hooks configuration.
-// It creates a .mcphost/hooks.yml file with sample hook configurations demonstrating
+// It creates a .kit/hooks.yml file with sample hook configurations demonstrating
 // various hook events and common use cases like logging commands and tool usage.
 var hooksInitCmd = &cobra.Command{
 	Use:   "init",
@@ -89,7 +89,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs" && jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] $ " + .tool_input.command' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/bash-commands.log"`,
+								Command: `mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs" && jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] $ " + .tool_input.command' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/bash-commands.log"`,
 								Timeout: 5,
 							},
 						},
@@ -99,7 +99,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), event: "pre", tool: .tool_name, input: .tool_input}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/all-tools.jsonl"`,
+								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), event: "pre", tool: .tool_name, input: .tool_input}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/all-tools.jsonl"`,
 								Timeout: 5,
 							},
 						},
@@ -112,7 +112,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), cmd: .tool_input.command, exit: .tool_response._meta.exit, stdout: (.tool_response._meta.stdout | rtrimstr("\n") | .[0:100]), stderr: (.tool_response._meta.stderr | rtrimstr("\n"))}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/bash-audit.jsonl"`,
+								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), cmd: .tool_input.command, exit: .tool_response._meta.exit, stdout: (.tool_response._meta.stdout | rtrimstr("\n") | .[0:100]), stderr: (.tool_response._meta.stderr | rtrimstr("\n"))}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/bash-audit.jsonl"`,
 								Timeout: 5,
 							},
 						},
@@ -122,7 +122,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), tool: .tool_name, response_preview: (.tool_response | tostring | .[0:200])}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/mcp-tools.jsonl"`,
+								Command: `jq -c '{time: now | strftime("%Y-%m-%d %H:%M:%S"), tool: .tool_name, response_preview: (.tool_response | tostring | .[0:200])}' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/mcp-tools.jsonl"`,
 								Timeout: 5,
 							},
 						},
@@ -134,7 +134,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs" && jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] " + .prompt' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/prompts.log"`,
+								Command: `mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs" && jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] " + .prompt' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/prompts.log"`,
 							},
 						},
 					},
@@ -145,7 +145,7 @@ var hooksInitCmd = &cobra.Command{
 						Hooks: []hooks.HookEntry{
 							{
 								Type:    "command",
-								Command: `jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] Session " + .session_id + " stopped"' >> "${XDG_CONFIG_HOME:-$HOME/.config}/mcphost/logs/sessions.log"`,
+								Command: `jq -r '"[" + (now | strftime("%Y-%m-%d %H:%M:%S")) + "] Session " + .session_id + " stopped"' >> "${XDG_CONFIG_HOME:-$HOME/.config}/kit/logs/sessions.log"`,
 							},
 						},
 					},
@@ -153,9 +153,9 @@ var hooksInitCmd = &cobra.Command{
 			},
 		}
 
-		// Create .mcphost directory if it doesn't exist
-		if err := os.MkdirAll(".mcphost", 0755); err != nil {
-			return fmt.Errorf("creating .mcphost directory: %w", err)
+		// Create .kit directory if it doesn't exist
+		if err := os.MkdirAll(".kit", 0755); err != nil {
+			return fmt.Errorf("creating .kit directory: %w", err)
 		}
 
 		// Write example configuration
@@ -164,11 +164,11 @@ var hooksInitCmd = &cobra.Command{
 			return fmt.Errorf("marshaling example: %w", err)
 		}
 
-		if err := os.WriteFile(".mcphost/hooks.yml", data, 0644); err != nil {
+		if err := os.WriteFile(".kit/hooks.yml", data, 0644); err != nil {
 			return fmt.Errorf("writing example: %w", err)
 		}
 
-		fmt.Println("Created .mcphost/hooks.yml with example configuration")
+		fmt.Println("Created .kit/hooks.yml with example configuration")
 		return nil
 	},
 }

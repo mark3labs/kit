@@ -1,6 +1,6 @@
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
-# Demo script showcasing default values in MCPHost scripts
+# Demo script showcasing default values in KIT scripts
 model: "anthropic/claude-sonnet-4-5-20250929"
 mcpServers:
   filesystem:
@@ -19,7 +19,7 @@ mcpServers:
 
 Hello ${user_name:-Anonymous User}! 
 
-This script demonstrates the new default values feature in MCPHost scripts.
+This script demonstrates the new default values feature in KIT scripts.
 
 ## Your Configuration:
 - Working directory: ${work_dir:-/tmp}

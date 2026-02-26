@@ -1,4 +1,4 @@
-# MCPHost 🤖
+# KIT 🤖
 
 A CLI host application that enables Large Language Models (LLMs) to interact with external tools through the Model Context Protocol (MCP). Currently supports Claude, OpenAI, Google Gemini, and Ollama models.
 
@@ -40,8 +40,8 @@ Discuss the Project on [Discord](https://discord.gg/RqSS2NQVsY)
 
 ## Overview 🌟
 
-MCPHost acts as a host in the MCP client-server architecture, where:
-- **Hosts** (like MCPHost) are LLM applications that manage connections and interactions
+KIT acts as a host in the MCP client-server architecture, where:
+- **Hosts** (like KIT) are LLM applications that manage connections and interactions
 - **Clients** maintain 1:1 connections with MCP servers
 - **Servers** provide context, tools, and capabilities to the LLMs
 
@@ -117,19 +117,19 @@ export GOOGLE_API_KEY='your-api-key'
 5. Self-Signed Certificates (TLS):
 If your provider uses self-signed certificates (e.g., local Ollama with HTTPS), you can skip certificate verification:
 ```bash
-mcphost --provider-url https://192.168.1.100:443 --tls-skip-verify
+kit --provider-url https://192.168.1.100:443 --tls-skip-verify
 ```
 ⚠️ **WARNING**: Only use `--tls-skip-verify` for development or when connecting to trusted servers with self-signed certificates. This disables TLS certificate verification and is insecure for production use.
 
 ## Installation 📦
 
 ```bash
-go install github.com/mark3labs/mcphost@latest
+go install github.com/mark3labs/kit@latest
 ```
 
 ## SDK Usage 🛠️
 
-MCPHost also provides a Go SDK for programmatic access without spawning OS processes. The SDK maintains identical behavior to the CLI, including configuration loading, environment variables, and defaults.
+KIT also provides a Go SDK for programmatic access without spawning OS processes. The SDK maintains identical behavior to the CLI, including configuration loading, environment variables, and defaults.
 
 ### Quick Example
 
@@ -139,13 +139,13 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/mark3labs/mcphost/sdk"
+    "github.com/mark3labs/kit/sdk"
 )
 
 func main() {
     ctx := context.Background()
     
-    // Create MCPHost instance with default configuration
+    // Create Kit instance with default configuration
     host, err := sdk.New(ctx, nil)
     if err != nil {
         panic(err)
@@ -176,19 +176,18 @@ For detailed SDK documentation, examples, and API reference, see the [SDK README
 ## Configuration ⚙️
 
 ### MCP Servers
-MCPHost will automatically create a configuration file in your home directory if it doesn't exist. It looks for config files in this order:
-- `.mcphost.yml` or `.mcphost.json` (preferred)
-- `.mcp.yml` or `.mcp.json` (backwards compatibility)
+KIT will automatically create a configuration file in your home directory if it doesn't exist. It looks for config files in this order:
+- `.kit.yml` or `.kit.json`
 
 **Config file locations by OS:**
-- **Linux/macOS**: `~/.mcphost.yml`, `~/.mcphost.json`, `~/.mcp.yml`, `~/.mcp.json`
-- **Windows**: `%USERPROFILE%\.mcphost.yml`, `%USERPROFILE%\.mcphost.json`, `%USERPROFILE%\.mcp.yml`, `%USERPROFILE%\.mcp.json`
+- **Linux/macOS**: `~/.kit.yml`, `~/.kit.json`
+- **Windows**: `%USERPROFILE%\.kit.yml`, `%USERPROFILE%\.kit.json`
 
 You can also specify a custom location using the `--config` flag.
 
 ### Environment Variable Substitution
 
-MCPHost supports environment variable substitution in both config files and script frontmatter using the syntax:
+KIT supports environment variable substitution in both config files and script frontmatter using the syntax:
 - **`${env://VAR}`** - Required environment variable (fails if not set)
 - **`${env://VAR:-default}`** - Optional environment variable with default value
 
@@ -218,13 +217,13 @@ export OPENAI_API_KEY="your_openai_key"
 export DEBUG="true"
 export MODEL="openai/gpt-4"
 
-# Run mcphost
-mcphost
+# Run kit
+kit
 ```
 
 ### Simplified Configuration Schema
 
-MCPHost now supports a simplified configuration schema with three server types:
+KIT now supports a simplified configuration schema with three server types:
 
 #### Local Servers
 For local MCP servers that run commands on your machine:
@@ -386,7 +385,7 @@ All MCP server types support tool filtering to restrict which tools are availabl
 
 ### Legacy Configuration Support
 
-MCPHost maintains full backward compatibility with the previous configuration format. **Note**: A recent bug fix improved legacy stdio transport reliability for external MCP servers (Docker, NPX, etc.).
+KIT maintains full backward compatibility with the previous configuration format. **Note**: A recent bug fix improved legacy stdio transport reliability for external MCP servers (Docker, NPX, etc.).
 
 #### Legacy STDIO Format
 ```json
@@ -448,7 +447,7 @@ MCPHost maintains full backward compatibility with the previous configuration fo
 
 ### Transport Types
 
-MCPHost supports four transport types:
+KIT supports four transport types:
 - **`stdio`**: Launches a local process and communicates via stdin/stdout (used by `"local"` servers)
 - **`sse`**: Connects to a server using Server-Sent Events (legacy format)
 - **`streamable`**: Connects to a server using Streamable HTTP protocol (used by `"remote"` servers)
@@ -465,12 +464,12 @@ You can specify a custom system prompt using the `--system-prompt` flag. You can
 
 1. **Pass the prompt directly as text:**
    ```bash
-   mcphost --system-prompt "You are a helpful assistant that responds in a friendly tone."
+   kit --system-prompt "You are a helpful assistant that responds in a friendly tone."
    ```
 
 2. **Pass a path to a text file containing the prompt:**
    ```bash
-   mcphost --system-prompt ./prompts/assistant.md
+   kit --system-prompt ./prompts/assistant.md
    ```
 
    Example `assistant.md` file:
@@ -487,14 +486,14 @@ You can specify a custom system prompt using the `--system-prompt` flag. You can
 
 ## Usage 🚀
 
-MCPHost is a CLI tool that allows you to interact with various AI models through a unified interface. It supports various tools through MCP servers and can run in both interactive and non-interactive modes.
+KIT is a CLI tool that allows you to interact with various AI models through a unified interface. It supports various tools through MCP servers and can run in both interactive and non-interactive modes.
 
 ### Interactive Mode (Default)
 
 Start an interactive conversation session:
 
 ```bash
-mcphost
+kit
 ```
 
 ### Script Mode
@@ -503,10 +502,10 @@ Run executable YAML-based automation scripts with variable substitution support:
 
 ```bash
 # Using the script subcommand
-mcphost script myscript.sh
+kit script myscript.sh
 
 # With variables
-mcphost script myscript.sh --args:directory /tmp --args:name "John"
+kit script myscript.sh --args:directory /tmp --args:name "John"
 
 # Direct execution (if executable and has shebang)
 ./myscript.sh
@@ -517,7 +516,7 @@ mcphost script myscript.sh --args:directory /tmp --args:name "John"
 Scripts combine YAML configuration with prompts in a single executable file. The configuration must be wrapped in frontmatter delimiters (`---`). You can either include the prompt in the YAML configuration or place it after the closing frontmatter delimiter:
 
 ```yaml
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
 # This script uses the container-use MCP server from https://github.com/dagger/container-use
 mcpServers:
@@ -533,7 +532,7 @@ prompt: |
 Or alternatively, omit the `prompt:` field and place the prompt after the frontmatter:
 
 ```yaml
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
 # This script uses the container-use MCP server from https://github.com/dagger/container-use
 mcpServers:
@@ -556,12 +555,12 @@ Variables can be provided via command line arguments:
 
 ```bash
 # Script with variables
-mcphost script myscript.sh --args:directory /tmp --args:name "John"
+kit script myscript.sh --args:directory /tmp --args:name "John"
 ```
 
 ##### Variable Syntax
 
-MCPHost supports these variable syntaxes:
+KIT supports these variable syntaxes:
 
 1. **Required Environment Variables**: `${env://VAR}` - Must be set in environment
 2. **Optional Environment Variables**: `${env://VAR:-default}` - Uses default if not set
@@ -570,7 +569,7 @@ MCPHost supports these variable syntaxes:
 
 Example script with mixed environment variables and script arguments:
 ```yaml
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
 mcpServers:
   github:
@@ -600,16 +599,16 @@ export DEBUG="true"
 export WORK_DIR="/home/user/projects"
 
 # Uses env vars and defaults: name="World", repo_type="public", command="gh", count="10"
-mcphost script myscript.sh
+kit script myscript.sh
 
 # Override specific script arguments
-mcphost script myscript.sh --args:name "John" --args:username "alice"
+kit script myscript.sh --args:name "John" --args:username "alice"
 
 # Override multiple script arguments  
-mcphost script myscript.sh --args:name "John" --args:username "alice" --args:repo_type "private"
+kit script myscript.sh --args:name "John" --args:username "alice" --args:repo_type "private"
 
 # Mix of env vars, provided args, and default values
-mcphost script myscript.sh --args:name "Alice" --args:command "gh api" --args:count "5"
+kit script myscript.sh --args:name "Alice" --args:command "gh api" --args:count "5"
 ```
 
 ##### Default Value Features
@@ -627,7 +626,7 @@ mcphost script myscript.sh --args:name "Alice" --args:command "gh api" --args:co
 
 #### Script Features
 
-- **Executable**: Use shebang line for direct execution (`#!/usr/bin/env -S mcphost script`)
+- **Executable**: Use shebang line for direct execution (`#!/usr/bin/env -S kit script`)
 - **YAML Configuration**: Define MCP servers directly in the script
 - **Embedded Prompts**: Include the prompt in the YAML
 - **Variable Substitution**: Use `${variable}` and `${variable:-default}` syntax with `--args:variable value`
@@ -637,7 +636,7 @@ mcphost script myscript.sh --args:name "Alice" --args:command "gh api" --args:co
 - **Tool Filtering**: Supports `allowedTools`/`excludedTools` per server
 - **Clean Exit**: Automatically exits after completion
 
-**Note**: The shebang line requires `env -S` to handle the multi-word command `mcphost script`. This is supported on most modern Unix-like systems.
+**Note**: The shebang line requires `env -S` to handle the multi-word command `kit script`. This is supported on most modern Unix-like systems.
 
 #### Script Examples
 
@@ -647,30 +646,30 @@ See `examples/scripts/` for sample scripts:
 
 ### Hooks System
 
-MCPHost supports a powerful hooks system that allows you to execute custom commands at specific points during execution. This enables security policies, logging, custom integrations, and automated workflows.
+KIT supports a powerful hooks system that allows you to execute custom commands at specific points during execution. This enables security policies, logging, custom integrations, and automated workflows.
 
 #### Quick Start
 
 1. Initialize a hooks configuration:
    ```bash
-   mcphost hooks init
+   kit hooks init
    ```
 
 2. View active hooks:
    ```bash
-   mcphost hooks list
+   kit hooks list
    ```
 
 3. Validate your configuration:
    ```bash
-   mcphost hooks validate
+   kit hooks validate
    ```
 
 #### Configuration
 
 Hooks are configured in YAML files with the following precedence (highest to lowest):
-- `.mcphost/hooks.yml` (project-specific hooks)
-- `$XDG_CONFIG_HOME/mcphost/hooks.yml` (user global hooks, defaults to `~/.config/mcphost/hooks.yml`)
+- `.kit/hooks.yml` (project-specific hooks)
+- `$XDG_CONFIG_HOME/kit/hooks.yml` (user global hooks, defaults to `~/.config/kit/hooks.yml`)
 
 Example configuration:
 ```yaml
@@ -685,7 +684,7 @@ hooks:
   UserPromptSubmit:
     - hooks:
         - type: command
-          command: "~/.mcphost/hooks/log-prompt.sh"
+          command: "~/.kit/hooks/log-prompt.sh"
 ```
 
 #### Available Hook Events
@@ -695,7 +694,7 @@ hooks:
 - **UserPromptSubmit**: When user submits a prompt
 - **Stop**: When the agent finishes responding
 - **SubagentStop**: When a subagent (Task tool) finishes
-- **Notification**: When MCPHost sends notifications
+- **Notification**: When KIT sends notifications
 
 #### Security
 
@@ -703,7 +702,7 @@ hooks:
 
 To temporarily disable all hooks, use the `--no-hooks` flag:
 ```bash
-mcphost --no-hooks
+kit --no-hooks
 ```
 
 See the example hook scripts in `examples/hooks/`:
@@ -717,34 +716,34 @@ Run a single prompt and exit - perfect for scripting and automation:
 
 ```bash
 # Basic non-interactive usage
-mcphost -p "What is the weather like today?"
+kit -p "What is the weather like today?"
 
 # Quiet mode - only output the AI response (no UI elements)
-mcphost -p "What is 2+2?" --quiet
+kit -p "What is 2+2?" --quiet
 
 # Use with different models
-mcphost -m ollama/qwen2.5:3b -p "Explain quantum computing" --quiet
+kit -m ollama/qwen2.5:3b -p "Explain quantum computing" --quiet
 ```
 
 ### Model Generation Parameters
 
-MCPHost supports fine-tuning model behavior through various parameters:
+KIT supports fine-tuning model behavior through various parameters:
 
 ```bash
 # Control response length
-mcphost -p "Explain AI" --max-tokens 1000
+kit -p "Explain AI" --max-tokens 1000
 
 # Adjust creativity (0.0 = focused, 1.0 = creative)
-mcphost -p "Write a story" --temperature 0.9
+kit -p "Write a story" --temperature 0.9
 
 # Control diversity with nucleus sampling
-mcphost -p "Generate ideas" --top-p 0.8
+kit -p "Generate ideas" --top-p 0.8
 
 # Limit token choices for more focused responses
-mcphost -p "Answer precisely" --top-k 20
+kit -p "Answer precisely" --top-k 20
 
 # Set custom stop sequences
-mcphost -p "Generate code" --stop-sequences "```","END"
+kit -p "Generate code" --stop-sequences "```","END"
 ```
 
 These parameters work with all supported providers (OpenAI, Anthropic, Google, Ollama) where supported by the underlying model.
@@ -762,13 +761,13 @@ Models can be specified using the `--model` (`-m`) flag:
 #### Interactive Mode
 ```bash
 # Use Ollama with Qwen model
-mcphost -m ollama/qwen2.5:3b
+kit -m ollama/qwen2.5:3b
 
 # Use OpenAI's GPT-4
-mcphost -m openai/gpt-4
+kit -m openai/gpt-4
 
 # Use OpenAI-compatible model with custom URL and API key
-mcphost --model openai/<your-model-name> \
+kit --model openai/<your-model-name> \
 --provider-url <your-base-url> \
 --provider-api-key <your-api-key>
 ```
@@ -776,27 +775,27 @@ mcphost --model openai/<your-model-name> \
 #### Non-Interactive Mode
 ```bash
 # Single prompt with full UI
-mcphost -p "List files in the current directory"
+kit -p "List files in the current directory"
 
 # Compact mode for cleaner output without fancy styling
-mcphost -p "List files in the current directory" --compact
+kit -p "List files in the current directory" --compact
 
 # Quiet mode for scripting (only AI response output, no UI elements)
-mcphost -p "What is the capital of France?" --quiet
+kit -p "What is the capital of France?" --quiet
 
 # Use in shell scripts
-RESULT=$(mcphost -p "Calculate 15 * 23" --quiet)
+RESULT=$(kit -p "Calculate 15 * 23" --quiet)
 echo "The answer is: $RESULT"
 
 # Pipe to other commands
-mcphost -p "Generate a random UUID" --quiet | tr '[:lower:]' '[:upper:]'
+kit -p "Generate a random UUID" --quiet | tr '[:lower:]' '[:upper:]'
 ```
 
 ### Flags
 - `--provider-url string`: Base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)
 - `--provider-api-key string`: API key for the provider (applies to OpenAI, Anthropic, and Google)
 - `--tls-skip-verify`: Skip TLS certificate verification (WARNING: insecure, use only for self-signed certificates)
-- `--config string`: Config file location (default is $HOME/.mcphost.yml)
+- `--config string`: Config file location (default is $HOME/.kit.yml)
 - `--system-prompt string`: system-prompt file location
 - `--debug`: Enable debug logging
 - `--max-steps int`: Maximum number of agent steps (0 for unlimited, default: 0)
@@ -807,9 +806,9 @@ mcphost -p "Generate a random UUID" --quiet | tr '[:lower:]' '[:upper:]'
 - `--stream`: Enable streaming responses (default: true, use `--stream=false` to disable)
 
 ### Authentication Subcommands
-- `mcphost auth login anthropic`: Authenticate with Anthropic using OAuth (alternative to API keys)
-- `mcphost auth logout anthropic`: Remove stored OAuth credentials
-- `mcphost auth status`: Show authentication status
+- `kit auth login anthropic`: Authenticate with Anthropic using OAuth (alternative to API keys)
+- `kit auth logout anthropic`: Remove stored OAuth credentials
+- `kit auth status`: Show authentication status
 
 **Note**: OAuth credentials (when present) take precedence over API keys from environment variables and `--provider-api-key` flags.
 
@@ -822,11 +821,10 @@ mcphost -p "Generate a random UUID" --quiet | tr '[:lower:]' '[:upper:]'
 
 ### Configuration File Support
 
-All command-line flags can be configured via the config file. MCPHost will look for configuration in this order:
-1. `~/.mcphost.yml` or `~/.mcphost.json` (preferred)
-2. `~/.mcp.yml` or `~/.mcp.json` (backwards compatibility)
+All command-line flags can be configured via the config file. KIT will look for configuration in this order:
+1. `~/.kit.yml` or `~/.kit.json`
 
-Example config file (`~/.mcphost.yml`):
+Example config file (`~/.kit.yml`):
 ```yaml
 # MCP Servers - New Simplified Format
 mcpServers:
@@ -882,16 +880,16 @@ While chatting, you can use:
 ### Authentication Commands
 
 Optional OAuth authentication for Anthropic (alternative to API keys):
-- `mcphost auth login anthropic`: Authenticate using OAuth
-- `mcphost auth logout anthropic`: Remove stored OAuth credentials
-- `mcphost auth status`: Show authentication status
+- `kit auth login anthropic`: Authenticate using OAuth
+- `kit auth logout anthropic`: Remove stored OAuth credentials
+- `kit auth status`: Show authentication status
 
 ### Global Flags
 - `--config`: Specify custom config file location
 
 ## Automation & Scripting 🤖
 
-MCPHost's non-interactive mode makes it perfect for automation, scripting, and integration with other tools.
+KIT's non-interactive mode makes it perfect for automation, scripting, and integration with other tools.
 
 ### Use Cases
 
@@ -899,11 +897,11 @@ MCPHost's non-interactive mode makes it perfect for automation, scripting, and i
 ```bash
 #!/bin/bash
 # Get weather and save to file
-mcphost -p "What's the weather in New York?" --quiet > weather.txt
+kit -p "What's the weather in New York?" --quiet > weather.txt
 
 # Process files with AI
 for file in *.txt; do
-    summary=$(mcphost -p "Summarize this file: $(cat $file)" --quiet)
+    summary=$(kit -p "Summarize this file: $(cat $file)" --quiet)
     echo "$file: $summary" >> summaries.txt
 done
 ```
@@ -912,27 +910,27 @@ done
 ```bash
 # Code review automation
 DIFF=$(git diff HEAD~1)
-mcphost -p "Review this code diff and suggest improvements: $DIFF" --quiet
+kit -p "Review this code diff and suggest improvements: $DIFF" --quiet
 
 # Generate release notes
 COMMITS=$(git log --oneline HEAD~10..HEAD)
-mcphost -p "Generate release notes from these commits: $COMMITS" --quiet
+kit -p "Generate release notes from these commits: $COMMITS" --quiet
 ```
 
 #### Data Processing
 ```bash
 # Process CSV data
-mcphost -p "Analyze this CSV data and provide insights: $(cat data.csv)" --quiet
+kit -p "Analyze this CSV data and provide insights: $(cat data.csv)" --quiet
 
 # Generate reports
-mcphost -p "Create a summary report from this JSON: $(cat metrics.json)" --quiet
+kit -p "Create a summary report from this JSON: $(cat metrics.json)" --quiet
 ```
 
 #### API Integration
 ```bash
 # Use as a microservice
 curl -X POST http://localhost:8080/process \
-  -d "$(mcphost -p 'Generate a UUID' --quiet)"
+  -d "$(kit -p 'Generate a UUID' --quiet)"
 ```
 
 ### Tips for Scripting
@@ -961,12 +959,12 @@ mcpServers:
       DEBUG: "${env://DEBUG:-false}"
 
 # Use in scripts
-mcphost script my-script.sh --args:username alice
+kit script my-script.sh --args:username alice
 ```
 
 ## MCP Server Compatibility 🔌
 
-MCPHost can work with any MCP-compliant server. For examples and reference implementations, see the [MCP Servers Repository](https://github.com/modelcontextprotocol/servers).
+KIT can work with any MCP-compliant server. For examples and reference implementations, see the [MCP Servers Repository](https://github.com/modelcontextprotocol/servers).
 
 ## Contributing 🤝
 

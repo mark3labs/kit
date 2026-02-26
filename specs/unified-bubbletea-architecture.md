@@ -8,7 +8,7 @@ New capabilities: message queueing during streaming, double-tap ESC cancellation
 
 ## User Story
 
-As an MCPHost user, I want the TUI to remain responsive during agent streaming so I can queue follow-up messages, cancel in-progress work, and see a persistent input area -- instead of waiting for each response to complete before typing.
+As a KIT user, I want the TUI to remain responsive during agent streaming so I can queue follow-up messages, cancel in-progress work, and see a persistent input area -- instead of waiting for each response to complete before typing.
 
 As a developer, I want the TUI architecture to follow Bubble Tea's idiomatic child-model pattern so components are composable, testable, and extensible without terminal ownership conflicts.
 
@@ -381,7 +381,7 @@ printResult(result)
   assistant (claude-sonnet-4-20250514)
   Let me check the build first.
 
-  ⚙ bash: go build -o output/mcphost
+  ⚙ bash: go build -o output/kit
   ◇◇◇◆◇◇◇ Executing...
 
 ─────────────────────────────────── 2 queued
@@ -395,7 +395,7 @@ printResult(result)
   I need to run a command to check the build.
 
   ┌─ Tool Approval ──────────────────────┐
-  │ bash: go build -o output/mcphost     │
+  │ bash: go build -o output/kit          │
   │                                      │
   │  [Yes]   No                          │
   └──────────────────────────────────────┘

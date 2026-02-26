@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"image/color"
 
-	"github.com/mark3labs/mcphost/internal/models"
+	"github.com/mark3labs/kit/internal/models"
 )
 
 // UsageStats encapsulates detailed token usage and cost breakdown for a single

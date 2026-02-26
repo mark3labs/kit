@@ -3,7 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/mark3labs/mcphost/internal/config"
+	"github.com/mark3labs/kit/internal/config"
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
@@ -35,7 +35,7 @@ type HookEntry struct {
 
 // LoadHooksConfig loads and merges hook configurations from multiple sources.
 // It searches for hooks.{json,yml} files in standard locations (XDG config directory,
-// local .mcphost directory) and any custom paths provided. Configurations are merged
+// local .kit directory) and any custom paths provided. Configurations are merged
 // with later sources taking precedence. Environment variable substitution is applied
 // to all loaded configurations.
 func LoadHooksConfig(customPaths ...string) (*HookConfig, error) {
@@ -44,10 +44,10 @@ func LoadHooksConfig(customPaths ...string) (*HookConfig, error) {
 
 	// Define search paths in order of precedence (lowest to highest)
 	searchPaths := []string{
-		filepath.Join(configDir, "mcphost", "hooks.json"),
-		filepath.Join(configDir, "mcphost", "hooks.yml"),
-		".mcphost/hooks.json",
-		".mcphost/hooks.yml",
+		filepath.Join(configDir, "kit", "hooks.json"),
+		filepath.Join(configDir, "kit", "hooks.yml"),
+		".kit/hooks.json",
+		".kit/hooks.yml",
 	}
 
 	// Add custom paths with highest precedence

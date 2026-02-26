@@ -32,8 +32,8 @@ type Session struct {
 // Metadata contains session metadata that provides context about the
 // environment and configuration used during the conversation.
 type Metadata struct {
-	// MCPHostVersion is the version of MCPHost used for this session
-	MCPHostVersion string `json:"mcphost_version"`
+	// KitVersion is the version of KIT used for this session
+	KitVersion string `json:"kit_version"`
 	// Provider is the LLM provider used (e.g., "anthropic", "openai", "gemini")
 	Provider string `json:"provider"`
 	// Model is the specific model identifier used for the conversation

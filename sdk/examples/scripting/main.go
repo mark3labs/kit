@@ -6,13 +6,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/mark3labs/mcphost/sdk"
+	"github.com/mark3labs/kit/sdk"
 )
 
 func main() {
 	ctx := context.Background()
 
-	// Create MCPHost with environment variable for API key
+	// Create Kit with environment variable for API key
 	// Expects ANTHROPIC_API_KEY or appropriate provider key to be set
 	host, err := sdk.New(ctx, &sdk.Options{
 		Quiet: true, // Suppress debug output for scripting

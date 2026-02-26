@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mark3labs/mcphost/internal/config"
+	"github.com/mark3labs/kit/internal/config"
 )
 
 func TestMCPToolManager_LoadTools_WithTimeout(t *testing.T) {

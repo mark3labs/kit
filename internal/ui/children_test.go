@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/mark3labs/mcphost/internal/app"
+	"github.com/mark3labs/kit/internal/app"
 )
 
 // ==========================================================================

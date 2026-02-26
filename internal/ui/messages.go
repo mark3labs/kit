@@ -19,7 +19,7 @@ const (
 	AssistantMessage
 	ToolMessage
 	ToolCallMessage // New type for showing tool calls in progress
-	SystemMessage   // New type for MCPHost system messages (help, tools, etc.)
+	SystemMessage   // New type for KIT system messages (help, tools, etc.)
 	ErrorMessage    // New type for error messages
 )
 
@@ -171,9 +171,9 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 }
 
-// RenderSystemMessage renders MCPHost system messages such as help text, command outputs,
+// RenderSystemMessage renders KIT system messages such as help text, command outputs,
 // and informational notifications. These messages are displayed with a distinctive system
-// color border and "MCPHost System" label to differentiate them from user and AI content.
+// color border and "KIT System" label to differentiate them from user and AI content.
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
 	// Format timestamp
 	timeStr := timestamp.Local().Format("15:04")
@@ -192,7 +192,7 @@ func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Tim
 	}
 
 	// Create info line
-	info := fmt.Sprintf(" MCPHost System (%s)", timeStr)
+	info := fmt.Sprintf(" KIT System (%s)", timeStr)
 
 	// Combine content and info
 	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
@@ -260,7 +260,7 @@ func (r *MessageRenderer) RenderDebugMessage(message string, timestamp time.Time
 	info := baseStyle.
 		Width(r.width - 5). // Account for margins and padding
 		Foreground(theme.Muted).
-		Render(fmt.Sprintf(" MCPHost (%s)", timeStr))
+		Render(fmt.Sprintf(" KIT (%s)", timeStr))
 
 	// Combine all parts
 	fullContent := lipgloss.JoinVertical(lipgloss.Left,
@@ -316,7 +316,7 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 	info := baseStyle.
 		Width(r.width - 1).
 		Foreground(theme.Muted).
-		Render(fmt.Sprintf(" MCPHost (%s)", timeStr))
+		Render(fmt.Sprintf(" KIT (%s)", timeStr))
 
 	// Combine parts
 	parts := []string{header}
@@ -751,7 +751,7 @@ func (c *MessageContainer) renderEmptyState() string {
 	title := baseStyle.
 		Foreground(theme.System).
 		Bold(true).
-		Render("MCPHost")
+		Render("KIT")
 
 	// Subtitle with better typography
 	subtitle := baseStyle.
@@ -824,7 +824,7 @@ func (c *MessageContainer) renderCompactEmptyState() string {
 	welcome := lipgloss.NewStyle().
 		Foreground(theme.System).
 		Bold(true).
-		Render("MCPHost - AI Assistant with MCP Tools")
+		Render("KIT - AI Assistant with MCP Tools")
 
 	help := lipgloss.NewStyle().
 		Foreground(theme.Muted).

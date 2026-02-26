@@ -10,7 +10,7 @@ import (
 	"golang.org/x/term"
 )
 
-// CLI manages the command-line interface for MCPHost, providing message rendering,
+// CLI manages the command-line interface for KIT, providing message rendering,
 // user input handling, and display management. It supports both standard and compact
 // display modes, handles streaming responses, tracks token usage, and manages the
 // overall conversation flow between the user and AI assistants.

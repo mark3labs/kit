@@ -57,7 +57,7 @@ type CredentialManager struct {
 
 // NewCredentialManager creates a new credential manager instance. It determines
 // the appropriate credentials path based on XDG_CONFIG_HOME or falls back to
-// ~/.config/.mcphost/credentials.json. Returns an error if the home directory
+// ~/.config/.kit/credentials.json. Returns an error if the home directory
 // cannot be determined.
 func NewCredentialManager() (*CredentialManager, error) {
 	credentialsPath, err := getCredentialsPath()
@@ -74,16 +74,16 @@ func NewCredentialManager() (*CredentialManager, error) {
 func getCredentialsPath() (string, error) {
 	// Try XDG_CONFIG_HOME first
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, ".mcphost", "credentials.json"), nil
+		return filepath.Join(xdgConfig, ".kit", "credentials.json"), nil
 	}
 
-	// Fall back to ~/.config/.mcphost/credentials.json
+	// Fall back to ~/.config/.kit/credentials.json
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	return filepath.Join(homeDir, ".config", ".mcphost", "credentials.json"), nil
+	return filepath.Join(homeDir, ".config", ".kit", "credentials.json"), nil
 }
 
 // LoadCredentials loads credentials from the JSON file. If the file doesn't exist,
@@ -272,5 +272,5 @@ func GetAnthropicAPIKey(flagValue string) (string, string, error) {
 		return envKey, "ANTHROPIC_API_KEY environment variable", nil
 	}
 
-	return "", "", fmt.Errorf("no Anthropic API key found. Use 'mcphost auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag")
+	return "", "", fmt.Errorf("no Anthropic API key found. Use 'kit auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag")
 }

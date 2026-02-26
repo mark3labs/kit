@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mark3labs/mcphost/internal/auth"
+	"github.com/mark3labs/kit/internal/auth"
 	"github.com/spf13/cobra"
 )
 
@@ -26,9 +26,9 @@ Available providers:
   - anthropic: Anthropic Claude API (OAuth)
 
 Examples:
-  mcphost auth login anthropic
-  mcphost auth logout anthropic
-  mcphost auth status`,
+  kit auth login anthropic
+  kit auth logout anthropic
+  kit auth status`,
 }
 
 // authLoginCmd represents the login subcommand for authenticating with AI providers.
@@ -47,7 +47,7 @@ Available providers:
   - anthropic: Anthropic Claude API (OAuth)
 
 Example:
-  mcphost auth login anthropic`,
+  kit auth login anthropic`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogin,
 }
@@ -67,7 +67,7 @@ Available providers:
   - anthropic: Anthropic Claude API
 
 Example:
-  mcphost auth logout anthropic`,
+  kit auth logout anthropic`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogout,
 }
@@ -84,7 +84,7 @@ This command displays which providers have stored credentials and when they were
 It does not display the actual API keys for security reasons.
 
 Example:
-  mcphost auth status`,
+  kit auth status`,
 	RunE: runAuthStatus,
 }
 
@@ -157,7 +157,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("\nTo authenticate with a provider:")
-	fmt.Println("  mcphost auth login anthropic")
+	fmt.Println("  kit auth login anthropic")
 
 	return nil
 }
@@ -231,7 +231,7 @@ func loginAnthropic() error {
 	fmt.Println("✅ Successfully authenticated with Anthropic!")
 	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
 	fmt.Println("\n🎉 Your OAuth credentials will now be used for Anthropic API calls.")
-	fmt.Println("💡 You can check your authentication status with: mcphost auth status")
+	fmt.Println("💡 You can check your authentication status with: kit auth status")
 
 	return nil
 }

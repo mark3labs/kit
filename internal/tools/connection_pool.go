@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/mark3labs/kit/internal/builtin"
+	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcphost/internal/builtin"
-	"github.com/mark3labs/mcphost/internal/config"
 )
 
 // ConnectionPoolConfig defines configuration parameters for the MCP connection pool.
@@ -396,7 +396,7 @@ func (p *MCPConnectionPool) initializeClient(ctx context.Context, client client.
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "mcphost",
+		Name:    "kit",
 		Version: "1.0.0",
 	}
 	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
@@ -513,7 +513,7 @@ func (p *MCPConnectionPool) GetConnectionStats() map[string]any {
 }
 
 // ServerName returns the server name associated with this MCP connection.
-// This is the configured name from the MCPHost configuration, not necessarily
+// This is the configured name from the KIT configuration, not necessarily
 // the actual server implementation name.
 func (c *MCPConnection) ServerName() string {
 	return c.serverName

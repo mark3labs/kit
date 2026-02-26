@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcphost/internal/session"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // MessageStore is a thread-safe store for the conversation history. It wraps a

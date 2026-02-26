@@ -2,7 +2,7 @@ package sdk
 
 import (
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcphost/internal/session"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // Message is an alias for session.Message providing SDK users with access

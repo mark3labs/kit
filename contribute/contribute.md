@@ -3,12 +3,12 @@ Thanks for your contribution, you can follow these step to run this repo and deb
 ## Run demo
 1. clone this repo to your work dir.
     ```bash
-    git clone https://github.com/mark3labs/mcphost.git
+    git clone https://github.com/mark3labs/kit.git
     ```
 
 2. enter the `contribute` dir.
     ```bash
-    cd mcphost/contribute
+    cd kit/contribute
     ```
 
 3. run `build.sh` to build your binary file.
@@ -22,7 +22,7 @@ Thanks for your contribution, you can follow these step to run this repo and deb
       vi boost.sh
    ```
 
-5. run `boost.sh` to run your mcphost, if you don't want run it in debug model, you can delete the `--debug` flag in `boost.sh`.
+5. run `boost.sh` to run kit, if you don't want run it in debug model, you can delete the `--debug` flag in `boost.sh`.
    ```bash
       ./boost.sh
    ```

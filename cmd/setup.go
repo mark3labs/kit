@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mark3labs/mcphost/internal/agent"
-	"github.com/mark3labs/mcphost/internal/app"
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/models"
-	"github.com/mark3labs/mcphost/internal/tools"
-	"github.com/mark3labs/mcphost/internal/ui"
+	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/tools"
+	"github.com/mark3labs/kit/internal/ui"
 	"github.com/spf13/viper"
 )
 

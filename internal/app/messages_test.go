@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcphost/internal/session"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // makeTextMsg builds a minimal fantasy.Message with a single TextPart.

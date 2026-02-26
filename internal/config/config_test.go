@@ -207,7 +207,7 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestEnsureConfigExists(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "mcphost_config_test")
+	tempDir, err := os.MkdirTemp("", "kit_config_test")
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestEnsureConfigExists(t *testing.T) {
 	}
 
 	// Verify the config file was created
-	configPath := filepath.Join(tempDir, ".mcphost.yml")
+	configPath := filepath.Join(tempDir, ".kit.yml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Fatalf("Config file was not created at %s", configPath)
 	}
@@ -240,7 +240,7 @@ func TestEnsureConfigExists(t *testing.T) {
 
 	// Verify it contains the expected sections
 	expectedSections := []string{
-		"# MCPHost Configuration File",
+		"# KIT Configuration File",
 		"mcpServers:",
 		"# Local MCP servers",
 		"# Builtin MCP servers",
@@ -437,11 +437,11 @@ func TestMCPServerConfig_RemoteFormatWithHeaders(t *testing.T) {
 			name: "Legacy remote server with headers",
 			jsonData: `{
 				"url": "https://legacy.example.com/mcp",
-				"headers": ["Content-Type: application/json", "User-Agent: MCPHost/1.0"]
+				"headers": ["Content-Type: application/json", "User-Agent: KIT/1.0"]
 			}`,
 			expectedType:      "",
 			expectedURL:       "https://legacy.example.com/mcp",
-			expectedHeaders:   []string{"Content-Type: application/json", "User-Agent: MCPHost/1.0"},
+			expectedHeaders:   []string{"Content-Type: application/json", "User-Agent: KIT/1.0"},
 			expectedTransport: "sse",
 		},
 		{
@@ -558,7 +558,7 @@ func TestMCPServerConfig_HeadersParsing(t *testing.T) {
 
 func TestEnsureConfigExistsWhenFileExists(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "mcphost_config_test")
+	tempDir, err := os.MkdirTemp("", "kit_config_test")
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestEnsureConfigExistsWhenFileExists(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", oldHome) }()
 
 	// Create an existing config file
-	configPath := filepath.Join(tempDir, ".mcphost.yml")
+	configPath := filepath.Join(tempDir, ".kit.yml")
 	existingContent := "# Existing config\nmcpServers:\n  test: {}\n"
 	err = os.WriteFile(configPath, []byte(existingContent), 0644)
 	if err != nil {

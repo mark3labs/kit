@@ -4,7 +4,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
-	"github.com/mark3labs/mcphost/internal/config"
+	"github.com/mark3labs/kit/internal/config"
 	"github.com/spf13/viper"
 )
 

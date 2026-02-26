@@ -1,6 +1,6 @@
-# MCPHost Script Examples
+# KIT Script Examples
 
-This directory contains example scripts demonstrating various features of MCPHost's script mode.
+This directory contains example scripts demonstrating various features of KIT's script mode.
 
 ## Scripts
 
@@ -16,13 +16,13 @@ Demonstrates the new default values feature for script variables.
 **Usage:**
 ```bash
 # Use all defaults
-mcphost script default-values-demo.sh
+kit script default-values-demo.sh
 
 # Override specific variables
-mcphost script default-values-demo.sh --args:user_name "John" --args:work_dir "/projects"
+kit script default-values-demo.sh --args:user_name "John" --args:work_dir "/projects"
 
 # Override multiple variables
-mcphost script default-values-demo.sh \
+kit script default-values-demo.sh \
   --args:user_name "Alice" \
   --args:editor "vim" \
   --args:format "json"
@@ -39,20 +39,20 @@ Demonstrates TLS skip verify for connecting to providers with self-signed certif
 **Usage:**
 ```bash
 # Run with TLS skip verify enabled (configured in script)
-mcphost script tls-test-script.sh
+kit script tls-test-script.sh
 
 # Override the provider URL
-mcphost script tls-test-script.sh --provider-url https://192.168.1.100:443
+kit script tls-test-script.sh --provider-url https://192.168.1.100:443
 
 # Disable TLS skip verify via command line (overrides script config)
-mcphost script tls-test-script.sh --tls-skip-verify=false
+kit script tls-test-script.sh --tls-skip-verify=false
 ```
 
 ⚠️ **WARNING**: Only use `tls-skip-verify` for development or when connecting to trusted servers with self-signed certificates.
 
 ## Variable Syntax Reference
 
-MCPHost scripts support two types of variables:
+KIT scripts support two types of variables:
 
 ### Required Variables
 ```bash

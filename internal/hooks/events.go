@@ -1,6 +1,6 @@
 package hooks
 
-// HookEvent represents a point in MCPHost's lifecycle where hooks can be executed.
+// HookEvent represents a point in KIT's lifecycle where hooks can be executed.
 // Events can be tool-related (requiring matchers) or lifecycle-related.
 type HookEvent string
 

@@ -8,7 +8,7 @@ import (
 
 func TestCredentialManager(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "mcphost-auth-test")
+	tempDir, err := os.MkdirTemp("", "kit-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestValidateAnthropicAPIKey(t *testing.T) {
 
 func TestGetAnthropicAPIKey(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "mcphost-auth-test")
+	tempDir, err := os.MkdirTemp("", "kit-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestGetAnthropicAPIKey(t *testing.T) {
 
 func TestCredentialStorePersistence(t *testing.T) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "mcphost-auth-test")
+	tempDir, err := os.MkdirTemp("", "kit-auth-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}

@@ -10,11 +10,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcphost/internal/agent"
-	"github.com/mark3labs/mcphost/internal/app"
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/session"
-	"github.com/mark3labs/mcphost/internal/ui"
+	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
@@ -80,13 +80,13 @@ func (a *agentUIAdapter) GetLoadedServerNames() []string {
 }
 
 // rootCmd represents the base command when called without any subcommands.
-// This is the main entry point for the MCPHost CLI application, providing
+// This is the main entry point for the KIT CLI application, providing
 // an interface to interact with various AI models through a unified interface
 // with support for MCP servers and tool integration.
 var rootCmd = &cobra.Command{
-	Use:   "mcphost",
+	Use:   "kit",
 	Short: "Chat with AI models through a unified interface",
-	Long: `MCPHost is a CLI tool that allows you to interact with various AI models
+	Long: `KIT is a CLI tool that allows you to interact with various AI models
 through a unified interface. It supports various tools through MCP servers
 and provides streaming responses.
 
@@ -98,41 +98,41 @@ Available models can be specified using the --model flag:
 
 Examples:
   # Interactive mode
-  mcphost -m ollama/qwen2.5:3b
-  mcphost -m openai/gpt-4
-  mcphost -m google/gemini-2.0-flash
+  kit -m ollama/qwen2.5:3b
+  kit -m openai/gpt-4
+  kit -m google/gemini-2.0-flash
   
   # Non-interactive mode
-  mcphost -p "What is the weather like today?"
-  mcphost -p "Calculate 15 * 23" --quiet
+  kit -p "What is the weather like today?"
+  kit -p "Calculate 15 * 23" --quiet
   
   # Session management
-  mcphost --save-session ./my-session.json -p "Hello"
-  mcphost --load-session ./my-session.json -p "Continue our conversation"
-  mcphost --load-session ./session.json --save-session ./session.json -p "Next message"
-  mcphost --session ./session.json -p "Next message"
+  kit --save-session ./my-session.json -p "Hello"
+  kit --load-session ./my-session.json -p "Continue our conversation"
+  kit --load-session ./session.json --save-session ./session.json -p "Next message"
+  kit --session ./session.json -p "Next message"
   
   # Script mode
-  mcphost script myscript.sh`,
+  kit script myscript.sh`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPHost(context.Background())
+		return runKit(context.Background())
 	},
 }
 
 // GetRootCommand returns the root command with the version set.
-// This function is the main entry point for the MCPHost CLI and should be
+// This function is the main entry point for the KIT CLI and should be
 // called from main.go with the appropriate version string.
 func GetRootCommand(v string) *cobra.Command {
 	rootCmd.Version = v
 	return rootCmd
 }
 
-// InitConfig initializes the configuration for MCPHost by loading config files,
+// InitConfig initializes the configuration for KIT by loading config files,
 // environment variables, and hooks configuration. It follows this priority order:
 // 1. Command-line specified config file (--config flag)
-// 2. Current directory config file (.mcphost or .mcp)
-// 3. Home directory config file (~/.mcphost or ~/.mcp)
-// 4. Environment variables (MCPHOST_* prefix)
+// 2. Current directory config file (.kit)
+// 3. Home directory config file (~/.kit)
+// 4. Environment variables (KIT_* prefix)
 // This function is automatically called by cobra before command execution.
 func InitConfig() {
 	if configFile != "" {
@@ -162,7 +162,7 @@ func InitConfig() {
 
 		// Try to find and load config file using viper's search mechanism
 		configLoaded := false
-		configNames := []string{".mcphost", ".mcp"} // Try .mcphost first, then legacy .mcp
+		configNames := []string{".kit"}
 
 		for _, name := range configNames {
 			viper.SetConfigName(name)
@@ -192,7 +192,7 @@ func InitConfig() {
 	}
 
 	// Set environment variable prefix
-	viper.SetEnvPrefix("MCPHOST")
+	viper.SetEnvPrefix("KIT")
 	viper.AutomaticEnv()
 
 }
@@ -261,7 +261,7 @@ func init() {
 	}
 
 	rootCmd.PersistentFlags().
-		StringVar(&configFile, "config", "", "config file (default is $HOME/.mcp.json)")
+		StringVar(&configFile, "config", "", "config file (default is $HOME/.kit.yml)")
 	rootCmd.PersistentFlags().
 		StringVar(&systemPromptFile, "system-prompt", "", "system prompt text or path to text file")
 
@@ -332,7 +332,7 @@ func init() {
 	rootCmd.AddCommand(authCmd)
 }
 
-func runMCPHost(ctx context.Context) error {
+func runKit(ctx context.Context) error {
 	return runNormalMode(ctx)
 }
 
@@ -538,9 +538,9 @@ func runNormalMode(ctx context.Context) error {
 
 		// Set metadata
 		_ = sessionManager.SetMetadata(session.Metadata{
-			MCPHostVersion: "dev", // TODO: Get actual version
-			Provider:       parsedProvider,
-			Model:          modelName,
+			KitVersion: "dev", // TODO: Get actual version
+			Provider:   parsedProvider,
+			Model:      modelName,
 		})
 	}
 

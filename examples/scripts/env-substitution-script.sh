@@ -1,4 +1,4 @@
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
 # Example script demonstrating both environment variable and script argument substitution
 # Environment variables are processed first, then script arguments
@@ -31,7 +31,7 @@ Working directory is ${env://WORK_DIR:-/tmp}.
 #    export WORK_DIR="/home/user/projects"
 #
 # 2. Run with script arguments:
-#    mcphost script env-substitution-script.sh --args:username alice --args:repo_type private --args:count 5
+#    kit script env-substitution-script.sh --args:username alice --args:repo_type private --args:count 5
 #
 # This will:
 # - Use GITHUB_TOKEN from environment

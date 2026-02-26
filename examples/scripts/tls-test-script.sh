@@ -1,4 +1,4 @@
-#!/usr/bin/env -S mcphost script
+#!/usr/bin/env -S kit script
 ---
 # Example script demonstrating TLS skip verify for self-signed certificates
 model: "ollama/llama3.2"

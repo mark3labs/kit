@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/mark3labs/mcphost/internal/app"
+	"github.com/mark3labs/kit/internal/app"
 )
 
 // CLIEventHandler routes app-layer events to CLI display methods for

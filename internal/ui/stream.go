@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/mark3labs/mcphost/internal/app"
+	"github.com/mark3labs/kit/internal/app"
 )
 
 // knightRiderFrames generates a KITT-style scanning animation where a bright

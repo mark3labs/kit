@@ -1,11 +1,11 @@
-# MCPHost SDK
+# KIT SDK
 
-The MCPHost SDK allows you to use MCPHost programmatically from Go applications without spawning OS processes.
+The KIT SDK allows you to use KIT programmatically from Go applications without spawning OS processes.
 
 ## Installation
 
 ```bash
-go get github.com/mark3labs/mcphost
+go get github.com/mark3labs/kit
 ```
 
 ## Basic Usage
@@ -18,13 +18,13 @@ import (
     "fmt"
     "log"
     
-    "github.com/mark3labs/mcphost/sdk"
+    "github.com/mark3labs/kit/sdk"
 )
 
 func main() {
     ctx := context.Background()
     
-    // Create MCPHost instance with default configuration
+    // Create Kit instance with default configuration
     host, err := sdk.New(ctx, nil)
     if err != nil {
         log.Fatal(err)
@@ -44,9 +44,9 @@ func main() {
 ## Configuration
 
 The SDK behaves identically to the CLI:
-- Loads configuration from `~/.mcphost.yml` by default
+- Loads configuration from `~/.kit.yml` by default
 - Creates default configuration if none exists
-- Respects all environment variables (`MCPHOST_*`)
+- Respects all environment variables (`KIT_*`)
 - Uses the same defaults as the CLI
 
 ### Options
@@ -116,14 +116,14 @@ host.ClearSession()
 
 ### Types
 
-- `MCPHost` - Main SDK type
+- `Kit` - Main SDK type
 - `Options` - Configuration options
 - `Message` - Conversation message
 - `ToolCall` - Tool invocation details
 
 ### Methods
 
-- `New(ctx, opts)` - Create new MCPHost instance
+- `New(ctx, opts)` - Create new Kit instance
 - `Prompt(ctx, message)` - Send message and get response
 - `PromptWithCallbacks(ctx, message, ...)` - Send message with progress callbacks
 - `LoadSession(path)` - Load session from file
@@ -137,7 +137,7 @@ host.ClearSession()
 
 All CLI environment variables work with the SDK:
 
-- `MCPHOST_MODEL` - Override model
+- `KIT_MODEL` - Override model
 - `ANTHROPIC_API_KEY` - Anthropic API key
 - `OPENAI_API_KEY` - OpenAI API key
 - `GEMINI_API_KEY` - Google API key
@@ -145,4 +145,4 @@ All CLI environment variables work with the SDK:
 
 ## License
 
-Same as MCPHost CLI
+Same as KIT CLI

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/mark3labs/mcphost/sdk"
+	"github.com/mark3labs/kit/sdk"
 )
 
 func main() {
 	ctx := context.Background()
 
-	// Example 1: Use all defaults (loads ~/.mcphost.yml)
+	// Example 1: Use all defaults (loads ~/.kit.yml)
 	fmt.Println("=== Example 1: Default configuration ===")
 	host, err := sdk.New(ctx, nil)
 	if err != nil {

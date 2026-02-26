@@ -9,7 +9,7 @@ import (
 
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/mcphost/internal/agent"
+	"github.com/mark3labs/kit/internal/agent"
 )
 
 // --------------------------------------------------------------------------

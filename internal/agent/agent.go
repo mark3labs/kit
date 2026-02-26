@@ -9,9 +9,9 @@ import (
 
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/models"
-	"github.com/mark3labs/mcphost/internal/tools"
+	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/tools"
 )
 
 // AgentConfig holds configuration options for creating a new Agent.
@@ -141,7 +141,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 
 // GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
 // Fantasy handles the tool call loop internally. We map fantasy's rich callback system
-// to mcphost's existing callback interface for UI integration.
+// to kit's existing callback interface for UI integration.
 func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fantasy.Message,
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,

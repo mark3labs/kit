@@ -67,7 +67,7 @@ type Theme struct {
 	Highlight   color.Color
 }
 
-// DefaultTheme creates and returns the default MCPHost theme based on the Catppuccin
+// DefaultTheme creates and returns the default KIT theme based on the Catppuccin
 // Mocha (dark) and Latte (light) color palettes. This theme provides a cohesive,
 // pleasant visual experience with carefully selected colors for different UI elements.
 func DefaultTheme() Theme {

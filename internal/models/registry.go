@@ -64,7 +64,7 @@ func NewModelsRegistry() *ModelsRegistry {
 // buildFromModelsDB converts models.dev provider data into our internal format.
 // It tries the on-disk cache first and falls back to the embedded database.
 func buildFromModelsDB() map[string]ProviderInfo {
-	// Try cached data first (from `mcphost update-models`)
+	// Try cached data first (from `kit update-models`)
 	dbProviders, _ := LoadCachedProviders()
 	if len(dbProviders) == 0 {
 		// Fall back to compile-time embedded data

@@ -264,16 +264,16 @@ func LoadSystemPrompt(input string) (string, error) {
 }
 
 // EnsureConfigExists checks if a config file exists and creates a default one if not.
-// It searches for .mcphost.{yml,yaml,json} or legacy .mcp.{yml,yaml,json} files in
-// the user's home directory. If none exist, creates a default .mcphost.yml with examples.
+// It searches for .kit.{yml,yaml,json} files in the user's home directory.
+// If none exist, creates a default .kit.yml with examples.
 func EnsureConfigExists() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("error getting home directory: %v", err)
 	}
 
-	// Check for existing config files (new format first, then legacy)
-	configNames := []string{".mcphost", ".mcp"}
+	// Check for existing config files
+	configNames := []string{".kit"}
 	configTypes := []string{"yml", "yaml", "json"}
 
 	for _, configName := range configNames {
@@ -290,9 +290,9 @@ func EnsureConfigExists() error {
 	return createDefaultConfig(homeDir)
 }
 
-// createDefaultConfig creates a default .mcphost.yml file in the user's home directory
+// createDefaultConfig creates a default .kit.yml file in the user's home directory
 func createDefaultConfig(homeDir string) error {
-	configPath := filepath.Join(homeDir, ".mcphost.yml")
+	configPath := filepath.Join(homeDir, ".kit.yml")
 
 	// Create the file
 	file, err := os.Create(configPath)
@@ -302,7 +302,7 @@ func createDefaultConfig(homeDir string) error {
 	defer func() { _ = file.Close() }()
 
 	// Write a comprehensive YAML template with examples
-	content := `# MCPHost Configuration File
+	content := `# KIT Configuration File
 # All command-line flags can be configured here
 # This demonstrates the simplified local/remote/builtin server configuration
 

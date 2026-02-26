@@ -55,7 +55,7 @@ type StopInput struct {
 	Meta           json.RawMessage `json:"meta,omitempty"` // Additional metadata (e.g., token usage, model info)
 }
 
-// HookOutput represents the JSON output from a hook that controls MCPHost behavior.
+// HookOutput represents the JSON output from a hook that controls KIT behavior.
 // Hooks can decide whether to continue execution, provide reasons for stopping,
 // suppress output, or block tool execution. The Decision field can be "approve",
 // "block", or empty (default behavior).

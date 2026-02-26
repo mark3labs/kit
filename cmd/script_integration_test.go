@@ -12,7 +12,7 @@ func TestScriptWithEnvAndArgsSubstitution(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "test-script.sh")
 
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 mcpServers:
   github:
@@ -113,7 +113,7 @@ func TestScriptWithMissingRequiredEnvVar(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "test-script.sh")
 
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 mcpServers:
   github:
@@ -150,7 +150,7 @@ func TestScriptWithMissingRequiredArg(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "test-script.sh")
 
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 mcpServers:
   github:
@@ -185,7 +185,7 @@ func TestScriptProcessingOrder(t *testing.T) {
 	scriptPath := filepath.Join(tempDir, "test-script.sh")
 
 	// This script tests that env vars are processed first, then script args
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 mcpServers:
   test:
@@ -241,7 +241,7 @@ func TestScriptBackwardCompatibility(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "test-script.sh")
 
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 mcpServers:
   filesystem:

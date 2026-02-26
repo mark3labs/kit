@@ -23,8 +23,8 @@ import (
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
 
-	"github.com/mark3labs/mcphost/internal/auth"
-	"github.com/mark3labs/mcphost/internal/ui/progress"
+	"github.com/mark3labs/kit/internal/auth"
+	"github.com/mark3labs/kit/internal/ui/progress"
 )
 
 const (
@@ -353,7 +353,7 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 		return nil, err
 	}
 
-	if os.Getenv("DEBUG") != "" || os.Getenv("MCPHOST_DEBUG") != "" {
+	if os.Getenv("DEBUG") != "" || os.Getenv("KIT_DEBUG") != "" {
 		fmt.Fprintf(os.Stderr, "Using Anthropic API key from: %s\n", source)
 	}
 

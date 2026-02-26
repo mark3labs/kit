@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcphost/internal/models"
+	"github.com/mark3labs/kit/internal/models"
 )
 
 // TestDeepSeekChatScriptMode tests the regression where deepseek-chat model
@@ -18,7 +18,7 @@ func TestDeepSeekChatScriptMode(t *testing.T) {
 	tempDir := t.TempDir()
 	scriptPath := filepath.Join(tempDir, "deepseek-script.sh")
 
-	scriptContent := `#!/usr/bin/env -S mcphost script
+	scriptContent := `#!/usr/bin/env -S kit script
 ---
 model: "openai/deepseek-chat"
 provider-url: "https://api.deepseek.com/v1"

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/mark3labs/mcphost/sdk"
+	"github.com/mark3labs/kit/sdk"
 )
 
 func TestNew(t *testing.T) {
@@ -18,7 +18,7 @@ func TestNew(t *testing.T) {
 	// Test default initialization
 	host, err := sdk.New(ctx, nil)
 	if err != nil {
-		t.Fatalf("Failed to create MCPHost with defaults: %v", err)
+		t.Fatalf("Failed to create Kit with defaults: %v", err)
 	}
 	defer func() { _ = host.Close() }()
 
@@ -42,7 +42,7 @@ func TestNewWithOptions(t *testing.T) {
 
 	host, err := sdk.New(ctx, opts)
 	if err != nil {
-		t.Fatalf("Failed to create MCPHost with options: %v", err)
+		t.Fatalf("Failed to create Kit with options: %v", err)
 	}
 	defer func() { _ = host.Close() }()
 
@@ -60,7 +60,7 @@ func TestSessionManagement(t *testing.T) {
 
 	host, err := sdk.New(ctx, &sdk.Options{Quiet: true})
 	if err != nil {
-		t.Fatalf("Failed to create MCPHost: %v", err)
+		t.Fatalf("Failed to create Kit: %v", err)
 	}
 	defer func() { _ = host.Close() }()
 

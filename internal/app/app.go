@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/mcphost/internal/agent"
+	"github.com/mark3labs/kit/internal/agent"
 )
 
 // App is the application-layer orchestrator. It owns the agentic loop,

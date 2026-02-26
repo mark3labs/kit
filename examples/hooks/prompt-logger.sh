@@ -10,7 +10,7 @@ prompt=$(echo "$input" | jq -r '.prompt // empty')
 if [ -n "$prompt" ]; then
     # Use XDG_CONFIG_HOME if set, otherwise default to ~/.config
     CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
-    LOG_DIR="$CONFIG_DIR/mcphost/logs"
+    LOG_DIR="$CONFIG_DIR/kit/logs"
     
     # Create log directory if it doesn't exist
     mkdir -p "$LOG_DIR"

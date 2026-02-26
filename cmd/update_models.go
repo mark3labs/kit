@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcphost/internal/models"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -26,16 +26,16 @@ detection, and model suggestions.
 When run without arguments, fetches from models.dev.
 
 Sources:
-  (none)      Fetch from models.dev (or MCPHOST_MODELS_URL override)
+  (none)      Fetch from models.dev (or KIT_MODELS_URL override)
   <url>       Fetch from a custom URL
   <file>      Load from a local JSON file
   embedded    Reset to the built-in database shipped with this binary
 
 Examples:
-  mcphost update-models
-  mcphost update-models https://models.dev/api.json
-  mcphost update-models /path/to/models.json
-  mcphost update-models embedded`,
+  kit update-models
+  kit update-models https://models.dev/api.json
+  kit update-models /path/to/models.json
+  kit update-models embedded`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runUpdateModels,
 }
@@ -56,7 +56,7 @@ func runUpdateModels(_ *cobra.Command, args []string) error {
 
 	case source == "":
 		url := defaultModelsURL
-		if override := os.Getenv("MCPHOST_MODELS_URL"); override != "" {
+		if override := os.Getenv("KIT_MODELS_URL"); override != "" {
 			url = override
 		}
 		fmt.Fprintf(os.Stderr, "Fetching models from %s...\n", url)

@@ -13,7 +13,7 @@ hooks:
   UserPromptSubmit:
     - hooks:
         - type: command
-          command: "date >> /tmp/mcphost-prompts.log"
+          command: "date >> /tmp/kit-prompts.log"
   PostToolUse:
     - matcher: ".*"
       hooks:
