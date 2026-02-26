@@ -544,10 +544,7 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
 
 	// Format params with width budget for the header line
-	paramBudget := r.width - 10 - len(displayName)
-	if paramBudget < 20 {
-		paramBudget = 20
-	}
+	paramBudget := max(r.width-10-len(displayName), 20)
 	params := formatToolParams(toolArgs, paramBudget)
 
 	header := iconStr + " " + nameStr

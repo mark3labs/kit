@@ -241,10 +241,7 @@ func (ts *TreeSelectorComponent) View() tea.View {
 		if ts.cursor >= visH {
 			startIdx = ts.cursor - visH + 1
 		}
-		endIdx := startIdx + visH
-		if endIdx > len(ts.flatNodes) {
-			endIdx = len(ts.flatNodes)
-		}
+		endIdx := min(startIdx+visH, len(ts.flatNodes))
 
 		for i := startIdx; i < endIdx; i++ {
 			node := ts.flatNodes[i]
@@ -274,10 +271,7 @@ func (ts *TreeSelectorComponent) IsActive() bool {
 
 func (ts *TreeSelectorComponent) visibleHeight() int {
 	// Reserve lines for header(3) + search(1) + separator(1) + footer(2).
-	h := ts.height/2 - 7
-	if h < 5 {
-		h = 5
-	}
+	h := max(ts.height/2-7, 5)
 	return h
 }
 

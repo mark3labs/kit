@@ -3,6 +3,7 @@ package extensions
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -20,14 +21,7 @@ func TestDiscoverExtensionPaths_ExplicitFile(t *testing.T) {
 	}
 
 	abs, _ := filepath.Abs(f)
-	found := false
-	for _, p := range paths {
-		if p == abs {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(paths, abs) {
 		t.Errorf("expected %q in discovered paths %v", abs, paths)
 	}
 }
@@ -41,14 +35,7 @@ func TestDiscoverExtensionPaths_ExplicitDir(t *testing.T) {
 
 	paths := discoverExtensionPaths([]string{dir})
 	abs, _ := filepath.Abs(f)
-	found := false
-	for _, p := range paths {
-		if p == abs {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(paths, abs) {
 		t.Errorf("expected %q in discovered paths %v", abs, paths)
 	}
 }
@@ -66,14 +53,7 @@ func TestDiscoverExtensionPaths_SubdirMainGo(t *testing.T) {
 
 	paths := discoverExtensionPaths([]string{dir})
 	abs, _ := filepath.Abs(main)
-	found := false
-	for _, p := range paths {
-		if p == abs {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(paths, abs) {
 		t.Errorf("expected %q in discovered paths %v", abs, paths)
 	}
 }
@@ -298,7 +278,7 @@ func Init(api ext.API) {
 	api.RegisterCommand(ext.CommandDef{
 		Name:        "hello",
 		Description: "says hello",
-		Execute: func(args string) (string, error) {
+		Execute: func(args string, ctx ext.Context) (string, error) {
 			return "hello " + args, nil
 		},
 	})
@@ -405,9 +385,9 @@ func Init(api ext.API) {
 func TestGlobalExtensionsDir_XDG(t *testing.T) {
 	// Save and restore XDG_CONFIG_HOME.
 	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
+	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
 
-	os.Setenv("XDG_CONFIG_HOME", "/custom/config")
+	_ = os.Setenv("XDG_CONFIG_HOME", "/custom/config")
 	dir := globalExtensionsDir()
 	expected := "/custom/config/kit/extensions"
 	if dir != expected {
@@ -417,9 +397,9 @@ func TestGlobalExtensionsDir_XDG(t *testing.T) {
 
 func TestGlobalExtensionsDir_Default(t *testing.T) {
 	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer os.Setenv("XDG_CONFIG_HOME", orig)
+	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
 
-	os.Setenv("XDG_CONFIG_HOME", "")
+	_ = os.Setenv("XDG_CONFIG_HOME", "")
 	dir := globalExtensionsDir()
 	home, _ := os.UserHomeDir()
 	expected := filepath.Join(home, ".config", "kit", "extensions")

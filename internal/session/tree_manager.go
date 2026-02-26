@@ -106,7 +106,7 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 	tm.file = f
 
 	if err := tm.writeEntry(&header); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("failed to write session header: %w", err)
 	}
 

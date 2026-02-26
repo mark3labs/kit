@@ -247,17 +247,11 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 	}
 
 	const maxStops = 8
-	segmentSize := len(runes) / maxStops
-	if segmentSize < 1 {
-		segmentSize = 1
-	}
+	segmentSize := max(len(runes)/maxStops, 1)
 
 	var result strings.Builder
 	for i := 0; i < len(runes); i += segmentSize {
-		end := i + segmentSize
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(i+segmentSize, len(runes))
 
 		pos := float64(i) / float64(len(runes))
 		c := interpolateColor(colorA, colorB, pos)

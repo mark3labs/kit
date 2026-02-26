@@ -156,10 +156,7 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
 
 	// Format params
-	paramBudget := r.width - 10 - len(displayName)
-	if paramBudget < 20 {
-		paramBudget = 20
-	}
+	paramBudget := max(r.width-10-len(displayName), 20)
 	params := formatToolParams(toolArgs, paramBudget)
 
 	// Build header line
@@ -188,8 +185,7 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	var lines []string
 	lines = append(lines, header)
 	if body != "" {
-		bodyLines := strings.Split(body, "\n")
-		for _, line := range bodyLines {
+		for line := range strings.SplitSeq(body, "\n") {
 			lines = append(lines, "  "+line)
 		}
 	}
@@ -513,26 +509,4 @@ func (r *CompactRenderer) formatBashOutput(result string) string {
 
 	// Trim any leading/trailing whitespace from the final result
 	return strings.TrimSpace(formattedResult.String())
-}
-
-// determineResultType determines the display type for tool results
-func (r *CompactRenderer) determineResultType(toolName, result string) string {
-	toolName = strings.ToLower(toolName)
-
-	switch {
-	case strings.Contains(toolName, "read"):
-		return "Text"
-	case strings.Contains(toolName, "write"):
-		return "Write"
-	case strings.Contains(toolName, "bash") || strings.Contains(toolName, "command") || strings.Contains(toolName, "shell") || toolName == "run_shell_cmd":
-		return "Bash"
-	case strings.Contains(toolName, "list") || strings.Contains(toolName, "ls"):
-		return "List"
-	case strings.Contains(toolName, "search") || strings.Contains(toolName, "grep"):
-		return "Search"
-	case strings.Contains(toolName, "fetch") || strings.Contains(toolName, "http"):
-		return "Fetch"
-	default:
-		return "Result"
-	}
 }

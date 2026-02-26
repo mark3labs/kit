@@ -103,6 +103,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -157,11 +158,34 @@ func Init(api ext.API) {
 	api.RegisterCommand(ext.CommandDef{
 		Name:        "echo",
 		Description: "Echo back the provided text",
-		Execute: func(args string) (string, error) {
+		Execute: func(args string, ctx ext.Context) (string, error) {
 			if args == "" {
 				return "Usage: /echo <text>", nil
 			}
 			return args, nil
+		},
+	})
+
+	// ── Background work with SendMessage ─────────────────────────────
+	// ctx.SendMessage injects a message into the conversation and
+	// triggers a new agent turn. Safe to call from goroutines.
+
+	api.RegisterCommand(ext.CommandDef{
+		Name:        "run",
+		Description: "Run a shell command in the background and feed the result to the agent",
+		Execute: func(args string, ctx ext.Context) (string, error) {
+			if args == "" {
+				return "Usage: /run <command>", nil
+			}
+			go func() {
+				out, err := exec.Command("sh", "-c", args).CombinedOutput()
+				if err != nil {
+					ctx.SendMessage(fmt.Sprintf("Background command %q failed: %v\n%s", args, err, out))
+					return
+				}
+				ctx.SendMessage(fmt.Sprintf("Background command %q finished:\n%s", args, out))
+			}()
+			return fmt.Sprintf("Running %q in background...", args), nil
 		},
 	})
 

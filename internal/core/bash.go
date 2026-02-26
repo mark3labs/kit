@@ -76,9 +76,7 @@ func executeBash(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 	timeout := defaultBashTimeout
 	if args.Timeout > 0 {
 		timeout = time.Duration(args.Timeout) * time.Second
-		if timeout > maxBashTimeout {
-			timeout = maxBashTimeout
-		}
+		timeout = min(timeout, maxBashTimeout)
 	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)

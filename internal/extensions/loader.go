@@ -176,7 +176,7 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 
 	initFn, ok := initVal.Interface().(func(API))
 	if !ok {
-		return nil, fmt.Errorf("Init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
+		return nil, fmt.Errorf("init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
 	}
 
 	// Build the API object that wires typed registration methods back to

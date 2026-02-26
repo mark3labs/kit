@@ -916,11 +916,13 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		"- `/quit`: Exit the application\n\n"
 
 	if len(m.extensionCommands) > 0 {
-		help += "**Extensions:**\n"
+		var extHelp strings.Builder
+		extHelp.WriteString("**Extensions:**\n")
 		for _, ec := range m.extensionCommands {
-			help += fmt.Sprintf("- `%s`: %s\n", ec.Name, ec.Description)
+			fmt.Fprintf(&extHelp, "- `%s`: %s\n", ec.Name, ec.Description)
 		}
-		help += "\n"
+		extHelp.WriteString("\n")
+		help += extHelp.String()
 	}
 
 	help += "**Keys:**\n" +

@@ -115,6 +115,13 @@ func (r *Runner) RegisteredCommands() []CommandDef {
 	return cmds
 }
 
+// GetContext returns the current runtime context. Thread-safe.
+func (r *Runner) GetContext() Context {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.ctx
+}
+
 // Extensions returns the loaded extensions for inspection (e.g. CLI list).
 func (r *Runner) Extensions() []LoadedExtension {
 	return r.extensions

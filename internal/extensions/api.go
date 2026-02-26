@@ -51,6 +51,18 @@ type Context struct {
 	//       Subtitle:    "my-extension",
 	//   })
 	PrintBlock func(PrintBlockOpts)
+
+	// SendMessage injects a message into the conversation and triggers a
+	// new agent turn. If the agent is currently busy the message is queued
+	// and processed after the current turn completes.
+	//
+	// This is safe to call from goroutines. Common pattern:
+	//
+	//   go func() {
+	//       out, _ := exec.Command("kit", "-p", task).Output()
+	//       ctx.SendMessage("Subagent result:\n" + string(out))
+	//   }()
+	SendMessage func(string)
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -189,7 +201,7 @@ type ToolDef struct {
 type CommandDef struct {
 	Name        string
 	Description string
-	Execute     func(args string) (string, error)
+	Execute     func(args string, ctx Context) (string, error)
 }
 
 // ---------------------------------------------------------------------------

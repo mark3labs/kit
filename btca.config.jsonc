@@ -63,7 +63,7 @@
       "type": "git",
       "name": "yaegi",
       "url": "https://github.com/traefik/yaegi",
-      "branch": "main"
+      "branch": "master"
     }
   ],
   "model": "claude-haiku-4-5",

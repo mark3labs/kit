@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -154,11 +153,8 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 					inserts = append(inserts, h.Lines[i])
 					i++
 				}
-				maxPairs := len(deletes)
-				if len(inserts) > maxPairs {
-					maxPairs = len(inserts)
-				}
-				for j := 0; j < maxPairs; j++ {
+				maxPairs := max(len(deletes), len(inserts))
+				for j := range maxPairs {
 					sl := splitLine{}
 					if j < len(deletes) {
 						sl.beforeNum = beforeLine
@@ -200,10 +196,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 	// Layout calculations
 	const indent = "  "
 	availableWidth := width - len(indent)
-	panelWidth := (availableWidth - 3) / 2 // " │ " divider
-	if panelWidth < 20 {
-		panelWidth = 20
-	}
+	panelWidth := max((availableWidth-3)/2, 20) // " │ " divider
 
 	// Gutter width from max line number
 	maxLineNum := 1
@@ -215,14 +208,8 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 			maxLineNum = l.afterNum
 		}
 	}
-	gutterWidth := len(fmt.Sprintf("%d", maxLineNum))
-	if gutterWidth < 3 {
-		gutterWidth = 3
-	}
-	contentWidth := panelWidth - gutterWidth - 4 // gutter + " - " or " + "
-	if contentWidth < 10 {
-		contentWidth = 10
-	}
+	gutterWidth := max(len(fmt.Sprintf("%d", maxLineNum)), 3)
+	contentWidth := max(panelWidth-gutterWidth-4, 10) // gutter + " - " or " + "
 
 	theme := getTheme()
 
@@ -395,14 +382,8 @@ func renderCodeBlock(content, fileName string, width int) string {
 
 	// Layout
 	const codeIndent = "  "
-	gutterWidth := maxNumWidth + 2
-	if gutterWidth < 5 {
-		gutterWidth = 5
-	}
-	codeWidth := width - gutterWidth - len(codeIndent)
-	if codeWidth < 20 {
-		codeWidth = 20
-	}
+	gutterWidth := max(maxNumWidth+2, 5)
+	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
 
 	theme := getTheme()
 	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
@@ -483,10 +464,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 	}
 
 	// Line number width
-	numDigits := len(fmt.Sprintf("%d", totalLines))
-	if numDigits < 3 {
-		numDigits = 3
-	}
+	numDigits := max(len(fmt.Sprintf("%d", totalLines)), 3)
 
 	// Syntax highlight
 	displayContent := strings.Join(lines, "\n")
@@ -496,10 +474,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 	// Layout
 	const codeIndent = "  "
 	gutterWidth := numDigits + 2
-	codeWidth := width - gutterWidth - len(codeIndent)
-	if codeWidth < 20 {
-		codeWidth = 20
-	}
+	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
 
 	theme := getTheme()
 	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
@@ -664,12 +639,6 @@ func syntaxHighlight(source, fileName string) string {
 	// the background set by lipgloss.
 	result := strings.ReplaceAll(buf.String(), "\x1b[0m", "\x1b[39;22;23;24m")
 	return strings.TrimRight(result, "\n")
-}
-
-// fileExtension returns the file extension (with dot) for a path, used to
-// help chroma pick the right lexer.
-func fileExtension(path string) string {
-	return filepath.Ext(path)
 }
 
 // ---------------------------------------------------------------------------

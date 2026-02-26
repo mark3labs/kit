@@ -4,6 +4,8 @@
 // input transformation, and lifecycle observation — all without recompilation.
 package extensions
 
+import "slices"
+
 // EventType identifies a point in KIT's lifecycle where extensions can hook in.
 type EventType string
 
@@ -60,10 +62,5 @@ func AllEventTypes() []EventType {
 
 // IsValid returns true if the event type is a recognised lifecycle event.
 func (e EventType) IsValid() bool {
-	for _, valid := range AllEventTypes() {
-		if e == valid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(AllEventTypes(), e)
 }

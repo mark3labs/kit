@@ -379,7 +379,9 @@ func extensionCommandsForUI(runner *extensions.Runner) []ui.ExtensionCommand {
 		cmds = append(cmds, ui.ExtensionCommand{
 			Name:        name,
 			Description: d.Description,
-			Execute:     d.Execute,
+			Execute: func(args string) (string, error) {
+				return d.Execute(args, runner.GetContext())
+			},
 		})
 	}
 	return cmds
@@ -610,6 +612,7 @@ func runNormalMode(ctx context.Context) error {
 			PrintInfo:   func(text string) { appInstance.PrintFromExtension("info", text) },
 			PrintError:  func(text string) { appInstance.PrintFromExtension("error", text) },
 			PrintBlock:  appInstance.PrintBlockFromExtension,
+			SendMessage: func(text string) { appInstance.Run(text) },
 		})
 		if agentResult.ExtRunner.HasHandlers(extensions.SessionStart) {
 			_, _ = agentResult.ExtRunner.Emit(extensions.SessionStartEvent{})

@@ -173,10 +173,7 @@ func generateDiff(path, old, new string, changeIdx int) string {
 
 	// Show context around the change
 	contextLines := 3
-	start := lineNum - contextLines - 1
-	if start < 0 {
-		start = 0
-	}
+	start := max(lineNum-contextLines-1, 0)
 
 	var diff strings.Builder
 	diff.WriteString(fmt.Sprintf("--- %s\n+++ %s\n", path, path))
