@@ -206,7 +206,7 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		s.width = msg.Width - 4 // match existing padding convention
+		s.width = msg.Width
 		s.messageRenderer.SetWidth(s.width)
 		s.compactRenderer.SetWidth(s.width)
 
