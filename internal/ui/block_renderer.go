@@ -116,7 +116,7 @@ func WithWidth(width int) renderingOption {
 // renderContentBlock renders content with configurable styling options
 func renderContentBlock(content string, containerWidth int, options ...renderingOption) string {
 	renderer := &blockRenderer{
-		fullWidth:     false,
+		fullWidth:     true,
 		paddingTop:    1,
 		paddingBottom: 1,
 		paddingLeft:   2,
@@ -151,35 +151,30 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	// Very muted color for the opposite border
 	mutedOppositeBorder := AdaptiveColor("#F3F4F6", "#1F2937")
 
+	// Align determines which border gets the accent color.
+	// All blocks span full width — no horizontal floating.
 	switch align {
-	case lipgloss.Left:
-		style = style.
-			BorderLeft(true).
-			BorderRight(true).
-			AlignHorizontal(align).
-			BorderLeftForeground(borderColor).
-			BorderRightForeground(mutedOppositeBorder)
 	case lipgloss.Right:
 		style = style.
 			BorderRight(true).
 			BorderLeft(true).
-			AlignHorizontal(align).
 			BorderRightForeground(borderColor).
 			BorderLeftForeground(mutedOppositeBorder)
+	default: // Left (and fallback)
+		style = style.
+			BorderLeft(true).
+			BorderRight(true).
+			BorderLeftForeground(borderColor).
+			BorderRightForeground(mutedOppositeBorder)
 	}
 
 	if renderer.fullWidth {
-		style = style.Width(renderer.width)
+		// Subtract 2 for left + right border characters so the total
+		// rendered width equals containerWidth exactly.
+		style = style.Width(renderer.width - 2)
 	}
 
 	content = style.Render(content)
-
-	// Place the content horizontally with proper background
-	content = lipgloss.PlaceHorizontal(
-		renderer.width,
-		align,
-		content,
-	)
 
 	// Add margins
 	if renderer.marginTop > 0 {
