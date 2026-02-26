@@ -231,27 +231,14 @@ func (c *CLI) DisplayDebugConfig(config map[string]any) {
 }
 
 // displayContainer renders and displays the message container for one-shot
-// (non-streaming) messages. Streaming messages are handled separately by a
-// dedicated Bubble Tea program for flicker-free updates.
+// (non-streaming) messages. Output matches the interactive TUI's tea.Println
+// path — no extra padding or width wrapping is applied so both modes produce
+// identical visual output.
 func (c *CLI) displayContainer() {
 	content := c.messageContainer.Render()
-
-	// User messages should not have additional left padding since they're right-aligned.
-	// This only applies in non-compact mode.
-	paddingLeft := 2
-	if !c.compactMode && len(c.messageContainer.messages) > 0 {
-		lastMessage := c.messageContainer.messages[len(c.messageContainer.messages)-1]
-		if lastMessage.Type == UserMessage {
-			paddingLeft = 0
-		}
+	if content != "" {
+		fmt.Println(content)
 	}
-
-	paddedContent := lipgloss.NewStyle().
-		PaddingLeft(paddingLeft).
-		Width(c.width).
-		Render(content)
-
-	fmt.Println(paddedContent)
 
 	// Clear messages after display; one-shot messages don't need to persist.
 	c.messageContainer.messages = nil

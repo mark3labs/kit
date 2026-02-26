@@ -756,7 +756,7 @@ func runNormalMode(ctx context.Context) error {
 // When --no-exit is set, after RunOnce completes the interactive BubbleTea TUI
 // is started so the user can continue the conversation.
 func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
-	if err := appInstance.RunOnce(ctx, prompt, os.Stdout); err != nil {
+	if err := appInstance.RunOnce(ctx, prompt); err != nil {
 		return err
 	}
 

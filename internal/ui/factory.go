@@ -124,10 +124,5 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 	tools := opts.Agent.GetTools()
 	cli.DisplayInfo(fmt.Sprintf("Loaded %d tools from MCP servers", len(tools)))
 
-	// Display usage information (for both streaming and non-streaming)
-	if !opts.Quiet && cli != nil {
-		cli.DisplayUsageAfterResponse()
-	}
-
 	return cli, nil
 }

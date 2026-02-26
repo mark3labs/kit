@@ -10,11 +10,12 @@ import (
 	"regexp"
 	"strings"
 
-	"charm.land/fantasy"
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/mark3labs/mcphost/internal/agent"
+	"github.com/mark3labs/mcphost/internal/app"
 	"github.com/mark3labs/mcphost/internal/config"
 	"github.com/mark3labs/mcphost/internal/models"
-	"github.com/mark3labs/mcphost/internal/session"
 	"github.com/mark3labs/mcphost/internal/tools"
 	"github.com/mark3labs/mcphost/internal/ui"
 
@@ -688,311 +689,170 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 		toolNames = append(toolNames, info.Name)
 	}
 
-	// Configure and run unified agentic loop
-	var messages []fantasy.Message
-	config := AgenticLoopConfig{
-		IsInteractive:    prompt == "", // If no prompt, start in interactive mode
-		InitialPrompt:    prompt,
-		ContinueAfterRun: noExit,
-		Quiet:            quietFlag,
+	// Create app.App and run the prompt through the shared agent path.
+	appOpts := app.Options{
+		Agent:            mcpAgent,
+		MCPConfig:        mcpConfig,
+		ModelName:        modelName,
 		ServerNames:      serverNames,
 		ToolNames:        toolNames,
-		ModelName:        modelName,
-		MCPConfig:        mcpConfig,
+		StreamingEnabled: viper.GetBool("stream"),
+		Quiet:            quietFlag,
+		Debug:            viper.GetBool("debug"),
+		CompactMode:      viper.GetBool("compact"),
 	}
 
-	return runAgenticLoop(ctx, mcpAgent, cli, messages, config)
-}
-
-// AgenticLoopConfig configures the behavior of the unified agentic loop.
-// This struct controls how the main interaction loop operates, whether in
-// interactive or non-interactive mode, and manages various UI and session options.
-type AgenticLoopConfig struct {
-	// Mode configuration
-	IsInteractive    bool   // true for interactive mode, false for non-interactive
-	InitialPrompt    string // initial prompt for non-interactive mode
-	ContinueAfterRun bool   // true to continue to interactive mode after initial run (--no-exit)
-
-	// UI configuration
-	Quiet bool // suppress all output except final response
-
-	// Context data
-	ServerNames    []string         // for slash commands
-	ToolNames      []string         // for slash commands
-	ModelName      string           // for display
-	MCPConfig      *config.Config   // for continuing to interactive mode
-	SessionManager *session.Manager // for session persistence
-}
-
-// replaceMessagesHistory replaces the conversation history and saves to session if available
-func replaceMessagesHistory(messages *[]fantasy.Message, sessionManager *session.Manager, cli *ui.CLI, newMessages []fantasy.Message) {
-	// Replace local history
-	*messages = newMessages
-
-	// Save to session if session manager is available
-	if sessionManager != nil {
-		// Use ReplaceAllMessages to ensure session matches local history exactly
-		if err := sessionManager.ReplaceAllMessages(*messages); err != nil {
-			// Log error but don't fail the operation
-			if cli != nil {
-				cli.DisplayError(fmt.Errorf("failed to save messages to session: %v", err))
-			}
+	// Attach usage tracker from the CLI (if available).
+	if cli != nil {
+		if tracker := cli.GetUsageTracker(); tracker != nil {
+			appOpts.UsageTracker = tracker
 		}
+	}
+
+	appInstance := app.New(appOpts, nil)
+	defer appInstance.Close()
+
+	if quietFlag {
+		// Quiet mode: no intermediate display, just print final response.
+		return appInstance.RunOnce(ctx, prompt)
+	}
+
+	// Display user message before running the agent.
+	if cli != nil {
+		cli.DisplayUserMessage(prompt)
+	}
+
+	// Build an event handler that routes app events to the CLI.
+	eventHandler := newScriptEventHandler(cli, modelName)
+	err = appInstance.RunOnceWithDisplay(ctx, prompt, eventHandler.Handle)
+	eventHandler.Cleanup()
+	return err
+}
+
+// scriptEventHandler routes app events to CLI display methods for script mode.
+// It maintains the spinner state needed for proper display. Script mode does
+// not support in-place streaming updates (no Bubble Tea); the final response
+// is always rendered as a complete block at the end via StepCompleteEvent.
+type scriptEventHandler struct {
+	cli       *ui.CLI
+	modelName string
+
+	spinner       *ui.Spinner
+	lastDisplayed string // tracks content shown via ToolCallContentEvent
+}
+
+func newScriptEventHandler(cli *ui.CLI, modelName string) *scriptEventHandler {
+	return &scriptEventHandler{cli: cli, modelName: modelName}
+}
+
+// Cleanup ensures any active spinner is stopped.
+func (h *scriptEventHandler) Cleanup() {
+	if h.spinner != nil {
+		h.spinner.Stop()
+		h.spinner = nil
 	}
 }
 
-// runAgenticLoop handles all execution modes with a single unified loop
-func runAgenticLoop(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig) error {
-	// Handle initial prompt for non-interactive modes
-	if !config.IsInteractive && config.InitialPrompt != "" {
-		// Display user message (skip if quiet)
-		if !config.Quiet && cli != nil {
-			cli.DisplayUserMessage(config.InitialPrompt)
-		}
+func (h *scriptEventHandler) stopSpinner() {
+	if h.spinner != nil {
+		h.spinner.Stop()
+		h.spinner = nil
+	}
+}
 
-		// Create temporary messages with user input for processing (don't add to history yet)
-		tempMessages := append(messages, fantasy.NewUserMessage(config.InitialPrompt))
+func (h *scriptEventHandler) startSpinner() {
+	h.stopSpinner()
+	h.spinner = ui.NewSpinner()
+	h.spinner.Start()
+}
 
-		// Process the initial prompt with tool calls
-		_, conversationMessages, err := runAgenticStep(ctx, mcpAgent, cli, tempMessages, config)
-		if err != nil {
-			// Check if this was a user cancellation
-			if err.Error() == "generation cancelled by user" && cli != nil {
-				cli.DisplayCancellation()
-				// On cancellation, continue to interactive mode (like --no-exit)
-				// Don't add the cancelled message to history
-				config.IsInteractive = true
-			} else {
-				return err
-			}
+// Handle processes a single app event and renders it via the CLI.
+func (h *scriptEventHandler) Handle(msg tea.Msg) {
+	switch e := msg.(type) {
+	case app.SpinnerEvent:
+		if e.Show {
+			h.startSpinner()
 		} else {
-			// Only add to history after successful completion
-			// conversationMessages already includes the user message, tool calls, and final response
-			replaceMessagesHistory(&messages, config.SessionManager, cli, conversationMessages)
-
-			// If not continuing to interactive mode, exit here
-			if !config.ContinueAfterRun {
-				return nil
-			}
-
-			// Update config for interactive mode continuation
-			config.IsInteractive = true
+			h.stopSpinner()
 		}
-	}
 
-	// Interactive loop (or continuation after non-interactive): not supported in script mode.
-	return nil
+	case app.ToolCallStartedEvent:
+		h.stopSpinner()
+		h.cli.DisplayToolCallMessage(e.ToolName, e.ToolArgs)
+
+	case app.ToolExecutionEvent:
+		if e.IsStarting {
+			h.startSpinner()
+		} else {
+			h.stopSpinner()
+		}
+
+	case app.ToolResultEvent:
+		h.stopSpinner()
+		resultContent := extractToolResultText(e.Result)
+		h.cli.DisplayToolMessage(e.ToolName, e.ToolArgs, resultContent, e.IsError)
+		h.startSpinner()
+
+	case app.StreamChunkEvent:
+		// Script mode has no in-place streaming display; chunks are ignored.
+		// The final response is rendered as a complete block in StepCompleteEvent.
+		h.stopSpinner()
+
+	case app.ToolCallContentEvent:
+		// Text content that accompanies tool calls (e.g. "Let me check that...").
+		h.stopSpinner()
+		_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
+		h.lastDisplayed = e.Content
+		h.startSpinner()
+
+	case app.ResponseCompleteEvent:
+		h.stopSpinner()
+
+	case app.StepCompleteEvent:
+		h.stopSpinner()
+		responseText := ""
+		if e.Response != nil {
+			responseText = e.Response.Content.Text()
+		}
+
+		// Display the final response unless already shown via ToolCallContentEvent.
+		if responseText != "" && responseText != h.lastDisplayed {
+			_ = h.cli.DisplayAssistantMessageWithModel(responseText, h.modelName)
+		}
+
+		// Update and display usage.
+		if e.Response != nil {
+			h.cli.UpdateUsageFromResponse(e.Response, "")
+		}
+		h.cli.DisplayUsageAfterResponse()
+	}
 }
 
-// runAgenticStep processes a single step of the agentic loop (handles tool calls)
-func runAgenticStep(ctx context.Context, mcpAgent *agent.Agent, cli *ui.CLI, messages []fantasy.Message, config AgenticLoopConfig) (*fantasy.Response, []fantasy.Message, error) {
-	var currentSpinner *ui.Spinner
-
-	// Start initial spinner (skip if quiet)
-	if !config.Quiet && cli != nil {
-		currentSpinner = ui.NewSpinner()
-		currentSpinner.Start()
+// extractToolResultText parses a tool result string, handling JSON-encoded MCP
+// content structures and double-encoding.
+func extractToolResultText(result string) string {
+	var mcpContent struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
 	}
 
-	// Create streaming callback for real-time display
-	var streamingCallback agent.StreamingResponseHandler
-	var responseWasStreamed bool
-	var lastDisplayedContent string
-	var streamingContent strings.Builder
-	var streamingStarted bool
-	if cli != nil && !config.Quiet {
-		streamingCallback = func(chunk string) {
-			// Stop spinner before first chunk if still running
-			if currentSpinner != nil {
-				currentSpinner.Stop()
-				currentSpinner = nil
-			}
-			// Mark that this response is being streamed
-			responseWasStreamed = true
-
-			// Accumulate content and update message
-			if !streamingStarted {
-				streamingStarted = true
-				streamingContent.Reset() // Reset content for new streaming session
-			}
-			streamingContent.WriteString(chunk)
+	if err := json.Unmarshal([]byte(result), &mcpContent); err == nil {
+		if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
+			return mcpContent.Content[0].Text
 		}
 	}
 
-	// Reset streaming state before agent execution
-	responseWasStreamed = false
-	streamingStarted = false
-	streamingContent.Reset()
-
-	result, err := mcpAgent.GenerateWithLoopAndStreaming(ctx, messages,
-		// Tool call handler - called when a tool is about to be executed
-		func(toolName, toolArgs string) {
-			if !config.Quiet && cli != nil {
-				// Stop spinner before displaying tool call
-				if currentSpinner != nil {
-					currentSpinner.Stop()
-					currentSpinner = nil
-				}
-				cli.DisplayToolCallMessage(toolName, toolArgs)
-			}
-		},
-		// Tool execution handler - called when tool execution starts/ends
-		func(toolName string, isStarting bool) {
-			if isStarting {
-				if !config.Quiet && cli != nil {
-					// Start spinner for tool execution
-					currentSpinner = ui.NewSpinner()
-					currentSpinner.Start()
-				}
-			} else {
-				// Stop spinner when tool execution completes
-				if !config.Quiet && cli != nil && currentSpinner != nil {
-					currentSpinner.Stop()
-					currentSpinner = nil
-				}
-			}
-		},
-		// Tool result handler - called when a tool execution completes
-		func(toolName, toolArgs, result string, isError bool) {
-			if !config.Quiet && cli != nil {
-				// Parse tool result content - it might be JSON-encoded MCP content
-				resultContent := result
-
-				// Try to parse as MCP content structure
-				var mcpContent struct {
-					Content []struct {
-						Type string `json:"type"`
-						Text string `json:"text"`
-					} `json:"content"`
-				}
-
-				// First try to unmarshal as-is
-				if err := json.Unmarshal([]byte(result), &mcpContent); err == nil {
-					// Extract text from MCP content structure
-					if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-						resultContent = mcpContent.Content[0].Text
-					}
-				} else {
-					// If that fails, try unquoting first (in case it's double-encoded)
-					var unquoted string
-					if err := json.Unmarshal([]byte(result), &unquoted); err == nil {
-						if err := json.Unmarshal([]byte(unquoted), &mcpContent); err == nil {
-							if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-								resultContent = mcpContent.Content[0].Text
-							}
-						}
-					}
-				}
-
-				cli.DisplayToolMessage(toolName, toolArgs, resultContent, isError)
-				// Reset streaming state for next LLM call
-				responseWasStreamed = false
-				streamingStarted = false
-				// Start spinner again for next LLM call
-				currentSpinner = ui.NewSpinner()
-				currentSpinner.Start()
-			}
-		},
-		// Response handler - called when the LLM generates a response
-		func(content string) {
-			if !config.Quiet && cli != nil {
-				// Stop spinner when we get the final response
-				if currentSpinner != nil {
-					currentSpinner.Stop()
-					currentSpinner = nil
-				}
-			}
-		},
-		// Tool call content handler - called when content accompanies tool calls
-		func(content string) {
-			if !config.Quiet && cli != nil && !responseWasStreamed {
-				// Only display if content wasn't already streamed
-				// Stop spinner before displaying content
-				if currentSpinner != nil {
-					currentSpinner.Stop()
-					currentSpinner = nil
-				}
-				_ = cli.DisplayAssistantMessageWithModel(content, config.ModelName)
-				lastDisplayedContent = content
-				// Start spinner again for tool calls
-				currentSpinner = ui.NewSpinner()
-				currentSpinner.Start()
-			} else if responseWasStreamed {
-				// Content was already streamed, just track it and manage spinner
-				lastDisplayedContent = content
-				if currentSpinner != nil {
-					currentSpinner.Stop()
-					currentSpinner = nil
-				}
-				// Start spinner again for tool calls
-				currentSpinner = ui.NewSpinner()
-				currentSpinner.Start()
-			}
-		},
-		// Add streaming callback handler
-		streamingCallback,
-	)
-
-	// Make sure spinner is stopped if still running
-	if !config.Quiet && cli != nil && currentSpinner != nil {
-		currentSpinner.Stop()
-	}
-
-	if err != nil {
-		if !config.Quiet && cli != nil {
-			cli.DisplayError(fmt.Errorf("agent error: %v", err))
-		}
-		return nil, nil, err
-	}
-
-	// Get the final response and conversation messages
-	response := result.FinalResponse
-	conversationMessages := result.ConversationMessages
-
-	// Extract the last user message for usage tracking (do this once)
-	lastUserMessage := ""
-	if len(messages) > 0 {
-		// Find the last user message
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == fantasy.MessageRoleUser {
-				// Extract text from message parts
-				for _, part := range messages[i].Content {
-					if tp, ok := part.(fantasy.TextPart); ok {
-						lastUserMessage = tp.Text
-						break
-					}
-				}
-				break
+	// Try unquoting first (double-encoded JSON).
+	var unquoted string
+	if err := json.Unmarshal([]byte(result), &unquoted); err == nil {
+		if err := json.Unmarshal([]byte(unquoted), &mcpContent); err == nil {
+			if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
+				return mcpContent.Content[0].Text
 			}
 		}
 	}
 
-	// Get text content from response
-	responseText := response.Content.Text()
-
-	// Update usage tracking for ALL responses (streaming and non-streaming)
-	if !config.Quiet && cli != nil {
-		cli.UpdateUsageFromResponse(response, lastUserMessage)
-	}
-
-	// Display assistant response with model name
-	// Skip if: quiet mode, same content already displayed, or if streaming completed the full response
-	streamedFullResponse := responseWasStreamed && streamingContent.String() == responseText
-	if !config.Quiet && cli != nil && responseText != lastDisplayedContent && responseText != "" && !streamedFullResponse {
-		if err := cli.DisplayAssistantMessageWithModel(responseText, config.ModelName); err != nil {
-			cli.DisplayError(fmt.Errorf("display error: %v", err))
-			return nil, nil, err
-		}
-	} else if config.Quiet {
-		// In quiet mode, only output the final response content to stdout
-		fmt.Print(responseText)
-	}
-
-	// Display usage information immediately after the response (for both streaming and non-streaming)
-	if !config.Quiet && cli != nil {
-		cli.DisplayUsageAfterResponse()
-	}
-
-	// Return the final response and all conversation messages
-	return response, conversationMessages, nil
+	return result
 }

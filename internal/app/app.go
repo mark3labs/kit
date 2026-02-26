@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -163,10 +162,10 @@ func (a *App) ClearMessages() {
 // Non-interactive execution
 // --------------------------------------------------------------------------
 
-// RunOnce executes a single agent step synchronously and writes the final
-// response text to w. It does not interact with a tea.Program. Blocks until
+// RunOnce executes a single agent step synchronously and prints the final
+// response text to stdout. No intermediate events are emitted. Blocks until
 // the step completes or ctx is cancelled.
-func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
+func (a *App) RunOnce(ctx context.Context, prompt string) error {
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -174,7 +173,7 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, nil /* program */, nil /* writer */)
+	result, err := a.executeStep(stepCtx, prompt, nil)
 	if err != nil {
 		return err
 	}
@@ -187,9 +186,45 @@ func (a *App) RunOnce(ctx context.Context, prompt string, w io.Writer) error {
 		responseText = result.FinalResponse.Content.Text()
 	}
 	if responseText != "" {
-		_, writeErr := fmt.Fprintln(w, responseText)
-		return writeErr
+		fmt.Println(responseText)
 	}
+	return nil
+}
+
+// RunOnceWithDisplay executes a single agent step synchronously, sending
+// intermediate display events (spinner, tool calls, streaming chunks, etc.)
+// to eventFn. This is the non-TUI equivalent of the interactive Run() path —
+// used by script mode and non-interactive --prompt mode when output is needed.
+//
+// The eventFn receives the same event types as the Bubble Tea TUI
+// (SpinnerEvent, ToolCallStartedEvent, StreamChunkEvent, StepCompleteEvent,
+// etc.) and is responsible for rendering them.
+//
+// Blocks until the step completes or ctx is cancelled.
+func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn func(tea.Msg)) error {
+	stepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	a.mu.Lock()
+	a.cancelStep = cancel
+	a.mu.Unlock()
+
+	result, err := a.executeStep(stepCtx, prompt, eventFn)
+	if err != nil {
+		return err
+	}
+
+	// Record token usage for the completed step.
+	a.updateUsage(result, prompt)
+
+	// Send step complete so the display handler can render the final response.
+	if eventFn != nil && result.FinalResponse != nil {
+		eventFn(StepCompleteEvent{
+			Response: result.FinalResponse,
+			Usage:    result.TotalUsage,
+		})
+	}
+
 	return nil
 }
 
@@ -263,12 +298,18 @@ func (a *App) runPrompt(prompt string) {
 	a.mu.Unlock()
 	defer cancel()
 
-	// Get current program reference (may be nil).
+	// Build event function that sends to the registered tea.Program (if any).
 	a.mu.Lock()
 	prog := a.program
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, prog, nil)
+	eventFn := func(msg tea.Msg) {
+		if prog != nil {
+			prog.Send(msg)
+		}
+	}
+
+	result, err := a.executeStep(stepCtx, prompt, eventFn)
 	if err != nil {
 		if stepCtx.Err() != nil {
 			// Step was cancelled by the user (e.g. double-ESC). Send a
@@ -297,12 +338,12 @@ func (a *App) runPrompt(prompt string) {
 // executeStep runs a single agentic step using the agent in opts.
 // It adds the user prompt to the MessageStore before calling the agent, and
 // replaces the store with the full updated conversation on success.
-// prog is the tea.Program used to send intermediate events; it may be nil
-// (e.g. in RunOnce). w is an optional writer for quiet non-interactive output.
-func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program, _ io.Writer) (*agent.GenerateWithLoopResult, error) {
+// eventFn receives intermediate display events (tool calls, streaming chunks,
+// etc.); it may be nil when no display is needed (e.g. quiet RunOnce).
+func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*agent.GenerateWithLoopResult, error) {
 	sendFn := func(msg tea.Msg) {
-		if prog != nil {
-			prog.Send(msg)
+		if eventFn != nil {
+			eventFn(msg)
 		}
 	}
 

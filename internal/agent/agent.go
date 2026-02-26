@@ -155,7 +155,14 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	var currentToolName string
 	var currentToolArgs string
 
-	if a.streamingEnabled {
+	// Use the streaming path when streaming is enabled OR when any callbacks are
+	// provided. Fantasy only exposes tool/step callbacks on AgentStreamCall, so
+	// Stream is required to observe tool execution in real time. The non-streaming
+	// Generate path is reserved for the simple case with no callbacks at all.
+	hasCallbacks := onToolCall != nil || onToolExecution != nil || onToolResult != nil ||
+		onToolCallContent != nil || onStreamingResponse != nil
+
+	if a.streamingEnabled || hasCallbacks {
 		// Use fantasy's streaming agent
 		result, err := a.fantasyAgent.Stream(ctx, fantasy.AgentStreamCall{
 			Prompt:   prompt,
@@ -230,10 +237,16 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			return nil, err
 		}
 
+		// Fire the response callback for callers that use it (e.g. non-streaming
+		// callers that still want the final response notification).
+		if onResponse != nil && result.Response.Content.Text() != "" {
+			onResponse(result.Response.Content.Text())
+		}
+
 		return convertAgentResult(result, messages), nil
 	}
 
-	// Non-streaming path
+	// Non-streaming path with no callbacks — use the simpler Generate call.
 	result, err := a.fantasyAgent.Generate(ctx, fantasy.AgentCall{
 		Prompt:   prompt,
 		Messages: history,
