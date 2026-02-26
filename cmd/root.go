@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
+	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
@@ -251,8 +252,26 @@ func configToUiTheme(theme config.Theme) ui.Theme {
 	}
 }
 
+// kitBanner returns the KIT ASCII art title with KITT scanner lights,
+// rendered in KITT red using lipgloss.
+func kitBanner() string {
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000"))
+	banner :=
+		"            ██╗  ██╗ ██╗ ████████╗\n" +
+			"            ██║ ██╔╝ ██║ ╚══██╔══╝\n" +
+			"            █████╔╝  ██║    ██║\n" +
+			"            ██╔═██╗  ██║    ██║\n" +
+			"            ██║  ██╗ ██║    ██║\n" +
+			"            ╚═╝  ╚═╝ ╚═╝    ╚═╝\n" +
+			" ░░░░░░▒▒▒▒▒▓▓▓▓███████████████▓▓▓▓▒▒▒▒▒░░░░░░"
+	return style.Render(banner)
+}
+
 func init() {
 	cobra.OnInitialize(InitConfig)
+
+	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
+
 	var theme config.Theme
 	err := config.FilepathOr("theme", &theme)
 	if err == nil && viper.InConfig("theme") {
