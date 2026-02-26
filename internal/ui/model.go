@@ -49,6 +49,14 @@ type AppModelOptions struct {
 	// ModelName is the display name of the model (e.g. "claude-sonnet-4-5").
 	ModelName string
 
+	// ProviderName is the LLM provider (e.g. "anthropic", "openai").
+	// Used for the startup "Model loaded" message.
+	ProviderName string
+
+	// LoadingMessage is an optional informational message from the agent
+	// (e.g. GPU fallback info). Displayed at startup when non-empty.
+	LoadingMessage string
+
 	// Width is the initial terminal width in columns.
 	Width int
 
@@ -115,6 +123,12 @@ type AppModel struct {
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
 
+	// providerName is the LLM provider for the startup message.
+	providerName string
+
+	// loadingMessage is an optional agent startup message (e.g. GPU fallback).
+	loadingMessage string
+
 	// serverNames, toolNames are used by /servers and /tools commands.
 	serverNames []string
 	toolNames   []string
@@ -174,17 +188,19 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	}
 
 	m := &AppModel{
-		state:        stateInput,
-		appCtrl:      appCtrl,
-		renderer:     NewMessageRenderer(width, false),
-		compactRdr:   NewCompactRenderer(width, false),
-		compactMode:  opts.CompactMode,
-		modelName:    opts.ModelName,
-		serverNames:  opts.ServerNames,
-		toolNames:    opts.ToolNames,
-		usageTracker: opts.UsageTracker,
-		width:        width,
-		height:       height,
+		state:          stateInput,
+		appCtrl:        appCtrl,
+		renderer:       NewMessageRenderer(width, false),
+		compactRdr:     NewCompactRenderer(width, false),
+		compactMode:    opts.CompactMode,
+		modelName:      opts.ModelName,
+		providerName:   opts.ProviderName,
+		loadingMessage: opts.LoadingMessage,
+		serverNames:    opts.ServerNames,
+		toolNames:      opts.ToolNames,
+		usageTracker:   opts.UsageTracker,
+		width:          width,
+		height:         height,
 	}
 
 	// Wire up child components now that we have the concrete implementations.
@@ -201,10 +217,13 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 // tea.Model interface
 // --------------------------------------------------------------------------
 
-// Init implements tea.Model. No startup commands needed; the app layer fires
-// events via program.Send() once the agent starts.
+// Init implements tea.Model. Emits startup info messages (model, tools) and
+// initialises child components.
 func (m *AppModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
+
+	// Emit startup info messages matching the old SetupCLI behaviour.
+	cmds = append(cmds, m.startupInfoCmds()...)
 
 	if m.input != nil {
 		cmds = append(cmds, m.input.Init())
@@ -214,6 +233,31 @@ func (m *AppModel) Init() tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// startupInfoCmds returns tea.Println commands that display model, loading, and
+// tool count information at startup — matching the old SetupCLI factory output.
+func (m *AppModel) startupInfoCmds() []tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Model loaded message.
+	if m.providerName != "" && m.modelName != "" {
+		cmds = append(cmds, m.printSystemMessage(
+			fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName),
+		))
+	}
+
+	// Optional agent loading message (e.g. GPU fallback info).
+	if m.loadingMessage != "" {
+		cmds = append(cmds, m.printSystemMessage(m.loadingMessage))
+	}
+
+	// Tool count.
+	cmds = append(cmds, m.printSystemMessage(
+		fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)),
+	))
+
+	return cmds
 }
 
 // Update implements tea.Model. It is the heart of the state machine: it routes
