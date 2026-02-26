@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -222,8 +223,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 func (m *AppModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
-	// Emit startup info messages matching the old SetupCLI behaviour.
-	cmds = append(cmds, m.startupInfoCmds()...)
+	// Emit startup info matching the old SetupCLI behaviour.
+	cmds = append(cmds, m.startupInfoCmd())
 
 	if m.input != nil {
 		cmds = append(cmds, m.input.Init())
@@ -235,29 +236,24 @@ func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// startupInfoCmds returns tea.Println commands that display model, loading, and
-// tool count information at startup — matching the old SetupCLI factory output.
-func (m *AppModel) startupInfoCmds() []tea.Cmd {
-	var cmds []tea.Cmd
+// startupInfoCmd returns a single tea.Println command that displays model,
+// loading, and tool count information at startup — matching the old SetupCLI
+// factory output. All lines are combined into one message to avoid races
+// between concurrent tea.Println commands in a tea.Batch.
+func (m *AppModel) startupInfoCmd() tea.Cmd {
+	var lines []string
 
-	// Model loaded message.
 	if m.providerName != "" && m.modelName != "" {
-		cmds = append(cmds, m.printSystemMessage(
-			fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName),
-		))
+		lines = append(lines, fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName))
 	}
 
-	// Optional agent loading message (e.g. GPU fallback info).
 	if m.loadingMessage != "" {
-		cmds = append(cmds, m.printSystemMessage(m.loadingMessage))
+		lines = append(lines, m.loadingMessage)
 	}
 
-	// Tool count.
-	cmds = append(cmds, m.printSystemMessage(
-		fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)),
-	))
+	lines = append(lines, fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)))
 
-	return cmds
+	return m.printSystemMessage(strings.Join(lines, "\n"))
 }
 
 // Update implements tea.Model. It is the heart of the state machine: it routes
