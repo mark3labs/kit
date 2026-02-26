@@ -565,10 +565,14 @@ func (m *AppModel) renderQueuedMessages() string {
 
 	var lines []string
 	for _, msg := range m.queuedMessages {
+		// Collapse multi-line messages into a single line for the compact
+		// queue preview. The full text is preserved and will be printed
+		// properly when the message moves to scrollback.
+		display := strings.Join(strings.Fields(msg), " ")
+
 		// Truncate long messages to fit on one line:
 		// indent(2) + badge + gap(2) + text must fit within m.width.
 		maxTextWidth := m.width - len(indent) - badgeWidth - 2
-		display := msg
 		if maxTextWidth > 3 && len(display) > maxTextWidth {
 			display = display[:maxTextWidth-3] + "..."
 		}
