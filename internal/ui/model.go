@@ -54,6 +54,16 @@ type AppModelOptions struct {
 
 	// Height is the initial terminal height in rows.
 	Height int
+
+	// ServerNames holds loaded MCP server names for the /servers command.
+	ServerNames []string
+
+	// ToolNames holds available tool names for the /tools command.
+	ToolNames []string
+
+	// UsageTracker provides token usage statistics for /usage and /reset-usage.
+	// May be nil if usage tracking is unavailable for the current model.
+	UsageTracker *UsageTracker
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -104,6 +114,14 @@ type AppModel struct {
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
+
+	// serverNames, toolNames are used by /servers and /tools commands.
+	serverNames []string
+	toolNames   []string
+
+	// usageTracker provides token usage stats for /usage and /reset-usage.
+	// May be nil when usage tracking is unavailable.
+	usageTracker *UsageTracker
 
 	// width and height track the terminal dimensions.
 	width  int
@@ -156,14 +174,17 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	}
 
 	m := &AppModel{
-		state:       stateInput,
-		appCtrl:     appCtrl,
-		renderer:    NewMessageRenderer(width, false),
-		compactRdr:  NewCompactRenderer(width, false),
-		compactMode: opts.CompactMode,
-		modelName:   opts.ModelName,
-		width:       width,
-		height:      height,
+		state:        stateInput,
+		appCtrl:      appCtrl,
+		renderer:     NewMessageRenderer(width, false),
+		compactRdr:   NewCompactRenderer(width, false),
+		compactMode:  opts.CompactMode,
+		modelName:    opts.ModelName,
+		serverNames:  opts.ServerNames,
+		toolNames:    opts.ToolNames,
+		usageTracker: opts.UsageTracker,
+		width:        width,
+		height:       height,
 	}
 
 	// Wire up child components now that we have the concrete implementations.
@@ -255,12 +276,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case submitMsg:
-		// Handle /quit (and its aliases) before sending to the app layer:
-		// look up the command and check if it resolves to "/quit".
-		if cmd := GetCommandByName(msg.Text); cmd != nil && cmd.Name == "/quit" {
-			return m, tea.Quit
+		// Handle slash commands locally — they should never reach app.Run().
+		if sc := GetCommandByName(msg.Text); sc != nil {
+			if cmd := m.handleSlashCommand(sc); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
 		}
-		// Print user message immediately to scrollback.
+
+		// Regular prompt — print user message and forward to the app layer.
 		cmds = append(cmds, m.printUserMessage(msg.Text))
 		if m.appCtrl != nil {
 			// app.Run() handles queueing internally if a step is in progress.
@@ -517,6 +541,128 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
 		rendered = msg.Content
 	}
 	return tea.Println(rendered)
+}
+
+// --------------------------------------------------------------------------
+// Slash command handlers
+// --------------------------------------------------------------------------
+
+// handleSlashCommand executes a recognized slash command and returns a tea.Cmd
+// that emits the appropriate output to scrollback. Returns tea.Quit for /quit,
+// nil for commands with no visible output, or a tea.Println cmd for display.
+func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
+	switch sc.Name {
+	case "/quit":
+		return tea.Quit
+	case "/help":
+		return m.printHelpMessage()
+	case "/tools":
+		return m.printToolsMessage()
+	case "/servers":
+		return m.printServersMessage()
+	case "/usage":
+		return m.printUsageMessage()
+	case "/reset-usage":
+		return m.printResetUsage()
+	case "/clear":
+		if m.appCtrl != nil {
+			m.appCtrl.ClearMessages()
+		}
+		return m.printSystemMessage("Conversation cleared. Starting fresh.")
+	case "/clear-queue":
+		if m.appCtrl != nil {
+			m.appCtrl.ClearQueue()
+		}
+		return nil
+	default:
+		return m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
+	}
+}
+
+// printSystemMessage renders a system-level message and emits it above the BT region.
+func (m *AppModel) printSystemMessage(text string) tea.Cmd {
+	var rendered string
+	if m.compactMode {
+		msg := m.compactRdr.RenderSystemMessage(text, time.Now())
+		rendered = msg.Content
+	} else {
+		msg := m.renderer.RenderSystemMessage(text, time.Now())
+		rendered = msg.Content
+	}
+	return tea.Println(rendered)
+}
+
+// printHelpMessage renders the help text listing all available slash commands.
+func (m *AppModel) printHelpMessage() tea.Cmd {
+	help := "## Available Commands\n\n" +
+		"- `/help`: Show this help message\n" +
+		"- `/tools`: List all available tools\n" +
+		"- `/servers`: List configured MCP servers\n" +
+		"- `/usage`: Show token usage and cost statistics\n" +
+		"- `/reset-usage`: Reset usage statistics\n" +
+		"- `/clear`: Clear message history\n" +
+		"- `/quit`: Exit the application\n" +
+		"- `Ctrl+C`: Exit at any time\n" +
+		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
+		"You can also just type your message to chat with the AI assistant."
+	return m.printSystemMessage(help)
+}
+
+// printToolsMessage renders the list of available tools.
+func (m *AppModel) printToolsMessage() tea.Cmd {
+	var content string
+	content = "## Available Tools\n\n"
+	if len(m.toolNames) == 0 {
+		content += "No tools are currently available."
+	} else {
+		for i, tool := range m.toolNames {
+			content += fmt.Sprintf("%d. `%s`\n", i+1, tool)
+		}
+	}
+	return m.printSystemMessage(content)
+}
+
+// printServersMessage renders the list of configured MCP servers.
+func (m *AppModel) printServersMessage() tea.Cmd {
+	var content string
+	content = "## Configured MCP Servers\n\n"
+	if len(m.serverNames) == 0 {
+		content += "No MCP servers are currently configured."
+	} else {
+		for i, server := range m.serverNames {
+			content += fmt.Sprintf("%d. `%s`\n", i+1, server)
+		}
+	}
+	return m.printSystemMessage(content)
+}
+
+// printUsageMessage renders token usage statistics.
+func (m *AppModel) printUsageMessage() tea.Cmd {
+	if m.usageTracker == nil {
+		return m.printSystemMessage("Usage tracking is not available for this model.")
+	}
+
+	sessionStats := m.usageTracker.GetSessionStats()
+	lastStats := m.usageTracker.GetLastRequestStats()
+
+	content := "## Usage Statistics\n\n"
+	if lastStats != nil {
+		content += fmt.Sprintf("**Last Request:** %d input + %d output tokens = $%.6f\n",
+			lastStats.InputTokens, lastStats.OutputTokens, lastStats.TotalCost)
+	}
+	content += fmt.Sprintf("**Session Total:** %d input + %d output tokens = $%.6f (%d requests)\n",
+		sessionStats.TotalInputTokens, sessionStats.TotalOutputTokens, sessionStats.TotalCost, sessionStats.RequestCount)
+
+	return m.printSystemMessage(content)
+}
+
+// printResetUsage resets usage statistics and prints a confirmation.
+func (m *AppModel) printResetUsage() tea.Cmd {
+	if m.usageTracker == nil {
+		return m.printSystemMessage("Usage tracking is not available for this model.")
+	}
+	m.usageTracker.Reset()
+	return m.printSystemMessage("Usage statistics have been reset.")
 }
 
 // flushStreamContent gets the rendered content from the stream component,

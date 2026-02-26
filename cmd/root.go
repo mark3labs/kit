@@ -714,19 +714,27 @@ func runNormalMode(ctx context.Context) error {
 		CompactMode:      viper.GetBool("compact"),
 	}
 
-	// Wire usage tracker from the CLI (non-interactive non-quiet mode only).
-	// In quiet mode or interactive mode, cli is nil and no tracker is attached.
+	// Create a usage tracker that is shared between the app layer (for recording
+	// usage after each step) and the TUI (for /usage display). For non-interactive
+	// mode the tracker comes from the CLI factory; for interactive mode we create
+	// one directly.
+	var usageTracker *ui.UsageTracker
 	if cli != nil {
-		if tracker := cli.GetUsageTracker(); tracker != nil {
-			appOpts.UsageTracker = tracker
-		}
+		usageTracker = cli.GetUsageTracker()
+	} else {
+		// Interactive mode: create a tracker using the same logic as SetupCLI.
+		usageTracker = ui.CreateUsageTracker(modelString, viper.GetString("provider-api-key"))
 	}
+	if usageTracker != nil {
+		appOpts.UsageTracker = usageTracker
+	}
+
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, promptFlag, quietFlag, noExitFlag, modelName)
+		return runNonInteractiveModeApp(ctx, appInstance, promptFlag, quietFlag, noExitFlag, modelName, serverNames, toolNames, usageTracker)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -734,7 +742,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, serverNames, toolNames, usageTracker)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -747,14 +755,14 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after RunOnce completes the interactive BubbleTea TUI
 // is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, modelName string) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, modelName string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
 	if err := appInstance.RunOnce(ctx, prompt, os.Stdout); err != nil {
 		return err
 	}
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, serverNames, toolNames, usageTracker)
 	}
 
 	return nil
@@ -771,7 +779,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt 
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName string) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -780,10 +788,13 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 	}
 
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
-		CompactMode: viper.GetBool("compact"),
-		ModelName:   modelName,
-		Width:       termWidth,
-		Height:      termHeight,
+		CompactMode:  viper.GetBool("compact"),
+		ModelName:    modelName,
+		Width:        termWidth,
+		Height:       termHeight,
+		ServerNames:  serverNames,
+		ToolNames:    toolNames,
+		UsageTracker: usageTracker,
 	})
 
 	program := tea.NewProgram(appModel)

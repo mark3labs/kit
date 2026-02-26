@@ -38,6 +38,33 @@ func parseModelName(modelString string) (provider, model string) {
 	return p, m
 }
 
+// CreateUsageTracker creates a UsageTracker for the given model string and
+// provider API key. It returns nil when usage tracking is unavailable (e.g.
+// ollama or unrecognised models). This is used by the interactive TUI path
+// which doesn't go through SetupCLI.
+func CreateUsageTracker(modelString, providerAPIKey string) *UsageTracker {
+	provider, model := parseModelName(modelString)
+	if provider == "unknown" || model == "unknown" || provider == "ollama" {
+		return nil
+	}
+
+	registry := models.GetGlobalRegistry()
+	modelInfo, err := registry.ValidateModel(provider, model)
+	if err != nil {
+		return nil
+	}
+
+	isOAuth := false
+	if provider == "anthropic" {
+		_, source, err := auth.GetAnthropicAPIKey(providerAPIKey)
+		if err == nil && strings.HasPrefix(source, "stored OAuth") {
+			isOAuth = true
+		}
+	}
+
+	return NewUsageTracker(modelInfo, provider, 80, isOAuth)
+}
+
 // SetupCLI creates, configures, and initializes a CLI instance with the provided
 // options. It sets up model display, usage tracking for supported providers, and
 // shows initial loading information. Returns nil in quiet mode or an initialized
