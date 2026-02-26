@@ -168,14 +168,19 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
-	// Format body
+	// Format body: try tool-specific renderer, then fall back to default
 	var body string
 	if isError {
 		body = lipgloss.NewStyle().Foreground(theme.Error).Render(r.formatToolResult(toolResult))
 	} else {
-		body = lipgloss.NewStyle().Foreground(theme.Muted).Render(r.formatToolResult(toolResult))
-		if r.formatToolResult(toolResult) == "" {
-			body = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
+		body = renderToolBody(toolName, toolArgs, toolResult, r.width-4)
+		if body == "" {
+			formatted := r.formatToolResult(toolResult)
+			if formatted == "" {
+				body = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
+			} else {
+				body = lipgloss.NewStyle().Foreground(theme.Muted).Render(formatted)
+			}
 		}
 	}
 

@@ -66,6 +66,17 @@ type Theme struct {
 	Tool        color.Color
 	Accent      color.Color
 	Highlight   color.Color
+
+	// Diff block backgrounds
+	DiffInsertBg  color.Color // Green-tinted bg for added lines
+	DiffDeleteBg  color.Color // Red-tinted bg for removed lines
+	DiffEqualBg   color.Color // Neutral bg for context lines
+	DiffMissingBg color.Color // Empty-cell bg when sides are uneven
+
+	// Code/output block backgrounds
+	CodeBg   color.Color // Background for code blocks (Read tool)
+	GutterBg color.Color // Line-number gutter background
+	WriteBg  color.Color // Green-tinted bg for Write tool content
 }
 
 // DefaultTheme creates and returns the default KIT theme based on the Catppuccin
@@ -89,6 +100,17 @@ func DefaultTheme() Theme {
 		Tool:        AdaptiveColor("#fe640b", "#fab387"), // Latte/Mocha Peach
 		Accent:      AdaptiveColor("#ea76cb", "#f5c2e7"), // Latte/Mocha Pink
 		Highlight:   AdaptiveColor("#e6e9ef", "#181825"), // Latte Mantle / Mocha Mantle
+
+		// Diff backgrounds — subtle tinted variants of the base palette
+		DiffInsertBg:  AdaptiveColor("#d5f0d5", "#1a3a2a"), // Green tint
+		DiffDeleteBg:  AdaptiveColor("#f5d5d5", "#3a1a2a"), // Red tint
+		DiffEqualBg:   AdaptiveColor("#eceef3", "#232336"), // Neutral
+		DiffMissingBg: AdaptiveColor("#e4e6eb", "#1a1a2e"), // Darker neutral
+
+		// Code & output backgrounds
+		CodeBg:   AdaptiveColor("#eceef3", "#232336"), // Matches DiffEqualBg
+		GutterBg: AdaptiveColor("#e4e6eb", "#1a1a2e"), // Slightly darker
+		WriteBg:  AdaptiveColor("#d5f0d5", "#1a3a2a"), // Matches DiffInsertBg (green tint)
 	}
 }
 

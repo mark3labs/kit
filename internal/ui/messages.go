@@ -555,14 +555,17 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
-	// --- Body ---
+	// --- Body: try tool-specific renderer first, then fall back ---
 	var body string
 	if isError {
 		body = lipgloss.NewStyle().
 			Foreground(theme.Error).
 			Render(toolResult)
 	} else {
-		body = r.formatToolResult(toolName, toolResult, r.width-8)
+		body = renderToolBody(toolName, toolArgs, toolResult, r.width-8)
+		if body == "" {
+			body = r.formatToolResult(toolName, toolResult, r.width-8)
+		}
 	}
 
 	if strings.TrimSpace(body) == "" {

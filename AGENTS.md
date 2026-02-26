@@ -39,3 +39,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - Multi-provider LLM support via `llm.Provider` interface
 - MCP client-server for tool integration
 - Builtin servers: bash, fetch, todo, fs
+
+## External Repo Research
+- **ALWAYS use `btca`** to search external repos (e.g. iteratr, other reference codebases)
+- Never guess or manually search the filesystem for external projects
+- Example: `btca ask -r https://github.com/user/repo -q "How does X work?"`
+- See `.agents/skills/btca-cli/SKILL.md` for full btca usage
