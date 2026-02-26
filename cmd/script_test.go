@@ -275,9 +275,9 @@ func TestParseScriptContentWithCompactMode(t *testing.T) {
 	content := `---
 compact: true
 mcpServers:
-  todo:
-    type: "builtin"
-    name: "todo"
+  echo:
+    type: "local"
+    command: ["echo", "hello"]
 ---
 Test prompt with compact mode`
 
@@ -312,11 +312,6 @@ mcpServers:
   remote-server:
     type: "remote"
     url: "https://example.com/mcp"
-  builtin-todo:
-    type: "builtin"
-    name: "todo"
-    options:
-      storage: "memory"
 ---
 Test prompt with new format MCP servers`
 
@@ -326,8 +321,8 @@ Test prompt with new format MCP servers`
 		t.Fatalf("parseScriptContent() failed: %v", err)
 	}
 
-	if len(config.MCPServers) != 3 {
-		t.Errorf("Expected 3 MCP servers, got %d", len(config.MCPServers))
+	if len(config.MCPServers) != 2 {
+		t.Errorf("Expected 2 MCP servers, got %d", len(config.MCPServers))
 	}
 
 	// Test local server
@@ -362,18 +357,6 @@ Test prompt with new format MCP servers`
 	}
 	if remote.URL != "https://example.com/mcp" {
 		t.Errorf("Expected remote server URL 'https://example.com/mcp', got '%s'", remote.URL)
-	}
-
-	// Test builtin server
-	builtin, exists := config.MCPServers["builtin-todo"]
-	if !exists {
-		t.Error("Expected builtin-todo server to exist")
-	}
-	if builtin.Type != "builtin" {
-		t.Errorf("Expected builtin server type 'builtin', got '%s'", builtin.Type)
-	}
-	if builtin.Name != "todo" {
-		t.Errorf("Expected builtin server name 'todo', got '%s'", builtin.Name)
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // MCPToolManager manages MCP (Model Context Protocol) tools and clients across multiple servers.

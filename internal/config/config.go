@@ -12,15 +12,13 @@ import (
 )
 
 // MCPServerConfig represents configuration for an MCP server, supporting both
-// local (stdio), remote (StreamableHTTP/SSE), and builtin (in-process) server types.
+// local (stdio) and remote (StreamableHTTP/SSE) server types.
 // It maintains backward compatibility with legacy configuration formats.
 type MCPServerConfig struct {
 	Type          string            `json:"type"`
 	Command       []string          `json:"command,omitempty"`
 	Environment   map[string]string `json:"environment,omitempty"`
 	URL           string            `json:"url,omitempty"`
-	Name          string            `json:"name,omitempty"`    // For builtin servers
-	Options       map[string]any    `json:"options,omitempty"` // For builtin servers
 	AllowedTools  []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 	ExcludedTools []string          `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
 
@@ -42,8 +40,6 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		Environment   map[string]string `json:"environment,omitempty"`
 		URL           string            `json:"url,omitempty"`
 		Headers       []string          `json:"headers,omitempty"`
-		Name          string            `json:"name,omitempty"`
-		Options       map[string]any    `json:"options,omitempty"`
 		AllowedTools  []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 		ExcludedTools []string          `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
 	}
@@ -68,8 +64,6 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		s.Environment = newConfig.Environment
 		s.URL = newConfig.URL
 		s.Headers = newConfig.Headers
-		s.Name = newConfig.Name
-		s.Options = newConfig.Options
 		s.AllowedTools = newConfig.AllowedTools
 		s.ExcludedTools = newConfig.ExcludedTools
 		return nil
@@ -193,8 +187,6 @@ func (s *MCPServerConfig) GetTransportType() string {
 			return "stdio"
 		case "remote":
 			return "streamable"
-		case "builtin":
-			return "inprocess"
 		default:
 			return s.Type
 		}
@@ -230,12 +222,8 @@ func (c *Config) Validate() error {
 			if serverConfig.URL == "" {
 				return fmt.Errorf("server %s: url is required for %s transport", serverName, transport)
 			}
-		case "inprocess":
-			if serverConfig.Name == "" {
-				return fmt.Errorf("server %s: name is required for builtin servers", serverName)
-			}
 		default:
-			return fmt.Errorf("server %s: unsupported transport type '%s'. Supported types: stdio, sse, streamable, inprocess", serverName, transport)
+			return fmt.Errorf("server %s: unsupported transport type '%s'. Supported types: stdio, sse, streamable", serverName, transport)
 		}
 	}
 	return nil
@@ -304,70 +292,22 @@ func createDefaultConfig(homeDir string) error {
 	// Write a comprehensive YAML template with examples
 	content := `# KIT Configuration File
 # All command-line flags can be configured here
-# This demonstrates the simplified local/remote/builtin server configuration
 
-# MCP Servers configuration
-# Add your MCP servers here
-# Examples for different server types:
+# MCP Servers configuration (for external tool servers)
+# Core tools (bash, read, write, edit, grep, find, ls) are built-in and always available.
+# Add external MCP servers here for additional tools:
 # mcpServers:
 #   # Local MCP servers - run commands locally via stdio transport
-#   filesystem-local:
+#   filesystem:
 #     type: "local"
 #     command: ["npx", "@modelcontextprotocol/server-filesystem", "/tmp"]
 #     environment:
 #       DEBUG: "true"
-#       LOG_LEVEL: "info"
-#   
-#   sqlite:
-#     type: "local" 
-#     command: ["uvx", "mcp-server-sqlite", "--db-path", "/tmp/example.db"]
-#     environment:
-#       SQLITE_DEBUG: "1"
-#   
-#   # Builtin MCP servers - run in-process for optimal performance
-#   filesystem-builtin:
-#     type: "builtin"
-#     name: "fs"
-#     options:
-#       allowed_directories: ["/tmp", "/home/user/documents"]
-#     allowedTools: ["read_file", "write_file", "list_directory"]
-#   
-#   # Minimal builtin server - defaults to current working directory
-#   filesystem-cwd:
-#     type: "builtin"
-#     name: "fs"
-#   
-#   # Bash server for shell commands
-#   bash:
-#     type: "builtin"
-#     name: "bash"
-#   
-#   # Todo server for task management
-#   todo:
-#     type: "builtin"
-#     name: "todo"
-#   
-#   # Fetch server for web content
-#   fetch:
-#     type: "builtin"
-#     name: "fetch"
 #   
 #   # Remote MCP servers - connect via StreamableHTTP transport
-#   # Optional 'headers' field can be used for authentication and custom headers
 #   websearch:
 #     type: "remote"
 #     url: "https://api.example.com/mcp"
-#   
-#   weather:
-#     type: "remote"
-#     url: "https://weather-mcp.example.com"
-#   
-#   # Legacy format still supported for backward compatibility:
-#   # legacy-server:
-#   #   command: npx
-#   #   args: ["@modelcontextprotocol/server-filesystem", "/path"]
-#   #   env:
-#   #     MY_VAR: "value"
 
 mcpServers:
 

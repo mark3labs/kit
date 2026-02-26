@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -459,10 +458,9 @@ func runNormalMode(ctx context.Context) error {
 			return fmt.Errorf("failed to load session: %v", err)
 		}
 
-		// Convert session messages to schema messages
+		// Convert session messages to fantasy messages
 		for _, msg := range loadedSession.Messages {
-			fantasyMsg := msg.ConvertToFantasyMessage()
-			messages = append(messages, fantasyMsg)
+			messages = append(messages, msg.ToFantasyMessages()...)
 		}
 
 		// If we're also saving, use the loaded session with the session manager
@@ -471,13 +469,15 @@ func runNormalMode(ctx context.Context) error {
 		}
 
 		if !quietFlag && cli != nil {
-			// Create a map of tool call IDs to tool calls for quick lookup
-			toolCallMap := make(map[string]session.ToolCall)
+			// Build a map of tool call IDs to tool calls for quick lookup
+			type toolCallInfo struct {
+				Name  string
+				Input string
+			}
+			toolCallMap := make(map[string]toolCallInfo)
 			for _, sessionMsg := range loadedSession.Messages {
-				if sessionMsg.Role == "assistant" && len(sessionMsg.ToolCalls) > 0 {
-					for _, tc := range sessionMsg.ToolCalls {
-						toolCallMap[tc.ID] = tc
-					}
+				for _, tc := range sessionMsg.ToolCalls() {
+					toolCallMap[tc.ID] = toolCallInfo{Name: tc.Name, Input: tc.Input}
 				}
 			}
 
@@ -485,67 +485,22 @@ func runNormalMode(ctx context.Context) error {
 			for _, sessionMsg := range loadedSession.Messages {
 				switch sessionMsg.Role {
 				case "user":
-					cli.DisplayUserMessage(sessionMsg.Content)
+					cli.DisplayUserMessage(sessionMsg.Content())
 				case "assistant":
 					// Display tool calls if present
-					if len(sessionMsg.ToolCalls) > 0 {
-						for _, tc := range sessionMsg.ToolCalls {
-							// Convert arguments to string
-							var argsStr string
-							if argBytes, err := json.Marshal(tc.Arguments); err == nil {
-								argsStr = string(argBytes)
-							}
-
-							// Display tool call
-							cli.DisplayToolCallMessage(tc.Name, argsStr)
-						}
+					for _, tc := range sessionMsg.ToolCalls() {
+						cli.DisplayToolCallMessage(tc.Name, tc.Input)
 					}
 
 					// Display assistant response (only if there's content)
-					if sessionMsg.Content != "" {
-						_ = cli.DisplayAssistantMessage(sessionMsg.Content)
+					if text := sessionMsg.Content(); text != "" {
+						_ = cli.DisplayAssistantMessage(text)
 					}
 				case "tool":
-					// Display tool result
-					if sessionMsg.ToolCallID != "" {
-						if toolCall, exists := toolCallMap[sessionMsg.ToolCallID]; exists {
-							// Convert arguments to string
-							var argsStr string
-							if argBytes, err := json.Marshal(toolCall.Arguments); err == nil {
-								argsStr = string(argBytes)
-							}
-
-							// Parse tool result content - it might be JSON-encoded MCP content
-							resultContent := sessionMsg.Content
-
-							// Try to parse as MCP content structure
-							var mcpContent struct {
-								Content []struct {
-									Type string `json:"type"`
-									Text string `json:"text"`
-								} `json:"content"`
-							}
-
-							// First try to unmarshal as-is
-							if err := json.Unmarshal([]byte(sessionMsg.Content), &mcpContent); err == nil {
-								// Extract text from MCP content structure
-								if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-									resultContent = mcpContent.Content[0].Text
-								}
-							} else {
-								// If that fails, try unquoting first (in case it's double-encoded)
-								var unquoted string
-								if err := json.Unmarshal([]byte(sessionMsg.Content), &unquoted); err == nil {
-									if err := json.Unmarshal([]byte(unquoted), &mcpContent); err == nil {
-										if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-											resultContent = mcpContent.Content[0].Text
-										}
-									}
-								}
-							}
-
-							// Display tool result (assuming no error for saved results)
-							cli.DisplayToolMessage(toolCall.Name, argsStr, resultContent, false)
+					// Display tool results
+					for _, result := range sessionMsg.ToolResults() {
+						if tc, exists := toolCallMap[result.ToolCallID]; exists {
+							cli.DisplayToolMessage(tc.Name, tc.Input, result.Content, result.IsError)
 						}
 					}
 				}

@@ -10,6 +10,8 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/core"
+	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
 )
@@ -42,8 +44,10 @@ type StreamingResponseHandler func(content string)
 // ToolCallContentHandler is a function type for handling content that accompanies tool calls.
 type ToolCallContentHandler func(content string)
 
-// Agent represents an AI agent with MCP tool integration using the fantasy library.
-// It manages the interaction between an LLM and various tools through the MCP protocol.
+// Agent represents an AI agent with core tool integration using the fantasy library.
+// Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
+// fantasy.AgentTool implementations — no MCP layer, no serialization overhead.
+// Additional tools from external MCP servers can be loaded alongside core tools.
 type Agent struct {
 	toolManager      *tools.MCPToolManager
 	fantasyAgent     fantasy.Agent
@@ -54,6 +58,7 @@ type Agent struct {
 	loadingMessage   string
 	providerType     string
 	streamingEnabled bool
+	coreTools        []fantasy.AgentTool
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -62,11 +67,15 @@ type GenerateWithLoopResult struct {
 	FinalResponse *fantasy.Response
 	// ConversationMessages contains all messages in the conversation including tool calls and results
 	ConversationMessages []fantasy.Message
+	// Messages contains the conversation as custom content blocks (crush-style)
+	Messages []message.Message
 	// TotalUsage contains aggregate token usage across all steps
 	TotalUsage fantasy.Usage
 }
 
-// NewAgent creates a new Agent with MCP tool integration and streaming support.
+// NewAgent creates a new Agent with core tools and optional MCP tool integration.
+// Core tools (bash, read, write, edit, grep, find, ls) are always registered.
+// External MCP tools are loaded from the config if any MCP servers are configured.
 func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// Create the LLM provider via fantasy
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
@@ -74,16 +83,30 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		return nil, fmt.Errorf("failed to create model provider: %v", err)
 	}
 
-	// Create and load MCP tools
-	toolManager := tools.NewMCPToolManager()
-	toolManager.SetModel(providerResult.Model)
+	// Register core tools (direct fantasy implementations, no MCP overhead)
+	coreTools := core.AllTools()
 
-	if agentConfig.DebugLogger != nil {
-		toolManager.SetDebugLogger(agentConfig.DebugLogger)
-	}
+	// Build the combined tool list: core tools + any external MCP tools
+	allTools := make([]fantasy.AgentTool, len(coreTools))
+	copy(allTools, coreTools)
 
-	if err := toolManager.LoadTools(ctx, agentConfig.MCPConfig); err != nil {
-		return nil, fmt.Errorf("failed to load MCP tools: %v", err)
+	// Load external MCP tools if configured
+	var toolManager *tools.MCPToolManager
+	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
+		toolManager = tools.NewMCPToolManager()
+		toolManager.SetModel(providerResult.Model)
+
+		if agentConfig.DebugLogger != nil {
+			toolManager.SetDebugLogger(agentConfig.DebugLogger)
+		}
+
+		if err := toolManager.LoadTools(ctx, agentConfig.MCPConfig); err != nil {
+			// MCP tool loading failures are non-fatal; core tools still work
+			fmt.Printf("Warning: Failed to load MCP tools: %v\n", err)
+		} else {
+			mcpTools := toolManager.GetTools()
+			allTools = append(allTools, mcpTools...)
+		}
 	}
 
 	// Build fantasy agent options
@@ -93,10 +116,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(agentConfig.SystemPrompt))
 	}
 
-	// Register all MCP tools with the fantasy agent
-	mcpTools := toolManager.GetTools()
-	if len(mcpTools) > 0 {
-		agentOpts = append(agentOpts, fantasy.WithTools(mcpTools...))
+	if len(allTools) > 0 {
+		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
 	}
 
 	// Set max steps as stop condition
@@ -127,6 +148,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		loadingMessage:   providerResult.Message,
 		providerType:     providerType,
 		streamingEnabled: agentConfig.StreamingEnabled,
+		coreTools:        coreTools,
 	}, nil
 }
 
@@ -306,25 +328,33 @@ func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.Messag
 }
 
 // convertAgentResult converts a fantasy AgentResult to our GenerateWithLoopResult.
+// It builds both the legacy fantasy.Message slice and the new custom content blocks.
 func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.Message) *GenerateWithLoopResult {
 	// Collect all conversation messages: original + all step messages
-	var allMessages []fantasy.Message
-	allMessages = append(allMessages, originalMessages...)
+	var allFantasyMessages []fantasy.Message
+	allFantasyMessages = append(allFantasyMessages, originalMessages...)
 
 	for _, step := range result.Steps {
-		allMessages = append(allMessages, step.Messages...)
+		allFantasyMessages = append(allFantasyMessages, step.Messages...)
+	}
+
+	// Convert to custom content blocks
+	var allMessages []message.Message
+	for _, fm := range allFantasyMessages {
+		allMessages = append(allMessages, message.FromFantasyMessage(fm))
 	}
 
 	return &GenerateWithLoopResult{
 		FinalResponse:        &result.Response,
-		ConversationMessages: allMessages,
+		ConversationMessages: allFantasyMessages,
+		Messages:             allMessages,
 		TotalUsage:           result.TotalUsage,
 	}
 }
 
 // extractToolResultText extracts the text and error status from a fantasy ToolResultContent.
-// It unwraps the Fantasy type layer and parses the MCP content structure to
-// return human-readable text rather than raw JSON.
+// For core tools, the result is already clean text (no MCP JSON wrapping).
+// For MCP tools, it unwraps the MCP content structure.
 func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 	if tr.Result == nil {
 		return "", false
@@ -335,20 +365,15 @@ func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 		return errResult.Error.Error(), true
 	}
 
-	// Get text directly from the Fantasy result type — avoids JSON round-trip.
+	// Get text directly from the Fantasy result type.
 	if textResult, ok := tr.Result.(fantasy.ToolResultOutputContentText); ok {
-		// The text typically contains a JSON-encoded MCP CallToolResult
-		// (e.g. {"content":[{"type":"text","text":"..."}]}). Extract the
-		// human-readable text from that structure.
+		// Try to unwrap MCP JSON structure (for external MCP tools).
+		// Core tools return plain text, so this is a no-op for them.
 		return extractMCPContentText(textResult.Text), false
 	}
 
-	// Fallback: marshal to JSON for display.
-	resultBytes, err := json.Marshal(tr.Result)
-	if err != nil {
-		return fmt.Sprintf("%v", tr.Result), false
-	}
-	return string(resultBytes), false
+	// Fallback: stringify for display.
+	return fmt.Sprintf("%v", tr.Result), false
 }
 
 // extractMCPContentText attempts to parse an MCP tool result JSON string
@@ -356,16 +381,24 @@ func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 // format is: {"content":[{"type":"text","text":"..."}], "_meta":{...}}
 // If parsing fails the original string is returned unchanged.
 func extractMCPContentText(result string) string {
-	var mcpResult struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+	// Quick check: if it doesn't look like MCP JSON, return as-is
+	if !strings.HasPrefix(strings.TrimSpace(result), "{") {
+		return result
 	}
 
-	if err := json.Unmarshal([]byte(result), &mcpResult); err == nil {
+	// Try to parse as MCP result structure
+	type mcpContent struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type mcpResult struct {
+		Content []mcpContent `json:"content"`
+	}
+
+	var parsed mcpResult
+	if err := json.Unmarshal([]byte(result), &parsed); err == nil && len(parsed.Content) > 0 {
 		var texts []string
-		for _, c := range mcpResult.Content {
+		for _, c := range parsed.Content {
 			if c.Type == "text" && c.Text != "" {
 				texts = append(texts, c.Text)
 			}
@@ -380,7 +413,12 @@ func extractMCPContentText(result string) string {
 
 // GetTools returns the list of available tools loaded in the agent.
 func (a *Agent) GetTools() []fantasy.AgentTool {
-	return a.toolManager.GetTools()
+	allTools := make([]fantasy.AgentTool, len(a.coreTools))
+	copy(allTools, a.coreTools)
+	if a.toolManager != nil {
+		allTools = append(allTools, a.toolManager.GetTools()...)
+	}
+	return allTools
 }
 
 // GetLoadingMessage returns the loading message from provider creation.
@@ -390,6 +428,9 @@ func (a *Agent) GetLoadingMessage() string {
 
 // GetLoadedServerNames returns the names of successfully loaded MCP servers.
 func (a *Agent) GetLoadedServerNames() []string {
+	if a.toolManager == nil {
+		return nil
+	}
 	return a.toolManager.GetLoadedServerNames()
 }
 
@@ -400,7 +441,10 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 
 // Close closes the agent and cleans up resources.
 func (a *Agent) Close() error {
-	toolErr := a.toolManager.Close()
+	var toolErr error
+	if a.toolManager != nil {
+		toolErr = a.toolManager.Close()
+	}
 	if a.providerCloser != nil {
 		if err := a.providerCloser.Close(); err != nil && toolErr == nil {
 			toolErr = err

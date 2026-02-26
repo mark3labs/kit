@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/kit/internal/builtin"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -270,8 +269,6 @@ func (p *MCPConnectionPool) createMCPClient(ctx context.Context, serverName stri
 		return p.createSSEClient(ctx, serverConfig)
 	case "streamable":
 		return p.createStreamableClient(ctx, serverConfig)
-	case "inprocess":
-		return p.createBuiltinClient(ctx, serverName, serverConfig)
 	default:
 		return nil, fmt.Errorf("unsupported transport type '%s' for server %s", transportType, serverName)
 	}
@@ -369,23 +366,6 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 	}
 
 	return streamableClient, nil
-}
-
-// createBuiltinClient creates a builtin client
-func (p *MCPConnectionPool) createBuiltinClient(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
-	registry := builtin.NewRegistry()
-
-	builtinServer, err := registry.CreateServer(serverConfig.Name, serverConfig.Options, p.model)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create builtin server: %v", err)
-	}
-
-	inProcessClient, err := client.NewInProcessClient(builtinServer.GetServer())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create in-process client: %v", err)
-	}
-
-	return inProcessClient, nil
 }
 
 // initializeClient initializes the client

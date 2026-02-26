@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/message"
 )
 
 // Session represents a complete conversation session with metadata.
@@ -25,8 +27,10 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Metadata contains contextual information about the session
 	Metadata Metadata `json:"metadata"`
-	// Messages is the ordered list of all messages in this session
-	Messages []Message `json:"messages"`
+	// Messages is the ordered list of all messages in this session, stored
+	// as custom content blocks (crush-style). Each message contains a
+	// heterogeneous Parts slice serialized as type-tagged JSON.
+	Messages []message.Message `json:"messages"`
 }
 
 // Metadata contains session metadata that provides context about the
@@ -40,52 +44,27 @@ type Metadata struct {
 	Model string `json:"model"`
 }
 
-// Message represents a single message in the conversation session.
-// Messages can be from different roles (user, assistant, tool) and may
-// include tool calls for assistant messages or tool results for tool messages.
-type Message struct {
-	// ID is a unique identifier for this message, auto-generated if not provided
-	ID string `json:"id"`
-	// Role indicates who sent the message ("user", "assistant", "tool", or "system")
-	Role string `json:"role"`
-	// Content is the text content of the message
-	Content string `json:"content"`
-	// Timestamp is when the message was created
-	Timestamp time.Time `json:"timestamp"`
-	// ToolCalls contains any tool invocations made by the assistant in this message
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	// ToolCallID links a tool result message to its corresponding tool call
-	ToolCallID string `json:"tool_call_id,omitempty"`
-}
-
-// ToolCall represents a tool invocation within an assistant message.
-type ToolCall struct {
-	// ID is a unique identifier for this tool call, used to link results
-	ID string `json:"id"`
-	// Name is the name of the tool being invoked
-	Name string `json:"name"`
-	// Arguments contains the parameters passed to the tool, typically as JSON
-	Arguments any `json:"arguments"`
-}
-
 // NewSession creates a new session with default values.
 func NewSession() *Session {
 	return &Session{
-		Version:   "1.0",
+		Version:   "2.0",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		Messages:  []Message{},
+		Messages:  []message.Message{},
 		Metadata:  Metadata{},
 	}
 }
 
 // AddMessage adds a message to the session.
-func (s *Session) AddMessage(msg Message) {
+func (s *Session) AddMessage(msg message.Message) {
 	if msg.ID == "" {
 		msg.ID = generateMessageID()
 	}
-	if msg.Timestamp.IsZero() {
-		msg.Timestamp = time.Now()
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now()
+	}
+	if msg.UpdatedAt.IsZero() {
+		msg.UpdatedAt = time.Now()
 	}
 
 	s.Messages = append(s.Messages, msg)
@@ -98,11 +77,54 @@ func (s *Session) SetMetadata(metadata Metadata) {
 	s.UpdatedAt = time.Now()
 }
 
+// sessionJSON is the on-disk format with parts serialized as JSON strings.
+type sessionJSON struct {
+	Version   string        `json:"version"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
+	Metadata  Metadata      `json:"metadata"`
+	Messages  []messageJSON `json:"messages"`
+}
+
+type messageJSON struct {
+	ID        string          `json:"id"`
+	Role      string          `json:"role"`
+	Parts     json.RawMessage `json:"parts"` // type-tagged JSON array
+	Model     string          `json:"model,omitempty"`
+	Provider  string          `json:"provider,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 // SaveToFile saves the session to a JSON file.
 func (s *Session) SaveToFile(filePath string) error {
 	s.UpdatedAt = time.Now()
 
-	data, err := json.MarshalIndent(s, "", "  ")
+	sj := sessionJSON{
+		Version:   s.Version,
+		CreatedAt: s.CreatedAt,
+		UpdatedAt: s.UpdatedAt,
+		Metadata:  s.Metadata,
+		Messages:  make([]messageJSON, len(s.Messages)),
+	}
+
+	for i, msg := range s.Messages {
+		parts, err := message.MarshalParts(msg.Parts)
+		if err != nil {
+			return fmt.Errorf("failed to marshal parts for message %s: %w", msg.ID, err)
+		}
+		sj.Messages[i] = messageJSON{
+			ID:        msg.ID,
+			Role:      string(msg.Role),
+			Parts:     parts,
+			Model:     msg.Model,
+			Provider:  msg.Provider,
+			CreatedAt: msg.CreatedAt,
+			UpdatedAt: msg.UpdatedAt,
+		}
+	}
+
+	data, err := json.MarshalIndent(sj, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session: %v", err)
 	}
@@ -117,107 +139,43 @@ func LoadFromFile(filePath string) (*Session, error) {
 		return nil, fmt.Errorf("failed to read session file: %v", err)
 	}
 
-	var session Session
-	if err := json.Unmarshal(data, &session); err != nil {
+	var sj sessionJSON
+	if err := json.Unmarshal(data, &sj); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal session: %v", err)
 	}
 
-	return &session, nil
+	session := &Session{
+		Version:   sj.Version,
+		CreatedAt: sj.CreatedAt,
+		UpdatedAt: sj.UpdatedAt,
+		Metadata:  sj.Metadata,
+		Messages:  make([]message.Message, len(sj.Messages)),
+	}
+
+	for i, mj := range sj.Messages {
+		parts, err := message.UnmarshalParts(mj.Parts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal parts for message %s: %w", mj.ID, err)
+		}
+		session.Messages[i] = message.Message{
+			ID:        mj.ID,
+			Role:      message.MessageRole(mj.Role),
+			Parts:     parts,
+			Model:     mj.Model,
+			Provider:  mj.Provider,
+			CreatedAt: mj.CreatedAt,
+			UpdatedAt: mj.UpdatedAt,
+		}
+	}
+
+	return session, nil
 }
 
-// ConvertFromFantasyMessage converts a fantasy.Message to a session Message.
+// ConvertFromFantasyMessage converts a fantasy.Message to a message.Message.
 // This function bridges between the fantasy message format and the
-// session's internal message format for JSON persistence.
-func ConvertFromFantasyMessage(msg fantasy.Message) Message {
-	sessionMsg := Message{
-		Role:      string(msg.Role),
-		Timestamp: time.Now(),
-	}
-
-	// Extract text content and tool calls from message parts
-	var textParts []string
-	for _, part := range msg.Content {
-		switch p := part.(type) {
-		case fantasy.TextPart:
-			textParts = append(textParts, p.Text)
-		case fantasy.ToolCallPart:
-			sessionMsg.ToolCalls = append(sessionMsg.ToolCalls, ToolCall{
-				ID:        p.ToolCallID,
-				Name:      p.ToolName,
-				Arguments: p.Input,
-			})
-		case fantasy.ToolResultPart:
-			// Tool result messages — store the tool call ID
-			sessionMsg.ToolCallID = p.ToolCallID
-			// Marshal result for storage
-			if p.Output != nil {
-				if resultBytes, err := json.Marshal(p.Output); err == nil {
-					textParts = append(textParts, string(resultBytes))
-				}
-			}
-		}
-	}
-
-	// Join all text parts
-	for i, t := range textParts {
-		if i > 0 {
-			sessionMsg.Content += "\n"
-		}
-		sessionMsg.Content += t
-	}
-
-	return sessionMsg
-}
-
-// ConvertToFantasyMessage converts a session Message to a fantasy.Message.
-// This method bridges between the session's internal message format and
-// the fantasy message format used by the LLM providers.
-func (m *Message) ConvertToFantasyMessage() fantasy.Message {
-	msg := fantasy.Message{
-		Role: fantasy.MessageRole(m.Role),
-	}
-
-	// Build content parts based on role
-	switch m.Role {
-	case "assistant":
-		// Add text content if present
-		if m.Content != "" {
-			msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
-		}
-		// Add tool calls if present
-		for _, tc := range m.ToolCalls {
-			var inputStr string
-			if str, ok := tc.Arguments.(string); ok {
-				inputStr = str
-			} else if argBytes, err := json.Marshal(tc.Arguments); err == nil {
-				inputStr = string(argBytes)
-			}
-
-			msg.Content = append(msg.Content, fantasy.ToolCallPart{
-				ToolCallID: tc.ID,
-				ToolName:   tc.Name,
-				Input:      inputStr,
-			})
-		}
-	case "tool":
-		// Tool result message
-		msg.Role = fantasy.MessageRoleTool
-		var resultContent fantasy.ToolResultOutputContent
-		resultContent = fantasy.ToolResultOutputContentText{Text: m.Content}
-
-		msg.Content = append(msg.Content, fantasy.ToolResultPart{
-			ToolCallID: m.ToolCallID,
-			Output:     resultContent,
-		})
-	case "user":
-		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
-	case "system":
-		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
-	default:
-		msg.Content = append(msg.Content, fantasy.TextPart{Text: m.Content})
-	}
-
-	return msg
+// session's internal message format for persistence.
+func ConvertFromFantasyMessage(msg fantasy.Message) message.Message {
+	return message.FromFantasyMessage(msg)
 }
 
 // generateMessageID generates a unique message ID.

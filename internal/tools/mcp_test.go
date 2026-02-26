@@ -77,33 +77,27 @@ func TestMCPToolManager_LoadTools_GracefulFailure(t *testing.T) {
 	t.Logf("LoadTools failed gracefully with error: %v", err)
 }
 
-// TestMCPToolManager_ToolWithoutProperties tests handling of tools with no input properties
-func TestMCPToolManager_ToolWithoutProperties(t *testing.T) {
+// TestMCPToolManager_EmptyConfig tests handling of empty MCP config
+func TestMCPToolManager_EmptyConfig(t *testing.T) {
 	manager := NewMCPToolManager()
 
-	// Create a config with a builtin todo server (which has tools with properties)
 	cfg := &config.Config{
-		MCPServers: map[string]config.MCPServerConfig{
-			"todo-server": {
-				Type: "builtin",
-				Name: "todo",
-			},
-		},
+		MCPServers: map[string]config.MCPServerConfig{},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Load the tools - this should work fine
+	// Load the tools - should succeed with no servers
 	err := manager.LoadTools(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Failed to load tools: %v", err)
 	}
 
-	// Get the loaded tools
+	// Get the loaded tools - should be empty
 	tools := manager.GetTools()
-	if len(tools) == 0 {
-		t.Fatal("No tools were loaded")
+	if len(tools) != 0 {
+		t.Fatalf("Expected 0 tools, got %d", len(tools))
 	}
 
 	// Test that we can get tool info for each tool

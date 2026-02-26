@@ -115,66 +115,25 @@ func TestMCPServerConfig_LegacyFormat(t *testing.T) {
 	}
 }
 
-func TestMCPServerConfig_BuiltinFormat(t *testing.T) {
-	// Test builtin format with allowed_directories
+func TestMCPServerConfig_LocalFormat(t *testing.T) {
 	jsonData := `{
-		"type": "builtin",
-		"name": "fs",
-		"options": {
-			"allowed_directories": ["/tmp", "/home/user"]
-		}
+		"type": "local",
+		"command": ["npx", "@modelcontextprotocol/server-filesystem", "/tmp"]
 	}`
 
 	var config MCPServerConfig
 	err := json.Unmarshal([]byte(jsonData), &config)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal builtin format: %v", err)
+		t.Fatalf("Failed to unmarshal local format: %v", err)
 	}
 
-	if config.Type != "builtin" {
-		t.Errorf("Expected type 'builtin', got '%s'", config.Type)
+	if config.Type != "local" {
+		t.Errorf("Expected type 'local', got '%s'", config.Type)
 	}
 
-	if config.Name != "fs" {
-		t.Errorf("Expected name 'fs', got '%s'", config.Name)
-	}
-
-	if config.Options == nil {
-		t.Errorf("Expected options to be set")
-	}
-
-	// Test transport type detection
 	transportType := config.GetTransportType()
-	if transportType != "inprocess" {
-		t.Errorf("Expected transport type 'inprocess', got '%s'", transportType)
-	}
-}
-
-func TestMCPServerConfig_BuiltinFormatMinimal(t *testing.T) {
-	// Test builtin format without allowed_directories (should default to cwd)
-	jsonData := `{
-		"type": "builtin",
-		"name": "fs"
-	}`
-
-	var config MCPServerConfig
-	err := json.Unmarshal([]byte(jsonData), &config)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal minimal builtin format: %v", err)
-	}
-
-	if config.Type != "builtin" {
-		t.Errorf("Expected type 'builtin', got '%s'", config.Type)
-	}
-
-	if config.Name != "fs" {
-		t.Errorf("Expected name 'fs', got '%s'", config.Name)
-	}
-
-	// Test transport type detection
-	transportType := config.GetTransportType()
-	if transportType != "inprocess" {
-		t.Errorf("Expected transport type 'inprocess', got '%s'", transportType)
+	if transportType != "stdio" {
+		t.Errorf("Expected transport type 'stdio', got '%s'", transportType)
 	}
 }
 
@@ -189,12 +148,9 @@ func TestConfig_Validate(t *testing.T) {
 				Type: "remote",
 				URL:  "https://example.com",
 			},
-			"builtin-server": {
-				Type: "builtin",
-				Name: "fs",
-				Options: map[string]any{
-					"allowed_directories": []string{"/tmp"},
-				},
+			"another-local": {
+				Type:    "local",
+				Command: []string{"echo", "world"},
 			},
 		},
 	}
@@ -243,17 +199,10 @@ func TestEnsureConfigExists(t *testing.T) {
 		"# KIT Configuration File",
 		"mcpServers:",
 		"# Local MCP servers",
-		"# Builtin MCP servers",
 		"# Remote MCP servers",
-		"filesystem-builtin:",
-		"bash:",
-		"todo:",
-		"fetch:",
-		"type: \"builtin\"",
 		"type: \"local\"",
 		"type: \"remote\"",
-		"# Application settings",
-		"# Model generation parameters",
+		"Core tools",
 	}
 
 	for _, expected := range expectedSections {

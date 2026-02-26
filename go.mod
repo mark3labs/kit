@@ -7,14 +7,10 @@ require (
 	charm.land/bubbletea/v2 v2.0.0
 	charm.land/fantasy v0.10.0
 	charm.land/lipgloss/v2 v2.0.0
-	github.com/JohannesKaufmann/html-to-markdown v1.6.0
-	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/charmbracelet/fang v0.4.4
-	github.com/mark3labs/mcp-filesystem-server v0.11.1
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tidwall/gjson v1.18.0
 	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -27,7 +23,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/alecthomas/chroma/v2 v2.23.1 // indirect
-	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect
@@ -61,16 +56,13 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/djherbis/times v1.6.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -98,6 +90,7 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
@@ -122,6 +115,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260223185530-2f722ef697dc // indirect
 	google.golang.org/grpc v1.79.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
 require (

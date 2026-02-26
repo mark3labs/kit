@@ -222,9 +222,6 @@ func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Co
 			if server.URL != "" {
 				serverInfo["url"] = server.URL
 			}
-			if server.Name != "" {
-				serverInfo["name"] = server.Name
-			}
 			mcpServers[name] = serverInfo
 		}
 		debugConfig["mcpServers"] = mcpServers

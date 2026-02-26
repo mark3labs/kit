@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/message"
 )
 
 // Manager manages session state and auto-saving functionality.
@@ -70,7 +72,7 @@ func (m *Manager) ReplaceAllMessages(msgs []fantasy.Message) error {
 	defer m.mutex.Unlock()
 
 	// Clear existing messages
-	m.session.Messages = []Message{}
+	m.session.Messages = []message.Message{}
 
 	// Add all new messages
 	for _, msg := range msgs {
@@ -104,9 +106,9 @@ func (m *Manager) GetMessages() []fantasy.Message {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	messages := make([]fantasy.Message, len(m.session.Messages))
-	for i, msg := range m.session.Messages {
-		messages[i] = msg.ConvertToFantasyMessage()
+	var messages []fantasy.Message
+	for _, msg := range m.session.Messages {
+		messages = append(messages, msg.ToFantasyMessages()...)
 	}
 
 	return messages
@@ -118,7 +120,7 @@ func (m *Manager) GetSession() *Session {
 	defer m.mutex.RUnlock()
 
 	sessionCopy := *m.session
-	sessionCopy.Messages = make([]Message, len(m.session.Messages))
+	sessionCopy.Messages = make([]message.Message, len(m.session.Messages))
 	copy(sessionCopy.Messages, m.session.Messages)
 
 	return &sessionCopy

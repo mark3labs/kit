@@ -22,12 +22,6 @@ mcpServers:
       GITHUB_TOKEN: "${env://GITHUB_TOKEN}"
       DEBUG: "${env://DEBUG:-false}"
   
-  filesystem:
-    type: builtin
-    name: fs
-    options:
-      allowed_directories: ["${env://WORK_DIR:-/tmp}"]
-
 model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
 debug: ${env://DEBUG:-false}
 ---
@@ -74,20 +68,6 @@ Working directory is ${env://WORK_DIR:-/tmp}.
 	}
 	if githubServer.Environment["debug"] != "true" {
 		t.Errorf("Expected debug=true, got %s", githubServer.Environment["debug"])
-	}
-
-	// Verify environment variable substitution in builtin server options
-	fsServer, exists := scriptConfig.MCPServers["filesystem"]
-	if !exists {
-		t.Fatal("Filesystem server not found in script config")
-	}
-
-	allowedDirs, ok := fsServer.Options["allowed_directories"].([]any)
-	if !ok {
-		t.Fatal("allowed_directories should be an array")
-	}
-	if len(allowedDirs) != 1 || allowedDirs[0] != "/home/user/projects" {
-		t.Errorf("Expected allowed_directories=[/home/user/projects], got %v", allowedDirs)
 	}
 
 	// Verify global config values
@@ -243,13 +223,6 @@ func TestScriptBackwardCompatibility(t *testing.T) {
 
 	scriptContent := `#!/usr/bin/env -S kit script
 ---
-mcpServers:
-  filesystem:
-    type: builtin
-    name: fs
-    options:
-      allowed_directories: ["/tmp"]
-
 model: "anthropic/claude-sonnet-4-5-20250929"
 ---
 List files in ${directory:-/tmp} for user ${username}.
