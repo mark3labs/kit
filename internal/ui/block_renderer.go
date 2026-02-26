@@ -120,7 +120,7 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		paddingTop:    1,
 		paddingBottom: 1,
 		paddingLeft:   2,
-		paddingRight:  2,
+		paddingRight:  0,
 		width:         containerWidth,
 	}
 

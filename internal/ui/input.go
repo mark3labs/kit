@@ -226,11 +226,13 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 // View implements tea.Model. Renders the title, textarea, autocomplete popup
 // (if visible), and help text.
 func (s *InputComponent) View() tea.View {
-	containerStyle := lipgloss.NewStyle().PaddingLeft(2)
+	containerStyle := lipgloss.NewStyle()
 
+	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
-		MarginBottom(1)
+		MarginBottom(1).
+		PaddingLeft(3)
 
 	inputBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.ThickBorder()).
@@ -239,8 +241,8 @@ func (s *InputComponent) View() tea.View {
 		BorderTop(false).
 		BorderBottom(false).
 		BorderForeground(lipgloss.Color("39")).
-		PaddingLeft(1).
-		Width(s.width - 2) // Account for container padding
+		PaddingLeft(2).    // match message block paddingLeft
+		Width(s.width - 1) // full width minus left border
 
 	var view strings.Builder
 	view.WriteString(titleStyle.Render(s.title))
@@ -254,7 +256,8 @@ func (s *InputComponent) View() tea.View {
 
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
-		MarginTop(1)
+		MarginTop(1).
+		PaddingLeft(3)
 
 	view.WriteString("\n")
 	view.WriteString(helpStyle.Render("enter submit • ctrl+j / alt+enter new line"))

@@ -175,13 +175,13 @@ func (s *SlashCommandInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // including the title, text area, autocomplete popup (when active), and help text.
 // The view adapts based on whether single or multi-line input is detected.
 func (s *SlashCommandInput) View() tea.View {
-	// Add left padding to entire component (2 spaces like other UI elements)
-	containerStyle := lipgloss.NewStyle().PaddingLeft(2)
+	containerStyle := lipgloss.NewStyle()
 
-	// Title
+	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
-		MarginBottom(1)
+		MarginBottom(1).
+		PaddingLeft(3)
 
 	// Input box with huh-like styling
 	inputBoxStyle := lipgloss.NewStyle().
@@ -191,8 +191,8 @@ func (s *SlashCommandInput) View() tea.View {
 		BorderTop(false).
 		BorderBottom(false).
 		BorderForeground(lipgloss.Color("39")).
-		PaddingLeft(1).
-		Width(s.width - 2) // Account for container padding
+		PaddingLeft(2).    // match message block paddingLeft
+		Width(s.width - 1) // full width minus left border
 
 	// Build the view
 	var view strings.Builder
@@ -222,7 +222,8 @@ func (s *SlashCommandInput) View() tea.View {
 	// Add help text at bottom
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
-		MarginTop(1)
+		MarginTop(1).
+		PaddingLeft(3)
 
 	helpText := "enter submit • ctrl+j / alt+enter new line"
 

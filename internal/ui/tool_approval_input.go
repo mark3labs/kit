@@ -85,13 +85,13 @@ func (t *ToolApprovalInput) View() tea.View {
 	if t.done {
 		return tea.NewView("we are done")
 	}
-	// Add left padding to entire component (2 spaces like other UI elements)
-	containerStyle := lipgloss.NewStyle().PaddingLeft(2)
+	containerStyle := lipgloss.NewStyle()
 
-	// Title
+	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
-		MarginBottom(1)
+		MarginBottom(1).
+		PaddingLeft(3)
 
 	// Input box with huh-like styling
 	inputBoxStyle := lipgloss.NewStyle().
@@ -101,8 +101,8 @@ func (t *ToolApprovalInput) View() tea.View {
 		BorderTop(false).
 		BorderBottom(false).
 		BorderForeground(lipgloss.Color("39")).
-		PaddingLeft(1).
-		Width(t.width - 2) // Account for container padding
+		PaddingLeft(2).    // match message block paddingLeft
+		Width(t.width - 1) // full width minus left border
 
 	// Style for the currently selected/highlighted option
 	selectedStyle := lipgloss.NewStyle().
