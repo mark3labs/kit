@@ -541,42 +541,39 @@ func (m *AppModel) renderInput() string {
 	return m.input.View().Content
 }
 
-// renderQueuedMessages renders queued prompts with "queued" badges, anchored
-// between the separator and input. Each message is shown on a single line
-// with a styled badge so the user can see what is pending.
+// renderQueuedMessages renders queued prompts as styled content blocks with a
+// "QUEUED" badge, anchored between the separator and input. Each message is
+// displayed in a bordered block matching the overall message styling.
 func (m *AppModel) renderQueuedMessages() string {
 	if len(m.queuedMessages) == 0 {
 		return ""
 	}
 	theme := GetTheme()
+	badge := CreateBadge("QUEUED", theme.Accent)
 
-	badgeStyle := lipgloss.NewStyle().
-		Foreground(theme.Secondary).
-		Bold(true)
-	badge := badgeStyle.Render("queued")
-	badgeWidth := lipgloss.Width(badge)
-
-	textStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	// Indent to align with the input container (2-space left padding).
-	indent := "  "
-
-	var lines []string
+	var blocks []string
 	for _, msg := range m.queuedMessages {
 		// Collapse multi-line messages into a single line for the compact
 		// queue preview. The full text is preserved and will be printed
 		// properly when the message moves to scrollback.
 		display := strings.Join(strings.Fields(msg), " ")
 
-		// Truncate long messages to fit on one line:
-		// indent(2) + badge + gap(2) + text must fit within m.width.
-		maxTextWidth := m.width - len(indent) - badgeWidth - 2
-		if maxTextWidth > 3 && len(display) > maxTextWidth {
-			display = display[:maxTextWidth-3] + "..."
+		// Truncate long messages to fit in the block.
+		maxWidth := m.width - 10 // account for padding and borders
+		if maxWidth > 3 && len(display) > maxWidth {
+			display = display[:maxWidth-3] + "..."
 		}
-		line := indent + badge + "  " + textStyle.Render(display)
-		lines = append(lines, line)
+
+		content := display + "\n" + badge
+		rendered := renderContentBlock(
+			content,
+			m.width,
+			WithAlign(lipgloss.Right),
+			WithBorderColor(theme.Muted),
+		)
+		blocks = append(blocks, rendered)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(blocks, "\n")
 }
 
 // --------------------------------------------------------------------------
@@ -800,14 +797,15 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 //
 // Layout (line counts):
 //
-//	stream region  = total - separator(1) - queued(N) - input(5)
+//	stream region  = total - separator(1) - queued(N*5) - input(5)
 //	separator      = 1 line
-//	queued msgs    = len(queuedMessages) lines (0 when queue is empty)
+//	queued msgs    = ~5 lines per message (padding + text + badge + padding)
 //	input region   = 5 lines: title(1) + textarea(3) + help(1)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
 	const inputLines = 5 // title (1) + textarea (3) + help (1)
-	queuedLines := len(m.queuedMessages)
+	const linesPerQueuedMsg = 5
+	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
 
 	streamHeight := max(m.height-separatorLines-queuedLines-inputLines, 0)
 
