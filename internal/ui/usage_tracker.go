@@ -41,13 +41,14 @@ type SessionStats struct {
 // for LLM interactions throughout a session. It provides real-time usage information
 // and supports both estimated and actual token counts. OAuth users see $0 costs.
 type UsageTracker struct {
-	mu           sync.RWMutex
-	modelInfo    *models.ModelInfo
-	provider     string
-	sessionStats SessionStats
-	lastRequest  *UsageStats
-	width        int
-	isOAuth      bool // Whether OAuth credentials are being used (costs should be $0)
+	mu            sync.RWMutex
+	modelInfo     *models.ModelInfo
+	provider      string
+	sessionStats  SessionStats
+	lastRequest   *UsageStats
+	contextTokens int // approximate current context window utilization (last API call)
+	width         int
+	isOAuth       bool // Whether OAuth credentials are being used (costs should be $0)
 }
 
 // NewUsageTracker creates and initializes a new UsageTracker for the specified model.
@@ -119,11 +120,27 @@ func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, 
 
 // EstimateAndUpdateUsage estimates token counts from raw text strings and updates
 // the usage statistics. This method is used when actual token counts are not available
-// from the API response.
+// from the API response. The estimated values also serve as the context utilization
+// approximation since they represent a single API call.
 func (ut *UsageTracker) EstimateAndUpdateUsage(inputText, outputText string) {
 	inputTokens := estimateTokens(inputText)
 	outputTokens := estimateTokens(outputText)
 	ut.UpdateUsage(inputTokens, outputTokens, 0, 0)
+	// For estimated usage the values represent a single call, so they are a
+	// reasonable proxy for the current context window fill level.
+	ut.mu.Lock()
+	ut.contextTokens = inputTokens + outputTokens
+	ut.mu.Unlock()
+}
+
+// SetContextTokens records the approximate current context window utilization.
+// This should be set from the final API call's input + output tokens (i.e.
+// FinalResponse.Usage) rather than the aggregate TotalUsage, because TotalUsage
+// sums across all tool-calling steps and overstates the actual window fill level.
+func (ut *UsageTracker) SetContextTokens(tokens int) {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+	ut.contextTokens = tokens
 }
 
 // RenderUsageInfo generates a formatted string displaying current usage statistics
@@ -134,31 +151,32 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 	ut.mu.RLock()
 	defer ut.mu.RUnlock()
 
-	// if ut.sessionStats.RequestCount == 0 {
-	// 	return ""
-	// }
+	if ut.sessionStats.RequestCount == 0 {
+		return ""
+	}
 
-	// Import lipgloss for styling
 	baseStyle := lipgloss.NewStyle()
 
-	// Calculate total tokens
-	totalTokens := ut.sessionStats.TotalInputTokens + ut.sessionStats.TotalOutputTokens
+	// Display the current context window token count (from the last API call),
+	// not the cumulative session total. This keeps the number consistent with
+	// the percentage and answers "how full is my context right now?".
+	displayTokens := ut.contextTokens
 
 	// Format tokens with K/M suffix for better readability
 	var tokenStr string
-	if totalTokens >= 1000000 {
-		tokenStr = fmt.Sprintf("%.1fM", float64(totalTokens)/1000000)
-	} else if totalTokens >= 1000 {
-		tokenStr = fmt.Sprintf("%.1fK", float64(totalTokens)/1000)
+	if displayTokens >= 1000000 {
+		tokenStr = fmt.Sprintf("%.1fM", float64(displayTokens)/1000000)
+	} else if displayTokens >= 1000 {
+		tokenStr = fmt.Sprintf("%.1fK", float64(displayTokens)/1000)
 	} else {
-		tokenStr = fmt.Sprintf("%d", totalTokens)
+		tokenStr = fmt.Sprintf("%d", displayTokens)
 	}
 
-	// Calculate percentage based on context limit with color coding
+	// Calculate context window utilization percentage from the same value.
 	var percentageStr string
 	var percentageColor color.Color
-	if ut.modelInfo.Limit.Context > 0 {
-		percentage := float64(totalTokens) / float64(ut.modelInfo.Limit.Context) * 100
+	if ut.modelInfo.Limit.Context > 0 && displayTokens > 0 {
+		percentage := float64(displayTokens) / float64(ut.modelInfo.Limit.Context) * 100
 
 		// Color code based on usage percentage
 		theme := GetTheme()
@@ -202,8 +220,8 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 		Foreground(theme.Muted).
 		Render(" | Cost: ")
 
-	// Build the enhanced display
-	return fmt.Sprintf("%s%s%s%s%s\n",
+	// Build the enhanced display (no trailing newline — callers control spacing).
+	return fmt.Sprintf("%s%s%s%s%s",
 		tokensLabel, tokensValue, percentageStr, costLabel, costStr)
 }
 
@@ -237,6 +255,7 @@ func (ut *UsageTracker) Reset() {
 	defer ut.mu.Unlock()
 	ut.sessionStats = SessionStats{}
 	ut.lastRequest = nil
+	ut.contextTokens = 0
 }
 
 // SetWidth updates the terminal width used for formatting usage information display.

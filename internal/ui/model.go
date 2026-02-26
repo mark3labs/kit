@@ -433,7 +433,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.StepCompleteEvent:
 		// Flush any remaining streamed text to scrollback, then reset stream
-		// and return to input state.
+		// and return to input state. Token usage is rendered as a sticky
+		// element in View() — the app layer has already updated the shared
+		// UsageTracker before sending this event.
 		cmds = append(cmds, m.flushStreamContent())
 		if m.stream != nil {
 			m.stream.Reset()
@@ -479,13 +481,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model. It renders the stacked layout:
-// stream region + separator + [queued messages] + input region.
+// stream region + [usage info] + separator + [queued messages] + input region.
 func (m *AppModel) View() tea.View {
 	streamView := m.renderStream()
 	separator := m.renderSeparator()
 	inputView := m.renderInput()
 
-	parts := []string{streamView, separator}
+	parts := []string{streamView}
+
+	// Sticky usage info sits between the stream and separator so it is
+	// always visible at the bottom of the messages area and updates in place.
+	if usageView := m.renderUsageInfo(); usageView != "" {
+		parts = append(parts, usageView)
+	}
+
+	parts = append(parts, separator)
 
 	if queuedView := m.renderQueuedMessages(); queuedView != "" {
 		parts = append(parts, queuedView)
@@ -521,6 +531,16 @@ func (m *AppModel) renderStream() string {
 	}
 
 	return m.stream.View().Content
+}
+
+// renderUsageInfo returns the sticky token usage line (tokens + context% + cost).
+// Returns an empty string when no usage data is available (no requests yet or
+// tracker is nil), so the element is invisible until the first response arrives.
+func (m *AppModel) renderUsageInfo() string {
+	if m.usageTracker == nil {
+		return ""
+	}
+	return m.usageTracker.RenderUsageInfo()
 }
 
 // renderSeparator renders the separator line with an optional queue count badge.
@@ -796,7 +816,8 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 //
 // Layout (line counts):
 //
-//	stream region  = total - separator(1) - queued(N*5) - input(5)
+//	stream region  = total - usage(0-1) - separator(1) - queued(N*5) - input(5)
+//	usage info     = 0 or 1 line (visible only after first response)
 //	separator      = 1 line
 //	queued msgs    = ~5 lines per message (padding + text + badge + padding)
 //	input region   = 5 lines: title(1) + textarea(3) + help(1)
@@ -806,7 +827,13 @@ func (m *AppModel) distributeHeight() {
 	const linesPerQueuedMsg = 5
 	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
 
-	streamHeight := max(m.height-separatorLines-queuedLines-inputLines, 0)
+	// Reserve space for the sticky usage line when the tracker has data.
+	usageLines := 0
+	if m.usageTracker != nil && m.usageTracker.GetSessionStats().RequestCount > 0 {
+		usageLines = 1
+	}
+
+	streamHeight := max(m.height-usageLines-separatorLines-queuedLines-inputLines, 0)
 
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)

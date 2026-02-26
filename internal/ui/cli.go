@@ -262,8 +262,12 @@ func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText stri
 		cacheReadTokens := int(usage.CacheReadTokens)
 		cacheWriteTokens := int(usage.CacheCreationTokens)
 		c.usageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+		// Per-response usage is a single API call, so it represents the
+		// actual context window fill level.
+		c.usageTracker.SetContextTokens(inputTokens + outputTokens)
 	} else {
-		// Fallback to estimation if no metadata is available
+		// Fallback to estimation if no metadata is available.
+		// EstimateAndUpdateUsage sets context tokens internally.
 		c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content.Text())
 	}
 }

@@ -851,10 +851,10 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 			_ = h.cli.DisplayAssistantMessageWithModel(responseText, h.modelName)
 		}
 
-		// Update and display usage.
-		if e.Response != nil {
-			h.cli.UpdateUsageFromResponse(e.Response, "")
-		}
+		// Display usage. The app layer has already updated the shared
+		// UsageTracker (via app.updateUsage in RunOnceWithDisplay) before
+		// sending this event, so we only need to render — calling
+		// UpdateUsageFromResponse here would double-count.
 		h.cli.DisplayUsageAfterResponse()
 
 		// Reset for next step in the agentic loop.

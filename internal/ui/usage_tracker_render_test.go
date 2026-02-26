@@ -32,7 +32,8 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 
 	// Test OAuth rendering (should show $0.00)
 	oauthTracker := NewUsageTracker(modelInfo, "anthropic", 80, true)
-	oauthTracker.UpdateUsage(1500, 500, 0, 0) // 2000 total tokens
+	oauthTracker.UpdateUsage(1500, 500, 0, 0) // 2000 total tokens (session/billing)
+	oauthTracker.SetContextTokens(1500 + 500) // context window utilization
 
 	rendered := stripAnsi(oauthTracker.RenderUsageInfo())
 
@@ -50,6 +51,7 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 	// Test regular API key rendering (should show actual cost)
 	regularTracker := NewUsageTracker(modelInfo, "anthropic", 80, false)
 	regularTracker.UpdateUsage(1500, 500, 0, 0) // Same token usage
+	regularTracker.SetContextTokens(1500 + 500) // context window utilization
 
 	regularRendered := stripAnsi(regularTracker.RenderUsageInfo())
 

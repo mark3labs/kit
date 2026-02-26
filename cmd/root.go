@@ -755,9 +755,18 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after RunOnce completes the interactive BubbleTea TUI
 // is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, _, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
 	if err := appInstance.RunOnce(ctx, prompt); err != nil {
 		return err
+	}
+
+	// Display token usage after the response (unless quiet mode suppresses output).
+	// The app layer has already updated the tracker inside RunOnce.
+	if !quiet && usageTracker != nil {
+		usageInfo := usageTracker.RenderUsageInfo()
+		if usageInfo != "" {
+			fmt.Println(usageInfo)
+		}
 	}
 
 	// If --no-exit was requested, hand off to the interactive TUI.

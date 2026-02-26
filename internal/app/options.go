@@ -32,10 +32,16 @@ type AgentRunner interface {
 // in cmd/root.go, which can import both packages.
 type UsageUpdater interface {
 	// UpdateUsage records actual token counts returned by the provider.
+	// The counts come from fantasy's TotalUsage (aggregate across all steps
+	// in a multi-step tool-calling run) and are used for session cost tracking.
 	UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int)
 	// EstimateAndUpdateUsage falls back to text-based token estimation when
 	// the provider does not return exact counts.
 	EstimateAndUpdateUsage(inputText, outputText string)
+	// SetContextTokens records the approximate current context window fill
+	// level. This should be the final API call's input+output tokens (from
+	// FinalResponse.Usage), NOT the aggregate TotalUsage.
+	SetContextTokens(tokens int)
 }
 
 // Options configures an App instance. It mirrors the fields from AgenticLoopConfig

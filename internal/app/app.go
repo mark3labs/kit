@@ -419,6 +419,11 @@ func (a *App) sendEvent(msg tea.Msg) {
 // updateUsage records token usage from a completed agent step into the configured
 // UsageTracker (if any). It uses the actual token counts from the agent result's
 // TotalUsage field when available; otherwise it falls back to text-based estimation.
+//
+// TotalUsage is the sum across all tool-calling steps in a single agent run and
+// is used for session cost tracking. For context window utilization we use the
+// final response's per-call usage (FinalResponse.Usage) which reflects the actual
+// context size at the last API call.
 func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt string) {
 	if a.opts.UsageTracker == nil || result == nil {
 		return
@@ -438,5 +443,16 @@ func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt strin
 			responseText = result.FinalResponse.Content.Text()
 		}
 		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, responseText)
+		return // EstimateAndUpdateUsage already sets context tokens internally
+	}
+
+	// Set context window utilization from the final API call's per-step usage.
+	// FinalResponse.Usage represents the last step only (not the aggregate),
+	// so input+output there reflects the actual context fill level.
+	if result.FinalResponse != nil {
+		fu := result.FinalResponse.Usage
+		if ct := int(fu.InputTokens) + int(fu.OutputTokens); ct > 0 {
+			a.opts.UsageTracker.SetContextTokens(ct)
+		}
 	}
 }
