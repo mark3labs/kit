@@ -177,25 +177,19 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 			borderColor = *renderer.borderColor
 		}
 
-		// Very muted color for the opposite border
-		mutedOppositeBorder := AdaptiveColor("#F3F4F6", "#1F2937")
-
-		// Align determines which border gets the accent color.
+		// Only render the accent-side border to avoid background
+		// banding from the opposite border character.
 		switch align {
 		case lipgloss.Right:
 			style = style.
 				BorderRight(true).
-				BorderLeft(true).
-				BorderRightForeground(borderColor).
-				BorderLeftForeground(mutedOppositeBorder)
-			borderChars = 2
+				BorderRightForeground(borderColor)
+			borderChars = 1
 		default: // Left (and fallback)
 			style = style.
 				BorderLeft(true).
-				BorderRight(true).
-				BorderLeftForeground(borderColor).
-				BorderRightForeground(mutedOppositeBorder)
-			borderChars = 2
+				BorderLeftForeground(borderColor)
+			borderChars = 1
 		}
 	}
 
