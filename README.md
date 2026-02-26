@@ -1,6 +1,10 @@
-# KIT 🤖
+<p align="center">
+  <img src="logo.jpg" alt="KIT" width="400">
+</p>
 
-A CLI host application that enables Large Language Models (LLMs) to interact with external tools through the Model Context Protocol (MCP). Currently supports Claude, OpenAI, Google Gemini, and Ollama models.
+# KIT (Knowledge Inference Tool)
+
+A lightweight AI agent for coding. Supports Claude, OpenAI, Google Gemini, Ollama, and any OpenAI-compatible endpoint.
 
 Discuss the Project on [Discord](https://discord.gg/RqSS2NQVsY)
 
