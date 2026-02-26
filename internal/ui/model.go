@@ -217,8 +217,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 // tea.Model interface
 // --------------------------------------------------------------------------
 
-// Init implements tea.Model. Emits startup info messages (model, tools) and
-// initialises child components.
+// Init implements tea.Model. Initialises child components. Startup info is
+// printed to stdout before the program starts via PrintStartupInfo().
 func (m *AppModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
@@ -229,34 +229,31 @@ func (m *AppModel) Init() tea.Cmd {
 		cmds = append(cmds, m.stream.Init())
 	}
 
-	// Startup info is emitted via tea.Sequence so each tea.Println is
-	// processed in order before the next one fires.
-	cmds = append(cmds, m.startupInfoCmd())
-
 	return tea.Batch(cmds...)
 }
 
-// startupInfoCmd returns a tea.Sequence that prints startup messages (model,
-// loading, tool count) one at a time via tea.Println — matching the old
-// SetupCLI factory output.
-func (m *AppModel) startupInfoCmd() tea.Cmd {
-	var printCmds []tea.Cmd
+// PrintStartupInfo writes startup messages (model loaded, tool count) to
+// stdout. Call this before program.Run() so the messages are visible above
+// the Bubble Tea managed region.
+func (m *AppModel) PrintStartupInfo() {
+	render := func(text string) string {
+		if m.compactMode {
+			return m.compactRdr.RenderSystemMessage(text, time.Now()).Content
+		}
+		return m.renderer.RenderSystemMessage(text, time.Now()).Content
+	}
+
+	fmt.Println()
 
 	if m.providerName != "" && m.modelName != "" {
-		printCmds = append(printCmds, m.printSystemMessage(
-			fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName),
-		))
+		fmt.Println(render(fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName)))
 	}
 
 	if m.loadingMessage != "" {
-		printCmds = append(printCmds, m.printSystemMessage(m.loadingMessage))
+		fmt.Println(render(m.loadingMessage))
 	}
 
-	printCmds = append(printCmds, m.printSystemMessage(
-		fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)),
-	))
-
-	return tea.Sequence(printCmds...)
+	fmt.Println(render(fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames))))
 }
 
 // Update implements tea.Model. It is the heart of the state machine: it routes

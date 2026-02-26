@@ -799,6 +799,9 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		UsageTracker:   usageTracker,
 	})
 
+	// Print startup info to stdout before Bubble Tea takes over the screen.
+	appModel.PrintStartupInfo()
+
 	program := tea.NewProgram(appModel)
 
 	// Register the program with the app layer so agent events are sent to the TUI.
