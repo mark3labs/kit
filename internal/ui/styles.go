@@ -23,9 +23,15 @@ func BaseStyle() lipgloss.Style {
 // GetMarkdownRenderer creates and returns a configured glamour.TermRenderer for
 // rendering markdown content with syntax highlighting and proper formatting. The
 // renderer is customized with our theme colors and adapted to the specified width.
-func GetMarkdownRenderer(width int) *glamour.TermRenderer {
+// An optional background color hex string (e.g. "#45475a") can be provided so
+// that the rendered markdown inherits the background color.
+func GetMarkdownRenderer(width int, bgHex ...string) *glamour.TermRenderer {
+	var bg string
+	if len(bgHex) > 0 {
+		bg = bgHex[0]
+	}
 	r, _ := glamour.NewTermRenderer(
-		glamour.WithStyles(generateMarkdownStyleConfig()),
+		glamour.WithStyles(generateMarkdownStyleConfig(bg)),
 		glamour.WithWordWrap(width),
 	)
 	return r
@@ -93,19 +99,33 @@ func resolveColorScheme() colorScheme {
 	}
 }
 
-// generateMarkdownStyleConfig creates an ansi.StyleConfig for markdown rendering
-func generateMarkdownStyleConfig() ansi.StyleConfig {
+// generateMarkdownStyleConfig creates an ansi.StyleConfig for markdown rendering.
+// An optional background color hex string can be provided; when non-empty it is
+// applied to the Document, Paragraph, List, and BlockQuote elements so that
+// glamour-rendered content inherits the background uniformly.
+func generateMarkdownStyleConfig(bgHex ...string) ansi.StyleConfig {
 	cs := resolveColorScheme()
 
-	// Don't apply background in markdown - let the block renderer handle it
+	// Background color for indent/whitespace tokens inside glamour.
+	// When empty the tokens are transparent.
 	bgColor := ""
+	if len(bgHex) > 0 && bgHex[0] != "" {
+		bgColor = bgHex[0]
+	}
+
+	// Document-level background (propagates to child elements).
+	var docBg *string
+	if bgColor != "" {
+		docBg = &bgColor
+	}
 
 	return ansi.StyleConfig{
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				BlockPrefix: "",
-				BlockSuffix: "",
-				Color:       &cs.text,
+				BlockPrefix:     "",
+				BlockSuffix:     "",
+				Color:           &cs.text,
+				BackgroundColor: docBg,
 			},
 			Margin: uintPtr(0), // Remove margin to prevent spacing
 		},
@@ -296,19 +316,30 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 			Color:       &cs.link,
 		},
 		Text: ansi.StylePrimitive{
-			Color: &cs.text,
+			Color:           &cs.text,
+			BackgroundColor: docBg,
 		},
 		Paragraph: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Color: &cs.text,
+				Color:           &cs.text,
+				BackgroundColor: docBg,
 			},
 		},
 	}
 }
 
-// toMarkdown renders markdown content using glamour
+// toMarkdown renders markdown content using glamour.
 func toMarkdown(content string, width int) string {
 	r := GetMarkdownRenderer(width)
+	rendered, _ := r.Render(content)
+	return rendered
+}
+
+// toMarkdownWithBg renders markdown content using glamour with a background
+// color applied to all elements so the rendered text blends with the block's
+// background.
+func toMarkdownWithBg(content string, width int, bgHex string) string {
+	r := GetMarkdownRenderer(width, bgHex)
 	rendered, _ := r.Render(content)
 	return rendered
 }

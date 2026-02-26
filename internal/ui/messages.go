@@ -92,14 +92,17 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	// markdown rendering (glamour treats single \n as a soft break).
 	content = strings.ReplaceAll(content, "\n", "\n\n")
 
-	// Render the message content
-	messageContent := r.renderMarkdown(content, r.width-8) // Account for padding and borders
+	theme := getTheme()
+
+	// Render the message content with the user-message background so that
+	// glamour-rendered markdown inherits the highlight color.
+	bgHex := colorHex(theme.Highlight)
+	messageContent := r.renderMarkdownWithBg(content, r.width-8, bgHex) // Account for padding and borders
 
 	// Create info line
 	info := fmt.Sprintf(" %s (%s)", username, timeStr)
 
 	// Combine content and info
-	theme := getTheme()
 	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
 		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
 
@@ -597,6 +600,13 @@ func (r *MessageRenderer) formatBashOutput(result string, width int, theme Theme
 // renderMarkdown renders markdown content using glamour
 func (r *MessageRenderer) renderMarkdown(content string, width int) string {
 	rendered := toMarkdown(content, width)
+	return strings.TrimSuffix(rendered, "\n")
+}
+
+// renderMarkdownWithBg renders markdown content using glamour with a background
+// color applied to every element so the output blends with a colored block.
+func (r *MessageRenderer) renderMarkdownWithBg(content string, width int, bgHex string) string {
+	rendered := toMarkdownWithBg(content, width, bgHex)
 	return strings.TrimSuffix(rendered, "\n")
 }
 

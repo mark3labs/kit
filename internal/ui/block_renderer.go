@@ -146,68 +146,122 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		option(renderer)
 	}
 
-	// Embed vertical padding as content newlines rather than style
-	// PaddingTop/PaddingBottom — lipgloss adds those as raw newlines
-	// that don't receive the background color, causing visible banding.
-	for range renderer.paddingTop {
-		content = "\n" + content
+	// Resolve border configuration.
+	hasBorder := !renderer.noBorder
+	borderChars := 0
+
+	borderAlign := lipgloss.Left
+	if renderer.align != nil {
+		borderAlign = *renderer.align
 	}
-	for range renderer.paddingBottom {
-		content = content + "\n"
+
+	var borderColor color.Color = lipgloss.NoColor{}
+	if renderer.borderColor != nil {
+		borderColor = *renderer.borderColor
+	}
+
+	if hasBorder {
+		borderChars = 1
 	}
 
 	theme := GetTheme()
-	style := lipgloss.NewStyle().
-		PaddingLeft(renderer.paddingLeft).
-		PaddingRight(renderer.paddingRight).
-		Foreground(theme.Text)
+	hasBg := renderer.bgColor != nil
 
-	if renderer.bgColor != nil {
-		style = style.Background(*renderer.bgColor)
-	}
+	if hasBg {
+		// When a background color is set we use a three-phase render so
+		// the border extends the full block height including padding:
+		//   1. Render content with bg + horizontal padding (no border,
+		//      no vertical padding).
+		//   2. Use Place() to add vertical padding with uniform bg fill.
+		//   3. Apply the border to the padded block.
 
-	// Border width used for full-width calculation.
-	borderChars := 0
+		// Phase 1 — content with background + horizontal padding.
+		innerStyle := lipgloss.NewStyle().
+			PaddingLeft(renderer.paddingLeft).
+			PaddingRight(renderer.paddingRight).
+			Foreground(theme.Text).
+			Background(*renderer.bgColor)
 
-	if renderer.noBorder {
-		// No borders — just padding.
+		if renderer.fullWidth {
+			innerStyle = innerStyle.Width(renderer.width - borderChars)
+		}
+
+		content = innerStyle.Render(content)
+
+		// Phase 2 — vertical padding via Place() with bg-filled whitespace.
+		if renderer.paddingTop > 0 || renderer.paddingBottom > 0 {
+			renderedH := lipgloss.Height(content)
+			renderedW := lipgloss.Width(content)
+			totalH := renderedH + renderer.paddingTop + renderer.paddingBottom
+
+			bgStyle := lipgloss.NewStyle().Background(*renderer.bgColor)
+
+			// Determine vertical position so padding distributes correctly.
+			vPos := lipgloss.Center
+			switch {
+			case renderer.paddingTop > 0 && renderer.paddingBottom == 0:
+				vPos = lipgloss.Bottom
+			case renderer.paddingBottom > 0 && renderer.paddingTop == 0:
+				vPos = lipgloss.Top
+			}
+
+			content = lipgloss.Place(
+				renderedW, totalH,
+				lipgloss.Left, vPos,
+				content,
+				lipgloss.WithWhitespaceStyle(bgStyle),
+			)
+		}
+
+		// Phase 3 — apply border to the full-height block.
+		if hasBorder {
+			borderStyle := lipgloss.NewStyle().
+				BorderStyle(lipgloss.ThickBorder())
+
+			switch borderAlign {
+			case lipgloss.Right:
+				borderStyle = borderStyle.
+					BorderRight(true).
+					BorderRightForeground(borderColor)
+			default:
+				borderStyle = borderStyle.
+					BorderLeft(true).
+					BorderLeftForeground(borderColor)
+			}
+
+			content = borderStyle.Render(content)
+		}
 	} else {
-		style = style.BorderStyle(lipgloss.ThickBorder())
+		// No background — PaddingTop/PaddingBottom work fine (no visible
+		// banding), so render everything in a single style pass.
+		style := lipgloss.NewStyle().
+			PaddingLeft(renderer.paddingLeft).
+			PaddingRight(renderer.paddingRight).
+			PaddingTop(renderer.paddingTop).
+			PaddingBottom(renderer.paddingBottom).
+			Foreground(theme.Text)
 
-		align := lipgloss.Left
-		if renderer.align != nil {
-			align = *renderer.align
+		if hasBorder {
+			style = style.BorderStyle(lipgloss.ThickBorder())
+
+			switch borderAlign {
+			case lipgloss.Right:
+				style = style.
+					BorderRight(true).
+					BorderRightForeground(borderColor)
+			default:
+				style = style.
+					BorderLeft(true).
+					BorderLeftForeground(borderColor)
+			}
 		}
 
-		// Default to transparent/no border color
-		var borderColor color.Color = lipgloss.NoColor{}
-		if renderer.borderColor != nil {
-			borderColor = *renderer.borderColor
+		if renderer.fullWidth {
+			style = style.Width(renderer.width - borderChars)
 		}
 
-		// Only render the accent-side border to avoid background
-		// banding from the opposite border character.
-		switch align {
-		case lipgloss.Right:
-			style = style.
-				BorderRight(true).
-				BorderRightForeground(borderColor)
-			borderChars = 1
-		default: // Left (and fallback)
-			style = style.
-				BorderLeft(true).
-				BorderLeftForeground(borderColor)
-			borderChars = 1
-		}
+		content = style.Render(content)
 	}
-
-	if renderer.fullWidth {
-		// Subtract border characters so the total rendered width
-		// equals containerWidth exactly.
-		style = style.Width(renderer.width - borderChars)
-	}
-
-	content = style.Render(content)
 
 	// Add margins
 	if renderer.marginTop > 0 {
