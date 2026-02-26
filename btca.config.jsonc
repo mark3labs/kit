@@ -52,6 +52,18 @@
         "packages/coding-agent",
         "packages/tui"
       ]
+    },
+    {
+      "type": "git",
+      "name": "iteratr",
+      "url": "https://github.com/mark3labs/iteratr",
+      "branch": "master"
+    },
+    {
+      "type": "git",
+      "name": "yaegi",
+      "url": "https://github.com/traefik/yaegi",
+      "branch": "main"
     }
   ],
   "model": "claude-haiku-4-5",
