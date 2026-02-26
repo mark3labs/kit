@@ -28,20 +28,6 @@ func sendInputMsg(c *InputComponent, msg tea.Msg) (*InputComponent, tea.Cmd) {
 	return m.(*InputComponent), cmd
 }
 
-// pressKey simulates a single key press on the InputComponent.
-func pressKey(c *InputComponent, r rune) (*InputComponent, tea.Cmd) {
-	return sendInputMsg(c, tea.KeyPressMsg{Code: r})
-}
-
-// typeText types a string into the InputComponent character by character.
-func typeText(c *InputComponent, text string) *InputComponent {
-	for _, ch := range text {
-		c.textarea.SetValue(c.textarea.Value() + string(ch))
-		c.lastValue = c.textarea.Value()
-	}
-	return c
-}
-
 // runCmd executes a tea.Cmd and returns the resulting tea.Msg.
 // Returns nil if cmd is nil.
 func runCmd(cmd tea.Cmd) tea.Msg {

@@ -26,7 +26,7 @@ func knightRiderFrames() []string {
 
 	// Scanner bounces: 0→7→0
 	positions := make([]int, 0, 2*numDots-2)
-	for i := 0; i < numDots; i++ {
+	for i := range numDots {
 		positions = append(positions, i)
 	}
 	for i := numDots - 2; i > 0; i-- {
@@ -36,17 +36,17 @@ func knightRiderFrames() []string {
 	frames := make([]string, len(positions))
 	for f, pos := range positions {
 		var b strings.Builder
-		for i := 0; i < numDots; i++ {
+		for i := range numDots {
 			d := pos - i
 			if d < 0 {
 				d = -d
 			}
-			switch {
-			case d == 0:
+			switch d {
+			case 0:
 				b.WriteString(bright.Render(dot))
-			case d == 1:
+			case 1:
 				b.WriteString(med.Render(dot))
-			case d == 2:
+			case 2:
 				b.WriteString(dim.Render(dot))
 			default:
 				b.WriteString(off.Render(dot))

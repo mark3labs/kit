@@ -373,7 +373,7 @@ func TestWindowResize_propagatesToStream(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 
-	m = sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	_ = sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	if stream.lastMsg == nil {
 		t.Fatal("expected stream component to receive WindowSizeMsg")

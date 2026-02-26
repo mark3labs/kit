@@ -267,14 +267,14 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Writer goroutine.
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			s.Add(makeTextMsg("user", "concurrent"))
 		}
 		close(done)
 	}()
 
 	// Reader goroutine — must not race with writer.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		_ = s.GetAll()
 		_ = s.Len()
 	}

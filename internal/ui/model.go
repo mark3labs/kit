@@ -525,10 +525,7 @@ func (m *AppModel) renderSeparator() string {
 			Render(fmt.Sprintf("%d queued", queueLen))
 
 		// Fill the separator with dashes up to the badge.
-		dashWidth := m.width - lipgloss.Width(badge) - 1
-		if dashWidth < 0 {
-			dashWidth = 0
-		}
+		dashWidth := max(m.width-lipgloss.Width(badge)-1, 0)
 		dashes := lineStyle.Render(repeatRune('─', dashWidth))
 		return dashes + " " + badge
 	}
@@ -812,10 +809,7 @@ func (m *AppModel) distributeHeight() {
 	const inputLines = 5 // title (1) + textarea (3) + help (1)
 	queuedLines := len(m.queuedMessages)
 
-	streamHeight := m.height - separatorLines - queuedLines - inputLines
-	if streamHeight < 0 {
-		streamHeight = 0
-	}
+	streamHeight := max(m.height-separatorLines-queuedLines-inputLines, 0)
 
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)

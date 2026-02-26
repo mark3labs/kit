@@ -34,7 +34,6 @@ type stubAgent struct {
 func newStubAgent(results ...*agent.GenerateWithLoopResult) *stubAgent {
 	s := &stubAgent{}
 	for _, r := range results {
-		r := r // capture
 		s.calls = append(s.calls, func(_ context.Context) (*agent.GenerateWithLoopResult, error) {
 			return r, nil
 		})

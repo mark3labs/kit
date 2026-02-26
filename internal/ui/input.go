@@ -31,7 +31,6 @@ type InputComponent struct {
 	filtered    []FuzzyMatch
 	selected    int
 	width       int
-	height      int
 	lastValue   string
 	popupHeight int
 	title       string
