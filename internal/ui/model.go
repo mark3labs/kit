@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -223,9 +222,6 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 func (m *AppModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
-	// Emit startup info matching the old SetupCLI behaviour.
-	cmds = append(cmds, m.startupInfoCmd())
-
 	if m.input != nil {
 		cmds = append(cmds, m.input.Init())
 	}
@@ -233,27 +229,34 @@ func (m *AppModel) Init() tea.Cmd {
 		cmds = append(cmds, m.stream.Init())
 	}
 
+	// Startup info is emitted via tea.Sequence so each tea.Println is
+	// processed in order before the next one fires.
+	cmds = append(cmds, m.startupInfoCmd())
+
 	return tea.Batch(cmds...)
 }
 
-// startupInfoCmd returns a single tea.Println command that displays model,
-// loading, and tool count information at startup — matching the old SetupCLI
-// factory output. All lines are combined into one message to avoid races
-// between concurrent tea.Println commands in a tea.Batch.
+// startupInfoCmd returns a tea.Sequence that prints startup messages (model,
+// loading, tool count) one at a time via tea.Println — matching the old
+// SetupCLI factory output.
 func (m *AppModel) startupInfoCmd() tea.Cmd {
-	var lines []string
+	var printCmds []tea.Cmd
 
 	if m.providerName != "" && m.modelName != "" {
-		lines = append(lines, fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName))
+		printCmds = append(printCmds, m.printSystemMessage(
+			fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName),
+		))
 	}
 
 	if m.loadingMessage != "" {
-		lines = append(lines, m.loadingMessage)
+		printCmds = append(printCmds, m.printSystemMessage(m.loadingMessage))
 	}
 
-	lines = append(lines, fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)))
+	printCmds = append(printCmds, m.printSystemMessage(
+		fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames)),
+	))
 
-	return m.printSystemMessage(strings.Join(lines, "\n"))
+	return tea.Sequence(printCmds...)
 }
 
 // Update implements tea.Model. It is the heart of the state machine: it routes
