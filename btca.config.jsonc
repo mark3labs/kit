@@ -42,6 +42,16 @@
       "name": "crush",
       "url": "https://github.com/charmbracelet/crush",
       "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "pi",
+      "url": "https://github.com/badlogic/pi-mono",
+      "branch": "main",
+      "searchPaths": [
+        "packages/coding-agent",
+        "packages/tui"
+      ]
     }
   ],
   "model": "claude-haiku-4-5",
