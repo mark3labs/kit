@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/mcphost/cmd"
 	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/models"
 	"github.com/mark3labs/mcphost/internal/session"
 	"github.com/spf13/viper"
 )
@@ -72,47 +71,14 @@ func New(ctx context.Context, opts *Options) (*MCPHost, error) {
 		return nil, fmt.Errorf("failed to load MCP config: %v", err)
 	}
 
-	// Load system prompt using existing function
-	systemPrompt, err := config.LoadSystemPrompt(viper.GetString("system-prompt"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load system prompt: %v", err)
-	}
-
-	// Create model configuration (same as CLI in root.go)
-	temperature := float32(viper.GetFloat64("temperature"))
-	topP := float32(viper.GetFloat64("top-p"))
-	topK := int32(viper.GetInt("top-k"))
-	numGPU := int32(viper.GetInt("num-gpu-layers"))
-	mainGPU := int32(viper.GetInt("main-gpu"))
-
-	modelConfig := &models.ProviderConfig{
-		ModelString:    viper.GetString("model"),
-		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: viper.GetString("provider-api-key"),
-		ProviderURL:    viper.GetString("provider-url"),
-		MaxTokens:      viper.GetInt("max-tokens"),
-		Temperature:    &temperature,
-		TopP:           &topP,
-		TopK:           &topK,
-		StopSequences:  viper.GetStringSlice("stop-sequences"),
-		NumGPU:         &numGPU,
-		MainGPU:        &mainGPU,
-		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
-	}
-
-	// Create agent using existing factory
-	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
-		ModelConfig:      modelConfig,
-		MCPConfig:        mcpConfig,
-		SystemPrompt:     systemPrompt,
-		MaxSteps:         viper.GetInt("max-steps"),
-		StreamingEnabled: viper.GetBool("stream"),
-		ShowSpinner:      false, // No spinner for SDK
-		Quiet:            opts.Quiet,
+	// Create agent using shared setup (builds ProviderConfig from viper internally).
+	agentResult, err := cmd.SetupAgent(ctx, cmd.AgentSetupOptions{
+		MCPConfig: mcpConfig,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create agent: %v", err)
+		return nil, err
 	}
+	a := agentResult.Agent
 
 	// Create session manager
 	sessionMgr := session.NewManager("")

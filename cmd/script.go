@@ -9,13 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
-
-	"github.com/mark3labs/mcphost/internal/agent"
 	"github.com/mark3labs/mcphost/internal/app"
 	"github.com/mark3labs/mcphost/internal/config"
-	"github.com/mark3labs/mcphost/internal/models"
-	"github.com/mark3labs/mcphost/internal/tools"
 	"github.com/mark3labs/mcphost/internal/ui"
 
 	"github.com/spf13/cobra"
@@ -515,193 +510,31 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
 
-	// Get final values from viper and script config
-	finalModel := viper.GetString("model")
-	if finalModel == "" && mcpConfig.Model != "" {
-		finalModel = mcpConfig.Model
-	}
-	if finalModel == "" {
-		finalModel = "anthropic/claude-sonnet-4-5-20250929" // default
-	}
-
-	finalSystemPrompt := viper.GetString("system-prompt")
-	if finalSystemPrompt == "" && mcpConfig.SystemPrompt != "" {
-		finalSystemPrompt = mcpConfig.SystemPrompt
-	}
-
-	finalDebug := viper.GetBool("debug") || mcpConfig.Debug
-	finalCompact := viper.GetBool("compact")
-	finalMaxSteps := viper.GetInt("max-steps")
-	if finalMaxSteps == 0 && mcpConfig.MaxSteps != 0 {
-		finalMaxSteps = mcpConfig.MaxSteps
-	}
-
-	finalProviderURL := viper.GetString("provider-url")
-	if finalProviderURL == "" && mcpConfig.ProviderURL != "" {
-		finalProviderURL = mcpConfig.ProviderURL
-	}
-
-	finalProviderAPIKey := viper.GetString("provider-api-key")
-	if finalProviderAPIKey == "" && mcpConfig.ProviderAPIKey != "" {
-		finalProviderAPIKey = mcpConfig.ProviderAPIKey
-	}
-
-	finalMaxTokens := viper.GetInt("max-tokens")
-	if finalMaxTokens == 0 && mcpConfig.MaxTokens != 0 {
-		finalMaxTokens = mcpConfig.MaxTokens
-	}
-	if finalMaxTokens == 0 {
-		finalMaxTokens = 4096 // default
-	}
-
-	finalTemperature := float32(viper.GetFloat64("temperature"))
-	if finalTemperature == 0 && mcpConfig.Temperature != nil {
-		finalTemperature = *mcpConfig.Temperature
-	}
-	if finalTemperature == 0 {
-		finalTemperature = 0.7 // default
-	}
-
-	finalTopP := float32(viper.GetFloat64("top-p"))
-	if finalTopP == 0 && mcpConfig.TopP != nil {
-		finalTopP = *mcpConfig.TopP
-	}
-	if finalTopP == 0 {
-		finalTopP = 0.95 // default
-	}
-
-	finalTopK := int32(viper.GetInt("top-k"))
-	if finalTopK == 0 && mcpConfig.TopK != nil {
-		finalTopK = *mcpConfig.TopK
-	}
-	if finalTopK == 0 {
-		finalTopK = 40 // default
-	}
-
-	finalStopSequences := viper.GetStringSlice("stop-sequences")
-	if len(finalStopSequences) == 0 && len(mcpConfig.StopSequences) > 0 {
-		finalStopSequences = mcpConfig.StopSequences
-	}
-
-	// Load system prompt
-	systemPrompt, err := config.LoadSystemPrompt(finalSystemPrompt)
-	if err != nil {
-		return fmt.Errorf("failed to load system prompt: %v", err)
-	}
-
-	// Create model configuration
-	modelConfig := &models.ProviderConfig{
-		ModelString:    finalModel,
-		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: finalProviderAPIKey,
-		ProviderURL:    finalProviderURL,
-		MaxTokens:      finalMaxTokens,
-		Temperature:    &finalTemperature,
-		TopP:           &finalTopP,
-		TopK:           &finalTopK,
-		StopSequences:  finalStopSequences,
-		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
-	}
-
-	// Create the agent using the factory (scripts don't need spinners)
-	// Use a simple debug logger for scripts
-	var debugLogger tools.DebugLogger
-	if finalDebug {
-		debugLogger = tools.NewSimpleDebugLogger(true)
-	}
-
-	mcpAgent, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
-		ModelConfig:      modelConfig,
-		MCPConfig:        mcpConfig,
-		SystemPrompt:     systemPrompt,
-		MaxSteps:         finalMaxSteps,
-		StreamingEnabled: viper.GetBool("stream"),
-		ShowSpinner:      false, // Scripts don't need spinners
-		Quiet:            quietFlag,
-		SpinnerFunc:      nil, // No spinner function needed
-		DebugLogger:      debugLogger,
+	// Create agent using shared setup. Script frontmatter values are already
+	// merged into viper by overrideConfigWithFrontmatter (PreRun hook), so
+	// BuildProviderConfig inside SetupAgent reads the correct final values.
+	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
+		MCPConfig: mcpConfig,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create agent: %v", err)
+		return err
 	}
+	mcpAgent := agentResult.Agent
 	defer func() { _ = mcpAgent.Close() }()
 
-	// Get model name for display
-	_, modelName, _ := models.ParseModelString(finalModel)
-	if modelName == "" {
-		modelName = "Unknown"
-	}
+	// Collect model/server/tool metadata.
+	parsedProvider, modelName, serverNames, toolNames := CollectAgentMetadata(mcpAgent, mcpConfig)
 
-	// Create an adapter for the agent to match the UI interface
-	agentAdapter := &agentUIAdapter{agent: mcpAgent}
-
-	// Create CLI interface using the factory
-	cli, err := ui.SetupCLI(&ui.CLISetupOptions{
-		Agent:          agentAdapter,
-		ModelString:    finalModel,
-		Debug:          finalDebug,
-		Compact:        finalCompact,
-		Quiet:          quietFlag,
-		ShowDebug:      false, // Will be handled separately below
-		ProviderAPIKey: finalProviderAPIKey,
-	})
+	// Create CLI display layer.
+	cli, err := SetupCLIForNonInteractive(mcpAgent)
 	if err != nil {
 		return fmt.Errorf("failed to setup CLI: %v", err)
 	}
 
-	// Display debug configuration if debug mode is enabled
-	if !quietFlag && cli != nil && finalDebug {
-		debugConfig := map[string]any{
-			"model":         finalModel,
-			"max-steps":     finalMaxSteps,
-			"max-tokens":    finalMaxTokens,
-			"temperature":   finalTemperature,
-			"top-p":         finalTopP,
-			"top-k":         finalTopK,
-			"provider-url":  finalProviderURL,
-			"system-prompt": finalSystemPrompt,
-		}
+	DisplayDebugConfig(cli, mcpAgent, mcpConfig, parsedProvider)
 
-		// Only include non-empty stop sequences
-		if len(finalStopSequences) > 0 {
-			debugConfig["stop-sequences"] = finalStopSequences
-		}
-
-		// Only include API keys if they're set (but don't show the actual values for security)
-		if finalProviderAPIKey != "" {
-			debugConfig["provider-api-key"] = "[SET]"
-		}
-
-		cli.DisplayDebugConfig(debugConfig)
-	}
-
-	// Prepare data for slash commands
-	var serverNames []string
-	for name := range mcpConfig.MCPServers {
-		serverNames = append(serverNames, name)
-	}
-
-	tools := mcpAgent.GetTools()
-	var toolNames []string
-	for _, tool := range tools {
-		info := tool.Info()
-		toolNames = append(toolNames, info.Name)
-	}
-
-	// Create app.App and run the prompt through the shared agent path.
-	appOpts := app.Options{
-		Agent:            mcpAgent,
-		MCPConfig:        mcpConfig,
-		ModelName:        modelName,
-		ServerNames:      serverNames,
-		ToolNames:        toolNames,
-		StreamingEnabled: viper.GetBool("stream"),
-		Quiet:            quietFlag,
-		Debug:            viper.GetBool("debug"),
-		CompactMode:      viper.GetBool("compact"),
-	}
-
-	// Attach usage tracker from the CLI (if available).
+	// Build app options.
+	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames)
 	if cli != nil {
 		if tracker := cli.GetUsageTracker(); tracker != nil {
 			appOpts.UsageTracker = tracker
@@ -722,142 +555,8 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 	}
 
 	// Build an event handler that routes app events to the CLI.
-	eventHandler := newScriptEventHandler(cli, modelName)
+	eventHandler := ui.NewCLIEventHandler(cli, modelName)
 	err = appInstance.RunOnceWithDisplay(ctx, prompt, eventHandler.Handle)
 	eventHandler.Cleanup()
 	return err
-}
-
-// scriptEventHandler routes app events to CLI display methods for script mode.
-// It mirrors the TUI's StreamComponent accumulate-and-flush strategy
-// (see internal/ui/model.go flushStreamContent and stream.go):
-//   - StreamChunkEvents are accumulated in a buffer (like StreamComponent).
-//   - Before tool calls the buffer is flushed through DisplayAssistantMessageWithModel
-//     so that text accompanying tool calls renders identically to solo responses.
-//   - ToolCallContentEvent is ignored during streaming (text already in the buffer).
-//   - ResponseCompleteEvent is used only as a non-streaming fallback.
-//   - StepCompleteEvent flushes any remaining buffered text.
-type scriptEventHandler struct {
-	cli       *ui.CLI
-	modelName string
-
-	spinner       *ui.Spinner
-	lastDisplayed string          // tracks content shown (non-streaming)
-	streamBuf     strings.Builder // accumulated stream chunks (mirrors StreamComponent)
-}
-
-func newScriptEventHandler(cli *ui.CLI, modelName string) *scriptEventHandler {
-	return &scriptEventHandler{cli: cli, modelName: modelName}
-}
-
-// Cleanup ensures any active spinner is stopped.
-func (h *scriptEventHandler) Cleanup() {
-	if h.spinner != nil {
-		h.spinner.Stop()
-		h.spinner = nil
-	}
-}
-
-func (h *scriptEventHandler) stopSpinner() {
-	if h.spinner != nil {
-		h.spinner.Stop()
-		h.spinner = nil
-	}
-}
-
-func (h *scriptEventHandler) startSpinner() {
-	h.stopSpinner()
-	h.spinner = ui.NewSpinner()
-	h.spinner.Start()
-}
-
-// flushStreamBuffer renders any accumulated stream chunks through the CLI
-// formatter (mirrors TUI's flushStreamContent at model.go:781-791).
-func (h *scriptEventHandler) flushStreamBuffer() {
-	text := strings.TrimSpace(h.streamBuf.String())
-	h.streamBuf.Reset()
-	if text != "" {
-		_ = h.cli.DisplayAssistantMessageWithModel(text, h.modelName)
-		h.lastDisplayed = text
-	}
-}
-
-// Handle processes a single app event and renders it via the CLI.
-func (h *scriptEventHandler) Handle(msg tea.Msg) {
-	switch e := msg.(type) {
-	case app.SpinnerEvent:
-		if e.Show {
-			h.startSpinner()
-		} else {
-			h.stopSpinner()
-		}
-
-	case app.StreamChunkEvent:
-		// Accumulate chunks in the buffer (like TUI StreamComponent).
-		// Text is rendered as a formatted message when flushed at boundaries.
-		h.stopSpinner()
-		h.streamBuf.WriteString(e.Content)
-
-	case app.ToolCallContentEvent:
-		// In streaming mode this text was already buffered via StreamChunkEvents
-		// (mirrors TUI behavior at model.go:405-408). Only display when the
-		// buffer is empty (non-streaming path).
-		if h.streamBuf.Len() == 0 {
-			h.stopSpinner()
-			_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
-			h.lastDisplayed = e.Content
-			h.startSpinner()
-		}
-
-	case app.ToolCallStartedEvent:
-		h.stopSpinner()
-		// Flush buffered text before tool call output (mirrors TUI flushStreamContent).
-		h.flushStreamBuffer()
-		h.cli.DisplayToolCallMessage(e.ToolName, e.ToolArgs)
-
-	case app.ToolExecutionEvent:
-		if e.IsStarting {
-			h.startSpinner()
-		} else {
-			h.stopSpinner()
-		}
-
-	case app.ToolResultEvent:
-		h.stopSpinner()
-		h.cli.DisplayToolMessage(e.ToolName, e.ToolArgs, e.Result, e.IsError)
-		h.startSpinner()
-
-	case app.ResponseCompleteEvent:
-		h.stopSpinner()
-		// Non-streaming fallback: display the complete response.
-		// In streaming mode the buffer will be flushed at StepCompleteEvent.
-		if h.streamBuf.Len() == 0 && e.Content != "" {
-			_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
-			h.lastDisplayed = e.Content
-		}
-
-	case app.StepCompleteEvent:
-		h.stopSpinner()
-
-		// Flush any remaining buffered stream content.
-		h.flushStreamBuffer()
-
-		// Non-streaming fallback: render the full response if not already shown.
-		responseText := ""
-		if e.Response != nil {
-			responseText = e.Response.Content.Text()
-		}
-		if responseText != "" && responseText != h.lastDisplayed {
-			_ = h.cli.DisplayAssistantMessageWithModel(responseText, h.modelName)
-		}
-
-		// Display usage. The app layer has already updated the shared
-		// UsageTracker (via app.updateUsage in RunOnceWithDisplay) before
-		// sending this event, so we only need to render — calling
-		// UpdateUsageFromResponse here would double-count.
-		h.cli.DisplayUsageAfterResponse()
-
-		// Reset for next step in the agentic loop.
-		h.lastDisplayed = ""
-	}
 }
