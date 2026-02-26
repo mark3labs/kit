@@ -9,6 +9,7 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -254,6 +255,11 @@ func (a *App) Close() {
 	cancel := a.cancelStep
 	a.mu.Unlock()
 
+	// --- Extension: SessionShutdown ---
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.SessionShutdown) {
+		_, _ = a.opts.Extensions.Emit(extensions.SessionShutdownEvent{})
+	}
+
 	// Cancel any in-flight step and the root context.
 	cancel()
 	a.rootCancel()
@@ -362,6 +368,23 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 		}
 	}
 
+	// --- Extension: Input event (can transform or handle the prompt) ---
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.Input) {
+		result, _ := a.opts.Extensions.Emit(extensions.InputEvent{
+			Text:   prompt,
+			Source: a.inputSource(),
+		})
+		if r, ok := result.(extensions.InputResult); ok {
+			switch r.Action {
+			case "transform":
+				prompt = r.Text
+			case "handled":
+				// Extension handled the input; skip the agent entirely.
+				return &agent.GenerateWithLoopResult{}, nil
+			}
+		}
+	}
+
 	// Add user message to the store immediately so history is consistent
 	// even if the step is later cancelled.
 	userMsg := fantasy.NewUserMessage(prompt)
@@ -385,8 +408,38 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	// Track message count before agent runs so we can diff new messages.
 	sentCount := len(msgs)
 
+	// --- Extension: BeforeAgentStart ---
+	// Extensions can inject a system message or prepend context text into the
+	// conversation before the agent runs.
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.BeforeAgentStart) {
+		result, _ := a.opts.Extensions.Emit(extensions.BeforeAgentStartEvent{Prompt: prompt})
+		if r, ok := result.(extensions.BeforeAgentStartResult); ok {
+			if r.SystemPrompt != nil && *r.SystemPrompt != "" {
+				// Prepend a system message so the LLM sees extension-provided
+				// instructions. This supplements (not replaces) the agent's
+				// configured system prompt.
+				msgs = append([]fantasy.Message{fantasy.NewSystemMessage(*r.SystemPrompt)}, msgs...)
+			}
+			if r.InjectText != nil && *r.InjectText != "" {
+				// Prepend a user message with the injected context so it
+				// appears early in the conversation window.
+				msgs = append([]fantasy.Message{fantasy.NewUserMessage(*r.InjectText)}, msgs...)
+			}
+		}
+	}
+
+	// --- Extension: AgentStart ---
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentStart) {
+		_, _ = a.opts.Extensions.Emit(extensions.AgentStartEvent{Prompt: prompt})
+	}
+
 	// Signal spinner start.
 	sendFn(SpinnerEvent{Show: true})
+
+	// --- Extension: MessageStart ---
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageStart) {
+		_, _ = a.opts.Extensions.Emit(extensions.MessageStartEvent{})
+	}
 
 	result, err := a.opts.Agent.GenerateWithLoopAndStreaming(ctx, msgs,
 		// onToolCall
@@ -416,12 +469,40 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 		},
 		// onStreamingResponse — spinner keeps running alongside streaming text
 		func(chunk string) {
+			// Extension: MessageUpdate (observe streaming chunks)
+			if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageUpdate) {
+				_, _ = a.opts.Extensions.Emit(extensions.MessageUpdateEvent{Chunk: chunk})
+			}
 			sendFn(StreamChunkEvent{Content: chunk})
 		},
 	)
 
 	if err != nil {
+		// --- Extension: AgentEnd with error ---
+		if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentEnd) {
+			_, _ = a.opts.Extensions.Emit(extensions.AgentEndEvent{
+				Response:   "",
+				StopReason: "error",
+			})
+		}
 		return nil, err
+	}
+
+	// --- Extension: MessageEnd ---
+	responseText := ""
+	if result.FinalResponse != nil {
+		responseText = result.FinalResponse.Content.Text()
+	}
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageEnd) {
+		_, _ = a.opts.Extensions.Emit(extensions.MessageEndEvent{Content: responseText})
+	}
+
+	// --- Extension: AgentEnd with success ---
+	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentEnd) {
+		_, _ = a.opts.Extensions.Emit(extensions.AgentEndEvent{
+			Response:   responseText,
+			StopReason: "completed",
+		})
 	}
 
 	// Replace the store with the full updated conversation returned by the agent
@@ -439,6 +520,17 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	return result, nil
 }
 
+// inputSource returns a string identifying how the current session receives
+// input — used by the Input extension event.
+func (a *App) inputSource() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.program != nil {
+		return "interactive"
+	}
+	return "cli"
+}
+
 // --------------------------------------------------------------------------
 // Internal: event helpers
 // --------------------------------------------------------------------------
@@ -451,6 +543,45 @@ func (a *App) sendEvent(msg tea.Msg) {
 	a.mu.Unlock()
 	if prog != nil {
 		prog.Send(msg)
+	}
+}
+
+// PrintFromExtension outputs text from an extension to the user. The level
+// controls styling: "" for plain text, "info" for a system message block,
+// "error" for an error block. In interactive mode it sends an
+// ExtensionPrintEvent through the program so the TUI can render it with the
+// appropriate renderer. In non-interactive mode it falls back to stdout.
+func (a *App) PrintFromExtension(level, text string) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(ExtensionPrintEvent{Text: text, Level: level})
+		return
+	}
+	// Non-interactive fallback: write directly to stdout.
+	fmt.Println(text)
+}
+
+// PrintBlockFromExtension outputs a custom styled block from an extension.
+func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(ExtensionPrintEvent{
+			Text:        opts.Text,
+			Level:       "block",
+			BorderColor: opts.BorderColor,
+			Subtitle:    opts.Subtitle,
+		})
+		return
+	}
+	// Non-interactive fallback.
+	if opts.Subtitle != "" {
+		fmt.Printf("%s\n  — %s\n", opts.Text, opts.Subtitle)
+	} else {
+		fmt.Println(opts.Text)
 	}
 }
 

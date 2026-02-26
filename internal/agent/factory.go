@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"charm.land/fantasy"
+
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
@@ -34,6 +36,10 @@ type AgentCreationOptions struct {
 	SpinnerFunc SpinnerFunc // Function to show spinner (provided by caller)
 	// DebugLogger is an optional logger for debugging MCP communications
 	DebugLogger tools.DebugLogger // Optional debug logger
+	// ToolWrapper wraps the combined tool list before Fantasy agent creation.
+	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
+	// ExtraTools are additional tools to include (e.g. from extensions).
+	ExtraTools []fantasy.AgentTool
 }
 
 // CreateAgent creates an agent with optional spinner for Ollama models.
@@ -47,6 +53,8 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		MaxSteps:         opts.MaxSteps,
 		StreamingEnabled: opts.StreamingEnabled,
 		DebugLogger:      opts.DebugLogger,
+		ToolWrapper:      opts.ToolWrapper,
+		ExtraTools:       opts.ExtraTools,
 	}
 
 	var agent *Agent

@@ -129,6 +129,19 @@ func (h *CLIEventHandler) Handle(msg tea.Msg) {
 			h.lastDisplayed = e.Content
 		}
 
+	case app.ExtensionPrintEvent:
+		h.stopSpinner()
+		switch e.Level {
+		case "info":
+			h.cli.DisplayInfo(e.Text)
+		case "error":
+			h.cli.DisplayError(fmt.Errorf("%s", e.Text))
+		case "block":
+			h.cli.DisplayExtensionBlock(e.Text, e.BorderColor, e.Subtitle)
+		default:
+			fmt.Println(e.Text)
+		}
+
 	case app.StepCompleteEvent:
 		h.stopSpinner()
 

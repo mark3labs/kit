@@ -534,7 +534,7 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 	DisplayDebugConfig(cli, mcpAgent, mcpConfig, parsedProvider)
 
 	// Build app options.
-	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames)
+	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, agentResult.ExtRunner)
 	if cli != nil {
 		if tracker := cli.GetUsageTracker(); tracker != nil {
 			appOpts.UsageTracker = tracker

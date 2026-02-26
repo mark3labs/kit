@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/fantasy"
+
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/hooks"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
 	"github.com/mark3labs/kit/internal/ui"
@@ -70,6 +74,9 @@ type AgentSetupOptions struct {
 type AgentSetupResult struct {
 	Agent          *agent.Agent
 	BufferedLogger *tools.BufferedDebugLogger
+	// ExtRunner is the extension runner (nil when --no-extensions or no
+	// extensions were discovered).
+	ExtRunner *extensions.Runner
 }
 
 // SetupAgent creates an agent from the current viper state + the provided
@@ -93,6 +100,20 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		}
 	}
 
+	// Load extensions unless --no-extensions is set. Extensions must be loaded
+	// BEFORE agent creation so their tool wrapper and custom tools are included
+	// in the Fantasy agent's tool list.
+	var extRunner *extensions.Runner
+	var extCreationOpts extensionCreationOpts
+	if !viper.GetBool("no-extensions") {
+		var extErr error
+		extRunner, extCreationOpts, extErr = setupExtensions()
+		if extErr != nil {
+			// Extension loading failures are non-fatal.
+			fmt.Printf("Warning: Failed to load extensions: %v\n", extErr)
+		}
+	}
+
 	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
 		ModelConfig:      modelConfig,
 		MCPConfig:        opts.MCPConfig,
@@ -103,6 +124,8 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		Quiet:            quietFlag,
 		SpinnerFunc:      opts.SpinnerFunc,
 		DebugLogger:      debugLogger,
+		ToolWrapper:      extCreationOpts.toolWrapper,
+		ExtraTools:       extCreationOpts.extraTools,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent: %w", err)
@@ -110,7 +133,54 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 
 	return &AgentSetupResult{
 		Agent:          a,
+		ExtRunner:      extRunner,
 		BufferedLogger: bufferedLogger,
+	}, nil
+}
+
+// extensionCreationOpts holds the tool wrapper and extra tools that need to be
+// passed into agent creation, extracted from loaded extensions.
+type extensionCreationOpts struct {
+	toolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
+	extraTools  []fantasy.AgentTool
+}
+
+// setupExtensions discovers and loads Yaegi extensions plus legacy hooks.yml,
+// builds the runner, and returns the tool wrapper/extra tools needed by the
+// agent factory.
+func setupExtensions() (*extensions.Runner, extensionCreationOpts, error) {
+	extraPaths := viper.GetStringSlice("extension")
+	loaded, err := extensions.LoadExtensions(extraPaths)
+	if err != nil {
+		return nil, extensionCreationOpts{}, err
+	}
+
+	// Also load legacy hooks.yml as a compat extension.
+	hooksCfg, _ := hooks.LoadHooksConfig()
+	if hooksCfg != nil && len(hooksCfg.Hooks) > 0 {
+		compat := extensions.HooksAsExtension(hooksCfg)
+		if compat != nil {
+			loaded = append([]extensions.LoadedExtension{*compat}, loaded...)
+		}
+	}
+
+	if len(loaded) == 0 {
+		return nil, extensionCreationOpts{}, nil
+	}
+
+	runner := extensions.NewRunner(loaded)
+
+	// Build the tool wrapper that intercepts tool calls through the runner.
+	wrapper := func(tools []fantasy.AgentTool) []fantasy.AgentTool {
+		return extensions.WrapToolsWithExtensions(tools, runner)
+	}
+
+	// Collect custom tools registered by extensions.
+	extTools := extensions.ExtensionToolsAsFantasy(runner.RegisteredTools())
+
+	return runner, extensionCreationOpts{
+		toolWrapper: wrapper,
+		extraTools:  extTools,
 	}, nil
 }
 
@@ -138,7 +208,7 @@ func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (prov
 
 // BuildAppOptions constructs the app.Options struct from the current state.
 // Both root.go and script.go converge here after agent creation.
-func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName string, serverNames, toolNames []string) app.Options {
+func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName string, serverNames, toolNames []string, extRunner *extensions.Runner) app.Options {
 	return app.Options{
 		Agent:            mcpAgent,
 		MCPConfig:        mcpConfig,
@@ -149,6 +219,7 @@ func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName 
 		Quiet:            quietFlag,
 		Debug:            viper.GetBool("debug"),
 		CompactMode:      viper.GetBool("compact"),
+		Extensions:       extRunner,
 	}
 }
 

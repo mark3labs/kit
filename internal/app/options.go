@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -94,4 +95,10 @@ type Options struct {
 	// EstimateAndUpdateUsage as a fallback) using the usage data returned by the
 	// agent. Satisfied by *ui.UsageTracker; wired in cmd/root.go.
 	UsageTracker UsageUpdater
+
+	// Extensions is the optional extension runner. When non-nil, lifecycle
+	// events (Input, BeforeAgentStart, AgentEnd, etc.) are emitted through
+	// it. Tool-level events (ToolCall, ToolResult) are handled by wrapper.go
+	// at the tool layer, not here.
+	Extensions *extensions.Runner
 }

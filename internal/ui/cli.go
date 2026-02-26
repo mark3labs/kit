@@ -177,6 +177,32 @@ func (c *CLI) DisplayInfo(message string) {
 	c.displayContainer()
 }
 
+// DisplayExtensionBlock renders a custom styled block with the given border
+// color and optional subtitle. Used by extensions via ctx.PrintBlock.
+func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
+	theme := GetTheme()
+
+	var borderClr = lipgloss.Color("#89b4fa")
+	if borderColor != "" {
+		borderClr = lipgloss.Color(borderColor)
+	}
+
+	content := text
+	if subtitle != "" {
+		sub := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(" " + subtitle)
+		content = content + "\n" + sub
+	}
+
+	rendered := renderContentBlock(
+		content,
+		c.messageRenderer.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderClr),
+		WithMarginBottom(1),
+	)
+	fmt.Println(rendered)
+}
+
 // DisplayCancellation displays a system message indicating that the current
 // AI generation has been cancelled by the user (typically via ESC key).
 func (c *CLI) DisplayCancellation() {

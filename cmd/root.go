@@ -14,6 +14,7 @@ import (
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/ui"
 	"github.com/spf13/cobra"
@@ -57,7 +58,9 @@ var (
 	numGPU  int32
 	mainGPU int32
 
-	// Hooks control
+	// Extensions control
+	noExtensionsFlag bool
+	extensionPaths   []string
 
 	// TLS configuration
 	tlsSkipVerify bool
@@ -301,6 +304,10 @@ func init() {
 		BoolVarP(&resumeFlag, "resume", "r", false, "interactive session picker")
 	rootCmd.PersistentFlags().
 		BoolVar(&noSessionFlag, "no-session", false, "ephemeral mode — no session persistence")
+	rootCmd.PersistentFlags().
+		BoolVar(&noExtensionsFlag, "no-extensions", false, "disable all extensions and hooks")
+	rootCmd.PersistentFlags().
+		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -338,6 +345,8 @@ func init() {
 	_ = viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))
 	_ = viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
 	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
+	_ = viper.BindPFlag("no-extensions", rootCmd.PersistentFlags().Lookup("no-extensions"))
+	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -542,7 +551,7 @@ func runNormalMode(ctx context.Context) error {
 	}
 
 	// Create the app.App instance now that session messages are loaded.
-	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames)
+	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, agentResult.ExtRunner)
 	appOpts.SessionManager = sessionManager
 	appOpts.TreeSession = treeSession
 
@@ -563,6 +572,22 @@ func runNormalMode(ctx context.Context) error {
 
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
+
+	// Emit SessionStart event to extensions.
+	if agentResult.ExtRunner != nil {
+		agentResult.ExtRunner.SetContext(extensions.Context{
+			CWD:         cwd,
+			Model:       modelName,
+			Interactive: promptFlag == "",
+			Print:       func(text string) { appInstance.PrintFromExtension("", text) },
+			PrintInfo:   func(text string) { appInstance.PrintFromExtension("info", text) },
+			PrintError:  func(text string) { appInstance.PrintFromExtension("error", text) },
+			PrintBlock:  appInstance.PrintBlockFromExtension,
+		})
+		if agentResult.ExtRunner.HasHandlers(extensions.SessionStart) {
+			_, _ = agentResult.ExtRunner.Emit(extensions.SessionStartEvent{})
+		}
+	}
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {

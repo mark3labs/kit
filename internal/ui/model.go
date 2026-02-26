@@ -530,6 +530,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		m.canceling = false
 
+	case app.ExtensionPrintEvent:
+		// Extension output — route through styled renderers when a level is set.
+		switch msg.Level {
+		case "info":
+			cmds = append(cmds, m.printSystemMessage(msg.Text))
+		case "error":
+			cmds = append(cmds, m.printErrorResponse(app.StepErrorEvent{
+				Err: fmt.Errorf("%s", msg.Text),
+			}))
+		case "block":
+			cmds = append(cmds, m.printExtensionBlock(msg))
+		default:
+			cmds = append(cmds, tea.Println(msg.Text))
+		}
+
 	default:
 		// Pass unrecognised messages to all children.
 		if m.input != nil {
@@ -788,6 +803,34 @@ func (m *AppModel) printSystemMessage(text string) tea.Cmd {
 		msg := m.renderer.RenderSystemMessage(text, time.Now())
 		rendered = msg.Content
 	}
+	return tea.Println(rendered)
+}
+
+// printExtensionBlock renders a custom styled block from an extension with
+// caller-chosen border color and optional subtitle, then emits it to scrollback.
+func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) tea.Cmd {
+	theme := GetTheme()
+
+	// Resolve border color: use the extension's hex value, fall back to theme accent.
+	var borderClr = lipgloss.Color("#89b4fa") // default blue
+	if evt.BorderColor != "" {
+		borderClr = lipgloss.Color(evt.BorderColor)
+	}
+
+	// Build content: main text + optional subtitle line.
+	content := evt.Text
+	if evt.Subtitle != "" {
+		sub := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(" " + evt.Subtitle)
+		content = strings.TrimSuffix(content, "\n") + "\n" + sub
+	}
+
+	rendered := renderContentBlock(
+		content,
+		m.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderClr),
+		WithMarginBottom(1),
+	)
 	return tea.Println(rendered)
 }
 

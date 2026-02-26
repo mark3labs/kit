@@ -96,3 +96,23 @@ type MessageCreatedEvent struct {
 	// Message is the fantasy message that was added to the store.
 	Message fantasy.Message
 }
+
+// ExtensionPrintEvent is sent when an extension calls ctx.Print, ctx.PrintInfo,
+// ctx.PrintError, or ctx.PrintBlock. The TUI renders it via the appropriate
+// renderer and tea.Println (scrollback); the CLI handler uses
+// DisplayInfo/DisplayError or plain fmt.Println. This exists because BubbleTea
+// captures stdout, so plain fmt.Println inside extensions would be swallowed.
+type ExtensionPrintEvent struct {
+	// Text is the content the extension wants to display to the user.
+	Text string
+	// Level controls the rendering style:
+	//   ""      — plain text (no styling)
+	//   "info"  — system message block (bordered, themed)
+	//   "error" — error block (red border, bold text)
+	//   "block" — custom block with BorderColor and Subtitle
+	Level string
+	// BorderColor is a hex color (e.g. "#a6e3a1") for Level="block".
+	BorderColor string
+	// Subtitle is optional muted text below the content for Level="block".
+	Subtitle string
+}

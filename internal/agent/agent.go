@@ -24,6 +24,15 @@ type AgentConfig struct {
 	MaxSteps         int
 	StreamingEnabled bool
 	DebugLogger      tools.DebugLogger
+
+	// ToolWrapper is an optional function that wraps the combined tool list
+	// before it is passed to the Fantasy agent. Used by the extensions system
+	// to intercept tool calls/results.
+	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
+
+	// ExtraTools are additional tools to include alongside core and MCP tools.
+	// Used by extensions to register custom tools.
+	ExtraTools []fantasy.AgentTool
 }
 
 // ToolCallHandler is a function type for handling tool calls as they happen.
@@ -107,6 +116,16 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 			mcpTools := toolManager.GetTools()
 			allTools = append(allTools, mcpTools...)
 		}
+	}
+
+	// Append any extra tools provided by extensions.
+	if len(agentConfig.ExtraTools) > 0 {
+		allTools = append(allTools, agentConfig.ExtraTools...)
+	}
+
+	// Apply tool wrapper (extension interception layer) if configured.
+	if agentConfig.ToolWrapper != nil {
+		allTools = agentConfig.ToolWrapper(allTools)
 	}
 
 	// Build fantasy agent options
