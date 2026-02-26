@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,6 +41,103 @@ type UIMessage struct {
 // Helper functions to get theme colors
 func getTheme() Theme {
 	return GetTheme()
+}
+
+// toolDisplayNames maps raw tool names to human-friendly display names.
+var toolDisplayNames = map[string]string{
+	"bash":          "Bash",
+	"read":          "Read",
+	"write":         "Write",
+	"edit":          "Edit",
+	"grep":          "Grep",
+	"find":          "Find",
+	"ls":            "Ls",
+	"run_shell_cmd": "Bash",
+}
+
+// toolDisplayName returns a human-friendly display name for a tool.
+// Falls back to capitalizing the first letter of the raw name.
+func toolDisplayName(rawName string) string {
+	if display, ok := toolDisplayNames[rawName]; ok {
+		return display
+	}
+	if rawName != "" {
+		return strings.ToUpper(rawName[:1]) + rawName[1:]
+	}
+	return rawName
+}
+
+// formatToolParams formats tool input parameters for inline header display.
+// Extracts the primary parameter (command/filePath) first, then shows
+// remaining params as (key=val, ...). Truncates to maxWidth.
+func formatToolParams(toolArgs string, maxWidth int) string {
+	args := strings.TrimSpace(toolArgs)
+	if args == "" || args == "{}" {
+		return ""
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		// Fallback: strip braces and return raw content
+		args = strings.TrimPrefix(args, "{")
+		args = strings.TrimSuffix(args, "}")
+		args = strings.TrimSpace(args)
+		if len(args) > maxWidth && maxWidth > 3 {
+			return args[:maxWidth-3] + "..."
+		}
+		return args
+	}
+
+	if len(params) == 0 {
+		return ""
+	}
+
+	// Identify primary parameter by checking known keys in priority order
+	primaryKeys := []string{"command", "filePath", "path", "pattern", "query", "url"}
+	var primaryKey string
+	var primaryVal string
+	for _, key := range primaryKeys {
+		if val, ok := params[key]; ok {
+			primaryKey = key
+			primaryVal = fmt.Sprintf("%v", val)
+			break
+		}
+	}
+
+	var result strings.Builder
+	if primaryVal != "" {
+		result.WriteString(primaryVal)
+	}
+
+	// Collect remaining parameters (skip large values like file content)
+	var remaining []string
+	for key, val := range params {
+		if key == primaryKey {
+			continue
+		}
+		valStr := fmt.Sprintf("%v", val)
+		// Skip very large values (e.g., oldString, newString, content, todos)
+		if len(valStr) > 100 {
+			continue
+		}
+		remaining = append(remaining, fmt.Sprintf("%s=%s", key, valStr))
+	}
+	sort.Strings(remaining)
+
+	if len(remaining) > 0 {
+		if result.Len() > 0 {
+			result.WriteString(" ")
+		}
+		result.WriteString("(")
+		result.WriteString(strings.Join(remaining, ", "))
+		result.WriteString(")")
+	}
+
+	str := result.String()
+	if len(str) > maxWidth && maxWidth > 3 {
+		return str[:maxWidth-3] + "..."
+	}
+	return str
 }
 
 // MessageRenderer handles the formatting and rendering of different message types
@@ -421,38 +520,66 @@ func (r *MessageRenderer) RenderToolCallMessage(toolName, toolArgs string, times
 	}
 }
 
-// RenderToolMessage renders the result of a tool execution, formatting the output
-// based on the tool type and whether it succeeded or failed. Error results are
-// displayed in red, while successful results are formatted according to the tool's
-// output type (bash, file content, etc.).
+// RenderToolMessage renders a unified tool block combining the tool invocation
+// header (icon + display name + params) with the execution result body. The
+// border color indicates status: green for success, red for error. This replaces
+// the previous two-block approach (separate call + result blocks).
 func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
 	theme := getTheme()
 
-	// Tool result styling - no header since command is already shown in "Executing" message
-	var fullContent string
+	// --- Header: [icon] [name] [params] ---
+	var icon string
+	borderColor := theme.Success
+	iconColor := theme.Success
 	if isError {
-		fullContent = lipgloss.NewStyle().
-			Foreground(theme.Error).
-			Render(fmt.Sprintf("Error: %s", toolResult))
+		icon = "×"
+		borderColor = theme.Error
+		iconColor = theme.Error
 	} else {
-		// Format result based on tool type
-		fullContent = r.formatToolResult(toolName, toolResult, r.width-8)
+		icon = "✓"
 	}
 
-	// Handle empty content
-	if strings.TrimSpace(fullContent) == "" {
-		fullContent = lipgloss.NewStyle().
+	iconStr := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon)
+	displayName := toolDisplayName(toolName)
+	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
+
+	// Format params with width budget for the header line
+	paramBudget := r.width - 10 - len(displayName)
+	if paramBudget < 20 {
+		paramBudget = 20
+	}
+	params := formatToolParams(toolArgs, paramBudget)
+
+	header := iconStr + " " + nameStr
+	if params != "" {
+		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
+	}
+
+	// --- Body ---
+	var body string
+	if isError {
+		body = lipgloss.NewStyle().
+			Foreground(theme.Error).
+			Render(toolResult)
+	} else {
+		body = r.formatToolResult(toolName, toolResult, r.width-8)
+	}
+
+	if strings.TrimSpace(body) == "" {
+		body = lipgloss.NewStyle().
 			Italic(true).
 			Foreground(theme.Muted).
 			Render("(no output)")
 	}
 
-	// Use the new block renderer
+	// Combine header + body into a single block
+	fullContent := header + "\n\n" + strings.TrimSuffix(body, "\n")
+
 	rendered := renderContentBlock(
-		strings.TrimSuffix(fullContent, "\n"),
+		fullContent,
 		r.width,
 		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.Muted),
+		WithBorderColor(borderColor),
 		WithMarginBottom(1),
 	)
 

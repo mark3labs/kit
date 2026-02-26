@@ -135,51 +135,64 @@ func (r *CompactRenderer) RenderToolCallMessage(toolName, toolArgs string, times
 	}
 }
 
-// RenderToolMessage renders the result of a tool execution in compact format,
-// displaying the outcome with appropriate styling based on success or error status.
-// Results are limited to 5 lines to maintain compact display while preserving key information.
+// RenderToolMessage renders a unified tool block in compact format, combining
+// the tool invocation header (icon + display name + params) with the execution
+// result body. Status is indicated by icon: checkmark for success, cross for error.
 func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
 	theme := getTheme()
-	symbol := lipgloss.NewStyle().Foreground(theme.Muted).Render("]")
 
-	// Determine result type and styling
-	var label string
-	var content string
-	var labelText string
-
+	// Status icon
+	var icon string
+	iconColor := theme.Success
 	if isError {
-		labelText = "Error"
-		label = lipgloss.NewStyle().Foreground(theme.Muted).Bold(true).Render(labelText)
-		content = lipgloss.NewStyle().Foreground(theme.Muted).Render(r.formatToolResult(toolResult))
+		icon = "×"
+		iconColor = theme.Error
 	} else {
-		// Determine result type based on tool and content
-		labelText = r.determineResultType(toolName, toolResult)
-		label = lipgloss.NewStyle().Foreground(theme.Muted).Bold(true).Render(labelText)
-		content = lipgloss.NewStyle().Foreground(theme.Muted).Render(r.formatToolResult(toolResult))
+		icon = "✓"
+	}
 
+	iconStr := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon)
+	displayName := toolDisplayName(toolName)
+	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
+
+	// Format params
+	paramBudget := r.width - 10 - len(displayName)
+	if paramBudget < 20 {
+		paramBudget = 20
+	}
+	params := formatToolParams(toolArgs, paramBudget)
+
+	// Build header line
+	header := iconStr + " " + nameStr
+	if params != "" {
+		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
+	}
+
+	// Format body
+	var body string
+	if isError {
+		body = lipgloss.NewStyle().Foreground(theme.Error).Render(r.formatToolResult(toolResult))
+	} else {
+		body = lipgloss.NewStyle().Foreground(theme.Muted).Render(r.formatToolResult(toolResult))
 		if r.formatToolResult(toolResult) == "" {
-			content = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
+			body = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
 		}
 	}
 
-	// Handle multi-line tool results
-	contentLines := strings.Split(content, "\n")
-	var formattedLines []string
-
-	for i, line := range contentLines {
-		if i == 0 {
-			// First line includes symbol and label
-			formattedLines = append(formattedLines, fmt.Sprintf("%s  %s %s", symbol, label, line))
-		} else {
-			// Subsequent lines without indentation for compact mode
-			formattedLines = append(formattedLines, line)
+	// Combine header + indented body
+	var lines []string
+	lines = append(lines, header)
+	if body != "" {
+		bodyLines := strings.Split(body, "\n")
+		for _, line := range bodyLines {
+			lines = append(lines, "  "+line)
 		}
 	}
 
 	return UIMessage{
 		Type:    ToolMessage,
-		Content: strings.Join(formattedLines, "\n"),
-		Height:  len(formattedLines),
+		Content: strings.Join(lines, "\n"),
+		Height:  len(lines),
 	}
 }
 

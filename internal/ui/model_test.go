@@ -529,20 +529,33 @@ func TestSubmitMsg_printsUserMessage(t *testing.T) {
 	}
 }
 
-// TestToolCallStarted_flushesAndPrints verifies that ToolCallStartedEvent
-// produces a non-nil cmd (flush + tool call print).
-func TestToolCallStarted_flushesAndPrints(t *testing.T) {
+// TestToolCallStarted_flushesOnly verifies that ToolCallStartedEvent flushes
+// accumulated stream content but does NOT print a tool call block (the unified
+// block is printed later on ToolResultEvent).
+func TestToolCallStarted_flushesOnly(t *testing.T) {
 	ctrl := &stubAppController{}
-	m, _, _ := newTestAppModel(ctrl)
+	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
+	// With no stream content, flush returns nil → cmd should be nil.
 	_, cmd := m.Update(app.ToolCallStartedEvent{
 		ToolName: "bash",
 		ToolArgs: `{"cmd":"ls"}`,
 	})
 
+	if cmd != nil {
+		t.Fatal("expected nil cmd on ToolCallStartedEvent with no stream content")
+	}
+
+	// With stream content, flush returns tea.Println → cmd should be non-nil.
+	stream.renderedContent = "partial text"
+	_, cmd = m.Update(app.ToolCallStartedEvent{
+		ToolName: "bash",
+		ToolArgs: `{"cmd":"ls"}`,
+	})
+
 	if cmd == nil {
-		t.Fatal("expected non-nil cmd on ToolCallStartedEvent")
+		t.Fatal("expected non-nil cmd on ToolCallStartedEvent with stream content to flush")
 	}
 }
 

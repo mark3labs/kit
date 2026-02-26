@@ -126,20 +126,11 @@ func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error 
 	return nil
 }
 
-// DisplayToolCallMessage renders and displays a message indicating that a tool
-// is being executed. Shows the tool name and its arguments formatted appropriately
-// for the current display mode. This is typically shown while a tool is running.
+// DisplayToolCallMessage is a no-op retained for backward compatibility. Tool
+// calls are now rendered as part of the unified tool block in DisplayToolMessage,
+// which combines the invocation header with the execution result.
 func (c *CLI) DisplayToolCallMessage(toolName, toolArgs string) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderToolCallMessage(toolName, toolArgs, time.Now())
-	} else {
-		msg = c.messageRenderer.RenderToolCallMessage(toolName, toolArgs, time.Now())
-	}
-
-	// Always display immediately - spinner management is handled externally
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	// No-op: unified tool blocks are rendered in DisplayToolMessage.
 }
 
 // DisplayToolMessage renders and displays the complete result of a tool execution,

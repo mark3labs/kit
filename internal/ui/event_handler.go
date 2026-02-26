@@ -103,9 +103,10 @@ func (h *CLIEventHandler) Handle(msg tea.Msg) {
 
 	case app.ToolCallStartedEvent:
 		h.stopSpinner()
-		// End any active stream before tool call output.
+		// End any active stream before tool execution. The tool call itself
+		// is NOT displayed here — a unified block (header + result) will be
+		// rendered when the ToolResultEvent arrives.
 		h.endStream()
-		h.cli.DisplayToolCallMessage(e.ToolName, e.ToolArgs)
 
 	case app.ToolExecutionEvent:
 		if e.IsStarting {

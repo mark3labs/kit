@@ -487,10 +487,8 @@ func runNormalMode(ctx context.Context) error {
 				case "user":
 					cli.DisplayUserMessage(sessionMsg.Content())
 				case "assistant":
-					// Display tool calls if present
-					for _, tc := range sessionMsg.ToolCalls() {
-						cli.DisplayToolCallMessage(tc.Name, tc.Input)
-					}
+					// Tool calls are rendered as part of the unified tool result
+					// block, so we skip displaying them here separately.
 
 					// Display assistant response (only if there's content)
 					if text := sessionMsg.Content(); text != "" {

@@ -382,9 +382,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.ToolCallStartedEvent:
 		// Flush any accumulated streaming text to scrollback first (streaming
-		// always completes before tool calls fire), then print the tool call.
+		// always completes before tool calls fire). The tool call itself is
+		// NOT printed here — a unified block (header + result) will be
+		// rendered when the ToolResultEvent arrives.
 		cmds = append(cmds, m.flushStreamContent())
-		cmds = append(cmds, m.printToolCall(msg))
 
 	case app.ToolExecutionEvent:
 		// Pass to stream component for execution spinner display.
@@ -623,19 +624,6 @@ func (m *AppModel) printAssistantMessage(text string) tea.Cmd {
 		rendered = msg.Content
 	} else {
 		msg := m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName)
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
-}
-
-// printToolCall renders a tool call message and emits it above the BT region.
-func (m *AppModel) printToolCall(evt app.ToolCallStartedEvent) tea.Cmd {
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderToolCallMessage(evt.ToolName, evt.ToolArgs, time.Now())
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderToolCallMessage(evt.ToolName, evt.ToolArgs, time.Now())
 		rendered = msg.Content
 	}
 	return tea.Println(rendered)
