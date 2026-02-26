@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"charm.land/fantasy"
 
@@ -322,25 +323,59 @@ func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.
 }
 
 // extractToolResultText extracts the text and error status from a fantasy ToolResultContent.
+// It unwraps the Fantasy type layer and parses the MCP content structure to
+// return human-readable text rather than raw JSON.
 func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 	if tr.Result == nil {
 		return "", false
 	}
 
-	// Marshal the result to JSON for display
-	resultBytes, err := json.Marshal(tr.Result)
-	if err != nil {
-		return fmt.Sprintf("%v", tr.Result), false
-	}
-
-	resultText := string(resultBytes)
-
-	// Check if this is an error result by examining the type
+	// Check if this is an error result by examining the type.
 	if errResult, ok := tr.Result.(fantasy.ToolResultOutputContentError); ok {
 		return errResult.Error.Error(), true
 	}
 
-	return resultText, false
+	// Get text directly from the Fantasy result type — avoids JSON round-trip.
+	if textResult, ok := tr.Result.(fantasy.ToolResultOutputContentText); ok {
+		// The text typically contains a JSON-encoded MCP CallToolResult
+		// (e.g. {"content":[{"type":"text","text":"..."}]}). Extract the
+		// human-readable text from that structure.
+		return extractMCPContentText(textResult.Text), false
+	}
+
+	// Fallback: marshal to JSON for display.
+	resultBytes, err := json.Marshal(tr.Result)
+	if err != nil {
+		return fmt.Sprintf("%v", tr.Result), false
+	}
+	return string(resultBytes), false
+}
+
+// extractMCPContentText attempts to parse an MCP tool result JSON string
+// and extract the human-readable text from its content array. The expected
+// format is: {"content":[{"type":"text","text":"..."}], "_meta":{...}}
+// If parsing fails the original string is returned unchanged.
+func extractMCPContentText(result string) string {
+	var mcpResult struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+
+	if err := json.Unmarshal([]byte(result), &mcpResult); err == nil {
+		var texts []string
+		for _, c := range mcpResult.Content {
+			if c.Type == "text" && c.Text != "" {
+				texts = append(texts, c.Text)
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n")
+		}
+	}
+
+	return result
 }
 
 // GetTools returns the list of available tools loaded in the agent.

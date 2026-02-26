@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -825,8 +824,7 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 
 	case app.ToolResultEvent:
 		h.stopSpinner()
-		resultContent := extractToolResultText(e.Result)
-		h.cli.DisplayToolMessage(e.ToolName, e.ToolArgs, resultContent, e.IsError)
+		h.cli.DisplayToolMessage(e.ToolName, e.ToolArgs, e.Result, e.IsError)
 		h.startSpinner()
 
 	case app.ResponseCompleteEvent:
@@ -862,33 +860,4 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 		// Reset for next step in the agentic loop.
 		h.lastDisplayed = ""
 	}
-}
-
-// extractToolResultText parses a tool result string, handling JSON-encoded MCP
-// content structures and double-encoding.
-func extractToolResultText(result string) string {
-	var mcpContent struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-
-	if err := json.Unmarshal([]byte(result), &mcpContent); err == nil {
-		if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-			return mcpContent.Content[0].Text
-		}
-	}
-
-	// Try unquoting first (double-encoded JSON).
-	var unquoted string
-	if err := json.Unmarshal([]byte(result), &unquoted); err == nil {
-		if err := json.Unmarshal([]byte(unquoted), &mcpContent); err == nil {
-			if len(mcpContent.Content) > 0 && mcpContent.Content[0].Type == "text" {
-				return mcpContent.Content[0].Text
-			}
-		}
-	}
-
-	return result
 }
