@@ -1,0 +1,1 @@
+{"Created":"0001-01-01T00:00:00Z","Name":"","name":"EnXXTfbX","deliver_policy":"all","ack_policy":"explicit","ack_wait":30000000000,"max_deliver":-1,"filter_subject":"iteratr.unified-bubbletea-architecture.\u003e","replay_policy":"instant","max_waiting":512,"max_ack_pending":1000,"inactive_threshold":5000000000,"num_replicas":0}
