@@ -10,8 +10,8 @@ import (
 )
 
 // SpinnerFunc is a function type for showing spinners during agent creation.
-// It executes the provided function while displaying a spinner with the given message.
-type SpinnerFunc func(message string, fn func() error) error
+// It executes the provided function while displaying an animated spinner.
+type SpinnerFunc func(fn func() error) error
 
 // AgentCreationOptions contains options for creating an agent.
 // It extends AgentConfig with UI-related options for showing progress during creation.
@@ -55,7 +55,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 	// Show spinner for Ollama models if requested and not quiet
 	parsedProvider, _, _ := models.ParseModelString(opts.ModelConfig.ModelString)
 	if opts.ShowSpinner && parsedProvider == "ollama" && !opts.Quiet && opts.SpinnerFunc != nil {
-		err = opts.SpinnerFunc("Loading Ollama model...", func() error {
+		err = opts.SpinnerFunc(func() error {
 			agent, err = NewAgent(ctx, agentConfig)
 			return err
 		})

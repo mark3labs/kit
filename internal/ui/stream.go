@@ -10,16 +10,19 @@ import (
 )
 
 // knightRiderFrames generates a KITT-style scanning animation where a bright
-// red light bounces back and forth across a row of dots with a trailing glow.
-// Used by StreamComponent (TUI inline spinner) and Spinner (stderr goroutine spinner).
+// light bounces back and forth across a row of dots with a trailing glow.
+// Colors are derived from the active theme. Used by StreamComponent (TUI
+// inline spinner) and Spinner (stderr goroutine spinner).
 func knightRiderFrames() []string {
 	const numDots = 8
 	const dot = "▪"
 
-	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
-	med := lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#440000"))
-	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#222222"))
+	theme := GetTheme()
+
+	bright := lipgloss.NewStyle().Foreground(theme.Primary)
+	med := lipgloss.NewStyle().Foreground(theme.Muted)
+	dim := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	off := lipgloss.NewStyle().Foreground(theme.MutedBorder)
 
 	// Scanner bounces: 0→7→0
 	positions := make([]int, 0, 2*numDots-2)
@@ -73,17 +76,15 @@ const (
 	// streamPhaseIdle is the initial state — nothing to display.
 	streamPhaseIdle streamPhase = iota
 
-	// streamPhaseSpinner shows the KITT-style animation while waiting for the
-	// first streaming chunk or tool event.
-	streamPhaseSpinner
-
-	// streamPhaseStreaming shows the live streaming text as chunks arrive.
-	streamPhaseStreaming
+	// streamPhaseActive means content is being displayed (streaming text
+	// and/or spinner animation).
+	streamPhaseActive
 )
 
 // StreamComponent is the Bubble Tea child model responsible for the stream
-// region: it renders a KITT-style spinner when the agent is thinking, and
-// switches to live text once StreamChunkEvents start arriving.
+// region: it renders a KITT-style spinner when the agent is working, and
+// displays live text as StreamChunkEvents arrive. The spinner remains visible
+// alongside streaming text until the step completes and Reset() is called.
 //
 // Tool calls, tool results, user messages, and other non-streaming content
 // are printed immediately by the parent AppModel via tea.Println(). The
@@ -95,13 +96,17 @@ const (
 //     then calls Reset(); StreamComponent never calls tea.Quit.
 //
 // Events handled:
-//   - app.SpinnerEvent{Show:true}  → enter spinner phase, start tick loop
-//   - app.SpinnerEvent{Show:false} → (unused — first chunk transitions automatically)
-//   - app.StreamChunkEvent         → append text, enter streaming phase
-//   - app.ToolExecutionEvent       → show execution spinner during tool run
+//   - app.SpinnerEvent{Show:true}  → start spinner tick loop
+//   - app.StreamChunkEvent         → append text
+//   - app.ToolExecutionEvent       → show execution label on spinner
 type StreamComponent struct {
-	// phase tracks what we are currently showing.
+	// phase tracks whether the component is idle or active.
 	phase streamPhase
+
+	// spinning is true while the KITT animation tick loop is running.
+	// It is orthogonal to whether streaming text is present: the spinner
+	// remains visible alongside streaming text until Reset().
+	spinning bool
 
 	// spinnerFrames are the pre-rendered KITT animation frames.
 	spinnerFrames []string
@@ -109,7 +114,8 @@ type StreamComponent struct {
 	// spinnerFrame is the current frame index.
 	spinnerFrame int
 
-	// spinnerMsg is the label shown next to the KITT animation.
+	// spinnerMsg is the label shown next to the KITT animation (e.g.
+	// "Executing tool_name…"). Empty string means no label.
 	spinnerMsg string
 
 	// streamContent accumulates all streaming text chunks.
@@ -145,7 +151,6 @@ func NewStreamComponent(compactMode bool, width int, modelName string) *StreamCo
 	}
 	return &StreamComponent{
 		spinnerFrames:   knightRiderFrames(),
-		spinnerMsg:      "Thinking…",
 		compactMode:     compactMode,
 		modelName:       modelName,
 		messageRenderer: NewMessageRenderer(width, false),
@@ -168,8 +173,9 @@ func (s *StreamComponent) SetHeight(h int) {
 // agent step. Called by AppModel after a step completes or errors.
 func (s *StreamComponent) Reset() {
 	s.phase = streamPhaseIdle
+	s.spinning = false
 	s.spinnerFrame = 0
-	s.spinnerMsg = "Thinking…"
+	s.spinnerMsg = ""
 	s.streamContent.Reset()
 	s.timestamp = time.Time{}
 }
@@ -205,44 +211,46 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.compactRenderer.SetWidth(s.width)
 
 	case streamSpinnerTickMsg:
-		if s.phase == streamPhaseSpinner {
+		if s.spinning {
 			s.spinnerFrame++
 			return s, streamSpinnerTickCmd()
 		}
-		// Phase changed; let the tick loop die naturally.
+		// Spinning stopped; let the tick loop die naturally.
 
 	// ── App-layer events ──────────────────────────────────────────────────
 
 	case app.SpinnerEvent:
-		if msg.Show {
-			if s.phase == streamPhaseIdle {
-				s.phase = streamPhaseSpinner
-				s.timestamp = time.Now()
-				return s, streamSpinnerTickCmd()
-			}
-		}
-		// Show:false is a no-op; the first StreamChunkEvent transitions phase.
-
-	case app.StreamChunkEvent:
-		if s.phase != streamPhaseStreaming {
-			s.phase = streamPhaseStreaming
+		if msg.Show && !s.spinning {
+			s.phase = streamPhaseActive
+			s.spinning = true
+			s.spinnerFrame = 0
 			if s.timestamp.IsZero() {
 				s.timestamp = time.Now()
 			}
+			return s, streamSpinnerTickCmd()
+		}
+
+	case app.StreamChunkEvent:
+		s.phase = streamPhaseActive
+		if s.timestamp.IsZero() {
+			s.timestamp = time.Now()
 		}
 		s.streamContent.WriteString(msg.Content)
 
 	case app.ToolExecutionEvent:
 		if msg.IsStarting {
-			// Show a KITT spinner with the tool name while the tool executes.
-			s.phase = streamPhaseSpinner
+			// Show the tool name on the spinner while the tool executes.
 			s.spinnerMsg = "Executing " + msg.ToolName + "…"
 			s.spinnerFrame = 0
-			return s, streamSpinnerTickCmd()
+			if !s.spinning {
+				s.phase = streamPhaseActive
+				s.spinning = true
+				return s, streamSpinnerTickCmd()
+			}
+		} else {
+			// Tool finished — clear execution label but keep spinning.
+			s.spinnerMsg = ""
 		}
-		// Tool finished — go idle. Parent will trigger a new spinner for
-		// the next LLM call if needed.
-		s.phase = streamPhaseIdle
 	}
 
 	return s, nil
@@ -259,25 +267,27 @@ func (s *StreamComponent) View() tea.View {
 
 // render builds the full content string for the stream region.
 func (s *StreamComponent) render() string {
-	var content string
-	switch s.phase {
-	case streamPhaseIdle:
-		return ""
-
-	case streamPhaseSpinner:
-		content = s.renderSpinner()
-
-	case streamPhaseStreaming:
-		// Live streaming assistant text only. Tool calls, results, and
-		// other messages are printed immediately by the parent via tea.Println.
-		text := s.streamContent.String()
-		if text != "" {
-			content = s.renderStreamingText(text)
-		}
-
-	default:
+	if s.phase == streamPhaseIdle {
 		return ""
 	}
+
+	var parts []string
+
+	// Render streaming text if present.
+	if text := s.streamContent.String(); text != "" {
+		parts = append(parts, s.renderStreamingText(text))
+	}
+
+	// Render spinner below streaming text (or alone if no text yet).
+	if s.spinning {
+		parts = append(parts, s.renderSpinner())
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	content := strings.Join(parts, "\n")
 
 	// Clamp to height if constrained: keep the last h lines so the most
 	// recent output is always visible.
@@ -292,15 +302,16 @@ func (s *StreamComponent) render() string {
 	return content
 }
 
-// renderSpinner renders the KITT-style scanning animation with a message label.
+// renderSpinner renders the KITT-style scanning animation with an optional label.
 func (s *StreamComponent) renderSpinner() string {
-	theme := GetTheme()
-
 	frame := s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
+	if s.spinnerMsg == "" {
+		return "  " + frame
+	}
+	theme := GetTheme()
 	msgStyle := lipgloss.NewStyle().
 		Foreground(theme.Text).
 		Italic(true)
-
 	return "  " + frame + " " + msgStyle.Render(s.spinnerMsg)
 }
 

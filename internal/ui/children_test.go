@@ -306,7 +306,7 @@ func TestStreamComponent_Init_ReturnsNil(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // TestStreamComponent_SpinnerTransition verifies that SpinnerEvent{Show:true}
-// transitions phase from idle → spinner and starts the tick loop.
+// starts spinning and transitions phase from idle → active.
 // --------------------------------------------------------------------------
 
 func TestStreamComponent_SpinnerTransition(t *testing.T) {
@@ -318,8 +318,11 @@ func TestStreamComponent_SpinnerTransition(t *testing.T) {
 
 	_, cmd := c.Update(app.SpinnerEvent{Show: true})
 
-	if c.phase != streamPhaseSpinner {
-		t.Fatalf("expected streamPhaseSpinner after SpinnerEvent{Show:true}, got %v", c.phase)
+	if !c.spinning {
+		t.Fatal("expected spinning=true after SpinnerEvent{Show:true}")
+	}
+	if c.phase != streamPhaseActive {
+		t.Fatalf("expected streamPhaseActive after SpinnerEvent{Show:true}, got %v", c.phase)
 	}
 	// A tick cmd should have been returned to start the animation loop.
 	if cmd == nil {
@@ -337,27 +340,33 @@ func TestStreamComponent_SpinnerShowFalse_NoTransitionFromIdle(t *testing.T) {
 	if c.phase != streamPhaseIdle {
 		t.Fatalf("expected streamPhaseIdle after SpinnerEvent{Show:false}, got %v", c.phase)
 	}
+	if c.spinning {
+		t.Fatal("expected spinning=false after SpinnerEvent{Show:false}")
+	}
 }
 
 // --------------------------------------------------------------------------
-// TestStreamComponent_SpinnerToStreaming_OnFirstChunk verifies that receiving
-// a StreamChunkEvent while in spinner phase transitions to streaming phase.
+// TestStreamComponent_SpinnerKeepsRunningDuringStreaming verifies that
+// receiving a StreamChunkEvent keeps the spinner running alongside text.
 // --------------------------------------------------------------------------
 
-func TestStreamComponent_SpinnerToStreaming_OnFirstChunk(t *testing.T) {
+func TestStreamComponent_SpinnerKeepsRunningDuringStreaming(t *testing.T) {
 	c := newTestStream()
 
-	// Enter spinner phase.
+	// Start spinner.
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
-	if c.phase != streamPhaseSpinner {
-		t.Fatalf("precondition: expected streamPhaseSpinner, got %v", c.phase)
+	if !c.spinning {
+		t.Fatal("precondition: expected spinning=true")
 	}
 
-	// Receive first chunk.
+	// Receive first chunk — spinner should keep running.
 	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "hello"})
 
-	if c.phase != streamPhaseStreaming {
-		t.Fatalf("expected streamPhaseStreaming after first chunk, got %v", c.phase)
+	if !c.spinning {
+		t.Fatal("expected spinning=true after first chunk")
+	}
+	if c.phase != streamPhaseActive {
+		t.Fatalf("expected streamPhaseActive after first chunk, got %v", c.phase)
 	}
 	if c.streamContent.String() != "hello" {
 		t.Fatalf("expected streamContent='hello', got %q", c.streamContent.String())
@@ -382,8 +391,8 @@ func TestStreamComponent_ChunkAccumulation(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected accumulated content %q, got %q", want, got)
 	}
-	if c.phase != streamPhaseStreaming {
-		t.Fatalf("expected streamPhaseStreaming, got %v", c.phase)
+	if c.phase != streamPhaseActive {
+		t.Fatalf("expected streamPhaseActive, got %v", c.phase)
 	}
 }
 
@@ -399,8 +408,8 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 		IsStarting: true,
 	})
 
-	if c.phase != streamPhaseSpinner {
-		t.Fatalf("expected streamPhaseSpinner during tool execution, got %v", c.phase)
+	if !c.spinning {
+		t.Fatal("expected spinning=true during tool execution")
 	}
 	if !strings.Contains(c.spinnerMsg, "exec_tool") {
 		t.Fatalf("expected spinnerMsg to contain tool name, got %q", c.spinnerMsg)
@@ -410,18 +419,23 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	}
 }
 
-// TestStreamComponent_ToolExecution_NotStarting goes idle after execution.
-func TestStreamComponent_ToolExecution_NotStarting_GoesIdle(t *testing.T) {
+// TestStreamComponent_ToolExecution_NotStarting clears label but keeps spinning.
+func TestStreamComponent_ToolExecution_NotStarting_KeepsSpinning(t *testing.T) {
 	c := newTestStream()
-	c.phase = streamPhaseSpinner // simulating execution in progress
+	// Start spinning first (simulating execution in progress).
+	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
+	c.spinnerMsg = "Executing some_tool…"
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{
 		ToolName:   "some_tool",
 		IsStarting: false,
 	})
 
-	if c.phase != streamPhaseIdle {
-		t.Fatalf("expected streamPhaseIdle after tool execution finished, got %v", c.phase)
+	if !c.spinning {
+		t.Fatal("expected spinning=true after tool execution finished (spinner keeps running)")
+	}
+	if c.spinnerMsg != "" {
+		t.Fatalf("expected spinnerMsg cleared after tool finished, got %q", c.spinnerMsg)
 	}
 }
 
@@ -468,6 +482,9 @@ func TestStreamComponent_Reset(t *testing.T) {
 	if c.phase != streamPhaseIdle {
 		t.Fatalf("expected streamPhaseIdle after Reset(), got %v", c.phase)
 	}
+	if c.spinning {
+		t.Fatal("expected spinning=false after Reset()")
+	}
 	if c.spinnerFrame != 0 {
 		t.Fatalf("expected spinnerFrame=0 after Reset(), got %d", c.spinnerFrame)
 	}
@@ -477,8 +494,8 @@ func TestStreamComponent_Reset(t *testing.T) {
 	if !c.timestamp.IsZero() {
 		t.Fatal("expected zero timestamp after Reset()")
 	}
-	if c.spinnerMsg != "Thinking…" {
-		t.Fatalf("expected spinnerMsg reset to default, got %q", c.spinnerMsg)
+	if c.spinnerMsg != "" {
+		t.Fatalf("expected spinnerMsg empty after Reset(), got %q", c.spinnerMsg)
 	}
 }
 
@@ -511,7 +528,7 @@ func TestStreamComponent_SetHeight_Negative_ClampsToZero(t *testing.T) {
 func TestStreamComponent_SpinnerTick_AdvancesFrame(t *testing.T) {
 	c := newTestStream()
 
-	// Enter spinner phase first.
+	// Start spinning first.
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
 	initialFrame := c.spinnerFrame
 
@@ -521,19 +538,19 @@ func TestStreamComponent_SpinnerTick_AdvancesFrame(t *testing.T) {
 	if c.spinnerFrame != initialFrame+1 {
 		t.Fatalf("expected spinnerFrame=%d, got %d", initialFrame+1, c.spinnerFrame)
 	}
-	// The tick should re-schedule itself.
+	// The tick should re-schedule itself while spinning.
 	if cmd == nil {
-		t.Fatal("expected tick cmd to be re-scheduled in spinner phase")
+		t.Fatal("expected tick cmd to be re-scheduled while spinning")
 	}
 }
 
-// TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinner verifies that a
-// tick in non-spinner phase does not re-schedule.
-func TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinner(t *testing.T) {
+// TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinning verifies that a
+// tick when not spinning does not re-schedule.
+func TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinning(t *testing.T) {
 	c := newTestStream()
-	// phase is idle — tick should be ignored.
+	// spinning is false — tick should be ignored.
 	_, cmd := c.Update(streamSpinnerTickMsg{})
 	if cmd != nil {
-		t.Fatal("expected no tick reschedule when not in spinner phase")
+		t.Fatal("expected no tick reschedule when not spinning")
 	}
 }

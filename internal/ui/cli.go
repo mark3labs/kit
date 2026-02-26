@@ -76,11 +76,11 @@ func (c *CLI) SetModelName(modelName string) {
 	}
 }
 
-// ShowSpinner displays an animated spinner with the specified message while
-// executing the provided action function. The spinner automatically stops when
-// the action completes. Returns any error returned by the action function.
-func (c *CLI) ShowSpinner(message string, action func() error) error {
-	spinner := NewSpinner(message)
+// ShowSpinner displays an animated spinner while executing the provided action
+// function. The spinner automatically stops when the action completes. Returns
+// any error returned by the action function.
+func (c *CLI) ShowSpinner(action func() error) error {
+	spinner := NewSpinner()
 	spinner.Start()
 
 	err := action()

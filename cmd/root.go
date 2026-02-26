@@ -403,10 +403,10 @@ func runNormalMode(ctx context.Context) error {
 	// Create spinner function for agent creation
 	var spinnerFunc agent.SpinnerFunc
 	if !quietFlag {
-		spinnerFunc = func(message string, fn func() error) error {
+		spinnerFunc = func(fn func() error) error {
 			tempCli, tempErr := ui.NewCLI(viper.GetBool("debug"), viper.GetBool("compact"))
 			if tempErr == nil {
-				return tempCli.ShowSpinner(message, fn)
+				return tempCli.ShowSpinner(fn)
 			}
 			// Fallback without spinner
 			return fn()

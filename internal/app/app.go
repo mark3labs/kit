@@ -336,9 +336,8 @@ func (a *App) executeStep(ctx context.Context, prompt string, prog *tea.Program,
 		func(content string) {
 			sendFn(ToolCallContentEvent{Content: content})
 		},
-		// onStreamingResponse — hide spinner on first chunk
+		// onStreamingResponse — spinner keeps running alongside streaming text
 		func(chunk string) {
-			sendFn(SpinnerEvent{Show: false})
 			sendFn(StreamChunkEvent{Content: chunk})
 		},
 	)
