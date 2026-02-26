@@ -86,34 +86,7 @@ func (a *agentUIAdapter) GetLoadedServerNames() []string {
 var rootCmd = &cobra.Command{
 	Use:   "kit",
 	Short: "Chat with AI models through a unified interface",
-	Long: `KIT is a CLI tool that allows you to interact with various AI models
-through a unified interface. It supports various tools through MCP servers
-and provides streaming responses.
-
-Available models can be specified using the --model flag:
-- Anthropic Claude (default): anthropic/claude-sonnet-4-5-20250929
-- OpenAI: openai/gpt-4
-- Ollama models: ollama/modelname
-- Google: google/modelname
-
-Examples:
-  # Interactive mode
-  kit -m ollama/qwen2.5:3b
-  kit -m openai/gpt-4
-  kit -m google/gemini-2.0-flash
-  
-  # Non-interactive mode
-  kit -p "What is the weather like today?"
-  kit -p "Calculate 15 * 23" --quiet
-  
-  # Session management
-  kit --save-session ./my-session.json -p "Hello"
-  kit --load-session ./my-session.json -p "Continue our conversation"
-  kit --load-session ./session.json --save-session ./session.json -p "Next message"
-  kit --session ./session.json -p "Next message"
-  
-  # Script mode
-  kit script myscript.sh`,
+	Long:  `KIT (Knowledge Inference Tool) — A lightweight AI agent for coding`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runKit(context.Background())
 	},
@@ -252,18 +225,28 @@ func configToUiTheme(theme config.Theme) ui.Theme {
 }
 
 // kitBanner returns the KIT ASCII art title with KITT scanner lights,
-// rendered in KITT red using lipgloss.
+// rendered with a KITT red gradient.
 func kitBanner() string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000"))
-	banner :=
-		"            ██╗  ██╗ ██╗ ████████╗\n" +
-			"            ██║ ██╔╝ ██║ ╚══██╔══╝\n" +
-			"            █████╔╝  ██║    ██║\n" +
-			"            ██╔═██╗  ██║    ██║\n" +
-			"            ██║  ██╗ ██║    ██║\n" +
-			"            ╚═╝  ╚═╝ ╚═╝    ╚═╝\n" +
-			" ░░░░░░▒▒▒▒▒▓▓▓▓███████████████▓▓▓▓▒▒▒▒▒░░░░░░"
-	return style.Render(banner)
+	kittDark := lipgloss.Color("#8B0000")
+	kittBright := lipgloss.Color("#FF2200")
+	lines := []string{
+		"            ██╗  ██╗ ██╗ ████████╗",
+		"            ██║ ██╔╝ ██║ ╚══██╔══╝",
+		"            █████╔╝  ██║    ██║",
+		"            ██╔═██╗  ██║    ██║",
+		"            ██║  ██╗ ██║    ██║",
+		"            ╚═╝  ╚═╝ ╚═╝    ╚═╝",
+		" ░░░░░░▒▒▒▒▒▓▓▓▓███████████████▓▓▓▓▒▒▒▒▒░░░░░░",
+	}
+
+	var result strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(ui.ApplyGradient(line, kittDark, kittBright))
+	}
+	return result.String()
 }
 
 func init() {

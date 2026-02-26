@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -202,15 +203,52 @@ func CreateBadge(text string, c color.Color) string {
 		Render(text)
 }
 
-// CreateGradientText creates styled text with a gradient-like effect. Currently
-// implements a simplified version using the start color only, as true gradients
-// require more complex terminal capabilities.
+// interpolateColor blends between two colors based on position (0.0 to 1.0)
+// using linear RGB channel interpolation.
+func interpolateColor(a, b color.Color, pos float64) color.Color {
+	r1, g1, b1, _ := a.RGBA()
+	r2, g2, b2, _ := b.RGBA()
+
+	r := uint8(float64(r1>>8)*(1-pos) + float64(r2>>8)*pos)
+	g := uint8(float64(g1>>8)*(1-pos) + float64(g2>>8)*pos)
+	bl := uint8(float64(b1>>8)*(1-pos) + float64(b2>>8)*pos)
+
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, bl))
+}
+
+// ApplyGradient applies a color gradient from colorA to colorB across the text.
+// Uses ~8 color stops for performance rather than per-character coloring.
+func ApplyGradient(text string, colorA, colorB color.Color) string {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return text
+	}
+
+	const maxStops = 8
+	segmentSize := len(runes) / maxStops
+	if segmentSize < 1 {
+		segmentSize = 1
+	}
+
+	var result strings.Builder
+	for i := 0; i < len(runes); i += segmentSize {
+		end := i + segmentSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+
+		pos := float64(i) / float64(len(runes))
+		c := interpolateColor(colorA, colorB, pos)
+		style := lipgloss.NewStyle().Foreground(c)
+		result.WriteString(style.Render(string(runes[i:end])))
+	}
+
+	return result.String()
+}
+
+// CreateGradientText creates styled text with a gradient effect between two colors.
 func CreateGradientText(text string, startColor, endColor color.Color) string {
-	// For now, just use the start color - true gradients would require more complex implementation
-	return lipgloss.NewStyle().
-		Foreground(startColor).
-		Bold(true).
-		Render(text)
+	return ApplyGradient(text, startColor, endColor)
 }
 
 // Compact styling utilities
