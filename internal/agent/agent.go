@@ -163,6 +163,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 			// Text streaming callback
 			OnTextDelta: func(id, text string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				if onStreamingResponse != nil {
 					onStreamingResponse(text)
 				}
@@ -171,6 +174,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 			// Tool call complete - the tool has been parsed and is about to execute
 			OnToolCall: func(tc fantasy.ToolCallContent) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				currentToolName = tc.ToolName
 				currentToolArgs = tc.Input
 
@@ -189,6 +195,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 			// Tool result - tool execution completed
 			OnToolResult: func(tr fantasy.ToolResultContent) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				// Notify tool execution finished
 				if onToolExecution != nil {
 					onToolExecution(tr.ToolName, false)
@@ -205,6 +214,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 			// Step callbacks for content that accompanies tool calls
 			OnStepFinish: func(step fantasy.StepResult) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				// Check if step has text content alongside tool calls
 				text := step.Content.Text()
 				toolCalls := step.Content.ToolCalls()

@@ -196,6 +196,86 @@ func TestStepError_nilErr(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// StepCancelledEvent
+// --------------------------------------------------------------------------
+
+// TestStateTransition_WorkingToInput_StepCancelled verifies that StepCancelledEvent
+// transitions from stateWorking back to stateInput and resets the stream component.
+func TestStateTransition_WorkingToInput_StepCancelled(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, stream, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	m = sendMsg(m, app.StepCancelledEvent{})
+
+	if m.state != stateInput {
+		t.Fatalf("expected stateInput after StepCancelledEvent, got %v", m.state)
+	}
+	if stream.resetCalled != 1 {
+		t.Fatalf("expected stream.Reset() called once, got %d", stream.resetCalled)
+	}
+}
+
+// TestStepCancelled_clearsCanceling verifies that StepCancelledEvent clears
+// the canceling flag.
+func TestStepCancelled_clearsCanceling(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+	m.canceling = true
+
+	m = sendMsg(m, app.StepCancelledEvent{})
+
+	if m.canceling {
+		t.Fatal("expected canceling=false after StepCancelledEvent")
+	}
+}
+
+// TestStepCancelled_flushesStreamContent verifies that StepCancelledEvent
+// flushes accumulated stream content via tea.Println (non-nil cmd).
+func TestStepCancelled_flushesStreamContent(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, stream, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+	stream.renderedContent = "partial assistant response"
+
+	_, cmd := m.Update(app.StepCancelledEvent{})
+
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (tea.Println) on StepCancelledEvent with stream content")
+	}
+}
+
+// TestStepCancelled_noStreamContent_noCmd verifies that StepCancelledEvent with
+// no accumulated stream content produces a nil cmd (nothing to flush).
+func TestStepCancelled_noStreamContent_noCmd(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	_, cmd := m.Update(app.StepCancelledEvent{})
+
+	if cmd != nil {
+		t.Fatal("expected nil cmd on StepCancelledEvent with no stream content")
+	}
+}
+
+// TestStepCancelled_noErrorPrinted verifies that StepCancelledEvent does NOT
+// produce an error message (unlike StepErrorEvent).
+func TestStepCancelled_noErrorPrinted(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	// With no stream content, cmd should be nil (no flush, and no error print).
+	_, cmd := m.Update(app.StepCancelledEvent{})
+
+	if cmd != nil {
+		t.Fatal("expected nil cmd for StepCancelledEvent with no stream content — should not print error")
+	}
+}
+
+// --------------------------------------------------------------------------
 // ESC cancel flow
 // --------------------------------------------------------------------------
 

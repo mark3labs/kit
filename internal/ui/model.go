@@ -441,6 +441,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		m.canceling = false
 
+	case app.StepCancelledEvent:
+		// User cancelled the step (double-ESC). Flush any partial content,
+		// cut off the response where it was, and return to input with no error.
+		cmds = append(cmds, m.flushStreamContent())
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.state = stateInput
+		m.canceling = false
+
 	case app.StepErrorEvent:
 		// Flush streamed text, print the error, reset stream, return to input.
 		cmds = append(cmds, m.flushStreamContent())

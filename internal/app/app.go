@@ -270,6 +270,13 @@ func (a *App) runPrompt(prompt string) {
 
 	result, err := a.executeStep(stepCtx, prompt, prog, nil)
 	if err != nil {
+		if stepCtx.Err() != nil {
+			// Step was cancelled by the user (e.g. double-ESC). Send a
+			// cancellation event so the TUI can cut off the response
+			// cleanly without printing an error.
+			a.sendEvent(StepCancelledEvent{})
+			return
+		}
 		a.sendEvent(StepErrorEvent{Err: err})
 		return
 	}

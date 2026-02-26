@@ -69,6 +69,12 @@ type StepErrorEvent struct {
 	Err error
 }
 
+// StepCancelledEvent is sent when an agent step is cancelled by the user
+// (e.g. via double-ESC). The TUI should flush any partially streamed content,
+// cut off the agent message where it was, and return to input state without
+// displaying an error.
+type StepCancelledEvent struct{}
+
 // QueueUpdatedEvent is sent whenever the message queue length changes.
 // The TUI uses this to update the queue badge display.
 type QueueUpdatedEvent struct {
