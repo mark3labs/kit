@@ -85,6 +85,10 @@ type AppModelOptions struct {
 	// UsageTracker provides token usage statistics for /usage and /reset-usage.
 	// May be nil if usage tracking is unavailable for the current model.
 	UsageTracker *UsageTracker
+
+	// ExtensionCommands are slash commands registered by extensions. They
+	// appear in autocomplete, /help, and are dispatched when submitted.
+	ExtensionCommands []ExtensionCommand
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -153,6 +157,10 @@ type AppModel struct {
 	// usageTracker provides token usage stats for /usage and /reset-usage.
 	// May be nil when usage tracking is unavailable.
 	usageTracker *UsageTracker
+
+	// extensionCommands are slash commands from extensions, dispatched via
+	// handleExtensionCommand when submitted.
+	extensionCommands []ExtensionCommand
 
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
@@ -223,8 +231,23 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		height:         height,
 	}
 
+	// Store extension commands for dispatch.
+	m.extensionCommands = opts.ExtensionCommands
+
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
+
+	// Merge extension commands into the InputComponent's autocomplete source.
+	if ic, ok := m.input.(*InputComponent); ok && len(opts.ExtensionCommands) > 0 {
+		for _, ec := range opts.ExtensionCommands {
+			ic.commands = append(ic.commands, SlashCommand{
+				Name:        ec.Name,
+				Description: ec.Description,
+				Category:    "Extensions",
+			})
+		}
+	}
+
 	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
 
 	// Propagate initial height distribution to children.
@@ -395,6 +418,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := m.handleSlashCommand(sc); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// Check extension-registered slash commands. These support arguments
+		// (e.g. "/sub list files"), so we split on the first space.
+		if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
+			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
 
@@ -834,6 +864,39 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) tea.Cmd {
 	return tea.Println(rendered)
 }
 
+// handleExtensionCommand checks if the submitted text matches an extension-
+// registered slash command, executes it, and returns a tea.Cmd that renders
+// the output. Returns nil if no extension command matches.
+//
+// Extension commands support arguments: "/sub list files" is split into
+// command name "/sub" and args "list files".
+func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
+	if len(m.extensionCommands) == 0 {
+		return nil
+	}
+
+	// Only consider inputs that look like slash commands.
+	if !strings.HasPrefix(text, "/") {
+		return nil
+	}
+
+	// Split: "/sub list files" → name="/sub", args="list files"
+	name, args, _ := strings.Cut(text, " ")
+	cmd := FindExtensionCommand(name, m.extensionCommands)
+	if cmd == nil {
+		return nil
+	}
+
+	output, err := cmd.Execute(args)
+	if err != nil {
+		return m.printSystemMessage(fmt.Sprintf("Command %s error: %v", cmd.Name, err))
+	}
+	if output != "" {
+		return m.printSystemMessage(output)
+	}
+	return nil
+}
+
 // printHelpMessage renders the help text listing all available slash commands.
 func (m *AppModel) printHelpMessage() tea.Cmd {
 	help := "## Available Commands\n\n" +
@@ -850,8 +913,17 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		"**System:**\n" +
 		"- `/clear`: Clear message history\n" +
 		"- `/reset-usage`: Reset usage statistics\n" +
-		"- `/quit`: Exit the application\n\n" +
-		"**Keys:**\n" +
+		"- `/quit`: Exit the application\n\n"
+
+	if len(m.extensionCommands) > 0 {
+		help += "**Extensions:**\n"
+		for _, ec := range m.extensionCommands {
+			help += fmt.Sprintf("- `%s`: %s\n", ec.Name, ec.Description)
+		}
+		help += "\n"
+	}
+
+	help += "**Keys:**\n" +
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
 		"You can also just type your message to chat with the AI assistant."

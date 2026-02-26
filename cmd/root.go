@@ -358,6 +358,33 @@ func runKit(ctx context.Context) error {
 	return runNormalMode(ctx)
 }
 
+// extensionCommandsForUI converts extension-registered CommandDefs into the
+// ui.ExtensionCommand type used by the interactive TUI. Command names are
+// normalised to start with "/" so they integrate with the slash-command
+// autocomplete and dispatch pipeline.
+func extensionCommandsForUI(runner *extensions.Runner) []ui.ExtensionCommand {
+	if runner == nil {
+		return nil
+	}
+	defs := runner.RegisteredCommands()
+	if len(defs) == 0 {
+		return nil
+	}
+	cmds := make([]ui.ExtensionCommand, 0, len(defs))
+	for _, d := range defs {
+		name := d.Name
+		if len(name) > 0 && name[0] != '/' {
+			name = "/" + name
+		}
+		cmds = append(cmds, ui.ExtensionCommand{
+			Name:        name,
+			Description: d.Description,
+			Execute:     d.Execute,
+		})
+	}
+	return cmds
+}
+
 func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
@@ -589,9 +616,12 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
+	// Convert extension commands to UI-layer type for the interactive TUI.
+	extCommands := extensionCommandsForUI(agentResult.ExtRunner)
+
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -599,7 +629,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -613,7 +643,7 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand) error {
 	if quiet {
 		// Quiet mode: no intermediate display, just print final response.
 		if err := appInstance.RunOnce(ctx, prompt); err != nil {
@@ -639,7 +669,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, usageTracker)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, usageTracker, extCommands)
 	}
 
 	return nil
@@ -656,7 +686,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -665,15 +695,16 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 	}
 
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
-		CompactMode:    viper.GetBool("compact"),
-		ModelName:      modelName,
-		ProviderName:   providerName,
-		LoadingMessage: loadingMessage,
-		Width:          termWidth,
-		Height:         termHeight,
-		ServerNames:    serverNames,
-		ToolNames:      toolNames,
-		UsageTracker:   usageTracker,
+		CompactMode:       viper.GetBool("compact"),
+		ModelName:         modelName,
+		ProviderName:      providerName,
+		LoadingMessage:    loadingMessage,
+		Width:             termWidth,
+		Height:            termHeight,
+		ServerNames:       serverNames,
+		ToolNames:         toolNames,
+		UsageTracker:      usageTracker,
+		ExtensionCommands: extCommands,
 	})
 
 	// Print startup info to stdout before Bubble Tea takes over the screen.

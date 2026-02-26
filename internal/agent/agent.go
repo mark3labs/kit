@@ -68,6 +68,7 @@ type Agent struct {
 	providerType     string
 	streamingEnabled bool
 	coreTools        []fantasy.AgentTool
+	extraTools       []fantasy.AgentTool
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -168,6 +169,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		providerType:     providerType,
 		streamingEnabled: agentConfig.StreamingEnabled,
 		coreTools:        coreTools,
+		extraTools:       agentConfig.ExtraTools,
 	}, nil
 }
 
@@ -430,12 +432,16 @@ func extractMCPContentText(result string) string {
 	return result
 }
 
-// GetTools returns the list of available tools loaded in the agent.
+// GetTools returns the list of available tools loaded in the agent,
+// including core tools, MCP tools, and extension-registered tools.
 func (a *Agent) GetTools() []fantasy.AgentTool {
 	allTools := make([]fantasy.AgentTool, len(a.coreTools))
 	copy(allTools, a.coreTools)
 	if a.toolManager != nil {
 		allTools = append(allTools, a.toolManager.GetTools()...)
+	}
+	if len(a.extraTools) > 0 {
+		allTools = append(allTools, a.extraTools...)
 	}
 	return allTools
 }

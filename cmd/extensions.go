@@ -100,6 +100,7 @@ var extensionsInitCmd = &cobra.Command{
 		example := `package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -110,6 +111,8 @@ import (
 
 // Init is called when the extension is loaded. Register handlers here.
 func Init(api ext.API) {
+	// ── Event handlers ────────────────────────────────────────────────
+
 	// Log every tool call to a file.
 	api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
 		f, err := os.OpenFile("/tmp/kit-tool-log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -128,13 +131,8 @@ func Init(api ext.API) {
 		return nil
 	})
 
-	// Handle custom ! commands. Use ctx.Print/PrintInfo/PrintError/PrintBlock
-	// instead of fmt.Println — BubbleTea captures stdout in interactive mode.
-	//
-	//   ctx.Print("text")       — plain text
-	//   ctx.PrintInfo("text")   — styled system message block
-	//   ctx.PrintError("text")  — styled error block
-	//   ctx.PrintBlock(opts)    — custom block with border color and subtitle
+	// Handle custom ! commands via OnInput. Use ctx.Print* instead of
+	// fmt.Println — BubbleTea captures stdout in interactive mode.
 	api.OnInput(func(ie ext.InputEvent, ctx ext.Context) *ext.InputResult {
 		switch ie.Text {
 		case "!time":
@@ -150,6 +148,53 @@ func Init(api ext.API) {
 			return &ext.InputResult{Action: "handled"}
 		}
 		return nil
+	})
+
+	// ── Slash commands ────────────────────────────────────────────────
+	// Slash commands appear in /help and the autocomplete popup.
+	// They are invoked as /name <args> in the interactive TUI.
+
+	api.RegisterCommand(ext.CommandDef{
+		Name:        "echo",
+		Description: "Echo back the provided text",
+		Execute: func(args string) (string, error) {
+			if args == "" {
+				return "Usage: /echo <text>", nil
+			}
+			return args, nil
+		},
+	})
+
+	// ── Custom tools ──────────────────────────────────────────────────
+	// Custom tools are added to the agent's tool list and can be
+	// called by the LLM. Parameters is a JSON Schema string.
+
+	api.RegisterTool(ext.ToolDef{
+		Name:        "current_time",
+		Description: "Get the current date and time",
+		Parameters:  ` + "`" + `{"type":"object","properties":{}}` + "`" + `,
+		Execute: func(input string) (string, error) {
+			return time.Now().Format(time.RFC3339), nil
+		},
+	})
+
+	api.RegisterTool(ext.ToolDef{
+		Name:        "env_lookup",
+		Description: "Look up the value of an environment variable",
+		Parameters:  ` + "`" + `{"type":"object","properties":{"name":{"type":"string","description":"Environment variable name"}},"required":["name"]}` + "`" + `,
+		Execute: func(input string) (string, error) {
+			var params struct {
+				Name string ` + "`" + `json:"name"` + "`" + `
+			}
+			if err := json.Unmarshal([]byte(input), &params); err != nil {
+				return "", fmt.Errorf("invalid parameters: %w", err)
+			}
+			val, ok := os.LookupEnv(params.Name)
+			if !ok {
+				return fmt.Sprintf("Environment variable %q is not set", params.Name), nil
+			}
+			return val, nil
+		},
 	})
 }
 `

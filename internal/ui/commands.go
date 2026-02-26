@@ -122,3 +122,23 @@ func GetAllCommandNames() []string {
 	}
 	return names
 }
+
+// ExtensionCommand is a slash command registered by an extension. Unlike
+// built-in SlashCommands whose execution is hardcoded in handleSlashCommand,
+// extension commands carry their own Execute callback.
+type ExtensionCommand struct {
+	Name        string
+	Description string
+	Execute     func(args string) (string, error)
+}
+
+// FindExtensionCommand looks up an extension command by name from the given
+// slice. Returns a pointer to the matching command, or nil if not found.
+func FindExtensionCommand(name string, cmds []ExtensionCommand) *ExtensionCommand {
+	for i := range cmds {
+		if cmds[i].Name == name {
+			return &cmds[i]
+		}
+	}
+	return nil
+}
