@@ -379,125 +379,66 @@ func TestStreamComponent_ChunkAccumulation(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// TestStreamComponent_ToolCallStarted_AppendsToolLine verifies that
-// ToolCallStartedEvent appends a non-empty tool line.
+// TestStreamComponent_ToolExecution_IsStarting shows spinner during execution.
 // --------------------------------------------------------------------------
 
-func TestStreamComponent_ToolCallStarted_AppendsToolLine(t *testing.T) {
+func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	c := newTestStream()
 
-	c = sendStreamMsg(c, app.ToolCallStartedEvent{
-		ToolName: "my_tool",
-		ToolArgs: `{"key": "value"}`,
-	})
-
-	if len(c.toolLines) != 1 {
-		t.Fatalf("expected 1 tool line after ToolCallStartedEvent, got %d", len(c.toolLines))
-	}
-	if c.toolLines[0] == "" {
-		t.Fatal("expected non-empty tool line")
-	}
-}
-
-// TestStreamComponent_ToolCallStarted_SetsActiveToolName verifies that
-// ToolCallStartedEvent sets activeToolName.
-func TestStreamComponent_ToolCallStarted_SetsActiveToolName(t *testing.T) {
-	c := newTestStream()
-
-	c = sendStreamMsg(c, app.ToolCallStartedEvent{
-		ToolName: "active_tool",
-		ToolArgs: "{}",
-	})
-
-	if c.activeToolName != "active_tool" {
-		t.Fatalf("expected activeToolName='active_tool', got %q", c.activeToolName)
-	}
-}
-
-// --------------------------------------------------------------------------
-// TestStreamComponent_ToolResult_AppendsResultLine verifies that
-// ToolResultEvent appends a result line.
-// --------------------------------------------------------------------------
-
-func TestStreamComponent_ToolResult_AppendsResultLine(t *testing.T) {
-	c := newTestStream()
-
-	c = sendStreamMsg(c, app.ToolResultEvent{
-		ToolName: "my_tool",
-		ToolArgs: "{}",
-		Result:   "tool output",
-		IsError:  false,
-	})
-
-	if len(c.toolLines) != 1 {
-		t.Fatalf("expected 1 tool result line, got %d", len(c.toolLines))
-	}
-}
-
-// TestStreamComponent_ToolExecution_IsStarting_SetsActiveName verifies
-// ToolExecutionEvent{IsStarting:true} updates the active tool name.
-func TestStreamComponent_ToolExecution_IsStarting_SetsActiveName(t *testing.T) {
-	c := newTestStream()
-
-	c = sendStreamMsg(c, app.ToolExecutionEvent{
+	_, cmd := c.Update(app.ToolExecutionEvent{
 		ToolName:   "exec_tool",
 		IsStarting: true,
 	})
 
-	if c.activeToolName != "exec_tool" {
-		t.Fatalf("expected activeToolName='exec_tool', got %q", c.activeToolName)
+	if c.phase != streamPhaseSpinner {
+		t.Fatalf("expected streamPhaseSpinner during tool execution, got %v", c.phase)
+	}
+	if !strings.Contains(c.spinnerMsg, "exec_tool") {
+		t.Fatalf("expected spinnerMsg to contain tool name, got %q", c.spinnerMsg)
+	}
+	if cmd == nil {
+		t.Fatal("expected tick cmd from ToolExecutionEvent{IsStarting:true}")
 	}
 }
 
-// TestStreamComponent_ToolExecution_NotStarting_ClearsActiveName verifies
-// ToolExecutionEvent{IsStarting:false} clears the active tool name.
-func TestStreamComponent_ToolExecution_NotStarting_ClearsActiveName(t *testing.T) {
+// TestStreamComponent_ToolExecution_NotStarting goes idle after execution.
+func TestStreamComponent_ToolExecution_NotStarting_GoesIdle(t *testing.T) {
 	c := newTestStream()
-	c.activeToolName = "some_tool"
+	c.phase = streamPhaseSpinner // simulating execution in progress
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{
 		ToolName:   "some_tool",
 		IsStarting: false,
 	})
 
-	if c.activeToolName != "" {
-		t.Fatalf("expected activeToolName cleared, got %q", c.activeToolName)
+	if c.phase != streamPhaseIdle {
+		t.Fatalf("expected streamPhaseIdle after tool execution finished, got %v", c.phase)
 	}
 }
 
 // --------------------------------------------------------------------------
-// TestStreamComponent_ToolCallContent_AccumulatesText verifies that
-// ToolCallContentEvent appends to streamContent.
+// TestStreamComponent_GetRenderedContent verifies the method returns rendered
+// text when content is accumulated, and empty string when not.
 // --------------------------------------------------------------------------
 
-func TestStreamComponent_ToolCallContent_AccumulatesText(t *testing.T) {
+func TestStreamComponent_GetRenderedContent_Empty(t *testing.T) {
 	c := newTestStream()
-
-	c = sendStreamMsg(c, app.ToolCallContentEvent{Content: "assistant note"})
-
-	if !strings.Contains(c.streamContent.String(), "assistant note") {
-		t.Fatalf("expected streamContent to contain 'assistant note', got %q", c.streamContent.String())
-	}
-	if c.phase != streamPhaseStreaming {
-		t.Fatalf("expected streamPhaseStreaming after ToolCallContentEvent, got %v", c.phase)
+	if got := c.GetRenderedContent(); got != "" {
+		t.Fatalf("expected empty GetRenderedContent on idle component, got %q", got)
 	}
 }
 
-// --------------------------------------------------------------------------
-// TestStreamComponent_HookBlocked_AppendsLine verifies that HookBlockedEvent
-// appends a non-empty line to toolLines.
-// --------------------------------------------------------------------------
-
-func TestStreamComponent_HookBlocked_AppendsLine(t *testing.T) {
+func TestStreamComponent_GetRenderedContent_WithText(t *testing.T) {
 	c := newTestStream()
-
-	c = sendStreamMsg(c, app.HookBlockedEvent{Message: "access denied"})
-
-	if len(c.toolLines) != 1 {
-		t.Fatalf("expected 1 tool line after HookBlockedEvent, got %d", len(c.toolLines))
+	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "hello world"})
+	got := c.GetRenderedContent()
+	if got == "" {
+		t.Fatal("expected non-empty GetRenderedContent after chunks")
 	}
-	if c.toolLines[0] == "" {
-		t.Fatal("expected non-empty hook blocked line")
+	// The rendered output contains ANSI escape codes from the message renderer,
+	// so check for the text fragments rather than an exact substring.
+	if !strings.Contains(got, "hello") {
+		t.Fatalf("expected rendered content to contain 'hello', got %q", got)
 	}
 }
 
@@ -511,7 +452,6 @@ func TestStreamComponent_Reset(t *testing.T) {
 	// Accumulate some state.
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
 	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "some text"})
-	c = sendStreamMsg(c, app.ToolCallStartedEvent{ToolName: "tool", ToolArgs: "{}"})
 	c.spinnerFrame = 5
 
 	c.Reset()
@@ -525,14 +465,11 @@ func TestStreamComponent_Reset(t *testing.T) {
 	if c.streamContent.String() != "" {
 		t.Fatalf("expected empty streamContent after Reset(), got %q", c.streamContent.String())
 	}
-	if len(c.toolLines) != 0 {
-		t.Fatalf("expected no toolLines after Reset(), got %d", len(c.toolLines))
-	}
-	if c.activeToolName != "" {
-		t.Fatalf("expected empty activeToolName after Reset(), got %q", c.activeToolName)
-	}
 	if !c.timestamp.IsZero() {
 		t.Fatal("expected zero timestamp after Reset()")
+	}
+	if c.spinnerMsg != "Thinking…" {
+		t.Fatalf("expected spinnerMsg reset to default, got %q", c.spinnerMsg)
 	}
 }
 

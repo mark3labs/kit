@@ -50,9 +50,10 @@ func (s *stubAppController) ClearMessages() {
 
 // stubStreamComponent satisfies streamComponentIface without rendering anything.
 type stubStreamComponent struct {
-	resetCalled int
-	height      int
-	lastMsg     tea.Msg
+	resetCalled     int
+	height          int
+	lastMsg         tea.Msg
+	renderedContent string // returned by GetRenderedContent
 }
 
 func (s *stubStreamComponent) Init() tea.Cmd { return nil }
@@ -60,9 +61,10 @@ func (s *stubStreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	s.lastMsg = msg
 	return s, nil
 }
-func (s *stubStreamComponent) View() tea.View  { return tea.NewView("") }
-func (s *stubStreamComponent) Reset()          { s.resetCalled++ }
-func (s *stubStreamComponent) SetHeight(h int) { s.height = h }
+func (s *stubStreamComponent) View() tea.View             { return tea.NewView("") }
+func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
+func (s *stubStreamComponent) SetHeight(h int)            { s.height = h }
+func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
 
 // stubInputComponent satisfies inputComponentIface without rendering anything.
 type stubInputComponent struct {
@@ -429,28 +431,29 @@ func TestWindowResize_distributeHeight(t *testing.T) {
 // tea.Println on step complete
 // --------------------------------------------------------------------------
 
-// TestStepComplete_printCmd verifies that StepCompleteEvent produces a non-nil
-// tea.Cmd (the tea.Println call). We verify the Cmd is non-nil rather than
-// executing it, since tea.Println is a runtime command.
-func TestStepComplete_printCmd(t *testing.T) {
+// TestStepComplete_flushesStreamContent verifies that StepCompleteEvent
+// flushes accumulated stream content via tea.Println (non-nil cmd).
+func TestStepComplete_flushesStreamContent(t *testing.T) {
 	ctrl := &stubAppController{}
-	m, _, _ := newTestAppModel(ctrl)
+	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
+	// Simulate accumulated streaming text.
+	stream.renderedContent = "rendered assistant text"
 
 	_, cmd := m.Update(app.StepCompleteEvent{
 		Response: makeTestResponse("final answer"),
 		Usage:    fantasy.Usage{},
 	})
 
-	// A non-nil cmd means printCompletedResponse returned tea.Println(...)
+	// A non-nil cmd means flushStreamContent returned tea.Println(...)
 	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) on StepCompleteEvent with response")
+		t.Fatal("expected non-nil cmd (tea.Println) on StepCompleteEvent with stream content")
 	}
 }
 
-// TestStepComplete_nilResponse_noCmd verifies that StepCompleteEvent with a nil
-// response produces a nil cmd (nothing to print).
-func TestStepComplete_nilResponse_noCmd(t *testing.T) {
+// TestStepComplete_noStreamContent_noCmd verifies that StepCompleteEvent with
+// no accumulated stream content produces a nil cmd (nothing to flush).
+func TestStepComplete_noStreamContent_noCmd(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
@@ -458,7 +461,63 @@ func TestStepComplete_nilResponse_noCmd(t *testing.T) {
 	_, cmd := m.Update(app.StepCompleteEvent{Response: nil})
 
 	if cmd != nil {
-		t.Fatal("expected nil cmd on StepCompleteEvent with nil response")
+		t.Fatal("expected nil cmd on StepCompleteEvent with no stream content")
+	}
+}
+
+// TestSubmitMsg_printsUserMessage verifies that submitMsg produces a tea.Println
+// cmd for the user message.
+func TestSubmitMsg_printsUserMessage(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+
+	_, cmd := m.Update(submitMsg{Text: "user query"})
+
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (tea.Println) for user message on submitMsg")
+	}
+}
+
+// TestToolCallStarted_flushesAndPrints verifies that ToolCallStartedEvent
+// produces a non-nil cmd (flush + tool call print).
+func TestToolCallStarted_flushesAndPrints(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	_, cmd := m.Update(app.ToolCallStartedEvent{
+		ToolName: "bash",
+		ToolArgs: `{"cmd":"ls"}`,
+	})
+
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd on ToolCallStartedEvent")
+	}
+}
+
+// TestToolResult_printsAndStartsSpinner verifies that ToolResultEvent produces
+// a non-nil cmd and the stream receives a SpinnerEvent.
+func TestToolResult_printsAndStartsSpinner(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, stream, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	_, cmd := m.Update(app.ToolResultEvent{
+		ToolName: "bash",
+		ToolArgs: "{}",
+		Result:   "output",
+		IsError:  false,
+	})
+
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd on ToolResultEvent")
+	}
+	// Stream should have received a SpinnerEvent to start spinner for next LLM call.
+	if stream.lastMsg == nil {
+		t.Fatal("expected stream to receive SpinnerEvent after ToolResultEvent")
+	}
+	if se, ok := stream.lastMsg.(app.SpinnerEvent); !ok || !se.Show {
+		t.Fatalf("expected SpinnerEvent{Show:true}, got %T", stream.lastMsg)
 	}
 }
 

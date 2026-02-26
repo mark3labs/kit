@@ -83,24 +83,22 @@ const (
 
 // StreamComponent is the Bubble Tea child model responsible for the stream
 // region: it renders a KITT-style spinner when the agent is thinking, and
-// switches to live text once StreamChunkEvents start arriving. It also renders
-// intermediate tool-call events.
+// switches to live text once StreamChunkEvents start arriving.
+//
+// Tool calls, tool results, user messages, and other non-streaming content
+// are printed immediately by the parent AppModel via tea.Println(). The
+// StreamComponent only handles the live streaming text and spinner display.
 //
 // Lifecycle is managed entirely by the parent AppModel:
 //   - Parent calls Reset() between agent steps to clear state.
 //   - Parent emits completed responses above the BT region via tea.Println()
-//     (see AppModel.printCompletedResponse); StreamComponent never calls tea.Quit.
+//     then calls Reset(); StreamComponent never calls tea.Quit.
 //
 // Events handled:
 //   - app.SpinnerEvent{Show:true}  → enter spinner phase, start tick loop
 //   - app.SpinnerEvent{Show:false} → (unused — first chunk transitions automatically)
 //   - app.StreamChunkEvent         → append text, enter streaming phase
-//   - app.ToolCallStartedEvent     → record active tool call
-//   - app.ToolExecutionEvent       → update tool execution status
-//   - app.ToolResultEvent          → append rendered tool result line
-//   - app.ToolCallContentEvent     → append assistant commentary text
-//   - app.ResponseCompleteEvent    → no-op (parent handles completion)
-//   - app.HookBlockedEvent         → append block message line
+//   - app.ToolExecutionEvent       → show execution spinner during tool run
 type StreamComponent struct {
 	// phase tracks what we are currently showing.
 	phase streamPhase
@@ -117,17 +115,10 @@ type StreamComponent struct {
 	// streamContent accumulates all streaming text chunks.
 	streamContent strings.Builder
 
-	// toolLines are rendered-and-finalized tool event lines appended above the
-	// live streaming text.
-	toolLines []string
-
-	// activeToolName tracks the tool currently being executed (for status updates).
-	activeToolName string
-
-	// messageRenderer renders tool / content lines in standard mode.
+	// messageRenderer renders assistant messages in standard mode.
 	messageRenderer *MessageRenderer
 
-	// compactRenderer renders tool / content lines in compact mode.
+	// compactRenderer renders assistant messages in compact mode.
 	compactRenderer *CompactRenderer
 
 	// compactMode selects which renderer to use.
@@ -178,10 +169,20 @@ func (s *StreamComponent) SetHeight(h int) {
 func (s *StreamComponent) Reset() {
 	s.phase = streamPhaseIdle
 	s.spinnerFrame = 0
+	s.spinnerMsg = "Thinking…"
 	s.streamContent.Reset()
-	s.toolLines = nil
-	s.activeToolName = ""
 	s.timestamp = time.Time{}
+}
+
+// GetRenderedContent returns the rendered assistant message from the accumulated
+// streaming text. Returns empty string if no text has been accumulated. Used by
+// the parent AppModel to flush content via tea.Println() before resetting.
+func (s *StreamComponent) GetRenderedContent() string {
+	text := s.streamContent.String()
+	if text == "" {
+		return ""
+	}
+	return s.renderStreamingText(text)
 }
 
 // --------------------------------------------------------------------------
@@ -231,40 +232,17 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		s.streamContent.WriteString(msg.Content)
 
-	case app.ToolCallStartedEvent:
-		s.activeToolName = msg.ToolName
-		// Render a "starting" tool call line and append it.
-		line := s.renderToolCallLine(msg.ToolName, msg.ToolArgs, time.Now())
-		s.toolLines = append(s.toolLines, line)
-
 	case app.ToolExecutionEvent:
 		if msg.IsStarting {
-			s.activeToolName = msg.ToolName
-		} else {
-			s.activeToolName = ""
+			// Show a KITT spinner with the tool name while the tool executes.
+			s.phase = streamPhaseSpinner
+			s.spinnerMsg = "Executing " + msg.ToolName + "…"
+			s.spinnerFrame = 0
+			return s, streamSpinnerTickCmd()
 		}
-
-	case app.ToolResultEvent:
-		line := s.renderToolResultLine(msg.ToolName, msg.ToolArgs, msg.Result, msg.IsError)
-		s.toolLines = append(s.toolLines, line)
-
-	case app.ToolCallContentEvent:
-		// Assistant commentary that accompanies a tool call — treat as streamed text.
-		if s.phase != streamPhaseStreaming {
-			s.phase = streamPhaseStreaming
-			if s.timestamp.IsZero() {
-				s.timestamp = time.Now()
-			}
-		}
-		s.streamContent.WriteString(msg.Content)
-
-	case app.ResponseCompleteEvent:
-		// No-op: parent handles completion via StepCompleteEvent.
-
-	case app.HookBlockedEvent:
-		// Append a styled notice line.
-		line := s.renderHookBlockedLine(msg.Message)
-		s.toolLines = append(s.toolLines, line)
+		// Tool finished — go idle. Parent will trigger a new spinner for
+		// the next LLM call if needed.
+		s.phase = streamPhaseIdle
 	}
 
 	return s, nil
@@ -290,24 +268,12 @@ func (s *StreamComponent) render() string {
 		content = s.renderSpinner()
 
 	case streamPhaseStreaming:
-		var parts []string
-
-		// Tool event lines rendered above the live text.
-		parts = append(parts, s.toolLines...)
-
-		// Live streaming assistant text.
+		// Live streaming assistant text only. Tool calls, results, and
+		// other messages are printed immediately by the parent via tea.Println.
 		text := s.streamContent.String()
 		if text != "" {
-			parts = append(parts, s.renderStreamingText(text))
+			content = s.renderStreamingText(text)
 		}
-
-		// Show active tool status if a tool is still running.
-		if s.activeToolName != "" {
-			activeLine := s.renderActiveToolLine(s.activeToolName)
-			parts = append(parts, activeLine)
-		}
-
-		content = strings.Join(parts, "\n")
 
 	default:
 		return ""
@@ -352,41 +318,4 @@ func (s *StreamComponent) renderStreamingText(text string) string {
 	}
 	msg := s.messageRenderer.RenderAssistantMessage(text, ts, s.modelName)
 	return msg.Content
-}
-
-// renderToolCallLine renders a single "tool being called" line.
-func (s *StreamComponent) renderToolCallLine(toolName, toolArgs string, ts time.Time) string {
-	if s.compactMode {
-		msg := s.compactRenderer.RenderToolCallMessage(toolName, toolArgs, ts)
-		return msg.Content
-	}
-	msg := s.messageRenderer.RenderToolCallMessage(toolName, toolArgs, ts)
-	return msg.Content
-}
-
-// renderToolResultLine renders a single "tool result" line.
-func (s *StreamComponent) renderToolResultLine(toolName, toolArgs, result string, isError bool) string {
-	if s.compactMode {
-		msg := s.compactRenderer.RenderToolMessage(toolName, toolArgs, result, isError)
-		return msg.Content
-	}
-	msg := s.messageRenderer.RenderToolMessage(toolName, toolArgs, result, isError)
-	return msg.Content
-}
-
-// renderActiveToolLine renders a small inline spinner for a tool still executing.
-func (s *StreamComponent) renderActiveToolLine(toolName string) string {
-	theme := GetTheme()
-	dot := lipgloss.NewStyle().Foreground(theme.Tool).Render("⠋")
-	label := lipgloss.NewStyle().Foreground(theme.Tool).Italic(true).Render(toolName + "…")
-	return "  " + dot + " " + label
-}
-
-// renderHookBlockedLine renders a notice that a hook blocked an action.
-func (s *StreamComponent) renderHookBlockedLine(message string) string {
-	theme := GetTheme()
-	return lipgloss.NewStyle().
-		Foreground(theme.Error).
-		Bold(true).
-		Render("  ⛔ Hook blocked: " + message)
 }

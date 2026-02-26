@@ -140,6 +140,9 @@ type streamComponentIface interface {
 	Reset()
 	// SetHeight constrains the render output to at most h lines (0 = unconstrained).
 	SetHeight(h int)
+	// GetRenderedContent returns the rendered assistant message from accumulated
+	// streaming text, or empty string if nothing has been accumulated.
+	GetRenderedContent() string
 }
 
 // approvalComponentIface is the interface the parent requires from ApprovalComponent.
@@ -280,6 +283,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := GetCommandByName(msg.Text); cmd != nil && cmd.Name == "/quit" {
 			return m, tea.Quit
 		}
+		// Print user message immediately to scrollback.
+		cmds = append(cmds, m.printUserMessage(msg.Text))
 		if m.appCtrl != nil {
 			// app.Run() handles queueing internally if a step is in progress.
 			m.appCtrl.Run(msg.Text)
@@ -320,40 +325,45 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.ToolCallStartedEvent:
-		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		// Flush any accumulated streaming text to scrollback first (streaming
+		// always completes before tool calls fire), then print the tool call.
+		cmds = append(cmds, m.flushStreamContent())
+		cmds = append(cmds, m.printToolCall(msg))
 
 	case app.ToolExecutionEvent:
+		// Pass to stream component for execution spinner display.
 		if m.stream != nil {
 			_, cmd := m.stream.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 
 	case app.ToolResultEvent:
+		// Print tool result immediately to scrollback.
+		cmds = append(cmds, m.printToolResult(msg))
+		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
 			cmds = append(cmds, cmd)
 		}
 
 	case app.ToolCallContentEvent:
-		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		// In streaming mode this text was already delivered via StreamChunkEvents
+		// and will be flushed before the next tool call. Ignore to avoid
+		// double-printing.
 
 	case app.ResponseCompleteEvent:
+		// Non-streaming mode: this carries the full response text (StreamChunkEvents
+		// never fire). Print it immediately.
+		if msg.Content != "" {
+			cmds = append(cmds, m.printAssistantMessage(msg.Content))
+		}
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
-			cmds = append(cmds, cmd)
+			m.stream.Reset() // stop spinner
 		}
 
 	case app.HookBlockedEvent:
-		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		// Print hook blocked message immediately to scrollback.
+		cmds = append(cmds, m.printHookBlocked(msg))
 
 	case app.MessageCreatedEvent:
 		// Informational — no action needed by parent.
@@ -371,9 +381,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approval = approvalComp
 
 	case app.StepCompleteEvent:
-		// Emit the completed response above the BT region via tea.Println,
-		// then reset the stream component and return to input state.
-		cmds = append(cmds, m.printCompletedResponse(msg))
+		// Flush any remaining streamed text to scrollback, then reset stream
+		// and return to input state.
+		cmds = append(cmds, m.flushStreamContent())
 		if m.stream != nil {
 			m.stream.Reset()
 		}
@@ -381,7 +391,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.canceling = false
 
 	case app.StepErrorEvent:
-		// Render the error above the BT region via tea.Println, reset stream, return to input.
+		// Flush streamed text, print the error, reset stream, return to input.
+		cmds = append(cmds, m.flushStreamContent())
 		if msg.Err != nil {
 			cmds = append(cmds, m.printErrorResponse(msg))
 		}
@@ -489,37 +500,80 @@ func (m *AppModel) renderInput() string {
 	return m.input.View().Content
 }
 
-// printCompletedResponse builds a tea.Cmd that emits the final response text
-// above the BT-managed region using tea.Println. This is used on StepCompleteEvent.
-func (m *AppModel) printCompletedResponse(evt app.StepCompleteEvent) tea.Cmd {
-	if evt.Response == nil {
-		return nil
-	}
+// --------------------------------------------------------------------------
+// Print helpers — emit content to scrollback via tea.Println
+// --------------------------------------------------------------------------
 
-	content := evt.Response.Content.Text()
-	if content == "" {
-		return nil
-	}
-
+// printUserMessage renders a user message and emits it above the BT region.
+func (m *AppModel) printUserMessage(text string) tea.Cmd {
 	var rendered string
 	if m.compactMode {
-		msg := m.compactRdr.RenderAssistantMessage(content, time.Now(), m.modelName)
+		msg := m.compactRdr.RenderUserMessage(text, time.Now())
 		rendered = msg.Content
 	} else {
-		msg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+		msg := m.renderer.RenderUserMessage(text, time.Now())
 		rendered = msg.Content
 	}
-
 	return tea.Println(rendered)
 }
 
-// printErrorResponse builds a tea.Cmd that emits a styled error message above
-// the BT-managed region using tea.Println. This is used on StepErrorEvent.
+// printAssistantMessage renders an assistant message and emits it above the BT region.
+func (m *AppModel) printAssistantMessage(text string) tea.Cmd {
+	if text == "" {
+		return nil
+	}
+	var rendered string
+	if m.compactMode {
+		msg := m.compactRdr.RenderAssistantMessage(text, time.Now(), m.modelName)
+		rendered = msg.Content
+	} else {
+		msg := m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName)
+		rendered = msg.Content
+	}
+	return tea.Println(rendered)
+}
+
+// printToolCall renders a tool call message and emits it above the BT region.
+func (m *AppModel) printToolCall(evt app.ToolCallStartedEvent) tea.Cmd {
+	var rendered string
+	if m.compactMode {
+		msg := m.compactRdr.RenderToolCallMessage(evt.ToolName, evt.ToolArgs, time.Now())
+		rendered = msg.Content
+	} else {
+		msg := m.renderer.RenderToolCallMessage(evt.ToolName, evt.ToolArgs, time.Now())
+		rendered = msg.Content
+	}
+	return tea.Println(rendered)
+}
+
+// printToolResult renders a tool result message and emits it above the BT region.
+func (m *AppModel) printToolResult(evt app.ToolResultEvent) tea.Cmd {
+	var rendered string
+	if m.compactMode {
+		msg := m.compactRdr.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
+		rendered = msg.Content
+	} else {
+		msg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
+		rendered = msg.Content
+	}
+	return tea.Println(rendered)
+}
+
+// printHookBlocked renders a hook-blocked notice and emits it above the BT region.
+func (m *AppModel) printHookBlocked(evt app.HookBlockedEvent) tea.Cmd {
+	theme := GetTheme()
+	rendered := lipgloss.NewStyle().
+		Foreground(theme.Error).
+		Bold(true).
+		Render("  ⛔ Hook blocked: " + evt.Message)
+	return tea.Println(rendered)
+}
+
+// printErrorResponse renders an error message and emits it above the BT region.
 func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
 	if evt.Err == nil {
 		return nil
 	}
-
 	var rendered string
 	if m.compactMode {
 		msg := m.compactRdr.RenderErrorMessage(evt.Err.Error(), time.Now())
@@ -528,8 +582,23 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
 		msg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
 		rendered = msg.Content
 	}
-
 	return tea.Println(rendered)
+}
+
+// flushStreamContent gets the rendered content from the stream component,
+// emits it above the BT region via tea.Println, and resets the stream. This
+// is called before printing tool calls (streaming completes before tools fire)
+// and on step completion.
+func (m *AppModel) flushStreamContent() tea.Cmd {
+	if m.stream == nil {
+		return nil
+	}
+	content := m.stream.GetRenderedContent()
+	if content == "" {
+		return nil
+	}
+	m.stream.Reset()
+	return tea.Println(content)
 }
 
 // distributeHeight recalculates child component heights after a window resize
