@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
+	"github.com/traefik/yaegi/stdlib/unrestricted"
 )
 
 // Discovery paths searched in order (lowest to highest precedence):
@@ -146,9 +147,13 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 	// Create a fresh interpreter.
 	i := interp.New(interp.Options{})
 
-	// Expose a safe subset of the Go stdlib.
+	// Expose the Go stdlib. The base set covers most packages; the
+	// unrestricted set adds os/exec so extensions can spawn processes.
 	if err := i.Use(stdlib.Symbols); err != nil {
 		return nil, fmt.Errorf("loading stdlib symbols: %w", err)
+	}
+	if err := i.Use(unrestricted.Symbols); err != nil {
+		return nil, fmt.Errorf("loading unrestricted symbols: %w", err)
 	}
 
 	// Expose KIT's extension API types so the extension can
