@@ -9,6 +9,7 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // App is the application-layer orchestrator. It owns the agentic loop,
@@ -151,11 +152,20 @@ func (a *App) ClearQueue() {
 	a.mu.Unlock()
 }
 
-// ClearMessages empties the conversation history.
+// ClearMessages empties the conversation history. When a tree session is
+// active the leaf pointer is reset to the root, creating an implicit branch.
 //
 // Satisfies ui.AppController.
 func (a *App) ClearMessages() {
 	a.store.Clear()
+	if a.opts.TreeSession != nil {
+		a.opts.TreeSession.ResetLeaf()
+	}
+}
+
+// GetTreeSession returns the tree session manager, or nil if not configured.
+func (a *App) GetTreeSession() *session.TreeManager {
+	return a.opts.TreeSession
 }
 
 // --------------------------------------------------------------------------
@@ -250,6 +260,11 @@ func (a *App) Close() {
 
 	// Wait for background goroutines.
 	a.wg.Wait()
+
+	// Close tree session file handle.
+	if a.opts.TreeSession != nil {
+		_ = a.opts.TreeSession.Close()
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -352,8 +367,23 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	userMsg := fantasy.NewUserMessage(prompt)
 	a.store.Add(userMsg)
 
+	// Persist user message to tree session if configured.
+	if a.opts.TreeSession != nil {
+		_, _ = a.opts.TreeSession.AppendFantasyMessage(userMsg)
+	}
+
 	// Build the full message slice for the agent call.
-	msgs := a.store.GetAll()
+	// When a tree session is active, build context from the tree (walks
+	// leaf-to-root) so that only the current branch is sent to the LLM.
+	var msgs []fantasy.Message
+	if a.opts.TreeSession != nil {
+		msgs = a.opts.TreeSession.GetFantasyMessages()
+	} else {
+		msgs = a.store.GetAll()
+	}
+
+	// Track message count before agent runs so we can diff new messages.
+	sentCount := len(msgs)
 
 	// Signal spinner start.
 	sendFn(SpinnerEvent{Show: true})
@@ -397,6 +427,14 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	// Replace the store with the full updated conversation returned by the agent
 	// (includes tool call/result messages added during the step).
 	a.store.Replace(result.ConversationMessages)
+
+	// Persist new messages (tool calls, tool results, assistant response)
+	// to the tree session. Only append messages beyond what we sent.
+	if a.opts.TreeSession != nil && len(result.ConversationMessages) > sentCount {
+		for _, msg := range result.ConversationMessages[sentCount:] {
+			_, _ = a.opts.TreeSession.AppendFantasyMessage(msg)
+		}
+	}
 
 	return result, nil
 }

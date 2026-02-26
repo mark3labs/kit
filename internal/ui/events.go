@@ -11,3 +11,20 @@ type submitMsg struct {
 // presses ESC once during stateWorking. If this message arrives before the user
 // presses ESC a second time, the canceling state is reset to false.
 type cancelTimerExpiredMsg struct{}
+
+// --- Tree session events ---
+
+// TreeNodeSelectedMsg is sent when the user selects a node in the tree selector.
+type TreeNodeSelectedMsg struct {
+	// ID is the entry ID of the selected node.
+	ID string
+	// Entry is the underlying entry object.
+	Entry any
+	// IsUser is true if the selected entry is a user message.
+	IsUser bool
+	// UserText is the user message text (only set when IsUser is true).
+	UserText string
+}
+
+// TreeCancelledMsg is sent when the user cancels the tree selector (ESC).
+type TreeCancelledMsg struct{}

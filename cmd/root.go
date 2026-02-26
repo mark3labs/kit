@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,6 +40,11 @@ var (
 	saveSessionPath string
 	loadSessionPath string
 	sessionPath     string
+
+	// Tree session management (pi-style)
+	continueFlag  bool // --continue / -c: resume most recent session for cwd
+	resumeFlag    bool // --resume / -r: interactive session picker
+	noSessionFlag bool // --no-session: ephemeral mode, no persistence
 
 	// Model generation parameters
 	maxTokens     int
@@ -289,6 +295,12 @@ func init() {
 		StringVar(&loadSessionPath, "load-session", "", "load session from file at startup")
 	rootCmd.PersistentFlags().
 		StringVarP(&sessionPath, "session", "s", "", "session file to load and update")
+	rootCmd.PersistentFlags().
+		BoolVarP(&continueFlag, "continue", "c", false, "continue the most recent session for the current directory")
+	rootCmd.PersistentFlags().
+		BoolVarP(&resumeFlag, "resume", "r", false, "interactive session picker")
+	rootCmd.PersistentFlags().
+		BoolVar(&noSessionFlag, "no-session", false, "ephemeral mode — no session persistence")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -422,86 +434,117 @@ func runNormalMode(ctx context.Context) error {
 	// Main interaction logic
 	var messages []fantasy.Message
 	var sessionManager *session.Manager
-	if sessionPath != "" {
-		_, err := os.Stat(sessionPath)
-		if os.IsNotExist(err) {
-			content := []byte("{}")
-			if err := os.WriteFile(sessionPath, content, 0664); err != nil {
-				panic(err)
-			}
+	var treeSession *session.TreeManager
+
+	cwd, _ := os.Getwd()
+
+	// --- Tree session handling (--continue, --resume, default) ---
+	if noSessionFlag {
+		// Ephemeral mode: in-memory tree session, no persistence.
+		treeSession = session.InMemoryTreeSession(cwd)
+	} else if continueFlag {
+		// Continue the most recent session for this cwd.
+		ts, err := session.ContinueRecent(cwd)
+		if err != nil {
+			return fmt.Errorf("failed to continue session: %v", err)
 		}
-		loadSessionPath = sessionPath
-		saveSessionPath = sessionPath
+		treeSession = ts
+		// Load existing messages into the fantasy message slice.
+		messages = ts.GetFantasyMessages()
+	} else if resumeFlag {
+		// Interactive session picker: list sessions and let user choose.
+		sessions, err := session.ListSessions(cwd)
+		if err != nil || len(sessions) == 0 {
+			// No sessions found — create a new one.
+			ts, err := session.CreateTreeSession(cwd)
+			if err != nil {
+				return fmt.Errorf("failed to create session: %v", err)
+			}
+			treeSession = ts
+		} else {
+			// For now, pick the most recent. TODO: TUI picker.
+			ts, err := session.OpenTreeSession(sessions[0].Path)
+			if err != nil {
+				return fmt.Errorf("failed to open session: %v", err)
+			}
+			treeSession = ts
+			messages = ts.GetFantasyMessages()
+		}
+	} else if sessionPath != "" {
+		// Legacy --session flag: open or create a specific JSONL session.
+		if strings.HasSuffix(sessionPath, ".jsonl") {
+			_, statErr := os.Stat(sessionPath)
+			if os.IsNotExist(statErr) {
+				// Create a new tree session at the specified path.
+				dir := filepath.Dir(sessionPath)
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					return fmt.Errorf("failed to create session directory: %v", err)
+				}
+				ts, err := session.CreateTreeSession(cwd)
+				if err != nil {
+					return fmt.Errorf("failed to create session: %v", err)
+				}
+				treeSession = ts
+			} else {
+				ts, err := session.OpenTreeSession(sessionPath)
+				if err != nil {
+					return fmt.Errorf("failed to open session: %v", err)
+				}
+				treeSession = ts
+				messages = ts.GetFantasyMessages()
+			}
+		} else {
+			// Legacy JSON session path handling.
+			_, statErr := os.Stat(sessionPath)
+			if os.IsNotExist(statErr) {
+				content := []byte("{}")
+				if err := os.WriteFile(sessionPath, content, 0664); err != nil {
+					panic(err)
+				}
+			}
+			loadSessionPath = sessionPath
+			saveSessionPath = sessionPath
+		}
+	} else {
+		// Default: auto-create a tree session for the current directory.
+		ts, err := session.CreateTreeSession(cwd)
+		if err != nil {
+			// Non-fatal: fall back to no session.
+			if debugMode {
+				fmt.Fprintf(os.Stderr, "Warning: could not create tree session: %v\n", err)
+			}
+		} else {
+			treeSession = ts
+		}
 	}
 
-	// Load existing session if specified
-	if loadSessionPath != "" {
-		loadedSession, err := session.LoadFromFile(loadSessionPath)
-		if err != nil {
-			return fmt.Errorf("failed to load session: %v", err)
-		}
-
-		// Convert session messages to fantasy messages
-		for _, msg := range loadedSession.Messages {
-			messages = append(messages, msg.ToFantasyMessages()...)
-		}
-
-		// If we're also saving, use the loaded session with the session manager
-		if saveSessionPath != "" {
-			sessionManager = session.NewManagerWithSession(loadedSession, saveSessionPath)
-		}
-
-		if !quietFlag && cli != nil {
-			// Build a map of tool call IDs to tool calls for quick lookup
-			type toolCallInfo struct {
-				Name  string
-				Input string
+	// --- Legacy JSON session handling (--load-session, --save-session) ---
+	if treeSession == nil {
+		if loadSessionPath != "" {
+			loadedSession, err := session.LoadFromFile(loadSessionPath)
+			if err != nil {
+				return fmt.Errorf("failed to load session: %v", err)
 			}
-			toolCallMap := make(map[string]toolCallInfo)
-			for _, sessionMsg := range loadedSession.Messages {
-				for _, tc := range sessionMsg.ToolCalls() {
-					toolCallMap[tc.ID] = toolCallInfo{Name: tc.Name, Input: tc.Input}
-				}
+			for _, msg := range loadedSession.Messages {
+				messages = append(messages, msg.ToFantasyMessages()...)
 			}
-
-			// Display all previous messages as they would have appeared
-			for _, sessionMsg := range loadedSession.Messages {
-				switch sessionMsg.Role {
-				case "user":
-					cli.DisplayUserMessage(sessionMsg.Content())
-				case "assistant":
-					// Tool calls are rendered as part of the unified tool result
-					// block, so we skip displaying them here separately.
-
-					// Display assistant response (only if there's content)
-					if text := sessionMsg.Content(); text != "" {
-						_ = cli.DisplayAssistantMessage(text)
-					}
-				case "tool":
-					// Display tool results
-					for _, result := range sessionMsg.ToolResults() {
-						if tc, exists := toolCallMap[result.ToolCallID]; exists {
-							cli.DisplayToolMessage(tc.Name, tc.Input, result.Content, result.IsError)
-						}
-					}
-				}
+			if saveSessionPath != "" {
+				sessionManager = session.NewManagerWithSession(loadedSession, saveSessionPath)
 			}
+		} else if saveSessionPath != "" {
+			sessionManager = session.NewManager(saveSessionPath)
+			_ = sessionManager.SetMetadata(session.Metadata{
+				KitVersion: "dev",
+				Provider:   parsedProvider,
+				Model:      modelName,
+			})
 		}
-	} else if saveSessionPath != "" {
-		// Only saving, create new session manager
-		sessionManager = session.NewManager(saveSessionPath)
-
-		// Set metadata
-		_ = sessionManager.SetMetadata(session.Metadata{
-			KitVersion: "dev", // TODO: Get actual version
-			Provider:   parsedProvider,
-			Model:      modelName,
-		})
 	}
 
 	// Create the app.App instance now that session messages are loaded.
 	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames)
 	appOpts.SessionManager = sessionManager
+	appOpts.TreeSession = treeSession
 
 	// Create a usage tracker that is shared between the app layer (for recording
 	// usage after each step) and the TUI (for /usage display). For non-interactive

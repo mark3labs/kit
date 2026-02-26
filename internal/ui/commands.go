@@ -65,6 +65,34 @@ var SlashCommands = []SlashCommand{
 		Category:    "System",
 		Aliases:     []string{"/q", "/exit"},
 	},
+
+	// Navigation commands (tree sessions)
+	{
+		Name:        "/tree",
+		Description: "Navigate session tree (switch branches)",
+		Category:    "Navigation",
+	},
+	{
+		Name:        "/fork",
+		Description: "Branch from an earlier message",
+		Category:    "Navigation",
+	},
+	{
+		Name:        "/new",
+		Description: "Start a new session",
+		Category:    "Navigation",
+		Aliases:     []string{"/n"},
+	},
+	{
+		Name:        "/name",
+		Description: "Set a display name for this session",
+		Category:    "Navigation",
+	},
+	{
+		Name:        "/session",
+		Description: "Show session info and statistics",
+		Category:    "Info",
+	},
 }
 
 // GetCommandByName looks up a slash command by its primary name or any of its

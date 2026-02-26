@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // --------------------------------------------------------------------------
@@ -43,6 +44,10 @@ func (s *stubAppController) ClearQueue() {
 
 func (s *stubAppController) ClearMessages() {
 	s.clearMsgCalled++
+}
+
+func (s *stubAppController) GetTreeSession() *session.TreeManager {
+	return nil
 }
 
 // --------------------------------------------------------------------------

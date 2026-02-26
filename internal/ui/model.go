@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // appState represents the current state of the parent TUI model.
@@ -21,6 +22,9 @@ const (
 	// stateWorking means the agent is running. The stream component is active.
 	// The input component remains visible and editable for queueing messages.
 	stateWorking
+
+	// stateTreeSelector means the /tree viewer is active.
+	stateTreeSelector
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -45,6 +49,9 @@ type AppController interface {
 	ClearQueue()
 	// ClearMessages clears the conversation history.
 	ClearMessages()
+	// GetTreeSession returns the tree session manager, or nil if tree sessions
+	// are not enabled. Used by slash commands like /tree, /fork, /session.
+	GetTreeSession() *session.TreeManager
 }
 
 // AppModelOptions holds configuration passed to NewAppModel.
@@ -146,6 +153,9 @@ type AppModel struct {
 	// usageTracker provides token usage stats for /usage and /reset-usage.
 	// May be nil when usage tracking is unavailable.
 	usageTracker *UsageTracker
+
+	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
+	treeSelector *TreeSelectorComponent
 
 	// width and height track the terminal dimensions.
 	width  int
@@ -273,6 +283,50 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
+	// ── Tree selector events ─────────────────────────────────────────────────
+	case TreeNodeSelectedMsg:
+		// User selected a node in the tree. Branch to it and return to input.
+		if ts := m.appCtrl.GetTreeSession(); ts != nil {
+			// For user messages: branch to parent (so user can resubmit).
+			// For other entries: branch directly to the selected entry.
+			targetID := msg.ID
+			if msg.IsUser {
+				// Branch to parent of user message, place text in editor.
+				if node := ts.GetEntry(msg.ID); node != nil {
+					if me, ok := node.(*session.MessageEntry); ok {
+						targetID = me.ParentID
+					}
+				}
+			}
+			_ = ts.Branch(targetID)
+			m.appCtrl.ClearMessages()
+
+			// If it was a user message, populate the input with the text.
+			if msg.IsUser && msg.UserText != "" {
+				if ic, ok := m.input.(*InputComponent); ok {
+					ic.textarea.SetValue(msg.UserText)
+					ic.textarea.CursorEnd()
+				}
+			}
+
+			cmds = append(cmds, m.printSystemMessage(
+				fmt.Sprintf("Navigated to branch point. %s",
+					func() string {
+						if msg.IsUser {
+							return "Edit and resubmit to create a new branch."
+						}
+						return "Continue from this point."
+					}())))
+		}
+		m.treeSelector = nil
+		m.state = stateInput
+		return m, tea.Batch(cmds...)
+
+	case TreeCancelledMsg:
+		m.treeSelector = nil
+		m.state = stateInput
+		return m, nil
+
 	// ── Window resize ────────────────────────────────────────────────────────
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -294,7 +348,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			// Graceful quit: app.Close() is deferred in cmd/root.go.
 			return m, tea.Quit
+		}
 
+		// Route to tree selector when active.
+		if m.state == stateTreeSelector && m.treeSelector != nil {
+			updated, cmd := m.treeSelector.Update(msg)
+			m.treeSelector = updated.(*TreeSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		switch msg.String() {
 		case "esc":
 			if m.state == stateWorking {
 				if m.canceling {
@@ -483,7 +547,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model. It renders the stacked layout:
 // stream region + [usage info] + separator + [queued messages] + input region.
+// When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
+	// Tree selector overlay replaces the normal layout.
+	if m.state == stateTreeSelector && m.treeSelector != nil {
+		return m.treeSelector.View()
+	}
+
 	streamView := m.renderStream()
 	separator := m.renderSeparator()
 	inputView := m.renderInput()
@@ -691,6 +761,18 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		m.queuedMessages = m.queuedMessages[:0]
 		m.distributeHeight()
 		return nil
+
+	case "/tree":
+		return m.handleTreeCommand()
+	case "/fork":
+		return m.handleForkCommand()
+	case "/new":
+		return m.handleNewCommand()
+	case "/name":
+		return m.handleNameCommand()
+	case "/session":
+		return m.handleSessionInfoCommand()
+
 	default:
 		return m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
 	}
@@ -712,13 +794,21 @@ func (m *AppModel) printSystemMessage(text string) tea.Cmd {
 // printHelpMessage renders the help text listing all available slash commands.
 func (m *AppModel) printHelpMessage() tea.Cmd {
 	help := "## Available Commands\n\n" +
+		"**Info:**\n" +
 		"- `/help`: Show this help message\n" +
 		"- `/tools`: List all available tools\n" +
 		"- `/servers`: List configured MCP servers\n" +
 		"- `/usage`: Show token usage and cost statistics\n" +
-		"- `/reset-usage`: Reset usage statistics\n" +
+		"- `/session`: Show session info and statistics\n\n" +
+		"**Navigation:**\n" +
+		"- `/tree`: Navigate session tree (switch branches)\n" +
+		"- `/fork`: Branch from an earlier message\n" +
+		"- `/new`: Start a new branch (preserves history)\n\n" +
+		"**System:**\n" +
 		"- `/clear`: Clear message history\n" +
-		"- `/quit`: Exit the application\n" +
+		"- `/reset-usage`: Reset usage statistics\n" +
+		"- `/quit`: Exit the application\n\n" +
+		"**Keys:**\n" +
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
 		"You can also just type your message to chat with the AI assistant."
@@ -838,6 +928,107 @@ func repeatRune(r rune, n int) string {
 		runes[i] = r
 	}
 	return string(runes)
+}
+
+// --------------------------------------------------------------------------
+// Tree session command handlers
+// --------------------------------------------------------------------------
+
+// handleTreeCommand opens the tree selector overlay.
+func (m *AppModel) handleTreeCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+	}
+	if ts.EntryCount() == 0 {
+		return m.printSystemMessage("No entries in session yet.")
+	}
+
+	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
+	m.state = stateTreeSelector
+	return nil
+}
+
+// handleForkCommand creates a branch from the current position. Like /tree
+// but opens the selector directly for fork semantics.
+func (m *AppModel) handleForkCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+	}
+	if ts.EntryCount() == 0 {
+		return m.printSystemMessage("No entries to fork from.")
+	}
+
+	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
+	m.state = stateTreeSelector
+	return nil
+}
+
+// handleNewCommand starts a fresh session by resetting the tree leaf.
+func (m *AppModel) handleNewCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		// No tree session — just clear messages.
+		if m.appCtrl != nil {
+			m.appCtrl.ClearMessages()
+		}
+		return m.printSystemMessage("Conversation cleared. Starting fresh.")
+	}
+
+	ts.ResetLeaf()
+	if m.appCtrl != nil {
+		m.appCtrl.ClearMessages()
+	}
+	return m.printSystemMessage("New branch started. Previous conversation is preserved in the tree.")
+}
+
+// handleNameCommand sets a display name for the current session.
+func (m *AppModel) handleNameCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return m.printSystemMessage("No tree session active.")
+	}
+	// For now, prompt user to provide name via input. We print instructions
+	// and the next non-command input starting with "name:" will be captured.
+	// TODO: inline input dialog like pi's implementation.
+	currentName := ts.GetSessionName()
+	if currentName != "" {
+		return m.printSystemMessage(fmt.Sprintf("Current session name: %q\nTo rename, type: `/name <new name>` (not yet implemented — use the session file directly).", currentName))
+	}
+	return m.printSystemMessage("To name this session, use: `/name <new name>` (not yet implemented — use the session file directly).")
+}
+
+// handleSessionInfoCommand shows session statistics.
+func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return m.printSystemMessage("No tree session active.")
+	}
+
+	header := ts.GetHeader()
+	info := fmt.Sprintf("## Session Info\n\n"+
+		"- **ID:** `%s`\n"+
+		"- **File:** `%s`\n"+
+		"- **Working Dir:** `%s`\n"+
+		"- **Created:** %s\n"+
+		"- **Entries:** %d\n"+
+		"- **Messages:** %d\n"+
+		"- **Current Leaf:** `%s`\n",
+		header.ID,
+		ts.GetFilePath(),
+		header.Cwd,
+		header.Timestamp.Format(time.RFC3339),
+		ts.EntryCount(),
+		ts.MessageCount(),
+		ts.GetLeafID(),
+	)
+
+	if name := ts.GetSessionName(); name != "" {
+		info += fmt.Sprintf("- **Name:** %s\n", name)
+	}
+
+	return m.printSystemMessage(info)
 }
 
 // --------------------------------------------------------------------------
