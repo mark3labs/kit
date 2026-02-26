@@ -730,15 +730,21 @@ func runScriptMode(ctx context.Context, mcpConfig *config.Config, prompt string,
 }
 
 // scriptEventHandler routes app events to CLI display methods for script mode.
-// It maintains the spinner state needed for proper display. Script mode does
-// not support in-place streaming updates (no Bubble Tea); the final response
-// is always rendered as a complete block at the end via StepCompleteEvent.
+// It mirrors the TUI's StreamComponent accumulate-and-flush strategy
+// (see internal/ui/model.go flushStreamContent and stream.go):
+//   - StreamChunkEvents are accumulated in a buffer (like StreamComponent).
+//   - Before tool calls the buffer is flushed through DisplayAssistantMessageWithModel
+//     so that text accompanying tool calls renders identically to solo responses.
+//   - ToolCallContentEvent is ignored during streaming (text already in the buffer).
+//   - ResponseCompleteEvent is used only as a non-streaming fallback.
+//   - StepCompleteEvent flushes any remaining buffered text.
 type scriptEventHandler struct {
 	cli       *ui.CLI
 	modelName string
 
 	spinner       *ui.Spinner
-	lastDisplayed string // tracks content shown via ToolCallContentEvent
+	lastDisplayed string          // tracks content shown (non-streaming)
+	streamBuf     strings.Builder // accumulated stream chunks (mirrors StreamComponent)
 }
 
 func newScriptEventHandler(cli *ui.CLI, modelName string) *scriptEventHandler {
@@ -766,6 +772,17 @@ func (h *scriptEventHandler) startSpinner() {
 	h.spinner.Start()
 }
 
+// flushStreamBuffer renders any accumulated stream chunks through the CLI
+// formatter (mirrors TUI's flushStreamContent at model.go:781-791).
+func (h *scriptEventHandler) flushStreamBuffer() {
+	text := strings.TrimSpace(h.streamBuf.String())
+	h.streamBuf.Reset()
+	if text != "" {
+		_ = h.cli.DisplayAssistantMessageWithModel(text, h.modelName)
+		h.lastDisplayed = text
+	}
+}
+
 // Handle processes a single app event and renders it via the CLI.
 func (h *scriptEventHandler) Handle(msg tea.Msg) {
 	switch e := msg.(type) {
@@ -776,8 +793,27 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 			h.stopSpinner()
 		}
 
+	case app.StreamChunkEvent:
+		// Accumulate chunks in the buffer (like TUI StreamComponent).
+		// Text is rendered as a formatted message when flushed at boundaries.
+		h.stopSpinner()
+		h.streamBuf.WriteString(e.Content)
+
+	case app.ToolCallContentEvent:
+		// In streaming mode this text was already buffered via StreamChunkEvents
+		// (mirrors TUI behavior at model.go:405-408). Only display when the
+		// buffer is empty (non-streaming path).
+		if h.streamBuf.Len() == 0 {
+			h.stopSpinner()
+			_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
+			h.lastDisplayed = e.Content
+			h.startSpinner()
+		}
+
 	case app.ToolCallStartedEvent:
 		h.stopSpinner()
+		// Flush buffered text before tool call output (mirrors TUI flushStreamContent).
+		h.flushStreamBuffer()
 		h.cli.DisplayToolCallMessage(e.ToolName, e.ToolArgs)
 
 	case app.ToolExecutionEvent:
@@ -793,29 +829,26 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 		h.cli.DisplayToolMessage(e.ToolName, e.ToolArgs, resultContent, e.IsError)
 		h.startSpinner()
 
-	case app.StreamChunkEvent:
-		// Script mode has no in-place streaming display; chunks are ignored.
-		// The final response is rendered as a complete block in StepCompleteEvent.
-		h.stopSpinner()
-
-	case app.ToolCallContentEvent:
-		// Text content that accompanies tool calls (e.g. "Let me check that...").
-		h.stopSpinner()
-		_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
-		h.lastDisplayed = e.Content
-		h.startSpinner()
-
 	case app.ResponseCompleteEvent:
 		h.stopSpinner()
+		// Non-streaming fallback: display the complete response.
+		// In streaming mode the buffer will be flushed at StepCompleteEvent.
+		if h.streamBuf.Len() == 0 && e.Content != "" {
+			_ = h.cli.DisplayAssistantMessageWithModel(e.Content, h.modelName)
+			h.lastDisplayed = e.Content
+		}
 
 	case app.StepCompleteEvent:
 		h.stopSpinner()
+
+		// Flush any remaining buffered stream content.
+		h.flushStreamBuffer()
+
+		// Non-streaming fallback: render the full response if not already shown.
 		responseText := ""
 		if e.Response != nil {
 			responseText = e.Response.Content.Text()
 		}
-
-		// Display the final response unless already shown via ToolCallContentEvent.
 		if responseText != "" && responseText != h.lastDisplayed {
 			_ = h.cli.DisplayAssistantMessageWithModel(responseText, h.modelName)
 		}
@@ -825,6 +858,9 @@ func (h *scriptEventHandler) Handle(msg tea.Msg) {
 			h.cli.UpdateUsageFromResponse(e.Response, "")
 		}
 		h.cli.DisplayUsageAfterResponse()
+
+		// Reset for next step in the agentic loop.
+		h.lastDisplayed = ""
 	}
 }
 
