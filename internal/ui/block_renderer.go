@@ -10,6 +10,7 @@ import (
 type blockRenderer struct {
 	align         *lipgloss.Position
 	borderColor   *color.Color
+	bgColor       *color.Color
 	fullWidth     bool
 	noBorder      bool
 	paddingTop    int
@@ -30,6 +31,14 @@ type renderingOption func(*blockRenderer)
 func WithFullWidth() renderingOption {
 	return func(c *blockRenderer) {
 		c.fullWidth = true
+	}
+}
+
+// WithBackground returns a renderingOption that sets a background color
+// for the entire block.
+func WithBackground(c color.Color) renderingOption {
+	return func(br *blockRenderer) {
+		br.bgColor = &c
 	}
 }
 
@@ -144,6 +153,10 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
 		Foreground(theme.Text)
+
+	if renderer.bgColor != nil {
+		style = style.Background(*renderer.bgColor)
+	}
 
 	// Border width used for full-width calculation.
 	borderChars := 0

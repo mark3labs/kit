@@ -109,6 +109,7 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 		r.width,
 		WithAlign(lipgloss.Left),
 		WithBorderColor(theme.Primary),
+		WithBackground(theme.Highlight),
 		WithMarginBottom(1),
 	)
 
