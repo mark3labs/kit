@@ -564,13 +564,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.SpinnerEvent:
 		// SpinnerEvent{Show: true} means a new agent step has started (either
-		// freshly or from the queue after a previous step completed). Transition
-		// to stateWorking so the TUI reflects the active state. This is
-		// especially important for queued prompts: after StepCompleteEvent
-		// resets state to stateInput, the next queued step fires SpinnerEvent
-		// and we must go back to stateWorking.
+		// freshly or from the queue after a previous step completed). Flush
+		// any leftover stream content from the previous step to scrollback
+		// before starting the new one. This deferred flush avoids shrinking
+		// the view at step-completion time (which leaves blank lines).
 		if msg.Show {
+			cmds = append(cmds, m.flushStreamContent())
 			m.state = stateWorking
+			m.distributeHeight()
 		}
 		if m.stream != nil {
 			_, cmd := m.stream.Update(msg)
@@ -636,41 +637,42 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.distributeHeight()
 
 	case app.StepCompleteEvent:
-		// Flush any remaining streamed text to scrollback, then reset stream
-		// and return to input state. Token usage is rendered in the status
-		// bar — the app layer has already updated the shared UsageTracker
-		// before sending this event.
-		cmds = append(cmds, m.flushStreamContent())
+		// Keep stream content visible in the view — don't flush to scrollback
+		// yet. Flushing + resetting in the same frame would shrink the view
+		// height, and bubbletea's inline renderer leaves blank lines at the
+		// bottom for the orphaned rows. The content will be flushed to
+		// scrollback when the next step starts (SpinnerEvent{Show: true}).
+		// Just stop the spinner and return to input state.
 		if m.stream != nil {
-			m.stream.Reset()
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
 		m.canceling = false
-		m.distributeHeight()
 
 	case app.StepCancelledEvent:
-		// User cancelled the step (double-ESC). Flush any partial content,
-		// cut off the response where it was, and return to input with no error.
-		cmds = append(cmds, m.flushStreamContent())
+		// User cancelled the step (double-ESC). Keep partial stream content
+		// visible (same reasoning as StepCompleteEvent). Just stop the spinner.
 		if m.stream != nil {
-			m.stream.Reset()
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
 		m.canceling = false
-		m.distributeHeight()
 
 	case app.StepErrorEvent:
-		// Flush streamed text, print the error, reset stream, return to input.
-		cmds = append(cmds, m.flushStreamContent())
+		// Keep partial stream content visible (same reasoning as
+		// StepCompleteEvent). Print the error to scrollback — it appears
+		// above the view, and the partial response stays visible below.
+		if m.stream != nil {
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			cmds = append(cmds, cmd)
+		}
 		if msg.Err != nil {
 			cmds = append(cmds, m.printErrorResponse(msg))
 		}
-		if m.stream != nil {
-			m.stream.Reset()
-		}
 		m.state = stateInput
 		m.canceling = false
-		m.distributeHeight()
 
 	case app.CompactCompleteEvent:
 		if m.stream != nil {

@@ -145,7 +145,8 @@ func TestStateTransition_InputToWorking(t *testing.T) {
 }
 
 // TestStateTransition_WorkingToInput_StepComplete verifies that StepCompleteEvent
-// transitions from stateWorking back to stateInput and resets the stream component.
+// transitions from stateWorking back to stateInput and keeps stream content
+// visible (deferred flush — no Reset until next SpinnerEvent{Show: true}).
 func TestStateTransition_WorkingToInput_StepComplete(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
@@ -156,13 +157,14 @@ func TestStateTransition_WorkingToInput_StepComplete(t *testing.T) {
 	if m.state != stateInput {
 		t.Fatalf("expected stateInput after StepCompleteEvent, got %v", m.state)
 	}
-	if stream.resetCalled != 1 {
-		t.Fatalf("expected stream.Reset() called once, got %d", stream.resetCalled)
+	if stream.resetCalled != 0 {
+		t.Fatalf("expected stream NOT reset on StepCompleteEvent (deferred flush), got %d resets", stream.resetCalled)
 	}
 }
 
 // TestStateTransition_WorkingToInput_StepError verifies that StepErrorEvent
-// transitions from stateWorking back to stateInput and resets the stream component.
+// transitions from stateWorking back to stateInput and keeps stream content
+// visible (deferred flush — no Reset until next SpinnerEvent{Show: true}).
 func TestStateTransition_WorkingToInput_StepError(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
@@ -173,8 +175,8 @@ func TestStateTransition_WorkingToInput_StepError(t *testing.T) {
 	if m.state != stateInput {
 		t.Fatalf("expected stateInput after StepErrorEvent, got %v", m.state)
 	}
-	if stream.resetCalled != 1 {
-		t.Fatalf("expected stream.Reset() called once, got %d", stream.resetCalled)
+	if stream.resetCalled != 0 {
+		t.Fatalf("expected stream NOT reset on StepErrorEvent (deferred flush), got %d resets", stream.resetCalled)
 	}
 }
 
@@ -197,7 +199,8 @@ func TestStepError_nilErr(t *testing.T) {
 // --------------------------------------------------------------------------
 
 // TestStateTransition_WorkingToInput_StepCancelled verifies that StepCancelledEvent
-// transitions from stateWorking back to stateInput and resets the stream component.
+// transitions from stateWorking back to stateInput and keeps stream content
+// visible (deferred flush — no Reset until next SpinnerEvent{Show: true}).
 func TestStateTransition_WorkingToInput_StepCancelled(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
@@ -208,8 +211,8 @@ func TestStateTransition_WorkingToInput_StepCancelled(t *testing.T) {
 	if m.state != stateInput {
 		t.Fatalf("expected stateInput after StepCancelledEvent, got %v", m.state)
 	}
-	if stream.resetCalled != 1 {
-		t.Fatalf("expected stream.Reset() called once, got %d", stream.resetCalled)
+	if stream.resetCalled != 0 {
+		t.Fatalf("expected stream NOT reset on StepCancelledEvent (deferred flush), got %d resets", stream.resetCalled)
 	}
 }
 
@@ -228,18 +231,18 @@ func TestStepCancelled_clearsCanceling(t *testing.T) {
 	}
 }
 
-// TestStepCancelled_flushesStreamContent verifies that StepCancelledEvent
-// flushes accumulated stream content via tea.Println (non-nil cmd).
-func TestStepCancelled_flushesStreamContent(t *testing.T) {
+// TestStepCancelled_preservesStreamContent verifies that StepCancelledEvent
+// does NOT flush stream content — it stays visible for deferred flush.
+func TestStepCancelled_preservesStreamContent(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 	stream.renderedContent = "partial assistant response"
 
-	_, cmd := m.Update(app.StepCancelledEvent{})
+	_ = sendMsg(m, app.StepCancelledEvent{})
 
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) on StepCancelledEvent with stream content")
+	if stream.renderedContent != "partial assistant response" {
+		t.Fatal("expected stream content preserved after StepCancelledEvent")
 	}
 }
 
@@ -477,20 +480,19 @@ func TestWindowResize_distributeHeight(t *testing.T) {
 // tea.Println on step complete
 // --------------------------------------------------------------------------
 
-// TestStepComplete_flushesStreamContent verifies that StepCompleteEvent
-// flushes accumulated stream content via tea.Println (non-nil cmd).
-func TestStepComplete_flushesStreamContent(t *testing.T) {
+// TestStepComplete_preservesStreamContent verifies that StepCompleteEvent
+// does NOT flush stream content — it stays visible for deferred flush.
+func TestStepComplete_preservesStreamContent(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 	// Simulate accumulated streaming text.
 	stream.renderedContent = "rendered assistant text"
 
-	_, cmd := m.Update(app.StepCompleteEvent{ResponseText: "final answer"})
+	_ = sendMsg(m, app.StepCompleteEvent{ResponseText: "final answer"})
 
-	// A non-nil cmd means flushStreamContent returned tea.Println(...)
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) on StepCompleteEvent with stream content")
+	if stream.renderedContent != "rendered assistant text" {
+		t.Fatal("expected stream content preserved after StepCompleteEvent")
 	}
 }
 
