@@ -35,7 +35,8 @@ type bashArgs struct {
 }
 
 // NewBashTool creates the bash core tool.
-func NewBashTool() fantasy.AgentTool {
+func NewBashTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "bash",
@@ -52,11 +53,13 @@ func NewBashTool() fantasy.AgentTool {
 			},
 			Required: []string{"command"},
 		},
-		handler: executeBash,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeBash(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeBash(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args bashArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("command parameter is required"), nil
@@ -83,6 +86,9 @@ func executeBash(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, "bash", "-c", args.Command)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

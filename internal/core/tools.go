@@ -12,6 +12,31 @@ import (
 	"charm.land/fantasy"
 )
 
+// ToolOption configures tool behavior.
+type ToolOption func(*ToolConfig)
+
+// ToolConfig holds configuration for tool construction.
+type ToolConfig struct {
+	WorkDir string
+}
+
+// WithWorkDir sets the working directory for file-based tools.
+// If empty, os.Getwd() is used at execution time.
+func WithWorkDir(dir string) ToolOption {
+	return func(c *ToolConfig) {
+		c.WorkDir = dir
+	}
+}
+
+// ApplyOptions applies the given ToolOptions to a ToolConfig and returns it.
+func ApplyOptions(opts []ToolOption) ToolConfig {
+	var cfg ToolConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return cfg
+}
+
 // coreTool is the base implementation for all core tools. It implements
 // the fantasy.AgentTool interface with typed parameters and direct execution.
 type coreTool struct {
@@ -41,35 +66,35 @@ func parseArgs(input string, target any) error {
 
 // CodingTools returns the default set of core tools for a coding agent:
 // bash, read, write, edit. This matches pi's codingTools collection.
-func CodingTools() []fantasy.AgentTool {
+func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
-		NewBashTool(),
-		NewReadTool(),
-		NewWriteTool(),
-		NewEditTool(),
+		NewBashTool(opts...),
+		NewReadTool(opts...),
+		NewWriteTool(opts...),
+		NewEditTool(opts...),
 	}
 }
 
 // ReadOnlyTools returns tools for read-only exploration:
 // read, grep, find, ls. This matches pi's readOnlyTools collection.
-func ReadOnlyTools() []fantasy.AgentTool {
+func ReadOnlyTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
-		NewReadTool(),
-		NewGrepTool(),
-		NewFindTool(),
-		NewLsTool(),
+		NewReadTool(opts...),
+		NewGrepTool(opts...),
+		NewFindTool(opts...),
+		NewLsTool(opts...),
 	}
 }
 
 // AllTools returns all available core tools.
-func AllTools() []fantasy.AgentTool {
+func AllTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
-		NewBashTool(),
-		NewReadTool(),
-		NewWriteTool(),
-		NewEditTool(),
-		NewGrepTool(),
-		NewFindTool(),
-		NewLsTool(),
+		NewBashTool(opts...),
+		NewReadTool(opts...),
+		NewWriteTool(opts...),
+		NewEditTool(opts...),
+		NewGrepTool(opts...),
+		NewFindTool(opts...),
+		NewLsTool(opts...),
 	}
 }

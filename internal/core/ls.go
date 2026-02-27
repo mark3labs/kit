@@ -16,7 +16,8 @@ type lsArgs struct {
 }
 
 // NewLsTool creates the ls core tool.
-func NewLsTool() fantasy.AgentTool {
+func NewLsTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "ls",
@@ -33,11 +34,13 @@ func NewLsTool() fantasy.AgentTool {
 			},
 			Required: []string{},
 		},
-		handler: executeLs,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeLs(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeLs(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args lsArgs
 	_ = parseArgs(call.Input, &args) // optional args
 
@@ -48,11 +51,13 @@ func executeLs(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse
 
 	dirPath := "."
 	if args.Path != "" {
-		resolved, err := resolvePath(args.Path)
+		resolved, err := resolvePathWithWorkDir(args.Path, workDir)
 		if err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 		}
 		dirPath = resolved
+	} else if workDir != "" {
+		dirPath = workDir
 	}
 
 	info, err := os.Stat(dirPath)

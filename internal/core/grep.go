@@ -22,7 +22,8 @@ type grepArgs struct {
 }
 
 // NewGrepTool creates the grep core tool.
-func NewGrepTool() fantasy.AgentTool {
+func NewGrepTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "grep",
@@ -59,11 +60,13 @@ func NewGrepTool() fantasy.AgentTool {
 			},
 			Required: []string{"pattern"},
 		},
-		handler: executeGrep,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeGrep(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeGrep(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeGrep(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args grepArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("pattern parameter is required"), nil
@@ -79,11 +82,13 @@ func executeGrep(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 
 	searchPath := "."
 	if args.Path != "" {
-		resolved, err := resolvePath(args.Path)
+		resolved, err := resolvePathWithWorkDir(args.Path, workDir)
 		if err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 		}
 		searchPath = resolved
+	} else if workDir != "" {
+		searchPath = workDir
 	}
 
 	// Build ripgrep command

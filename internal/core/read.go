@@ -17,7 +17,8 @@ type readArgs struct {
 }
 
 // NewReadTool creates the read core tool.
-func NewReadTool() fantasy.AgentTool {
+func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "read",
@@ -38,11 +39,13 @@ func NewReadTool() fantasy.AgentTool {
 			},
 			Required: []string{"path"},
 		},
-		handler: executeRead,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeRead(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeRead(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args readArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("path parameter is required"), nil
@@ -51,7 +54,7 @@ func executeRead(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 		return fantasy.NewTextErrorResponse("path parameter is required"), nil
 	}
 
-	absPath, err := resolvePath(args.Path)
+	absPath, err := resolvePathWithWorkDir(args.Path, workDir)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}
@@ -131,14 +134,19 @@ func readDirectory(absPath string) (fantasy.ToolResponse, error) {
 	return fantasy.NewTextResponse(tr.Content), nil
 }
 
-// resolvePath resolves a path to an absolute path relative to cwd.
-func resolvePath(path string) (string, error) {
+// resolvePathWithWorkDir resolves a path to an absolute path relative to the
+// given workDir. If workDir is empty, os.Getwd() is used.
+func resolvePathWithWorkDir(path, workDir string) (string, error) {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path), nil
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
+	baseDir := workDir
+	if baseDir == "" {
+		var err error
+		baseDir, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get working directory: %w", err)
+		}
 	}
-	return filepath.Clean(filepath.Join(cwd, path)), nil
+	return filepath.Clean(filepath.Join(baseDir, path)), nil
 }

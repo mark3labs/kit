@@ -15,7 +15,8 @@ type writeArgs struct {
 }
 
 // NewWriteTool creates the write core tool.
-func NewWriteTool() fantasy.AgentTool {
+func NewWriteTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "write",
@@ -32,11 +33,13 @@ func NewWriteTool() fantasy.AgentTool {
 			},
 			Required: []string{"path", "content"},
 		},
-		handler: executeWrite,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeWrite(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeWrite(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args writeArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("path and content parameters are required"), nil
@@ -45,7 +48,7 @@ func executeWrite(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespo
 		return fantasy.NewTextErrorResponse("path parameter is required"), nil
 	}
 
-	absPath, err := resolvePath(args.Path)
+	absPath, err := resolvePathWithWorkDir(args.Path, workDir)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}

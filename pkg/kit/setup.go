@@ -28,6 +28,9 @@ type AgentSetupOptions struct {
 	UseBufferedLogger bool
 	// Quiet suppresses output. Replaces the cmd package's quietFlag variable.
 	Quiet bool
+	// CoreTools overrides the default core tool set. If empty, core.AllTools()
+	// is used. Allows SDK users to pass custom tools (e.g. with WithWorkDir).
+	CoreTools []fantasy.AgentTool
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -113,6 +116,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		Quiet:            opts.Quiet,
 		SpinnerFunc:      opts.SpinnerFunc,
 		DebugLogger:      debugLogger,
+		CoreTools:        opts.CoreTools,
 		ToolWrapper:      extCreationOpts.toolWrapper,
 		ExtraTools:       extCreationOpts.extraTools,
 	})

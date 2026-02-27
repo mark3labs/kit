@@ -17,7 +17,8 @@ type editArgs struct {
 }
 
 // NewEditTool creates the edit core tool.
-func NewEditTool() fantasy.AgentTool {
+func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "edit",
@@ -38,11 +39,13 @@ func NewEditTool() fantasy.AgentTool {
 			},
 			Required: []string{"path", "old_text", "new_text"},
 		},
-		handler: executeEdit,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeEdit(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeEdit(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args editArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("path, old_text, and new_text parameters are required"), nil
@@ -51,7 +54,7 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 		return fantasy.NewTextErrorResponse("path parameter is required"), nil
 	}
 
-	absPath, err := resolvePath(args.Path)
+	absPath, err := resolvePathWithWorkDir(args.Path, workDir)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}

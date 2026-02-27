@@ -18,7 +18,8 @@ type findArgs struct {
 }
 
 // NewFindTool creates the find core tool.
-func NewFindTool() fantasy.AgentTool {
+func NewFindTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "find",
@@ -39,11 +40,13 @@ func NewFindTool() fantasy.AgentTool {
 			},
 			Required: []string{"pattern"},
 		},
-		handler: executeFind,
+		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			return executeFind(ctx, call, cfg.WorkDir)
+		},
 	}
 }
 
-func executeFind(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func executeFind(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args findArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("pattern parameter is required"), nil
@@ -59,11 +62,13 @@ func executeFind(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRespon
 
 	searchPath := "."
 	if args.Path != "" {
-		resolved, err := resolvePath(args.Path)
+		resolved, err := resolvePathWithWorkDir(args.Path, workDir)
 		if err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 		}
 		searchPath = resolved
+	} else if workDir != "" {
+		searchPath = workDir
 	}
 
 	// Try fd first (faster, respects .gitignore by default)

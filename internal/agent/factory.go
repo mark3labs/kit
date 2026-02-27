@@ -36,6 +36,9 @@ type AgentCreationOptions struct {
 	SpinnerFunc SpinnerFunc // Function to show spinner (provided by caller)
 	// DebugLogger is an optional logger for debugging MCP communications
 	DebugLogger tools.DebugLogger // Optional debug logger
+	// CoreTools overrides the default core tool set. If empty, core.AllTools()
+	// is used.
+	CoreTools []fantasy.AgentTool
 	// ToolWrapper wraps the combined tool list before Fantasy agent creation.
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 	// ExtraTools are additional tools to include (e.g. from extensions).
@@ -53,6 +56,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		MaxSteps:         opts.MaxSteps,
 		StreamingEnabled: opts.StreamingEnabled,
 		DebugLogger:      opts.DebugLogger,
+		CoreTools:        opts.CoreTools,
 		ToolWrapper:      opts.ToolWrapper,
 		ExtraTools:       opts.ExtraTools,
 	}

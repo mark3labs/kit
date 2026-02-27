@@ -25,6 +25,11 @@ type AgentConfig struct {
 	StreamingEnabled bool
 	DebugLogger      tools.DebugLogger
 
+	// CoreTools overrides the default core tool set. If empty, core.AllTools()
+	// is used. This allows SDK users to provide a custom tool set (e.g.
+	// CodingTools or tools with a custom WorkDir).
+	CoreTools []fantasy.AgentTool
+
 	// ToolWrapper is an optional function that wraps the combined tool list
 	// before it is passed to the Fantasy agent. Used by the extensions system
 	// to intercept tool calls/results.
@@ -93,8 +98,12 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		return nil, fmt.Errorf("failed to create model provider: %v", err)
 	}
 
-	// Register core tools (direct fantasy implementations, no MCP overhead)
-	coreTools := core.AllTools()
+	// Register core tools (direct fantasy implementations, no MCP overhead).
+	// Use caller-provided tools if set, otherwise default to all core tools.
+	coreTools := agentConfig.CoreTools
+	if len(coreTools) == 0 {
+		coreTools = core.AllTools()
+	}
 
 	// Build the combined tool list: core tools + any external MCP tools
 	allTools := make([]fantasy.AgentTool, len(coreTools))

@@ -31,6 +31,7 @@ type Options struct {
 	MaxSteps     int    // Override max steps (0 = use default)
 	Streaming    bool   // Enable streaming (default from config)
 	Quiet        bool   // Suppress debug output
+	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
 }
 
 // New creates a Kit instance using the same initialization as the CLI.
@@ -72,6 +73,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
 		MCPConfig: mcpConfig,
 		Quiet:     opts.Quiet,
+		CoreTools: opts.Tools,
 	})
 	if err != nil {
 		return nil, err
@@ -176,6 +178,11 @@ func (m *Kit) ClearSession() {
 // "anthropic/claude-sonnet-4-5-20250929" or "openai/gpt-4") being used by the agent.
 func (m *Kit) GetModelString() string {
 	return m.modelString
+}
+
+// GetTools returns all tools available to the agent (core + MCP + extensions).
+func (m *Kit) GetTools() []Tool {
+	return m.agent.GetTools()
 }
 
 // Close cleans up resources including MCP server connections and model resources.
