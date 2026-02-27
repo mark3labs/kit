@@ -27,6 +27,12 @@ type Kit struct {
 	autoCompact    bool
 	compactionOpts *CompactionOptions
 	skills         []*skills.Skill
+
+	// Hook registries — interception layer (see hooks.go).
+	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
+	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
+	beforeTurn      *hookRegistry[BeforeTurnHook, BeforeTurnResult]
+	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -47,6 +53,7 @@ type Options struct {
 	Streaming    bool   // Enable streaming (default from config)
 	Quiet        bool   // Suppress debug output
 	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
+	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
 
 	// Session configuration
 	SessionDir  string // Base directory for session discovery (default: cwd)
@@ -148,11 +155,21 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("failed to load MCP config: %w", err)
 	}
 
-	// Create agent using shared setup.
+	// Pre-create hook registries so the tool wrapper can reference them.
+	// Hooks registered after New() returns are still invoked because the
+	// wrapper captures the registries by pointer.
+	beforeToolCall := newHookRegistry[BeforeToolCallHook, BeforeToolCallResult]()
+	afterToolResult := newHookRegistry[AfterToolResultHook, AfterToolResultResult]()
+	beforeTurn := newHookRegistry[BeforeTurnHook, BeforeTurnResult]()
+	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
+
+	// Create agent using shared setup with the hook tool wrapper.
 	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
-		MCPConfig: mcpConfig,
-		Quiet:     opts.Quiet,
-		CoreTools: opts.Tools,
+		MCPConfig:   mcpConfig,
+		Quiet:       opts.Quiet,
+		CoreTools:   opts.Tools,
+		ExtraTools:  opts.ExtraTools,
+		ToolWrapper: hookToolWrapper(beforeToolCall, afterToolResult),
 	})
 	if err != nil {
 		return nil, err
@@ -165,15 +182,26 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("failed to initialize session: %w", err)
 	}
 
-	return &Kit{
-		agent:          agentResult.Agent,
-		treeSession:    treeSession,
-		modelString:    viper.GetString("model"),
-		events:         newEventBus(),
-		autoCompact:    opts.AutoCompact,
-		compactionOpts: opts.CompactionOptions,
-		skills:         loadedSkills,
-	}, nil
+	k := &Kit{
+		agent:           agentResult.Agent,
+		treeSession:     treeSession,
+		modelString:     viper.GetString("model"),
+		events:          newEventBus(),
+		autoCompact:     opts.AutoCompact,
+		compactionOpts:  opts.CompactionOptions,
+		skills:          loadedSkills,
+		beforeToolCall:  beforeToolCall,
+		afterToolResult: afterToolResult,
+		beforeTurn:      beforeTurn,
+		afterTurn:       afterTurn,
+	}
+
+	// Bridge extension events to SDK hooks.
+	if agentResult.ExtRunner != nil {
+		k.bridgeExtensions(agentResult.ExtRunner)
+	}
+
+	return k, nil
 }
 
 // GetSkills returns the skills loaded during initialisation.
@@ -277,15 +305,44 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 }
 
 // runTurn is the shared lifecycle for every prompt mode:
-//  1. Persist pre-generation messages to the tree session.
-//  2. Build context from the tree (walks leaf-to-root for current branch).
-//  3. Emit turn/message start events.
-//  4. Run generation.
-//  5. Emit turn/message end events.
-//  6. Persist post-generation messages (tool calls, results, assistant).
+//  1. Run BeforeTurn hooks (can modify prompt, inject messages).
+//  2. Persist pre-generation messages to the tree session.
+//  3. Build context from the tree (walks leaf-to-root for current branch).
+//  4. Emit turn/message start events.
+//  5. Run generation.
+//  6. Emit turn/message end events.
+//  7. Persist post-generation messages (tool calls, results, assistant).
+//  8. Run AfterTurn hooks.
 //
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
-func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fantasy.Message) (string, error) {
+// prompt is the raw user text passed to BeforeTurn hooks.
+func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (string, error) {
+	// Run BeforeTurn hooks — can modify the prompt, inject system/context messages.
+	if m.beforeTurn.hasHooks() {
+		if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
+			// Override prompt text in the last user message.
+			if hookResult.Prompt != nil {
+				for i := len(preMessages) - 1; i >= 0; i-- {
+					if preMessages[i].Role == fantasy.MessageRoleUser {
+						preMessages[i] = fantasy.NewUserMessage(*hookResult.Prompt)
+						break
+					}
+				}
+			}
+			// Inject messages before the original preMessages.
+			var injected []fantasy.Message
+			if hookResult.SystemPrompt != nil {
+				injected = append(injected, fantasy.NewSystemMessage(*hookResult.SystemPrompt))
+			}
+			if hookResult.InjectText != nil {
+				injected = append(injected, fantasy.NewUserMessage(*hookResult.InjectText))
+			}
+			if len(injected) > 0 {
+				preMessages = append(injected, preMessages...)
+			}
+		}
+	}
+
 	// Persist pre-generation messages to tree session.
 	for _, msg := range preMessages {
 		_, _ = m.treeSession.AppendFantasyMessage(msg)
@@ -306,6 +363,10 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fan
 	result, err := m.generate(ctx, messages)
 	if err != nil {
 		m.events.emit(TurnEndEvent{Error: err})
+		// Run AfterTurn hooks even on error.
+		if m.afterTurn.hasHooks() {
+			m.afterTurn.run(AfterTurnHook{Error: err})
+		}
 		return "", err
 	}
 
@@ -321,6 +382,11 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fan
 		}
 	}
 
+	// Run AfterTurn hooks.
+	if m.afterTurn.hasHooks() {
+		m.afterTurn.run(AfterTurnHook{Response: responseText})
+	}
+
 	return responseText, nil
 }
 
@@ -333,7 +399,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fan
 // automatically maintained in the tree session. Lifecycle events are emitted
 // to all registered subscribers. Returns an error if generation fails.
 func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
-	return m.runTurn(ctx, message, []fantasy.Message{
+	return m.runTurn(ctx, message, message, []fantasy.Message{
 		fantasy.NewUserMessage(message),
 	})
 }
@@ -346,7 +412,7 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 // a synthetic user message so the agent acknowledges and follows the directive.
 // Both messages are persisted to the session.
 func (m *Kit) Steer(ctx context.Context, instruction string) (string, error) {
-	return m.runTurn(ctx, "[steer] "+instruction, []fantasy.Message{
+	return m.runTurn(ctx, "[steer] "+instruction, instruction, []fantasy.Message{
 		fantasy.NewSystemMessage(instruction),
 		fantasy.NewUserMessage("Please acknowledge and follow the above instruction."),
 	})
@@ -367,7 +433,7 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 		text = "Continue."
 	}
 
-	return m.runTurn(ctx, "[follow-up]", []fantasy.Message{
+	return m.runTurn(ctx, "[follow-up]", text, []fantasy.Message{
 		fantasy.NewUserMessage(text),
 	})
 }
@@ -390,7 +456,7 @@ func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOpti
 	}
 	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
 
-	return m.runTurn(ctx, msg, preMessages)
+	return m.runTurn(ctx, msg, msg, preMessages)
 }
 
 // PromptWithCallbacks sends a message with callbacks for monitoring tool

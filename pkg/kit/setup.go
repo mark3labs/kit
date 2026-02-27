@@ -31,6 +31,13 @@ type AgentSetupOptions struct {
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used. Allows SDK users to pass custom tools (e.g. with WithWorkDir).
 	CoreTools []fantasy.AgentTool
+	// ExtraTools are additional tools added alongside core, MCP, and extension
+	// tools. They do not replace the defaults — they extend them.
+	ExtraTools []fantasy.AgentTool
+	// ToolWrapper is an optional function that wraps tools after extension
+	// wrapping. Used by the SDK hook system. Both wrappers compose:
+	// extension wrapper runs first (inner), then this wrapper (outer).
+	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -106,6 +113,26 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		}
 	}
 
+	// Compose tool wrappers: extension wrapper (inner) + caller wrapper (outer).
+	toolWrapper := extCreationOpts.toolWrapper
+	if opts.ToolWrapper != nil {
+		if toolWrapper != nil {
+			inner := toolWrapper
+			outer := opts.ToolWrapper
+			toolWrapper = func(t []fantasy.AgentTool) []fantasy.AgentTool {
+				return outer(inner(t))
+			}
+		} else {
+			toolWrapper = opts.ToolWrapper
+		}
+	}
+
+	// Merge extra tools: extension tools + caller extra tools.
+	extraTools := extCreationOpts.extraTools
+	if len(opts.ExtraTools) > 0 {
+		extraTools = append(extraTools, opts.ExtraTools...)
+	}
+
 	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
 		ModelConfig:      modelConfig,
 		MCPConfig:        opts.MCPConfig,
@@ -117,8 +144,8 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		SpinnerFunc:      opts.SpinnerFunc,
 		DebugLogger:      debugLogger,
 		CoreTools:        opts.CoreTools,
-		ToolWrapper:      extCreationOpts.toolWrapper,
-		ExtraTools:       extCreationOpts.extraTools,
+		ToolWrapper:      toolWrapper,
+		ExtraTools:       extraTools,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent: %w", err)
