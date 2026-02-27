@@ -18,10 +18,12 @@ import (
 // integration of MCP tools and LLM interactions into Go applications. It manages
 // agents, sessions, and model configurations.
 type Kit struct {
-	agent       *agent.Agent
-	treeSession *session.TreeManager
-	modelString string
-	events      *eventBus
+	agent          *agent.Agent
+	treeSession    *session.TreeManager
+	modelString    string
+	events         *eventBus
+	autoCompact    bool
+	compactionOpts *CompactionOptions
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -48,6 +50,10 @@ type Options struct {
 	SessionPath string // Open a specific session file by path
 	Continue    bool   // Continue the most recent session for SessionDir
 	NoSession   bool   // Ephemeral mode — in-memory session, no persistence
+
+	// Compaction
+	AutoCompact       bool               // Auto-compact when near context limit
+	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
 }
 
 // InitTreeSession creates or opens a tree session based on the given options.
@@ -138,10 +144,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 
 	return &Kit{
-		agent:       agentResult.Agent,
-		treeSession: treeSession,
-		modelString: viper.GetString("model"),
-		events:      newEventBus(),
+		agent:          agentResult.Agent,
+		treeSession:    treeSession,
+		modelString:    viper.GetString("model"),
+		events:         newEventBus(),
+		autoCompact:    opts.AutoCompact,
+		compactionOpts: opts.CompactionOptions,
 	}, nil
 }
 
@@ -195,6 +203,11 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fan
 	// Persist pre-generation messages to tree session.
 	for _, msg := range preMessages {
 		_, _ = m.treeSession.AppendFantasyMessage(msg)
+	}
+
+	// Auto-compact if enabled and conversation is near the context limit.
+	if m.autoCompact && m.ShouldCompact() {
+		_, _ = m.Compact(ctx, m.compactionOpts) // best-effort
 	}
 
 	// Build context from the tree so only the current branch is sent.

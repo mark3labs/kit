@@ -34,6 +34,7 @@ var (
 	maxSteps         int
 	streamFlag       bool           // Enable streaming output
 	compactMode      bool           // Enable compact output mode
+	autoCompactFlag  bool           // Enable auto-compaction near context limit
 	scriptMCPConfig  *config.Config // Used to override config in script mode
 
 	// Session management
@@ -204,6 +205,8 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&compactMode, "compact", false, "enable compact output mode without fancy styling")
 	rootCmd.PersistentFlags().
+		BoolVar(&autoCompactFlag, "auto-compact", false, "auto-compact conversation when near context limit")
+	rootCmd.PersistentFlags().
 		StringVarP(&sessionPath, "session", "s", "", "open a specific JSONL session file")
 	rootCmd.PersistentFlags().
 		BoolVarP(&continueFlag, "continue", "c", false, "continue the most recent session for the current directory")
@@ -241,6 +244,7 @@ func init() {
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
 	_ = viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
+	_ = viper.BindPFlag("auto-compact", rootCmd.PersistentFlags().Lookup("auto-compact"))
 
 	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
 	_ = viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
@@ -382,6 +386,7 @@ func runNormalMode(ctx context.Context) error {
 		NoSession:   noSessionFlag,
 		Continue:    continueFlag,
 		SessionPath: sessionPath,
+		AutoCompact: autoCompactFlag,
 	}
 	if resumeFlag {
 		// List sessions for cwd and pick the most recent. TODO: TUI picker.

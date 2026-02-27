@@ -32,6 +32,8 @@ const (
 	EventToolCallContent EventType = "tool_call_content"
 	// EventResponse fires when the LLM produces a final response.
 	EventResponse EventType = "response"
+	// EventCompaction fires after a successful compaction.
+	EventCompaction EventType = "compaction"
 )
 
 // ---------------------------------------------------------------------------
@@ -138,6 +140,17 @@ type ResponseEvent struct {
 
 // EventType implements Event.
 func (e ResponseEvent) EventType() EventType { return EventResponse }
+
+// CompactionEvent fires after a successful compaction.
+type CompactionEvent struct {
+	Summary         string
+	OriginalTokens  int
+	CompactedTokens int
+	MessagesRemoved int
+}
+
+// EventType implements Event.
+func (e CompactionEvent) EventType() EventType { return EventCompaction }
 
 // ---------------------------------------------------------------------------
 // EventBus

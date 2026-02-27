@@ -4,6 +4,7 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
+	"github.com/mark3labs/kit/internal/compaction"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
@@ -133,6 +134,14 @@ type FantasyUsage = fantasy.Usage
 
 // FantasyResponse is the response type returned by the fantasy agent library.
 type FantasyResponse = fantasy.Response
+
+// ==== Compaction Types (internal/compaction/) ====
+
+// CompactionResult contains statistics from a compaction operation.
+type CompactionResult = compaction.CompactionResult
+
+// CompactionOptions configures compaction behaviour.
+type CompactionOptions = compaction.CompactionOptions
 
 // ==== Constructor & Helper Functions ====
 
