@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/skills"
 
 	"github.com/spf13/viper"
 )
@@ -24,6 +26,7 @@ type Kit struct {
 	events         *eventBus
 	autoCompact    bool
 	compactionOpts *CompactionOptions
+	skills         []*skills.Skill
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -50,6 +53,10 @@ type Options struct {
 	SessionPath string // Open a specific session file by path
 	Continue    bool   // Continue the most recent session for SessionDir
 	NoSession   bool   // Ephemeral mode — in-memory session, no persistence
+
+	// Skills
+	Skills    []string // Explicit skill files/dirs to load (empty = auto-discover)
+	SkillsDir string   // Override default project-local skills directory
 
 	// Compaction
 	AutoCompact       bool               // Auto-compact when near context limit
@@ -120,6 +127,21 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 	viper.Set("stream", opts.Streaming)
 
+	// Load skills — either from explicit paths or via auto-discovery.
+	loadedSkills, err := loadSkills(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load skills: %w", err)
+	}
+
+	// Compose the system prompt with skills if any were loaded.
+	if len(loadedSkills) > 0 {
+		basePrompt := viper.GetString("system-prompt")
+		composed := skills.NewPromptBuilder(basePrompt).
+			WithSkills(loadedSkills).
+			Build()
+		viper.Set("system-prompt", composed)
+	}
+
 	// Load MCP configuration.
 	mcpConfig, err := config.LoadAndValidateConfig()
 	if err != nil {
@@ -150,7 +172,71 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		events:         newEventBus(),
 		autoCompact:    opts.AutoCompact,
 		compactionOpts: opts.CompactionOptions,
+		skills:         loadedSkills,
 	}, nil
+}
+
+// GetSkills returns the skills loaded during initialisation.
+func (m *Kit) GetSkills() []*Skill {
+	return m.skills
+}
+
+// ---------------------------------------------------------------------------
+// Skills loading
+// ---------------------------------------------------------------------------
+
+// loadSkills loads skills based on Options. If explicit paths are provided
+// they are loaded directly; otherwise auto-discovery runs.
+func loadSkills(opts *Options) ([]*skills.Skill, error) {
+	if len(opts.Skills) > 0 {
+		return loadExplicitSkills(opts.Skills)
+	}
+
+	// Auto-discover from standard directories.
+	cwd := opts.SkillsDir
+	if cwd == "" {
+		cwd = opts.SessionDir
+	}
+	return skills.LoadSkills(cwd)
+}
+
+// loadExplicitSkills loads skills from a list of explicit paths. Each path
+// can be a file or a directory.
+func loadExplicitSkills(paths []string) ([]*skills.Skill, error) {
+	seen := make(map[string]bool)
+	var all []*skills.Skill
+
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, fmt.Errorf("skill path %s: %w", p, err)
+		}
+
+		if info.IsDir() {
+			dirSkills, err := skills.LoadSkillsFromDir(p)
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range dirSkills {
+				if !seen[s.Path] {
+					seen[s.Path] = true
+					all = append(all, s)
+				}
+			}
+		} else {
+			abs, _ := filepath.Abs(p)
+			if !seen[abs] {
+				seen[abs] = true
+				s, err := skills.LoadSkill(p)
+				if err != nil {
+					return nil, err
+				}
+				all = append(all, s)
+			}
+		}
+	}
+
+	return all, nil
 }
 
 // ---------------------------------------------------------------------------
