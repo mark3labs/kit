@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/kit/internal/session"
 )
 
 // makeTextMsg builds a minimal fantasy.Message with a single TextPart.
@@ -20,7 +19,7 @@ func makeTextMsg(role, text string) fantasy.Message {
 // --------------------------------------------------------------------------
 
 func TestNewMessageStore_empty(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	if s == nil {
 		t.Fatal("expected non-nil store")
 	}
@@ -34,7 +33,7 @@ func TestNewMessageStoreWithMessages_preloaded(t *testing.T) {
 		makeTextMsg("user", "hello"),
 		makeTextMsg("assistant", "hi"),
 	}
-	s := NewMessageStoreWithMessages(msgs, nil)
+	s := NewMessageStoreWithMessages(msgs)
 	if s.Len() != 2 {
 		t.Fatalf("expected 2 messages, got %d", s.Len())
 	}
@@ -44,7 +43,7 @@ func TestNewMessageStoreWithMessages_preloaded(t *testing.T) {
 // modifications don't affect the store.
 func TestNewMessageStoreWithMessages_isolatesInput(t *testing.T) {
 	msgs := []fantasy.Message{makeTextMsg("user", "hello")}
-	s := NewMessageStoreWithMessages(msgs, nil)
+	s := NewMessageStoreWithMessages(msgs)
 
 	// Mutate the source slice.
 	msgs[0] = makeTextMsg("user", "mutated")
@@ -64,7 +63,7 @@ func TestNewMessageStoreWithMessages_isolatesInput(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestAdd_appendsMessage(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "first"))
 	s.Add(makeTextMsg("assistant", "second"))
 
@@ -74,7 +73,7 @@ func TestAdd_appendsMessage(t *testing.T) {
 }
 
 func TestAdd_preservesOrder(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	texts := []string{"a", "b", "c"}
 	for _, t2 := range texts {
 		s.Add(makeTextMsg("user", t2))
@@ -93,7 +92,7 @@ func TestAdd_preservesOrder(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestReplace_swapsHistory(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "old"))
 
 	replacement := []fantasy.Message{
@@ -115,7 +114,7 @@ func TestReplace_swapsHistory(t *testing.T) {
 
 // Replace must deep-copy the incoming slice.
 func TestReplace_isolatesInput(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	replacement := []fantasy.Message{makeTextMsg("user", "original")}
 	s.Replace(replacement)
 
@@ -133,7 +132,7 @@ func TestReplace_isolatesInput(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestGetAll_returnsCopy(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "hello"))
 
 	got := s.GetAll()
@@ -148,7 +147,7 @@ func TestGetAll_returnsCopy(t *testing.T) {
 }
 
 func TestGetAll_emptyStore(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	got := s.GetAll()
 	if len(got) != 0 {
 		t.Fatalf("expected empty slice, got %d elements", len(got))
@@ -160,7 +159,7 @@ func TestGetAll_emptyStore(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestClear_removesAllMessages(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "a"))
 	s.Add(makeTextMsg("user", "b"))
 	s.Clear()
@@ -171,7 +170,7 @@ func TestClear_removesAllMessages(t *testing.T) {
 }
 
 func TestClear_allowsSubsequentAdds(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "before"))
 	s.Clear()
 	s.Add(makeTextMsg("user", "after"))
@@ -187,82 +186,11 @@ func TestClear_allowsSubsequentAdds(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// Session.Manager bridge
-// --------------------------------------------------------------------------
-
-// newInMemoryManager creates a session.Manager that never writes to disk
-// (empty filePath) so we can use it in tests without temp files.
-func newInMemoryManager() *session.Manager {
-	return session.NewManager("")
-}
-
-func TestSessionBridge_AddPersists(t *testing.T) {
-	mgr := newInMemoryManager()
-	s := NewMessageStore(mgr)
-
-	s.Add(makeTextMsg("user", "hello"))
-
-	// Manager.MessageCount() reflects in-memory state.
-	if got := mgr.MessageCount(); got != 1 {
-		t.Fatalf("expected manager to have 1 message after Add, got %d", got)
-	}
-}
-
-func TestSessionBridge_ReplacePersists(t *testing.T) {
-	mgr := newInMemoryManager()
-	s := NewMessageStore(mgr)
-
-	s.Add(makeTextMsg("user", "old"))
-	s.Replace([]fantasy.Message{
-		makeTextMsg("user", "new1"),
-		makeTextMsg("assistant", "new2"),
-	})
-
-	if got := mgr.MessageCount(); got != 2 {
-		t.Fatalf("expected manager to have 2 messages after Replace, got %d", got)
-	}
-}
-
-func TestSessionBridge_ClearPersists(t *testing.T) {
-	mgr := newInMemoryManager()
-	s := NewMessageStore(mgr)
-
-	s.Add(makeTextMsg("user", "a"))
-	s.Add(makeTextMsg("user", "b"))
-	s.Clear()
-
-	if got := mgr.MessageCount(); got != 0 {
-		t.Fatalf("expected manager to have 0 messages after Clear, got %d", got)
-	}
-}
-
-func TestSessionBridge_NilManager_nocrash(t *testing.T) {
-	// Ensure all operations work without a session manager.
-	s := NewMessageStore(nil)
-	s.Add(makeTextMsg("user", "a"))
-	s.Replace([]fantasy.Message{makeTextMsg("user", "b")})
-	s.Clear()
-}
-
-// NewMessageStoreWithMessages must NOT write to the session manager on
-// construction (messages are assumed to already be persisted).
-func TestSessionBridge_WithMessages_doesNotPersistOnConstruction(t *testing.T) {
-	mgr := newInMemoryManager()
-	_ = NewMessageStoreWithMessages([]fantasy.Message{makeTextMsg("user", "pre")}, mgr)
-
-	// Manager should have 0 messages — construction is read-only from manager's
-	// perspective; the pre-loaded messages are already on disk.
-	if got := mgr.MessageCount(); got != 0 {
-		t.Fatalf("expected 0 (no write on construction), got %d", got)
-	}
-}
-
-// --------------------------------------------------------------------------
 // Concurrency smoke test
 // --------------------------------------------------------------------------
 
 func TestConcurrentAccess(t *testing.T) {
-	s := NewMessageStore(nil)
+	s := NewMessageStore()
 	done := make(chan struct{})
 
 	// Writer goroutine.

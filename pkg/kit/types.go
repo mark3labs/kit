@@ -46,16 +46,6 @@ type Finish = message.Finish
 
 // ==== Session Types (internal/session/) ====
 
-// Session represents a complete conversation session with metadata.
-type Session = session.Session
-
-// SessionMetadata contains contextual information about the session
-// (provider, model, kit version).
-type SessionMetadata = session.Metadata
-
-// SessionManager manages session state and auto-saving functionality.
-type SessionManager = session.Manager
-
 // SessionInfo contains metadata about a discovered session, used for listing
 // and session picker display.
 type SessionInfo = session.SessionInfo
@@ -147,16 +137,6 @@ type FantasyResponse = fantasy.Response
 // ==== Constructor & Helper Functions ====
 
 var (
-	// NewSession creates a new session with default values.
-	NewSession = session.NewSession
-	// NewSessionManager creates a new session manager with a fresh session.
-	NewSessionManager = session.NewManager
-	// ListSessions finds all sessions for a given working directory, sorted
-	// by modification time (newest first).
-	ListSessions = session.ListSessions
-	// ListAllSessions finds all sessions across all working directories,
-	// sorted by modification time (newest first).
-	ListAllSessions = session.ListAllSessions
 	// ParseModelString parses a model string in "provider/model" format.
 	ParseModelString = models.ParseModelString
 	// CreateProvider creates a fantasy LanguageModel based on provider config.

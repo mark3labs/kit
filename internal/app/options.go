@@ -52,14 +52,9 @@ type Options struct {
 	// *agent.Agent satisfies this interface; tests may supply stubs.
 	Agent AgentRunner
 
-	// SessionManager is the optional legacy session manager for persisting
-	// conversation history to disk using the old JSON format.
-	// Deprecated: Use TreeSession instead.
-	SessionManager *session.Manager
-
 	// TreeSession is the tree-structured JSONL session manager. When non-nil,
 	// conversation history is persisted as an append-only JSONL tree and tree
-	// navigation (/tree, /fork) is enabled. Takes precedence over SessionManager.
+	// navigation (/tree, /fork) is enabled.
 	TreeSession *session.TreeManager
 
 	// MCPConfig is the full MCP configuration used for session continuation and

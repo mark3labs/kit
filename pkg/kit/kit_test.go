@@ -58,33 +58,23 @@ func TestSessionManagement(t *testing.T) {
 
 	ctx := context.Background()
 
-	host, err := kit.New(ctx, &kit.Options{Quiet: true})
+	host, err := kit.New(ctx, &kit.Options{Quiet: true, NoSession: true})
 	if err != nil {
 		t.Fatalf("Failed to create Kit: %v", err)
 	}
 	defer func() { _ = host.Close() }()
 
-	// Test clear session
-	host.ClearSession()
-	mgr := host.GetSessionManager()
-	if mgr.MessageCount() != 0 {
-		t.Error("Session should be empty after clear")
+	// Tree session should be configured.
+	ts := host.GetTreeSession()
+	if ts == nil {
+		t.Fatal("Expected tree session to be configured")
 	}
 
-	// Test save/load session (would need actual implementation)
-	tempFile := t.TempDir() + "/session.json"
+	// Test clear session resets leaf.
+	host.ClearSession()
 
-	// Add a message first
-	_, err = host.Prompt(ctx, "test message")
-	if err == nil { // Only if we have a working model
-		if err := host.SaveSession(tempFile); err != nil {
-			t.Errorf("Failed to save session: %v", err)
-		}
-
-		// Clear and reload
-		host.ClearSession()
-		if err := host.LoadSession(tempFile); err != nil {
-			t.Errorf("Failed to load session: %v", err)
-		}
+	// Verify session info accessors.
+	if id := host.GetSessionID(); id == "" {
+		t.Error("Expected non-empty session ID")
 	}
 }

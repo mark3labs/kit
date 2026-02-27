@@ -38,17 +38,6 @@ func TestTypeExports(t *testing.T) {
 		t.Errorf("Finish.Reason = %q, want %q", finish.Reason, "end_turn")
 	}
 
-	// Verify session constructors are callable.
-	s := kit.NewSession()
-	if s == nil {
-		t.Error("NewSession() returned nil")
-	}
-
-	mgr := kit.NewSessionManager("")
-	if mgr == nil {
-		t.Error("NewSessionManager() returned nil")
-	}
-
 	// Verify registry is accessible.
 	reg := kit.GetGlobalRegistry()
 	if reg == nil {

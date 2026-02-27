@@ -3,12 +3,14 @@ package kit
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/session"
+
 	"github.com/spf13/viper"
 )
 
@@ -17,7 +19,7 @@ import (
 // agents, sessions, and model configurations.
 type Kit struct {
 	agent       *agent.Agent
-	sessionMgr  *session.Manager
+	treeSession *session.TreeManager
 	modelString string
 	events      *eventBus
 }
@@ -40,6 +42,47 @@ type Options struct {
 	Streaming    bool   // Enable streaming (default from config)
 	Quiet        bool   // Suppress debug output
 	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
+
+	// Session configuration
+	SessionDir  string // Base directory for session discovery (default: cwd)
+	SessionPath string // Open a specific session file by path
+	Continue    bool   // Continue the most recent session for SessionDir
+	NoSession   bool   // Ephemeral mode — in-memory session, no persistence
+}
+
+// InitTreeSession creates or opens a tree session based on the given options.
+// Both kit.New() and the CLI use this function so session initialisation
+// logic lives in one place.
+//
+// Behaviour based on Options:
+//   - NoSession:   in-memory tree session (no persistence)
+//   - Continue:    resume most recent session for SessionDir (or cwd)
+//   - SessionPath: open a specific JSONL session file
+//   - default:     create a new tree session for SessionDir (or cwd)
+func InitTreeSession(opts *Options) (*session.TreeManager, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
+
+	sessionDir := opts.SessionDir
+	if sessionDir == "" {
+		sessionDir, _ = os.Getwd()
+	}
+
+	if opts.NoSession {
+		return session.InMemoryTreeSession(sessionDir), nil
+	}
+
+	if opts.Continue {
+		return session.ContinueRecent(sessionDir)
+	}
+
+	if opts.SessionPath != "" {
+		return session.OpenTreeSession(opts.SessionPath)
+	}
+
+	// Default: create a new tree session for the working directory.
+	return session.CreateTreeSession(sessionDir)
 }
 
 // New creates a Kit instance using the same initialization as the CLI.
@@ -87,9 +130,16 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, err
 	}
 
+	// Initialize tree session.
+	treeSession, err := InitTreeSession(opts)
+	if err != nil {
+		_ = agentResult.Agent.Close()
+		return nil, fmt.Errorf("failed to initialize session: %w", err)
+	}
+
 	return &Kit{
 		agent:       agentResult.Agent,
-		sessionMgr:  session.NewManager(""),
+		treeSession: treeSession,
 		modelString: viper.GetString("model"),
 		events:      newEventBus(),
 	}, nil
@@ -97,22 +147,27 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 
 // Prompt sends a message to the agent and returns the response. The agent may
 // use tools as needed to generate the response. The conversation history is
-// automatically maintained in the session. Lifecycle events are emitted to all
+// automatically maintained in the session (tree session if configured,
+// otherwise the legacy session manager). Lifecycle events are emitted to all
 // registered subscribers. Returns an error if generation fails.
 func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
-	messages := m.sessionMgr.GetMessages()
 	userMsg := fantasy.NewUserMessage(message)
-	messages = append(messages, userMsg)
+
+	// Persist user message to tree session before building context.
+	_, _ = m.treeSession.AppendFantasyMessage(userMsg)
+
+	// Build context from the tree (walks leaf-to-root) so that only the
+	// current branch is sent to the LLM.
+	messages := m.treeSession.GetFantasyMessages()
+	sentCount := len(messages)
 
 	m.events.emit(TurnStartEvent{Prompt: message})
 	m.events.emit(MessageStartEvent{})
 
 	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		// onToolCall
 		func(toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
 		},
-		// onToolExecution
 		func(toolName string, isStarting bool) {
 			if isStarting {
 				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
@@ -120,22 +175,18 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
 			}
 		},
-		// onToolResult
 		func(toolName, toolArgs, resultText string, isError bool) {
 			m.events.emit(ToolResultEvent{
 				ToolName: toolName, ToolArgs: toolArgs,
 				Result: resultText, IsError: isError,
 			})
 		},
-		// onResponse
 		func(content string) {
 			m.events.emit(ResponseEvent{Content: content})
 		},
-		// onToolCallContent
 		func(content string) {
 			m.events.emit(ToolCallContentEvent{Content: content})
 		},
-		// onStreamingResponse
 		func(chunk string) {
 			m.events.emit(MessageUpdateEvent{Chunk: chunk})
 		},
@@ -150,8 +201,11 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 	m.events.emit(MessageEndEvent{Content: responseText})
 	m.events.emit(TurnEndEvent{Response: responseText})
 
-	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
-		return "", fmt.Errorf("failed to update session: %w", err)
+	// Persist new messages (tool calls, tool results, assistant response).
+	if len(result.ConversationMessages) > sentCount {
+		for _, msg := range result.ConversationMessages[sentCount:] {
+			_, _ = m.treeSession.AppendFantasyMessage(msg)
+		}
 	}
 
 	return responseText, nil
@@ -171,22 +225,25 @@ func (m *Kit) PromptWithCallbacks(
 	onToolResult func(name, args, result string, isError bool),
 	onStreaming func(chunk string),
 ) (string, error) {
-	messages := m.sessionMgr.GetMessages()
 	userMsg := fantasy.NewUserMessage(message)
-	messages = append(messages, userMsg)
+
+	// Persist user message to tree session.
+	_, _ = m.treeSession.AppendFantasyMessage(userMsg)
+
+	// Build context from tree.
+	messages := m.treeSession.GetFantasyMessages()
+	sentCount := len(messages)
 
 	m.events.emit(TurnStartEvent{Prompt: message})
 	m.events.emit(MessageStartEvent{})
 
 	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		// onToolCall — fire event + user callback
 		func(toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
 			if onToolCall != nil {
 				onToolCall(toolName, toolArgs)
 			}
 		},
-		// onToolExecution
 		func(toolName string, isStarting bool) {
 			if isStarting {
 				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
@@ -194,7 +251,6 @@ func (m *Kit) PromptWithCallbacks(
 				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
 			}
 		},
-		// onToolResult — fire event + user callback
 		func(toolName, toolArgs, resultText string, isError bool) {
 			m.events.emit(ToolResultEvent{
 				ToolName: toolName, ToolArgs: toolArgs,
@@ -204,15 +260,12 @@ func (m *Kit) PromptWithCallbacks(
 				onToolResult(toolName, toolArgs, resultText, isError)
 			}
 		},
-		// onResponse
 		func(content string) {
 			m.events.emit(ResponseEvent{Content: content})
 		},
-		// onToolCallContent
 		func(content string) {
 			m.events.emit(ToolCallContentEvent{Content: content})
 		},
-		// onStreamingResponse — fire event + user callback
 		func(chunk string) {
 			m.events.emit(MessageUpdateEvent{Chunk: chunk})
 			if onStreaming != nil {
@@ -230,40 +283,20 @@ func (m *Kit) PromptWithCallbacks(
 	m.events.emit(MessageEndEvent{Content: responseText})
 	m.events.emit(TurnEndEvent{Response: responseText})
 
-	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
-		return "", fmt.Errorf("failed to update session: %w", err)
+	// Persist new messages.
+	if len(result.ConversationMessages) > sentCount {
+		for _, msg := range result.ConversationMessages[sentCount:] {
+			_, _ = m.treeSession.AppendFantasyMessage(msg)
+		}
 	}
 
 	return responseText, nil
 }
 
-// GetSessionManager returns the current session manager for direct access
-// to conversation history and session manipulation.
-func (m *Kit) GetSessionManager() *session.Manager {
-	return m.sessionMgr
-}
-
-// LoadSession loads a previously saved session from a file, restoring the
-// conversation history. Returns an error if the file cannot be loaded or parsed.
-func (m *Kit) LoadSession(path string) error {
-	s, err := session.LoadFromFile(path)
-	if err != nil {
-		return err
-	}
-	m.sessionMgr = session.NewManagerWithSession(s, path)
-	return nil
-}
-
-// SaveSession saves the current session to a file for later restoration.
-// Returns an error if the session cannot be written to the specified path.
-func (m *Kit) SaveSession(path string) error {
-	return m.sessionMgr.GetSession().SaveToFile(path)
-}
-
-// ClearSession clears the current session history, starting a new conversation
-// with an empty message history.
+// ClearSession resets the tree session's leaf pointer to the root, starting
+// a fresh conversation branch.
 func (m *Kit) ClearSession() {
-	m.sessionMgr = session.NewManager("")
+	m.treeSession.ResetLeaf()
 }
 
 // GetModelString returns the current model string identifier (e.g.,
@@ -277,9 +310,12 @@ func (m *Kit) GetTools() []Tool {
 	return m.agent.GetTools()
 }
 
-// Close cleans up resources including MCP server connections and model resources.
-// Should be called when the Kit instance is no longer needed. Returns an
-// error if cleanup fails.
+// Close cleans up resources including MCP server connections, model resources,
+// and the tree session file handle. Should be called when the Kit instance is
+// no longer needed. Returns an error if cleanup fails.
 func (m *Kit) Close() error {
+	if m.treeSession != nil {
+		_ = m.treeSession.Close()
+	}
 	return m.agent.Close()
 }

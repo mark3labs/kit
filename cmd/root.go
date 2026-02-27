@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,7 +14,6 @@ import (
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
-	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -39,9 +37,7 @@ var (
 	scriptMCPConfig  *config.Config // Used to override config in script mode
 
 	// Session management
-	saveSessionPath string
-	loadSessionPath string
-	sessionPath     string
+	sessionPath string
 
 	// Tree session management (pi-style)
 	continueFlag  bool // --continue / -c: resume most recent session for cwd
@@ -208,11 +204,7 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&compactMode, "compact", false, "enable compact output mode without fancy styling")
 	rootCmd.PersistentFlags().
-		StringVar(&saveSessionPath, "save-session", "", "save session to file after each message")
-	rootCmd.PersistentFlags().
-		StringVar(&loadSessionPath, "load-session", "", "load session from file at startup")
-	rootCmd.PersistentFlags().
-		StringVarP(&sessionPath, "session", "s", "", "session file to load and update")
+		StringVarP(&sessionPath, "session", "s", "", "open a specific JSONL session file")
 	rootCmd.PersistentFlags().
 		BoolVarP(&continueFlag, "continue", "c", false, "continue the most recent session for the current directory")
 	rootCmd.PersistentFlags().
@@ -384,119 +376,34 @@ func runNormalMode(ctx context.Context) error {
 		DisplayDebugConfig(cli, mcpAgent, mcpConfig, parsedProvider)
 	}
 
-	// Main interaction logic
-	var messages []fantasy.Message
-	var sessionManager *session.Manager
-	var treeSession *session.TreeManager
-
-	cwd, _ := os.Getwd()
-
-	// --- Tree session handling (--continue, --resume, default) ---
-	if noSessionFlag {
-		// Ephemeral mode: in-memory tree session, no persistence.
-		treeSession = session.InMemoryTreeSession(cwd)
-	} else if continueFlag {
-		// Continue the most recent session for this cwd.
-		ts, err := session.ContinueRecent(cwd)
-		if err != nil {
-			return fmt.Errorf("failed to continue session: %v", err)
-		}
-		treeSession = ts
-		// Load existing messages into the fantasy message slice.
-		messages = ts.GetFantasyMessages()
-	} else if resumeFlag {
-		// Interactive session picker: list sessions and let user choose.
-		sessions, err := session.ListSessions(cwd)
-		if err != nil || len(sessions) == 0 {
-			// No sessions found — create a new one.
-			ts, err := session.CreateTreeSession(cwd)
-			if err != nil {
-				return fmt.Errorf("failed to create session: %v", err)
-			}
-			treeSession = ts
-		} else {
-			// For now, pick the most recent. TODO: TUI picker.
-			ts, err := session.OpenTreeSession(sessions[0].Path)
-			if err != nil {
-				return fmt.Errorf("failed to open session: %v", err)
-			}
-			treeSession = ts
-			messages = ts.GetFantasyMessages()
-		}
-	} else if sessionPath != "" {
-		// Legacy --session flag: open or create a specific JSONL session.
-		if strings.HasSuffix(sessionPath, ".jsonl") {
-			_, statErr := os.Stat(sessionPath)
-			if os.IsNotExist(statErr) {
-				// Create a new tree session at the specified path.
-				dir := filepath.Dir(sessionPath)
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					return fmt.Errorf("failed to create session directory: %v", err)
-				}
-				ts, err := session.CreateTreeSession(cwd)
-				if err != nil {
-					return fmt.Errorf("failed to create session: %v", err)
-				}
-				treeSession = ts
-			} else {
-				ts, err := session.OpenTreeSession(sessionPath)
-				if err != nil {
-					return fmt.Errorf("failed to open session: %v", err)
-				}
-				treeSession = ts
-				messages = ts.GetFantasyMessages()
-			}
-		} else {
-			// Legacy JSON session path handling.
-			_, statErr := os.Stat(sessionPath)
-			if os.IsNotExist(statErr) {
-				content := []byte("{}")
-				if err := os.WriteFile(sessionPath, content, 0664); err != nil {
-					panic(err)
-				}
-			}
-			loadSessionPath = sessionPath
-			saveSessionPath = sessionPath
-		}
-	} else {
-		// Default: auto-create a tree session for the current directory.
-		ts, err := session.CreateTreeSession(cwd)
-		if err != nil {
-			// Non-fatal: fall back to no session.
-			if debugMode {
-				fmt.Fprintf(os.Stderr, "Warning: could not create tree session: %v\n", err)
-			}
-		} else {
-			treeSession = ts
+	// --- Session initialization via SDK ---
+	// Map CLI flags to SDK session options and delegate to InitTreeSession.
+	sessionOpts := &kit.Options{
+		NoSession:   noSessionFlag,
+		Continue:    continueFlag,
+		SessionPath: sessionPath,
+	}
+	if resumeFlag {
+		// List sessions for cwd and pick the most recent. TODO: TUI picker.
+		sessions, _ := kit.ListSessions("")
+		if len(sessions) > 0 {
+			sessionOpts.SessionPath = sessions[0].Path
 		}
 	}
 
-	// --- Legacy JSON session handling (--load-session, --save-session) ---
-	if treeSession == nil {
-		if loadSessionPath != "" {
-			loadedSession, err := session.LoadFromFile(loadSessionPath)
-			if err != nil {
-				return fmt.Errorf("failed to load session: %v", err)
-			}
-			for _, msg := range loadedSession.Messages {
-				messages = append(messages, msg.ToFantasyMessages()...)
-			}
-			if saveSessionPath != "" {
-				sessionManager = session.NewManagerWithSession(loadedSession, saveSessionPath)
-			}
-		} else if saveSessionPath != "" {
-			sessionManager = session.NewManager(saveSessionPath)
-			_ = sessionManager.SetMetadata(session.Metadata{
-				KitVersion: "dev",
-				Provider:   parsedProvider,
-				Model:      modelName,
-			})
-		}
+	treeSession, err := kit.InitTreeSession(sessionOpts)
+	if err != nil {
+		return fmt.Errorf("failed to initialize session: %v", err)
+	}
+
+	// Load existing messages from resumed/continued sessions.
+	var messages []fantasy.Message
+	if treeSession != nil {
+		messages = treeSession.GetFantasyMessages()
 	}
 
 	// Create the app.App instance now that session messages are loaded.
 	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, agentResult.ExtRunner)
-	appOpts.SessionManager = sessionManager
 	appOpts.TreeSession = treeSession
 
 	// Create a usage tracker that is shared between the app layer (for recording
@@ -519,6 +426,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Emit SessionStart event to extensions.
 	if agentResult.ExtRunner != nil {
+		cwd, _ := os.Getwd()
 		agentResult.ExtRunner.SetContext(extensions.Context{
 			CWD:         cwd,
 			Model:       modelName,

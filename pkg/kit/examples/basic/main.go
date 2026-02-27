@@ -72,7 +72,7 @@ func main() {
 	}
 	fmt.Printf("\nFinal response: %s\n", response)
 
-	// Example 4: Session management
+	// Example 4: Session management (tree sessions)
 	fmt.Println("\n=== Example 4: Session management ===")
 	host4, err := kit.New(ctx, nil)
 	if err != nil {
@@ -86,16 +86,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Second message (should remember context)
+	// Second message (should remember context via tree session)
 	response, err = host4.Prompt(ctx, "What's my favorite color?")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("Response: %s\n", response)
 
-	// Save session
-	if err := host4.SaveSession("./session.json"); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Session saved to ./session.json")
+	// Session is automatically persisted as a JSONL tree.
+	fmt.Printf("Session path: %s\n", host4.GetSessionPath())
 }

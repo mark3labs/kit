@@ -67,7 +67,7 @@ func New(opts Options, initialMessages []fantasy.Message) *App {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &App{
 		opts:       opts,
-		store:      NewMessageStoreWithMessages(initialMessages, opts.SessionManager),
+		store:      NewMessageStoreWithMessages(initialMessages),
 		rootCtx:    rootCtx,
 		rootCancel: rootCancel,
 		// cancelStep starts as a no-op so CancelCurrentStep() is always safe.
