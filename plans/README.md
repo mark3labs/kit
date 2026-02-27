@@ -66,6 +66,7 @@ internal/app/     TUI/interactive mode — subscribes to SDK events
 | **07** | P2 | Compaction APIs | 00, 03, 04 |
 | **08** | P2 | Skills & prompts system | 00, 02 |
 | **09** | P3 | Extension hook system | 00, 01, 02, 03 |
+| **10** | P4 | App-as-SDK-consumer — complete integration | 00–09 |
 
 ### Recommended Batches
 
@@ -80,6 +81,9 @@ Auth, compaction, skills. CLI commands use SDK functions.
 
 **Batch 4 — Extensibility** (Plan 09):
 Hook system with extension bridge. App's extension dispatch routes through SDK hooks.
+
+**Batch 5 — Full Integration** (Plan 10):
+CLI uses `kit.New()`, app calls `kit.PromptResult()`, extension events route through SDK EventBus. Closes all deferred items from Plans 03, 05, 09. Removes `AgentRunner` interface, `app.Options.Extensions`, and legacy `executeStep` code.
 
 ## Parity with Pi SDK
 
@@ -97,4 +101,4 @@ After all plans:
 | Compaction APIs | Yes | Plan 07 |
 | Skills/prompts system | Yes | Plan 08 |
 | Extension hooks (20+ events) | Yes | Plan 09 |
-| App built on SDK | Yes | Gradual across all plans |
+| App built on SDK | Yes | Plan 10 (completes deferred work from 03, 05, 09) |

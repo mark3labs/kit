@@ -81,15 +81,3 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 
 	return agent, nil
 }
-
-// ParseModelName extracts provider and model name from a model string.
-// Model strings are formatted as "provider/model" (e.g., "anthropic/claude-sonnet-4-5-20250929").
-// The legacy "provider:model" format is also accepted for backward compatibility.
-// If the string cannot be parsed, returns "unknown" for both provider and model.
-func ParseModelName(modelString string) (provider, model string) {
-	p, m, err := models.ParseModelString(modelString)
-	if err != nil {
-		return "unknown", "unknown"
-	}
-	return p, m
-}
