@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+
+const { spawnSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+
+const REPO = "mark3labs/kit";
+const BINARY = "kit";
+
+const binDir = __dirname;
+const isWindows = process.platform === "win32";
+const binaryName = isWindows ? "kit.exe" : "kit-bin";
+const binaryPath = path.join(binDir, binaryName);
+
+// Platform/arch mapping
+const PLATFORM_MAP = { darwin: "darwin", linux: "linux", win32: "windows" };
+const ARCH_MAP = { x64: "amd64", arm64: "arm64" };
+
+function download(url, dest) {
+  return new Promise((resolve, reject) => {
+    const follow = (url, redirects = 0) => {
+      if (redirects > 10) return reject(new Error("Too many redirects"));
+      https.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return follow(res.headers.location, redirects + 1);
+        }
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+        const file = fs.createWriteStream(dest);
+        res.pipe(file);
+        file.on("finish", () => { file.close(); resolve(); });
+        file.on("error", (err) => { fs.unlinkSync(dest); reject(err); });
+      }).on("error", reject);
+    };
+    follow(url);
+  });
+}
+
+async function install() {
+  const platform = PLATFORM_MAP[process.platform];
+  const arch = ARCH_MAP[process.arch];
+  if (!platform || !arch) {
+    console.error(`Unsupported platform: ${process.platform}/${process.arch}`);
+    process.exit(1);
+  }
+
+  const packageJson = require("../package.json");
+  const version = packageJson.version;
+  const ext = platform === "windows" ? "zip" : "tar.gz";
+  const filename = `${BINARY}_${version}_${platform}_${arch}.${ext}`;
+  const url = `https://github.com/${REPO}/releases/download/v${version}/${filename}`;
+  const archivePath = path.join(binDir, filename);
+  // Extract to temp dir to avoid overwriting this JS wrapper script
+  const tempDir = path.join(binDir, ".tmp-extract");
+
+  console.log(`Installing ${BINARY} v${version} (${platform}/${arch})...`);
+
+  await download(url, archivePath);
+
+  // Create temp extraction directory
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  if (platform === "windows") {
+    spawnSync("powershell", ["-Command", `Expand-Archive -Path "${archivePath}" -DestinationPath "${tempDir}" -Force`]);
+  } else {
+    spawnSync("tar", ["-xzf", archivePath, "-C", tempDir]);
+  }
+
+  // Move extracted binary to final location (from temp dir to avoid overwriting wrapper)
+  const extractedPath = path.join(tempDir, platform === "windows" ? `${BINARY}.exe` : BINARY);
+  if (fs.existsSync(extractedPath)) {
+    fs.renameSync(extractedPath, binaryPath);
+  }
+
+  if (platform !== "windows") fs.chmodSync(binaryPath, 0o755);
+  fs.unlinkSync(archivePath);
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  console.log(`Installed ${BINARY} successfully`);
+}
+
+async function main() {
+  // Install binary if missing
+  if (!fs.existsSync(binaryPath)) {
+    await install();
+  }
+
+  const result = spawnSync(binaryPath, process.argv.slice(2), {
+    stdio: "inherit",
+    shell: false,
+  });
+
+  if (result.error) {
+    console.error(`Failed to run kit: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  process.exit(result.status ?? 1);
+}
+
+main();

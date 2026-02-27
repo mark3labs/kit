@@ -1,0 +1,3 @@
+# Downloaded binaries (only wrapper script should be committed)
+bin/kit-bin
+bin/kit.exe

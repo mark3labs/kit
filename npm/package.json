@@ -1,0 +1,41 @@
+{
+  "name": "@mark3labs/kit",
+  "version": "0.0.0",
+  "description": "AI-powered CLI tool",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mark3labs/kit.git"
+  },
+  "homepage": "https://github.com/mark3labs/kit",
+  "bugs": {
+    "url": "https://github.com/mark3labs/kit/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "kit": "bin/kit"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "keywords": [
+    "cli",
+    "kit",
+    "ai"
+  ]
+}

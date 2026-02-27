@@ -1,47 +1,70 @@
-before:
-  hooks:
-    - go mod tidy
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
 
 builds:
-  - id: kit
-    main: ./cmd/kit
+  - main: ./cmd/kit
+    binary: kit
     env:
       - CGO_ENABLED=0
     goos:
+      - darwin
       - linux
       - windows
-      - darwin
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
-    binary: kit
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: checksums.txt
+
+release:
+  header: |
+    ## Installation
+
+    ```bash
+    # Bun / npm
+    bun add -g @mark3labs/kit
+    # or: npm install -g @mark3labs/kit
+
+    # Go install (requires Go 1.26+)
+    go install github.com/mark3labs/kit/cmd/kit@latest
+
+    # Or download from assets below
+    ```
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - Merge pull request
-      - Merge branch
+      - "^Merge"
+      - "^merge"
+      - "^wip"
+      - "^WIP"
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Maintenance"
+      regexp: '^.*?(chore|refactor|style|ci|build)(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: "Other Changes"
+      order: 999
