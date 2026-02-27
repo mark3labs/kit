@@ -299,10 +299,50 @@ EventBus
 
 ## Verification Checklist
 
-- [ ] `go build -o output/kit ./cmd/kit` succeeds
-- [ ] `go test -race ./...` passes
-- [ ] Events fire in correct order: TurnStart → MessageStart → updates → ToolCall → ToolResult → MessageEnd → TurnEnd
-- [ ] Multiple subscribers receive all events
-- [ ] Unsubscribe removes listener
-- [ ] App TUI still renders correctly via event bridge
-- [ ] Thread-safe under concurrent calls
+- [x] `go build -o output/kit ./cmd/kit` succeeds
+- [x] `go test -race ./...` passes
+- [x] Events fire in correct order: TurnStart → MessageStart → updates → ToolCall → ToolResult → MessageEnd → TurnEnd
+- [x] Multiple subscribers receive all events
+- [x] Unsubscribe removes listener
+- [ ] App TUI still renders correctly via event bridge (deferred — see below)
+- [x] Thread-safe under concurrent calls
+
+## Implemented (Steps 1-5, 8-9)
+
+Core event system is complete:
+- Event types, concrete structs, EventBus in `pkg/kit/events.go`
+- `Kit.Subscribe()` + typed helpers (`OnToolCall`, `OnToolResult`, `OnStreaming`, `OnResponse`, `OnTurnStart`, `OnTurnEnd`)
+- `Prompt()` and `PromptWithCallbacks()` emit full lifecycle events
+- 10 tests covering subscribe/unsubscribe, ordering, concurrency, self-unsubscribe
+- Example updated to use `Subscribe` API; `PromptWithCallbacks` marked deprecated
+
+## Deferred (Steps 6-7)
+
+### Step 6: App TUI bridge — app subscribes to SDK events
+
+The app (`internal/app/app.go`) currently owns an `AgentRunner` interface (not a `*Kit`),
+and emits `tea.Msg` events directly from `executeStep()` callbacks. To bridge through the
+SDK EventBus:
+
+1. The app needs a `*Kit` reference (or at minimum an `*eventBus` / `Subscribe` func)
+2. `executeStep()` would stop emitting `tea.Msg` directly and instead let the SDK emit
+   SDK events, with a subscriber in the app that converts them to `tea.Msg`
+3. Dual-emit phase first (both old and new), then remove direct emission
+
+**Why deferred**: The app doesn't have a `Kit` reference — it receives an `AgentRunner`.
+Changing this requires restructuring `internal/app/options.go` and `cmd/root.go` where
+the app is created. This is better done as part of the gradual "app consumes SDK" migration
+(tracked in the README architecture diagram).
+
+### Step 7: Extension events bridge — Runner emits through SDK EventBus
+
+The extension `Runner` (`internal/extensions/runner.go`) has its own typed events. To
+forward them through the SDK bus:
+
+1. Add `SetEventForwarder(func(extensions.Event))` to Runner
+2. In Kit initialization, bridge extension events to SDK events
+3. Extensions keep their typed events for Yaegi compatibility but forward to SDK bus
+
+**Why deferred**: Same dependency as Step 6 — requires the Kit instance to be wired
+into the extension runner initialization path. Plan 09 (Extension hook system) is the
+natural place to complete this bridge.

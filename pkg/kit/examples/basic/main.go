@@ -41,31 +41,32 @@ func main() {
 	}
 	fmt.Printf("Response: %s\n\n", response)
 
-	// Example 3: With callbacks
-	fmt.Println("=== Example 3: With tool callbacks ===")
+	// Example 3: With event subscribers
+	fmt.Println("=== Example 3: With event subscribers ===")
 	host3, err := kit.New(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() { _ = host3.Close() }()
 
-	response, err = host3.PromptWithCallbacks(
-		ctx,
-		"List files in the current directory",
-		func(name, args string) {
-			fmt.Printf("Calling tool: %s\n", name)
-		},
-		func(name, args, result string, isError bool) {
-			if isError {
-				fmt.Printf("Tool %s failed\n", name)
-			} else {
-				fmt.Printf("Tool %s completed\n", name)
-			}
-		},
-		func(chunk string) {
-			fmt.Print(chunk) // Stream output
-		},
-	)
+	// Subscribe to tool call events.
+	host3.OnToolCall(func(e kit.ToolCallEvent) {
+		fmt.Printf("Calling tool: %s\n", e.ToolName)
+	})
+	// Subscribe to tool result events.
+	host3.OnToolResult(func(e kit.ToolResultEvent) {
+		if e.IsError {
+			fmt.Printf("Tool %s failed\n", e.ToolName)
+		} else {
+			fmt.Printf("Tool %s completed\n", e.ToolName)
+		}
+	})
+	// Subscribe to streaming chunks.
+	host3.OnStreaming(func(e kit.MessageUpdateEvent) {
+		fmt.Print(e.Chunk)
+	})
+
+	response, err = host3.Prompt(ctx, "List files in the current directory")
 	if err != nil {
 		log.Fatal(err)
 	}

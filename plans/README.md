@@ -59,7 +59,7 @@ internal/app/     TUI/interactive mode — subscribes to SDK events
 | **00** | P0 | Create `pkg/kit/`, extract init from `cmd/` | None |
 | **01** | P0 | Export tools and tool factories | 00 |
 | **02** | P0 | Richer type exports (40+ types) | 00 |
-| **03** | P1 | Unified event/subscriber system | 00, 02 |
+| **03** | P1 | Unified event/subscriber system (core done; app/ext bridge deferred) | 00, 02 |
 | **04** | P1 | Enhanced session management | 00, 02 |
 | **05** | P1 | Additional prompt modes (Steer, FollowUp) | 00, 03 |
 | **06** | P2 | Auth & model management APIs | 00, 02 |

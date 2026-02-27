@@ -19,6 +19,14 @@ type Kit struct {
 	agent       *agent.Agent
 	sessionMgr  *session.Manager
 	modelString string
+	events      *eventBus
+}
+
+// Subscribe registers an EventListener that will be called for every lifecycle
+// event emitted during Prompt() and PromptWithCallbacks(). Returns an
+// unsubscribe function that removes the listener.
+func (m *Kit) Subscribe(listener EventListener) func() {
+	return m.events.subscribe(listener)
 }
 
 // Options configures Kit creation with optional overrides for model,
@@ -83,38 +91,79 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		agent:       agentResult.Agent,
 		sessionMgr:  session.NewManager(""),
 		modelString: viper.GetString("model"),
+		events:      newEventBus(),
 	}, nil
 }
 
 // Prompt sends a message to the agent and returns the response. The agent may
 // use tools as needed to generate the response. The conversation history is
-// automatically maintained in the session. Returns an error if generation fails.
+// automatically maintained in the session. Lifecycle events are emitted to all
+// registered subscribers. Returns an error if generation fails.
 func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 	messages := m.sessionMgr.GetMessages()
 	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
-	result, err := m.agent.GenerateWithLoop(ctx, messages,
-		nil, // onToolCall
-		nil, // onToolExecution
-		nil, // onToolResult
-		nil, // onResponse
-		nil, // onToolCallContent
+	m.events.emit(TurnStartEvent{Prompt: message})
+	m.events.emit(MessageStartEvent{})
+
+	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
+		// onToolCall
+		func(toolName, toolArgs string) {
+			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
+		},
+		// onToolExecution
+		func(toolName string, isStarting bool) {
+			if isStarting {
+				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
+			} else {
+				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
+			}
+		},
+		// onToolResult
+		func(toolName, toolArgs, resultText string, isError bool) {
+			m.events.emit(ToolResultEvent{
+				ToolName: toolName, ToolArgs: toolArgs,
+				Result: resultText, IsError: isError,
+			})
+		},
+		// onResponse
+		func(content string) {
+			m.events.emit(ResponseEvent{Content: content})
+		},
+		// onToolCallContent
+		func(content string) {
+			m.events.emit(ToolCallContentEvent{Content: content})
+		},
+		// onStreamingResponse
+		func(chunk string) {
+			m.events.emit(MessageUpdateEvent{Chunk: chunk})
+		},
 	)
 	if err != nil {
+		m.events.emit(TurnEndEvent{Error: err})
 		return "", err
 	}
+
+	responseText := result.FinalResponse.Content.Text()
+
+	m.events.emit(MessageEndEvent{Content: responseText})
+	m.events.emit(TurnEndEvent{Response: responseText})
 
 	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
 		return "", fmt.Errorf("failed to update session: %w", err)
 	}
 
-	return result.FinalResponse.Content.Text(), nil
+	return responseText, nil
 }
 
 // PromptWithCallbacks sends a message with callbacks for monitoring tool execution
 // and streaming responses. The callbacks allow real-time observation of tool calls,
-// results, and response generation. Returns the final response or an error.
+// results, and response generation. Lifecycle events are also emitted to all
+// registered subscribers (via Subscribe). Returns the final response or an error.
+//
+// Deprecated: Use Subscribe/OnToolCall/OnToolResult/OnStreaming instead of
+// inline callbacks. PromptWithCallbacks is retained for backward compatibility.
 func (m *Kit) PromptWithCallbacks(
 	ctx context.Context,
 	message string,
@@ -126,23 +175,66 @@ func (m *Kit) PromptWithCallbacks(
 	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
+	m.events.emit(TurnStartEvent{Prompt: message})
+	m.events.emit(MessageStartEvent{})
+
 	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		onToolCall,
-		nil, // onToolExecution
-		onToolResult,
-		nil, // onResponse
-		nil, // onToolCallContent
-		onStreaming,
+		// onToolCall — fire event + user callback
+		func(toolName, toolArgs string) {
+			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
+			if onToolCall != nil {
+				onToolCall(toolName, toolArgs)
+			}
+		},
+		// onToolExecution
+		func(toolName string, isStarting bool) {
+			if isStarting {
+				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
+			} else {
+				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
+			}
+		},
+		// onToolResult — fire event + user callback
+		func(toolName, toolArgs, resultText string, isError bool) {
+			m.events.emit(ToolResultEvent{
+				ToolName: toolName, ToolArgs: toolArgs,
+				Result: resultText, IsError: isError,
+			})
+			if onToolResult != nil {
+				onToolResult(toolName, toolArgs, resultText, isError)
+			}
+		},
+		// onResponse
+		func(content string) {
+			m.events.emit(ResponseEvent{Content: content})
+		},
+		// onToolCallContent
+		func(content string) {
+			m.events.emit(ToolCallContentEvent{Content: content})
+		},
+		// onStreamingResponse — fire event + user callback
+		func(chunk string) {
+			m.events.emit(MessageUpdateEvent{Chunk: chunk})
+			if onStreaming != nil {
+				onStreaming(chunk)
+			}
+		},
 	)
 	if err != nil {
+		m.events.emit(TurnEndEvent{Error: err})
 		return "", err
 	}
+
+	responseText := result.FinalResponse.Content.Text()
+
+	m.events.emit(MessageEndEvent{Content: responseText})
+	m.events.emit(TurnEndEvent{Response: responseText})
 
 	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
 		return "", fmt.Errorf("failed to update session: %w", err)
 	}
 
-	return result.FinalResponse.Content.Text(), nil
+	return responseText, nil
 }
 
 // GetSessionManager returns the current session manager for direct access
