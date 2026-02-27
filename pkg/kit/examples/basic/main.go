@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/mark3labs/kit/sdk"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func main() {
@@ -13,7 +13,7 @@ func main() {
 
 	// Example 1: Use all defaults (loads ~/.kit.yml)
 	fmt.Println("=== Example 1: Default configuration ===")
-	host, err := sdk.New(ctx, nil)
+	host, err := kit.New(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func main() {
 
 	// Example 2: Override model
 	fmt.Println("=== Example 2: Custom model ===")
-	host2, err := sdk.New(ctx, &sdk.Options{
+	host2, err := kit.New(ctx, &kit.Options{
 		Model: "ollama/qwen3:8b",
 	})
 	if err != nil {
@@ -43,7 +43,7 @@ func main() {
 
 	// Example 3: With callbacks
 	fmt.Println("=== Example 3: With tool callbacks ===")
-	host3, err := sdk.New(ctx, nil)
+	host3, err := kit.New(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,13 +53,13 @@ func main() {
 		ctx,
 		"List files in the current directory",
 		func(name, args string) {
-			fmt.Printf("🔧 Calling tool: %s\n", name)
+			fmt.Printf("Calling tool: %s\n", name)
 		},
 		func(name, args, result string, isError bool) {
 			if isError {
-				fmt.Printf("❌ Tool %s failed\n", name)
+				fmt.Printf("Tool %s failed\n", name)
 			} else {
-				fmt.Printf("✅ Tool %s completed\n", name)
+				fmt.Printf("Tool %s completed\n", name)
 			}
 		},
 		func(chunk string) {
@@ -73,7 +73,7 @@ func main() {
 
 	// Example 4: Session management
 	fmt.Println("\n=== Example 4: Session management ===")
-	host4, err := sdk.New(ctx, nil)
+	host4, err := kit.New(ctx, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

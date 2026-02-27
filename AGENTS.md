@@ -20,7 +20,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 # KIT Agent Guidelines
 
 ## Build/Test Commands
-- **Build**: `go build -o output/kit`
+- **Build**: `go build -o output/kit ./cmd/kit`
 - **Test all**: `go test -race ./...`
 - **Test single**: `go test -race ./cmd -run TestScriptExecution`
 - **Lint**: `go vet ./...`

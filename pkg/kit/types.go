@@ -1,7 +1,8 @@
-package sdk
+package kit
 
 import (
 	"charm.land/fantasy"
+
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/session"
 )

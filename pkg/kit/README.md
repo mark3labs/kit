@@ -18,14 +18,14 @@ import (
     "fmt"
     "log"
     
-    "github.com/mark3labs/kit/sdk"
+    kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func main() {
     ctx := context.Background()
     
     // Create Kit instance with default configuration
-    host, err := sdk.New(ctx, nil)
+    host, err := kit.New(ctx, nil)
     if err != nil {
         log.Fatal(err)
     }
@@ -54,7 +54,7 @@ The SDK behaves identically to the CLI:
 You can override specific settings:
 
 ```go
-host, err := sdk.New(ctx, &sdk.Options{
+host, err := kit.New(ctx, &kit.Options{
     Model:        "ollama/llama3",            // Override model
     SystemPrompt: "You are a helpful bot",   // Override system prompt
     ConfigFile:   "/path/to/config.yml",     // Use specific config file

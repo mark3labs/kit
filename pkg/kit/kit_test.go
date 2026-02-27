@@ -1,11 +1,11 @@
-package sdk_test
+package kit_test
 
 import (
 	"context"
 	"os"
 	"testing"
 
-	"github.com/mark3labs/kit/sdk"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func TestNew(t *testing.T) {
@@ -16,7 +16,7 @@ func TestNew(t *testing.T) {
 	ctx := context.Background()
 
 	// Test default initialization
-	host, err := sdk.New(ctx, nil)
+	host, err := kit.New(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to create Kit with defaults: %v", err)
 	}
@@ -34,13 +34,13 @@ func TestNewWithOptions(t *testing.T) {
 
 	ctx := context.Background()
 
-	opts := &sdk.Options{
+	opts := &kit.Options{
 		Model:    "anthropic/claude-sonnet-4-5-20250929",
 		MaxSteps: 5,
 		Quiet:    true,
 	}
 
-	host, err := sdk.New(ctx, opts)
+	host, err := kit.New(ctx, opts)
 	if err != nil {
 		t.Fatalf("Failed to create Kit with options: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSessionManagement(t *testing.T) {
 
 	ctx := context.Background()
 
-	host, err := sdk.New(ctx, &sdk.Options{Quiet: true})
+	host, err := kit.New(ctx, &kit.Options{Quiet: true})
 	if err != nil {
 		t.Fatalf("Failed to create Kit: %v", err)
 	}

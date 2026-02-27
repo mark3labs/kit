@@ -3,4 +3,4 @@
 RUN_NAME="kit"
 
 mkdir -p output
-go build -o output/${RUN_NAME}
+go build -o output/${RUN_NAME} ./cmd/kit

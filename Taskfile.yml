@@ -1,0 +1,145 @@
+version: "3"
+
+vars:
+  BINARY: kit
+  OUTPUT_DIR: output
+  BUILD_FLAGS: -o {{.OUTPUT_DIR}}/{{.BINARY}}
+  LDFLAGS: -s -w -X main.version=dev
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+
+  # -----------------------------------------------------------------------
+  # Build
+  # -----------------------------------------------------------------------
+
+  build:
+    desc: Build the kit binary
+    cmds:
+      - go build {{.BUILD_FLAGS}} -ldflags "{{.LDFLAGS}}" ./cmd/kit
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.OUTPUT_DIR}}/{{.BINARY}}"
+
+  build-all:
+    desc: Build for all platforms (linux, darwin, windows)
+    cmds:
+      - GOOS=linux   GOARCH=amd64 go build -o {{.OUTPUT_DIR}}/{{.BINARY}}-linux-amd64   -ldflags "{{.LDFLAGS}}" ./cmd/kit
+      - GOOS=linux   GOARCH=arm64 go build -o {{.OUTPUT_DIR}}/{{.BINARY}}-linux-arm64   -ldflags "{{.LDFLAGS}}" ./cmd/kit
+      - GOOS=darwin  GOARCH=amd64 go build -o {{.OUTPUT_DIR}}/{{.BINARY}}-darwin-amd64  -ldflags "{{.LDFLAGS}}" ./cmd/kit
+      - GOOS=darwin  GOARCH=arm64 go build -o {{.OUTPUT_DIR}}/{{.BINARY}}-darwin-arm64  -ldflags "{{.LDFLAGS}}" ./cmd/kit
+      - GOOS=windows GOARCH=amd64 go build -o {{.OUTPUT_DIR}}/{{.BINARY}}-windows-amd64.exe -ldflags "{{.LDFLAGS}}" ./cmd/kit
+
+  install:
+    desc: Install kit to $GOPATH/bin
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" ./cmd/kit
+
+  # -----------------------------------------------------------------------
+  # Test
+  # -----------------------------------------------------------------------
+
+  test:
+    desc: Run all tests with race detector
+    cmds:
+      - go test -race ./...
+
+  test-v:
+    desc: Run all tests (verbose)
+    cmds:
+      - go test -race -v ./...
+
+  test-short:
+    desc: Run tests in short mode (skip long-running tests)
+    cmds:
+      - go test -race -short ./...
+
+  test-pkg:
+    desc: "Run tests for a specific package (usage: task test-pkg -- ./internal/config)"
+    cmds:
+      - go test -race -v {{.CLI_ARGS}}
+
+  test-run:
+    desc: "Run a single test by name (usage: task test-run -- TestScriptExecution)"
+    cmds:
+      - go test -race -v ./... -run {{.CLI_ARGS}}
+
+  test-cover:
+    desc: Run tests with coverage report
+    cmds:
+      - mkdir -p {{.OUTPUT_DIR}}
+      - go test -race -coverprofile={{.OUTPUT_DIR}}/coverage.out ./...
+      - go tool cover -html={{.OUTPUT_DIR}}/coverage.out -o {{.OUTPUT_DIR}}/coverage.html
+      - echo "Coverage report written to {{.OUTPUT_DIR}}/coverage.html"
+
+  # -----------------------------------------------------------------------
+  # Code quality
+  # -----------------------------------------------------------------------
+
+  lint:
+    desc: Run golangci-lint and go vet
+    cmds:
+      - golangci-lint run ./...
+      - go vet ./...
+
+  fmt:
+    desc: Format all Go files
+    cmds:
+      - go fmt ./...
+
+  fmt-check:
+    desc: Check formatting (fails if files need formatting)
+    cmds:
+      - test -z "$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+
+  tidy:
+    desc: Tidy go.mod and go.sum
+    cmds:
+      - go mod tidy
+
+  check:
+    desc: Run all quality checks (fmt, vet, test)
+    cmds:
+      - task: fmt-check
+      - task: lint
+      - task: test
+
+  # -----------------------------------------------------------------------
+  # Development
+  # -----------------------------------------------------------------------
+
+  dev:
+    desc: Build and run kit with optional args
+    cmds:
+      - task: build
+      - "{{.OUTPUT_DIR}}/{{.BINARY}} {{.CLI_ARGS}}"
+
+  watch:
+    desc: Watch for changes and rebuild (requires watchexec)
+    cmds:
+      - watchexec -e go -r -- task build
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.OUTPUT_DIR}}
+
+  # -----------------------------------------------------------------------
+  # Release
+  # -----------------------------------------------------------------------
+
+  release-snapshot:
+    desc: Build a release snapshot (no publish)
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release-check:
+    desc: Validate goreleaser config
+    cmds:
+      - goreleaser check

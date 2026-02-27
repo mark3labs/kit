@@ -128,7 +128,7 @@ kit --provider-url https://192.168.1.100:443 --tls-skip-verify
 ## Installation 📦
 
 ```bash
-go install github.com/mark3labs/kit@latest
+go install github.com/mark3labs/kit/cmd/kit@latest
 ```
 
 ## SDK Usage 🛠️
@@ -143,14 +143,14 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/mark3labs/kit/sdk"
+    kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func main() {
     ctx := context.Background()
     
     // Create Kit instance with default configuration
-    host, err := sdk.New(ctx, nil)
+    host, err := kit.New(ctx, nil)
     if err != nil {
         panic(err)
     }
@@ -175,7 +175,7 @@ func main() {
 - ✅ Streaming support
 - ✅ Full compatibility with all providers and MCP servers
 
-For detailed SDK documentation, examples, and API reference, see the [SDK README](sdk/README.md).
+For detailed SDK documentation, examples, and API reference, see the [SDK README](pkg/kit/README.md).
 
 ## Configuration ⚙️
 

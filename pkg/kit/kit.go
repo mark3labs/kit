@@ -1,11 +1,11 @@
-package sdk
+package kit
 
 import (
 	"context"
 	"fmt"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/kit/cmd"
+
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/session"
@@ -41,18 +41,16 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		opts = &Options{}
 	}
 
-	// Initialize config exactly like CLI does
-	cmd.InitConfig()
+	// Set CLI-equivalent defaults for viper. When used as an SDK (without
+	// cobra), these defaults are not registered via flag bindings.
+	setSDKDefaults()
 
-	// Apply overrides after initialization
-	if opts.ConfigFile != "" {
-		// Load specific config file
-		if err := cmd.LoadConfigWithEnvSubstitution(opts.ConfigFile); err != nil {
-			return nil, fmt.Errorf("failed to load config file: %v", err)
-		}
+	// Initialize config (loads config files and env vars).
+	if err := InitConfig(opts.ConfigFile, false); err != nil {
+		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	// Override viper settings with options
+	// Override viper settings with options.
 	if opts.Model != "" {
 		viper.Set("model", opts.Model)
 	}
@@ -62,30 +60,26 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts.MaxSteps > 0 {
 		viper.Set("max-steps", opts.MaxSteps)
 	}
-	// Only override streaming if explicitly set
 	viper.Set("stream", opts.Streaming)
 
-	// Load MCP configuration using existing function
+	// Load MCP configuration.
 	mcpConfig, err := config.LoadAndValidateConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load MCP config: %v", err)
+		return nil, fmt.Errorf("failed to load MCP config: %w", err)
 	}
 
-	// Create agent using shared setup (builds ProviderConfig from viper internally).
-	agentResult, err := cmd.SetupAgent(ctx, cmd.AgentSetupOptions{
+	// Create agent using shared setup.
+	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
 		MCPConfig: mcpConfig,
+		Quiet:     opts.Quiet,
 	})
 	if err != nil {
 		return nil, err
 	}
-	a := agentResult.Agent
-
-	// Create session manager
-	sessionMgr := session.NewManager("")
 
 	return &Kit{
-		agent:       a,
-		sessionMgr:  sessionMgr,
+		agent:       agentResult.Agent,
+		sessionMgr:  session.NewManager(""),
 		modelString: viper.GetString("model"),
 	}, nil
 }
@@ -94,14 +88,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 // use tools as needed to generate the response. The conversation history is
 // automatically maintained in the session. Returns an error if generation fails.
 func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
-	// Get messages from session
 	messages := m.sessionMgr.GetMessages()
-
-	// Add new user message
 	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
-	// Call agent
 	result, err := m.agent.GenerateWithLoop(ctx, messages,
 		nil, // onToolCall
 		nil, // onToolExecution
@@ -113,9 +103,8 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 		return "", err
 	}
 
-	// Update session with all messages from the conversation
 	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
-		return "", fmt.Errorf("failed to update session: %v", err)
+		return "", fmt.Errorf("failed to update session: %w", err)
 	}
 
 	return result.FinalResponse.Content.Text(), nil
@@ -131,14 +120,10 @@ func (m *Kit) PromptWithCallbacks(
 	onToolResult func(name, args, result string, isError bool),
 	onStreaming func(chunk string),
 ) (string, error) {
-	// Get messages from session
 	messages := m.sessionMgr.GetMessages()
-
-	// Add new user message
 	userMsg := fantasy.NewUserMessage(message)
 	messages = append(messages, userMsg)
 
-	// Call agent with callbacks
 	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
 		onToolCall,
 		nil, // onToolExecution
@@ -151,9 +136,8 @@ func (m *Kit) PromptWithCallbacks(
 		return "", err
 	}
 
-	// Update session
 	if err := m.sessionMgr.ReplaceAllMessages(result.ConversationMessages); err != nil {
-		return "", fmt.Errorf("failed to update session: %v", err)
+		return "", fmt.Errorf("failed to update session: %w", err)
 	}
 
 	return result.FinalResponse.Content.Text(), nil

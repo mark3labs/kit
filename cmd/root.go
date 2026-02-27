@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/ui"
+	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
@@ -110,106 +111,20 @@ func GetRootCommand(v string) *cobra.Command {
 }
 
 // InitConfig initializes the configuration for KIT by loading config files,
-// environment variables, and hooks configuration. It follows this priority order:
-// 1. Command-line specified config file (--config flag)
-// 2. Current directory config file (.kit)
-// 3. Home directory config file (~/.kit)
-// 4. Environment variables (KIT_* prefix)
+// environment variables, and hooks configuration. It delegates to the SDK's
+// InitConfig, injecting the CLI-specific configFile flag and debug mode.
 // This function is automatically called by cobra before command execution.
 func InitConfig() {
-	if configFile != "" {
-		// Use config file from the flag
-		if err := LoadConfigWithEnvSubstitution(configFile); err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading config file '%s': %v\n", configFile, err)
-			os.Exit(1)
-		}
-	} else {
-		// Ensure a config file exists (create default if none found)
-		if err := config.EnsureConfigExists(); err != nil {
-			// If we can't create config, continue silently (non-fatal)
-			fmt.Fprintf(os.Stderr, "Warning: Could not create default config file: %v\n", err)
-		}
-
-		// Find home directory
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error finding home directory: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Set up viper config search paths and names
-		// Current directory has higher priority than home directory
-		viper.AddConfigPath(".")  // Current directory (searched first)
-		viper.AddConfigPath(home) // Home directory (searched second)
-
-		// Try to find and load config file using viper's search mechanism
-		configLoaded := false
-		configNames := []string{".kit"}
-
-		for _, name := range configNames {
-			viper.SetConfigName(name)
-
-			// Try to read the config file
-			if err := viper.ReadInConfig(); err == nil {
-				// Config file found, now reload it with env substitution
-				configPath := viper.ConfigFileUsed()
-				if err := LoadConfigWithEnvSubstitution(configPath); err != nil {
-					// Only exit on environment variable substitution errors
-					if strings.Contains(err.Error(), "environment variable substitution failed") {
-						fmt.Fprintf(os.Stderr, "Error reading config file '%s': %v\n", configPath, err)
-						os.Exit(1)
-					}
-					// For other errors, continue trying other config files
-					continue
-				}
-				configLoaded = true
-				break
-			}
-		}
-
-		// If no config file was loaded, continue without error (optional config)
-		if !configLoaded && debugMode {
-			fmt.Fprintf(os.Stderr, "No config file found in current directory or home directory\n")
-		}
+	if err := kit.InitConfig(configFile, debugMode); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
 	}
-
-	// Set environment variable prefix
-	viper.SetEnvPrefix("KIT")
-	viper.AutomaticEnv()
-
 }
 
-// LoadConfigWithEnvSubstitution loads a config file with environment variable substitution.
-// It reads the config file, replaces any ${ENV_VAR} patterns with their corresponding
-// environment variable values, and then parses the resulting configuration using viper.
-// The function automatically detects JSON or YAML format based on file extension.
-// Returns an error if the file cannot be read, environment variable substitution fails,
-// or the configuration cannot be parsed.
+// LoadConfigWithEnvSubstitution loads a config file with environment variable
+// substitution. Delegates to the SDK implementation.
 func LoadConfigWithEnvSubstitution(configPath string) error {
-	// Read raw config file content
-	rawContent, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to read config file: %v", err)
-	}
-
-	// Apply environment variable substitution
-	substituter := &config.EnvSubstituter{}
-	processedContent, err := substituter.SubstituteEnvVars(string(rawContent))
-	if err != nil {
-		return fmt.Errorf("config env substitution failed: %v", err)
-	}
-
-	// Determine config type from file extension
-	configType := "yaml"
-	if strings.HasSuffix(configPath, ".json") {
-		configType = "json"
-	}
-
-	config.SetConfigPath(configPath)
-
-	// Use viper to parse the processed content
-	viper.SetConfigType(configType)
-	return viper.ReadConfig(strings.NewReader(processedContent))
+	return kit.LoadConfigWithEnvSubstitution(configPath)
 }
 
 func configToUiTheme(theme config.Theme) ui.Theme {

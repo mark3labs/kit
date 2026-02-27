@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/mark3labs/kit/sdk"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 
 	// Create Kit with environment variable for API key
 	// Expects ANTHROPIC_API_KEY or appropriate provider key to be set
-	host, err := sdk.New(ctx, &sdk.Options{
+	host, err := kit.New(ctx, &kit.Options{
 		Quiet: true, // Suppress debug output for scripting
 	})
 	if err != nil {

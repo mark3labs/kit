@@ -3,7 +3,7 @@
 .kit/
 aidocs/
 *.log
-kit
+/kit
 .idea
 test/
 build/
