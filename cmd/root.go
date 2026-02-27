@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
-	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
@@ -63,34 +62,35 @@ var (
 	tlsSkipVerify bool
 )
 
-// agentUIAdapter adapts agent.Agent to ui.AgentInterface
-type agentUIAdapter struct {
-	agent *agent.Agent
+// kitUIAdapter adapts *kit.Kit to ui.AgentInterface so the CLI setup layer
+// can display tool/server metadata without importing internal types.
+type kitUIAdapter struct {
+	kit *kit.Kit
 }
 
-func (a *agentUIAdapter) GetLoadingMessage() string {
-	return a.agent.GetLoadingMessage()
+func (a *kitUIAdapter) GetLoadingMessage() string {
+	return a.kit.GetLoadingMessage()
 }
 
-func (a *agentUIAdapter) GetTools() []any {
-	tools := a.agent.GetTools()
-	result := make([]any, len(tools))
-	for i, tool := range tools {
-		result[i] = tool
+func (a *kitUIAdapter) GetTools() []any {
+	names := a.kit.GetToolNames()
+	result := make([]any, len(names))
+	for i, name := range names {
+		result[i] = name
 	}
 	return result
 }
 
-func (a *agentUIAdapter) GetLoadedServerNames() []string {
-	return a.agent.GetLoadedServerNames()
+func (a *kitUIAdapter) GetLoadedServerNames() []string {
+	return a.kit.GetLoadedServerNames()
 }
 
-func (a *agentUIAdapter) GetMCPToolCount() int {
-	return a.agent.GetMCPToolCount()
+func (a *kitUIAdapter) GetMCPToolCount() int {
+	return a.kit.GetMCPToolCount()
 }
 
-func (a *agentUIAdapter) GetExtensionToolCount() int {
-	return a.agent.GetExtensionToolCount()
+func (a *kitUIAdapter) GetExtensionToolCount() int {
+	return a.kit.GetExtensionToolCount()
 }
 
 // rootCmd represents the base command when called without any subcommands.
@@ -280,14 +280,14 @@ func runKit(ctx context.Context) error {
 // ui.ExtensionCommand type used by the interactive TUI. Command names are
 // normalised to start with "/" so they integrate with the slash-command
 // autocomplete and dispatch pipeline.
-func extensionCommandsForUI(runner *extensions.Runner) []ui.ExtensionCommand {
-	if runner == nil {
-		return nil
-	}
-	defs := runner.RegisteredCommands()
+func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
+	defs := k.ExtensionCommands()
 	if len(defs) == 0 {
 		return nil
 	}
+	// We still need the raw runner for GetContext() in the Execute closure.
+	// This is the last remaining use of GetExtRunner() in cmd/.
+	runner := k.GetExtRunner()
 	cmds := make([]ui.ExtensionCommand, 0, len(defs))
 	for _, d := range defs {
 		name := d.Name
@@ -346,16 +346,18 @@ func runNormalMode(ctx context.Context) error {
 	// Build Kit options from CLI flags and create the SDK instance.
 	// kit.New() handles: config → skills → agent → session → extension bridge.
 	kitOpts := &kit.Options{
-		MCPConfig:         mcpConfig,
-		ShowSpinner:       true,
-		SpinnerFunc:       spinnerFunc,
-		UseBufferedLogger: true,
-		Quiet:             quietFlag,
-		Debug:             debugMode,
-		NoSession:         noSessionFlag,
-		Continue:          continueFlag,
-		SessionPath:       sessionPath,
-		AutoCompact:       autoCompactFlag,
+		Quiet:       quietFlag,
+		Debug:       debugMode,
+		NoSession:   noSessionFlag,
+		Continue:    continueFlag,
+		SessionPath: sessionPath,
+		AutoCompact: autoCompactFlag,
+		CLI: &kit.CLIOptions{
+			MCPConfig:         mcpConfig,
+			ShowSpinner:       true,
+			SpinnerFunc:       spinnerFunc,
+			UseBufferedLogger: true,
+		},
 	}
 	if resumeFlag {
 		// TODO: TUI session picker.
@@ -371,27 +373,23 @@ func runNormalMode(ctx context.Context) error {
 	}
 	defer func() { _ = kitInstance.Close() }()
 
-	// Extract agent + metadata for display and app options.
-	mcpAgent := kitInstance.GetAgent()
-	parsedProvider, modelName, serverNames, toolNames, mcpToolCount, extensionToolCount := CollectAgentMetadata(mcpAgent, mcpConfig)
+	// Extract metadata for display and app options.
+	parsedProvider, modelName, serverNames, toolNames, mcpToolCount, extensionToolCount := CollectAgentMetadata(kitInstance, mcpConfig)
 
 	// Create CLI for non-interactive mode only.
 	var cli *ui.CLI
 	if promptFlag != "" {
-		cli, err = SetupCLIForNonInteractive(mcpAgent)
+		cli, err = SetupCLIForNonInteractive(kitInstance)
 		if err != nil {
 			return fmt.Errorf("failed to setup CLI: %v", err)
 		}
 
 		// Display buffered debug messages if any (non-interactive path only).
-		if bl := kitInstance.GetBufferedLogger(); bl != nil && cli != nil {
-			msgs := bl.GetMessages()
-			if len(msgs) > 0 {
-				cli.DisplayDebugMessage(strings.Join(msgs, "\n  "))
-			}
+		if msgs := kitInstance.GetBufferedDebugMessages(); len(msgs) > 0 && cli != nil {
+			cli.DisplayDebugMessage(strings.Join(msgs, "\n  "))
 		}
 
-		DisplayDebugConfig(cli, mcpAgent, mcpConfig, parsedProvider)
+		DisplayDebugConfig(cli, kitInstance, mcpConfig, parsedProvider)
 	}
 
 	// Load existing messages from resumed/continued sessions.
@@ -402,7 +400,6 @@ func runNormalMode(ctx context.Context) error {
 	}
 
 	// Create the app.App instance.
-	extRunner := kitInstance.GetExtRunner()
 	appOpts := BuildAppOptions(mcpConfig, modelName, serverNames, toolNames)
 	appOpts.Kit = kitInstance
 	appOpts.TreeSession = treeSession
@@ -423,9 +420,9 @@ func runNormalMode(ctx context.Context) error {
 	defer appInstance.Close()
 
 	// Set up extension context and emit SessionStart.
-	if extRunner != nil {
+	if kitInstance.HasExtensions() {
 		cwd, _ := os.Getwd()
-		extRunner.SetContext(extensions.Context{
+		kitInstance.SetExtensionContext(extensions.Context{
 			CWD:         cwd,
 			Model:       modelName,
 			Interactive: promptFlag == "",
@@ -435,13 +432,11 @@ func runNormalMode(ctx context.Context) error {
 			PrintBlock:  appInstance.PrintBlockFromExtension,
 			SendMessage: func(text string) { appInstance.Run(text) },
 		})
-		if extRunner.HasHandlers(extensions.SessionStart) {
-			_, _ = extRunner.Emit(extensions.SessionStartEvent{})
-		}
+		kitInstance.EmitSessionStart()
 	}
 
 	// Convert extension commands to UI-layer type for the interactive TUI.
-	extCommands := extensionCommandsForUI(extRunner)
+	extCommands := extensionCommandsForUI(kitInstance)
 
 	// Build context/skills display metadata for the startup banner.
 	var contextPaths []string
@@ -464,7 +459,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -472,7 +467,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,

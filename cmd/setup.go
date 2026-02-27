@@ -3,7 +3,6 @@ package cmd
 import (
 	"strings"
 
-	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/ui"
@@ -12,9 +11,9 @@ import (
 )
 
 // CollectAgentMetadata extracts model display info and tool/server name lists
-// from the agent, used to populate app.Options and UI setup.
+// from the Kit instance, used to populate app.Options and UI setup.
 // It also returns the number of MCP tools and extension tools separately.
-func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int) {
+func CollectAgentMetadata(k *kit.Kit, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int) {
 	modelString := viper.GetString("model")
 	provider, modelName, _ = kit.ParseModelString(modelString)
 	if modelName == "" {
@@ -25,13 +24,9 @@ func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (prov
 		serverNames = append(serverNames, name)
 	}
 
-	for _, tool := range mcpAgent.GetTools() {
-		info := tool.Info()
-		toolNames = append(toolNames, info.Name)
-	}
-
-	mcpToolCount = mcpAgent.GetMCPToolCount()
-	extensionToolCount = mcpAgent.GetExtensionToolCount()
+	toolNames = k.GetToolNames()
+	mcpToolCount = k.GetMCPToolCount()
+	extensionToolCount = k.GetExtensionToolCount()
 
 	return provider, modelName, serverNames, toolNames, mcpToolCount, extensionToolCount
 }
@@ -52,7 +47,7 @@ func BuildAppOptions(mcpConfig *config.Config, modelName string, serverNames, to
 
 // DisplayDebugConfig builds and displays the debug configuration map through
 // the CLI for non-interactive mode.
-func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Config, provider string) {
+func DisplayDebugConfig(cli *ui.CLI, k *kit.Kit, mcpConfig *config.Config, provider string) {
 	if quietFlag || cli == nil || !viper.GetBool("debug") {
 		return
 	}
@@ -89,7 +84,7 @@ func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Co
 	if len(mcpConfig.MCPServers) > 0 {
 		mcpServers := make(map[string]any)
 		loadedServerSet := make(map[string]bool)
-		for _, name := range mcpAgent.GetLoadedServerNames() {
+		for _, name := range k.GetLoadedServerNames() {
 			loadedServerSet[name] = true
 		}
 
@@ -130,8 +125,8 @@ func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Co
 
 // SetupCLIForNonInteractive creates the CLI display layer for non-interactive
 // mode (--prompt). Returns nil when quiet mode is active.
-func SetupCLIForNonInteractive(mcpAgent *agent.Agent) (*ui.CLI, error) {
-	agentAdapter := &agentUIAdapter{agent: mcpAgent}
+func SetupCLIForNonInteractive(k *kit.Kit) (*ui.CLI, error) {
+	agentAdapter := &kitUIAdapter{kit: k}
 	return ui.SetupCLI(&ui.CLISetupOptions{
 		Agent:          agentAdapter,
 		ModelString:    viper.GetString("model"),

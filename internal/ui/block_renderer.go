@@ -10,7 +10,6 @@ import (
 type blockRenderer struct {
 	align         *lipgloss.Position
 	borderColor   *color.Color
-	bgColor       *color.Color
 	fullWidth     bool
 	noBorder      bool
 	paddingTop    int
@@ -31,14 +30,6 @@ type renderingOption func(*blockRenderer)
 func WithFullWidth() renderingOption {
 	return func(c *blockRenderer) {
 		c.fullWidth = true
-	}
-}
-
-// WithBackground returns a renderingOption that sets a background color
-// for the entire block.
-func WithBackground(c color.Color) renderingOption {
-	return func(br *blockRenderer) {
-		br.bgColor = &c
 	}
 }
 
@@ -165,103 +156,35 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	}
 
 	theme := GetTheme()
-	hasBg := renderer.bgColor != nil
 
-	if hasBg {
-		// When a background color is set we use a three-phase render so
-		// the border extends the full block height including padding:
-		//   1. Render content with bg + horizontal padding (no border,
-		//      no vertical padding).
-		//   2. Use Place() to add vertical padding with uniform bg fill.
-		//   3. Apply the border to the padded block.
+	// Single-pass render: padding, border, and foreground in one style.
+	style := lipgloss.NewStyle().
+		PaddingLeft(renderer.paddingLeft).
+		PaddingRight(renderer.paddingRight).
+		PaddingTop(renderer.paddingTop).
+		PaddingBottom(renderer.paddingBottom).
+		Foreground(theme.Text)
 
-		// Phase 1 — content with background + horizontal padding.
-		innerStyle := lipgloss.NewStyle().
-			PaddingLeft(renderer.paddingLeft).
-			PaddingRight(renderer.paddingRight).
-			Foreground(theme.Text).
-			Background(*renderer.bgColor)
+	if hasBorder {
+		style = style.BorderStyle(lipgloss.ThickBorder())
 
-		if renderer.fullWidth {
-			innerStyle = innerStyle.Width(renderer.width - borderChars)
+		switch borderAlign {
+		case lipgloss.Right:
+			style = style.
+				BorderRight(true).
+				BorderRightForeground(borderColor)
+		default:
+			style = style.
+				BorderLeft(true).
+				BorderLeftForeground(borderColor)
 		}
-
-		content = innerStyle.Render(content)
-
-		// Phase 2 — vertical padding via Place() with bg-filled whitespace.
-		if renderer.paddingTop > 0 || renderer.paddingBottom > 0 {
-			renderedH := lipgloss.Height(content)
-			renderedW := lipgloss.Width(content)
-			totalH := renderedH + renderer.paddingTop + renderer.paddingBottom
-
-			bgStyle := lipgloss.NewStyle().Background(*renderer.bgColor)
-
-			// Determine vertical position so padding distributes correctly.
-			vPos := lipgloss.Center
-			switch {
-			case renderer.paddingTop > 0 && renderer.paddingBottom == 0:
-				vPos = lipgloss.Bottom
-			case renderer.paddingBottom > 0 && renderer.paddingTop == 0:
-				vPos = lipgloss.Top
-			}
-
-			content = lipgloss.Place(
-				renderedW, totalH,
-				lipgloss.Left, vPos,
-				content,
-				lipgloss.WithWhitespaceStyle(bgStyle),
-			)
-		}
-
-		// Phase 3 — apply border to the full-height block.
-		if hasBorder {
-			borderStyle := lipgloss.NewStyle().
-				BorderStyle(lipgloss.ThickBorder())
-
-			switch borderAlign {
-			case lipgloss.Right:
-				borderStyle = borderStyle.
-					BorderRight(true).
-					BorderRightForeground(borderColor)
-			default:
-				borderStyle = borderStyle.
-					BorderLeft(true).
-					BorderLeftForeground(borderColor)
-			}
-
-			content = borderStyle.Render(content)
-		}
-	} else {
-		// No background — PaddingTop/PaddingBottom work fine (no visible
-		// banding), so render everything in a single style pass.
-		style := lipgloss.NewStyle().
-			PaddingLeft(renderer.paddingLeft).
-			PaddingRight(renderer.paddingRight).
-			PaddingTop(renderer.paddingTop).
-			PaddingBottom(renderer.paddingBottom).
-			Foreground(theme.Text)
-
-		if hasBorder {
-			style = style.BorderStyle(lipgloss.ThickBorder())
-
-			switch borderAlign {
-			case lipgloss.Right:
-				style = style.
-					BorderRight(true).
-					BorderRightForeground(borderColor)
-			default:
-				style = style.
-					BorderLeft(true).
-					BorderLeftForeground(borderColor)
-			}
-		}
-
-		if renderer.fullWidth {
-			style = style.Width(renderer.width - borderChars)
-		}
-
-		content = style.Render(content)
 	}
+
+	if renderer.fullWidth {
+		style = style.Width(renderer.width - borderChars)
+	}
+
+	content = style.Render(content)
 
 	// Add margins
 	if renderer.marginTop > 0 {

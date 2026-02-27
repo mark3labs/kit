@@ -156,13 +156,13 @@ type AppModel struct {
 	// Placeholder until StreamComponent is implemented in TAS-16.
 	stream streamComponentIface
 
-	// renderer renders completed assistant messages for tea.Println output.
-	renderer *MessageRenderer
+	// renderer renders completed messages for tea.Println output. It is either
+	// a *MessageRenderer (standard mode) or a *CompactRenderer (compact mode),
+	// chosen at construction time via the Renderer interface.
+	renderer Renderer
 
-	// compactRdr renders in compact mode.
-	compactRdr *CompactRenderer
-
-	// compactMode selects which renderer to use.
+	// compactMode is retained for StreamComponent selection and any remaining
+	// mode-specific logic (e.g. startup info formatting).
 	compactMode bool
 
 	// modelName is the LLM model name shown in rendered messages.
@@ -262,11 +262,18 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		height = 24 // sensible fallback
 	}
 
+	// Choose the renderer implementation based on compact mode.
+	var rdr Renderer
+	if opts.CompactMode {
+		rdr = NewCompactRenderer(width, false)
+	} else {
+		rdr = NewMessageRenderer(width, false)
+	}
+
 	m := &AppModel{
 		state:          stateInput,
 		appCtrl:        appCtrl,
-		renderer:       NewMessageRenderer(width, false),
-		compactRdr:     NewCompactRenderer(width, false),
+		renderer:       rdr,
 		compactMode:    opts.CompactMode,
 		modelName:      opts.ModelName,
 		providerName:   opts.ProviderName,
@@ -335,9 +342,6 @@ func (m *AppModel) Init() tea.Cmd {
 // All startup information is rendered inside a single system message block.
 func (m *AppModel) PrintStartupInfo() {
 	render := func(text string) string {
-		if m.compactMode {
-			return m.compactRdr.RenderSystemMessage(text, time.Now()).Content
-		}
 		return m.renderer.RenderSystemMessage(text, time.Now()).Content
 	}
 
@@ -880,15 +884,7 @@ func (m *AppModel) renderQueuedMessages() string {
 
 // printUserMessage renders a user message and emits it above the BT region.
 func (m *AppModel) printUserMessage(text string) tea.Cmd {
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderUserMessage(text, time.Now())
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderUserMessage(text, time.Now())
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
+	return tea.Println(m.renderer.RenderUserMessage(text, time.Now()).Content)
 }
 
 // printAssistantMessage renders an assistant message and emits it above the BT region.
@@ -896,28 +892,12 @@ func (m *AppModel) printAssistantMessage(text string) tea.Cmd {
 	if text == "" {
 		return nil
 	}
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderAssistantMessage(text, time.Now(), m.modelName)
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName)
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
+	return tea.Println(m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName).Content)
 }
 
 // printToolResult renders a tool result message and emits it above the BT region.
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) tea.Cmd {
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
+	return tea.Println(m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content)
 }
 
 // printErrorResponse renders an error message and emits it above the BT region.
@@ -925,15 +905,7 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
 	if evt.Err == nil {
 		return nil
 	}
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderErrorMessage(evt.Err.Error(), time.Now())
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
+	return tea.Println(m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now()).Content)
 }
 
 // --------------------------------------------------------------------------
@@ -990,15 +962,7 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 
 // printSystemMessage renders a system-level message and emits it above the BT region.
 func (m *AppModel) printSystemMessage(text string) tea.Cmd {
-	var rendered string
-	if m.compactMode {
-		msg := m.compactRdr.RenderSystemMessage(text, time.Now())
-		rendered = msg.Content
-	} else {
-		msg := m.renderer.RenderSystemMessage(text, time.Now())
-		rendered = msg.Content
-	}
-	return tea.Println(rendered)
+	return tea.Println(m.renderer.RenderSystemMessage(text, time.Now()).Content)
 }
 
 // printExtensionBlock renders a custom styled block from an extension with

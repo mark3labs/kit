@@ -68,14 +68,7 @@ func (l *CLIDebugLogger) LogDebug(message string) {
 	}
 
 	// Use the CLI's debug message rendering
-	var msg UIMessage
-	if l.cli.compactMode {
-		msg = l.cli.compactRenderer.RenderDebugMessage(formattedMessage, time.Now())
-	} else {
-		msg = l.cli.messageRenderer.RenderDebugMessage(formattedMessage, time.Now())
-	}
-	l.cli.messageContainer.AddMessage(msg)
-	l.cli.displayContainer()
+	fmt.Println(l.cli.renderer.RenderDebugMessage(formattedMessage, time.Now()).Content)
 }
 
 // IsDebugEnabled checks whether debug logging is currently active. Returns true

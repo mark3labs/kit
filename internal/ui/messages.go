@@ -193,10 +193,7 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 
 	theme := getTheme()
 
-	// Render the message content with the user-message background so that
-	// glamour-rendered markdown inherits the highlight color.
-	bgHex := colorHex(theme.Highlight)
-	messageContent := r.renderMarkdownWithBg(content, r.width-8, bgHex) // Account for padding and borders
+	messageContent := r.renderMarkdown(content, r.width-8) // Account for padding and borders
 
 	// Create info line
 	info := fmt.Sprintf(" %s (%s)", username, timeStr)
@@ -205,13 +202,12 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
 		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
 
-	// Use the new block renderer
+	// Use the block renderer — left border with Primary color, no background.
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
 		WithAlign(lipgloss.Left),
 		WithBorderColor(theme.Primary),
-		WithBackground(theme.Highlight),
 		WithMarginBottom(1),
 	)
 
@@ -653,309 +649,18 @@ func (r *MessageRenderer) formatToolResult(toolName, result string, width int) s
 		Render(result)
 }
 
-// formatBashOutput formats bash command output with proper section handling
+// formatBashOutput formats bash command output with proper section handling.
+// Delegates tag parsing to the shared parseBashOutput helper.
 func (r *MessageRenderer) formatBashOutput(result string, width int, theme Theme) string {
-	baseStyle := lipgloss.NewStyle()
-
-	// Replace tag pairs with styled content
-	var formattedResult strings.Builder
-	remaining := result
-
-	for {
-		// Find stderr tags
-		stderrStart := strings.Index(remaining, "<stderr>")
-		stderrEnd := strings.Index(remaining, "</stderr>")
-
-		// Find stdout tags
-		stdoutStart := strings.Index(remaining, "<stdout>")
-		stdoutEnd := strings.Index(remaining, "</stdout>")
-
-		// Process whichever comes first
-		if stderrStart != -1 && stderrEnd != -1 && stderrEnd > stderrStart &&
-			(stdoutStart == -1 || stderrStart < stdoutStart) {
-			// Process stderr
-			// Add content before the tag
-			if stderrStart > 0 {
-				formattedResult.WriteString(remaining[:stderrStart])
-			}
-			// Extract and style stderr content
-			stderrContent := remaining[stderrStart+8 : stderrEnd]
-			// Trim leading/trailing newlines but preserve internal ones
-			stderrContent = strings.Trim(stderrContent, "\n")
-			if len(stderrContent) > 0 {
-				styledContent := baseStyle.Foreground(theme.Error).Render(stderrContent)
-				formattedResult.WriteString(styledContent)
-			}
-
-			// Continue with remaining content
-			remaining = remaining[stderrEnd+9:] // Skip past </stderr>
-
-		} else if stdoutStart != -1 && stdoutEnd != -1 && stdoutEnd > stdoutStart {
-			// Process stdout
-			// Add content before the tag
-			if stdoutStart > 0 {
-				formattedResult.WriteString(remaining[:stdoutStart])
-			}
-
-			// Extract stdout content (no special styling needed)
-			stdoutContent := remaining[stdoutStart+8 : stdoutEnd]
-			// Trim leading/trailing newlines but preserve internal ones
-			stdoutContent = strings.Trim(stdoutContent, "\n")
-			if len(stdoutContent) > 0 {
-				formattedResult.WriteString(stdoutContent)
-			}
-
-			// Continue with remaining content
-			remaining = remaining[stdoutEnd+9:] // Skip past </stdout>
-
-		} else {
-			// No more tags, add remaining content
-			formattedResult.WriteString(remaining)
-			break
-		}
-	}
-
-	// Trim any leading/trailing whitespace from the final result
-	finalResult := strings.TrimSpace(formattedResult.String())
-
-	return baseStyle.
+	parsed := parseBashOutput(result, theme)
+	return lipgloss.NewStyle().
 		Width(width).
 		Foreground(theme.Muted).
-		Render(finalResult)
+		Render(parsed)
 }
 
 // renderMarkdown renders markdown content using glamour
 func (r *MessageRenderer) renderMarkdown(content string, width int) string {
 	rendered := toMarkdown(content, width)
 	return strings.TrimSuffix(rendered, "\n")
-}
-
-// renderMarkdownWithBg renders markdown content using glamour with a background
-// color applied to every element so the output blends with a colored block.
-func (r *MessageRenderer) renderMarkdownWithBg(content string, width int, bgHex string) string {
-	rendered := toMarkdownWithBg(content, width, bgHex)
-	return strings.TrimSuffix(rendered, "\n")
-}
-
-// MessageContainer manages a collection of UI messages, handling their display,
-// updates, and layout within the terminal. It supports both standard and compact
-// display modes and maintains state for streaming message updates.
-type MessageContainer struct {
-	messages    []UIMessage
-	width       int
-	height      int
-	compactMode bool   // Add compact mode flag
-	modelName   string // Store current model name
-	wasCleared  bool   // Track if container was explicitly cleared
-}
-
-// NewMessageContainer creates and initializes a new MessageContainer with the
-// specified dimensions and display mode. The container starts empty and will
-// display a welcome message until the first message is added.
-func NewMessageContainer(width, height int, compact bool) *MessageContainer {
-	return &MessageContainer{
-		messages:    make([]UIMessage, 0),
-		width:       width,
-		height:      height,
-		compactMode: compact,
-	}
-}
-
-// AddMessage appends a new UIMessage to the container's collection and resets
-// the cleared state flag. Messages are displayed in the order they were added.
-func (c *MessageContainer) AddMessage(msg UIMessage) {
-	c.messages = append(c.messages, msg)
-	c.wasCleared = false // Reset the cleared flag when adding messages
-}
-
-// SetModelName updates the AI model name used for rendering assistant messages.
-// This name is displayed in message headers to indicate which model is responding.
-func (c *MessageContainer) SetModelName(modelName string) {
-	c.modelName = modelName
-}
-
-// UpdateLastMessage efficiently updates the content of the most recent message
-// in the container. This is primarily used for streaming responses where the
-// assistant's message is progressively built. Only works for assistant messages.
-func (c *MessageContainer) UpdateLastMessage(content string) {
-	if len(c.messages) == 0 {
-		return
-	}
-
-	lastIdx := len(c.messages) - 1
-	lastMsg := &c.messages[lastIdx]
-
-	// Only re-render if content actually changed and it's an assistant message
-	if lastMsg.Type == AssistantMessage {
-		// Create appropriate renderer based on compact mode
-		var newMsg UIMessage
-		if c.compactMode {
-			compactRenderer := NewCompactRenderer(c.width, false)
-			newMsg = compactRenderer.RenderAssistantMessage(content, lastMsg.Timestamp, c.modelName)
-		} else {
-			renderer := NewMessageRenderer(c.width, false)
-			newMsg = renderer.RenderAssistantMessage(content, lastMsg.Timestamp, c.modelName)
-		}
-		newMsg.Streaming = lastMsg.Streaming // Preserve streaming state
-		c.messages[lastIdx] = newMsg
-	}
-}
-
-// Clear removes all messages from the container and sets a flag to prevent
-// showing the welcome screen. Used when starting a fresh conversation.
-func (c *MessageContainer) Clear() {
-	c.messages = make([]UIMessage, 0)
-	c.wasCleared = true
-}
-
-// SetSize updates the container's dimensions, typically called when the terminal
-// is resized. This affects how messages are wrapped and displayed.
-func (c *MessageContainer) SetSize(width, height int) {
-	c.width = width
-	c.height = height
-}
-
-// Render generates the complete visual representation of all messages in the
-// container. Returns an empty state display if no messages exist, or formats
-// all messages according to the current display mode (standard or compact).
-func (c *MessageContainer) Render() string {
-	if len(c.messages) == 0 {
-		// Don't show welcome box if explicitly cleared
-		if c.wasCleared {
-			return ""
-		}
-		if c.compactMode {
-			return c.renderCompactEmptyState()
-		}
-		return c.renderEmptyState()
-	}
-
-	if c.compactMode {
-		return c.renderCompactMessages()
-	}
-
-	var parts []string
-
-	for i, msg := range c.messages {
-		// Center each message horizontally
-		centeredMsg := lipgloss.PlaceHorizontal(
-			c.width,
-			lipgloss.Center,
-			msg.Content,
-		)
-		parts = append(parts, centeredMsg)
-
-		// Add spacing between messages (except after the last one)
-		if i < len(c.messages)-1 {
-			parts = append(parts, "")
-		}
-	}
-
-	style := lipgloss.NewStyle().
-		Width(c.width)
-
-	// No padding needed between messages
-
-	return style.Render(
-		lipgloss.JoinVertical(lipgloss.Top, parts...),
-	)
-}
-
-// renderEmptyState renders an enhanced initial empty state
-func (c *MessageContainer) renderEmptyState() string {
-	baseStyle := lipgloss.NewStyle()
-
-	// Create a welcome box with border
-	theme := getTheme()
-	welcomeBox := baseStyle.
-		Width(c.width-4).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.System).
-		Padding(2, 4).
-		Align(lipgloss.Center)
-
-	// Main title
-	title := baseStyle.
-		Foreground(theme.System).
-		Bold(true).
-		Render("KIT")
-
-	// Subtitle with better typography
-	subtitle := baseStyle.
-		Foreground(theme.Primary).
-		Bold(true).
-		MarginTop(1).
-		Render("AI Assistant with MCP Tools")
-
-	// Feature highlights
-	features := []string{
-		"Natural language conversations",
-		"Powerful tool integrations",
-		"Multi-provider LLM support",
-		"Usage tracking & analytics",
-	}
-
-	var featureList []string
-	for _, feature := range features {
-		featureList = append(featureList, baseStyle.
-			Foreground(theme.Muted).
-			MarginLeft(2).
-			Render("• "+feature))
-	}
-
-	// Getting started prompt
-	prompt := baseStyle.
-		Foreground(theme.Accent).
-		Italic(true).
-		MarginTop(2).
-		Render("Start by typing your message below or use /help for commands")
-
-	// Combine all elements
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		title,
-		subtitle,
-		"",
-		lipgloss.JoinVertical(lipgloss.Left, featureList...),
-		"",
-		prompt,
-	)
-
-	welcomeContent := welcomeBox.Render(content)
-
-	// Center the welcome box vertically
-	return baseStyle.
-		Width(c.width).
-		Height(c.height).
-		Align(lipgloss.Center).
-		AlignVertical(lipgloss.Center).
-		Render(welcomeContent)
-}
-
-// renderCompactMessages renders messages in compact format
-func (c *MessageContainer) renderCompactMessages() string {
-	var lines []string
-
-	for _, msg := range c.messages {
-		lines = append(lines, msg.Content)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// renderCompactEmptyState renders a simple empty state for compact mode
-func (c *MessageContainer) renderCompactEmptyState() string {
-	theme := getTheme()
-
-	// Simple compact welcome
-	welcome := lipgloss.NewStyle().
-		Foreground(theme.System).
-		Bold(true).
-		Render("KIT - AI Assistant with MCP Tools")
-
-	help := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Render("Type your message or /help for commands")
-
-	return fmt.Sprintf("%s\n%s\n\n", welcome, help)
 }

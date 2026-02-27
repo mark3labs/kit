@@ -15,15 +15,12 @@ import (
 // display modes, handles streaming responses, tracks token usage, and manages the
 // overall conversation flow between the user and AI assistants.
 type CLI struct {
-	messageRenderer  *MessageRenderer
-	compactRenderer  *CompactRenderer
-	messageContainer *MessageContainer
-	usageTracker     *UsageTracker
-	width            int
-	height           int
-	compactMode      bool
-	debug            bool
-	modelName        string
+	renderer     Renderer
+	usageTracker *UsageTracker
+	width        int
+	compactMode  bool
+	debug        bool
+	modelName    string
 }
 
 // NewCLI creates and initializes a new CLI instance with the specified display modes.
@@ -36,9 +33,11 @@ func NewCLI(debug bool, compact bool) (*CLI, error) {
 		debug:       debug,
 	}
 	cli.updateSize()
-	cli.messageRenderer = NewMessageRenderer(cli.width, debug)
-	cli.compactRenderer = NewCompactRenderer(cli.width, debug)
-	cli.messageContainer = NewMessageContainer(cli.width, cli.height-4, compact) // Pass compact mode
+	if compact {
+		cli.renderer = NewCompactRenderer(cli.width, debug)
+	} else {
+		cli.renderer = NewMessageRenderer(cli.width, debug)
+	}
 
 	return cli, nil
 }
@@ -71,9 +70,6 @@ func (c *CLI) GetDebugLogger() *CLIDebugLogger {
 // This name is displayed in message headers to indicate which model is responding.
 func (c *CLI) SetModelName(modelName string) {
 	c.modelName = modelName
-	if c.messageContainer != nil {
-		c.messageContainer.SetModelName(modelName)
-	}
 }
 
 // ShowSpinner displays an animated spinner while executing the provided action
@@ -94,14 +90,7 @@ func (c *CLI) ShowSpinner(action func() error) error {
 // formatting based on the current display mode (standard or compact). The message
 // is timestamped and styled according to the active theme.
 func (c *CLI) DisplayUserMessage(message string) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderUserMessage(message, time.Now())
-	} else {
-		msg = c.messageRenderer.RenderUserMessage(message, time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderUserMessage(message, time.Now()).Content)
 }
 
 // DisplayAssistantMessage renders and displays an AI assistant's response message
@@ -115,14 +104,7 @@ func (c *CLI) DisplayAssistantMessage(message string) error {
 // with the specified model name shown in the message header. The message is
 // formatted according to the current display mode and includes timestamp information.
 func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderAssistantMessage(message, time.Now(), modelName)
-	} else {
-		msg = c.messageRenderer.RenderAssistantMessage(message, time.Now(), modelName)
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderAssistantMessage(message, time.Now(), modelName).Content)
 	return nil
 }
 
@@ -137,44 +119,21 @@ func (c *CLI) DisplayToolCallMessage(toolName, toolArgs string) {
 // including the tool name, arguments, and result. The isError parameter determines
 // whether the result should be displayed as an error or success message.
 func (c *CLI) DisplayToolMessage(toolName, toolArgs, toolResult string, isError bool) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderToolMessage(toolName, toolArgs, toolResult, isError)
-	} else {
-		msg = c.messageRenderer.RenderToolMessage(toolName, toolArgs, toolResult, isError)
-	}
-
-	// Always display immediately - spinner management is handled externally
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderToolMessage(toolName, toolArgs, toolResult, isError).Content)
 }
 
 // DisplayError renders and displays an error message with distinctive formatting
 // to ensure visibility. The error is timestamped and styled according to the
 // current display mode's error theme.
 func (c *CLI) DisplayError(err error) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderErrorMessage(err.Error(), time.Now())
-	} else {
-		msg = c.messageRenderer.RenderErrorMessage(err.Error(), time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderErrorMessage(err.Error(), time.Now()).Content)
 }
 
 // DisplayInfo renders and displays an informational system message. These messages
 // are typically used for status updates, notifications, or other non-error system
 // communications to the user.
 func (c *CLI) DisplayInfo(message string) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderSystemMessage(message, time.Now())
-	} else {
-		msg = c.messageRenderer.RenderSystemMessage(message, time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderSystemMessage(message, time.Now()).Content)
 }
 
 // DisplayExtensionBlock renders a custom styled block with the given border
@@ -195,7 +154,7 @@ func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
 
 	rendered := renderContentBlock(
 		content,
-		c.messageRenderer.width,
+		c.width,
 		WithAlign(lipgloss.Left),
 		WithBorderColor(borderClr),
 		WithMarginBottom(1),
@@ -206,14 +165,7 @@ func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
 // DisplayCancellation displays a system message indicating that the current
 // AI generation has been cancelled by the user (typically via ESC key).
 func (c *CLI) DisplayCancellation() {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now())
-	} else {
-		msg = c.messageRenderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now()).Content)
 }
 
 // DisplayDebugMessage renders and displays a debug message if debug mode is enabled.
@@ -223,42 +175,14 @@ func (c *CLI) DisplayDebugMessage(message string) {
 	if !c.debug {
 		return
 	}
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderDebugMessage(message, time.Now())
-	} else {
-		msg = c.messageRenderer.RenderDebugMessage(message, time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
+	fmt.Println(c.renderer.RenderDebugMessage(message, time.Now()).Content)
 }
 
 // DisplayDebugConfig renders and displays configuration settings in a formatted
 // debug message. The config parameter should contain key-value pairs representing
 // configuration options that will be displayed for debugging purposes.
 func (c *CLI) DisplayDebugConfig(config map[string]any) {
-	var msg UIMessage
-	if c.compactMode {
-		msg = c.compactRenderer.RenderDebugConfigMessage(config, time.Now())
-	} else {
-		msg = c.messageRenderer.RenderDebugConfigMessage(config, time.Now())
-	}
-	c.messageContainer.AddMessage(msg)
-	c.displayContainer()
-}
-
-// displayContainer renders and displays the message container for one-shot
-// (non-streaming) messages. Output matches the interactive TUI's tea.Println
-// path — no extra padding or width wrapping is applied so both modes produce
-// identical visual output.
-func (c *CLI) displayContainer() {
-	content := c.messageContainer.Render()
-	if content != "" {
-		fmt.Println(content)
-	}
-
-	// Clear messages after display; one-shot messages don't need to persist.
-	c.messageContainer.messages = nil
+	fmt.Println(c.renderer.RenderDebugConfigMessage(config, time.Now()).Content)
 }
 
 // UpdateUsageFromResponse records token usage using metadata from the fantasy
@@ -309,27 +233,19 @@ func (c *CLI) DisplayUsageAfterResponse() {
 
 // updateSize updates the CLI size based on terminal dimensions
 func (c *CLI) updateSize() {
-	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
-		c.width = 80  // Fallback width
-		c.height = 24 // Fallback height
+		c.width = 80 // Fallback width
 		return
 	}
 
 	// Add left and right padding (4 characters total: 2 on each side)
 	paddingTotal := 4
 	c.width = width - paddingTotal
-	c.height = height
 
-	// Update renderers if they exist
-	if c.messageRenderer != nil {
-		c.messageRenderer.SetWidth(c.width)
-	}
-	if c.compactRenderer != nil {
-		c.compactRenderer.SetWidth(c.width)
-	}
-	if c.messageContainer != nil {
-		c.messageContainer.SetSize(c.width, c.height-4)
+	// Update renderer if it exists
+	if c.renderer != nil {
+		c.renderer.SetWidth(c.width)
 	}
 	if c.usageTracker != nil {
 		c.usageTracker.SetWidth(c.width)

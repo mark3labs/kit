@@ -14,13 +14,6 @@ import (
 // isDarkBg caches the terminal background detection result at package init.
 var isDarkBg = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 
-// colorHex returns the hex string representation of a color.Color by
-// converting its RGBA values.
-func colorHex(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
-}
-
 // AdaptiveColor picks between a light-mode and dark-mode hex color string
 // based on the detected terminal background. This replaces the old
 // lipgloss.AdaptiveColor{Light: ..., Dark: ...} pattern from v1.

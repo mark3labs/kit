@@ -1,4 +1,7 @@
-package kit
+// Package kitsetup contains agent creation logic used by both the CLI binary
+// and the SDK's kit.New(). It is internal — external SDK consumers should use
+// kit.New() which delegates here.
+package kitsetup
 
 import (
 	"context"

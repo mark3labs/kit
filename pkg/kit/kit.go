@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
 	"github.com/mark3labs/kit/internal/tools"
@@ -57,14 +58,96 @@ func (m *Kit) Subscribe(listener EventListener) func() {
 }
 
 // GetExtRunner returns the extension runner (nil if extensions are disabled).
+//
+// Deprecated: Use SetExtensionContext and EmitSessionStart instead. GetExtRunner
+// leaks the internal extensions.Runner type across the SDK boundary.
 func (m *Kit) GetExtRunner() *extensions.Runner { return m.extRunner }
 
 // GetBufferedLogger returns the buffered debug logger (nil if not configured).
+//
+// Deprecated: Use GetBufferedDebugMessages instead.
 func (m *Kit) GetBufferedLogger() *tools.BufferedDebugLogger { return m.bufferedLogger }
 
-// GetAgent returns the underlying agent. Callers that need the raw agent
-// (e.g. for GetTools(), GetLoadingMessage()) can use this.
+// GetAgent returns the underlying agent.
+//
+// Deprecated: Use GetToolNames, GetLoadingMessage, GetLoadedServerNames,
+// GetMCPToolCount, GetExtensionToolCount instead.
 func (m *Kit) GetAgent() *agent.Agent { return m.agent }
+
+// --------------------------------------------------------------------------
+// Narrow accessors — prefer these over GetAgent/GetExtRunner/GetBufferedLogger
+// --------------------------------------------------------------------------
+
+// GetToolNames returns the names of all tools available to the agent.
+func (m *Kit) GetToolNames() []string {
+	agentTools := m.agent.GetTools()
+	names := make([]string, len(agentTools))
+	for i, t := range agentTools {
+		names[i] = t.Info().Name
+	}
+	return names
+}
+
+// GetLoadingMessage returns the agent's startup info message (e.g. GPU
+// fallback info), or empty string if none.
+func (m *Kit) GetLoadingMessage() string {
+	return m.agent.GetLoadingMessage()
+}
+
+// GetLoadedServerNames returns the names of successfully loaded MCP servers.
+func (m *Kit) GetLoadedServerNames() []string {
+	return m.agent.GetLoadedServerNames()
+}
+
+// GetMCPToolCount returns the number of tools loaded from external MCP servers.
+func (m *Kit) GetMCPToolCount() int {
+	return m.agent.GetMCPToolCount()
+}
+
+// GetExtensionToolCount returns the number of tools registered by extensions.
+func (m *Kit) GetExtensionToolCount() int {
+	return m.agent.GetExtensionToolCount()
+}
+
+// GetBufferedDebugMessages returns any debug messages that were buffered
+// during initialization, then clears the buffer. Returns nil if no messages
+// were buffered or if buffered logging was not configured.
+func (m *Kit) GetBufferedDebugMessages() []string {
+	if m.bufferedLogger == nil {
+		return nil
+	}
+	return m.bufferedLogger.GetMessages()
+}
+
+// SetExtensionContext configures the extension runner with the given context
+// functions. No-op if extensions are disabled.
+func (m *Kit) SetExtensionContext(ctx extensions.Context) {
+	if m.extRunner != nil {
+		m.extRunner.SetContext(ctx)
+	}
+}
+
+// EmitSessionStart fires the SessionStart event for extensions.
+// No-op if extensions are disabled or no handlers are registered.
+func (m *Kit) EmitSessionStart() {
+	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionStart) {
+		_, _ = m.extRunner.Emit(extensions.SessionStartEvent{})
+	}
+}
+
+// ExtensionCommands returns the slash commands registered by extensions.
+// Returns nil if extensions are disabled or no commands are registered.
+func (m *Kit) ExtensionCommands() []extensions.CommandDef {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.RegisteredCommands()
+}
+
+// HasExtensions returns true if the extension runner is configured and active.
+func (m *Kit) HasExtensions() bool {
+	return m.extRunner != nil
+}
 
 // Options configures Kit creation with optional overrides for model,
 // prompts, configuration, and behavior settings. All fields are optional
@@ -93,12 +176,25 @@ type Options struct {
 	AutoCompact       bool               // Auto-compact when near context limit
 	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
 
-	// CLI-specific fields (ignored by programmatic SDK users)
-	MCPConfig         *config.Config // Pre-loaded MCP config (skips LoadAndValidateConfig if set)
-	ShowSpinner       bool           // Show loading spinner for Ollama models
-	SpinnerFunc       SpinnerFunc    // Spinner implementation (nil = no spinner)
-	UseBufferedLogger bool           // Buffer debug messages for later display
-	Debug             bool           // Enable debug logging
+	// Debug enables debug logging for the SDK.
+	Debug bool
+
+	// CLI is optional CLI-specific configuration. SDK users leave this nil.
+	CLI *CLIOptions
+}
+
+// CLIOptions holds fields only relevant to the CLI binary. SDK users should
+// not need these; they are separated to keep the main Options struct clean.
+type CLIOptions struct {
+	// MCPConfig is a pre-loaded MCP config. When set, LoadAndValidateConfig
+	// is skipped during Kit creation.
+	MCPConfig *config.Config
+	// ShowSpinner shows a loading spinner for Ollama models.
+	ShowSpinner bool
+	// SpinnerFunc provides the spinner implementation (nil = no spinner).
+	SpinnerFunc SpinnerFunc
+	// UseBufferedLogger buffers debug messages for later display.
+	UseBufferedLogger bool
 }
 
 // InitTreeSession creates or opens a tree session based on the given options.
@@ -211,8 +307,11 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		viper.Set("system-prompt", pb.Build())
 	}
 
-	// Load MCP configuration. Use pre-loaded config if provided.
-	mcpConfig := opts.MCPConfig
+	// Load MCP configuration. Use pre-loaded config if provided via CLI options.
+	var mcpConfig *config.Config
+	if opts.CLI != nil {
+		mcpConfig = opts.CLI.MCPConfig
+	}
 	if mcpConfig == nil {
 		mcpConfig, err = config.LoadAndValidateConfig()
 		if err != nil {
@@ -228,17 +327,22 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	beforeTurn := newHookRegistry[BeforeTurnHook, BeforeTurnResult]()
 	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
 
+	// Build agent setup options, pulling CLI-specific fields when available.
+	setupOpts := kitsetup.AgentSetupOptions{
+		MCPConfig:   mcpConfig,
+		Quiet:       opts.Quiet,
+		CoreTools:   opts.Tools,
+		ExtraTools:  opts.ExtraTools,
+		ToolWrapper: hookToolWrapper(beforeToolCall, afterToolResult),
+	}
+	if opts.CLI != nil {
+		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
+		setupOpts.SpinnerFunc = opts.CLI.SpinnerFunc
+		setupOpts.UseBufferedLogger = opts.CLI.UseBufferedLogger
+	}
+
 	// Create agent using shared setup with the hook tool wrapper.
-	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
-		MCPConfig:         mcpConfig,
-		Quiet:             opts.Quiet,
-		ShowSpinner:       opts.ShowSpinner,
-		SpinnerFunc:       opts.SpinnerFunc,
-		UseBufferedLogger: opts.UseBufferedLogger,
-		CoreTools:         opts.Tools,
-		ExtraTools:        opts.ExtraTools,
-		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
-	})
+	agentResult, err := kitsetup.SetupAgent(ctx, setupOpts)
 	if err != nil {
 		return nil, err
 	}

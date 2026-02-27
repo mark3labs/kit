@@ -101,7 +101,6 @@ func newTestAppModel(ctrl AppController) (*AppModel, *stubStreamComponent, *stub
 		stream:      stream,
 		input:       input,
 		renderer:    NewMessageRenderer(80, false),
-		compactRdr:  NewCompactRenderer(80, false),
 		compactMode: false,
 		modelName:   "test-model",
 		width:       80,
