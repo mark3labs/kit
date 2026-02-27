@@ -10,8 +10,10 @@ import (
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
+	"github.com/mark3labs/kit/internal/tools"
 
 	"github.com/spf13/viper"
 )
@@ -27,6 +29,8 @@ type Kit struct {
 	autoCompact    bool
 	compactionOpts *CompactionOptions
 	skills         []*skills.Skill
+	extRunner      *extensions.Runner
+	bufferedLogger *tools.BufferedDebugLogger
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -41,6 +45,16 @@ type Kit struct {
 func (m *Kit) Subscribe(listener EventListener) func() {
 	return m.events.subscribe(listener)
 }
+
+// GetExtRunner returns the extension runner (nil if extensions are disabled).
+func (m *Kit) GetExtRunner() *extensions.Runner { return m.extRunner }
+
+// GetBufferedLogger returns the buffered debug logger (nil if not configured).
+func (m *Kit) GetBufferedLogger() *tools.BufferedDebugLogger { return m.bufferedLogger }
+
+// GetAgent returns the underlying agent. Callers that need the raw agent
+// (e.g. for GetTools(), GetLoadingMessage()) can use this.
+func (m *Kit) GetAgent() *agent.Agent { return m.agent }
 
 // Options configures Kit creation with optional overrides for model,
 // prompts, configuration, and behavior settings. All fields are optional
@@ -68,6 +82,13 @@ type Options struct {
 	// Compaction
 	AutoCompact       bool               // Auto-compact when near context limit
 	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
+
+	// CLI-specific fields (ignored by programmatic SDK users)
+	MCPConfig         *config.Config // Pre-loaded MCP config (skips LoadAndValidateConfig if set)
+	ShowSpinner       bool           // Show loading spinner for Ollama models
+	SpinnerFunc       SpinnerFunc    // Spinner implementation (nil = no spinner)
+	UseBufferedLogger bool           // Buffer debug messages for later display
+	Debug             bool           // Enable debug logging
 }
 
 // InitTreeSession creates or opens a tree session based on the given options.
@@ -122,6 +143,11 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
+	// Handle CLI debug mode.
+	if opts.Debug {
+		viper.Set("debug", true)
+	}
+
 	// Override viper settings with options.
 	if opts.Model != "" {
 		viper.Set("model", opts.Model)
@@ -149,10 +175,13 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		viper.Set("system-prompt", composed)
 	}
 
-	// Load MCP configuration.
-	mcpConfig, err := config.LoadAndValidateConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load MCP config: %w", err)
+	// Load MCP configuration. Use pre-loaded config if provided.
+	mcpConfig := opts.MCPConfig
+	if mcpConfig == nil {
+		mcpConfig, err = config.LoadAndValidateConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load MCP config: %w", err)
+		}
 	}
 
 	// Pre-create hook registries so the tool wrapper can reference them.
@@ -165,11 +194,14 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 
 	// Create agent using shared setup with the hook tool wrapper.
 	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
-		MCPConfig:   mcpConfig,
-		Quiet:       opts.Quiet,
-		CoreTools:   opts.Tools,
-		ExtraTools:  opts.ExtraTools,
-		ToolWrapper: hookToolWrapper(beforeToolCall, afterToolResult),
+		MCPConfig:         mcpConfig,
+		Quiet:             opts.Quiet,
+		ShowSpinner:       opts.ShowSpinner,
+		SpinnerFunc:       opts.SpinnerFunc,
+		UseBufferedLogger: opts.UseBufferedLogger,
+		CoreTools:         opts.Tools,
+		ExtraTools:        opts.ExtraTools,
+		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 	})
 	if err != nil {
 		return nil, err
@@ -190,6 +222,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		autoCompact:     opts.AutoCompact,
 		compactionOpts:  opts.CompactionOptions,
 		skills:          loadedSkills,
+		extRunner:       agentResult.ExtRunner,
+		bufferedLogger:  agentResult.BufferedLogger,
 		beforeToolCall:  beforeToolCall,
 		afterToolResult: afterToolResult,
 		beforeTurn:      beforeTurn,
@@ -268,6 +302,32 @@ func loadExplicitSkills(paths []string) ([]*skills.Skill, error) {
 }
 
 // ---------------------------------------------------------------------------
+// TurnResult
+// ---------------------------------------------------------------------------
+
+// TurnResult contains the full result of a prompt turn, including usage
+// statistics and the updated conversation. Use PromptResult() instead of
+// Prompt() when you need access to this data.
+type TurnResult struct {
+	// Response is the assistant's final text response.
+	Response string
+
+	// TotalUsage is the aggregate token usage across all steps in the turn
+	// (includes tool-calling loop iterations). Nil if the provider didn't
+	// report usage.
+	TotalUsage *FantasyUsage
+
+	// FinalUsage is the token usage from the last API call only. Use this
+	// for context window fill estimation (InputTokens + OutputTokens ≈
+	// current context size). Nil if unavailable.
+	FinalUsage *FantasyUsage
+
+	// Messages is the full updated conversation after the turn, including
+	// any tool call/result messages added during the agent loop.
+	Messages []FantasyMessage
+}
+
+// ---------------------------------------------------------------------------
 // Shared generation helpers
 // ---------------------------------------------------------------------------
 
@@ -316,7 +376,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 //
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
 // prompt is the raw user text passed to BeforeTurn hooks.
-func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (string, error) {
+func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (*TurnResult, error) {
 	// Run BeforeTurn hooks — can modify the prompt, inject system/context messages.
 	if m.beforeTurn.hasHooks() {
 		if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
@@ -367,7 +427,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		if m.afterTurn.hasHooks() {
 			m.afterTurn.run(AfterTurnHook{Error: err})
 		}
-		return "", err
+		return nil, err
 	}
 
 	responseText := result.FinalResponse.Content.Text()
@@ -387,7 +447,19 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		m.afterTurn.run(AfterTurnHook{Response: responseText})
 	}
 
-	return responseText, nil
+	// Build TurnResult with usage stats.
+	turnResult := &TurnResult{
+		Response: responseText,
+		Messages: result.ConversationMessages,
+	}
+	totalUsage := result.TotalUsage
+	turnResult.TotalUsage = &totalUsage
+	if result.FinalResponse != nil {
+		finalUsage := result.FinalResponse.Usage
+		turnResult.FinalUsage = &finalUsage
+	}
+
+	return turnResult, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -399,9 +471,13 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 // automatically maintained in the tree session. Lifecycle events are emitted
 // to all registered subscribers. Returns an error if generation fails.
 func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
-	return m.runTurn(ctx, message, message, []fantasy.Message{
+	result, err := m.runTurn(ctx, message, message, []fantasy.Message{
 		fantasy.NewUserMessage(message),
 	})
+	if err != nil {
+		return "", err
+	}
+	return result.Response, nil
 }
 
 // Steer injects a system-level instruction and triggers a new agent turn.
@@ -412,10 +488,14 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 // a synthetic user message so the agent acknowledges and follows the directive.
 // Both messages are persisted to the session.
 func (m *Kit) Steer(ctx context.Context, instruction string) (string, error) {
-	return m.runTurn(ctx, "[steer] "+instruction, instruction, []fantasy.Message{
+	result, err := m.runTurn(ctx, "[steer] "+instruction, instruction, []fantasy.Message{
 		fantasy.NewSystemMessage(instruction),
 		fantasy.NewUserMessage("Please acknowledge and follow the above instruction."),
 	})
+	if err != nil {
+		return "", err
+	}
+	return result.Response, nil
 }
 
 // FollowUp continues the conversation without explicit new user input.
@@ -433,9 +513,13 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 		text = "Continue."
 	}
 
-	return m.runTurn(ctx, "[follow-up]", text, []fantasy.Message{
+	result, err := m.runTurn(ctx, "[follow-up]", text, []fantasy.Message{
 		fantasy.NewUserMessage(text),
 	})
+	if err != nil {
+		return "", err
+	}
+	return result.Response, nil
 }
 
 // PromptOptions configures a single PromptWithOptions call.
@@ -456,7 +540,11 @@ func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOpti
 	}
 	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
 
-	return m.runTurn(ctx, msg, msg, preMessages)
+	result, err := m.runTurn(ctx, msg, msg, preMessages)
+	if err != nil {
+		return "", err
+	}
+	return result.Response, nil
 }
 
 // PromptWithCallbacks sends a message with callbacks for monitoring tool
@@ -498,6 +586,15 @@ func (m *Kit) PromptWithCallbacks(
 	return m.Prompt(ctx, message)
 }
 
+// PromptResult sends a message and returns the full turn result including
+// usage statistics and conversation messages. Use this instead of Prompt()
+// when you need more than just the response text.
+func (m *Kit) PromptResult(ctx context.Context, message string) (*TurnResult, error) {
+	return m.runTurn(ctx, message, message, []fantasy.Message{
+		fantasy.NewUserMessage(message),
+	})
+}
+
 // ClearSession resets the tree session's leaf pointer to the root, starting
 // a fresh conversation branch.
 func (m *Kit) ClearSession() {
@@ -530,6 +627,10 @@ func (m *Kit) GetTools() []Tool {
 // and the tree session file handle. Should be called when the Kit instance is
 // no longer needed. Returns an error if cleanup fails.
 func (m *Kit) Close() error {
+	// Emit SessionShutdown for extensions.
+	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
+		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
+	}
 	if m.treeSession != nil {
 		_ = m.treeSession.Close()
 	}

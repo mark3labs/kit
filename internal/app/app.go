@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 // App is the application-layer orchestrator. It owns the agentic loop,
@@ -189,8 +190,11 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 		return err
 	}
 
-	// Record token usage for the completed step.
-	a.updateUsage(result, prompt)
+	// Record token usage for the completed step (legacy path only — the SDK
+	// path records usage inside executeStep via updateUsageFromTurnResult).
+	if a.opts.Kit == nil {
+		a.updateUsage(result, prompt)
+	}
 
 	responseText := ""
 	if result.FinalResponse != nil {
@@ -225,8 +229,10 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 		return err
 	}
 
-	// Record token usage for the completed step.
-	a.updateUsage(result, prompt)
+	// Record token usage (legacy path only — SDK path handles it in executeStep).
+	if a.opts.Kit == nil {
+		a.updateUsage(result, prompt)
+	}
 
 	// Send step complete so the display handler can render the final response.
 	if eventFn != nil && result.FinalResponse != nil {
@@ -255,8 +261,9 @@ func (a *App) Close() {
 	cancel := a.cancelStep
 	a.mu.Unlock()
 
-	// --- Extension: SessionShutdown ---
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.SessionShutdown) {
+	// SessionShutdown is emitted by Kit.Close() when the SDK path is active.
+	// For the legacy path, emit here.
+	if a.opts.Kit == nil && a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.SessionShutdown) {
 		_, _ = a.opts.Extensions.Emit(extensions.SessionShutdownEvent{})
 	}
 
@@ -267,8 +274,9 @@ func (a *App) Close() {
 	// Wait for background goroutines.
 	a.wg.Wait()
 
-	// Close tree session file handle.
-	if a.opts.TreeSession != nil {
+	// Close tree session file handle (legacy path only — Kit.Close() handles
+	// session cleanup when the SDK path is active).
+	if a.opts.Kit == nil && a.opts.TreeSession != nil {
 		_ = a.opts.TreeSession.Close()
 	}
 }
@@ -343,8 +351,10 @@ func (a *App) runPrompt(prompt string) {
 		return
 	}
 
-	// Record token usage for the completed step.
-	a.updateUsage(result, prompt)
+	// Record token usage (legacy path only — SDK path handles it in executeStep).
+	if a.opts.Kit == nil {
+		a.updateUsage(result, prompt)
+	}
 
 	a.sendEvent(StepCompleteEvent{
 		Response: result.FinalResponse,
@@ -356,32 +366,52 @@ func (a *App) runPrompt(prompt string) {
 // Internal: single agent step
 // --------------------------------------------------------------------------
 
-// executeStep runs a single agentic step using the agent in opts.
-// It adds the user prompt to the MessageStore before calling the agent, and
-// replaces the store with the full updated conversation on success.
-// eventFn receives intermediate display events (tool calls, streaming chunks,
-// etc.); it may be nil when no display is needed (e.g. quiet RunOnce).
+// executeStep runs a single agentic step. When opts.Kit is set, it delegates
+// to the SDK's PromptResult() which handles session persistence, hooks,
+// extension events, and the generation loop. Otherwise it falls back to
+// executeStepLegacy() for tests that supply a stub AgentRunner.
 func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*agent.GenerateWithLoopResult, error) {
+	if a.opts.Kit == nil {
+		return a.executeStepLegacy(ctx, prompt, eventFn)
+	}
+
 	sendFn := func(msg tea.Msg) {
 		if eventFn != nil {
 			eventFn(msg)
 		}
 	}
 
-	// --- Extension: Input event (can transform or handle the prompt) ---
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.Input) {
-		result, _ := a.opts.Extensions.Emit(extensions.InputEvent{
-			Text:   prompt,
-			Source: a.inputSource(),
-		})
-		if r, ok := result.(extensions.InputResult); ok {
-			switch r.Action {
-			case "transform":
-				prompt = r.Text
-			case "handled":
-				// Extension handled the input; skip the agent entirely.
-				return &agent.GenerateWithLoopResult{}, nil
-			}
+	// Subscribe to SDK events for TUI rendering. The subscription is
+	// temporary — it lives only for the duration of this step.
+	unsub := a.subscribeSDKEvents(sendFn)
+	defer unsub()
+
+	// Show spinner while the agent works.
+	sendFn(SpinnerEvent{Show: true})
+
+	result, err := a.opts.Kit.PromptResult(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sync in-memory store with the SDK's authoritative conversation.
+	a.store.Replace(result.Messages)
+
+	// Update usage tracker.
+	a.updateUsageFromTurnResult(result, prompt)
+
+	return &agent.GenerateWithLoopResult{
+		ConversationMessages: result.Messages,
+	}, nil
+}
+
+// executeStepLegacy is the original executeStep implementation used when
+// opts.Kit is nil (e.g. in tests with a stub AgentRunner). It handles
+// extension events, session persistence, and the generation loop directly.
+func (a *App) executeStepLegacy(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*agent.GenerateWithLoopResult, error) {
+	sendFn := func(msg tea.Msg) {
+		if eventFn != nil {
+			eventFn(msg)
 		}
 	}
 
@@ -396,8 +426,6 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	}
 
 	// Build the full message slice for the agent call.
-	// When a tree session is active, build context from the tree (walks
-	// leaf-to-root) so that only the current branch is sent to the LLM.
 	var msgs []fantasy.Message
 	if a.opts.TreeSession != nil {
 		msgs = a.opts.TreeSession.GetFantasyMessages()
@@ -405,52 +433,18 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 		msgs = a.store.GetAll()
 	}
 
-	// Track message count before agent runs so we can diff new messages.
 	sentCount := len(msgs)
-
-	// --- Extension: BeforeAgentStart ---
-	// Extensions can inject a system message or prepend context text into the
-	// conversation before the agent runs.
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.BeforeAgentStart) {
-		result, _ := a.opts.Extensions.Emit(extensions.BeforeAgentStartEvent{Prompt: prompt})
-		if r, ok := result.(extensions.BeforeAgentStartResult); ok {
-			if r.SystemPrompt != nil && *r.SystemPrompt != "" {
-				// Prepend a system message so the LLM sees extension-provided
-				// instructions. This supplements (not replaces) the agent's
-				// configured system prompt.
-				msgs = append([]fantasy.Message{fantasy.NewSystemMessage(*r.SystemPrompt)}, msgs...)
-			}
-			if r.InjectText != nil && *r.InjectText != "" {
-				// Prepend a user message with the injected context so it
-				// appears early in the conversation window.
-				msgs = append([]fantasy.Message{fantasy.NewUserMessage(*r.InjectText)}, msgs...)
-			}
-		}
-	}
-
-	// --- Extension: AgentStart ---
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentStart) {
-		_, _ = a.opts.Extensions.Emit(extensions.AgentStartEvent{Prompt: prompt})
-	}
 
 	// Signal spinner start.
 	sendFn(SpinnerEvent{Show: true})
 
-	// --- Extension: MessageStart ---
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageStart) {
-		_, _ = a.opts.Extensions.Emit(extensions.MessageStartEvent{})
-	}
-
 	result, err := a.opts.Agent.GenerateWithLoopAndStreaming(ctx, msgs,
-		// onToolCall
 		func(toolName, toolArgs string) {
 			sendFn(ToolCallStartedEvent{ToolName: toolName, ToolArgs: toolArgs})
 		},
-		// onToolExecution
 		func(toolName string, isStarting bool) {
 			sendFn(ToolExecutionEvent{ToolName: toolName, IsStarting: isStarting})
 		},
-		// onToolResult
 		func(toolName, toolArgs, result string, isError bool) {
 			sendFn(ToolResultEvent{
 				ToolName: toolName,
@@ -459,58 +453,25 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 				IsError:  isError,
 			})
 		},
-		// onResponse (final non-streaming response)
 		func(content string) {
 			sendFn(ResponseCompleteEvent{Content: content})
 		},
-		// onToolCallContent
 		func(content string) {
 			sendFn(ToolCallContentEvent{Content: content})
 		},
-		// onStreamingResponse — spinner keeps running alongside streaming text
 		func(chunk string) {
-			// Extension: MessageUpdate (observe streaming chunks)
-			if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageUpdate) {
-				_, _ = a.opts.Extensions.Emit(extensions.MessageUpdateEvent{Chunk: chunk})
-			}
 			sendFn(StreamChunkEvent{Content: chunk})
 		},
 	)
 
 	if err != nil {
-		// --- Extension: AgentEnd with error ---
-		if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentEnd) {
-			_, _ = a.opts.Extensions.Emit(extensions.AgentEndEvent{
-				Response:   "",
-				StopReason: "error",
-			})
-		}
 		return nil, err
 	}
 
-	// --- Extension: MessageEnd ---
-	responseText := ""
-	if result.FinalResponse != nil {
-		responseText = result.FinalResponse.Content.Text()
-	}
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.MessageEnd) {
-		_, _ = a.opts.Extensions.Emit(extensions.MessageEndEvent{Content: responseText})
-	}
-
-	// --- Extension: AgentEnd with success ---
-	if a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.AgentEnd) {
-		_, _ = a.opts.Extensions.Emit(extensions.AgentEndEvent{
-			Response:   responseText,
-			StopReason: "completed",
-		})
-	}
-
-	// Replace the store with the full updated conversation returned by the agent
-	// (includes tool call/result messages added during the step).
+	// Replace the store with the full updated conversation returned by the agent.
 	a.store.Replace(result.ConversationMessages)
 
-	// Persist new messages (tool calls, tool results, assistant response)
-	// to the tree session. Only append messages beyond what we sent.
+	// Persist new messages to the tree session.
 	if a.opts.TreeSession != nil && len(result.ConversationMessages) > sentCount {
 		for _, msg := range result.ConversationMessages[sentCount:] {
 			_, _ = a.opts.TreeSession.AppendFantasyMessage(msg)
@@ -518,17 +479,6 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	}
 
 	return result, nil
-}
-
-// inputSource returns a string identifying how the current session receives
-// input — used by the Input extension event.
-func (a *App) inputSource() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.program != nil {
-		return "interactive"
-	}
-	return "cli"
 }
 
 // --------------------------------------------------------------------------
@@ -543,6 +493,42 @@ func (a *App) sendEvent(msg tea.Msg) {
 	a.mu.Unlock()
 	if prog != nil {
 		prog.Send(msg)
+	}
+}
+
+// subscribeSDKEvents registers temporary SDK event subscribers that convert
+// SDK events to tea.Msg events and dispatch them via sendFn. Returns an
+// unsubscribe function that removes all listeners.
+func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
+	k := a.opts.Kit
+	var unsubs []func()
+
+	unsubs = append(unsubs, k.Subscribe(func(e kit.Event) {
+		switch ev := e.(type) {
+		case kit.ToolCallEvent:
+			sendFn(ToolCallStartedEvent{ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
+		case kit.ToolExecutionStartEvent:
+			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, IsStarting: true})
+		case kit.ToolExecutionEndEvent:
+			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, IsStarting: false})
+		case kit.ToolResultEvent:
+			sendFn(ToolResultEvent{
+				ToolName: ev.ToolName, ToolArgs: ev.ToolArgs,
+				Result: ev.Result, IsError: ev.IsError,
+			})
+		case kit.ToolCallContentEvent:
+			sendFn(ToolCallContentEvent{Content: ev.Content})
+		case kit.ResponseEvent:
+			sendFn(ResponseCompleteEvent{Content: ev.Content})
+		case kit.MessageUpdateEvent:
+			sendFn(StreamChunkEvent{Content: ev.Chunk})
+		}
+	}))
+
+	return func() {
+		for _, unsub := range unsubs {
+			unsub()
+		}
 	}
 }
 
@@ -621,6 +607,33 @@ func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt strin
 	if result.FinalResponse != nil {
 		fu := result.FinalResponse.Usage
 		if ct := int(fu.InputTokens) + int(fu.OutputTokens); ct > 0 {
+			a.opts.UsageTracker.SetContextTokens(ct)
+		}
+	}
+}
+
+// updateUsageFromTurnResult records token usage from an SDK TurnResult into the
+// configured UsageTracker. This is the SDK-path equivalent of updateUsage.
+func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt string) {
+	if a.opts.UsageTracker == nil || result == nil {
+		return
+	}
+
+	if result.TotalUsage != nil {
+		inputTokens := int(result.TotalUsage.InputTokens)
+		outputTokens := int(result.TotalUsage.OutputTokens)
+		if inputTokens > 0 && outputTokens > 0 {
+			cacheReadTokens := int(result.TotalUsage.CacheReadTokens)
+			cacheWriteTokens := int(result.TotalUsage.CacheCreationTokens)
+			a.opts.UsageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+		} else {
+			a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
+			return
+		}
+	}
+
+	if result.FinalUsage != nil {
+		if ct := int(result.FinalUsage.InputTokens) + int(result.FinalUsage.OutputTokens); ct > 0 {
 			a.opts.UsageTracker.SetContextTokens(ct)
 		}
 	}

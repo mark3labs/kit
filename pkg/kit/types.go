@@ -122,6 +122,12 @@ type ProviderInfo = models.ProviderInfo
 // a registry of all supported LLM providers and their models.
 type ModelsRegistry = models.ModelsRegistry
 
+// ==== Agent Callback Types ====
+
+// SpinnerFunc wraps a function in a loading spinner animation. Used for
+// Ollama model loading. Signature: func(fn func() error) error.
+type SpinnerFunc = agent.SpinnerFunc
+
 // ==== Fantasy Types (re-exported) ====
 
 // FantasyMessage is the underlying message type used by the fantasy agent

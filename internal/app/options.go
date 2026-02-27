@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 // AgentRunner is the minimal interface the app layer requires from the agent
@@ -48,8 +49,14 @@ type UsageUpdater interface {
 // Options configures an App instance. It mirrors the fields from AgenticLoopConfig
 // in cmd/root.go but is owned by the app layer rather than the CLI.
 type Options struct {
-	// Agent is the agent used to run the agentic loop. Required.
-	// *agent.Agent satisfies this interface; tests may supply stubs.
+	// Kit is the SDK instance. When set, executeStep() delegates to
+	// kit.PromptResult() and events flow through SDK subscriptions.
+	// When nil, the legacy AgentRunner path is used (for tests).
+	Kit *kit.Kit
+
+	// Agent is the agent used to run the agentic loop.
+	// When Kit is set, this field is ignored (Kit owns the agent).
+	// Required when Kit is nil (e.g. in tests with stub agents).
 	Agent AgentRunner
 
 	// TreeSession is the tree-structured JSONL session manager. When non-nil,

@@ -312,29 +312,26 @@ func runNormalMode(ctx context.Context) error {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
 
-	// Load MCP configuration
-	var mcpConfig *config.Config
-	var err error
-
-	if scriptMCPConfig != nil {
-		// Use script-provided config
-		mcpConfig = scriptMCPConfig
-	} else {
-		// Use the new config loader
-		mcpConfig, err = config.LoadAndValidateConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load MCP config: %v", err)
-		}
-	}
-
 	// Update debug mode from viper
 	if viper.GetBool("debug") && !debugMode {
 		debugMode = viper.GetBool("debug")
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
 
-	// Create spinner function for agent creation
-	var spinnerFunc agent.SpinnerFunc
+	// Load MCP configuration.
+	var mcpConfig *config.Config
+	var err error
+	if scriptMCPConfig != nil {
+		mcpConfig = scriptMCPConfig
+	} else {
+		mcpConfig, err = config.LoadAndValidateConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load MCP config: %v", err)
+		}
+	}
+
+	// Create spinner function for agent creation.
+	var spinnerFunc kit.SpinnerFunc
 	if !quietFlag {
 		spinnerFunc = func(fn func() error) error {
 			tempCli, tempErr := ui.NewCLI(viper.GetBool("debug"), viper.GetBool("compact"))
@@ -345,20 +342,36 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
-	// Create agent using shared setup (builds ProviderConfig from viper internally).
-	agentResult, err := SetupAgent(ctx, AgentSetupOptions{
+	// Build Kit options from CLI flags and create the SDK instance.
+	// kit.New() handles: config → skills → agent → session → hooks → extension bridge.
+	kitOpts := &kit.Options{
 		MCPConfig:         mcpConfig,
 		ShowSpinner:       true,
 		SpinnerFunc:       spinnerFunc,
 		UseBufferedLogger: true,
-	})
+		Quiet:             quietFlag,
+		Debug:             debugMode,
+		NoSession:         noSessionFlag,
+		Continue:          continueFlag,
+		SessionPath:       sessionPath,
+		AutoCompact:       autoCompactFlag,
+	}
+	if resumeFlag {
+		// TODO: TUI session picker.
+		sessions, _ := kit.ListSessions("")
+		if len(sessions) > 0 {
+			kitOpts.SessionPath = sessions[0].Path
+		}
+	}
+
+	kitInstance, err := kit.New(ctx, kitOpts)
 	if err != nil {
 		return err
 	}
-	mcpAgent := agentResult.Agent
-	defer func() { _ = mcpAgent.Close() }()
+	defer func() { _ = kitInstance.Close() }()
 
-	// Collect model/server/tool metadata for display and app options.
+	// Extract agent + metadata for display and app options.
+	mcpAgent := kitInstance.GetAgent()
 	parsedProvider, modelName, serverNames, toolNames := CollectAgentMetadata(mcpAgent, mcpConfig)
 
 	// Create CLI for non-interactive mode only.
@@ -370,8 +383,8 @@ func runNormalMode(ctx context.Context) error {
 		}
 
 		// Display buffered debug messages if any (non-interactive path only).
-		if agentResult.BufferedLogger != nil && cli != nil {
-			msgs := agentResult.BufferedLogger.GetMessages()
+		if bl := kitInstance.GetBufferedLogger(); bl != nil && cli != nil {
+			msgs := bl.GetMessages()
 			if len(msgs) > 0 {
 				cli.DisplayDebugMessage(strings.Join(msgs, "\n  "))
 			}
@@ -380,46 +393,25 @@ func runNormalMode(ctx context.Context) error {
 		DisplayDebugConfig(cli, mcpAgent, mcpConfig, parsedProvider)
 	}
 
-	// --- Session initialization via SDK ---
-	// Map CLI flags to SDK session options and delegate to InitTreeSession.
-	sessionOpts := &kit.Options{
-		NoSession:   noSessionFlag,
-		Continue:    continueFlag,
-		SessionPath: sessionPath,
-		AutoCompact: autoCompactFlag,
-	}
-	if resumeFlag {
-		// List sessions for cwd and pick the most recent. TODO: TUI picker.
-		sessions, _ := kit.ListSessions("")
-		if len(sessions) > 0 {
-			sessionOpts.SessionPath = sessions[0].Path
-		}
-	}
-
-	treeSession, err := kit.InitTreeSession(sessionOpts)
-	if err != nil {
-		return fmt.Errorf("failed to initialize session: %v", err)
-	}
-
 	// Load existing messages from resumed/continued sessions.
+	treeSession := kitInstance.GetTreeSession()
 	var messages []fantasy.Message
 	if treeSession != nil {
 		messages = treeSession.GetFantasyMessages()
 	}
 
-	// Create the app.App instance now that session messages are loaded.
-	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, agentResult.ExtRunner)
+	// Create the app.App instance.
+	extRunner := kitInstance.GetExtRunner()
+	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, extRunner)
+	appOpts.Kit = kitInstance
 	appOpts.TreeSession = treeSession
 
 	// Create a usage tracker that is shared between the app layer (for recording
-	// usage after each step) and the TUI (for /usage display). For non-interactive
-	// mode the tracker comes from the CLI factory; for interactive mode we create
-	// one directly.
+	// usage after each step) and the TUI (for /usage display).
 	var usageTracker *ui.UsageTracker
 	if cli != nil {
 		usageTracker = cli.GetUsageTracker()
 	} else {
-		// Interactive mode: create a tracker using the same logic as SetupCLI.
 		usageTracker = ui.CreateUsageTracker(viper.GetString("model"), viper.GetString("provider-api-key"))
 	}
 	if usageTracker != nil {
@@ -429,10 +421,10 @@ func runNormalMode(ctx context.Context) error {
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
 
-	// Emit SessionStart event to extensions.
-	if agentResult.ExtRunner != nil {
+	// Set up extension context and emit SessionStart.
+	if extRunner != nil {
 		cwd, _ := os.Getwd()
-		agentResult.ExtRunner.SetContext(extensions.Context{
+		extRunner.SetContext(extensions.Context{
 			CWD:         cwd,
 			Model:       modelName,
 			Interactive: promptFlag == "",
@@ -442,13 +434,13 @@ func runNormalMode(ctx context.Context) error {
 			PrintBlock:  appInstance.PrintBlockFromExtension,
 			SendMessage: func(text string) { appInstance.Run(text) },
 		})
-		if agentResult.ExtRunner.HasHandlers(extensions.SessionStart) {
-			_, _ = agentResult.ExtRunner.Emit(extensions.SessionStartEvent{})
+		if extRunner.HasHandlers(extensions.SessionStart) {
+			_, _ = extRunner.Emit(extensions.SessionStartEvent{})
 		}
 	}
 
 	// Convert extension commands to UI-layer type for the interactive TUI.
-	extCommands := extensionCommandsForUI(agentResult.ExtRunner)
+	extCommands := extensionCommandsForUI(extRunner)
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
