@@ -9,7 +9,6 @@ import (
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
-	"github.com/mark3labs/kit/internal/hooks"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
 	"github.com/spf13/viper"
@@ -165,22 +164,13 @@ type extensionCreationOpts struct {
 	extraTools  []fantasy.AgentTool
 }
 
-// loadExtensions discovers and loads Yaegi extensions plus legacy hooks.yml,
-// builds the runner, and returns the tool wrapper/extra tools.
+// loadExtensions discovers and loads Yaegi extensions, builds the runner,
+// and returns the tool wrapper/extra tools.
 func loadExtensions() (*extensions.Runner, extensionCreationOpts, error) {
 	extraPaths := viper.GetStringSlice("extension")
 	loaded, err := extensions.LoadExtensions(extraPaths)
 	if err != nil {
 		return nil, extensionCreationOpts{}, err
-	}
-
-	// Also load legacy hooks.yml as a compat extension.
-	hooksCfg, _ := hooks.LoadHooksConfig()
-	if hooksCfg != nil && len(hooksCfg.Hooks) > 0 {
-		compat := extensions.HooksAsExtension(hooksCfg)
-		if compat != nil {
-			loaded = append([]extensions.LoadedExtension{*compat}, loaded...)
-		}
 	}
 
 	if len(loaded) == 0 {

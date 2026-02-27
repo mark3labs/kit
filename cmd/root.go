@@ -115,7 +115,7 @@ func GetRootCommand(v string) *cobra.Command {
 }
 
 // InitConfig initializes the configuration for KIT by loading config files,
-// environment variables, and hooks configuration. It delegates to the SDK's
+// environment variables. It delegates to the SDK's
 // InitConfig, injecting the CLI-specific configFile flag and debug mode.
 // This function is automatically called by cobra before command execution.
 func InitConfig() {
@@ -222,7 +222,7 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&noSessionFlag, "no-session", false, "ephemeral mode — no session persistence")
 	rootCmd.PersistentFlags().
-		BoolVar(&noExtensionsFlag, "no-extensions", false, "disable all extensions and hooks")
+		BoolVar(&noExtensionsFlag, "no-extensions", false, "disable all extensions")
 	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
@@ -344,7 +344,7 @@ func runNormalMode(ctx context.Context) error {
 	}
 
 	// Build Kit options from CLI flags and create the SDK instance.
-	// kit.New() handles: config → skills → agent → session → hooks → extension bridge.
+	// kit.New() handles: config → skills → agent → session → extension bridge.
 	kitOpts := &kit.Options{
 		MCPConfig:         mcpConfig,
 		ShowSpinner:       true,
