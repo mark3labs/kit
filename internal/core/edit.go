@@ -194,7 +194,7 @@ func generateDiff(path, old, new string, changeIdx int) string {
 		if i >= lineNum-1 && i < lineNum-1+countNewlines(old[changeIdx:])+1 {
 			prefix = "-"
 		}
-		diff.WriteString(fmt.Sprintf("%s %s\n", prefix, oldLines[i]))
+		fmt.Fprintf(&diff, "%s %s\n", prefix, oldLines[i])
 	}
 
 	return diff.String()

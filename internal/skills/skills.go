@@ -216,11 +216,11 @@ func FormatForPrompt(skills []*Skill) string {
 
 	for _, s := range skills {
 		buf.WriteString("  <skill>\n")
-		buf.WriteString(fmt.Sprintf("    <name>%s</name>\n", s.Name))
+		fmt.Fprintf(&buf, "    <name>%s</name>\n", s.Name)
 		if s.Description != "" {
-			buf.WriteString(fmt.Sprintf("    <description>%s</description>\n", s.Description))
+			fmt.Fprintf(&buf, "    <description>%s</description>\n", s.Description)
 		}
-		buf.WriteString(fmt.Sprintf("    <location>file://%s</location>\n", s.Path))
+		fmt.Fprintf(&buf, "    <location>file://%s</location>\n", s.Path)
 		buf.WriteString("  </skill>\n")
 	}
 

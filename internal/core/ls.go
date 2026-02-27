@@ -82,7 +82,7 @@ func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fant
 	count := 0
 	for _, entry := range entries {
 		if count >= limit {
-			result.WriteString(fmt.Sprintf("\n[truncated: showing %d of %d entries]", limit, len(entries)))
+			fmt.Fprintf(&result, "\n[truncated: showing %d of %d entries]", limit, len(entries))
 			break
 		}
 		name := entry.Name()

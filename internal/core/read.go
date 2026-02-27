@@ -100,7 +100,7 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	var result strings.Builder
 	for i, line := range lines {
 		lineNum := offset + i + 1
-		result.WriteString(fmt.Sprintf("%d: %s\n", lineNum, line))
+		fmt.Fprintf(&result, "%d: %s\n", lineNum, line)
 	}
 
 	output := result.String()

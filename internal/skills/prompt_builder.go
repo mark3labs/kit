@@ -65,7 +65,7 @@ func (pb *PromptBuilder) Build() string {
 			buf.WriteString("\n\n")
 		}
 		if s.name != "" {
-			buf.WriteString(fmt.Sprintf("# %s\n\n", s.name))
+			fmt.Fprintf(&buf, "# %s\n\n", s.name)
 		}
 		buf.WriteString(s.content)
 	}
