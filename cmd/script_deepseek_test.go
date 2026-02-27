@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/kit/internal/models"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 // TestDeepSeekChatScriptMode tests the regression where deepseek-chat model
@@ -55,7 +55,7 @@ Calculate 3 times 4 equal to?
 	}
 
 	// Now test the actual model creation - this should NOT fail when provider-url is set
-	providerConfig := &models.ProviderConfig{
+	providerConfig := &kit.ProviderConfig{
 		ModelString:    scriptConfig.Model,
 		ProviderAPIKey: scriptConfig.ProviderAPIKey,
 		ProviderURL:    scriptConfig.ProviderURL,
@@ -68,7 +68,7 @@ Calculate 3 times 4 equal to?
 
 	// This should succeed because provider-url is set, which should skip model validation
 	ctx := context.Background()
-	_, err = models.CreateProvider(ctx, providerConfig)
+	_, err = kit.CreateProvider(ctx, providerConfig)
 
 	// We expect this to fail with a connection error (since we're using a fake API key),
 	// NOT with a "model not found" error. The "model not found" error indicates
@@ -86,7 +86,7 @@ Calculate 3 times 4 equal to?
 // TestDeepSeekChatCLIMode tests that the CLI mode works correctly with custom provider URL
 func TestDeepSeekChatCLIMode(t *testing.T) {
 	// Test the CLI mode behavior - this should work
-	providerConfig := &models.ProviderConfig{
+	providerConfig := &kit.ProviderConfig{
 		ModelString:    "openai/deepseek-chat",
 		ProviderAPIKey: "sk-test-key",
 		ProviderURL:    "https://api.deepseek.com/v1", // This should skip validation
@@ -94,7 +94,7 @@ func TestDeepSeekChatCLIMode(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err := models.CreateProvider(ctx, providerConfig)
+	_, err := kit.CreateProvider(ctx, providerConfig)
 
 	// We expect this to fail with a connection error (since we're using a fake API key),
 	// NOT with a "model not found" error
@@ -143,14 +143,14 @@ func TestProviderURLValidationSkip(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			providerConfig := &models.ProviderConfig{
+			providerConfig := &kit.ProviderConfig{
 				ModelString:    tc.model,
 				ProviderAPIKey: "test-key",
 				ProviderURL:    tc.providerURL,
 			}
 
 			ctx := context.Background()
-			_, err := models.CreateProvider(ctx, providerConfig)
+			_, err := kit.CreateProvider(ctx, providerConfig)
 
 			// Should never get a "not found for provider" error — unknown
 			// models are passed through to the provider API.

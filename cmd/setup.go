@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
-	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/viper"
@@ -23,7 +22,7 @@ type AgentSetupResult = kit.AgentSetupResult
 
 // BuildProviderConfig delegates to the SDK to build a ProviderConfig from
 // the current viper state.
-func BuildProviderConfig() (*models.ProviderConfig, string, error) {
+func BuildProviderConfig() (*kit.ProviderConfig, string, error) {
 	return kit.BuildProviderConfig()
 }
 
@@ -40,7 +39,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 // app.Options and UI setup.
 func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string) {
 	modelString := viper.GetString("model")
-	provider, modelName, _ = models.ParseModelString(modelString)
+	provider, modelName, _ = kit.ParseModelString(modelString)
 	if modelName == "" {
 		modelName = "Unknown"
 	}

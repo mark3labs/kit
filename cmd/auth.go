@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/kit/internal/auth"
+	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
 )
 
@@ -117,7 +118,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 }
 
 func runAuthStatus(cmd *cobra.Command, args []string) error {
-	cm, err := auth.NewCredentialManager()
+	cm, err := kit.NewCredentialManager()
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential manager: %w", err)
 	}
@@ -163,7 +164,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 }
 
 func loginAnthropic() error {
-	cm, err := auth.NewCredentialManager()
+	cm, err := kit.NewCredentialManager()
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential manager: %w", err)
 	}
@@ -237,7 +238,7 @@ func loginAnthropic() error {
 }
 
 func logoutAnthropic() error {
-	cm, err := auth.NewCredentialManager()
+	cm, err := kit.NewCredentialManager()
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential manager: %w", err)
 	}

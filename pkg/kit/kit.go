@@ -345,6 +345,17 @@ func (m *Kit) GetModelString() string {
 	return m.modelString
 }
 
+// GetModelInfo returns detailed information about the current model
+// (capabilities, pricing, limits). Returns nil if the model is not in the
+// registry — this is expected for new models or custom fine-tunes.
+func (m *Kit) GetModelInfo() *ModelInfo {
+	provider, modelID, err := ParseModelString(m.modelString)
+	if err != nil {
+		return nil
+	}
+	return LookupModel(provider, modelID)
+}
+
 // GetTools returns all tools available to the agent (core + MCP + extensions).
 func (m *Kit) GetTools() []Tool {
 	return m.agent.GetTools()

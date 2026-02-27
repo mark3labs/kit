@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mark3labs/kit/internal/models"
+	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
 )
 
@@ -39,28 +39,26 @@ func init() {
 }
 
 func runModels(_ *cobra.Command, args []string) error {
-	registry := models.GetGlobalRegistry()
-
 	if len(args) == 1 {
-		return printProvider(registry, args[0])
+		return printProvider(args[0])
 	}
 
-	return printAllProviders(registry, modelsAllFlag)
+	return printAllProviders(modelsAllFlag)
 }
 
-func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
+func printAllProviders(showAll bool) error {
 	var providerIDs []string
 	if showAll {
-		providerIDs = registry.GetSupportedProviders()
+		providerIDs = kit.GetSupportedProviders()
 	} else {
-		providerIDs = registry.GetFantasyProviders()
+		providerIDs = kit.GetFantasyProviders()
 	}
 	sort.Strings(providerIDs)
 
 	// Filter to providers that have models
 	var withModels []string
 	for _, id := range providerIDs {
-		m, _ := registry.GetModelsForProvider(id)
+		m, _ := kit.GetModelsForProvider(id)
 		if len(m) > 0 {
 			withModels = append(withModels, id)
 		}
@@ -72,7 +70,7 @@ func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
 	}
 
 	for i, id := range withModels {
-		m, _ := registry.GetModelsForProvider(id)
+		m, _ := kit.GetModelsForProvider(id)
 		modelIDs := sortedModelIDs(m)
 
 		isLast := i == len(withModels)-1
@@ -99,8 +97,8 @@ func printAllProviders(registry *models.ModelsRegistry, showAll bool) error {
 	return nil
 }
 
-func printProvider(registry *models.ModelsRegistry, provider string) error {
-	m, err := registry.GetModelsForProvider(provider)
+func printProvider(provider string) error {
+	m, err := kit.GetModelsForProvider(provider)
 	if err != nil {
 		return fmt.Errorf("unknown provider %q. Run 'kit models' to see all providers", provider)
 	}
@@ -118,7 +116,7 @@ func printProvider(registry *models.ModelsRegistry, provider string) error {
 	return nil
 }
 
-func sortedModelIDs(m map[string]models.ModelInfo) []string {
+func sortedModelIDs(m map[string]kit.ModelInfo) []string {
 	ids := make([]string, 0, len(m))
 	for id := range m {
 		ids = append(ids, id)
