@@ -395,7 +395,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Create the app.App instance.
 	extRunner := kitInstance.GetExtRunner()
-	appOpts := BuildAppOptions(mcpAgent, mcpConfig, modelName, serverNames, toolNames, extRunner)
+	appOpts := BuildAppOptions(mcpConfig, modelName, serverNames, toolNames)
 	appOpts.Kit = kitInstance
 	appOpts.TreeSession = treeSession
 

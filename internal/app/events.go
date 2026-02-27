@@ -54,12 +54,9 @@ type ResponseCompleteEvent struct {
 }
 
 // StepCompleteEvent is sent when an agent step finishes successfully.
-// It includes the final response and aggregated usage statistics for the step.
 type StepCompleteEvent struct {
-	// Response is the final fantasy response from the completed step.
-	Response *fantasy.Response
-	// Usage contains aggregated token usage data for the step.
-	Usage fantasy.Usage
+	// ResponseText is the final assistant response text.
+	ResponseText string
 }
 
 // StepErrorEvent is sent when an agent step fails with an error.

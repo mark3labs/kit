@@ -1,38 +1,15 @@
 package cmd
 
 import (
-	"context"
 	"strings"
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
-	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/viper"
 )
-
-// AgentSetupOptions is the CLI-facing alias for kit.AgentSetupOptions.
-// The CLI adds the Quiet field from the package-level quietFlag.
-type AgentSetupOptions = kit.AgentSetupOptions
-
-// AgentSetupResult is the CLI-facing alias for kit.AgentSetupResult.
-type AgentSetupResult = kit.AgentSetupResult
-
-// BuildProviderConfig delegates to the SDK to build a ProviderConfig from
-// the current viper state.
-func BuildProviderConfig() (*kit.ProviderConfig, string, error) {
-	return kit.BuildProviderConfig()
-}
-
-// SetupAgent creates an agent from the current viper state. It delegates to
-// the SDK's SetupAgent, injecting the CLI-specific quietFlag.
-func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult, error) {
-	// Inject CLI-specific quiet flag into the SDK options.
-	opts.Quiet = quietFlag
-	return kit.SetupAgent(ctx, opts)
-}
 
 // CollectAgentMetadata extracts model display info and tool/server name lists
 // from the agent, used to populate app.Options and UI setup.
@@ -56,9 +33,8 @@ func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (prov
 }
 
 // BuildAppOptions constructs the app.Options struct from the current state.
-func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName string, serverNames, toolNames []string, extRunner *extensions.Runner) app.Options {
+func BuildAppOptions(mcpConfig *config.Config, modelName string, serverNames, toolNames []string) app.Options {
 	return app.Options{
-		Agent:            mcpAgent,
 		MCPConfig:        mcpConfig,
 		ModelName:        modelName,
 		ServerNames:      serverNames,
@@ -67,7 +43,6 @@ func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName 
 		Quiet:            quietFlag,
 		Debug:            viper.GetBool("debug"),
 		CompactMode:      viper.GetBool("compact"),
-		Extensions:       extRunner,
 	}
 }
 

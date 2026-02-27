@@ -3,30 +3,10 @@ package app
 import (
 	"context"
 
-	"charm.land/fantasy"
-
-	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
-	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
-
-// AgentRunner is the minimal interface the app layer requires from the agent
-// package. *agent.Agent satisfies this interface. Defining it here allows
-// unit tests to supply stub implementations without spinning up a real LLM.
-type AgentRunner interface {
-	GenerateWithLoopAndStreaming(
-		ctx context.Context,
-		messages []fantasy.Message,
-		onToolCall agent.ToolCallHandler,
-		onToolExecution agent.ToolExecutionHandler,
-		onToolResult agent.ToolResultHandler,
-		onResponse agent.ResponseHandler,
-		onToolCallContent agent.ToolCallContentHandler,
-		onStreamingResponse agent.StreamingResponseHandler,
-	) (*agent.GenerateWithLoopResult, error)
-}
 
 // UsageUpdater is the interface the app layer uses to record token usage after
 // each agent step. It is satisfied by *ui.UsageTracker (which lives in
@@ -46,18 +26,17 @@ type UsageUpdater interface {
 	SetContextTokens(tokens int)
 }
 
-// Options configures an App instance. It mirrors the fields from AgenticLoopConfig
-// in cmd/root.go but is owned by the app layer rather than the CLI.
+// Options configures an App instance.
 type Options struct {
-	// Kit is the SDK instance. When set, executeStep() delegates to
-	// kit.PromptResult() and events flow through SDK subscriptions.
-	// When nil, the legacy AgentRunner path is used (for tests).
+	// Kit is the SDK instance. executeStep() delegates to kit.PromptResult()
+	// and events flow through SDK subscriptions. Required in production;
+	// tests may use PromptFunc instead.
 	Kit *kit.Kit
 
-	// Agent is the agent used to run the agentic loop.
-	// When Kit is set, this field is ignored (Kit owns the agent).
-	// Required when Kit is nil (e.g. in tests with stub agents).
-	Agent AgentRunner
+	// PromptFunc overrides Kit.PromptResult for testing. When set,
+	// executeStep calls this directly, bypassing SDK event subscription
+	// and usage tracking. Must not be set in production.
+	PromptFunc func(ctx context.Context, prompt string) (*kit.TurnResult, error)
 
 	// TreeSession is the tree-structured JSONL session manager. When non-nil,
 	// conversation history is persisted as an append-only JSONL tree and tree
@@ -97,10 +76,4 @@ type Options struct {
 	// EstimateAndUpdateUsage as a fallback) using the usage data returned by the
 	// agent. Satisfied by *ui.UsageTracker; wired in cmd/root.go.
 	UsageTracker UsageUpdater
-
-	// Extensions is the optional extension runner. When non-nil, lifecycle
-	// events (Input, BeforeAgentStart, AgentEnd, etc.) are emitted through
-	// it. Tool-level events (ToolCall, ToolResult) are handled by wrapper.go
-	// at the tool layer, not here.
-	Extensions *extensions.Runner
 }

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/session"
 )
@@ -116,15 +115,6 @@ func sendMsg(m *AppModel, msg tea.Msg) *AppModel {
 	return updated.(*AppModel)
 }
 
-// makeTestResponse constructs a fantasy.Response with the given text content.
-// Uses fantasy.TextContent (the type that ResponseContent.Text() recognises) rather
-// than TextPart (which is a request-side type).
-func makeTestResponse(text string) *fantasy.Response {
-	return &fantasy.Response{
-		Content: fantasy.ResponseContent{fantasy.TextContent{Text: text}},
-	}
-}
-
 // --------------------------------------------------------------------------
 // State transitions
 // --------------------------------------------------------------------------
@@ -156,10 +146,7 @@ func TestStateTransition_WorkingToInput_StepComplete(t *testing.T) {
 	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	m = sendMsg(m, app.StepCompleteEvent{
-		Response: makeTestResponse("all done"),
-		Usage:    fantasy.Usage{},
-	})
+	m = sendMsg(m, app.StepCompleteEvent{ResponseText: "all done"})
 
 	if m.state != stateInput {
 		t.Fatalf("expected stateInput after StepCompleteEvent, got %v", m.state)
@@ -362,9 +349,7 @@ func TestESCCancel_clearedOnStepComplete(t *testing.T) {
 	m.state = stateWorking
 	m.canceling = true
 
-	m = sendMsg(m, app.StepCompleteEvent{
-		Response: makeTestResponse("done"),
-	})
+	m = sendMsg(m, app.StepCompleteEvent{ResponseText: "done"})
 
 	if m.canceling {
 		t.Fatal("expected canceling=false after StepCompleteEvent")
@@ -496,10 +481,7 @@ func TestStepComplete_flushesStreamContent(t *testing.T) {
 	// Simulate accumulated streaming text.
 	stream.renderedContent = "rendered assistant text"
 
-	_, cmd := m.Update(app.StepCompleteEvent{
-		Response: makeTestResponse("final answer"),
-		Usage:    fantasy.Usage{},
-	})
+	_, cmd := m.Update(app.StepCompleteEvent{ResponseText: "final answer"})
 
 	// A non-nil cmd means flushStreamContent returned tea.Println(...)
 	if cmd == nil {
@@ -514,7 +496,7 @@ func TestStepComplete_noStreamContent_noCmd(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	_, cmd := m.Update(app.StepCompleteEvent{Response: nil})
+	_, cmd := m.Update(app.StepCompleteEvent{})
 
 	if cmd != nil {
 		t.Fatal("expected nil cmd on StepCompleteEvent with no stream content")

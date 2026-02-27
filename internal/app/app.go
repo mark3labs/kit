@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/session"
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -190,18 +189,8 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 		return err
 	}
 
-	// Record token usage for the completed step (legacy path only — the SDK
-	// path records usage inside executeStep via updateUsageFromTurnResult).
-	if a.opts.Kit == nil {
-		a.updateUsage(result, prompt)
-	}
-
-	responseText := ""
-	if result.FinalResponse != nil {
-		responseText = result.FinalResponse.Content.Text()
-	}
-	if responseText != "" {
-		fmt.Println(responseText)
+	if result.Response != "" {
+		fmt.Println(result.Response)
 	}
 	return nil
 }
@@ -229,17 +218,9 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 		return err
 	}
 
-	// Record token usage (legacy path only — SDK path handles it in executeStep).
-	if a.opts.Kit == nil {
-		a.updateUsage(result, prompt)
-	}
-
 	// Send step complete so the display handler can render the final response.
-	if eventFn != nil && result.FinalResponse != nil {
-		eventFn(StepCompleteEvent{
-			Response: result.FinalResponse,
-			Usage:    result.TotalUsage,
-		})
+	if eventFn != nil {
+		eventFn(StepCompleteEvent{ResponseText: result.Response})
 	}
 
 	return nil
@@ -250,7 +231,7 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 // --------------------------------------------------------------------------
 
 // Close signals all background goroutines to stop and waits for them to finish.
-// After Close() returns it is safe to call agent.Close().
+// After Close() returns it is safe to call Kit.Close() / agent.Close().
 func (a *App) Close() {
 	a.mu.Lock()
 	if a.closed {
@@ -261,24 +242,12 @@ func (a *App) Close() {
 	cancel := a.cancelStep
 	a.mu.Unlock()
 
-	// SessionShutdown is emitted by Kit.Close() when the SDK path is active.
-	// For the legacy path, emit here.
-	if a.opts.Kit == nil && a.opts.Extensions != nil && a.opts.Extensions.HasHandlers(extensions.SessionShutdown) {
-		_, _ = a.opts.Extensions.Emit(extensions.SessionShutdownEvent{})
-	}
-
 	// Cancel any in-flight step and the root context.
 	cancel()
 	a.rootCancel()
 
 	// Wait for background goroutines.
 	a.wg.Wait()
-
-	// Close tree session file handle (legacy path only — Kit.Close() handles
-	// session cleanup when the SDK path is active).
-	if a.opts.Kit == nil && a.opts.TreeSession != nil {
-		_ = a.opts.TreeSession.Close()
-	}
 }
 
 // --------------------------------------------------------------------------
@@ -351,28 +320,20 @@ func (a *App) runPrompt(prompt string) {
 		return
 	}
 
-	// Record token usage (legacy path only — SDK path handles it in executeStep).
-	if a.opts.Kit == nil {
-		a.updateUsage(result, prompt)
-	}
-
-	a.sendEvent(StepCompleteEvent{
-		Response: result.FinalResponse,
-		Usage:    result.TotalUsage,
-	})
+	a.sendEvent(StepCompleteEvent{ResponseText: result.Response})
 }
 
 // --------------------------------------------------------------------------
 // Internal: single agent step
 // --------------------------------------------------------------------------
 
-// executeStep runs a single agentic step. When opts.Kit is set, it delegates
-// to the SDK's PromptResult() which handles session persistence, hooks,
-// extension events, and the generation loop. Otherwise it falls back to
-// executeStepLegacy() for tests that supply a stub AgentRunner.
-func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*agent.GenerateWithLoopResult, error) {
-	if a.opts.Kit == nil {
-		return a.executeStepLegacy(ctx, prompt, eventFn)
+// executeStep runs a single agentic step by delegating to the SDK's
+// PromptResult(), which handles session persistence, hooks, extension
+// events, and the generation loop.
+func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*kit.TurnResult, error) {
+	// Test hook: bypass SDK entirely.
+	if a.opts.PromptFunc != nil {
+		return a.opts.PromptFunc(ctx, prompt)
 	}
 
 	sendFn := func(msg tea.Msg) {
@@ -399,84 +360,6 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 
 	// Update usage tracker.
 	a.updateUsageFromTurnResult(result, prompt)
-
-	return &agent.GenerateWithLoopResult{
-		ConversationMessages: result.Messages,
-	}, nil
-}
-
-// executeStepLegacy is the original executeStep implementation used when
-// opts.Kit is nil (e.g. in tests with a stub AgentRunner). It handles
-// extension events, session persistence, and the generation loop directly.
-func (a *App) executeStepLegacy(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*agent.GenerateWithLoopResult, error) {
-	sendFn := func(msg tea.Msg) {
-		if eventFn != nil {
-			eventFn(msg)
-		}
-	}
-
-	// Add user message to the store immediately so history is consistent
-	// even if the step is later cancelled.
-	userMsg := fantasy.NewUserMessage(prompt)
-	a.store.Add(userMsg)
-
-	// Persist user message to tree session if configured.
-	if a.opts.TreeSession != nil {
-		_, _ = a.opts.TreeSession.AppendFantasyMessage(userMsg)
-	}
-
-	// Build the full message slice for the agent call.
-	var msgs []fantasy.Message
-	if a.opts.TreeSession != nil {
-		msgs = a.opts.TreeSession.GetFantasyMessages()
-	} else {
-		msgs = a.store.GetAll()
-	}
-
-	sentCount := len(msgs)
-
-	// Signal spinner start.
-	sendFn(SpinnerEvent{Show: true})
-
-	result, err := a.opts.Agent.GenerateWithLoopAndStreaming(ctx, msgs,
-		func(toolName, toolArgs string) {
-			sendFn(ToolCallStartedEvent{ToolName: toolName, ToolArgs: toolArgs})
-		},
-		func(toolName string, isStarting bool) {
-			sendFn(ToolExecutionEvent{ToolName: toolName, IsStarting: isStarting})
-		},
-		func(toolName, toolArgs, result string, isError bool) {
-			sendFn(ToolResultEvent{
-				ToolName: toolName,
-				ToolArgs: toolArgs,
-				Result:   result,
-				IsError:  isError,
-			})
-		},
-		func(content string) {
-			sendFn(ResponseCompleteEvent{Content: content})
-		},
-		func(content string) {
-			sendFn(ToolCallContentEvent{Content: content})
-		},
-		func(chunk string) {
-			sendFn(StreamChunkEvent{Content: chunk})
-		},
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Replace the store with the full updated conversation returned by the agent.
-	a.store.Replace(result.ConversationMessages)
-
-	// Persist new messages to the tree session.
-	if a.opts.TreeSession != nil && len(result.ConversationMessages) > sentCount {
-		for _, msg := range result.ConversationMessages[sentCount:] {
-			_, _ = a.opts.TreeSession.AppendFantasyMessage(msg)
-		}
-	}
 
 	return result, nil
 }
@@ -568,47 +451,6 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 		fmt.Printf("%s\n  — %s\n", opts.Text, opts.Subtitle)
 	} else {
 		fmt.Println(opts.Text)
-	}
-}
-
-// updateUsage records token usage from a completed agent step into the configured
-// UsageTracker (if any). It uses the actual token counts from the agent result's
-// TotalUsage field when available; otherwise it falls back to text-based estimation.
-//
-// TotalUsage is the sum across all tool-calling steps in a single agent run and
-// is used for session cost tracking. For context window utilization we use the
-// final response's per-call usage (FinalResponse.Usage) which reflects the actual
-// context size at the last API call.
-func (a *App) updateUsage(result *agent.GenerateWithLoopResult, userPrompt string) {
-	if a.opts.UsageTracker == nil || result == nil {
-		return
-	}
-
-	usage := result.TotalUsage
-	inputTokens := int(usage.InputTokens)
-	outputTokens := int(usage.OutputTokens)
-	if inputTokens > 0 && outputTokens > 0 {
-		cacheReadTokens := int(usage.CacheReadTokens)
-		cacheWriteTokens := int(usage.CacheCreationTokens)
-		a.opts.UsageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
-	} else {
-		// Fall back to text-based estimation when the provider omits token counts.
-		responseText := ""
-		if result.FinalResponse != nil {
-			responseText = result.FinalResponse.Content.Text()
-		}
-		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, responseText)
-		return // EstimateAndUpdateUsage already sets context tokens internally
-	}
-
-	// Set context window utilization from the final API call's per-step usage.
-	// FinalResponse.Usage represents the last step only (not the aggregate),
-	// so input+output there reflects the actual context fill level.
-	if result.FinalResponse != nil {
-		fu := result.FinalResponse.Usage
-		if ct := int(fu.InputTokens) + int(fu.OutputTokens); ct > 0 {
-			a.opts.UsageTracker.SetContextTokens(ct)
-		}
 	}
 }
 

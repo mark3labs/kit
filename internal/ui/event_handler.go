@@ -149,12 +149,8 @@ func (h *CLIEventHandler) Handle(msg tea.Msg) {
 		h.endStream()
 
 		// Non-streaming fallback: render the full response if not already shown.
-		responseText := ""
-		if e.Response != nil {
-			responseText = e.Response.Content.Text()
-		}
-		if responseText != "" && responseText != h.lastDisplayed {
-			_ = h.cli.DisplayAssistantMessageWithModel(responseText, h.modelName)
+		if e.ResponseText != "" && e.ResponseText != h.lastDisplayed {
+			_ = h.cli.DisplayAssistantMessageWithModel(e.ResponseText, h.modelName)
 		}
 
 		// Display usage. The app layer has already updated the shared
