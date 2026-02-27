@@ -121,7 +121,7 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		if result.Len() > 0 {
 			result.WriteString("\n")
 		}
-		result.WriteString(fmt.Sprintf("Exit code: %d", exitCode))
+		fmt.Fprintf(&result, "Exit code: %d", exitCode)
 	}
 
 	output := result.String()

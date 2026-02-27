@@ -179,13 +179,13 @@ func generateDiff(path, old, new string, changeIdx int) string {
 	start := max(lineNum-contextLines-1, 0)
 
 	var diff strings.Builder
-	diff.WriteString(fmt.Sprintf("--- %s\n+++ %s\n", path, path))
+	fmt.Fprintf(&diff, "--- %s\n+++ %s\n", path, path)
 
 	// Find changed region
 	endOld := min(lineNum+contextLines+countNewlines(old[changeIdx:])+1, len(oldLines))
 	endNew := min(lineNum+contextLines+countNewlines(new[changeIdx:])+1, len(newLines))
 
-	diff.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", start+1, endOld-start, start+1, endNew-start))
+	fmt.Fprintf(&diff, "@@ -%d,%d +%d,%d @@\n", start+1, endOld-start, start+1, endNew-start)
 
 	// Very simplified diff: show old lines as removed, new lines as added
 	// around the change region
