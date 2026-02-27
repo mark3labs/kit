@@ -21,7 +21,7 @@ const (
 	maxDiffLines  = 20 // side-by-side rows for Edit
 	maxCodeLines  = 20 // lines for Read / code blocks
 	maxWriteLines = 10 // lines for Write blocks
-	maxBashLines  = 10 // lines for Bash output
+	maxBashLines  = 20 // lines for Bash output (matches Read)
 )
 
 // renderToolBody dispatches to tool-specific body renderers based on tool name.

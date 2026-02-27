@@ -74,6 +74,7 @@ func (s *stubStreamComponent) View() tea.View             { return tea.NewView("
 func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
 func (s *stubStreamComponent) SetHeight(h int)            { s.height = h }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
+func (s *stubStreamComponent) SpinnerView() string        { return "" }
 
 // stubInputComponent satisfies inputComponentIface without rendering anything.
 type stubInputComponent struct {
@@ -463,12 +464,12 @@ func TestWindowResize_distributeHeight(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 
-	// With height=30, stream height = 30 - 1 (separator) - 5 (input) = 24
+	// With height=30, stream height = 30 - 1 (separator) - 9 (input) - 1 (statusBar) = 19
 	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	_ = m
 
-	if stream.height != 24 {
-		t.Fatalf("expected stream height=24, got %d", stream.height)
+	if stream.height != 19 {
+		t.Fatalf("expected stream height=19, got %d", stream.height)
 	}
 }
 

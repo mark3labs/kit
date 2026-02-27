@@ -271,23 +271,14 @@ func (s *StreamComponent) render() string {
 		return ""
 	}
 
-	var parts []string
-
-	// Render streaming text if present.
-	if text := s.streamContent.String(); text != "" {
-		parts = append(parts, s.renderStreamingText(text))
-	}
-
-	// Render spinner below streaming text (or alone if no text yet).
-	if s.spinning {
-		parts = append(parts, s.renderSpinner())
-	}
-
-	if len(parts) == 0 {
+	// Render streaming text only. The spinner is rendered in the status bar
+	// by the parent so it never changes the stream region height.
+	text := s.streamContent.String()
+	if text == "" {
 		return ""
 	}
 
-	content := strings.Join(parts, "\n")
+	content := s.renderStreamingText(text)
 
 	// Clamp to height if constrained: keep the last h lines so the most
 	// recent output is always visible.
@@ -302,8 +293,12 @@ func (s *StreamComponent) render() string {
 	return content
 }
 
-// renderSpinner renders the KITT-style scanning animation with an optional label.
-func (s *StreamComponent) renderSpinner() string {
+// SpinnerView returns the rendered spinner line for the parent to embed in the
+// status bar. Returns "" when the spinner is not active.
+func (s *StreamComponent) SpinnerView() string {
+	if !s.spinning {
+		return ""
+	}
 	frame := s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
 	if s.spinnerMsg == "" {
 		return "  " + frame

@@ -131,7 +131,12 @@ type AppModelOptions struct {
 //	├─ separator line (with optional queue count) ───────┤
 //	│  queued  How do I fix the build?                   │
 //	│  queued  Also check the tests                      │
-//	└─ input region (fixed height from textarea) ────────┘
+//	├─ input region (fixed height from textarea) ────────┤
+//	│ Tokens: 23.4K (12%) | Cost: $0.00  provider·model │
+//	└────────────────────────────────────────────────────┘
+//
+// The status bar is always present (1 line) to avoid layout shifts that
+// occurred when usage info appeared/disappeared conditionally.
 //
 // Completed responses are emitted above the BT-managed region via tea.Println()
 // before the model resets for the next interaction.
@@ -229,6 +234,10 @@ type streamComponentIface interface {
 	// GetRenderedContent returns the rendered assistant message from accumulated
 	// streaming text, or empty string if nothing has been accumulated.
 	GetRenderedContent() string
+	// SpinnerView returns the rendered spinner line (animation + optional label).
+	// Returns "" when the spinner is not active. The parent renders this in the
+	// status bar so the spinner never changes the view height.
+	SpinnerView() string
 }
 
 // --------------------------------------------------------------------------
@@ -628,15 +637,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.StepCompleteEvent:
 		// Flush any remaining streamed text to scrollback, then reset stream
-		// and return to input state. Token usage is rendered as a sticky
-		// element in View() — the app layer has already updated the shared
-		// UsageTracker before sending this event.
+		// and return to input state. Token usage is rendered in the status
+		// bar — the app layer has already updated the shared UsageTracker
+		// before sending this event.
 		cmds = append(cmds, m.flushStreamContent())
 		if m.stream != nil {
 			m.stream.Reset()
 		}
 		m.state = stateInput
 		m.canceling = false
+		m.distributeHeight()
 
 	case app.StepCancelledEvent:
 		// User cancelled the step (double-ESC). Flush any partial content,
@@ -647,6 +657,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateInput
 		m.canceling = false
+		m.distributeHeight()
 
 	case app.StepErrorEvent:
 		// Flush streamed text, print the error, reset stream, return to input.
@@ -659,6 +670,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateInput
 		m.canceling = false
+		m.distributeHeight()
 
 	case app.CompactCompleteEvent:
 		if m.stream != nil {
@@ -705,7 +717,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model. It renders the stacked layout:
-// stream region + [usage info] + separator + [queued messages] + input region.
+// stream region + separator + [queued messages] + input region + status bar.
+// The status bar is always present (1 line) to avoid layout shifts.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
 	// Tree selector overlay replaces the normal layout.
@@ -716,22 +729,22 @@ func (m *AppModel) View() tea.View {
 	streamView := m.renderStream()
 	separator := m.renderSeparator()
 	inputView := m.renderInput()
+	statusBar := m.renderStatusBar()
 
-	parts := []string{streamView}
-
-	// Sticky usage info sits between the stream and separator so it is
-	// always visible at the bottom of the messages area and updates in place.
-	if usageView := m.renderUsageInfo(); usageView != "" {
-		parts = append(parts, usageView)
+	// Only include the stream region when it has content. When idle the
+	// stream renders "" which JoinVertical would pad to a full-width blank
+	// line, inflating the view unnecessarily.
+	var parts []string
+	if streamView != "" {
+		parts = append(parts, streamView)
 	}
-
 	parts = append(parts, separator)
 
 	if queuedView := m.renderQueuedMessages(); queuedView != "" {
 		parts = append(parts, queuedView)
 	}
 
-	parts = append(parts, inputView)
+	parts = append(parts, inputView, statusBar)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
@@ -763,14 +776,48 @@ func (m *AppModel) renderStream() string {
 	return m.stream.View().Content
 }
 
-// renderUsageInfo returns the sticky token usage line (tokens + context% + cost).
-// Returns an empty string when no usage data is available (no requests yet or
-// tracker is nil), so the element is invisible until the first response arrives.
-func (m *AppModel) renderUsageInfo() string {
-	if m.usageTracker == nil {
-		return ""
+// renderStatusBar renders a persistent single-line status bar below the input.
+// Left side: spinner (when active). Right side: provider · model + usage stats.
+// This bar is always present so its height is constant, eliminating layout
+// shifts from spinner or usage info appearing/disappearing.
+func (m *AppModel) renderStatusBar() string {
+	theme := GetTheme()
+
+	// Left side: spinner animation (when active).
+	var leftSide string
+	if m.stream != nil {
+		leftSide = m.stream.SpinnerView()
 	}
-	return m.usageTracker.RenderUsageInfo()
+	leftWidth := lipgloss.Width(leftSide)
+
+	// Right side: provider · model + usage stats.
+	var rightParts []string
+
+	var modelLabel string
+	if m.providerName != "" && m.modelName != "" {
+		modelLabel = m.providerName + " · " + m.modelName
+	} else if m.modelName != "" {
+		modelLabel = m.modelName
+	}
+	if modelLabel != "" {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Render(modelLabel))
+	}
+
+	if m.usageTracker != nil {
+		if usage := m.usageTracker.RenderUsageInfo(); usage != "" {
+			rightParts = append(rightParts, usage)
+		}
+	}
+
+	rightSide := strings.Join(rightParts, "  ")
+	rightWidth := lipgloss.Width(rightSide)
+
+	// Fill the gap between left and right with spaces.
+	gap := max(m.width-leftWidth-rightWidth, 1)
+
+	return leftSide + strings.Repeat(" ", gap) + rightSide
 }
 
 // renderSeparator renders the separator line with an optional queue count badge.
@@ -1185,30 +1232,33 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 	return tea.Println(content)
 }
 
-// distributeHeight recalculates child component heights after a window resize
-// or queue change, and propagates the computed stream height to the
-// StreamComponent.
+// distributeHeight recalculates child component heights after a window resize,
+// queue change, or state transition, and propagates the computed stream height
+// to the StreamComponent.
 //
 // Layout (line counts):
 //
-//	stream region  = total - usage(0-1) - separator(1) - queued(N*5) - input(5)
-//	usage info     = 0 or 1 line (visible only after first response)
+//	stream region  = total - separator(1) - queued(N*5) - input(measured) - statusBar(1)
 //	separator      = 1 line
 //	queued msgs    = ~5 lines per message (padding + text + badge + padding)
-//	input region   = 5 lines: title(1) + textarea(3) + help(1)
+//	input region   = measured dynamically via lipgloss.Height()
+//	status bar     = 1 line (always present)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
-	const inputLines = 5 // title (1) + textarea (3) + help (1)
+	const statusBarLines = 1 // always-present status bar
 	const linesPerQueuedMsg = 5
 	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
 
-	// Reserve space for the sticky usage line when the tracker has data.
-	usageLines := 0
-	if m.usageTracker != nil && m.usageTracker.GetSessionStats().RequestCount > 0 {
-		usageLines = 1
+	// Measure the actual rendered input height so we don't rely on a
+	// fragile constant that drifts when styling changes.
+	inputLines := 9 // fallback: title(1)+margin(1)+nl(1)+textarea(3)+nl(1)+margin(1)+help(1)
+	if m.input != nil {
+		if rendered := m.input.View().Content; rendered != "" {
+			inputLines = lipgloss.Height(rendered)
+		}
 	}
 
-	streamHeight := max(m.height-usageLines-separatorLines-queuedLines-inputLines, 0)
+	streamHeight := max(m.height-separatorLines-queuedLines-inputLines-statusBarLines, 0)
 
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)
