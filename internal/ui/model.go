@@ -1186,6 +1186,12 @@ func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
 // emits it above the BT region via tea.Println, and resets the stream. This
 // is called before printing tool calls (streaming completes before tools fire)
 // and on step completion.
+//
+// After flushing, a ClearScreen is issued to force a full terminal redraw.
+// This is the bubbletea equivalent of pi's "clearOnShrink" mechanism: when
+// the stream content is moved to scrollback the view height shrinks, and
+// bubbletea's inline renderer doesn't clear the orphaned terminal rows
+// below the managed region. ClearScreen ensures a clean redraw.
 func (m *AppModel) flushStreamContent() tea.Cmd {
 	if m.stream == nil {
 		return nil
@@ -1195,7 +1201,10 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 		return nil
 	}
 	m.stream.Reset()
-	return tea.Println(content)
+	return tea.Sequence(
+		tea.Println(content),
+		func() tea.Msg { return tea.ClearScreen() },
+	)
 }
 
 // distributeHeight recalculates child component heights after a window resize,
