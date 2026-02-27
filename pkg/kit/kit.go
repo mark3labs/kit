@@ -145,26 +145,15 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}, nil
 }
 
-// Prompt sends a message to the agent and returns the response. The agent may
-// use tools as needed to generate the response. The conversation history is
-// automatically maintained in the session (tree session if configured,
-// otherwise the legacy session manager). Lifecycle events are emitted to all
-// registered subscribers. Returns an error if generation fails.
-func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
-	userMsg := fantasy.NewUserMessage(message)
+// ---------------------------------------------------------------------------
+// Shared generation helpers
+// ---------------------------------------------------------------------------
 
-	// Persist user message to tree session before building context.
-	_, _ = m.treeSession.AppendFantasyMessage(userMsg)
-
-	// Build context from the tree (walks leaf-to-root) so that only the
-	// current branch is sent to the LLM.
-	messages := m.treeSession.GetFantasyMessages()
-	sentCount := len(messages)
-
-	m.events.emit(TurnStartEvent{Prompt: message})
-	m.events.emit(MessageStartEvent{})
-
-	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
+// generate calls the agent's generation loop with event-emitting handlers.
+// All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
+// single code path so callback wiring is never duplicated.
+func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
+	return m.agent.GenerateWithLoopAndStreaming(ctx, messages,
 		func(toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
 		},
@@ -191,6 +180,31 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 			m.events.emit(MessageUpdateEvent{Chunk: chunk})
 		},
 	)
+}
+
+// runTurn is the shared lifecycle for every prompt mode:
+//  1. Persist pre-generation messages to the tree session.
+//  2. Build context from the tree (walks leaf-to-root for current branch).
+//  3. Emit turn/message start events.
+//  4. Run generation.
+//  5. Emit turn/message end events.
+//  6. Persist post-generation messages (tool calls, results, assistant).
+//
+// promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
+func (m *Kit) runTurn(ctx context.Context, promptLabel string, preMessages []fantasy.Message) (string, error) {
+	// Persist pre-generation messages to tree session.
+	for _, msg := range preMessages {
+		_, _ = m.treeSession.AppendFantasyMessage(msg)
+	}
+
+	// Build context from the tree so only the current branch is sent.
+	messages := m.treeSession.GetFantasyMessages()
+	sentCount := len(messages)
+
+	m.events.emit(TurnStartEvent{Prompt: promptLabel})
+	m.events.emit(MessageStartEvent{})
+
+	result, err := m.generate(ctx, messages)
 	if err != nil {
 		m.events.emit(TurnEndEvent{Error: err})
 		return "", err
@@ -211,10 +225,78 @@ func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
 	return responseText, nil
 }
 
-// PromptWithCallbacks sends a message with callbacks for monitoring tool execution
-// and streaming responses. The callbacks allow real-time observation of tool calls,
-// results, and response generation. Lifecycle events are also emitted to all
-// registered subscribers (via Subscribe). Returns the final response or an error.
+// ---------------------------------------------------------------------------
+// Prompt modes
+// ---------------------------------------------------------------------------
+
+// Prompt sends a message to the agent and returns the response. The agent may
+// use tools as needed to generate the response. The conversation history is
+// automatically maintained in the tree session. Lifecycle events are emitted
+// to all registered subscribers. Returns an error if generation fails.
+func (m *Kit) Prompt(ctx context.Context, message string) (string, error) {
+	return m.runTurn(ctx, message, []fantasy.Message{
+		fantasy.NewUserMessage(message),
+	})
+}
+
+// Steer injects a system-level instruction and triggers a new agent turn.
+// Use Steer to dynamically adjust agent behavior mid-conversation without a
+// visible user message — for example, changing tone, focus, or constraints.
+//
+// Under the hood, Steer appends a system message (the instruction) followed by
+// a synthetic user message so the agent acknowledges and follows the directive.
+// Both messages are persisted to the session.
+func (m *Kit) Steer(ctx context.Context, instruction string) (string, error) {
+	return m.runTurn(ctx, "[steer] "+instruction, []fantasy.Message{
+		fantasy.NewSystemMessage(instruction),
+		fantasy.NewUserMessage("Please acknowledge and follow the above instruction."),
+	})
+}
+
+// FollowUp continues the conversation without explicit new user input.
+// If text is empty, "Continue." is used as the prompt. Use FollowUp when the
+// agent's previous response was truncated or you want the agent to elaborate.
+//
+// Returns an error if there are no previous messages in the session.
+func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
+	// Verify there is conversation history to follow up on.
+	if len(m.treeSession.GetFantasyMessages()) == 0 {
+		return "", fmt.Errorf("cannot follow up: no previous messages")
+	}
+
+	if text == "" {
+		text = "Continue."
+	}
+
+	return m.runTurn(ctx, "[follow-up]", []fantasy.Message{
+		fantasy.NewUserMessage(text),
+	})
+}
+
+// PromptOptions configures a single PromptWithOptions call.
+type PromptOptions struct {
+	// SystemMessage is prepended as a system message before the user prompt.
+	// Use it to inject per-call instructions or context without permanently
+	// modifying the agent's system prompt.
+	SystemMessage string
+}
+
+// PromptWithOptions sends a message with per-call configuration. It behaves
+// like Prompt but allows injecting an additional system message before the
+// user prompt. Both messages are persisted to the session.
+func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOptions) (string, error) {
+	var preMessages []fantasy.Message
+	if opts.SystemMessage != "" {
+		preMessages = append(preMessages, fantasy.NewSystemMessage(opts.SystemMessage))
+	}
+	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
+
+	return m.runTurn(ctx, msg, preMessages)
+}
+
+// PromptWithCallbacks sends a message with callbacks for monitoring tool
+// execution and streaming responses. Lifecycle events are also emitted to all
+// registered subscribers (via Subscribe).
 //
 // Deprecated: Use Subscribe/OnToolCall/OnToolResult/OnStreaming instead of
 // inline callbacks. PromptWithCallbacks is retained for backward compatibility.
@@ -225,72 +307,30 @@ func (m *Kit) PromptWithCallbacks(
 	onToolResult func(name, args, result string, isError bool),
 	onStreaming func(chunk string),
 ) (string, error) {
-	userMsg := fantasy.NewUserMessage(message)
-
-	// Persist user message to tree session.
-	_, _ = m.treeSession.AppendFantasyMessage(userMsg)
-
-	// Build context from tree.
-	messages := m.treeSession.GetFantasyMessages()
-	sentCount := len(messages)
-
-	m.events.emit(TurnStartEvent{Prompt: message})
-	m.events.emit(MessageStartEvent{})
-
-	result, err := m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		func(toolName, toolArgs string) {
-			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
-			if onToolCall != nil {
-				onToolCall(toolName, toolArgs)
-			}
-		},
-		func(toolName string, isStarting bool) {
-			if isStarting {
-				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
-			} else {
-				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
-			}
-		},
-		func(toolName, toolArgs, resultText string, isError bool) {
-			m.events.emit(ToolResultEvent{
-				ToolName: toolName, ToolArgs: toolArgs,
-				Result: resultText, IsError: isError,
-			})
-			if onToolResult != nil {
-				onToolResult(toolName, toolArgs, resultText, isError)
-			}
-		},
-		func(content string) {
-			m.events.emit(ResponseEvent{Content: content})
-		},
-		func(content string) {
-			m.events.emit(ToolCallContentEvent{Content: content})
-		},
-		func(chunk string) {
-			m.events.emit(MessageUpdateEvent{Chunk: chunk})
-			if onStreaming != nil {
-				onStreaming(chunk)
-			}
-		},
-	)
-	if err != nil {
-		m.events.emit(TurnEndEvent{Error: err})
-		return "", err
+	// Register temporary subscribers for the inline callbacks.
+	var unsubs []func()
+	if onToolCall != nil {
+		unsubs = append(unsubs, m.OnToolCall(func(e ToolCallEvent) {
+			onToolCall(e.ToolName, e.ToolArgs)
+		}))
 	}
-
-	responseText := result.FinalResponse.Content.Text()
-
-	m.events.emit(MessageEndEvent{Content: responseText})
-	m.events.emit(TurnEndEvent{Response: responseText})
-
-	// Persist new messages.
-	if len(result.ConversationMessages) > sentCount {
-		for _, msg := range result.ConversationMessages[sentCount:] {
-			_, _ = m.treeSession.AppendFantasyMessage(msg)
+	if onToolResult != nil {
+		unsubs = append(unsubs, m.OnToolResult(func(e ToolResultEvent) {
+			onToolResult(e.ToolName, e.ToolArgs, e.Result, e.IsError)
+		}))
+	}
+	if onStreaming != nil {
+		unsubs = append(unsubs, m.OnStreaming(func(e MessageUpdateEvent) {
+			onStreaming(e.Chunk)
+		}))
+	}
+	defer func() {
+		for _, unsub := range unsubs {
+			unsub()
 		}
-	}
+	}()
 
-	return responseText, nil
+	return m.Prompt(ctx, message)
 }
 
 // ClearSession resets the tree session's leaf pointer to the root, starting
