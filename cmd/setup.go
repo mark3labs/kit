@@ -13,7 +13,8 @@ import (
 
 // CollectAgentMetadata extracts model display info and tool/server name lists
 // from the agent, used to populate app.Options and UI setup.
-func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string) {
+// It also returns the number of MCP tools and extension tools separately.
+func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int) {
 	modelString := viper.GetString("model")
 	provider, modelName, _ = kit.ParseModelString(modelString)
 	if modelName == "" {
@@ -29,7 +30,10 @@ func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (prov
 		toolNames = append(toolNames, info.Name)
 	}
 
-	return provider, modelName, serverNames, toolNames
+	mcpToolCount = mcpAgent.GetMCPToolCount()
+	extensionToolCount = mcpAgent.GetExtensionToolCount()
+
+	return provider, modelName, serverNames, toolNames, mcpToolCount, extensionToolCount
 }
 
 // BuildAppOptions constructs the app.Options struct from the current state.

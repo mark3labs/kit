@@ -455,6 +455,19 @@ func (a *Agent) GetTools() []fantasy.AgentTool {
 	return allTools
 }
 
+// GetMCPToolCount returns the number of tools loaded from external MCP servers.
+func (a *Agent) GetMCPToolCount() int {
+	if a.toolManager == nil {
+		return 0
+	}
+	return len(a.toolManager.GetTools())
+}
+
+// GetExtensionToolCount returns the number of tools registered by extensions.
+func (a *Agent) GetExtensionToolCount() int {
+	return len(a.extraTools)
+}
+
 // GetLoadingMessage returns the loading message from provider creation.
 func (a *Agent) GetLoadingMessage() string {
 	return a.loadingMessage

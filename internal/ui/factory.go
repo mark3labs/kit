@@ -14,6 +14,8 @@ type AgentInterface interface {
 	GetLoadingMessage() string
 	GetTools() []any                // Using any to avoid importing tool types
 	GetLoadedServerNames() []string // Add this method for debug config
+	GetMCPToolCount() int           // Tools loaded from external MCP servers
+	GetExtensionToolCount() int     // Tools registered by extensions
 }
 
 // CLISetupOptions encapsulates all configuration parameters needed to initialize
@@ -120,9 +122,15 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 		cli.DisplayInfo(loadingMessage)
 	}
 
-	// Display tool count
-	tools := opts.Agent.GetTools()
-	cli.DisplayInfo(fmt.Sprintf("Loaded %d tools from MCP servers", len(tools)))
+	// Display extension tool count (only when > 0).
+	if extCount := opts.Agent.GetExtensionToolCount(); extCount > 0 {
+		cli.DisplayInfo(fmt.Sprintf("Loaded %d extension tools", extCount))
+	}
+
+	// Display MCP tool count (only when > 0).
+	if mcpCount := opts.Agent.GetMCPToolCount(); mcpCount > 0 {
+		cli.DisplayInfo(fmt.Sprintf("Loaded %d tools from MCP servers", mcpCount))
+	}
 
 	return cli, nil
 }

@@ -111,6 +111,12 @@ type AppModelOptions struct {
 
 	// SkillItems lists loaded skills for the [Skills] startup section.
 	SkillItems []SkillItem
+
+	// MCPToolCount is the number of tools loaded from external MCP servers.
+	MCPToolCount int
+
+	// ExtensionToolCount is the number of tools registered by extensions.
+	ExtensionToolCount int
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -192,6 +198,11 @@ type AppModel struct {
 	contextPaths []string
 	skillItems   []SkillItem
 
+	// mcpToolCount and extensionToolCount track tool counts by source for
+	// the startup info display.
+	mcpToolCount       int
+	extensionToolCount int
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -261,9 +272,11 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
 
-	// Store context/skills metadata for startup display.
+	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
 	m.skillItems = opts.SkillItems
+	m.mcpToolCount = opts.MCPToolCount
+	m.extensionToolCount = opts.ExtensionToolCount
 
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
@@ -306,24 +319,12 @@ func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// PrintStartupInfo writes startup messages (model loaded, context, skills,
-// tool count) to stdout. Call this before program.Run() so the messages are
+// PrintStartupInfo prints the startup banner (model name, context, skills,
+// tool counts) to stdout. Call this before program.Run() so the messages are
 // visible above the Bubble Tea managed region.
 //
-// The output matches the Pi SDK's startup display:
-//
-//	[Context]
-//	  ~/Workspace/project/AGENTS.md
-//
-//	[Skills]
-//	  project
-//	    ~/Workspace/project/.agents/skills/foo/SKILL.md
+// All startup information is rendered inside a single system message block.
 func (m *AppModel) PrintStartupInfo() {
-	theme := GetTheme()
-	headerStyle := lipgloss.NewStyle().Foreground(theme.Warning)
-	dimStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	boldStyle := lipgloss.NewStyle().Foreground(theme.Text).Bold(true)
-
 	render := func(text string) string {
 		if m.compactMode {
 			return m.compactRdr.RenderSystemMessage(text, time.Now()).Content
@@ -333,40 +334,46 @@ func (m *AppModel) PrintStartupInfo() {
 
 	fmt.Println()
 
+	// Build the combined startup content.
+	var lines []string
+
 	if m.providerName != "" && m.modelName != "" {
-		fmt.Println(render(fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName)))
+		lines = append(lines, fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName))
 	}
 
 	if m.loadingMessage != "" {
-		fmt.Println(render(m.loadingMessage))
+		lines = append(lines, m.loadingMessage)
 	}
 
-	// [Context] section — loaded AGENTS.md files.
+	// Context — loaded AGENTS.md files.
 	if len(m.contextPaths) > 0 {
-		fmt.Println()
-		fmt.Println(headerStyle.Render("[Context]"))
 		for _, p := range m.contextPaths {
-			fmt.Println(dimStyle.Render("  " + tildeHome(p)))
+			lines = append(lines, fmt.Sprintf("Context: %s", tildeHome(p)))
 		}
 	}
 
-	// [Skills] section — loaded skills grouped by source.
+	// Skills — listed by name.
 	if len(m.skillItems) > 0 {
-		fmt.Println()
-		fmt.Println(headerStyle.Render("[Skills]"))
-		// Group by source and display.
-		var currentSource string
-		for _, si := range m.skillItems {
-			if si.Source != currentSource {
-				currentSource = si.Source
-				fmt.Println(boldStyle.Render("  " + currentSource))
-			}
-			fmt.Println(dimStyle.Render("    " + tildeHome(si.Path)))
+		names := make([]string, len(m.skillItems))
+		for i, si := range m.skillItems {
+			names[i] = si.Name
 		}
+		lines = append(lines, fmt.Sprintf("Skills: %s", strings.Join(names, ", ")))
 	}
 
-	fmt.Println()
-	fmt.Println(render(fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames))))
+	// Extension tool count (only shown when > 0).
+	if m.extensionToolCount > 0 {
+		lines = append(lines, fmt.Sprintf("Loaded %d extension tools", m.extensionToolCount))
+	}
+
+	// MCP tool count (only shown when > 0).
+	if m.mcpToolCount > 0 {
+		lines = append(lines, fmt.Sprintf("Loaded %d tools from MCP servers", m.mcpToolCount))
+	}
+
+	if len(lines) > 0 {
+		fmt.Println(render(strings.Join(lines, "\n\n")))
+	}
 }
 
 // tildeHome replaces the user's home directory prefix with ~ for display.
