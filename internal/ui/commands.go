@@ -60,6 +60,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/cq"},
 	},
 	{
+		Name:        "/compact",
+		Description: "Summarise older messages to free context space",
+		Category:    "System",
+		Aliases:     []string{"/co"},
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",

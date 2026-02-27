@@ -45,6 +45,10 @@ func (s *stubAppController) ClearMessages() {
 	s.clearMsgCalled++
 }
 
+func (s *stubAppController) CompactConversation(_ string) error {
+	return nil
+}
+
 func (s *stubAppController) GetTreeSession() *session.TreeManager {
 	return nil
 }

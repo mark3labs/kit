@@ -50,6 +50,12 @@ type AppController interface {
 	ClearQueue()
 	// ClearMessages clears the conversation history.
 	ClearMessages()
+	// CompactConversation summarises older messages to free context space.
+	// Runs asynchronously; results are delivered via CompactCompleteEvent or
+	// CompactErrorEvent sent through the registered tea.Program. Returns an
+	// error synchronously if compaction cannot be started (e.g. agent is busy).
+	// customInstructions is optional text appended to the summary prompt.
+	CompactConversation(customInstructions string) error
 	// GetTreeSession returns the tree session manager, or nil if tree sessions
 	// are not enabled. Used by slash commands like /tree, /fork, /session.
 	GetTreeSession() *session.TreeManager
@@ -497,6 +503,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// /compact supports optional args: "/compact Focus on API decisions".
+		// GetCommandByName won't match the full text, so check the prefix.
+		if name, args, ok := strings.Cut(msg.Text, " "); ok {
+			if sc := GetCommandByName(name); sc != nil && sc.Name == "/compact" {
+				if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		// Check extension-registered slash commands. These support arguments
 		// (e.g. "/sub list files"), so we split on the first space.
 		if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
@@ -635,6 +652,20 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.state = stateInput
 		m.canceling = false
+
+	case app.CompactCompleteEvent:
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.state = stateInput
+		cmds = append(cmds, m.printCompactResult(msg))
+
+	case app.CompactErrorEvent:
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		m.state = stateInput
+		cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err)))
 
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
@@ -870,6 +901,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		return m.printUsageMessage()
 	case "/reset-usage":
 		return m.printResetUsage()
+	case "/compact":
+		return m.handleCompactCommand("")
 	case "/clear":
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
@@ -987,6 +1020,7 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		"- `/fork`: Branch from an earlier message\n" +
 		"- `/new`: Start a new branch (preserves history)\n\n" +
 		"**System:**\n" +
+		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
 		"- `/clear`: Clear message history\n" +
 		"- `/reset-usage`: Reset usage statistics\n" +
 		"- `/quit`: Exit the application\n\n"
@@ -1078,6 +1112,54 @@ func (m *AppModel) printResetUsage() tea.Cmd {
 	}
 	m.usageTracker.Reset()
 	return m.printSystemMessage("Usage statistics have been reset.")
+}
+
+// handleCompactCommand starts an async compaction. It returns a tea.Cmd that
+// prints a "compacting..." message and transitions to the working state. If
+// the app controller rejects the request (busy, closed) it prints an error
+// instead. customInstructions is optional text appended to the summary
+// prompt (e.g. "Focus on the API design decisions").
+func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
+	if m.appCtrl == nil {
+		return m.printSystemMessage("Compaction is not available.")
+	}
+	if err := m.appCtrl.CompactConversation(customInstructions); err != nil {
+		return m.printSystemMessage(fmt.Sprintf("Cannot compact: %v", err))
+	}
+	// Transition to working state so the spinner shows while compaction runs.
+	m.state = stateWorking
+	var spinnerCmd tea.Cmd
+	if m.stream != nil {
+		_, spinnerCmd = m.stream.Update(app.SpinnerEvent{Show: true})
+	}
+	return tea.Batch(m.printSystemMessage("Compacting conversation..."), spinnerCmd)
+}
+
+// printCompactResult renders the compaction summary in a styled block with
+// a distinct border color and a stats subtitle.
+func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
+	theme := GetTheme()
+
+	saved := evt.OriginalTokens - evt.CompactedTokens
+	subtitle := fmt.Sprintf(
+		"%d messages summarised, ~%dk tokens freed (%dk -> %dk)",
+		evt.MessagesRemoved, saved/1000, evt.OriginalTokens/1000, evt.CompactedTokens/1000,
+	)
+
+	content := evt.Summary
+	if subtitle != "" {
+		sub := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(" " + subtitle)
+		content = strings.TrimSuffix(content, "\n") + "\n\n" + sub
+	}
+
+	rendered := renderContentBlock(
+		content,
+		m.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(theme.Secondary),
+		WithMarginBottom(1),
+	)
+	return tea.Println(rendered)
 }
 
 // flushStreamContent gets the rendered content from the stream component,

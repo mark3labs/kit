@@ -23,21 +23,22 @@ func (m *Kit) EstimateContextTokens() int {
 }
 
 // ShouldCompact reports whether the conversation is near the model's context
-// limit and should be compacted. Returns false if the model's context limit
-// is unknown or if no compaction options are configured.
+// limit and should be compacted. Uses Pi's formula:
+// contextTokens > contextWindow − reserveTokens.
+// Returns false if the model's context limit is unknown.
 func (m *Kit) ShouldCompact() bool {
 	info := m.GetModelInfo()
 	if info == nil || info.Limit.Context <= 0 {
 		return false
 	}
 
-	threshold := 0.8
-	if m.compactionOpts != nil && m.compactionOpts.ThresholdPct > 0 {
-		threshold = m.compactionOpts.ThresholdPct
+	reserveTokens := 16384
+	if m.compactionOpts != nil && m.compactionOpts.ReserveTokens > 0 {
+		reserveTokens = m.compactionOpts.ReserveTokens
 	}
 
 	messages := m.treeSession.GetFantasyMessages()
-	return compaction.ShouldCompact(messages, info.Limit.Context, threshold)
+	return compaction.ShouldCompact(messages, info.Limit.Context, reserveTokens)
 }
 
 // GetContextStats returns current context usage statistics including
@@ -61,13 +62,16 @@ func (m *Kit) GetContextStats() ContextStats {
 }
 
 // Compact summarises older messages to reduce context usage. If opts is nil,
-// the instance's CompactionOptions (or sensible defaults) are used. The model's
-// context limit is automatically populated from the model registry when
-// opts.ContextLimit is 0.
+// the instance's CompactionOptions (or sensible defaults) are used. The
+// model's context window is automatically populated from the model registry
+// when opts.ContextWindow is 0.
 //
-// After compaction, the tree session is cleared and replaced with the compacted
-// messages (summary + preserved recent messages).
-func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions) (*CompactionResult, error) {
+// customInstructions is optional text appended to the summary prompt (e.g.
+// "Focus on the API design decisions"). Pass "" for the default prompt.
+//
+// After compaction, the tree session is cleared and replaced with the
+// compacted messages (summary + preserved recent messages).
+func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions, customInstructions string) (*CompactionResult, error) {
 	if opts == nil {
 		if m.compactionOpts != nil {
 			opts = m.compactionOpts
@@ -76,25 +80,24 @@ func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions) (*Compaction
 		}
 	}
 
-	// Auto-populate context limit from model info if not set.
-	if opts.ContextLimit <= 0 {
+	// Auto-populate context window from model info if not set.
+	if opts.ContextWindow <= 0 {
 		if info := m.GetModelInfo(); info != nil {
-			opts.ContextLimit = info.Limit.Context
+			opts.ContextWindow = info.Limit.Context
 		}
 	}
 
 	messages := m.treeSession.GetFantasyMessages()
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("cannot compact: no messages in session")
+	if len(messages) < 2 {
+		return nil, fmt.Errorf("cannot compact: need at least 2 messages")
 	}
 
 	model := m.agent.GetModel()
-	result, newMessages, err := compaction.Compact(ctx, model, messages, *opts)
+	result, newMessages, err := compaction.Compact(ctx, model, messages, *opts, customInstructions)
 	if err != nil {
 		return nil, err
 	}
 	if result == nil {
-		// Nothing to compact (too few messages).
 		return nil, nil
 	}
 

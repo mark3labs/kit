@@ -94,6 +94,25 @@ type MessageCreatedEvent struct {
 	Message fantasy.Message
 }
 
+// CompactCompleteEvent is sent when a /compact operation finishes successfully.
+// It carries the summary text and before/after statistics.
+type CompactCompleteEvent struct {
+	// Summary is the LLM-generated structured summary of the compacted messages.
+	Summary string
+	// OriginalTokens is the estimated token count before compaction.
+	OriginalTokens int
+	// CompactedTokens is the estimated token count after compaction.
+	CompactedTokens int
+	// MessagesRemoved is the number of messages that were summarised away.
+	MessagesRemoved int
+}
+
+// CompactErrorEvent is sent when a /compact operation fails.
+type CompactErrorEvent struct {
+	// Err is the error that caused compaction to fail.
+	Err error
+}
+
 // ExtensionPrintEvent is sent when an extension calls ctx.Print, ctx.PrintInfo,
 // ctx.PrintError, or ctx.PrintBlock. The TUI renders it via the appropriate
 // renderer and tea.Println (scrollback); the CLI handler uses

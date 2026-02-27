@@ -540,7 +540,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	// Auto-compact if enabled and conversation is near the context limit.
 	if m.autoCompact && m.ShouldCompact() {
-		_, _ = m.Compact(ctx, m.compactionOpts) // best-effort
+		_, _ = m.Compact(ctx, m.compactionOpts, "") // best-effort
 	}
 
 	// Build context from the tree so only the current branch is sent.

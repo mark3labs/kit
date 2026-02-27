@@ -169,6 +169,65 @@ func (a *App) GetTreeSession() *session.TreeManager {
 	return a.opts.TreeSession
 }
 
+// CompactConversation summarises older messages to free context space. It
+// returns an error synchronously if compaction cannot start (agent busy or
+// app closed). The actual compaction runs in a background goroutine and
+// delivers CompactCompleteEvent or CompactErrorEvent through the registered
+// tea.Program. customInstructions is optional text appended to the summary
+// prompt (e.g. "Focus on the API design decisions").
+//
+// Satisfies ui.AppController.
+func (a *App) CompactConversation(customInstructions string) error {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return fmt.Errorf("app is closed")
+	}
+	if a.busy {
+		a.mu.Unlock()
+		return fmt.Errorf("cannot compact while the agent is working")
+	}
+	if a.opts.Kit == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("SDK instance not available")
+	}
+	a.busy = true
+	a.wg.Add(1)
+	a.mu.Unlock()
+
+	go func() {
+		defer a.wg.Done()
+		defer func() {
+			a.mu.Lock()
+			a.busy = false
+			a.mu.Unlock()
+		}()
+
+		result, err := a.opts.Kit.Compact(a.rootCtx, nil, customInstructions)
+		if err != nil {
+			a.sendEvent(CompactErrorEvent{Err: err})
+			return
+		}
+		if result == nil {
+			a.sendEvent(CompactErrorEvent{Err: fmt.Errorf("nothing to compact")})
+			return
+		}
+
+		// Sync in-memory store with the compacted session.
+		if a.opts.TreeSession != nil {
+			a.store.Replace(a.opts.TreeSession.GetFantasyMessages())
+		}
+
+		a.sendEvent(CompactCompleteEvent{
+			Summary:         result.Summary,
+			OriginalTokens:  result.OriginalTokens,
+			CompactedTokens: result.CompactedTokens,
+			MessagesRemoved: result.MessagesRemoved,
+		})
+	}()
+	return nil
+}
+
 // --------------------------------------------------------------------------
 // Non-interactive execution
 // --------------------------------------------------------------------------
