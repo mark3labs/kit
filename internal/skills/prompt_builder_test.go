@@ -36,7 +36,7 @@ func TestPromptBuilder_WithSection(t *testing.T) {
 
 func TestPromptBuilder_WithSkills(t *testing.T) {
 	skills := []*Skill{
-		{Name: "coding", Description: "Write code", Content: "Use TDD."},
+		{Name: "coding", Description: "Write code", Path: "/tmp/coding/SKILL.md", Content: "Use TDD."},
 	}
 	result := NewPromptBuilder("You are an agent.").
 		WithSkills(skills).
@@ -44,11 +44,14 @@ func TestPromptBuilder_WithSkills(t *testing.T) {
 	if !strings.Contains(result, "You are an agent.") {
 		t.Error("missing base prompt")
 	}
-	if !strings.Contains(result, "## coding") {
-		t.Error("missing skill header")
+	if !strings.Contains(result, "<name>coding</name>") {
+		t.Error("missing skill name in XML")
 	}
-	if !strings.Contains(result, "Use TDD.") {
-		t.Error("missing skill content")
+	if !strings.Contains(result, "<description>Write code</description>") {
+		t.Error("missing skill description in XML")
+	}
+	if !strings.Contains(result, "<location>file:///tmp/coding/SKILL.md</location>") {
+		t.Error("missing skill location")
 	}
 }
 

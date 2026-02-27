@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -54,6 +55,14 @@ type AppController interface {
 	GetTreeSession() *session.TreeManager
 }
 
+// SkillItem holds display metadata about a loaded skill for the startup
+// [Skills] section. Built by the CLI layer from the SDK's []*kit.Skill.
+type SkillItem struct {
+	Name   string // Skill name (e.g. "btca-cli").
+	Path   string // Absolute path to the skill file.
+	Source string // "project" or "user" (global).
+}
+
 // AppModelOptions holds configuration passed to NewAppModel.
 type AppModelOptions struct {
 	// CompactMode selects the compact renderer for message formatting.
@@ -89,6 +98,13 @@ type AppModelOptions struct {
 	// ExtensionCommands are slash commands registered by extensions. They
 	// appear in autocomplete, /help, and are dispatched when submitted.
 	ExtensionCommands []ExtensionCommand
+
+	// ContextPaths lists absolute paths of loaded context files (e.g.
+	// AGENTS.md). Displayed in the [Context] startup section.
+	ContextPaths []string
+
+	// SkillItems lists loaded skills for the [Skills] startup section.
+	SkillItems []SkillItem
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -165,6 +181,11 @@ type AppModel struct {
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
 
+	// contextPaths and skillItems are used by PrintStartupInfo for the
+	// [Context] and [Skills] sections.
+	contextPaths []string
+	skillItems   []SkillItem
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -234,6 +255,10 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
 
+	// Store context/skills metadata for startup display.
+	m.contextPaths = opts.ContextPaths
+	m.skillItems = opts.SkillItems
+
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
 
@@ -275,10 +300,24 @@ func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// PrintStartupInfo writes startup messages (model loaded, tool count) to
-// stdout. Call this before program.Run() so the messages are visible above
-// the Bubble Tea managed region.
+// PrintStartupInfo writes startup messages (model loaded, context, skills,
+// tool count) to stdout. Call this before program.Run() so the messages are
+// visible above the Bubble Tea managed region.
+//
+// The output matches the Pi SDK's startup display:
+//
+//	[Context]
+//	  ~/Workspace/project/AGENTS.md
+//
+//	[Skills]
+//	  project
+//	    ~/Workspace/project/.agents/skills/foo/SKILL.md
 func (m *AppModel) PrintStartupInfo() {
+	theme := GetTheme()
+	headerStyle := lipgloss.NewStyle().Foreground(theme.Warning)
+	dimStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	boldStyle := lipgloss.NewStyle().Foreground(theme.Text).Bold(true)
+
 	render := func(text string) string {
 		if m.compactMode {
 			return m.compactRdr.RenderSystemMessage(text, time.Now()).Content
@@ -296,7 +335,44 @@ func (m *AppModel) PrintStartupInfo() {
 		fmt.Println(render(m.loadingMessage))
 	}
 
+	// [Context] section — loaded AGENTS.md files.
+	if len(m.contextPaths) > 0 {
+		fmt.Println()
+		fmt.Println(headerStyle.Render("[Context]"))
+		for _, p := range m.contextPaths {
+			fmt.Println(dimStyle.Render("  " + tildeHome(p)))
+		}
+	}
+
+	// [Skills] section — loaded skills grouped by source.
+	if len(m.skillItems) > 0 {
+		fmt.Println()
+		fmt.Println(headerStyle.Render("[Skills]"))
+		// Group by source and display.
+		var currentSource string
+		for _, si := range m.skillItems {
+			if si.Source != currentSource {
+				currentSource = si.Source
+				fmt.Println(boldStyle.Render("  " + currentSource))
+			}
+			fmt.Println(dimStyle.Render("    " + tildeHome(si.Path)))
+		}
+	}
+
+	fmt.Println()
 	fmt.Println(render(fmt.Sprintf("Loaded %d tools from MCP servers", len(m.toolNames))))
+}
+
+// tildeHome replaces the user's home directory prefix with ~ for display.
+func tildeHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
 // Update implements tea.Model. It is the heart of the state machine: it routes
@@ -923,6 +999,21 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		}
 		extHelp.WriteString("\n")
 		help += extHelp.String()
+	}
+
+	if len(m.skillItems) > 0 {
+		var skillHelp strings.Builder
+		skillHelp.WriteString("**Skills:**\n")
+		skillHelp.WriteString("- `/skill:<name> [args]`: Load a skill into context and run with optional args\n")
+		skillHelp.WriteString("  Available skills: ")
+		for i, si := range m.skillItems {
+			if i > 0 {
+				skillHelp.WriteString(", ")
+			}
+			skillHelp.WriteString("`" + si.Name + "`")
+		}
+		skillHelp.WriteString("\n\n")
+		help += skillHelp.String()
 	}
 
 	help += "**Keys:**\n" +

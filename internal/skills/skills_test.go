@@ -312,33 +312,43 @@ func TestFormatForPrompt_Empty(t *testing.T) {
 
 func TestFormatForPrompt_SingleSkill(t *testing.T) {
 	skills := []*Skill{
-		{Name: "test-skill", Description: "A test", Content: "Do things."},
+		{Name: "test-skill", Description: "A test", Path: "/tmp/test-skill/SKILL.md", Content: "Do things."},
 	}
 	result := FormatForPrompt(skills)
-	if !strings.Contains(result, "## test-skill") {
-		t.Errorf("result should contain skill name header")
+	if !strings.Contains(result, "<name>test-skill</name>") {
+		t.Errorf("result should contain skill name in XML")
 	}
-	if !strings.Contains(result, "A test") {
-		t.Errorf("result should contain description")
+	if !strings.Contains(result, "<description>A test</description>") {
+		t.Errorf("result should contain description in XML")
 	}
-	if !strings.Contains(result, "Do things.") {
-		t.Errorf("result should contain content")
+	if !strings.Contains(result, "<location>file:///tmp/test-skill/SKILL.md</location>") {
+		t.Errorf("result should contain file location")
+	}
+	if !strings.Contains(result, "<available_skills>") {
+		t.Errorf("result should contain available_skills root element")
+	}
+	// Content should NOT appear — metadata only.
+	if strings.Contains(result, "Do things.") {
+		t.Errorf("result should NOT contain skill content (metadata only)")
 	}
 }
 
 func TestFormatForPrompt_MultipleSkills(t *testing.T) {
 	skills := []*Skill{
-		{Name: "skill-a", Content: "A content"},
-		{Name: "skill-b", Description: "B desc", Content: "B content"},
+		{Name: "skill-a", Path: "/tmp/a/SKILL.md", Content: "A content"},
+		{Name: "skill-b", Description: "B desc", Path: "/tmp/b/SKILL.md", Content: "B content"},
 	}
 	result := FormatForPrompt(skills)
-	if !strings.Contains(result, "## skill-a") {
-		t.Error("missing skill-a header")
+	if !strings.Contains(result, "<name>skill-a</name>") {
+		t.Error("missing skill-a name")
 	}
-	if !strings.Contains(result, "## skill-b") {
-		t.Error("missing skill-b header")
+	if !strings.Contains(result, "<name>skill-b</name>") {
+		t.Error("missing skill-b name")
 	}
-	if !strings.Contains(result, "# Available Skills") {
-		t.Error("missing top-level header")
+	if !strings.Contains(result, "<available_skills>") {
+		t.Error("missing available_skills element")
+	}
+	if !strings.Contains(result, "Use the read tool") {
+		t.Error("missing preamble instructions")
 	}
 }

@@ -26,12 +26,13 @@ func NewPromptBuilder(basePrompt string) *PromptBuilder {
 }
 
 // WithSkills appends a formatted skills section.  If skills is empty, no
-// section is added.  Returns the builder for chaining.
+// section is added.  The section has no header because FormatForPrompt
+// includes its own preamble text.  Returns the builder for chaining.
 func (pb *PromptBuilder) WithSkills(skills []*Skill) *PromptBuilder {
 	formatted := FormatForPrompt(skills)
 	if formatted != "" {
 		pb.sections = append(pb.sections, section{
-			name:    "Skills",
+			name:    "",
 			content: formatted,
 		})
 	}

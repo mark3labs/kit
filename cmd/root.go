@@ -435,9 +435,28 @@ func runNormalMode(ctx context.Context) error {
 	// Convert extension commands to UI-layer type for the interactive TUI.
 	extCommands := extensionCommandsForUI(extRunner)
 
+	// Build context/skills display metadata for the startup banner.
+	var contextPaths []string
+	for _, cf := range kitInstance.GetContextFiles() {
+		contextPaths = append(contextPaths, cf.Path)
+	}
+	cwd, _ := os.Getwd()
+	var skillItems []ui.SkillItem
+	for _, s := range kitInstance.GetSkills() {
+		source := "user"
+		if strings.HasPrefix(s.Path, cwd) {
+			source = "project"
+		}
+		skillItems = append(skillItems, ui.SkillItem{
+			Name:   s.Name,
+			Path:   s.Path,
+			Source: source,
+		})
+	}
+
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands, contextPaths, skillItems)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -445,7 +464,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, mcpAgent.GetLoadingMessage(), serverNames, toolNames, usageTracker, extCommands, contextPaths, skillItems)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -458,7 +477,7 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem) error {
 	if quiet {
 		// Quiet mode: no intermediate display, just print final response.
 		if err := appInstance.RunOnce(ctx, prompt); err != nil {
@@ -484,7 +503,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, usageTracker, extCommands)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, usageTracker, extCommands, contextPaths, skillItems)
 	}
 
 	return nil
@@ -501,7 +520,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -520,6 +539,8 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		ToolNames:         toolNames,
 		UsageTracker:      usageTracker,
 		ExtensionCommands: extCommands,
+		ContextPaths:      contextPaths,
+		SkillItems:        skillItems,
 	})
 
 	// Print startup info to stdout before Bubble Tea takes over the screen.

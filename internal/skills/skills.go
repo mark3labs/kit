@@ -186,7 +186,12 @@ func LoadSkills(cwd string) ([]*Skill, error) {
 		addUnique(global)
 	}
 
-	// Project-local skills.
+	// Project-local skills: .agents/skills/ (standardized cross-tool convention).
+	agentsDir := filepath.Join(cwd, ".agents", "skills")
+	agentsSkills, _ := LoadSkillsFromDir(agentsDir)
+	addUnique(agentsSkills)
+
+	// Project-local skills: .kit/skills/ (kit-specific).
 	localDir := filepath.Join(cwd, ".kit", "skills")
 	local, _ := LoadSkillsFromDir(localDir)
 	addUnique(local)
@@ -194,29 +199,32 @@ func LoadSkills(cwd string) ([]*Skill, error) {
 	return all, nil
 }
 
-// FormatForPrompt formats skills for inclusion in a system prompt.
-// Each skill is rendered as a named section with its content.
+// FormatForPrompt formats skills as metadata-only XML for inclusion in a
+// system prompt. Only the name, description, and file location are included;
+// the agent reads the full skill file on demand using the read tool. This
+// matches the Pi SDK's formatSkillsForPrompt convention.
 func FormatForPrompt(skills []*Skill) string {
 	if len(skills) == 0 {
 		return ""
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString("# Available Skills\n\n")
+	buf.WriteString("The following skills provide specialized instructions for specific tasks.\n")
+	buf.WriteString("Use the read tool to load a skill's file when the task matches its description.\n")
+	buf.WriteString("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md) and use that absolute path in tool commands.\n")
+	buf.WriteString("\n<available_skills>\n")
 
-	for i, s := range skills {
-		if i > 0 {
-			buf.WriteString("\n")
-		}
-		buf.WriteString(fmt.Sprintf("## %s\n", s.Name))
+	for _, s := range skills {
+		buf.WriteString("  <skill>\n")
+		buf.WriteString(fmt.Sprintf("    <name>%s</name>\n", s.Name))
 		if s.Description != "" {
-			buf.WriteString(fmt.Sprintf("%s\n", s.Description))
+			buf.WriteString(fmt.Sprintf("    <description>%s</description>\n", s.Description))
 		}
-		buf.WriteString("\n")
-		buf.WriteString(s.Content)
-		buf.WriteString("\n")
+		buf.WriteString(fmt.Sprintf("    <location>file://%s</location>\n", s.Path))
+		buf.WriteString("  </skill>\n")
 	}
 
+	buf.WriteString("</available_skills>")
 	return buf.String()
 }
 

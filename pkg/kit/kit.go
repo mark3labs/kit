@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"charm.land/fantasy"
 
@@ -18,6 +20,13 @@ import (
 	"github.com/spf13/viper"
 )
 
+// ContextFile represents a project context file (e.g. AGENTS.md) that was
+// loaded during initialization and injected into the system prompt.
+type ContextFile struct {
+	Path    string // Absolute filesystem path.
+	Content string // Full file content.
+}
+
 // Kit provides programmatic access to kit functionality, allowing
 // integration of MCP tools and LLM interactions into Go applications. It manages
 // agents, sessions, and model configurations.
@@ -28,6 +37,7 @@ type Kit struct {
 	events         *eventBus
 	autoCompact    bool
 	compactionOpts *CompactionOptions
+	contextFiles   []*ContextFile
 	skills         []*skills.Skill
 	extRunner      *extensions.Runner
 	bufferedLogger *tools.BufferedDebugLogger
@@ -160,19 +170,45 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 	viper.Set("stream", opts.Streaming)
 
+	// Resolve working directory for context/skill discovery.
+	cwd := opts.SessionDir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+
+	// Load context files (AGENTS.md) from the project root.
+	contextFiles := loadContextFiles(cwd)
+
 	// Load skills — either from explicit paths or via auto-discovery.
 	loadedSkills, err := loadSkills(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load skills: %w", err)
 	}
 
-	// Compose the system prompt with skills if any were loaded.
-	if len(loadedSkills) > 0 {
+	// Always compose the system prompt with runtime context: base prompt +
+	// AGENTS.md context + skills metadata + date/cwd. This matches Pi's
+	// buildSystemPrompt() convention.
+	{
 		basePrompt := viper.GetString("system-prompt")
-		composed := skills.NewPromptBuilder(basePrompt).
-			WithSkills(loadedSkills).
-			Build()
-		viper.Set("system-prompt", composed)
+		pb := skills.NewPromptBuilder(basePrompt)
+
+		// Inject AGENTS.md content as project context.
+		for _, cf := range contextFiles {
+			pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
+		}
+
+		// Inject skills metadata (name + description + location).
+		if len(loadedSkills) > 0 {
+			pb.WithSkills(loadedSkills)
+		}
+
+		// Append current date/time and working directory.
+		pb.WithSection("", fmt.Sprintf(
+			"Current date and time: %s\nCurrent working directory: %s",
+			time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+		))
+
+		viper.Set("system-prompt", pb.Build())
 	}
 
 	// Load MCP configuration. Use pre-loaded config if provided.
@@ -221,6 +257,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		events:          newEventBus(),
 		autoCompact:     opts.AutoCompact,
 		compactionOpts:  opts.CompactionOptions,
+		contextFiles:    contextFiles,
 		skills:          loadedSkills,
 		extRunner:       agentResult.ExtRunner,
 		bufferedLogger:  agentResult.BufferedLogger,
@@ -238,9 +275,89 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	return k, nil
 }
 
+// GetContextFiles returns the context files (e.g. AGENTS.md) loaded during
+// initialisation. Returns nil if no context files were found.
+func (m *Kit) GetContextFiles() []*ContextFile {
+	return m.contextFiles
+}
+
 // GetSkills returns the skills loaded during initialisation.
 func (m *Kit) GetSkills() []*Skill {
 	return m.skills
+}
+
+// ---------------------------------------------------------------------------
+// Context file loading
+// ---------------------------------------------------------------------------
+
+// loadContextFiles discovers and loads project context files (AGENTS.md) from
+// the working directory. Returns nil if no context file is found.
+func loadContextFiles(cwd string) []*ContextFile {
+	path := filepath.Join(cwd, "AGENTS.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return []*ContextFile{{
+		Path:    path,
+		Content: strings.TrimSpace(string(data)),
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Skill command expansion
+// ---------------------------------------------------------------------------
+
+// expandSkillCommand checks whether prompt starts with "/skill:<name>" and, if
+// so, re-reads the skill file, strips its YAML frontmatter, wraps the body in
+// a <skill> block with baseDir metadata, and appends any trailing user args.
+// Returns the original text unchanged when the prefix is absent or the skill is
+// not found. This matches Pi's _expandSkillCommand() convention.
+func (m *Kit) expandSkillCommand(prompt string) string {
+	if !strings.HasPrefix(prompt, "/skill:") {
+		return prompt
+	}
+
+	// Parse: /skill:name [args]
+	rest := prompt[len("/skill:"):]
+	name, args, _ := strings.Cut(rest, " ")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return prompt
+	}
+
+	// Find the skill by name.
+	var skillPath string
+	for _, s := range m.skills {
+		if s.Name == name {
+			skillPath = s.Path
+			break
+		}
+	}
+	if skillPath == "" {
+		return prompt
+	}
+
+	// Re-read the file for freshness (user may have edited it since startup).
+	loaded, err := skills.LoadSkill(skillPath)
+	if err != nil {
+		return prompt
+	}
+
+	baseDir := filepath.Dir(loaded.Path)
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "<skill name=%q location=%q>\n", loaded.Name, loaded.Path)
+	fmt.Fprintf(&buf, "References are relative to %s.\n\n", baseDir)
+	buf.WriteString(loaded.Content)
+	buf.WriteString("\n</skill>")
+
+	args = strings.TrimSpace(args)
+	if args != "" {
+		buf.WriteString("\n\n")
+		buf.WriteString(args)
+	}
+
+	return buf.String()
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +494,19 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
 // prompt is the raw user text passed to BeforeTurn hooks.
 func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (*TurnResult, error) {
+	// Expand /skill:name commands — reads the skill file, wraps it in a
+	// <skill> block, and appends any trailing user args.
+	if expanded := m.expandSkillCommand(prompt); expanded != prompt {
+		prompt = expanded
+		// Replace the last user message in preMessages with the expanded text.
+		for i := len(preMessages) - 1; i >= 0; i-- {
+			if preMessages[i].Role == fantasy.MessageRoleUser {
+				preMessages[i] = fantasy.NewUserMessage(expanded)
+				break
+			}
+		}
+	}
+
 	// Run BeforeTurn hooks — can modify the prompt, inject system/context messages.
 	if m.beforeTurn.hasHooks() {
 		if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
