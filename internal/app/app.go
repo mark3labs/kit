@@ -209,7 +209,7 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 // RunOnceWithDisplay executes a single agent step synchronously, sending
 // intermediate display events (spinner, tool calls, streaming chunks, etc.)
 // to eventFn. This is the non-TUI equivalent of the interactive Run() path —
-// used by script mode and non-interactive --prompt mode when output is needed.
+// used by non-interactive --prompt mode when output is needed.
 //
 // The eventFn receives the same event types as the Bubble Tea TUI
 // (SpinnerEvent, ToolCallStartedEvent, StreamChunkEvent, StepCompleteEvent,

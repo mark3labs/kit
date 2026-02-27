@@ -155,8 +155,6 @@ type Config struct {
 	SystemPrompt   string                     `json:"system-prompt,omitempty" yaml:"system-prompt,omitempty"`
 	ProviderAPIKey string                     `json:"provider-api-key,omitempty" yaml:"provider-api-key,omitempty"`
 	ProviderURL    string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`
-	Prompt         string                     `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	NoExit         bool                       `json:"no-exit,omitempty" yaml:"no-exit,omitempty"`
 	Stream         *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
 	Theme          any                        `json:"theme" yaml:"theme"`
 	MarkdownTheme  any                        `json:"markdown-theme" yaml:"markdown-theme"`

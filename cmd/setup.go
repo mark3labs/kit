@@ -35,8 +35,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 }
 
 // CollectAgentMetadata extracts model display info and tool/server name lists
-// from the agent. This is used by both root.go and script.go to populate
-// app.Options and UI setup.
+// from the agent, used to populate app.Options and UI setup.
 func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (provider, modelName string, serverNames, toolNames []string) {
 	modelString := viper.GetString("model")
 	provider, modelName, _ = kit.ParseModelString(modelString)
@@ -57,7 +56,6 @@ func CollectAgentMetadata(mcpAgent *agent.Agent, mcpConfig *config.Config) (prov
 }
 
 // BuildAppOptions constructs the app.Options struct from the current state.
-// Both root.go and script.go converge here after agent creation.
 func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName string, serverNames, toolNames []string, extRunner *extensions.Runner) app.Options {
 	return app.Options{
 		Agent:            mcpAgent,
@@ -74,7 +72,7 @@ func BuildAppOptions(mcpAgent *agent.Agent, mcpConfig *config.Config, modelName 
 }
 
 // DisplayDebugConfig builds and displays the debug configuration map through
-// the CLI. Shared by root.go (non-interactive) and script.go.
+// the CLI for non-interactive mode.
 func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Config, provider string) {
 	if quietFlag || cli == nil || !viper.GetBool("debug") {
 		return
@@ -152,7 +150,7 @@ func DisplayDebugConfig(cli *ui.CLI, mcpAgent *agent.Agent, mcpConfig *config.Co
 }
 
 // SetupCLIForNonInteractive creates the CLI display layer for non-interactive
-// modes (--prompt and script). Returns nil when quiet mode is active.
+// mode (--prompt). Returns nil when quiet mode is active.
 func SetupCLIForNonInteractive(mcpAgent *agent.Agent) (*ui.CLI, error) {
 	agentAdapter := &agentUIAdapter{agent: mcpAgent}
 	return ui.SetupCLI(&ui.CLISetupOptions{

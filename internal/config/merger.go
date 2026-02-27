@@ -7,21 +7,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// MergeConfigs merges script frontmatter config with base config, allowing scripts
-// to override MCP server configurations. The script config takes precedence over
-// the base config for any fields that are specified.
-func MergeConfigs(baseConfig *Config, scriptConfig *Config) *Config {
-	merged := *baseConfig // Copy base config
-
-	// Override MCP servers if script provides them
-	if len(scriptConfig.MCPServers) > 0 {
-		merged.MCPServers = scriptConfig.MCPServers
-	}
-
-	// Add other merge logic as needed for future config fields
-	return &merged
-}
-
 // LoadAndValidateConfig loads configuration from viper, fixes environment variable
 // casing issues, and validates the configuration. Returns an error if loading or
 // validation fails.

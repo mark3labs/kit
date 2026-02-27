@@ -32,10 +32,9 @@ var (
 	quietFlag        bool
 	noExitFlag       bool
 	maxSteps         int
-	streamFlag       bool           // Enable streaming output
-	compactMode      bool           // Enable compact output mode
-	autoCompactFlag  bool           // Enable auto-compaction near context limit
-	scriptMCPConfig  *config.Config // Used to override config in script mode
+	streamFlag       bool // Enable streaming output
+	compactMode      bool // Enable compact output mode
+	autoCompactFlag  bool // Enable auto-compaction near context limit
 
 	// Session management
 	sessionPath string
@@ -319,15 +318,9 @@ func runNormalMode(ctx context.Context) error {
 	}
 
 	// Load MCP configuration.
-	var mcpConfig *config.Config
-	var err error
-	if scriptMCPConfig != nil {
-		mcpConfig = scriptMCPConfig
-	} else {
-		mcpConfig, err = config.LoadAndValidateConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load MCP config: %v", err)
-		}
+	mcpConfig, err := config.LoadAndValidateConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load MCP config: %v", err)
 	}
 
 	// Create spinner function for agent creation.
@@ -460,9 +453,8 @@ func runNormalMode(ctx context.Context) error {
 //
 // In quiet mode, RunOnce is used (no intermediate output, final response only).
 // Otherwise, RunOnceWithDisplay streams tool calls and responses through the
-// shared CLIEventHandler — giving --prompt mode the same rich output as script
-// mode. This eliminates the previous split where --prompt silently swallowed
-// all intermediate events.
+// shared CLIEventHandler — giving --prompt mode the same rich output as
+// interactive mode.
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.

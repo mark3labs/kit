@@ -500,154 +500,6 @@ Start an interactive conversation session:
 kit
 ```
 
-### Script Mode
-
-Run executable YAML-based automation scripts with variable substitution support:
-
-```bash
-# Using the script subcommand
-kit script myscript.sh
-
-# With variables
-kit script myscript.sh --args:directory /tmp --args:name "John"
-
-# Direct execution (if executable and has shebang)
-./myscript.sh
-```
-
-#### Script Format
-
-Scripts combine YAML configuration with prompts in a single executable file. The configuration must be wrapped in frontmatter delimiters (`---`). You can either include the prompt in the YAML configuration or place it after the closing frontmatter delimiter:
-
-```yaml
-#!/usr/bin/env -S kit script
----
-# This script uses the container-use MCP server from https://github.com/dagger/container-use
-mcpServers:
-  container-use:
-    type: "local"
-    command: ["cu", "stdio"]
-prompt: |
-  Create 2 variations of a simple hello world app using Flask and FastAPI. 
-  Each in their own environment. Give me the URL of each app
----
-```
-
-Or alternatively, omit the `prompt:` field and place the prompt after the frontmatter:
-
-```yaml
-#!/usr/bin/env -S kit script
----
-# This script uses the container-use MCP server from https://github.com/dagger/container-use
-mcpServers:
-  container-use:
-    type: "local"
-    command: ["cu", "stdio"]
----
-Create 2 variations of a simple hello world app using Flask and FastAPI. 
-Each in their own environment. Give me the URL of each app
-```
-
-#### Variable Substitution
-
-Scripts support both environment variable substitution and script argument substitution:
-
-1. **Environment Variables**: `${env://VAR}` and `${env://VAR:-default}` - Processed first
-2. **Script Arguments**: `${variable}` and `${variable:-default}` - Processed after environment variables
-
-Variables can be provided via command line arguments:
-
-```bash
-# Script with variables
-kit script myscript.sh --args:directory /tmp --args:name "John"
-```
-
-##### Variable Syntax
-
-KIT supports these variable syntaxes:
-
-1. **Required Environment Variables**: `${env://VAR}` - Must be set in environment
-2. **Optional Environment Variables**: `${env://VAR:-default}` - Uses default if not set
-3. **Required Script Arguments**: `${variable}` - Must be provided via `--args:variable value`
-4. **Optional Script Arguments**: `${variable:-default}` - Uses default if not provided
-
-Example script with mixed environment variables and script arguments:
-```yaml
-#!/usr/bin/env -S kit script
----
-mcpServers:
-  github:
-    type: "local"
-    command: ["gh", "api"]
-    environment:
-      GITHUB_TOKEN: "${env://GITHUB_TOKEN}"
-      DEBUG: "${env://DEBUG:-false}"
-  
-  filesystem:
-    type: "local"
-    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "${env://WORK_DIR:-/tmp}"]
-
-model: "${env://MODEL:-anthropic/claude-sonnet-4-5-20250929}"
----
-Hello ${name:-World}! Please list ${repo_type:-public} repositories for user ${username}.
-Working directory is ${env://WORK_DIR:-/tmp}.
-Use the ${command:-gh} command to fetch ${count:-10} repositories.
-```
-
-##### Usage Examples
-
-```bash
-# Set environment variables first
-export GITHUB_TOKEN="ghp_your_token_here"
-export DEBUG="true"
-export WORK_DIR="/home/user/projects"
-
-# Uses env vars and defaults: name="World", repo_type="public", command="gh", count="10"
-kit script myscript.sh
-
-# Override specific script arguments
-kit script myscript.sh --args:name "John" --args:username "alice"
-
-# Override multiple script arguments  
-kit script myscript.sh --args:name "John" --args:username "alice" --args:repo_type "private"
-
-# Mix of env vars, provided args, and default values
-kit script myscript.sh --args:name "Alice" --args:command "gh api" --args:count "5"
-```
-
-##### Default Value Features
-
-- **Empty defaults**: `${var:-}` - Uses empty string if not provided
-- **Complex defaults**: `${path:-/tmp/default/path}` - Supports paths, URLs, etc.
-- **Spaces in defaults**: `${msg:-Hello World}` - Supports spaces in default values
-- **Backward compatibility**: Existing `${variable}` syntax continues to work unchanged
-
-**Important**: 
-- Environment variables without defaults (e.g., `${env://GITHUB_TOKEN}`) are required and must be set in the environment
-- Script arguments without defaults (e.g., `${username}`) are required and must be provided via `--args:variable value` syntax
-- Variables with defaults are optional and will use their default value if not provided
-- Environment variables are processed first, then script arguments
-
-#### Script Features
-
-- **Executable**: Use shebang line for direct execution (`#!/usr/bin/env -S kit script`)
-- **YAML Configuration**: Define MCP servers directly in the script
-- **Embedded Prompts**: Include the prompt in the YAML
-- **Variable Substitution**: Use `${variable}` and `${variable:-default}` syntax with `--args:variable value`
-- **Variable Validation**: Missing required variables cause script to exit with helpful error
-- **Interactive Mode**: If prompt is empty, drops into interactive mode (handy for setup scripts)
-- **Config Fallback**: If no `mcpServers` defined, uses default config
-- **Tool Filtering**: Supports `allowedTools`/`excludedTools` per server
-- **Clean Exit**: Automatically exits after completion
-
-**Note**: The shebang line requires `env -S` to handle the multi-word command `kit script`. This is supported on most modern Unix-like systems.
-
-#### Script Examples
-
-See `examples/scripts/` for sample scripts:
-- `example-script.sh` - Script with custom MCP servers
-- `simple-script.sh` - Script using default config fallback
-
 ### Hooks System
 
 KIT supports a powerful hooks system that allows you to execute custom commands at specific points during execution. This enables security policies, logging, custom integrations, and automated workflows.
@@ -937,15 +789,12 @@ curl -X POST http://localhost:8080/process \
   -d "$(kit -p 'Generate a UUID' --quiet)"
 ```
 
-### Tips for Scripting
+### Tips
 - Use `--quiet` flag to get clean output suitable for parsing (only AI response, no UI)
 - Use `--compact` flag for simplified output without fancy styling (when you want to see UI elements)
 - Note: `--compact` and `--quiet` are mutually exclusive - `--compact` has no effect with `--quiet`
 - **Use environment variables for sensitive data** like API keys instead of hardcoding them
-- **Use `${env://VAR}` syntax** in config files and scripts for environment variable substitution
-- Combine with standard Unix tools (`grep`, `awk`, `sed`, etc.)
-- Set appropriate timeouts for long-running operations
-- Handle errors appropriately in your scripts
+- **Use `${env://VAR}` syntax** in config files for environment variable substitution
 - Use environment variables for API keys in production
 
 #### Environment Variable Best Practices
@@ -961,9 +810,6 @@ mcpServers:
     environment:
       GITHUB_TOKEN: "${env://GITHUB_TOKEN}"
       DEBUG: "${env://DEBUG:-false}"
-
-# Use in scripts
-kit script my-script.sh --args:username alice
 ```
 
 ## MCP Server Compatibility 🔌
