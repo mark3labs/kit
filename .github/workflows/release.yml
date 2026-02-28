@@ -39,12 +39,42 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  npm-publish:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    if: ${{ always() && (needs.goreleaser.result == 'success' || needs.goreleaser.result == 'skipped') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Set version from tag
+        working-directory: npm
+        run: |
+          TAG=${{ inputs.tag || github.ref_name }}
+          VERSION=${TAG#v}
+          echo "Setting npm version to $VERSION"
+          npm version $VERSION --no-git-tag-version
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [goreleaser, npm-publish]
+    if: ${{ always() && (needs.goreleaser.result == 'success' || needs.goreleaser.result == 'skipped') && (needs.npm-publish.result == 'success') }}
+    steps:
       - name: Send Discord Notification
-        if: success()
         env:
           DISCORD_WEBHOOK: ${{ secrets.RELEASES_WEBHOOK }}
-          TAG_NAME: ${{ github.ref_name }}
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+          TAG_NAME: ${{ inputs.tag || github.ref_name }}
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag || github.ref_name }}
         run: |
           curl -H "Content-Type: application/json" \
             -X POST \
@@ -73,29 +103,3 @@ jobs:
               }]
             }" \
             $DISCORD_WEBHOOK
-
-  npm-publish:
-    runs-on: ubuntu-latest
-    needs: goreleaser
-    if: ${{ always() && (needs.goreleaser.result == 'success' || needs.goreleaser.result == 'skipped') }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Set version from tag
-        working-directory: npm
-        run: |
-          TAG=${{ inputs.tag || github.ref_name }}
-          VERSION=${TAG#v}
-          echo "Setting npm version to $VERSION"
-          npm version $VERSION --no-git-tag-version
-
-      - name: Publish to npm
-        working-directory: npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
