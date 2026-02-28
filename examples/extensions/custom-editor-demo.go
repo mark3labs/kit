@@ -9,12 +9,10 @@ import (
 	"kit/ext"
 )
 
-// normalMode tracks whether the vim-like normal mode is active.
-// When false, all keys pass through to the default editor (insert mode).
+// vimActive tracks whether the vim interceptor is installed at all.
+// normalMode tracks whether we are in normal mode (true) or insert mode (false).
+var vimActive bool
 var normalMode bool
-
-// savedCtx holds the extension context for use in the HandleKey callback.
-var savedCtx ext.Context
 
 // Init demonstrates the editor interceptor system. Extensions can intercept
 // key events before they reach the built-in editor and wrap the editor's
@@ -22,22 +20,23 @@ var savedCtx ext.Context
 // with normal/insert mode switching.
 //
 // Slash commands:
-//   - /vim       — toggle vim mode (normal ↔ insert)
+//   - /vim       — toggle vim mode on/off
 //   - /vim-info  — show current editor mode
 func Init(api ext.API) {
-	// /vim — toggle vim-like normal/insert mode.
+	// /vim — toggle the vim interceptor on/off.
 	api.RegisterCommand(ext.CommandDef{
 		Name:        "vim",
-		Description: "Toggle vim-like normal/insert mode",
+		Description: "Toggle vim-like modal editing",
 		Execute: func(args string, ctx ext.Context) (string, error) {
-			savedCtx = ctx
-			if normalMode {
-				// Switch to insert mode (remove interceptor).
+			if vimActive {
+				// Turn off vim mode entirely.
+				vimActive = false
 				normalMode = false
 				ctx.ResetEditor()
-				return "Switched to INSERT mode (default editor).", nil
+				return "Vim mode OFF. Default editor restored.", nil
 			}
-			// Switch to normal mode (install interceptor).
+			// Turn on vim mode, start in normal mode.
+			vimActive = true
 			normalMode = true
 			ctx.SetEditor(ext.EditorConfig{
 				HandleKey: func(key string, currentText string) ext.EditorKeyAction {
@@ -47,7 +46,7 @@ func Init(api ext.API) {
 					return renderVimMode(width, defaultContent)
 				},
 			})
-			return "Switched to NORMAL mode. Press 'i' to insert, 'h/j/k/l' to navigate.", nil
+			return "Vim mode ON (NORMAL). Press 'i' to insert, Esc to return to normal, h/j/k/l to navigate.", nil
 		},
 	})
 
@@ -56,16 +55,30 @@ func Init(api ext.API) {
 		Name:        "vim-info",
 		Description: "Show current vim mode",
 		Execute: func(args string, ctx ext.Context) (string, error) {
-			if normalMode {
-				return "Current mode: NORMAL (vim interceptor active)", nil
+			if !vimActive {
+				return "Vim mode is OFF (default editor).", nil
 			}
-			return "Current mode: INSERT (default editor)", nil
+			if normalMode {
+				return "Vim mode ON — NORMAL mode", nil
+			}
+			return "Vim mode ON — INSERT mode (Esc to return to normal)", nil
 		},
 	})
 }
 
-// handleVimKey processes keys in vim normal mode.
+// handleVimKey processes keys for both normal and insert modes.
+// The interceptor stays active in both modes so Esc can switch back.
 func handleVimKey(key string, currentText string) ext.EditorKeyAction {
+	if !normalMode {
+		// ── Insert mode: pass everything through except Esc ──
+		if key == "esc" {
+			normalMode = true
+			return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
+		}
+		return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
+	}
+
+	// ── Normal mode ──
 	switch key {
 	// Navigation: remap hjkl to arrow keys.
 	case "h":
@@ -79,27 +92,19 @@ func handleVimKey(key string, currentText string) ext.EditorKeyAction {
 
 	// Mode switching.
 	case "i":
-		// Enter insert mode.
 		normalMode = false
-		if savedCtx.ResetEditor != nil {
-			savedCtx.ResetEditor()
-		}
 		return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
 
 	// Editing shortcuts.
 	case "x":
-		// Delete character under cursor (remap to delete key).
 		return ext.EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "delete"}
 	case "0":
-		// Jump to beginning of line.
 		return ext.EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "home"}
 	case "$":
-		// Jump to end of line.
 		return ext.EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "end"}
 
 	// Submission.
 	case "enter":
-		// In normal mode, Enter submits the current text.
 		if strings.TrimSpace(currentText) != "" {
 			return ext.EditorKeyAction{Type: ext.EditorKeySubmit}
 		}
@@ -107,11 +112,10 @@ func handleVimKey(key string, currentText string) ext.EditorKeyAction {
 
 	// Block most printable keys in normal mode.
 	default:
-		// Let control sequences and special keys through (e.g., ctrl+c, esc).
+		// Let control sequences and special keys through (e.g., ctrl+c).
 		if len(key) > 1 && key != "space" {
 			return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
 		}
-		// Consume single printable characters — don't insert in normal mode.
 		return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
 	}
 }
@@ -123,10 +127,7 @@ func renderVimMode(width int, defaultContent string) string {
 		mode = "-- INSERT --"
 	}
 
-	// Build a mode indicator line.
 	indicator := fmt.Sprintf("  %s", mode)
-
-	// Pad to fill width.
 	padding := width - len(indicator)
 	if padding > 0 {
 		indicator += strings.Repeat(" ", padding)
