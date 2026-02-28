@@ -305,6 +305,31 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 	return cmds
 }
 
+// widgetProviderForUI returns a function that converts extension widgets to
+// ui.WidgetData for the given placement. Returns nil if extensions are
+// disabled, which is safe — the UI treats a nil GetWidgets as "no widgets".
+func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
+	if !k.HasExtensions() {
+		return nil
+	}
+	return func(placement string) []ui.WidgetData {
+		configs := k.GetExtensionWidgets(extensions.WidgetPlacement(placement))
+		if len(configs) == 0 {
+			return nil
+		}
+		widgets := make([]ui.WidgetData, len(configs))
+		for i, c := range configs {
+			widgets[i] = ui.WidgetData{
+				Text:        c.Content.Text,
+				Markdown:    c.Content.Markdown,
+				BorderColor: c.Style.BorderColor,
+				NoBorder:    c.Style.NoBorder,
+			}
+		}
+		return widgets
+	}
+}
+
 func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
@@ -431,6 +456,14 @@ func runNormalMode(ctx context.Context) error {
 			PrintError:  func(text string) { appInstance.PrintFromExtension("error", text) },
 			PrintBlock:  appInstance.PrintBlockFromExtension,
 			SendMessage: func(text string) { appInstance.Run(text) },
+			SetWidget: func(config extensions.WidgetConfig) {
+				kitInstance.SetExtensionWidget(config)
+				appInstance.NotifyWidgetUpdate()
+			},
+			RemoveWidget: func(id string) {
+				kitInstance.RemoveExtensionWidget(id)
+				appInstance.NotifyWidgetUpdate()
+			},
 		})
 		kitInstance.EmitSessionStart()
 	}
@@ -459,7 +492,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, widgetProviderForUI(kitInstance))
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -467,7 +500,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, widgetProviderForUI(kitInstance))
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -480,7 +513,7 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData) error {
 	if quiet {
 		// Quiet mode: no intermediate display, just print final response.
 		if err := appInstance.RunOnce(ctx, prompt); err != nil {
@@ -506,7 +539,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets)
 	}
 
 	return nil
@@ -523,7 +556,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -546,6 +579,7 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		ExtensionCommands:  extCommands,
 		ContextPaths:       contextPaths,
 		SkillItems:         skillItems,
+		GetWidgets:         getWidgets,
 	})
 
 	// Print startup info to stdout before Bubble Tea takes over the screen.

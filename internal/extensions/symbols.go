@@ -26,6 +26,14 @@ func Symbols() interp.Exports {
 			"CommandDef":     reflect.ValueOf((*CommandDef)(nil)),
 			"PrintBlockOpts": reflect.ValueOf((*PrintBlockOpts)(nil)),
 
+			// Widget types
+			"WidgetConfig":    reflect.ValueOf((*WidgetConfig)(nil)),
+			"WidgetContent":   reflect.ValueOf((*WidgetContent)(nil)),
+			"WidgetStyle":     reflect.ValueOf((*WidgetStyle)(nil)),
+			"WidgetPlacement": reflect.ValueOf((*WidgetPlacement)(nil)),
+			"WidgetAbove":     reflect.ValueOf(WidgetAbove),
+			"WidgetBelow":     reflect.ValueOf(WidgetBelow),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

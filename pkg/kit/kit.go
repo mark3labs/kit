@@ -144,6 +144,31 @@ func (m *Kit) ExtensionCommands() []extensions.CommandDef {
 	return m.extRunner.RegisteredCommands()
 }
 
+// SetExtensionWidget places or updates a persistent extension widget.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) SetExtensionWidget(config extensions.WidgetConfig) {
+	if m.extRunner != nil {
+		m.extRunner.SetWidget(config)
+	}
+}
+
+// RemoveExtensionWidget removes a previously placed extension widget by ID.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) RemoveExtensionWidget(id string) {
+	if m.extRunner != nil {
+		m.extRunner.RemoveWidget(id)
+	}
+}
+
+// GetExtensionWidgets returns extension widgets matching the given placement.
+// Returns nil if extensions are disabled or no widgets match.
+func (m *Kit) GetExtensionWidgets(placement extensions.WidgetPlacement) []extensions.WidgetConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetWidgets(placement)
+}
+
 // HasExtensions returns true if the extension runner is configured and active.
 func (m *Kit) HasExtensions() bool {
 	return m.extRunner != nil

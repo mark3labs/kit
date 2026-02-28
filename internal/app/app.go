@@ -491,6 +491,18 @@ func (a *App) PrintFromExtension(level, text string) {
 	fmt.Println(text)
 }
 
+// NotifyWidgetUpdate sends a WidgetUpdateEvent to the TUI so it re-renders
+// extension widgets. Called from the extension context's SetWidget/RemoveWidget
+// closures. In non-interactive mode this is a no-op (widgets are TUI-only).
+func (a *App) NotifyWidgetUpdate() {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(WidgetUpdateEvent{})
+	}
+}
+
 // PrintBlockFromExtension outputs a custom styled block from an extension.
 func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 	a.mu.Lock()

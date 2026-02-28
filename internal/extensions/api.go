@@ -63,6 +63,25 @@ type Context struct {
 	//       ctx.SendMessage("Subagent result:\n" + string(out))
 	//   }()
 	SendMessage func(string)
+
+	// SetWidget places or updates a persistent widget in the TUI. Widgets
+	// remain visible across agent turns until explicitly removed. The
+	// widget is identified by WidgetConfig.ID; calling SetWidget with the
+	// same ID replaces the previous content.
+	//
+	// Example:
+	//
+	//   ctx.SetWidget(ext.WidgetConfig{
+	//       ID:        "my-status",
+	//       Placement: ext.WidgetAbove,
+	//       Content:   ext.WidgetContent{Text: "Build: passing"},
+	//       Style:     ext.WidgetStyle{BorderColor: "#a6e3a1"},
+	//   })
+	SetWidget func(WidgetConfig)
+
+	// RemoveWidget removes a previously placed widget by its ID. No-op if
+	// the ID does not exist.
+	RemoveWidget func(id string)
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -183,6 +202,67 @@ func (a *API) RegisterTool(tool ToolDef) {
 // RegisterCommand adds a slash command available in interactive mode.
 func (a *API) RegisterCommand(cmd CommandDef) {
 	a.registerCmdFn(cmd)
+}
+
+// ---------------------------------------------------------------------------
+// Widget types (exposed to Yaegi — concrete structs, no interfaces)
+// ---------------------------------------------------------------------------
+
+// WidgetPlacement determines where a widget appears in the TUI layout
+// relative to the input area.
+type WidgetPlacement string
+
+const (
+	// WidgetAbove places the widget above the input area, between the
+	// separator and queued messages.
+	WidgetAbove WidgetPlacement = "above"
+
+	// WidgetBelow places the widget below the input area, between the
+	// input and the status bar.
+	WidgetBelow WidgetPlacement = "below"
+)
+
+// WidgetContent describes what to render in a widget slot.
+type WidgetContent struct {
+	// Text is the content to display.
+	Text string
+
+	// Markdown, when true, renders Text as styled markdown instead of
+	// plain text.
+	Markdown bool
+}
+
+// WidgetStyle configures the visual appearance of a widget.
+type WidgetStyle struct {
+	// BorderColor is a hex color (e.g. "#a6e3a1") for the left border.
+	// Empty uses the theme's default accent color.
+	BorderColor string
+
+	// NoBorder disables the left border entirely.
+	NoBorder bool
+}
+
+// WidgetConfig fully describes a widget for placement in the TUI.
+// Extensions identify widgets by ID; calling SetWidget with the same ID
+// replaces the previous widget. IDs should be descriptive to avoid
+// collisions across extensions (e.g. "myext:token-counter").
+type WidgetConfig struct {
+	// ID uniquely identifies this widget. Must be non-empty.
+	ID string
+
+	// Placement determines where the widget appears (above or below input).
+	Placement WidgetPlacement
+
+	// Content describes what to render.
+	Content WidgetContent
+
+	// Style configures the appearance.
+	Style WidgetStyle
+
+	// Priority controls ordering within a placement slot. Lower values
+	// render first. Widgets with equal priority are ordered by insertion
+	// time.
+	Priority int
 }
 
 // ---------------------------------------------------------------------------

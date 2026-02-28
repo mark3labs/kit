@@ -69,6 +69,21 @@ type SkillItem struct {
 	Source string // "project" or "user" (global).
 }
 
+// WidgetData is the UI-layer representation of an extension widget. It
+// decouples the UI package from the extensions package. The CLI layer
+// converts extension WidgetConfig values to WidgetData for rendering.
+type WidgetData struct {
+	// Text is the content to display.
+	Text string
+	// Markdown, when true, renders Text as styled markdown.
+	Markdown bool
+	// BorderColor is a hex color (e.g. "#a6e3a1") for the left border.
+	// Empty uses the theme's default accent color.
+	BorderColor string
+	// NoBorder disables the left border entirely.
+	NoBorder bool
+}
+
 // AppModelOptions holds configuration passed to NewAppModel.
 type AppModelOptions struct {
 	// CompactMode selects the compact renderer for message formatting.
@@ -117,6 +132,11 @@ type AppModelOptions struct {
 
 	// ExtensionToolCount is the number of tools registered by extensions.
 	ExtensionToolCount int
+
+	// GetWidgets returns current extension widgets for a given placement
+	// ("above" or "below"). Called during View() to render persistent
+	// extension widgets. May be nil if no extensions are loaded.
+	GetWidgets func(placement string) []WidgetData
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -208,6 +228,9 @@ type AppModel struct {
 	mcpToolCount       int
 	extensionToolCount int
 
+	// getWidgets returns extension widgets for a given placement. May be nil.
+	getWidgets func(placement string) []WidgetData
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -287,6 +310,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
+	m.getWidgets = opts.GetWidgets
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -692,6 +716,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err)))
 
+	case app.WidgetUpdateEvent:
+		// Extension widget changed — recalculate height distribution so the
+		// stream region accounts for widget space. View() will read the
+		// latest widget state on the next render.
+		m.distributeHeight()
+
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
 		switch msg.Level {
@@ -746,11 +776,23 @@ func (m *AppModel) View() tea.View {
 	}
 	parts = append(parts, separator)
 
+	// Render "above" widgets between separator and queued messages.
+	if aboveView := m.renderWidgetSlot("above"); aboveView != "" {
+		parts = append(parts, aboveView)
+	}
+
 	if queuedView := m.renderQueuedMessages(); queuedView != "" {
 		parts = append(parts, queuedView)
 	}
 
-	parts = append(parts, inputView, statusBar)
+	parts = append(parts, inputView)
+
+	// Render "below" widgets between input and status bar.
+	if belowView := m.renderWidgetSlot("below"); belowView != "" {
+		parts = append(parts, belowView)
+	}
+
+	parts = append(parts, statusBar)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
@@ -852,6 +894,44 @@ func (m *AppModel) renderInput() string {
 		return ""
 	}
 	return m.input.View().Content
+}
+
+// renderWidgetSlot renders all extension widgets for the given placement
+// ("above" or "below"). Returns "" if no widgets exist for that slot.
+func (m *AppModel) renderWidgetSlot(placement string) string {
+	if m.getWidgets == nil {
+		return ""
+	}
+	widgets := m.getWidgets(placement)
+	if len(widgets) == 0 {
+		return ""
+	}
+
+	theme := GetTheme()
+	var blocks []string
+	for _, w := range widgets {
+		content := w.Text
+
+		var opts []renderingOption
+		opts = append(opts, WithAlign(lipgloss.Left))
+
+		if w.NoBorder {
+			opts = append(opts, WithNoBorder())
+		} else {
+			borderClr := theme.Accent
+			if w.BorderColor != "" {
+				borderClr = lipgloss.Color(w.BorderColor)
+			}
+			opts = append(opts, WithBorderColor(borderClr))
+		}
+
+		// Use tighter padding for widgets (less vertical padding than
+		// full message blocks) so they feel compact and unobtrusive.
+		opts = append(opts, WithPaddingTop(0), WithPaddingBottom(0))
+
+		blocks = append(blocks, renderContentBlock(content, m.width, opts...))
+	}
+	return strings.Join(blocks, "\n")
 }
 
 // renderQueuedMessages renders queued prompts as styled content blocks with a
@@ -1208,15 +1288,17 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 }
 
 // distributeHeight recalculates child component heights after a window resize,
-// queue change, or state transition, and propagates the computed stream height
-// to the StreamComponent.
+// queue change, widget update, or state transition, and propagates the computed
+// stream height to the StreamComponent.
 //
 // Layout (line counts):
 //
-//	stream region  = total - separator(1) - queued(N*5) - input(measured) - statusBar(1)
+//	stream region  = total - separator(1) - widgets - queued(N*5) - input(measured) - widgets - statusBar(1)
 //	separator      = 1 line
+//	above widgets  = measured dynamically
 //	queued msgs    = ~5 lines per message (padding + text + badge + padding)
 //	input region   = measured dynamically via lipgloss.Height()
+//	below widgets  = measured dynamically
 //	status bar     = 1 line (always present)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
@@ -1233,7 +1315,16 @@ func (m *AppModel) distributeHeight() {
 		}
 	}
 
-	streamHeight := max(m.height-separatorLines-queuedLines-inputLines-statusBarLines, 0)
+	// Measure widget heights.
+	var widgetLines int
+	if above := m.renderWidgetSlot("above"); above != "" {
+		widgetLines += lipgloss.Height(above)
+	}
+	if below := m.renderWidgetSlot("below"); below != "" {
+		widgetLines += lipgloss.Height(below)
+	}
+
+	streamHeight := max(m.height-separatorLines-widgetLines-queuedLines-inputLines-statusBarLines, 0)
 
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)

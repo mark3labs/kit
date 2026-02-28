@@ -2,6 +2,7 @@ package extensions
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/charmbracelet/log"
@@ -13,6 +14,7 @@ import (
 type Runner struct {
 	extensions []LoadedExtension
 	ctx        Context
+	widgets    map[string]WidgetConfig // keyed by widget ID
 	mu         sync.RWMutex
 }
 
@@ -125,6 +127,50 @@ func (r *Runner) GetContext() Context {
 // Extensions returns the loaded extensions for inspection (e.g. CLI list).
 func (r *Runner) Extensions() []LoadedExtension {
 	return r.extensions
+}
+
+// ---------------------------------------------------------------------------
+// Widget management
+// ---------------------------------------------------------------------------
+
+// SetWidget places or updates a persistent widget. The widget is identified
+// by config.ID; calling SetWidget with the same ID replaces the previous
+// content. Thread-safe.
+func (r *Runner) SetWidget(config WidgetConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.widgets == nil {
+		r.widgets = make(map[string]WidgetConfig)
+	}
+	r.widgets[config.ID] = config
+}
+
+// RemoveWidget removes a widget by ID. No-op if the ID does not exist.
+// Thread-safe.
+func (r *Runner) RemoveWidget(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.widgets, id)
+}
+
+// GetWidgets returns all widgets matching the given placement, sorted by
+// priority (ascending). Thread-safe.
+func (r *Runner) GetWidgets(placement WidgetPlacement) []WidgetConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []WidgetConfig
+	for _, w := range r.widgets {
+		if w.Placement == placement {
+			result = append(result, w)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Priority != result[j].Priority {
+			return result[i].Priority < result[j].Priority
+		}
+		return result[i].ID < result[j].ID // stable tie-break
+	})
+	return result
 }
 
 // ---------------------------------------------------------------------------

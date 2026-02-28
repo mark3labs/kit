@@ -113,6 +113,11 @@ type CompactErrorEvent struct {
 	Err error
 }
 
+// WidgetUpdateEvent is sent when an extension adds, updates, or removes a
+// widget via ctx.SetWidget or ctx.RemoveWidget. The TUI re-reads widget state
+// from its WidgetProvider on the next render cycle.
+type WidgetUpdateEvent struct{}
+
 // ExtensionPrintEvent is sent when an extension calls ctx.Print, ctx.PrintInfo,
 // ctx.PrintError, or ctx.PrintBlock. The TUI renders it via the appropriate
 // renderer and tea.Println (scrollback); the CLI handler uses
