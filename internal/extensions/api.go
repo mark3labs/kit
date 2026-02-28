@@ -83,6 +83,38 @@ type Context struct {
 	// the ID does not exist.
 	RemoveWidget func(id string)
 
+	// SetHeader places a custom header at the top of the TUI view, above
+	// the stream region. Only one header can be active at a time; calling
+	// SetHeader replaces any previous header. The header persists across
+	// agent turns until explicitly removed.
+	//
+	// Example:
+	//
+	//   ctx.SetHeader(ext.HeaderFooterConfig{
+	//       Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+	//       Style:   ext.WidgetStyle{BorderColor: "#89b4fa"},
+	//   })
+	SetHeader func(HeaderFooterConfig)
+
+	// RemoveHeader removes the custom header. No-op if no header is set.
+	RemoveHeader func()
+
+	// SetFooter places a custom footer at the bottom of the TUI view,
+	// below the status bar. Only one footer can be active at a time;
+	// calling SetFooter replaces any previous footer. The footer persists
+	// across agent turns until explicitly removed.
+	//
+	// Example:
+	//
+	//   ctx.SetFooter(ext.HeaderFooterConfig{
+	//       Content: ext.WidgetContent{Text: "Ready | 3 tasks remaining"},
+	//       Style:   ext.WidgetStyle{BorderColor: "#a6e3a1"},
+	//   })
+	SetFooter func(HeaderFooterConfig)
+
+	// RemoveFooter removes the custom footer. No-op if no footer is set.
+	RemoveFooter func()
+
 	// PromptSelect shows a selection list to the user and blocks until
 	// they pick an option or cancel (ESC). Returns a cancelled result in
 	// non-interactive mode. Safe to call from event handlers and slash
@@ -367,6 +399,22 @@ type PromptInputResult struct {
 	Value string
 	// Cancelled is true if the user dismissed the prompt.
 	Cancelled bool
+}
+
+// ---------------------------------------------------------------------------
+// Header/Footer types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// HeaderFooterConfig describes a custom header or footer region that replaces
+// or augments the default TUI chrome. Extensions use ctx.SetHeader/SetFooter
+// to place one; only one header and one footer can be active at a time (the
+// latest call wins). Reuses WidgetContent and WidgetStyle for consistency.
+type HeaderFooterConfig struct {
+	// Content describes what to render.
+	Content WidgetContent
+
+	// Style configures the appearance.
+	Style WidgetStyle
 }
 
 // ---------------------------------------------------------------------------

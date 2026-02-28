@@ -15,6 +15,8 @@ type Runner struct {
 	extensions []LoadedExtension
 	ctx        Context
 	widgets    map[string]WidgetConfig // keyed by widget ID
+	header     *HeaderFooterConfig     // nil = no custom header
+	footer     *HeaderFooterConfig     // nil = no custom footer
 	mu         sync.RWMutex
 }
 
@@ -171,6 +173,64 @@ func (r *Runner) GetWidgets(placement WidgetPlacement) []WidgetConfig {
 		return result[i].ID < result[j].ID // stable tie-break
 	})
 	return result
+}
+
+// ---------------------------------------------------------------------------
+// Header/Footer management
+// ---------------------------------------------------------------------------
+
+// SetHeader places or replaces the custom header. Thread-safe.
+func (r *Runner) SetHeader(config HeaderFooterConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.header = &config
+}
+
+// RemoveHeader removes the custom header. No-op if none is set. Thread-safe.
+func (r *Runner) RemoveHeader() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.header = nil
+}
+
+// GetHeader returns the current custom header, or nil if none is set.
+// Thread-safe.
+func (r *Runner) GetHeader() *HeaderFooterConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.header == nil {
+		return nil
+	}
+	// Return a copy to avoid races on the caller side.
+	h := *r.header
+	return &h
+}
+
+// SetFooter places or replaces the custom footer. Thread-safe.
+func (r *Runner) SetFooter(config HeaderFooterConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.footer = &config
+}
+
+// RemoveFooter removes the custom footer. No-op if none is set. Thread-safe.
+func (r *Runner) RemoveFooter() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.footer = nil
+}
+
+// GetFooter returns the current custom footer, or nil if none is set.
+// Thread-safe.
+func (r *Runner) GetFooter() *HeaderFooterConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.footer == nil {
+		return nil
+	}
+	// Return a copy to avoid races on the caller side.
+	f := *r.footer
+	return &f
 }
 
 // ---------------------------------------------------------------------------

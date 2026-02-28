@@ -146,6 +146,16 @@ type AppModelOptions struct {
 	// ("above" or "below"). Called during View() to render persistent
 	// extension widgets. May be nil if no extensions are loaded.
 	GetWidgets func(placement string) []WidgetData
+
+	// GetHeader returns the current custom header set by an extension, or
+	// nil if no header is active. Called during View() to render a
+	// persistent header above the stream region. May be nil.
+	GetHeader func() *WidgetData
+
+	// GetFooter returns the current custom footer set by an extension, or
+	// nil if no footer is active. Called during View() to render a
+	// persistent footer below the status bar. May be nil.
+	GetFooter func() *WidgetData
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -155,13 +165,17 @@ type AppModelOptions struct {
 //
 // Layout (stacked, no alt screen):
 //
-//	┌─ stream region (variable height) ─────────────────┐
+//	┌─ [custom header] (optional, from extension) ──────┐
+//	├─ stream region (variable height) ─────────────────┤
 //	│                                                    │
 //	├─ separator line (with optional queue count) ───────┤
+//	│  [above widgets]                                   │
 //	│  queued  How do I fix the build?                   │
 //	│  queued  Also check the tests                      │
 //	├─ input region (fixed height from textarea) ────────┤
+//	│  [below widgets]                                   │
 //	│ Tokens: 23.4K (12%) | Cost: $0.00  provider·model │
+//	├─ [custom footer] (optional, from extension) ──────┤
 //	└────────────────────────────────────────────────────┘
 //
 // The status bar is always present (1 line) to avoid layout shifts that
@@ -239,6 +253,12 @@ type AppModel struct {
 
 	// getWidgets returns extension widgets for a given placement. May be nil.
 	getWidgets func(placement string) []WidgetData
+
+	// getHeader returns the current custom header. May be nil.
+	getHeader func() *WidgetData
+
+	// getFooter returns the current custom footer. May be nil.
+	getFooter func() *WidgetData
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -333,6 +353,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
 	m.getWidgets = opts.GetWidgets
+	m.getHeader = opts.GetHeader
+	m.getFooter = opts.GetFooter
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -852,10 +874,17 @@ func (m *AppModel) View() tea.View {
 	}
 	statusBar := m.renderStatusBar()
 
+	// Build the stacked layout. Optional header/footer wrap the core layout.
+	var parts []string
+
+	// Custom header (if set by extension) — above everything.
+	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+		parts = append(parts, headerView)
+	}
+
 	// Only include the stream region when it has content. When idle the
 	// stream renders "" which JoinVertical would pad to a full-width blank
 	// line, inflating the view unnecessarily.
-	var parts []string
 	if streamView != "" {
 		parts = append(parts, streamView)
 	}
@@ -878,6 +907,11 @@ func (m *AppModel) View() tea.View {
 	}
 
 	parts = append(parts, statusBar)
+
+	// Custom footer (if set by extension) — below everything.
+	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
+		parts = append(parts, footerView)
+	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
@@ -1017,6 +1051,40 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 		blocks = append(blocks, renderContentBlock(content, m.width, opts...))
 	}
 	return strings.Join(blocks, "\n")
+}
+
+// renderHeaderFooter renders a custom header or footer from an extension. The
+// getter function returns the current data (*WidgetData) or nil when inactive.
+// Returns "" when the getter is nil or returns nil. Uses the same rendering
+// pipeline as widgets for visual consistency.
+func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
+	if getter == nil {
+		return ""
+	}
+	data := getter()
+	if data == nil {
+		return ""
+	}
+
+	theme := GetTheme()
+
+	var opts []renderingOption
+	opts = append(opts, WithAlign(lipgloss.Left))
+
+	if data.NoBorder {
+		opts = append(opts, WithNoBorder())
+	} else {
+		borderClr := theme.Accent
+		if data.BorderColor != "" {
+			borderClr = lipgloss.Color(data.BorderColor)
+		}
+		opts = append(opts, WithBorderColor(borderClr))
+	}
+
+	// Compact padding like widgets.
+	opts = append(opts, WithPaddingTop(0), WithPaddingBottom(0))
+
+	return renderContentBlock(data.Text, m.width, opts...)
 }
 
 // renderQueuedMessages renders queued prompts as styled content blocks with a
@@ -1392,13 +1460,15 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 //
 // Layout (line counts):
 //
-//	stream region  = total - separator(1) - widgets - queued(N*5) - input(measured) - widgets - statusBar(1)
+//	header         = measured dynamically (0 if not set)
+//	stream region  = total - header - separator(1) - widgets - queued(N*5) - input(measured) - widgets - statusBar(1) - footer
 //	separator      = 1 line
 //	above widgets  = measured dynamically
 //	queued msgs    = ~5 lines per message (padding + text + badge + padding)
 //	input region   = measured dynamically via lipgloss.Height()
 //	below widgets  = measured dynamically
 //	status bar     = 1 line (always present)
+//	footer         = measured dynamically (0 if not set)
 func (m *AppModel) distributeHeight() {
 	const separatorLines = 1
 	const statusBarLines = 1 // always-present status bar
@@ -1427,7 +1497,16 @@ func (m *AppModel) distributeHeight() {
 		widgetLines += lipgloss.Height(below)
 	}
 
-	streamHeight := max(m.height-separatorLines-widgetLines-queuedLines-inputLines-statusBarLines, 0)
+	// Measure header/footer heights.
+	var headerFooterLines int
+	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+		headerFooterLines += lipgloss.Height(headerView)
+	}
+	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
+		headerFooterLines += lipgloss.Height(footerView)
+	}
+
+	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-inputLines-statusBarLines, 0)
 
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)

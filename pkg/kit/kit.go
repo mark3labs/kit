@@ -169,6 +169,56 @@ func (m *Kit) GetExtensionWidgets(placement extensions.WidgetPlacement) []extens
 	return m.extRunner.GetWidgets(placement)
 }
 
+// SetExtensionHeader places or replaces the custom header from extensions.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) SetExtensionHeader(config extensions.HeaderFooterConfig) {
+	if m.extRunner != nil {
+		m.extRunner.SetHeader(config)
+	}
+}
+
+// RemoveExtensionHeader removes the custom extension header.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) RemoveExtensionHeader() {
+	if m.extRunner != nil {
+		m.extRunner.RemoveHeader()
+	}
+}
+
+// GetExtensionHeader returns the current custom header, or nil if none is set.
+// Returns nil if extensions are disabled.
+func (m *Kit) GetExtensionHeader() *extensions.HeaderFooterConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetHeader()
+}
+
+// SetExtensionFooter places or replaces the custom footer from extensions.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) SetExtensionFooter(config extensions.HeaderFooterConfig) {
+	if m.extRunner != nil {
+		m.extRunner.SetFooter(config)
+	}
+}
+
+// RemoveExtensionFooter removes the custom extension footer.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) RemoveExtensionFooter() {
+	if m.extRunner != nil {
+		m.extRunner.RemoveFooter()
+	}
+}
+
+// GetExtensionFooter returns the current custom footer, or nil if none is set.
+// Returns nil if extensions are disabled.
+func (m *Kit) GetExtensionFooter() *extensions.HeaderFooterConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetFooter()
+}
+
 // HasExtensions returns true if the extension runner is configured and active.
 func (m *Kit) HasExtensions() bool {
 	return m.extRunner != nil

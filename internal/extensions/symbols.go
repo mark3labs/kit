@@ -34,6 +34,9 @@ func Symbols() interp.Exports {
 			"WidgetAbove":     reflect.ValueOf(WidgetAbove),
 			"WidgetBelow":     reflect.ValueOf(WidgetBelow),
 
+			// Header/Footer types
+			"HeaderFooterConfig": reflect.ValueOf((*HeaderFooterConfig)(nil)),
+
 			// Prompt types
 			"PromptSelectConfig":  reflect.ValueOf((*PromptSelectConfig)(nil)),
 			"PromptSelectResult":  reflect.ValueOf((*PromptSelectResult)(nil)),
