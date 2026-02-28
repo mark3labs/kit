@@ -37,6 +37,15 @@ func Symbols() interp.Exports {
 			// Header/Footer types
 			"HeaderFooterConfig": reflect.ValueOf((*HeaderFooterConfig)(nil)),
 
+			// Overlay types
+			"OverlayAnchor":       reflect.ValueOf((*OverlayAnchor)(nil)),
+			"OverlayCenter":       reflect.ValueOf(OverlayCenter),
+			"OverlayTopCenter":    reflect.ValueOf(OverlayTopCenter),
+			"OverlayBottomCenter": reflect.ValueOf(OverlayBottomCenter),
+			"OverlayStyle":        reflect.ValueOf((*OverlayStyle)(nil)),
+			"OverlayConfig":       reflect.ValueOf((*OverlayConfig)(nil)),
+			"OverlayResult":       reflect.ValueOf((*OverlayResult)(nil)),
+
 			// Tool renderer types
 			"ToolRenderConfig": reflect.ValueOf((*ToolRenderConfig)(nil)),
 

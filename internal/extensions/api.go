@@ -160,6 +160,24 @@ type Context struct {
 	//       fmt.Println("Tag:", result.Value)
 	//   }
 	PromptInput func(PromptInputConfig) PromptInputResult
+
+	// ShowOverlay displays a modal overlay dialog that blocks until the
+	// user dismisses it or selects an action. The overlay renders as a
+	// centered (or anchored) bordered box over the TUI. Returns a
+	// cancelled result in non-interactive mode.
+	//
+	// Example:
+	//
+	//   result := ctx.ShowOverlay(ext.OverlayConfig{
+	//       Title:   "Deployment Summary",
+	//       Content: ext.WidgetContent{Text: "All 3 services deployed."},
+	//       Style:   ext.OverlayStyle{BorderColor: "#a6e3a1"},
+	//       Actions: []string{"Continue", "Rollback", "Details"},
+	//   })
+	//   if !result.Cancelled {
+	//       fmt.Println("Selected:", result.Action)
+	//   }
+	ShowOverlay func(OverlayConfig) OverlayResult
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -424,6 +442,97 @@ type HeaderFooterConfig struct {
 
 	// Style configures the appearance.
 	Style WidgetStyle
+}
+
+// ---------------------------------------------------------------------------
+// Overlay types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// OverlayAnchor determines the vertical position of an overlay dialog
+// within the TUI view.
+type OverlayAnchor string
+
+const (
+	// OverlayCenter positions the dialog in the vertical center.
+	OverlayCenter OverlayAnchor = "center"
+
+	// OverlayTopCenter positions the dialog near the top of the view.
+	OverlayTopCenter OverlayAnchor = "top-center"
+
+	// OverlayBottomCenter positions the dialog near the bottom of the view.
+	OverlayBottomCenter OverlayAnchor = "bottom-center"
+)
+
+// OverlayStyle configures the visual appearance of an overlay dialog.
+type OverlayStyle struct {
+	// BorderColor is a hex color (e.g. "#89b4fa") for the dialog border.
+	// Empty uses a default blue accent.
+	BorderColor string
+
+	// Background is a hex color (e.g. "#1e1e2e") for the dialog background.
+	// Empty means no explicit background (inherits terminal default).
+	Background string
+}
+
+// OverlayConfig fully describes a modal overlay dialog. Extensions call
+// ctx.ShowOverlay(config) to display the dialog and block until the user
+// dismisses it or selects an action. The dialog renders as a bordered box
+// positioned within the TUI, with optional scrollable content and action
+// buttons.
+//
+// Example:
+//
+//	result := ctx.ShowOverlay(ext.OverlayConfig{
+//	    Title:   "Build Results",
+//	    Content: ext.WidgetContent{Text: "All 42 tests passed."},
+//	    Style:   ext.OverlayStyle{BorderColor: "#a6e3a1"},
+//	    Width:   60,
+//	    Actions: []string{"Continue", "Show Details"},
+//	})
+type OverlayConfig struct {
+	// Title is displayed at the top of the dialog. Empty means no title.
+	Title string
+
+	// Content describes what to render inside the dialog body. The Text
+	// field is required; set Markdown=true to render as styled markdown.
+	Content WidgetContent
+
+	// Style configures the appearance.
+	Style OverlayStyle
+
+	// Width is the dialog width in columns. 0 = 60% of terminal width.
+	// Clamped to [30, termWidth-4].
+	Width int
+
+	// MaxHeight limits the dialog height in lines. 0 = 80% of terminal
+	// height. Content exceeding this height becomes scrollable.
+	MaxHeight int
+
+	// Anchor determines vertical positioning. Default is "center".
+	Anchor OverlayAnchor
+
+	// Actions, if non-empty, shows selectable action buttons at the
+	// bottom of the dialog. The user navigates with left/right arrows
+	// and selects with Enter. The selected action's text and index are
+	// returned in OverlayResult.
+	//
+	// If empty, the dialog is a simple info panel dismissed with ESC
+	// or Enter (result.Cancelled=false, result.Action="", result.Index=-1).
+	Actions []string
+}
+
+// OverlayResult is the response from a ShowOverlay call.
+type OverlayResult struct {
+	// Action is the text of the selected action, or "" if no actions
+	// were configured or the dialog was dismissed without selection.
+	Action string
+
+	// Index is the zero-based index of the selected action, or -1 if
+	// no action was selected.
+	Index int
+
+	// Cancelled is true if the user dismissed the dialog with ESC.
+	Cancelled bool
 }
 
 // ---------------------------------------------------------------------------

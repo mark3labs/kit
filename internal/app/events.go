@@ -178,3 +178,48 @@ type PromptRequestEvent struct {
 	// blocks inside Update().
 	ResponseCh chan<- PromptResponse
 }
+
+// OverlayResponse carries the user's answer to a modal overlay dialog. The
+// TUI sends exactly one OverlayResponse through the channel embedded in
+// OverlayRequestEvent when the user completes or cancels the overlay.
+type OverlayResponse struct {
+	// Action is the text of the selected action button, or "" if no actions
+	// were configured or the dialog was dismissed without selection.
+	Action string
+	// Index is the zero-based index of the selected action, or -1 if no
+	// action was selected.
+	Index int
+	// Cancelled is true if the user dismissed the overlay (ESC) or the
+	// overlay could not be shown (e.g. non-interactive mode).
+	Cancelled bool
+}
+
+// OverlayRequestEvent is sent when an extension requests a modal overlay
+// dialog. The TUI enters an overlay state, renders the dialog, and sends a
+// single OverlayResponse through ResponseCh when the user dismisses or
+// selects an action.
+//
+// The extension goroutine blocks on the read side of ResponseCh until the
+// TUI sends a response. The channel must have buffer size >= 1.
+type OverlayRequestEvent struct {
+	// Title is displayed at the top of the dialog. Empty means no title.
+	Title string
+	// Content is the text to render inside the dialog body.
+	Content string
+	// Markdown, when true, renders Content as styled markdown.
+	Markdown bool
+	// BorderColor is a hex color for the dialog border. Empty uses default.
+	BorderColor string
+	// Background is a hex color for the dialog background. Empty = none.
+	Background string
+	// Width is the dialog width in columns. 0 = auto (60% of terminal).
+	Width int
+	// MaxHeight limits dialog height. 0 = auto (80% of terminal).
+	MaxHeight int
+	// Anchor is the vertical positioning: "center", "top-center", "bottom-center".
+	Anchor string
+	// Actions lists the action button labels. Empty = simple dismiss dialog.
+	Actions []string
+	// ResponseCh receives the user's response. Must have buffer size >= 1.
+	ResponseCh chan<- OverlayResponse
+}

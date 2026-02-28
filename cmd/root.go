@@ -593,6 +593,29 @@ func runNormalMode(ctx context.Context) error {
 				}
 				return extensions.PromptInputResult{Value: resp.Value}
 			},
+			ShowOverlay: func(config extensions.OverlayConfig) extensions.OverlayResult {
+				ch := make(chan app.OverlayResponse, 1)
+				appInstance.SendOverlayRequest(app.OverlayRequestEvent{
+					Title:       config.Title,
+					Content:     config.Content.Text,
+					Markdown:    config.Content.Markdown,
+					BorderColor: config.Style.BorderColor,
+					Background:  config.Style.Background,
+					Width:       config.Width,
+					MaxHeight:   config.MaxHeight,
+					Anchor:      string(config.Anchor),
+					Actions:     config.Actions,
+					ResponseCh:  ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.OverlayResult{Cancelled: true, Index: -1}
+				}
+				return extensions.OverlayResult{
+					Action: resp.Action,
+					Index:  resp.Index,
+				}
+			},
 		})
 		kitInstance.EmitSessionStart()
 	}

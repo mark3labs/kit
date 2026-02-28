@@ -30,6 +30,10 @@ const (
 	// statePrompt means an extension-triggered interactive prompt is active.
 	// The prompt overlay takes full focus until the user completes or cancels.
 	statePrompt
+
+	// stateOverlay means an extension-triggered modal overlay dialog is active.
+	// The overlay takes over the full view until the user completes or cancels.
+	stateOverlay
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -310,6 +314,19 @@ type AppModel struct {
 	// over, so the model can return to it when the prompt completes.
 	prePromptState appState
 
+	// overlay holds the state of an active modal overlay dialog. Nil when
+	// no overlay is active. Managed by updateOverlayState().
+	overlay *overlayDialog
+
+	// overlayResponseCh is the write-side of the channel used to deliver
+	// the user's overlay response back to the blocking extension goroutine.
+	// Set alongside overlay; nil when no overlay is active.
+	overlayResponseCh chan<- app.OverlayResponse
+
+	// preOverlayState remembers the state before the overlay took over,
+	// so the model can return to it when the overlay completes.
+	preOverlayState appState
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -520,6 +537,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updatePromptState(msg)
 	}
 
+	// Overlay dialog takes precedence when active — it is fully modal.
+	if m.state == stateOverlay && m.overlay != nil {
+		return m.updateOverlayState(msg)
+	}
+
 	switch msg := msg.(type) {
 
 	// ── Tree selector events ─────────────────────────────────────────────────
@@ -590,6 +612,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.promptResponseCh <- app.PromptResponse{Cancelled: true}
 				m.promptResponseCh = nil
 				m.prompt = nil
+			}
+			// Cancel any active overlay before quitting.
+			if m.overlayResponseCh != nil {
+				m.overlayResponseCh <- app.OverlayResponse{Cancelled: true}
+				m.overlayResponseCh = nil
+				m.overlay = nil
 			}
 			// Graceful quit: app.Close() is deferred in cmd/root.go.
 			return m, tea.Quit
@@ -853,6 +881,30 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.prompt.Init())
 		}
 
+	case app.OverlayRequestEvent:
+		// Extension wants to show a modal overlay dialog. Enter overlay state.
+		// If already in overlay or prompt state, immediately cancel the request.
+		if m.state == stateOverlay || m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.preOverlayState = m.state
+		m.state = stateOverlay
+		m.overlayResponseCh = msg.ResponseCh
+
+		m.overlay = newOverlayDialog(
+			msg.Title, msg.Content, msg.Markdown,
+			msg.BorderColor, msg.Background,
+			msg.Width, msg.MaxHeight, msg.Anchor,
+			msg.Actions,
+			m.width, m.height,
+		)
+		if m.overlay != nil {
+			cmds = append(cmds, m.overlay.Init())
+		}
+
 	case extensionCmdResultMsg:
 		// Async extension slash command completed. Render output/error.
 		if msg.err != nil {
@@ -900,6 +952,11 @@ func (m *AppModel) View() tea.View {
 	// Tree selector overlay replaces the normal layout.
 	if m.state == stateTreeSelector && m.treeSelector != nil {
 		return m.treeSelector.View()
+	}
+
+	// Overlay dialog replaces the normal layout.
+	if m.state == stateOverlay && m.overlay != nil {
+		return tea.NewView(m.overlay.Render())
 	}
 
 	streamView := m.renderStream()
@@ -1755,4 +1812,71 @@ func (m *AppModel) resolvePrompt(resp app.PromptResponse) {
 	}
 	m.prompt = nil
 	m.state = m.prePromptState
+}
+
+// --------------------------------------------------------------------------
+// Overlay dialog support
+// --------------------------------------------------------------------------
+
+// updateOverlayState handles all messages while the overlay dialog is active.
+// It routes keys to the overlay, detects completion/cancellation, and restores
+// the previous state when done.
+func (m *AppModel) updateOverlayState(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			// Cancel overlay and quit the application.
+			m.resolveOverlay(app.OverlayResponse{Cancelled: true})
+			return m, tea.Quit
+		}
+		result, cmd := m.overlay.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if result != nil {
+			if result.cancelled {
+				m.resolveOverlay(app.OverlayResponse{Cancelled: true})
+			} else {
+				m.resolveOverlay(app.OverlayResponse{
+					Action: result.action,
+					Index:  result.index,
+				})
+			}
+		}
+
+	case app.OverlayRequestEvent:
+		// Already handling an overlay — reject concurrent requests.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
+		}
+
+	case app.PromptRequestEvent:
+		// Can't show a prompt while an overlay is active — reject.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		_, cmd := m.overlay.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// resolveOverlay sends the response through the channel, clears overlay state,
+// and restores the previous app state.
+func (m *AppModel) resolveOverlay(resp app.OverlayResponse) {
+	if m.overlayResponseCh != nil {
+		m.overlayResponseCh <- resp
+		m.overlayResponseCh = nil
+	}
+	m.overlay = nil
+	m.state = m.preOverlayState
 }

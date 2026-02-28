@@ -529,6 +529,24 @@ func (a *App) SendPromptRequest(evt PromptRequestEvent) {
 	}
 }
 
+// SendOverlayRequest sends an OverlayRequestEvent to the TUI so the user
+// can interact with a modal overlay dialog. In non-interactive mode (no
+// program registered) it immediately responds with a cancelled result via the
+// channel, ensuring the calling extension goroutine never blocks indefinitely.
+func (a *App) SendOverlayRequest(evt OverlayRequestEvent) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(evt)
+		return
+	}
+	// Non-interactive fallback: immediately cancel.
+	if evt.ResponseCh != nil {
+		evt.ResponseCh <- OverlayResponse{Cancelled: true}
+	}
+}
+
 // PrintBlockFromExtension outputs a custom styled block from an extension.
 func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 	a.mu.Lock()
