@@ -146,6 +146,12 @@ func formatToolParams(toolArgs string, maxWidth int) string {
 type MessageRenderer struct {
 	width int
 	debug bool
+
+	// getToolRenderer returns extension-provided rendering overrides for a
+	// specific tool. May be nil if no extensions are loaded. Used in
+	// RenderToolMessage to check for custom header/body formatting before
+	// falling back to builtin renderers.
+	getToolRenderer func(toolName string) *ToolRendererData
 }
 
 // getSystemUsername returns the current system username, fallback to "User"
@@ -523,6 +529,12 @@ func (r *MessageRenderer) RenderToolCallMessage(toolName, toolArgs string, times
 func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
 	theme := getTheme()
 
+	// Resolve extension renderer once for all overrides.
+	var extRd *ToolRendererData
+	if r.getToolRenderer != nil {
+		extRd = r.getToolRenderer(toolName)
+	}
+
 	// --- Header: [icon] [name] [params] ---
 	var icon string
 	borderColor := theme.Success
@@ -535,29 +547,55 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		icon = "✓"
 	}
 
+	// Extension can override border color (applies to both success and error).
+	if extRd != nil && extRd.BorderColor != "" {
+		borderColor = lipgloss.Color(extRd.BorderColor)
+	}
+
 	iconStr := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon)
+
+	// Extension can override display name.
 	displayName := toolDisplayName(toolName)
+	if extRd != nil && extRd.DisplayName != "" {
+		displayName = extRd.DisplayName
+	}
 	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
 
-	// Format params with width budget for the header line
+	// Format params with width budget for the header line.
+	// Check extension renderer for custom header params first.
 	paramBudget := max(r.width-10-len(displayName), 20)
-	params := formatToolParams(toolArgs, paramBudget)
+	var params string
+	if extRd != nil && extRd.RenderHeader != nil {
+		params = extRd.RenderHeader(toolArgs, paramBudget)
+	}
+	if params == "" {
+		params = formatToolParams(toolArgs, paramBudget)
+	}
 
 	header := iconStr + " " + nameStr
 	if params != "" {
 		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
-	// --- Body: try tool-specific renderer first, then fall back ---
+	// --- Body: check extension renderer first, then builtin, then default ---
 	var body string
-	if isError {
-		body = lipgloss.NewStyle().
-			Foreground(theme.Error).
-			Render(toolResult)
-	} else {
-		body = renderToolBody(toolName, toolArgs, toolResult, r.width-8)
-		if body == "" {
-			body = r.formatToolResult(toolName, toolResult, r.width-8)
+	if extRd != nil && extRd.RenderBody != nil {
+		body = extRd.RenderBody(toolResult, isError, r.width-8)
+		// Apply markdown rendering if requested and body is non-empty.
+		if body != "" && extRd.BodyMarkdown {
+			body = strings.TrimSuffix(toMarkdown(body, r.width-8), "\n")
+		}
+	}
+	if body == "" {
+		if isError {
+			body = lipgloss.NewStyle().
+				Foreground(theme.Error).
+				Render(toolResult)
+		} else {
+			body = renderToolBody(toolName, toolArgs, toolResult, r.width-8)
+			if body == "" {
+				body = r.formatToolResult(toolName, toolResult, r.width-8)
+			}
 		}
 	}
 
@@ -568,15 +606,23 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 			Render("(no output)")
 	}
 
-	// Combine header + body into a single block
+	// Combine header + body into a single block.
 	fullContent := header + "\n\n" + strings.TrimSuffix(body, "\n")
+
+	// Build rendering options; extension can override background.
+	blockOpts := []renderingOption{
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderColor),
+		WithMarginBottom(1),
+	}
+	if extRd != nil && extRd.Background != "" {
+		blockOpts = append(blockOpts, WithBackground(lipgloss.Color(extRd.Background)))
+	}
 
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(borderColor),
-		WithMarginBottom(1),
+		blockOpts...,
 	)
 
 	return UIMessage{

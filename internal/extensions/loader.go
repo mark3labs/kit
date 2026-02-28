@@ -41,7 +41,8 @@ func LoadExtensions(extraPaths []string) ([]LoadedExtension, error) {
 		log.Debug("loaded extension", "path", p,
 			"handlers", countHandlers(ext),
 			"tools", len(ext.Tools),
-			"commands", len(ext.Commands))
+			"commands", len(ext.Commands),
+			"tool_renderers", len(ext.ToolRenderers))
 	}
 	return loaded, nil
 }
@@ -287,6 +288,9 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		},
 		registerCmdFn: func(cmd CommandDef) {
 			ext.Commands = append(ext.Commands, cmd)
+		},
+		registerToolRendererFn: func(config ToolRenderConfig) {
+			ext.ToolRenderers = append(ext.ToolRenderers, config)
 		},
 	}
 

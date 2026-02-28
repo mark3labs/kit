@@ -22,12 +22,13 @@ type Runner struct {
 
 // LoadedExtension represents a single extension that has been discovered,
 // loaded, and initialised. It holds the registered handlers and any custom
-// tools or commands the extension provided.
+// tools, commands, or tool renderers the extension provided.
 type LoadedExtension struct {
-	Path     string
-	Handlers map[EventType][]HandlerFunc
-	Tools    []ToolDef
-	Commands []CommandDef
+	Path          string
+	Handlers      map[EventType][]HandlerFunc
+	Tools         []ToolDef
+	Commands      []CommandDef
+	ToolRenderers []ToolRenderConfig
 }
 
 // NewRunner creates a Runner from a set of loaded extensions.
@@ -231,6 +232,27 @@ func (r *Runner) GetFooter() *HeaderFooterConfig {
 	// Return a copy to avoid races on the caller side.
 	f := *r.footer
 	return &f
+}
+
+// ---------------------------------------------------------------------------
+// Tool renderer management
+// ---------------------------------------------------------------------------
+
+// GetToolRenderer returns the custom renderer for the named tool, or nil if
+// no extension registered a renderer for it. If multiple extensions register
+// renderers for the same tool, the last one (by load order) wins. Thread-safe
+// (extensions are immutable after loading).
+func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
+	// Walk extensions in reverse so last-registered wins.
+	for i := len(r.extensions) - 1; i >= 0; i-- {
+		for j := len(r.extensions[i].ToolRenderers) - 1; j >= 0; j-- {
+			if r.extensions[i].ToolRenderers[j].ToolName == toolName {
+				config := r.extensions[i].ToolRenderers[j]
+				return &config
+			}
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

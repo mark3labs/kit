@@ -37,6 +37,9 @@ func Symbols() interp.Exports {
 			// Header/Footer types
 			"HeaderFooterConfig": reflect.ValueOf((*HeaderFooterConfig)(nil)),
 
+			// Tool renderer types
+			"ToolRenderConfig": reflect.ValueOf((*ToolRenderConfig)(nil)),
+
 			// Prompt types
 			"PromptSelectConfig":  reflect.ValueOf((*PromptSelectConfig)(nil)),
 			"PromptSelectResult":  reflect.ValueOf((*PromptSelectResult)(nil)),

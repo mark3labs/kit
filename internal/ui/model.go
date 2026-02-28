@@ -78,6 +78,37 @@ type SkillItem struct {
 	Source string // "project" or "user" (global).
 }
 
+// ToolRendererData holds extension-provided rendering functions for a specific
+// tool. The UI layer uses this to override the default tool header/body
+// rendering without depending on the extensions package directly.
+type ToolRendererData struct {
+	// DisplayName, if non-empty, replaces the auto-capitalized tool name
+	// in the header line.
+	DisplayName string
+
+	// BorderColor, if non-empty, overrides the default success/error border
+	// color. Hex string (e.g. "#89b4fa").
+	BorderColor string
+
+	// Background, if non-empty, sets a background color for the tool block.
+	// Hex string (e.g. "#1e1e2e").
+	Background string
+
+	// BodyMarkdown, when true, renders the RenderBody output as markdown
+	// via glamour. Ignored when RenderBody is nil or returns empty.
+	BodyMarkdown bool
+
+	// RenderHeader, if non-nil, replaces the default parameter formatting
+	// in the tool header line. Receives the JSON-encoded arguments and max
+	// width. Return a short summary string, or empty to fall back to default.
+	RenderHeader func(toolArgs string, width int) string
+
+	// RenderBody, if non-nil, replaces the default tool result body. Receives
+	// the result text, error flag, and available width. Return the full styled
+	// body content, or empty to fall back to builtin/default renderer.
+	RenderBody func(toolResult string, isError bool, width int) string
+}
+
 // WidgetData is the UI-layer representation of an extension widget. It
 // decouples the UI package from the extensions package. The CLI layer
 // converts extension WidgetConfig values to WidgetData for rendering.
@@ -156,6 +187,12 @@ type AppModelOptions struct {
 	// nil if no footer is active. Called during View() to render a
 	// persistent footer below the status bar. May be nil.
 	GetFooter func() *WidgetData
+
+	// GetToolRenderer returns the extension-provided tool renderer for a
+	// specific tool name, or nil if no custom renderer is registered.
+	// Called during tool result rendering to check for custom formatting.
+	// May be nil if no extensions are loaded.
+	GetToolRenderer func(toolName string) *ToolRendererData
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -330,9 +367,13 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Choose the renderer implementation based on compact mode.
 	var rdr Renderer
 	if opts.CompactMode {
-		rdr = NewCompactRenderer(width, false)
+		cr := NewCompactRenderer(width, false)
+		cr.getToolRenderer = opts.GetToolRenderer
+		rdr = cr
 	} else {
-		rdr = NewMessageRenderer(width, false)
+		mr := NewMessageRenderer(width, false)
+		mr.getToolRenderer = opts.GetToolRenderer
+		rdr = mr
 	}
 
 	m := &AppModel{

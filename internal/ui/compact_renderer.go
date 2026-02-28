@@ -14,6 +14,12 @@ import (
 type CompactRenderer struct {
 	width int
 	debug bool
+
+	// getToolRenderer returns extension-provided rendering overrides for a
+	// specific tool. May be nil if no extensions are loaded. Used in
+	// RenderToolMessage to check for custom header/body formatting before
+	// falling back to builtin renderers.
+	getToolRenderer func(toolName string) *ToolRendererData
 }
 
 // NewCompactRenderer creates and initializes a new CompactRenderer with the specified
@@ -141,6 +147,12 @@ func (r *CompactRenderer) RenderToolCallMessage(toolName, toolArgs string, times
 func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
 	theme := getTheme()
 
+	// Resolve extension renderer once for all overrides.
+	var extRd *ToolRendererData
+	if r.getToolRenderer != nil {
+		extRd = r.getToolRenderer(toolName)
+	}
+
 	// Status icon
 	var icon string
 	iconColor := theme.Success
@@ -152,12 +164,23 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	}
 
 	iconStr := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon)
+
+	// Extension can override display name.
 	displayName := toolDisplayName(toolName)
+	if extRd != nil && extRd.DisplayName != "" {
+		displayName = extRd.DisplayName
+	}
 	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
 
-	// Format params
+	// Format params — check extension renderer first.
 	paramBudget := max(r.width-10-len(displayName), 20)
-	params := formatToolParams(toolArgs, paramBudget)
+	var params string
+	if extRd != nil && extRd.RenderHeader != nil {
+		params = extRd.RenderHeader(toolArgs, paramBudget)
+	}
+	if params == "" {
+		params = formatToolParams(toolArgs, paramBudget)
+	}
 
 	// Build header line
 	header := iconStr + " " + nameStr
@@ -165,18 +188,27 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
-	// Format body: try tool-specific renderer, then fall back to default
+	// Format body: check extension renderer first, then builtin, then default.
 	var body string
-	if isError {
-		body = lipgloss.NewStyle().Foreground(theme.Error).Render(r.formatToolResult(toolResult))
-	} else {
-		body = renderToolBody(toolName, toolArgs, toolResult, r.width-4)
-		if body == "" {
-			formatted := r.formatToolResult(toolResult)
-			if formatted == "" {
-				body = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
-			} else {
-				body = lipgloss.NewStyle().Foreground(theme.Muted).Render(formatted)
+	if extRd != nil && extRd.RenderBody != nil {
+		body = extRd.RenderBody(toolResult, isError, r.width-4)
+		// Apply markdown rendering if requested and body is non-empty.
+		if body != "" && extRd.BodyMarkdown {
+			body = strings.TrimSuffix(toMarkdown(body, r.width-4), "\n")
+		}
+	}
+	if body == "" {
+		if isError {
+			body = lipgloss.NewStyle().Foreground(theme.Error).Render(r.formatToolResult(toolResult))
+		} else {
+			body = renderToolBody(toolName, toolArgs, toolResult, r.width-4)
+			if body == "" {
+				formatted := r.formatToolResult(toolResult)
+				if formatted == "" {
+					body = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
+				} else {
+					body = lipgloss.NewStyle().Foreground(theme.Muted).Render(formatted)
+				}
 			}
 		}
 	}

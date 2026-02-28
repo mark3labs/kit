@@ -187,21 +187,22 @@ type PrintBlockOpts struct {
 // register typed event handlers, custom tools, and slash commands.
 type API struct {
 	// Event-specific registration functions (wired by the loader).
-	onToolCall         func(func(ToolCallEvent, Context) *ToolCallResult)
-	onToolExecStart    func(func(ToolExecutionStartEvent, Context))
-	onToolExecEnd      func(func(ToolExecutionEndEvent, Context))
-	onToolResult       func(func(ToolResultEvent, Context) *ToolResultResult)
-	onInput            func(func(InputEvent, Context) *InputResult)
-	onBeforeAgentStart func(func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult)
-	onAgentStart       func(func(AgentStartEvent, Context))
-	onAgentEnd         func(func(AgentEndEvent, Context))
-	onMessageStart     func(func(MessageStartEvent, Context))
-	onMessageUpdate    func(func(MessageUpdateEvent, Context))
-	onMessageEnd       func(func(MessageEndEvent, Context))
-	onSessionStart     func(func(SessionStartEvent, Context))
-	onSessionShutdown  func(func(SessionShutdownEvent, Context))
-	registerToolFn     func(ToolDef)
-	registerCmdFn      func(CommandDef)
+	onToolCall             func(func(ToolCallEvent, Context) *ToolCallResult)
+	onToolExecStart        func(func(ToolExecutionStartEvent, Context))
+	onToolExecEnd          func(func(ToolExecutionEndEvent, Context))
+	onToolResult           func(func(ToolResultEvent, Context) *ToolResultResult)
+	onInput                func(func(InputEvent, Context) *InputResult)
+	onBeforeAgentStart     func(func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult)
+	onAgentStart           func(func(AgentStartEvent, Context))
+	onAgentEnd             func(func(AgentEndEvent, Context))
+	onMessageStart         func(func(MessageStartEvent, Context))
+	onMessageUpdate        func(func(MessageUpdateEvent, Context))
+	onMessageEnd           func(func(MessageEndEvent, Context))
+	onSessionStart         func(func(SessionStartEvent, Context))
+	onSessionShutdown      func(func(SessionShutdownEvent, Context))
+	registerToolFn         func(ToolDef)
+	registerCmdFn          func(CommandDef)
+	registerToolRendererFn func(ToolRenderConfig)
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -280,6 +281,14 @@ func (a *API) RegisterTool(tool ToolDef) {
 // RegisterCommand adds a slash command available in interactive mode.
 func (a *API) RegisterCommand(cmd CommandDef) {
 	a.registerCmdFn(cmd)
+}
+
+// RegisterToolRenderer registers a custom renderer for a specific tool's
+// display in the TUI. The renderer controls the header (parameter summary)
+// and/or body (result display) of the tool's output block. If multiple
+// extensions register renderers for the same tool name, the last one wins.
+func (a *API) RegisterToolRenderer(config ToolRenderConfig) {
+	a.registerToolRendererFn(config)
 }
 
 // ---------------------------------------------------------------------------
@@ -434,6 +443,69 @@ type CommandDef struct {
 	Name        string
 	Description string
 	Execute     func(args string, ctx Context) (string, error)
+}
+
+// ---------------------------------------------------------------------------
+// Custom tool rendering (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ToolRenderConfig provides custom rendering functions for a tool's display
+// in the TUI. Extensions register tool renderers via API.RegisterToolRenderer()
+// during Init. Both render functions are optional — if nil or if they return
+// an empty string, the builtin renderer (or default) is used as a fallback.
+//
+// Example:
+//
+//	api.RegisterToolRenderer(ext.ToolRenderConfig{
+//	    ToolName: "my-tool",
+//	    RenderHeader: func(toolArgs string, width int) string {
+//	        // Parse args and return a compact summary for the header
+//	        return "my-tool: doing something"
+//	    },
+//	    RenderBody: func(toolResult string, isError bool, width int) string {
+//	        // Return custom formatted result body
+//	        if isError {
+//	            return "ERROR: " + toolResult
+//	        }
+//	        return "Result: " + toolResult
+//	    },
+//	})
+type ToolRenderConfig struct {
+	// ToolName is the name of the tool this renderer applies to. Must match
+	// the tool's registered name exactly (e.g. "bash", "read", "my-tool").
+	ToolName string
+
+	// DisplayName, if non-empty, replaces the auto-capitalized tool name
+	// shown in the header line (e.g. "Shell" instead of "Bash").
+	DisplayName string
+
+	// BorderColor, if non-empty, overrides the default border color for
+	// the tool result block. Accepts a hex color string (e.g. "#89b4fa").
+	// By default, the border is green for success and red for error.
+	BorderColor string
+
+	// Background, if non-empty, sets a background color for the entire
+	// tool result block. Accepts a hex color string (e.g. "#1e1e2e").
+	// By default, no background is applied.
+	Background string
+
+	// BodyMarkdown, when true, passes the RenderBody output through the
+	// glamour markdown renderer before display. This lets extensions return
+	// markdown-formatted text without needing access to Kit's internal
+	// rendering functions. Ignored when RenderBody is nil or returns empty.
+	BodyMarkdown bool
+
+	// RenderHeader, if non-nil, replaces the default parameter formatting
+	// in the tool header line. Receives the JSON-encoded arguments and the
+	// maximum width in columns. Return a short summary string for display
+	// after the tool name, or empty string to fall back to default formatting.
+	RenderHeader func(toolArgs string, width int) string
+
+	// RenderBody, if non-nil, replaces the default tool result body rendering.
+	// Receives the result text, error flag, and available width in columns.
+	// Return the full styled body content, or empty string to fall back to
+	// the builtin renderer (or default).
+	RenderBody func(toolResult string, isError bool, width int) string
 }
 
 // ---------------------------------------------------------------------------

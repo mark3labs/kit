@@ -219,6 +219,16 @@ func (m *Kit) GetExtensionFooter() *extensions.HeaderFooterConfig {
 	return m.extRunner.GetFooter()
 }
 
+// GetExtensionToolRenderer returns the custom renderer for the named tool, or
+// nil if no extension registered a renderer for it. Returns nil if extensions
+// are disabled.
+func (m *Kit) GetExtensionToolRenderer(toolName string) *extensions.ToolRenderConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetToolRenderer(toolName)
+}
+
 // HasExtensions returns true if the extension runner is configured and active.
 func (m *Kit) HasExtensions() bool {
 	return m.extRunner != nil
