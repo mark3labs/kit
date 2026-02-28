@@ -127,6 +127,15 @@ func (m *Kit) SetExtensionContext(ctx extensions.Context) {
 	}
 }
 
+// GetExtensionContext returns the current extension runtime context.
+// Returns a zero Context if extensions are disabled.
+func (m *Kit) GetExtensionContext() extensions.Context {
+	if m.extRunner != nil {
+		return m.extRunner.GetContext()
+	}
+	return extensions.Context{}
+}
+
 // EmitSessionStart fires the SessionStart event for extensions.
 // No-op if extensions are disabled or no handlers are registered.
 func (m *Kit) EmitSessionStart() {

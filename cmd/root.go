@@ -285,9 +285,6 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 	if len(defs) == 0 {
 		return nil
 	}
-	// We still need the raw runner for GetContext() in the Execute closure.
-	// This is the last remaining use of GetExtRunner() in cmd/.
-	runner := k.GetExtRunner()
 	cmds := make([]ui.ExtensionCommand, 0, len(defs))
 	for _, d := range defs {
 		name := d.Name
@@ -298,7 +295,7 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 			Name:        name,
 			Description: d.Description,
 			Execute: func(args string) (string, error) {
-				return d.Execute(args, runner.GetContext())
+				return d.Execute(args, k.GetExtensionContext())
 			},
 		})
 	}

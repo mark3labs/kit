@@ -159,10 +159,7 @@ func (o *overlayDialog) Render() string {
 	}
 
 	// Inner width accounts for border (2) + horizontal padding (2 left + 1 right).
-	innerWidth := dw - 5
-	if innerWidth < 10 {
-		innerWidth = 10
-	}
+	innerWidth := max(dw-5, 10)
 
 	// Render body text (potentially as markdown).
 	bodyText := o.content
@@ -184,10 +181,7 @@ func (o *overlayDialog) Render() string {
 		chromeLines += 2 // separator line + action bar
 	}
 
-	maxBodyLines := mh - chromeLines
-	if maxBodyLines < 1 {
-		maxBodyLines = 1
-	}
+	maxBodyLines := max(mh-chromeLines, 1)
 
 	scrollable := len(bodyLines) > maxBodyLines
 	if scrollable {
