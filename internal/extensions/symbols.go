@@ -49,6 +49,15 @@ func Symbols() interp.Exports {
 			// Tool renderer types
 			"ToolRenderConfig": reflect.ValueOf((*ToolRenderConfig)(nil)),
 
+			// Editor interceptor types
+			"EditorKeyActionType":  reflect.ValueOf((*EditorKeyActionType)(nil)),
+			"EditorKeyPassthrough": reflect.ValueOf(EditorKeyPassthrough),
+			"EditorKeyConsumed":    reflect.ValueOf(EditorKeyConsumed),
+			"EditorKeyRemap":       reflect.ValueOf(EditorKeyRemap),
+			"EditorKeySubmit":      reflect.ValueOf(EditorKeySubmit),
+			"EditorKeyAction":      reflect.ValueOf((*EditorKeyAction)(nil)),
+			"EditorConfig":         reflect.ValueOf((*EditorConfig)(nil)),
+
 			// Prompt types
 			"PromptSelectConfig":  reflect.ValueOf((*PromptSelectConfig)(nil)),
 			"PromptSelectResult":  reflect.ValueOf((*PromptSelectResult)(nil)),

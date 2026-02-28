@@ -229,6 +229,31 @@ func (m *Kit) GetExtensionToolRenderer(toolName string) *extensions.ToolRenderCo
 	return m.extRunner.GetToolRenderer(toolName)
 }
 
+// SetExtensionEditor installs an editor interceptor from extensions.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) SetExtensionEditor(config extensions.EditorConfig) {
+	if m.extRunner != nil {
+		m.extRunner.SetEditor(config)
+	}
+}
+
+// ResetExtensionEditor removes the active editor interceptor from extensions.
+// Delegates to the extension runner. No-op if extensions are disabled.
+func (m *Kit) ResetExtensionEditor() {
+	if m.extRunner != nil {
+		m.extRunner.ResetEditor()
+	}
+}
+
+// GetExtensionEditor returns the current editor interceptor, or nil if none
+// is set. Returns nil if extensions are disabled.
+func (m *Kit) GetExtensionEditor() *extensions.EditorConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetEditor()
+}
+
 // HasExtensions returns true if the extension runner is configured and active.
 func (m *Kit) HasExtensions() bool {
 	return m.extRunner != nil

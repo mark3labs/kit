@@ -178,6 +178,34 @@ type Context struct {
 	//       fmt.Println("Selected:", result.Action)
 	//   }
 	ShowOverlay func(OverlayConfig) OverlayResult
+
+	// SetEditor installs an editor interceptor that wraps the built-in
+	// input editor. The interceptor can intercept keys (remap, consume,
+	// submit) and modify the rendered output. Only one interceptor is
+	// active at a time; calling SetEditor replaces any previous interceptor.
+	//
+	// Example — vim-like normal mode:
+	//
+	//   ctx.SetEditor(ext.EditorConfig{
+	//       HandleKey: func(key, text string) ext.EditorKeyAction {
+	//           switch key {
+	//           case "h":
+	//               return ext.EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "left"}
+	//           case "i":
+	//               ctx.ResetEditor()
+	//               return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
+	//           }
+	//           return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
+	//       },
+	//       Render: func(width int, content string) string {
+	//           return "[NORMAL]\n" + content
+	//       },
+	//   })
+	SetEditor func(EditorConfig)
+
+	// ResetEditor removes the active editor interceptor and restores the
+	// default built-in editor behavior. No-op if no interceptor is set.
+	ResetEditor func()
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -615,6 +643,87 @@ type ToolRenderConfig struct {
 	// Return the full styled body content, or empty string to fall back to
 	// the builtin renderer (or default).
 	RenderBody func(toolResult string, isError bool, width int) string
+}
+
+// ---------------------------------------------------------------------------
+// Editor interceptor types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// EditorKeyActionType defines the outcome of an editor key interception.
+type EditorKeyActionType string
+
+const (
+	// EditorKeyPassthrough lets the built-in editor handle the key normally.
+	EditorKeyPassthrough EditorKeyActionType = "passthrough"
+
+	// EditorKeyConsumed means the extension handled the key. The editor
+	// should re-render but not process the key further.
+	EditorKeyConsumed EditorKeyActionType = "consumed"
+
+	// EditorKeyRemap transforms the key into a different key before passing
+	// it to the built-in editor. Use RemappedKey to specify the target
+	// (e.g., "left", "right", "up", "down", "backspace", "delete", "enter",
+	// "tab", "home", "end", or a single character like "a").
+	EditorKeyRemap EditorKeyActionType = "remap"
+
+	// EditorKeySubmit forces immediate text submission. The SubmitText field
+	// specifies the text to submit (empty = use editor's current text).
+	EditorKeySubmit EditorKeyActionType = "submit"
+)
+
+// EditorKeyAction is returned by an editor interceptor's HandleKey function
+// to indicate how a key press should be handled.
+type EditorKeyAction struct {
+	// Type determines the action taken.
+	Type EditorKeyActionType
+
+	// RemappedKey is the target key name for EditorKeyRemap. Must be a
+	// recognized key name (e.g., "left", "right", "up", "down", "backspace",
+	// "delete", "enter", "tab", "home", "end", "esc", "space", or a single
+	// printable character).
+	RemappedKey string
+
+	// SubmitText is the text to submit for EditorKeySubmit. If empty, the
+	// editor's current content is submitted instead.
+	SubmitText string
+}
+
+// EditorConfig defines an editor interceptor/decorator that wraps the built-in
+// input editor. Extensions can intercept key events (remap, consume, or force
+// submit) and/or modify the rendered output (add mode indicators, apply visual
+// effects).
+//
+// This follows Pi's extension editor pattern (modal editor, rainbow editor)
+// but uses concrete function fields instead of interfaces for Yaegi safety.
+//
+// IMPORTANT (Yaegi limitation): Function fields MUST be set using anonymous
+// function literals (closures), NOT bare function references. Yaegi does not
+// correctly propagate return values from named function references assigned to
+// struct fields. Wrap any named function in a closure:
+//
+//	// WRONG — Yaegi returns zero values:
+//	ctx.SetEditor(ext.EditorConfig{HandleKey: myHandler, Render: myRender})
+//
+//	// CORRECT — closure wrapper works:
+//	ctx.SetEditor(ext.EditorConfig{
+//	    HandleKey: func(k string, t string) ext.EditorKeyAction { return myHandler(k, t) },
+//	    Render:    func(w int, c string) string { return myRender(w, c) },
+//	})
+type EditorConfig struct {
+	// HandleKey intercepts key presses before they reach the built-in editor.
+	// It receives the key name (e.g., "a", "enter", "ctrl+c", "backspace")
+	// and the editor's current text content. Return an EditorKeyAction to
+	// control how the key is handled.
+	//
+	// If nil, all keys pass through to the built-in editor unchanged.
+	HandleKey func(key string, currentText string) EditorKeyAction
+
+	// Render wraps the built-in editor's rendered output. It receives the
+	// available width and the default-rendered content (including title,
+	// textarea, popup, and help text). Return the modified content to display.
+	//
+	// If nil, the default rendering is used unchanged.
+	Render func(width int, defaultContent string) string
 }
 
 // ---------------------------------------------------------------------------

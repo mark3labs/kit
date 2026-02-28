@@ -12,12 +12,13 @@ import (
 // sequentially, mirroring Pi's ExtensionRunner. Handlers execute in extension
 // load order; for cancellable events the first blocking result wins.
 type Runner struct {
-	extensions []LoadedExtension
-	ctx        Context
-	widgets    map[string]WidgetConfig // keyed by widget ID
-	header     *HeaderFooterConfig     // nil = no custom header
-	footer     *HeaderFooterConfig     // nil = no custom footer
-	mu         sync.RWMutex
+	extensions   []LoadedExtension
+	ctx          Context
+	widgets      map[string]WidgetConfig // keyed by widget ID
+	header       *HeaderFooterConfig     // nil = no custom header
+	footer       *HeaderFooterConfig     // nil = no custom footer
+	customEditor *EditorConfig           // nil = no custom editor interceptor
+	mu           sync.RWMutex
 }
 
 // LoadedExtension represents a single extension that has been discovered,
@@ -232,6 +233,40 @@ func (r *Runner) GetFooter() *HeaderFooterConfig {
 	// Return a copy to avoid races on the caller side.
 	f := *r.footer
 	return &f
+}
+
+// ---------------------------------------------------------------------------
+// Editor interceptor management
+// ---------------------------------------------------------------------------
+
+// SetEditor installs an editor interceptor that wraps the built-in input
+// editor. Only one interceptor is active at a time; calling SetEditor replaces
+// any previous interceptor. Thread-safe.
+func (r *Runner) SetEditor(config EditorConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.customEditor = &config
+}
+
+// ResetEditor removes the active editor interceptor and restores the default
+// built-in editor behavior. No-op if no interceptor is set. Thread-safe.
+func (r *Runner) ResetEditor() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.customEditor = nil
+}
+
+// GetEditor returns the current editor interceptor, or nil if none is set.
+// Thread-safe. Returns a shallow copy — function fields are reference types
+// so the copy is safe.
+func (r *Runner) GetEditor() *EditorConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.customEditor == nil {
+		return nil
+	}
+	e := *r.customEditor
+	return &e
 }
 
 // ---------------------------------------------------------------------------

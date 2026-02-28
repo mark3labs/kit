@@ -113,6 +113,45 @@ type ToolRendererData struct {
 	RenderBody func(toolResult string, isError bool, width int) string
 }
 
+// ---------------------------------------------------------------------------
+// Editor interceptor types (UI-layer, decoupled from extensions package)
+// ---------------------------------------------------------------------------
+
+// EditorKeyActionType defines the outcome of an editor key interception.
+// Mirrors extensions.EditorKeyActionType for package decoupling.
+type EditorKeyActionType string
+
+const (
+	// EditorKeyPassthrough lets the built-in editor handle the key normally.
+	EditorKeyPassthrough EditorKeyActionType = "passthrough"
+	// EditorKeyConsumed means the extension handled the key.
+	EditorKeyConsumed EditorKeyActionType = "consumed"
+	// EditorKeyRemap transforms the key into a different key.
+	EditorKeyRemap EditorKeyActionType = "remap"
+	// EditorKeySubmit forces immediate text submission.
+	EditorKeySubmit EditorKeyActionType = "submit"
+)
+
+// EditorKeyAction is the UI-layer equivalent of extensions.EditorKeyAction.
+type EditorKeyAction struct {
+	// Type determines the action taken.
+	Type EditorKeyActionType
+	// RemappedKey is the target key name for EditorKeyRemap.
+	RemappedKey string
+	// SubmitText is the text to submit for EditorKeySubmit.
+	SubmitText string
+}
+
+// EditorInterceptor is the UI-layer representation of an extension editor
+// interceptor. It decouples the UI package from the extensions package.
+// The CLI layer converts the extension EditorConfig to this type.
+type EditorInterceptor struct {
+	// HandleKey intercepts key presses before the built-in editor.
+	HandleKey func(key string, currentText string) EditorKeyAction
+	// Render wraps the built-in editor's rendered output.
+	Render func(width int, defaultContent string) string
+}
+
 // WidgetData is the UI-layer representation of an extension widget. It
 // decouples the UI package from the extensions package. The CLI layer
 // converts extension WidgetConfig values to WidgetData for rendering.
@@ -197,6 +236,12 @@ type AppModelOptions struct {
 	// Called during tool result rendering to check for custom formatting.
 	// May be nil if no extensions are loaded.
 	GetToolRenderer func(toolName string) *ToolRendererData
+
+	// GetEditorInterceptor returns the current editor interceptor set by
+	// an extension, or nil if none is active. Called during Update() to
+	// intercept key events and during View() to wrap input rendering.
+	// May be nil if no extensions are loaded.
+	GetEditorInterceptor func() *EditorInterceptor
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -300,6 +345,9 @@ type AppModel struct {
 
 	// getFooter returns the current custom footer. May be nil.
 	getFooter func() *WidgetData
+
+	// getEditorInterceptor returns the current editor interceptor. May be nil.
+	getEditorInterceptor func() *EditorInterceptor
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -413,6 +461,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getWidgets = opts.GetWidgets
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
+	m.getEditorInterceptor = opts.GetEditorInterceptor
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -650,11 +699,52 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// In other states pass ESC through to children below.
 		}
 
-		// Route key events to the focused child.
+		// Route key events to the focused child. Check for editor
+		// interceptor first — it can consume, remap, or force-submit keys.
 		if m.input != nil {
-			updated, cmd := m.input.Update(msg)
-			m.input, _ = updated.(inputComponentIface)
-			cmds = append(cmds, cmd)
+			var intercepted bool
+			if m.getEditorInterceptor != nil {
+				if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.HandleKey != nil {
+					var currentText string
+					if ic, ok := m.input.(*InputComponent); ok {
+						currentText = ic.textarea.Value()
+					}
+					action := interceptor.HandleKey(msg.String(), currentText)
+					switch action.Type {
+					case EditorKeyConsumed:
+						intercepted = true
+					case EditorKeyRemap:
+						if remapped, ok := remapKey(action.RemappedKey); ok {
+							updated, cmd := m.input.Update(remapped)
+							m.input, _ = updated.(inputComponentIface)
+							cmds = append(cmds, cmd)
+							intercepted = true
+						}
+						// If remap target is unrecognized, fall through to normal handling.
+					case EditorKeySubmit:
+						text := action.SubmitText
+						if text == "" {
+							if ic, ok := m.input.(*InputComponent); ok {
+								text = strings.TrimSpace(ic.textarea.Value())
+								ic.textarea.SetValue("")
+								ic.textarea.CursorEnd()
+							}
+						}
+						if text != "" {
+							cmds = append(cmds, func() tea.Msg {
+								return submitMsg{Text: text}
+							})
+						}
+						intercepted = true
+					}
+					// EditorKeyPassthrough falls through to normal input handling.
+				}
+			}
+			if !intercepted {
+				updated, cmd := m.input.Update(msg)
+				m.input, _ = updated.(inputComponentIface)
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	// ── Cancel timer expired ─────────────────────────────────────────────────
@@ -1105,12 +1195,20 @@ func (m *AppModel) renderSeparator() string {
 	return lineStyle.Render(repeatRune('─', m.width))
 }
 
-// renderInput returns the input region content.
+// renderInput returns the input region content. If an editor interceptor
+// is active and provides a Render function, the default content is passed
+// through it for wrapping/modification.
 func (m *AppModel) renderInput() string {
 	if m.input == nil {
 		return ""
 	}
-	return m.input.View().Content
+	content := m.input.View().Content
+	if m.getEditorInterceptor != nil {
+		if interceptor := m.getEditorInterceptor(); interceptor != nil && interceptor.Render != nil {
+			content = interceptor.Render(m.width, content)
+		}
+	}
+	return content
 }
 
 // renderWidgetSlot renders all extension widgets for the given placement
@@ -1575,13 +1673,15 @@ func (m *AppModel) distributeHeight() {
 
 	// Measure the actual rendered input (or prompt overlay) height so we
 	// don't rely on a fragile constant that drifts when styling changes.
+	// Use renderInput() which includes the editor interceptor's Render
+	// wrapper so the measured height matches what View() actually renders.
 	inputLines := 9 // fallback: title(1)+margin(1)+nl(1)+textarea(3)+nl(1)+margin(1)+help(1)
 	if m.state == statePrompt && m.prompt != nil {
 		if rendered := m.prompt.Render(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)
 		}
-	} else if m.input != nil {
-		if rendered := m.input.View().Content; rendered != "" {
+	} else {
+		if rendered := m.renderInput(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)
 		}
 	}
@@ -1621,6 +1721,53 @@ func repeatRune(r rune, n int) string {
 		runes[i] = r
 	}
 	return string(runes)
+}
+
+// --------------------------------------------------------------------------
+// Editor key remapping
+// --------------------------------------------------------------------------
+
+// remapKey converts a key name string to a tea.KeyPressMsg for editor key
+// remapping. Returns the KeyPressMsg and true if the key name is recognized,
+// or a zero value and false if unknown.
+func remapKey(name string) (tea.KeyPressMsg, bool) {
+	switch name {
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}, true
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}, true
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}, true
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}, true
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}, true
+	case "delete":
+		return tea.KeyPressMsg{Code: tea.KeyDelete}, true
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}, true
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}, true
+	case "esc", "escape":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}, true
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}, true
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}, true
+	case "pgup", "pageup":
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}, true
+	case "pgdown", "pagedown":
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}, true
+	case "space":
+		return tea.KeyPressMsg{Code: ' ', Text: " "}, true
+	default:
+		// Single printable character.
+		runes := []rune(name)
+		if len(runes) == 1 {
+			return tea.KeyPressMsg{Code: runes[0], Text: name}, true
+		}
+		return tea.KeyPressMsg{}, false
+	}
 }
 
 // --------------------------------------------------------------------------
