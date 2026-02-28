@@ -34,6 +34,14 @@ func Symbols() interp.Exports {
 			"WidgetAbove":     reflect.ValueOf(WidgetAbove),
 			"WidgetBelow":     reflect.ValueOf(WidgetBelow),
 
+			// Prompt types
+			"PromptSelectConfig":  reflect.ValueOf((*PromptSelectConfig)(nil)),
+			"PromptSelectResult":  reflect.ValueOf((*PromptSelectResult)(nil)),
+			"PromptConfirmConfig": reflect.ValueOf((*PromptConfirmConfig)(nil)),
+			"PromptConfirmResult": reflect.ValueOf((*PromptConfirmResult)(nil)),
+			"PromptInputConfig":   reflect.ValueOf((*PromptInputConfig)(nil)),
+			"PromptInputResult":   reflect.ValueOf((*PromptInputResult)(nil)),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

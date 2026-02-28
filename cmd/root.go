@@ -464,6 +464,53 @@ func runNormalMode(ctx context.Context) error {
 				kitInstance.RemoveExtensionWidget(id)
 				appInstance.NotifyWidgetUpdate()
 			},
+			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
+				ch := make(chan app.PromptResponse, 1)
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType: "select",
+					Message:    config.Message,
+					Options:    config.Options,
+					ResponseCh: ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptSelectResult{Cancelled: true}
+				}
+				return extensions.PromptSelectResult{Value: resp.Value, Index: resp.Index}
+			},
+			PromptConfirm: func(config extensions.PromptConfirmConfig) extensions.PromptConfirmResult {
+				ch := make(chan app.PromptResponse, 1)
+				def := "false"
+				if config.DefaultValue {
+					def = "true"
+				}
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType: "confirm",
+					Message:    config.Message,
+					Default:    def,
+					ResponseCh: ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptConfirmResult{Cancelled: true}
+				}
+				return extensions.PromptConfirmResult{Value: resp.Confirmed}
+			},
+			PromptInput: func(config extensions.PromptInputConfig) extensions.PromptInputResult {
+				ch := make(chan app.PromptResponse, 1)
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType:  "input",
+					Message:     config.Message,
+					Placeholder: config.Placeholder,
+					Default:     config.Default,
+					ResponseCh:  ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptInputResult{Cancelled: true}
+				}
+				return extensions.PromptInputResult{Value: resp.Value}
+			},
 		})
 		kitInstance.EmitSessionStart()
 	}

@@ -503,6 +503,32 @@ func (a *App) NotifyWidgetUpdate() {
 	}
 }
 
+// SendEvent sends a tea.Msg to the registered program. Safe to call from
+// any goroutine. No-op when no program is registered.
+//
+// Satisfies ui.AppController.
+func (a *App) SendEvent(msg tea.Msg) {
+	a.sendEvent(msg)
+}
+
+// SendPromptRequest sends a PromptRequestEvent to the TUI so the user can
+// respond interactively. In non-interactive mode (no program registered) it
+// immediately responds with a cancelled result via the channel, ensuring the
+// calling extension goroutine never blocks indefinitely.
+func (a *App) SendPromptRequest(evt PromptRequestEvent) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(evt)
+		return
+	}
+	// Non-interactive fallback: immediately cancel.
+	if evt.ResponseCh != nil {
+		evt.ResponseCh <- PromptResponse{Cancelled: true}
+	}
+}
+
 // PrintBlockFromExtension outputs a custom styled block from an extension.
 func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 	a.mu.Lock()

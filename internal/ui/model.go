@@ -26,6 +26,10 @@ const (
 
 	// stateTreeSelector means the /tree viewer is active.
 	stateTreeSelector
+
+	// statePrompt means an extension-triggered interactive prompt is active.
+	// The prompt overlay takes full focus until the user completes or cancels.
+	statePrompt
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -59,6 +63,11 @@ type AppController interface {
 	// GetTreeSession returns the tree session manager, or nil if tree sessions
 	// are not enabled. Used by slash commands like /tree, /fork, /session.
 	GetTreeSession() *session.TreeManager
+	// SendEvent sends a tea.Msg to the program asynchronously. Safe to call
+	// from any goroutine. Used by extension command goroutines to deliver
+	// results back to the TUI without going through tea.Cmd (which can stall
+	// when the goroutine blocks on interactive prompts).
+	SendEvent(tea.Msg)
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -230,6 +239,19 @@ type AppModel struct {
 
 	// getWidgets returns extension widgets for a given placement. May be nil.
 	getWidgets func(placement string) []WidgetData
+
+	// prompt holds the state of an active interactive prompt overlay. Nil
+	// when no prompt is active. Managed by updatePromptState().
+	prompt *promptOverlay
+
+	// promptResponseCh is the write-side of the channel used to deliver the
+	// user's prompt answer back to the blocking extension goroutine. Set
+	// alongside prompt; nil when no prompt is active.
+	promptResponseCh chan<- app.PromptResponse
+
+	// prePromptState remembers the state before the prompt overlay took
+	// over, so the model can return to it when the prompt completes.
+	prePromptState appState
 
 	// width and height track the terminal dimensions.
 	width  int
@@ -430,6 +452,11 @@ func tildeHome(path string) string {
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Prompt overlay takes precedence when active — it is fully modal.
+	if m.state == statePrompt && m.prompt != nil {
+		return m.updatePromptState(msg)
+	}
+
 	switch msg := msg.(type) {
 
 	// ── Tree selector events ─────────────────────────────────────────────────
@@ -495,6 +522,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			// Cancel any active prompt before quitting.
+			if m.promptResponseCh != nil {
+				m.promptResponseCh <- app.PromptResponse{Cancelled: true}
+				m.promptResponseCh = nil
+				m.prompt = nil
+			}
 			// Graceful quit: app.Close() is deferred in cmd/root.go.
 			return m, tea.Quit
 		}
@@ -722,6 +755,50 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// latest widget state on the next render.
 		m.distributeHeight()
 
+	case app.PromptRequestEvent:
+		// Extension wants to show an interactive prompt. Enter prompt state.
+		// If already in prompt state (concurrent prompt from another
+		// extension), immediately cancel the new request.
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		m.promptResponseCh = msg.ResponseCh
+
+		switch msg.PromptType {
+		case "select":
+			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
+		case "confirm":
+			defaultVal := msg.Default == "true"
+			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
+		case "input":
+			m.prompt = newInputPrompt(msg.Message, msg.Placeholder, msg.Default, m.width, m.height)
+		default:
+			// Unknown prompt type — cancel immediately.
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+			}
+			m.state = m.prePromptState
+			m.promptResponseCh = nil
+			return m, tea.Batch(cmds...)
+		}
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
+	case extensionCmdResultMsg:
+		// Async extension slash command completed. Render output/error.
+		if msg.err != nil {
+			cmds = append(cmds, m.printSystemMessage(
+				fmt.Sprintf("Command %s error: %v", msg.name, msg.err)))
+		} else if msg.output != "" {
+			cmds = append(cmds, m.printSystemMessage(msg.output))
+		}
+
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
 		switch msg.Level {
@@ -764,7 +841,15 @@ func (m *AppModel) View() tea.View {
 
 	streamView := m.renderStream()
 	separator := m.renderSeparator()
-	inputView := m.renderInput()
+
+	// When a prompt is active, it replaces the input area for consistency
+	// (appears below the separator, in the same position as the input).
+	var inputView string
+	if m.state == statePrompt && m.prompt != nil {
+		inputView = m.prompt.Render()
+	} else {
+		inputView = m.renderInput()
+	}
 	statusBar := m.renderStatusBar()
 
 	// Only include the stream region when it has content. When idle the
@@ -1074,8 +1159,13 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) tea.Cmd {
 }
 
 // handleExtensionCommand checks if the submitted text matches an extension-
-// registered slash command, executes it, and returns a tea.Cmd that renders
-// the output. Returns nil if no extension command matches.
+// registered slash command and returns a tea.Cmd that runs it. Returns nil
+// if no extension command matches.
+//
+// Extension commands execute asynchronously (via tea.Cmd goroutine) so they
+// can safely call blocking operations like ctx.PromptSelect() without
+// deadlocking the TUI's Update loop. The result is delivered back as an
+// extensionCmdResultMsg.
 //
 // Extension commands support arguments: "/sub list files" is split into
 // command name "/sub" and args "list files".
@@ -1091,19 +1181,28 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 
 	// Split: "/sub list files" → name="/sub", args="list files"
 	name, args, _ := strings.Cut(text, " ")
-	cmd := FindExtensionCommand(name, m.extensionCommands)
-	if cmd == nil {
+	ecmd := FindExtensionCommand(name, m.extensionCommands)
+	if ecmd == nil {
 		return nil
 	}
 
-	output, err := cmd.Execute(args)
-	if err != nil {
-		return m.printSystemMessage(fmt.Sprintf("Command %s error: %v", cmd.Name, err))
-	}
-	if output != "" {
-		return m.printSystemMessage(output)
-	}
-	return nil
+	// Run the command in a dedicated goroutine — NOT as a tea.Cmd. Extension
+	// commands may block on interactive prompts (ctx.PromptSelect etc.) which
+	// wait for the TUI to respond via a channel. A blocking tea.Cmd can stall
+	// BubbleTea's internal Cmd scheduler, causing intermittent freezes.
+	// The goroutine delivers its result via SendEvent (prog.Send) instead.
+	cmdName := ecmd.Name
+	cmdExec := ecmd.Execute
+	cmdArgs := args
+	ctrl := m.appCtrl
+	go func() {
+		output, err := cmdExec(cmdArgs)
+		ctrl.SendEvent(extensionCmdResultMsg{name: cmdName, output: output, err: err})
+	}()
+	// Return a non-nil Cmd so the caller knows the command was handled
+	// and doesn't fall through to the regular prompt path. The Cmd itself
+	// is a no-op.
+	return func() tea.Msg { return nil }
 }
 
 // printHelpMessage renders the help text listing all available slash commands.
@@ -1306,10 +1405,14 @@ func (m *AppModel) distributeHeight() {
 	const linesPerQueuedMsg = 5
 	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
 
-	// Measure the actual rendered input height so we don't rely on a
-	// fragile constant that drifts when styling changes.
+	// Measure the actual rendered input (or prompt overlay) height so we
+	// don't rely on a fragile constant that drifts when styling changes.
 	inputLines := 9 // fallback: title(1)+margin(1)+nl(1)+textarea(3)+nl(1)+margin(1)+help(1)
-	if m.input != nil {
+	if m.state == statePrompt && m.prompt != nil {
+		if rendered := m.prompt.Render(); rendered != "" {
+			inputLines = lipgloss.Height(rendered)
+		}
+	} else if m.input != nil {
 		if rendered := m.input.View().Content; rendered != "" {
 			inputLines = lipgloss.Height(rendered)
 		}
@@ -1454,4 +1557,82 @@ func cancelTimerCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
 		return cancelTimerExpiredMsg{}
 	})
+}
+
+// --------------------------------------------------------------------------
+// Interactive prompt support
+// --------------------------------------------------------------------------
+
+// extensionCmdResultMsg carries the result of an asynchronously executed
+// extension slash command. Extension commands run async (via tea.Cmd) so they
+// can safely call blocking operations like ctx.PromptSelect().
+type extensionCmdResultMsg struct {
+	name   string
+	output string
+	err    error
+}
+
+// updatePromptState handles all messages while the prompt overlay is active.
+// It routes keys to the prompt overlay, detects completion/cancellation, and
+// restores the previous state when done.
+func (m *AppModel) updatePromptState(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			// Cancel prompt and quit the application.
+			m.resolvePrompt(app.PromptResponse{Cancelled: true})
+			return m, tea.Quit
+		}
+		result, cmd := m.prompt.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if result != nil {
+			if result.cancelled {
+				m.resolvePrompt(app.PromptResponse{Cancelled: true})
+			} else {
+				m.resolvePrompt(app.PromptResponse{
+					Value:     result.value,
+					Index:     result.index,
+					Confirmed: result.confirmed,
+				})
+			}
+		}
+
+	case app.PromptRequestEvent:
+		// Already handling a prompt — reject concurrent requests.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		_, cmd := m.prompt.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	default:
+		// Pass blink ticks and other messages to the prompt overlay.
+		_, cmd := m.prompt.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// resolvePrompt sends the response through the channel, clears prompt state,
+// and restores the previous app state.
+func (m *AppModel) resolvePrompt(resp app.PromptResponse) {
+	if m.promptResponseCh != nil {
+		m.promptResponseCh <- resp
+		m.promptResponseCh = nil
+	}
+	m.prompt = nil
+	m.state = m.prePromptState
 }

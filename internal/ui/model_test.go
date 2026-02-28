@@ -53,6 +53,10 @@ func (s *stubAppController) GetTreeSession() *session.TreeManager {
 	return nil
 }
 
+func (s *stubAppController) SendEvent(_ tea.Msg) {
+	// no-op in tests
+}
+
 // --------------------------------------------------------------------------
 // Stub child components
 // --------------------------------------------------------------------------

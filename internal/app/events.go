@@ -137,3 +137,44 @@ type ExtensionPrintEvent struct {
 	// Subtitle is optional muted text below the content for Level="block".
 	Subtitle string
 }
+
+// PromptResponse carries the user's answer to an interactive prompt. The TUI
+// sends exactly one PromptResponse through the channel embedded in
+// PromptRequestEvent when the user completes or cancels the prompt.
+type PromptResponse struct {
+	// Value is the response text — the selected option (select), or the
+	// entered text (input). Unused for confirm prompts.
+	Value string
+	// Index is the zero-based index of the selected option (select only).
+	Index int
+	// Confirmed is the boolean answer for confirm prompts.
+	Confirmed bool
+	// Cancelled is true if the user dismissed the prompt (ESC) or the
+	// prompt could not be shown (e.g. app shutting down).
+	Cancelled bool
+}
+
+// PromptRequestEvent is sent when an extension requests an interactive
+// prompt from the user (select, confirm, or text input). The TUI enters a
+// modal prompt state, renders the prompt, and sends a single PromptResponse
+// through ResponseCh when the user completes or cancels.
+//
+// The extension goroutine blocks on the read side of ResponseCh until the
+// TUI sends a response. The channel must have buffer size >= 1.
+type PromptRequestEvent struct {
+	// PromptType is "select", "confirm", or "input".
+	PromptType string
+	// Message is the question displayed to the user.
+	Message string
+	// Options lists the choices for select prompts.
+	Options []string
+	// Default is the pre-filled value: "true"/"false" for confirm prompts,
+	// or the initial text for input prompts.
+	Default string
+	// Placeholder is the ghost text for input prompts.
+	Placeholder string
+	// ResponseCh receives the user's answer. The TUI must send exactly one
+	// value. The channel must be buffered (cap >= 1) so sending never
+	// blocks inside Update().
+	ResponseCh chan<- PromptResponse
+}

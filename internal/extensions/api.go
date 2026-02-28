@@ -82,6 +82,52 @@ type Context struct {
 	// RemoveWidget removes a previously placed widget by its ID. No-op if
 	// the ID does not exist.
 	RemoveWidget func(id string)
+
+	// PromptSelect shows a selection list to the user and blocks until
+	// they pick an option or cancel (ESC). Returns a cancelled result in
+	// non-interactive mode. Safe to call from event handlers and slash
+	// command handlers.
+	//
+	// Example:
+	//
+	//   result := ctx.PromptSelect(ext.PromptSelectConfig{
+	//       Message: "Choose a deployment target:",
+	//       Options: []string{"staging", "production", "local"},
+	//   })
+	//   if !result.Cancelled {
+	//       fmt.Println("Selected:", result.Value)
+	//   }
+	PromptSelect func(PromptSelectConfig) PromptSelectResult
+
+	// PromptConfirm shows a yes/no confirmation to the user and blocks
+	// until they respond or cancel. Returns a cancelled result in
+	// non-interactive mode.
+	//
+	// Example:
+	//
+	//   result := ctx.PromptConfirm(ext.PromptConfirmConfig{
+	//       Message:      "Deploy to production?",
+	//       DefaultValue: false,
+	//   })
+	//   if !result.Cancelled && result.Value {
+	//       // proceed with deployment
+	//   }
+	PromptConfirm func(PromptConfirmConfig) PromptConfirmResult
+
+	// PromptInput shows a text input field to the user and blocks until
+	// they submit text or cancel. Returns a cancelled result in
+	// non-interactive mode.
+	//
+	// Example:
+	//
+	//   result := ctx.PromptInput(ext.PromptInputConfig{
+	//       Message:     "Enter the release tag:",
+	//       Placeholder: "v1.0.0",
+	//   })
+	//   if !result.Cancelled {
+	//       fmt.Println("Tag:", result.Value)
+	//   }
+	PromptInput func(PromptInputConfig) PromptInputResult
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -263,6 +309,64 @@ type WidgetConfig struct {
 	// render first. Widgets with equal priority are ordered by insertion
 	// time.
 	Priority int
+}
+
+// ---------------------------------------------------------------------------
+// Interactive prompt types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// PromptSelectConfig configures a selection prompt that presents the user
+// with a list of options to choose from.
+type PromptSelectConfig struct {
+	// Message is the question or instruction displayed to the user.
+	Message string
+	// Options is the list of choices the user can select from.
+	Options []string
+}
+
+// PromptSelectResult is the response from a selection prompt.
+type PromptSelectResult struct {
+	// Value is the text of the selected option.
+	Value string
+	// Index is the zero-based index of the selected option.
+	Index int
+	// Cancelled is true if the user dismissed the prompt (ESC) or
+	// the prompt was unavailable (non-interactive mode).
+	Cancelled bool
+}
+
+// PromptConfirmConfig configures a yes/no confirmation prompt.
+type PromptConfirmConfig struct {
+	// Message is the question displayed to the user.
+	Message string
+	// DefaultValue is the pre-selected answer (true = Yes).
+	DefaultValue bool
+}
+
+// PromptConfirmResult is the response from a confirmation prompt.
+type PromptConfirmResult struct {
+	// Value is true for "Yes", false for "No".
+	Value bool
+	// Cancelled is true if the user dismissed the prompt.
+	Cancelled bool
+}
+
+// PromptInputConfig configures a free-form text input prompt.
+type PromptInputConfig struct {
+	// Message is the question displayed to the user.
+	Message string
+	// Placeholder is ghost text shown when the input is empty.
+	Placeholder string
+	// Default is the pre-filled value in the input field.
+	Default string
+}
+
+// PromptInputResult is the response from a text input prompt.
+type PromptInputResult struct {
+	// Value is the text the user entered.
+	Value string
+	// Cancelled is true if the user dismissed the prompt.
+	Cancelled bool
 }
 
 // ---------------------------------------------------------------------------
