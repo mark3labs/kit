@@ -43,9 +43,23 @@ func (m *Kit) ShouldCompact() bool {
 
 // GetContextStats returns current context usage statistics including
 // estimated token count, context limit, usage percentage, and message count.
+//
+// When API-reported token counts are available (after at least one turn),
+// EstimatedTokens uses the real input token count from the most recent API
+// response. This is significantly more accurate than the text-based heuristic
+// because it includes system prompts, tool definitions, and other overhead
+// that the heuristic cannot account for.
 func (m *Kit) GetContextStats() ContextStats {
 	messages := m.treeSession.GetFantasyMessages()
-	estimated := compaction.EstimateMessageTokens(messages)
+
+	// Prefer the real API-reported input token count when available.
+	m.lastInputTokensMu.RLock()
+	estimated := m.lastInputTokens
+	m.lastInputTokensMu.RUnlock()
+	if estimated == 0 {
+		// Fall back to heuristic before first turn completes.
+		estimated = compaction.EstimateMessageTokens(messages)
+	}
 
 	stats := ContextStats{
 		EstimatedTokens: estimated,

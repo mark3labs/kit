@@ -37,6 +37,12 @@ func Symbols() interp.Exports {
 			// Header/Footer types
 			"HeaderFooterConfig": reflect.ValueOf((*HeaderFooterConfig)(nil)),
 
+			// UI visibility
+			"UIVisibility": reflect.ValueOf((*UIVisibility)(nil)),
+
+			// Context stats
+			"ContextStats": reflect.ValueOf((*ContextStats)(nil)),
+
 			// Overlay types
 			"OverlayAnchor":       reflect.ValueOf((*OverlayAnchor)(nil)),
 			"OverlayCenter":       reflect.ValueOf(OverlayCenter),

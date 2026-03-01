@@ -188,7 +188,7 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		header += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
-	// Format body: check extension renderer first, then builtin, then default.
+	// Format body: check extension renderer first, then compact builtin, then default.
 	var body string
 	if extRd != nil && extRd.RenderBody != nil {
 		body = extRd.RenderBody(toolResult, isError, r.width-4)
@@ -201,7 +201,8 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		if isError {
 			body = lipgloss.NewStyle().Foreground(theme.Error).Render(r.formatToolResult(toolResult))
 		} else {
-			body = renderToolBody(toolName, toolArgs, toolResult, r.width-4)
+			// Use compact summary renderers instead of full tool body renderers.
+			body = renderToolBodyCompact(toolName, toolArgs, toolResult, r.width-4)
 			if body == "" {
 				formatted := r.formatToolResult(toolResult)
 				if formatted == "" {

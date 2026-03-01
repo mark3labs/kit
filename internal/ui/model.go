@@ -167,6 +167,15 @@ type WidgetData struct {
 	NoBorder bool
 }
 
+// UIVisibility controls which built-in TUI chrome elements are visible.
+// The zero value shows everything (backward compatible).
+type UIVisibility struct {
+	HideStartupMessage bool // Hide the "Model loaded..." startup block
+	HideStatusBar      bool // Hide the "provider · model  Tokens: ..." line
+	HideSeparator      bool // Hide the "────────" divider between stream and input
+	HideInputHint      bool // Hide the "enter submit · ctrl+j..." hint below input
+}
+
 // AppModelOptions holds configuration passed to NewAppModel.
 type AppModelOptions struct {
 	// CompactMode selects the compact renderer for message formatting.
@@ -242,6 +251,12 @@ type AppModelOptions struct {
 	// intercept key events and during View() to wrap input rendering.
 	// May be nil if no extensions are loaded.
 	GetEditorInterceptor func() *EditorInterceptor
+
+	// GetUIVisibility returns the current UI visibility overrides set by
+	// an extension, or nil if none have been set (show everything).
+	// Called during View() and PrintStartupInfo() to conditionally hide
+	// built-in chrome elements. May be nil if no extensions are loaded.
+	GetUIVisibility func() *UIVisibility
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -348,6 +363,9 @@ type AppModel struct {
 
 	// getEditorInterceptor returns the current editor interceptor. May be nil.
 	getEditorInterceptor func() *EditorInterceptor
+
+	// getUIVisibility returns extension-provided UI visibility overrides. May be nil.
+	getUIVisibility func() *UIVisibility
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -462,6 +480,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
 	m.getEditorInterceptor = opts.GetEditorInterceptor
+	m.getUIVisibility = opts.GetUIVisibility
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -510,12 +529,27 @@ func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// uiVis returns the current UIVisibility, defaulting to zero value (show all)
+// if no extension has set visibility overrides.
+func (m *AppModel) uiVis() UIVisibility {
+	if m.getUIVisibility != nil {
+		if v := m.getUIVisibility(); v != nil {
+			return *v
+		}
+	}
+	return UIVisibility{}
+}
+
 // PrintStartupInfo prints the startup banner (model name, context, skills,
 // tool counts) to stdout. Call this before program.Run() so the messages are
 // visible above the Bubble Tea managed region.
 //
 // All startup information is rendered inside a single system message block.
 func (m *AppModel) PrintStartupInfo() {
+	if m.uiVis().HideStartupMessage {
+		return
+	}
+
 	render := func(text string) string {
 		return m.renderer.RenderSystemMessage(text, time.Now()).Content
 	}
@@ -1049,8 +1083,14 @@ func (m *AppModel) View() tea.View {
 		return tea.NewView(m.overlay.Render())
 	}
 
+	vis := m.uiVis()
+
 	streamView := m.renderStream()
-	separator := m.renderSeparator()
+
+	// Propagate hint visibility to the input component before rendering.
+	if ic, ok := m.input.(*InputComponent); ok {
+		ic.hideHint = vis.HideInputHint
+	}
 
 	// When a prompt is active, it replaces the input area for consistency
 	// (appears below the separator, in the same position as the input).
@@ -1060,7 +1100,6 @@ func (m *AppModel) View() tea.View {
 	} else {
 		inputView = m.renderInput()
 	}
-	statusBar := m.renderStatusBar()
 
 	// Build the stacked layout. Optional header/footer wrap the core layout.
 	var parts []string
@@ -1076,7 +1115,10 @@ func (m *AppModel) View() tea.View {
 	if streamView != "" {
 		parts = append(parts, streamView)
 	}
-	parts = append(parts, separator)
+
+	if !vis.HideSeparator {
+		parts = append(parts, m.renderSeparator())
+	}
 
 	// Render "above" widgets between separator and queued messages.
 	if aboveView := m.renderWidgetSlot("above"); aboveView != "" {
@@ -1094,7 +1136,9 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, belowView)
 	}
 
-	parts = append(parts, statusBar)
+	if !vis.HideStatusBar {
+		parts = append(parts, m.renderStatusBar())
+	}
 
 	// Custom footer (if set by extension) — below everything.
 	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
@@ -1666,10 +1710,23 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 //	status bar     = 1 line (always present)
 //	footer         = measured dynamically (0 if not set)
 func (m *AppModel) distributeHeight() {
-	const separatorLines = 1
-	const statusBarLines = 1 // always-present status bar
+	vis := m.uiVis()
+
+	separatorLines := 1
+	if vis.HideSeparator {
+		separatorLines = 0
+	}
+	statusBarLines := 1
+	if vis.HideStatusBar {
+		statusBarLines = 0
+	}
 	const linesPerQueuedMsg = 5
 	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
+
+	// Propagate hint visibility before measuring input height.
+	if ic, ok := m.input.(*InputComponent); ok {
+		ic.hideHint = vis.HideInputHint
+	}
 
 	// Measure the actual rendered input (or prompt overlay) height so we
 	// don't rely on a fragile constant that drifts when styling changes.

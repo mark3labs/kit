@@ -206,6 +206,31 @@ type Context struct {
 	// ResetEditor removes the active editor interceptor and restores the
 	// default built-in editor behavior. No-op if no interceptor is set.
 	ResetEditor func()
+
+	// SetUIVisibility controls which built-in TUI chrome elements are
+	// visible. By default all elements are shown (zero value = show all).
+	// Call this during OnSessionStart to configure the initial layout.
+	//
+	// Example — minimal chrome:
+	//
+	//   ctx.SetUIVisibility(ext.UIVisibility{
+	//       HideStartupMessage: true,
+	//       HideStatusBar:      true,
+	//       HideSeparator:      true,
+	//       HideInputHint:      true,
+	//   })
+	SetUIVisibility func(UIVisibility)
+
+	// GetContextStats returns current context-window usage information
+	// (estimated tokens, context limit, usage percentage, message count).
+	// Useful for building context meters, auto-compaction triggers, etc.
+	//
+	// Example:
+	//
+	//   stats := ctx.GetContextStats()
+	//   pct := int(stats.UsagePercent * 100)
+	//   fmt.Sprintf("[%s%s] %d%%", strings.Repeat("#", pct/10), strings.Repeat("-", 10-pct/10), pct)
+	GetContextStats func() ContextStats
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -470,6 +495,36 @@ type HeaderFooterConfig struct {
 
 	// Style configures the appearance.
 	Style WidgetStyle
+}
+
+// ---------------------------------------------------------------------------
+// UI visibility (exposed to Yaegi — concrete struct)
+// ---------------------------------------------------------------------------
+
+// UIVisibility controls which built-in TUI chrome elements are visible.
+// The zero value shows everything (backward compatible). Extensions call
+// ctx.SetUIVisibility to customise the layout — for example, a "minimal"
+// theme can hide the startup banner, status bar, and input hint and replace
+// them with a single custom footer.
+type UIVisibility struct {
+	HideStartupMessage bool // Hide the "Model loaded..." startup block
+	HideStatusBar      bool // Hide the "provider · model  Tokens: ..." line
+	HideSeparator      bool // Hide the "────────" divider between stream and input
+	HideInputHint      bool // Hide the "enter submit · ctrl+j..." hint below input
+}
+
+// ---------------------------------------------------------------------------
+// Context stats (exposed to Yaegi — concrete struct)
+// ---------------------------------------------------------------------------
+
+// ContextStats contains current context-window usage information.
+// Extensions can poll this via ctx.GetContextStats() to build usage
+// meters, auto-compaction triggers, etc.
+type ContextStats struct {
+	EstimatedTokens int     // Estimated token count of the current conversation
+	ContextLimit    int     // Model's context window size (tokens), 0 if unknown
+	UsagePercent    float64 // Fraction of context used (0.0–1.0), 0 if limit unknown
+	MessageCount    int     // Number of messages in the conversation
 }
 
 // ---------------------------------------------------------------------------

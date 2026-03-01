@@ -696,3 +696,177 @@ func truncateLine(s string, maxWidth int) string {
 	}
 	return s[:maxWidth-1] + "…"
 }
+
+// ---------------------------------------------------------------------------
+// Compact tool body renderers — one-line summaries for compact mode
+// ---------------------------------------------------------------------------
+
+// renderToolBodyCompact returns a brief summary string for tool results in
+// compact display mode. Returns empty string to fall back to default.
+func renderToolBodyCompact(toolName, toolArgs, toolResult string, width int) string {
+	switch {
+	case toolName == "edit":
+		return renderEditCompact(toolArgs, toolResult)
+	case toolName == "ls":
+		return renderLsCompact(toolResult)
+	case toolName == "read":
+		return renderReadCompact(toolResult)
+	case toolName == "write":
+		return renderWriteCompact(toolArgs)
+	case toolName == "bash" || toolName == "run_shell_cmd" ||
+		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
+		return renderBashCompact(toolResult, width)
+	}
+	return ""
+}
+
+// renderReadCompact returns a line-count summary for Read tool output.
+func renderReadCompact(toolResult string) string {
+	content := strings.TrimSpace(toolResult)
+	if content == "" {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+
+	// Count actual code lines (those with "N: " line-number prefix)
+	codeLines := 0
+	for _, line := range lines {
+		if idx := strings.Index(line, ": "); idx > 0 && idx <= 7 {
+			numPart := line[:idx]
+			if _, err := strconv.Atoi(strings.TrimSpace(numPart)); err == nil {
+				codeLines++
+			}
+		}
+	}
+	if codeLines == 0 {
+		return ""
+	}
+
+	theme := getTheme()
+	summary := fmt.Sprintf("%d lines", codeLines)
+	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
+}
+
+// renderEditCompact returns a change-count summary for Edit tool output.
+func renderEditCompact(toolArgs, toolResult string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
+		return ""
+	}
+
+	oldText, _ := args["old_text"].(string)
+	newText, _ := args["new_text"].(string)
+	if oldText == "" && newText == "" {
+		return ""
+	}
+
+	oldCount := len(strings.Split(oldText, "\n"))
+	newCount := len(strings.Split(newText, "\n"))
+
+	theme := getTheme()
+	var summary string
+	if oldCount == newCount {
+		summary = fmt.Sprintf("%d lines modified", oldCount)
+	} else {
+		summary = fmt.Sprintf("-%d/+%d lines", oldCount, newCount)
+	}
+	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
+}
+
+// renderWriteCompact returns a line-count summary for Write tool output.
+func renderWriteCompact(toolArgs string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
+		return ""
+	}
+
+	content, _ := args["content"].(string)
+	if content == "" {
+		return ""
+	}
+
+	count := len(strings.Split(content, "\n"))
+	theme := getTheme()
+	summary := fmt.Sprintf("%d lines written", count)
+	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
+}
+
+// renderLsCompact returns an entry-count summary for Ls tool output.
+func renderLsCompact(toolResult string) string {
+	content := strings.TrimSpace(toolResult)
+	if content == "" {
+		return ""
+	}
+
+	entries := strings.Split(content, "\n")
+	theme := getTheme()
+	summary := fmt.Sprintf("%d entries", len(entries))
+	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
+}
+
+// renderBashCompact returns the first few lines of bash output as a compact
+// summary. Shows up to 3 meaningful output lines.
+func renderBashCompact(toolResult string, width int) string {
+	result := strings.TrimSpace(toolResult)
+	if result == "" {
+		return ""
+	}
+
+	lines := strings.Split(result, "\n")
+
+	// Filter to meaningful output lines (skip STDERR: label, keep exit codes separate)
+	var outputLines []string
+	var exitCode string
+	inStderr := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "STDERR:" {
+			inStderr = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Exit code:") {
+			exitCode = trimmed
+			continue
+		}
+		if trimmed == "" {
+			continue
+		}
+		outputLines = append(outputLines, line)
+		_ = inStderr // stderr lines are included in output
+	}
+
+	if len(outputLines) == 0 {
+		if exitCode != "" {
+			theme := getTheme()
+			return lipgloss.NewStyle().Foreground(theme.Error).Render(exitCode)
+		}
+		return ""
+	}
+
+	const maxLines = 3
+	theme := getTheme()
+
+	display := outputLines
+	if len(display) > maxLines {
+		display = display[:maxLines]
+	}
+
+	// Truncate each line to available width
+	lineMax := max(width-4, 20)
+	for i, line := range display {
+		if len(line) > lineMax {
+			display[i] = line[:lineMax-3] + "..."
+		}
+	}
+
+	summary := strings.Join(display, "\n")
+	if len(outputLines) > maxLines {
+		summary += fmt.Sprintf("\n...(%d more lines)", len(outputLines)-maxLines)
+	}
+	if exitCode != "" {
+		summary += "\n" + lipgloss.NewStyle().Foreground(theme.Error).Render(exitCode)
+	}
+
+	return lipgloss.NewStyle().Foreground(theme.Muted).Render(summary)
+}

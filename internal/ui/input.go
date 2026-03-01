@@ -39,6 +39,9 @@ type InputComponent struct {
 	// appCtrl is used for slash commands that mutate app state.
 	// May be nil in tests; nil-safe.
 	appCtrl AppController
+
+	// hideHint suppresses the "enter submit · ctrl+j..." hint text.
+	hideHint bool
 }
 
 // NewInputComponent creates a new InputComponent with the given width, title,
@@ -254,13 +257,15 @@ func (s *InputComponent) View() tea.View {
 		view.WriteString(s.renderPopup())
 	}
 
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		MarginTop(1).
-		PaddingLeft(3)
+	if !s.hideHint {
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			MarginTop(1).
+			PaddingLeft(3)
 
-	view.WriteString("\n")
-	view.WriteString(helpStyle.Render("enter submit • ctrl+j / alt+enter new line"))
+		view.WriteString("\n")
+		view.WriteString(helpStyle.Render("enter submit • ctrl+j / alt+enter new line"))
+	}
 
 	return tea.NewView(containerStyle.Render(view.String()))
 }

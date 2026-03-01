@@ -18,6 +18,7 @@ type Runner struct {
 	header       *HeaderFooterConfig     // nil = no custom header
 	footer       *HeaderFooterConfig     // nil = no custom footer
 	customEditor *EditorConfig           // nil = no custom editor interceptor
+	uiVisibility *UIVisibility           // nil = show everything (default)
 	mu           sync.RWMutex
 }
 
@@ -267,6 +268,29 @@ func (r *Runner) GetEditor() *EditorConfig {
 	}
 	e := *r.customEditor
 	return &e
+}
+
+// ---------------------------------------------------------------------------
+// UI visibility management
+// ---------------------------------------------------------------------------
+
+// SetUIVisibility updates the UI visibility overrides. Thread-safe.
+func (r *Runner) SetUIVisibility(v UIVisibility) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.uiVisibility = &v
+}
+
+// GetUIVisibility returns the current UI visibility overrides, or nil if
+// none have been set (meaning show everything). Thread-safe.
+func (r *Runner) GetUIVisibility() *UIVisibility {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.uiVisibility == nil {
+		return nil
+	}
+	v := *r.uiVisibility
+	return &v
 }
 
 // ---------------------------------------------------------------------------

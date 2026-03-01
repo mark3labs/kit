@@ -26,6 +26,7 @@ type SlashCommandInput struct {
 	value         string
 	submitNext    bool // Flag to submit on next update
 	renderedLines int  // Track how many lines were rendered
+	hideHint      bool // Suppress the "enter submit · ctrl+j..." hint
 }
 
 // NewSlashCommandInput creates and initializes a new slash command input field with
@@ -219,17 +220,19 @@ func (s *SlashCommandInput) View() tea.View {
 		s.renderedLines += 1 + popupLines                 // newline + popup
 	}
 
-	// Add help text at bottom
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		MarginTop(1).
-		PaddingLeft(3)
+	// Add help text at bottom (unless hidden by extension).
+	if !s.hideHint {
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			MarginTop(1).
+			PaddingLeft(3)
 
-	helpText := "enter submit • ctrl+j / alt+enter new line"
+		helpText := "enter submit • ctrl+j / alt+enter new line"
 
-	view.WriteString("\n")
-	view.WriteString(helpStyle.Render(helpText))
-	s.renderedLines += 2 // newline + help text
+		view.WriteString("\n")
+		view.WriteString(helpStyle.Render(helpText))
+		s.renderedLines += 2 // newline + help text
+	}
 
 	// Apply container padding to entire view
 	return tea.NewView(containerStyle.Render(view.String()))

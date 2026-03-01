@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
@@ -48,6 +49,13 @@ type Kit struct {
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
 	beforeTurn      *hookRegistry[BeforeTurnHook, BeforeTurnResult]
 	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
+
+	// lastInputTokens stores the API-reported input token count from the
+	// most recent turn. Used by GetContextStats() to return accurate usage
+	// instead of the text-based heuristic which misses system prompts,
+	// tool definitions, etc.
+	lastInputTokensMu sync.RWMutex
+	lastInputTokens   int
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -261,6 +269,23 @@ func (m *Kit) GetExtensionEditor() *extensions.EditorConfig {
 		return nil
 	}
 	return m.extRunner.GetEditor()
+}
+
+// SetExtensionUIVisibility stores extension-provided UI visibility overrides.
+// No-op if extensions are disabled.
+func (m *Kit) SetExtensionUIVisibility(v extensions.UIVisibility) {
+	if m.extRunner != nil {
+		m.extRunner.SetUIVisibility(v)
+	}
+}
+
+// GetExtensionUIVisibility returns extension-provided UI visibility overrides,
+// or nil if none have been set. Returns nil if extensions are disabled.
+func (m *Kit) GetExtensionUIVisibility() *extensions.UIVisibility {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetUIVisibility()
 }
 
 // HasExtensions returns true if the extension runner is configured and active.
@@ -785,15 +810,27 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	responseText := result.FinalResponse.Content.Text()
 
-	m.events.emit(MessageEndEvent{Content: responseText})
-	m.events.emit(TurnEndEvent{Response: responseText})
-
-	// Persist new messages (tool calls, tool results, assistant response).
+	// Persist new messages (tool calls, tool results, assistant response)
+	// BEFORE emitting events so that extension handlers calling
+	// GetContextStats() see up-to-date token counts.
 	if len(result.ConversationMessages) > sentCount {
 		for _, msg := range result.ConversationMessages[sentCount:] {
 			_, _ = m.treeSession.AppendFantasyMessage(msg)
 		}
 	}
+
+	// Store the API-reported token count so GetContextStats() matches the
+	// built-in status bar (which uses input + output tokens). The
+	// text-based heuristic misses system prompts, tool definitions, etc.
+	if result.FinalResponse != nil {
+		u := result.FinalResponse.Usage
+		m.lastInputTokensMu.Lock()
+		m.lastInputTokens = int(u.InputTokens) + int(u.OutputTokens)
+		m.lastInputTokensMu.Unlock()
+	}
+
+	m.events.emit(MessageEndEvent{Content: responseText})
+	m.events.emit(TurnEndEvent{Response: responseText})
 
 	// Run AfterTurn hooks.
 	if m.afterTurn.hasHooks() {
