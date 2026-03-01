@@ -167,6 +167,15 @@ type WidgetData struct {
 	NoBorder bool
 }
 
+// StatusBarEntryData represents a keyed extension entry in the TUI status bar.
+// Multiple entries from different extensions coexist, ordered by Priority
+// (lower values render further left).
+type StatusBarEntryData struct {
+	Key      string // unique identifier (e.g. "myext:git-branch")
+	Text     string // rendered content shown in the status bar
+	Priority int    // lower = further left; built-in entries use 100-110
+}
+
 // UIVisibility controls which built-in TUI chrome elements are visible.
 // The zero value shows everything (backward compatible).
 type UIVisibility struct {
@@ -257,6 +266,12 @@ type AppModelOptions struct {
 	// Called during View() and PrintStartupInfo() to conditionally hide
 	// built-in chrome elements. May be nil if no extensions are loaded.
 	GetUIVisibility func() *UIVisibility
+
+	// GetStatusBarEntries returns extension-provided status bar entries,
+	// sorted by priority. Called during renderStatusBar() to inject
+	// extension entries alongside the built-in model/usage display.
+	// May be nil if no extensions are loaded.
+	GetStatusBarEntries func() []StatusBarEntryData
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -366,6 +381,9 @@ type AppModel struct {
 
 	// getUIVisibility returns extension-provided UI visibility overrides. May be nil.
 	getUIVisibility func() *UIVisibility
+
+	// getStatusBarEntries returns extension-provided status bar entries. May be nil.
+	getStatusBarEntries func() []StatusBarEntryData
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -481,6 +499,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getFooter = opts.GetFooter
 	m.getEditorInterceptor = opts.GetEditorInterceptor
 	m.getUIVisibility = opts.GetUIVisibility
+	m.getStatusBarEntries = opts.GetStatusBarEntries
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -970,6 +989,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// latest widget state on the next render.
 		m.distributeHeight()
 
+	case app.EditorTextSetEvent:
+		// Extension wants to pre-fill the input editor with text.
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(msg.Text)
+			ic.textarea.CursorEnd()
+		}
+
 	case app.PromptRequestEvent:
 		// Extension wants to show an interactive prompt. Enter prompt state.
 		// If already in prompt state (concurrent prompt from another
@@ -1176,7 +1202,8 @@ func (m *AppModel) renderStream() string {
 }
 
 // renderStatusBar renders a persistent single-line status bar below the input.
-// Left side: spinner (when active). Right side: provider · model + usage stats.
+// Left side: spinner (when active). Middle: extension status entries (sorted by
+// priority). Right side: provider · model + usage stats.
 // This bar is always present so its height is constant, eliminating layout
 // shifts from spinner or usage info appearing/disappearing.
 func (m *AppModel) renderStatusBar() string {
@@ -1187,7 +1214,21 @@ func (m *AppModel) renderStatusBar() string {
 	if m.stream != nil {
 		leftSide = m.stream.SpinnerView()
 	}
-	leftWidth := lipgloss.Width(leftSide)
+
+	// Middle: extension status bar entries (sorted by priority).
+	var middleParts []string
+	if m.getStatusBarEntries != nil {
+		entries := m.getStatusBarEntries()
+		for _, e := range entries {
+			middleParts = append(middleParts, lipgloss.NewStyle().
+				Foreground(theme.Muted).
+				Render(e.Text))
+		}
+	}
+	middleSide := strings.Join(middleParts, "  ")
+	if middleSide != "" && leftSide != "" {
+		middleSide = "  " + middleSide
+	}
 
 	// Right side: provider · model + usage stats.
 	var rightParts []string
@@ -1211,12 +1252,12 @@ func (m *AppModel) renderStatusBar() string {
 	}
 
 	rightSide := strings.Join(rightParts, "  ")
-	rightWidth := lipgloss.Width(rightSide)
 
-	// Fill the gap between left and right with spaces.
-	gap := max(m.width-leftWidth-rightWidth, 1)
+	// Fill the gap between left+middle and right with spaces.
+	usedWidth := lipgloss.Width(leftSide) + lipgloss.Width(middleSide) + lipgloss.Width(rightSide)
+	gap := max(m.width-usedWidth, 1)
 
-	return leftSide + strings.Repeat(" ", gap) + rightSide
+	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
 }
 
 // renderSeparator renders the separator line with an optional queue count badge.

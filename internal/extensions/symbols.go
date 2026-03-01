@@ -26,6 +26,13 @@ func Symbols() interp.Exports {
 			"CommandDef":     reflect.ValueOf((*CommandDef)(nil)),
 			"PrintBlockOpts": reflect.ValueOf((*PrintBlockOpts)(nil)),
 
+			// Session types
+			"SessionMessage": reflect.ValueOf((*SessionMessage)(nil)),
+			"ExtensionEntry": reflect.ValueOf((*ExtensionEntry)(nil)),
+
+			// Status bar types
+			"StatusBarEntry": reflect.ValueOf((*StatusBarEntry)(nil)),
+
 			// Widget types
 			"WidgetConfig":    reflect.ValueOf((*WidgetConfig)(nil)),
 			"WidgetContent":   reflect.ValueOf((*WidgetContent)(nil)),

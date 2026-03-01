@@ -505,6 +505,17 @@ func (a *App) PrintFromExtension(level, text string) {
 	fmt.Println(text)
 }
 
+// SetEditorTextFromExtension sends an EditorTextSetEvent to the TUI to
+// pre-fill the input editor. In non-interactive mode this is a no-op.
+func (a *App) SetEditorTextFromExtension(text string) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(EditorTextSetEvent{Text: text})
+	}
+}
+
 // NotifyWidgetUpdate sends a WidgetUpdateEvent to the TUI so it re-renders
 // extension widgets. Called from the extension context's SetWidget/RemoveWidget
 // closures. In non-interactive mode this is a no-op (widgets are TUI-only).

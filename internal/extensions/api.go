@@ -231,6 +231,130 @@ type Context struct {
 	//   pct := int(stats.UsagePercent * 100)
 	//   fmt.Sprintf("[%s%s] %d%%", strings.Repeat("#", pct/10), strings.Repeat("-", 10-pct/10), pct)
 	GetContextStats func() ContextStats
+
+	// --- Session Management (Gap 1) ---
+
+	// GetMessages returns the conversation messages on the current branch,
+	// ordered from root to leaf. This is a read-only view; extensions
+	// cannot modify messages directly.
+	//
+	// Example:
+	//
+	//   msgs := ctx.GetMessages()
+	//   for _, m := range msgs {
+	//       if m.Role == "assistant" {
+	//           lastResponse = m.Content
+	//       }
+	//   }
+	GetMessages func() []SessionMessage
+
+	// GetSessionPath returns the file path of the current session's JSONL
+	// file. Returns empty string for in-memory (ephemeral) sessions.
+	GetSessionPath func() string
+
+	// --- Session Persistence (Gap 2) ---
+
+	// AppendEntry persists custom extension data in the session tree.
+	// The data survives across session restarts and can be retrieved via
+	// GetEntries. Use entryType to namespace your data (e.g. "myext:state").
+	//
+	// Example:
+	//
+	//   data, _ := json.Marshal(myState)
+	//   ctx.AppendEntry("myext:state", string(data))
+	AppendEntry func(entryType string, data string) (string, error)
+
+	// GetEntries retrieves all persisted extension data entries matching
+	// the given type on the current branch, ordered root to leaf. Pass
+	// empty string to retrieve all extension data entries.
+	//
+	// Example — restore state on session resume:
+	//
+	//   entries := ctx.GetEntries("myext:state")
+	//   if len(entries) > 0 {
+	//       last := entries[len(entries)-1]
+	//       json.Unmarshal([]byte(last.Data), &myState)
+	//   }
+	GetEntries func(entryType string) []ExtensionEntry
+
+	// SetEditorText sets the text content of the input editor. This can
+	// be used to pre-fill the editor with suggested text (e.g. extracted
+	// questions, handoff prompts). The cursor is moved to the end.
+	//
+	// Example:
+	//
+	//   ctx.SetEditorText("Please review the changes in src/main.go")
+	SetEditorText func(text string)
+
+	// --- Keyed Status Bar (Gap M3) ---
+
+	// SetStatus places or updates a keyed entry in the TUI status bar.
+	// Multiple entries from different extensions coexist; each is identified
+	// by a unique key. Lower priority values render further left.
+	//
+	// Example:
+	//
+	//   ctx.SetStatus("myext:branch", "main", 50)
+	SetStatus func(key string, text string, priority int)
+
+	// RemoveStatus removes a keyed status bar entry. No-op if the key
+	// does not exist.
+	RemoveStatus func(key string)
+}
+
+// ---------------------------------------------------------------------------
+// Session types (exposed to Yaegi — concrete structs for session access)
+// ---------------------------------------------------------------------------
+
+// SessionMessage represents a conversation message exposed to extensions.
+// This is a simplified, read-only view of the internal message structures.
+type SessionMessage struct {
+	// ID is the unique entry identifier in the session tree.
+	ID string
+	// ParentID links this entry to its parent in the tree.
+	ParentID string
+	// Role is the message role: "user", "assistant", "tool", or "system".
+	Role string
+	// Content is the text content of the message (tool calls and results
+	// are serialized as text summaries).
+	Content string
+	// Model is the model that generated this message (empty for user messages).
+	Model string
+	// Provider is the provider used (empty for user messages).
+	Provider string
+	// Timestamp is the RFC3339-formatted creation time.
+	Timestamp string
+}
+
+// ExtensionEntry represents persisted extension data stored in the session.
+// Extensions use AppendEntry to save custom state and GetEntries to retrieve
+// it on session resume.
+type ExtensionEntry struct {
+	// ID is the unique entry identifier.
+	ID string
+	// EntryType is the extension-defined type string (e.g. "plan-mode:state").
+	EntryType string
+	// Data is the extension-defined payload (JSON or plain text).
+	Data string
+	// Timestamp is the RFC3339-formatted creation time.
+	Timestamp string
+}
+
+// ---------------------------------------------------------------------------
+// Status bar types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// StatusBarEntry represents a keyed entry in the TUI status bar. Extensions
+// can set multiple independent entries that render alongside the built-in
+// model name and token usage display.
+type StatusBarEntry struct {
+	// Key uniquely identifies this entry (e.g. "myext:git-branch").
+	Key string
+	// Text is the rendered content shown in the status bar.
+	Text string
+	// Priority controls ordering. Lower values render further left.
+	// Built-in entries (model, usage) have implicit priority 100-110.
+	Priority int
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.

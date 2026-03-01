@@ -457,6 +457,31 @@ func footerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
 	}
 }
 
+// statusBarProviderForUI returns a function that fetches extension status bar
+// entries and converts them to ui.StatusBarEntryData for the TUI. Returns nil
+// if extensions are disabled, which is safe — the TUI treats a nil
+// GetStatusBarEntries as "no extension entries".
+func statusBarProviderForUI(k *kit.Kit) func() []ui.StatusBarEntryData {
+	if !k.HasExtensions() {
+		return nil
+	}
+	return func() []ui.StatusBarEntryData {
+		entries := k.GetExtensionStatusEntries()
+		if len(entries) == 0 {
+			return nil
+		}
+		result := make([]ui.StatusBarEntryData, len(entries))
+		for i, e := range entries {
+			result[i] = ui.StatusBarEntryData{
+				Key:      e.Key,
+				Text:     e.Text,
+				Priority: e.Priority,
+			}
+		}
+		return result
+	}
+}
+
 func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
@@ -685,6 +710,33 @@ func runNormalMode(ctx context.Context) error {
 				kitInstance.ResetExtensionEditor()
 				go appInstance.NotifyWidgetUpdate()
 			},
+			GetMessages: func() []extensions.SessionMessage {
+				return kitInstance.GetSessionMessages()
+			},
+			GetSessionPath: func() string {
+				return kitInstance.GetSessionFilePath()
+			},
+			AppendEntry: func(entryType string, data string) (string, error) {
+				return kitInstance.AppendExtensionEntry(entryType, data)
+			},
+			GetEntries: func(entryType string) []extensions.ExtensionEntry {
+				return kitInstance.GetExtensionEntries(entryType)
+			},
+			SetEditorText: func(text string) {
+				appInstance.SetEditorTextFromExtension(text)
+			},
+			SetStatus: func(key string, text string, priority int) {
+				kitInstance.SetExtensionStatus(extensions.StatusBarEntry{
+					Key:      key,
+					Text:     text,
+					Priority: priority,
+				})
+				appInstance.NotifyWidgetUpdate()
+			},
+			RemoveStatus: func(key string) {
+				kitInstance.RemoveExtensionStatus(key)
+				appInstance.NotifyWidgetUpdate()
+			},
 			ShowOverlay: func(config extensions.OverlayConfig) extensions.OverlayResult {
 				ch := make(chan app.OverlayResponse, 1)
 				appInstance.SendOverlayRequest(app.OverlayRequestEvent{
@@ -741,10 +793,11 @@ func runNormalMode(ctx context.Context) error {
 	getToolRenderer := toolRendererProviderForUI(kitInstance)
 	getEditorInterceptor := editorInterceptorProviderForUI(kitInstance)
 	getUIVisibility := uiVisibilityProviderForUI(kitInstance)
+	getStatusBarEntries := statusBarProviderForUI(kitInstance)
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -752,7 +805,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -765,7 +818,7 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData) error {
 	if jsonOutput {
 		// JSON mode: no intermediate display, structured JSON output.
 		result, err := appInstance.RunOnceResult(ctx, prompt)
@@ -803,7 +856,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries)
 	}
 
 	return nil
@@ -897,7 +950,7 @@ func writeJSONError(err error) {
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -926,6 +979,7 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		GetToolRenderer:      getToolRenderer,
 		GetEditorInterceptor: getEditorInterceptor,
 		GetUIVisibility:      getUIVisibility,
+		GetStatusBarEntries:  getStatusBarEntries,
 	})
 
 	// Print startup info to stdout before Bubble Tea takes over the screen.

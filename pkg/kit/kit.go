@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/kitsetup"
+	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
 	"github.com/mark3labs/kit/internal/tools"
@@ -286,6 +287,106 @@ func (m *Kit) GetExtensionUIVisibility() *extensions.UIVisibility {
 		return nil
 	}
 	return m.extRunner.GetUIVisibility()
+}
+
+// GetSessionMessages returns the conversation messages on the current branch
+// as extension-facing SessionMessage structs, ordered root to leaf.
+func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
+	if m.treeSession == nil {
+		return nil
+	}
+	branch := m.treeSession.GetBranch("")
+	var msgs []extensions.SessionMessage
+	for _, entry := range branch {
+		me, ok := entry.(*session.MessageEntry)
+		if !ok {
+			continue
+		}
+		msg, err := me.ToMessage()
+		if err != nil {
+			continue
+		}
+		// Flatten content parts into a single text string.
+		var content string
+		for _, p := range msg.Parts {
+			switch pt := p.(type) {
+			case message.TextContent:
+				content += pt.Text
+			case message.ReasoningContent:
+				content += pt.Thinking
+			case message.ToolCall:
+				content += fmt.Sprintf("[tool_call: %s(%s)]", pt.Name, pt.Input)
+			case message.ToolResult:
+				content += fmt.Sprintf("[tool_result: %s]", pt.Content)
+			}
+		}
+		msgs = append(msgs, extensions.SessionMessage{
+			ID:        me.ID,
+			ParentID:  me.ParentID,
+			Role:      string(msg.Role),
+			Content:   content,
+			Model:     msg.Model,
+			Provider:  msg.Provider,
+			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return msgs
+}
+
+// GetSessionFilePath returns the JSONL file path of the current session.
+func (m *Kit) GetSessionFilePath() string {
+	if m.treeSession == nil {
+		return ""
+	}
+	return m.treeSession.GetFilePath()
+}
+
+// AppendExtensionEntry persists custom extension data in the session tree.
+func (m *Kit) AppendExtensionEntry(extType, data string) (string, error) {
+	if m.treeSession == nil {
+		return "", fmt.Errorf("no session available")
+	}
+	return m.treeSession.AppendExtensionData(extType, data)
+}
+
+// GetExtensionEntries retrieves persisted extension data entries for a type.
+func (m *Kit) GetExtensionEntries(extType string) []extensions.ExtensionEntry {
+	if m.treeSession == nil {
+		return nil
+	}
+	entries := m.treeSession.GetExtensionData(extType)
+	result := make([]extensions.ExtensionEntry, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, extensions.ExtensionEntry{
+			ID:        e.ID,
+			EntryType: e.ExtType,
+			Data:      e.Data,
+			Timestamp: e.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return result
+}
+
+// SetExtensionStatus places or updates a keyed status bar entry.
+func (m *Kit) SetExtensionStatus(entry extensions.StatusBarEntry) {
+	if m.extRunner != nil {
+		m.extRunner.SetStatusEntry(entry)
+	}
+}
+
+// RemoveExtensionStatus removes a keyed status bar entry.
+func (m *Kit) RemoveExtensionStatus(key string) {
+	if m.extRunner != nil {
+		m.extRunner.RemoveStatusEntry(key)
+	}
+}
+
+// GetExtensionStatusEntries returns all extension status bar entries sorted by priority.
+func (m *Kit) GetExtensionStatusEntries() []extensions.StatusBarEntry {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetStatusEntries()
 }
 
 // HasExtensions returns true if the extension runner is configured and active.

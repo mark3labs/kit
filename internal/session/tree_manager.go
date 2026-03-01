@@ -283,6 +283,44 @@ func (tm *TreeManager) AppendSessionInfo(name string) (string, error) {
 	return entry.ID, nil
 }
 
+// AppendExtensionData adds an extension data entry to the tree and persists it.
+// Extensions use this to store custom state that survives across session restarts.
+func (tm *TreeManager) AppendExtensionData(extType, data string) (string, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	entry := NewExtensionDataEntry(tm.leafID, extType, data)
+	if err := tm.appendAndPersist(entry); err != nil {
+		return "", err
+	}
+
+	tm.leafID = entry.ID
+	return entry.ID, nil
+}
+
+// GetExtensionData returns all extension data entries matching the given type,
+// walking the current branch from root to leaf. If extType is empty, all
+// extension data entries on the branch are returned.
+func (tm *TreeManager) GetExtensionData(extType string) []*ExtensionDataEntry {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	if tm.leafID == "" {
+		return nil
+	}
+
+	branch := tm.getBranchLocked(tm.leafID)
+	var results []*ExtensionDataEntry
+	for _, entry := range branch {
+		if e, ok := entry.(*ExtensionDataEntry); ok {
+			if extType == "" || e.ExtType == extType {
+				results = append(results, e)
+			}
+		}
+	}
+	return results
+}
+
 // --- Tree navigation ---
 
 // Branch moves the leaf pointer to the given entry ID, creating a branch
@@ -601,6 +639,8 @@ func (tm *TreeManager) entryID(entry any) string {
 		return e.ID
 	case *SessionInfoEntry:
 		return e.ID
+	case *ExtensionDataEntry:
+		return e.ID
 	default:
 		return ""
 	}
@@ -618,6 +658,8 @@ func (tm *TreeManager) entryParentID(entry any) string {
 	case *LabelEntry:
 		return e.ParentID
 	case *SessionInfoEntry:
+		return e.ParentID
+	case *ExtensionDataEntry:
 		return e.ParentID
 	default:
 		return ""

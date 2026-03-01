@@ -12,14 +12,15 @@ import (
 // sequentially, mirroring Pi's ExtensionRunner. Handlers execute in extension
 // load order; for cancellable events the first blocking result wins.
 type Runner struct {
-	extensions   []LoadedExtension
-	ctx          Context
-	widgets      map[string]WidgetConfig // keyed by widget ID
-	header       *HeaderFooterConfig     // nil = no custom header
-	footer       *HeaderFooterConfig     // nil = no custom footer
-	customEditor *EditorConfig           // nil = no custom editor interceptor
-	uiVisibility *UIVisibility           // nil = show everything (default)
-	mu           sync.RWMutex
+	extensions    []LoadedExtension
+	ctx           Context
+	widgets       map[string]WidgetConfig   // keyed by widget ID
+	statusEntries map[string]StatusBarEntry // keyed by status key
+	header        *HeaderFooterConfig       // nil = no custom header
+	footer        *HeaderFooterConfig       // nil = no custom footer
+	customEditor  *EditorConfig             // nil = no custom editor interceptor
+	uiVisibility  *UIVisibility             // nil = show everything (default)
+	mu            sync.RWMutex
 }
 
 // LoadedExtension represents a single extension that has been discovered,
@@ -174,6 +175,45 @@ func (r *Runner) GetWidgets(placement WidgetPlacement) []WidgetConfig {
 			return result[i].Priority < result[j].Priority
 		}
 		return result[i].ID < result[j].ID // stable tie-break
+	})
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// Status bar management
+// ---------------------------------------------------------------------------
+
+// SetStatusEntry places or updates a keyed status bar entry. Thread-safe.
+func (r *Runner) SetStatusEntry(entry StatusBarEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.statusEntries == nil {
+		r.statusEntries = make(map[string]StatusBarEntry)
+	}
+	r.statusEntries[entry.Key] = entry
+}
+
+// RemoveStatusEntry removes a status bar entry by key. Thread-safe.
+func (r *Runner) RemoveStatusEntry(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.statusEntries, key)
+}
+
+// GetStatusEntries returns all status bar entries, sorted by priority
+// (ascending). Thread-safe.
+func (r *Runner) GetStatusEntries() []StatusBarEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]StatusBarEntry, 0, len(r.statusEntries))
+	for _, e := range r.statusEntries {
+		result = append(result, e)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Priority != result[j].Priority {
+			return result[i].Priority < result[j].Priority
+		}
+		return result[i].Key < result[j].Key
 	})
 	return result
 }

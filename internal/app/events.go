@@ -118,6 +118,13 @@ type CompactErrorEvent struct {
 // from its WidgetProvider on the next render cycle.
 type WidgetUpdateEvent struct{}
 
+// EditorTextSetEvent is sent when an extension calls ctx.SetEditorText to
+// pre-fill the input editor with text. The TUI handles this by setting the
+// textarea content and moving the cursor to the end.
+type EditorTextSetEvent struct {
+	Text string
+}
+
 // ExtensionPrintEvent is sent when an extension calls ctx.Print, ctx.PrintInfo,
 // ctx.PrintError, or ctx.PrintBlock. The TUI renders it via the appropriate
 // renderer and tea.Println (scrollback); the CLI handler uses

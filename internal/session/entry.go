@@ -22,6 +22,7 @@ const (
 	EntryTypeBranchSummary EntryType = "branch_summary"
 	EntryTypeLabel         EntryType = "label"
 	EntryTypeSessionInfo   EntryType = "session_info"
+	EntryTypeExtensionData EntryType = "extension_data"
 )
 
 // CurrentVersion is the session format version for JSONL tree sessions.
@@ -87,6 +88,14 @@ type LabelEntry struct {
 type SessionInfoEntry struct {
 	Entry
 	Name string `json:"name"`
+}
+
+// ExtensionDataEntry stores custom extension data in the session tree.
+// Extensions use this to persist state that survives across session restarts.
+type ExtensionDataEntry struct {
+	Entry
+	ExtType string `json:"ext_type"` // Extension-defined type string (e.g. "plan-mode:state")
+	Data    string `json:"data"`     // Extension-defined data (JSON or plain text)
 }
 
 // GenerateEntryID creates a unique entry identifier (16 hex chars).
@@ -177,6 +186,15 @@ func NewSessionInfoEntry(parentID, name string) *SessionInfoEntry {
 	}
 }
 
+// NewExtensionDataEntry creates an ExtensionDataEntry.
+func NewExtensionDataEntry(parentID, extType, data string) *ExtensionDataEntry {
+	return &ExtensionDataEntry{
+		Entry:   NewEntry(EntryTypeExtensionData, parentID),
+		ExtType: extType,
+		Data:    data,
+	}
+}
+
 // --- JSONL marshaling helpers ---
 
 // MarshalEntry serializes any entry to a JSON line (no trailing newline).
@@ -238,6 +256,13 @@ func UnmarshalEntry(data []byte) (any, error) {
 		var e SessionInfoEntry
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal session_info entry: %w", err)
+		}
+		return &e, nil
+
+	case EntryTypeExtensionData:
+		var e ExtensionDataEntry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal extension_data entry: %w", err)
 		}
 		return &e, nil
 
