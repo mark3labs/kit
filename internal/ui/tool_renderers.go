@@ -32,7 +32,11 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		if body := renderEditBody(toolArgs, toolResult, width); body != "" {
 			return body
 		}
-	case toolName == "read" || toolName == "ls":
+	case toolName == "ls":
+		if body := renderLsBody(toolResult, width); body != "" {
+			return body
+		}
+	case toolName == "read":
 		if body := renderReadBody(toolArgs, toolResult, width); body != "" {
 			return body
 		}
@@ -287,6 +291,35 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 		fullWidth := panelWidth*2 + 3 // both panels + divider
 		hintRow := indent + hintStyle.Width(fullWidth).Render(hint)
 		result = append(result, hintRow)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// ---------------------------------------------------------------------------
+// Ls tool — simple list without gutter
+// ---------------------------------------------------------------------------
+
+// renderLsBody renders ls output as a plain list with code background and no
+// line-number gutter.
+func renderLsBody(toolResult string, width int) string {
+	content := strings.TrimSpace(toolResult)
+	if content == "" {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+
+	const indent = "  "
+	codeWidth := max(width-len(indent), 20)
+
+	theme := getTheme()
+	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+
+	var result []string
+	for _, line := range lines {
+		styled := codeStyle.Width(codeWidth).Render(line)
+		result = append(result, indent+styled)
 	}
 
 	return strings.Join(result, "\n")
