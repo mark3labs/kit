@@ -254,6 +254,20 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 	return nil
 }
 
+// RunOnceResult executes a single agent step synchronously and returns the
+// full TurnResult without printing anything. This is used by --json mode to
+// capture structured output for serialization.
+func (a *App) RunOnceResult(ctx context.Context, prompt string) (*kit.TurnResult, error) {
+	stepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	a.mu.Lock()
+	a.cancelStep = cancel
+	a.mu.Unlock()
+
+	return a.executeStep(stepCtx, prompt, nil)
+}
+
 // RunOnceWithDisplay executes a single agent step synchronously, sending
 // intermediate display events (spinner, tool calls, streaming chunks, etc.)
 // to eventFn. This is the non-TUI equivalent of the interactive Run() path —

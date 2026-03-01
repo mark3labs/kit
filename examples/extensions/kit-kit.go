@@ -19,6 +19,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,6 +31,16 @@ import (
 
 	"kit/ext"
 )
+
+// kitJSONOutput matches the JSON envelope produced by `kit --json`.
+type kitJSONOutput struct {
+	Response string `json:"response"`
+	Model    string `json:"model"`
+	Usage    *struct {
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	} `json:"usage,omitempty"`
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -474,27 +485,33 @@ func queryExpert(name, question string) (output string, exitCode int, elapsed ti
 	}
 	tmpFile.Close()
 
-	// Build subprocess arguments. Don't pass --model; the subprocess
-	// inherits the same config/env and will use the same default.
+	// Build subprocess arguments. Use --json for structured output parsing.
+	// Don't pass --model; the subprocess inherits the same config/env default.
 	args := []string{
 		"--prompt", question,
-		"--quiet",
+		"--json",
 		"--no-session",
 		"--no-extensions",
 		"--system-prompt", tmpFile.Name(),
 	}
 
+	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd := exec.Command(kitBinary, args...)
 	cmd.Env = os.Environ()
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
-	outBytes, err := cmd.CombinedOutput()
+	err = cmd.Run()
 	close(done)
 	elapsed = time.Since(start)
-	result := strings.TrimSpace(string(outBytes))
 
 	if err != nil {
-		// Extract a single-line summary for the card (no newlines).
-		errLine := result
+		// On error, prefer stderr for the error message; fall back to stdout.
+		errText := strings.TrimSpace(stderrBuf.String())
+		if errText == "" {
+			errText = strings.TrimSpace(stdoutBuf.String())
+		}
+		errLine := errText
 		if idx := strings.Index(errLine, "\n"); idx >= 0 {
 			errLine = errLine[:idx]
 		}
@@ -505,10 +522,18 @@ func queryExpert(name, question string) (output string, exitCode int, elapsed ti
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code = exitErr.ExitCode()
 		}
-		return result, code, elapsed
+		return errText, code, elapsed
 	}
 
-	// Success — extract last non-empty line for the card.
+	// Parse JSON output from subprocess.
+	var parsed kitJSONOutput
+	result := strings.TrimSpace(stdoutBuf.String())
+	if err := json.Unmarshal([]byte(result), &parsed); err == nil {
+		result = parsed.Response
+	}
+	// else: fall back to raw stdout (e.g. older kit binary without --json)
+
+	// Extract last non-empty line for the card.
 	lines := strings.Split(result, "\n")
 	var lastLine string
 	for i := len(lines) - 1; i >= 0; i-- {

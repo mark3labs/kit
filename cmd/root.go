@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -29,6 +30,7 @@ var (
 	debugMode        bool
 	promptFlag       string
 	quietFlag        bool
+	jsonFlag         bool
 	noExitFlag       bool
 	maxSteps         int
 	streamFlag       bool // Enable streaming output
@@ -203,6 +205,8 @@ func init() {
 		StringVarP(&promptFlag, "prompt", "p", "", "run in non-interactive mode with the given prompt")
 	rootCmd.PersistentFlags().
 		BoolVar(&quietFlag, "quiet", false, "suppress all output (only works with --prompt)")
+	rootCmd.PersistentFlags().
+		BoolVar(&jsonFlag, "json", false, "output response as JSON (only works with --prompt)")
 	rootCmd.PersistentFlags().
 		BoolVar(&noExitFlag, "no-exit", false, "prevent non-interactive mode from exiting, show input prompt instead")
 	rootCmd.PersistentFlags().
@@ -457,6 +461,12 @@ func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
 		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
+	}
+	if jsonFlag && promptFlag == "" {
+		return fmt.Errorf("--json flag can only be used with --prompt/-p")
+	}
+	if jsonFlag && noExitFlag {
+		return fmt.Errorf("--json and --no-exit flags cannot be used together")
 	}
 	if noExitFlag && promptFlag == "" {
 		return fmt.Errorf("--no-exit flag can only be used with --prompt/-p")
@@ -734,7 +744,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -755,8 +765,20 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility) error {
-	if quiet {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility) error {
+	if jsonOutput {
+		// JSON mode: no intermediate display, structured JSON output.
+		result, err := appInstance.RunOnceResult(ctx, prompt)
+		if err != nil {
+			writeJSONError(err)
+			return err
+		}
+		data, err := buildJSONOutput(result, modelName)
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON output: %w", err)
+		}
+		fmt.Println(string(data))
+	} else if quiet {
 		// Quiet mode: no intermediate display, just print final response.
 		if err := appInstance.RunOnce(ctx, prompt); err != nil {
 			return err
@@ -785,6 +807,83 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 	}
 
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// JSON output helpers (--json mode)
+// ---------------------------------------------------------------------------
+
+// buildJSONOutput converts a TurnResult into a structured JSON byte slice
+// suitable for machine consumption.
+func buildJSONOutput(result *kit.TurnResult, model string) ([]byte, error) {
+	type jsonPart struct {
+		Type string `json:"type"`
+		Data any    `json:"data"`
+	}
+	type jsonMessage struct {
+		Role  string     `json:"role"`
+		Parts []jsonPart `json:"parts"`
+	}
+	type jsonUsage struct {
+		InputTokens         int64 `json:"input_tokens"`
+		OutputTokens        int64 `json:"output_tokens"`
+		TotalTokens         int64 `json:"total_tokens"`
+		CacheReadTokens     int64 `json:"cache_read_tokens"`
+		CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	}
+	type jsonEnvelope struct {
+		Response string        `json:"response"`
+		Model    string        `json:"model"`
+		Usage    *jsonUsage    `json:"usage,omitempty"`
+		Messages []jsonMessage `json:"messages"`
+	}
+
+	out := jsonEnvelope{
+		Response: result.Response,
+		Model:    model,
+	}
+
+	if result.TotalUsage != nil {
+		out.Usage = &jsonUsage{
+			InputTokens:         result.TotalUsage.InputTokens,
+			OutputTokens:        result.TotalUsage.OutputTokens,
+			TotalTokens:         result.TotalUsage.TotalTokens,
+			CacheReadTokens:     result.TotalUsage.CacheReadTokens,
+			CacheCreationTokens: result.TotalUsage.CacheCreationTokens,
+		}
+	}
+
+	for _, fmsg := range result.Messages {
+		converted := kit.ConvertFromFantasyMessage(fmsg)
+		m := jsonMessage{Role: string(converted.Role)}
+		for _, p := range converted.Parts {
+			switch c := p.(type) {
+			case kit.TextContent:
+				m.Parts = append(m.Parts, jsonPart{Type: "text", Data: c})
+			case kit.ToolCall:
+				m.Parts = append(m.Parts, jsonPart{Type: "tool_call", Data: c})
+			case kit.ToolResult:
+				m.Parts = append(m.Parts, jsonPart{Type: "tool_result", Data: c})
+			case kit.ReasoningContent:
+				m.Parts = append(m.Parts, jsonPart{Type: "reasoning", Data: c})
+			case kit.Finish:
+				m.Parts = append(m.Parts, jsonPart{Type: "finish", Data: c})
+			}
+		}
+		out.Messages = append(out.Messages, m)
+	}
+
+	return json.MarshalIndent(out, "", "  ")
+}
+
+// writeJSONError writes a JSON-formatted error object to stdout so that
+// callers using --json always receive parseable output.
+func writeJSONError(err error) {
+	type jsonError struct {
+		Error string `json:"error"`
+	}
+	data, _ := json.MarshalIndent(jsonError{Error: err.Error()}, "", "  ")
+	fmt.Fprintln(os.Stderr, string(data))
 }
 
 // runInteractiveModeBubbleTea starts the new unified Bubble Tea interactive TUI.

@@ -35,6 +35,11 @@ import (
 	"kit/ext"
 )
 
+// subJSONOutput matches the JSON envelope produced by `kit --json`.
+type subJSONOutput struct {
+	Response string `json:"response"`
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -205,7 +210,7 @@ func spawnAgent(state *subState) {
 
 	args := []string{
 		"--prompt", prompt,
-		"--quiet",
+		"--json",
 		"--no-session",
 		"--no-extensions",
 	}
@@ -261,7 +266,7 @@ func spawnAgent(state *subState) {
 		}
 	}()
 
-	// Read stderr in background goroutine.
+	// Read stderr in background goroutine (live widget updates).
 	var readWg sync.WaitGroup
 	readWg.Add(1)
 	go func() {
@@ -277,18 +282,29 @@ func spawnAgent(state *subState) {
 		}
 	}()
 
-	// Read stdout in foreground.
+	// Read stdout into a separate buffer (JSON output from --json mode).
+	var stdoutBuf strings.Builder
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024)
 	for scanner.Scan() {
-		state.appendChunk(scanner.Text() + "\n")
-		updateWidgets()
+		stdoutBuf.WriteString(scanner.Text() + "\n")
 	}
 
 	// Wait for all pipe readers, then the process.
 	readWg.Wait()
 	waitErr := cmd.Wait()
 	close(doneCh) // stop timer
+
+	// Parse JSON output from --json mode to extract the response.
+	var result string
+	rawStdout := strings.TrimSpace(stdoutBuf.String())
+	var parsed subJSONOutput
+	if rawStdout != "" && json.Unmarshal([]byte(rawStdout), &parsed) == nil && parsed.Response != "" {
+		result = parsed.Response
+	} else {
+		// Fallback: use raw stdout (e.g. older kit binary without --json).
+		result = rawStdout
+	}
 
 	state.mu.Lock()
 	state.Elapsed = time.Since(start)
@@ -298,7 +314,6 @@ func spawnAgent(state *subState) {
 	} else {
 		state.Status = "done"
 	}
-	result := strings.Join(state.Chunks, "")
 
 	// Save history for /subcont continuations (cap at 16 KB).
 	state.History += fmt.Sprintf("\n--- Turn %d ---\nTask: %s\nResult:\n%s\n",
