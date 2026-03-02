@@ -343,6 +343,9 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		registerOption: func(opt OptionDef) {
 			ext.Options = append(ext.Options, opt)
 		},
+		registerShortcutFn: func(def ShortcutDef, handler func(Context)) {
+			ext.Shortcuts = append(ext.Shortcuts, ShortcutEntry{Def: def, Handler: handler})
+		},
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.

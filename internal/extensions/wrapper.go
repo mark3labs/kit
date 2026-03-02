@@ -29,10 +29,12 @@ func WrapToolsWithExtensions(tools []fantasy.AgentTool, runner *Runner) []fantas
 
 // ExtensionToolsAsFantasy converts ToolDef values registered by extensions
 // into fantasy.AgentTool implementations so the LLM can invoke them.
-func ExtensionToolsAsFantasy(defs []ToolDef) []fantasy.AgentTool {
+// The runner is optional; if provided, ToolContext.OnProgress routes
+// progress messages through the runner's Print function.
+func ExtensionToolsAsFantasy(defs []ToolDef, runner *Runner) []fantasy.AgentTool {
 	tools := make([]fantasy.AgentTool, 0, len(defs))
 	for _, def := range defs {
-		tools = append(tools, &extensionTool{def: def})
+		tools = append(tools, &extensionTool{def: def, runner: runner})
 	}
 	return tools
 }
@@ -66,6 +68,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			ToolName:   toolName,
 			ToolCallID: call.ID,
 			Input:      call.Input,
+			Source:     "llm",
 		})
 		if r, ok := result.(ToolCallResult); ok && r.Block {
 			reason := r.Reason
@@ -117,6 +120,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 
 type extensionTool struct {
 	def             ToolDef
+	runner          *Runner // optional; enables ToolContext.OnProgress
 	providerOptions fantasy.ProviderOptions
 }
 
@@ -130,8 +134,31 @@ func (t *extensionTool) Info() fantasy.ToolInfo {
 func (t *extensionTool) ProviderOptions() fantasy.ProviderOptions     { return t.providerOptions }
 func (t *extensionTool) SetProviderOptions(o fantasy.ProviderOptions) { t.providerOptions = o }
 
-func (t *extensionTool) Run(_ context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-	result, err := t.def.Execute(call.Input)
+func (t *extensionTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	var result string
+	var err error
+
+	if t.def.ExecuteWithContext != nil {
+		tc := ToolContext{
+			IsCancelled: func() bool {
+				return ctx.Err() != nil
+			},
+			OnProgress: func(text string) {
+				if t.runner != nil {
+					t.runner.mu.RLock()
+					printFn := t.runner.ctx.Print
+					t.runner.mu.RUnlock()
+					if printFn != nil {
+						printFn(text)
+					}
+				}
+			},
+		}
+		result, err = t.def.ExecuteWithContext(call.Input, tc)
+	} else {
+		result, err = t.def.Execute(call.Input)
+	}
+
 	if err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), err
 	}

@@ -23,6 +23,8 @@ func Symbols() interp.Exports {
 			"API":            reflect.ValueOf((*API)(nil)),
 			"Context":        reflect.ValueOf((*Context)(nil)),
 			"ToolDef":        reflect.ValueOf((*ToolDef)(nil)),
+			"ToolContext":    reflect.ValueOf((*ToolContext)(nil)),
+			"ShortcutDef":    reflect.ValueOf((*ShortcutDef)(nil)),
 			"CommandDef":     reflect.ValueOf((*CommandDef)(nil)),
 			"PrintBlockOpts": reflect.ValueOf((*PrintBlockOpts)(nil)),
 

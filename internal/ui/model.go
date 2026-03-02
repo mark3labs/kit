@@ -283,6 +283,12 @@ type AppModelOptions struct {
 	// to a new session branch (e.g. /new, /clear). Returns (cancelled,
 	// reason). May be nil if no extensions are loaded.
 	EmitBeforeSessionSwitch func(reason string) (bool, string)
+
+	// GetGlobalShortcuts, if non-nil, returns extension-registered global
+	// keyboard shortcuts. Keys are binding strings (e.g., "ctrl+p").
+	// Handlers are called in a goroutine to avoid blocking the TUI event
+	// loop. May be nil if no extensions are loaded.
+	GetGlobalShortcuts func() map[string]func()
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -404,6 +410,10 @@ type AppModel struct {
 	// Returns (cancelled, reason). May be nil if no extensions are loaded.
 	emitBeforeSessionSwitch func(reason string) (bool, string)
 
+	// getGlobalShortcuts returns extension-registered keyboard shortcuts.
+	// May be nil if no extensions are loaded.
+	getGlobalShortcuts func() map[string]func()
+
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
 	prompt *promptOverlay
@@ -521,6 +531,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getStatusBarEntries = opts.GetStatusBarEntries
 	m.emitBeforeFork = opts.EmitBeforeFork
 	m.emitBeforeSessionSwitch = opts.EmitBeforeSessionSwitch
+	m.getGlobalShortcuts = opts.GetGlobalShortcuts
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -755,6 +766,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Graceful quit: app.Close() is deferred in cmd/root.go.
 			return m, tea.Quit
+		}
+
+		// Check extension-registered global keyboard shortcuts. These fire
+		// in all app states except modal prompts/overlays (which return early
+		// above). Matched shortcuts are consumed — the key does not propagate
+		// to child components.
+		if m.getGlobalShortcuts != nil {
+			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
+				if handler, ok := shortcuts[msg.String()]; ok {
+					// Run in goroutine so blocking extension calls
+					// (PromptSelect, etc.) don't stall the event loop.
+					go handler()
+					return m, tea.Batch(cmds...)
+				}
+			}
 		}
 
 		// Route to tree selector when active.

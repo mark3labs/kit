@@ -29,6 +29,12 @@ type Runner struct {
 	mu              sync.RWMutex
 }
 
+// ShortcutEntry pairs a shortcut definition with its handler.
+type ShortcutEntry struct {
+	Def     ShortcutDef
+	Handler func(Context)
+}
+
 // LoadedExtension represents a single extension that has been discovered,
 // loaded, and initialised. It holds the registered handlers and any custom
 // tools, commands, or tool renderers the extension provided.
@@ -40,6 +46,7 @@ type LoadedExtension struct {
 	ToolRenderers       []ToolRenderConfig
 	CustomEventHandlers map[string][]func(string) // inter-extension event bus
 	Options             []OptionDef               // registered configuration options
+	Shortcuts           []ShortcutEntry           // global keyboard shortcuts
 }
 
 // NewRunner creates a Runner from a set of loaded extensions.
@@ -53,6 +60,13 @@ func (r *Runner) SetContext(ctx Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ctx = ctx
+}
+
+// GetContext returns a snapshot of the current runtime context. Thread-safe.
+func (r *Runner) GetContext() Context {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.ctx
 }
 
 // HasHandlers returns true if any loaded extension has at least one handler
@@ -129,13 +143,6 @@ func (r *Runner) RegisteredCommands() []CommandDef {
 		cmds = append(cmds, r.extensions[i].Commands...)
 	}
 	return cmds
-}
-
-// GetContext returns the current runtime context. Thread-safe.
-func (r *Runner) GetContext() Context {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.ctx
 }
 
 // Extensions returns the loaded extensions for inspection (e.g. CLI list).
@@ -504,6 +511,44 @@ func (r *Runner) RegisteredOptions() []OptionDef {
 		opts = append(opts, r.extensions[i].Options...)
 	}
 	return opts
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts
+// ---------------------------------------------------------------------------
+
+// GetShortcuts returns all registered keyboard shortcuts as a map of
+// key binding → handler. If multiple extensions register the same key,
+// the last registration wins. Thread-safe (reads extension list which is
+// immutable after loading).
+func (r *Runner) GetShortcuts() map[string]ShortcutEntry {
+	result := make(map[string]ShortcutEntry)
+	for i := range r.extensions {
+		for _, sc := range r.extensions[i].Shortcuts {
+			result[sc.Def.Key] = sc
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// RegisteredShortcuts returns all shortcut definitions from all loaded
+// extensions. Used for help/listing commands.
+func (r *Runner) RegisteredShortcuts() []ShortcutDef {
+	var defs []ShortcutDef
+	seen := make(map[string]bool)
+	// Iterate in reverse so last registration for a key wins.
+	for i := len(r.extensions) - 1; i >= 0; i-- {
+		for _, sc := range r.extensions[i].Shortcuts {
+			if !seen[sc.Def.Key] {
+				seen[sc.Def.Key] = true
+				defs = append(defs, sc.Def)
+			}
+		}
+	}
+	return defs
 }
 
 // ---------------------------------------------------------------------------

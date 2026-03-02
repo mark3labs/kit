@@ -34,10 +34,19 @@ func Init(api ext.API) {
 		Default:     "false",
 	})
 
+	// ctrl+alt+p — global shortcut to toggle plan mode.
+	api.RegisterShortcut(ext.ShortcutDef{
+		Key:         "ctrl+alt+p",
+		Description: "Toggle plan/explore mode",
+	}, func(ctx ext.Context) {
+		planActive = !planActive
+		applyMode(ctx, planActive, readOnlyTools)
+	})
+
 	// /plan — toggle plan mode on or off.
 	api.RegisterCommand(ext.CommandDef{
 		Name:        "plan",
-		Description: "Toggle plan/explore mode (read-only tools)",
+		Description: "Toggle plan/explore mode (ctrl+alt+p)",
 		Execute: func(args string, ctx ext.Context) (string, error) {
 			planActive = !planActive
 			applyMode(ctx, planActive, readOnlyTools)

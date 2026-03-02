@@ -403,6 +403,30 @@ func (m *Kit) GetExtensionStatusEntries() []extensions.StatusBarEntry {
 	return m.extRunner.GetStatusEntries()
 }
 
+// GetExtensionShortcuts returns a map of key bindings to handler functions
+// from all loaded extensions. Returns nil if no shortcuts are registered or
+// extensions are disabled. Handlers are closures that capture the runner's
+// current context, so they can call Print/SetStatus/etc.
+func (m *Kit) GetExtensionShortcuts() map[string]func() {
+	if m.extRunner == nil {
+		return nil
+	}
+	entries := m.extRunner.GetShortcuts()
+	if entries == nil {
+		return nil
+	}
+	result := make(map[string]func(), len(entries))
+	for key, entry := range entries {
+		h := entry.Handler
+		r := m.extRunner
+		result[key] = func() {
+			ctx := r.GetContext()
+			h(ctx)
+		}
+	}
+	return result
+}
+
 // GetExtensionToolInfos returns information about all tools available to the
 // agent, including enabled/disabled status from SetActiveTools. Each tool is
 // categorized by source: "core", "mcp", or "extension".

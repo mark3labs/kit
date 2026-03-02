@@ -1,3 +1,5 @@
+//go:build ignore
+
 // context-inject.go — Injects context from a local file into every LLM turn.
 //
 // Reads a context file (default: .kit/context.md) and prepends it as a system

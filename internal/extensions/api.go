@@ -609,6 +609,7 @@ type API struct {
 	onBeforeCompact        func(func(BeforeCompactEvent, Context) *BeforeCompactResult)
 	onCustomEvent          func(name string, handler func(string))
 	registerOption         func(OptionDef)
+	registerShortcutFn     func(ShortcutDef, func(Context))
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -725,6 +726,18 @@ func (a *API) RegisterCommand(cmd CommandDef) {
 // wins.
 func (a *API) RegisterOption(opt OptionDef) {
 	a.registerOption(opt)
+}
+
+// RegisterShortcut registers a global keyboard shortcut that fires across
+// all app states except modal prompts/overlays. Use modifier combinations
+// like "ctrl+p", "alt+t", or "f1" — avoid bare characters that conflict
+// with text input. If multiple extensions register the same key, the last
+// registration wins. The handler runs in a goroutine so it can call blocking
+// APIs like PromptSelect without stalling the TUI event loop.
+func (a *API) RegisterShortcut(def ShortcutDef, handler func(Context)) {
+	if a.registerShortcutFn != nil {
+		a.registerShortcutFn(def, handler)
+	}
 }
 
 // OnCustomEvent registers a handler for a custom inter-extension event.
@@ -1062,12 +1075,31 @@ type ToolInfo struct {
 // ToolDef / CommandDef
 // ---------------------------------------------------------------------------
 
+// ToolContext provides runtime context to a tool's ExecuteWithContext handler.
+// It allows tools to check for cancellation and report progress while running.
+type ToolContext struct {
+	// IsCancelled returns true when the tool's execution has been cancelled
+	// (e.g. the user interrupted the agent or the request timed out).
+	// Long-running tools should poll this periodically and return early.
+	IsCancelled func() bool
+	// OnProgress sends a progress message that is displayed in the TUI
+	// while the tool is executing. Useful for long-running operations
+	// that want to show incremental status.
+	OnProgress func(text string)
+}
+
 // ToolDef describes a custom tool registered by an extension.
 type ToolDef struct {
 	Name        string
 	Description string
 	Parameters  string // JSON Schema string
-	Execute     func(input string) (string, error)
+	// Execute is the simple handler — receives JSON input, returns text result.
+	// Use this for tools that don't need cancellation or progress reporting.
+	Execute func(input string) (string, error)
+	// ExecuteWithContext is the rich handler — receives JSON input plus a
+	// ToolContext that provides cancellation checking and progress reporting.
+	// If both Execute and ExecuteWithContext are set, ExecuteWithContext wins.
+	ExecuteWithContext func(input string, tc ToolContext) (string, error)
 }
 
 // CommandDef describes a slash command registered by an extension.
@@ -1079,6 +1111,21 @@ type CommandDef struct {
 	// Called with the partial argument text typed so far; returns
 	// candidate completions. Nil means no argument completion.
 	Complete func(prefix string, ctx Context) []string
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ShortcutDef describes a global keyboard shortcut registered by an extension.
+// Shortcuts fire across all app states except modal prompts/overlays.
+// Use modifier combinations (e.g., "ctrl+p", "alt+t", "f1") — avoid bare
+// characters like "a" or "x" which conflict with text input.
+type ShortcutDef struct {
+	// Key is the key binding (e.g., "ctrl+p", "alt+t", "f1", "ctrl+shift+s").
+	Key string
+	// Description explains what the shortcut does (shown in /shortcuts help).
+	Description string
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,6 +1297,10 @@ type ToolCallEvent struct {
 	ToolName   string
 	ToolCallID string
 	Input      string // JSON-encoded tool parameters
+	// Source indicates who initiated the tool call.
+	// Currently always "llm" (all tool calls originate from the LLM agent loop).
+	// Future user-initiated tool features may set this to "user".
+	Source string
 }
 
 func (e ToolCallEvent) Type() EventType { return ToolCall }
