@@ -48,8 +48,13 @@ func TestWrapToolsWithExtensions_NoRelevantHandlers(t *testing.T) {
 	}))
 	tools := []fantasy.AgentTool{newMockTool("test")}
 	result := WrapToolsWithExtensions(tools, r)
-	if result[0] != tools[0] {
-		t.Error("expected original tool when no tool handlers exist")
+	// Tools are always wrapped now (for SetActiveTools support),
+	// but Info() should pass through correctly.
+	if result[0] == tools[0] {
+		t.Error("expected wrapped tool (always wraps for SetActiveTools)")
+	}
+	if result[0].Info().Name != "test" {
+		t.Errorf("expected name 'test', got %q", result[0].Info().Name)
 	}
 }
 

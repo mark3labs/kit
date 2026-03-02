@@ -983,6 +983,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err)))
 
+	case app.ModelChangedEvent:
+		// Extension changed the model — update display name in status bar
+		// and message attribution.
+		m.providerName = msg.ProviderName
+		m.modelName = msg.ModelName
+
 	case app.WidgetUpdateEvent:
 		// Extension widget changed — recalculate height distribution so the
 		// stream region accounts for widget space. View() will read the

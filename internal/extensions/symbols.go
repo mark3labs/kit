@@ -30,6 +30,19 @@ func Symbols() interp.Exports {
 			"SessionMessage": reflect.ValueOf((*SessionMessage)(nil)),
 			"ExtensionEntry": reflect.ValueOf((*ExtensionEntry)(nil)),
 
+			// Option types
+			"OptionDef": reflect.ValueOf((*OptionDef)(nil)),
+
+			// Model info types
+			"ModelInfoEntry": reflect.ValueOf((*ModelInfoEntry)(nil)),
+
+			// Tool info types
+			"ToolInfo": reflect.ValueOf((*ToolInfo)(nil)),
+
+			// LLM completion types
+			"CompleteRequest":  reflect.ValueOf((*CompleteRequest)(nil)),
+			"CompleteResponse": reflect.ValueOf((*CompleteResponse)(nil)),
+
 			// Status bar types
 			"StatusBarEntry": reflect.ValueOf((*StatusBarEntry)(nil)),
 

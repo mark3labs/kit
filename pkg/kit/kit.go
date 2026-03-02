@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/message"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
 	"github.com/mark3labs/kit/internal/tools"
@@ -387,6 +388,235 @@ func (m *Kit) GetExtensionStatusEntries() []extensions.StatusBarEntry {
 		return nil
 	}
 	return m.extRunner.GetStatusEntries()
+}
+
+// GetExtensionToolInfos returns information about all tools available to the
+// agent, including enabled/disabled status from SetActiveTools. Each tool is
+// categorized by source: "core", "mcp", or "extension".
+func (m *Kit) GetExtensionToolInfos() []extensions.ToolInfo {
+	agentTools := m.agent.GetTools()
+	coreCount := m.agent.GetCoreToolCount()
+	mcpCount := m.agent.GetMCPToolCount()
+
+	result := make([]extensions.ToolInfo, 0, len(agentTools))
+	for i, t := range agentTools {
+		info := t.Info()
+		source := "core"
+		if i >= coreCount && i < coreCount+mcpCount {
+			source = "mcp"
+		} else if i >= coreCount+mcpCount {
+			source = "extension"
+		}
+		enabled := true
+		if m.extRunner != nil && m.extRunner.IsToolDisabled(info.Name) {
+			enabled = false
+		}
+		result = append(result, extensions.ToolInfo{
+			Name:        info.Name,
+			Description: info.Description,
+			Source:      source,
+			Enabled:     enabled,
+		})
+	}
+	return result
+}
+
+// SetExtensionActiveTools restricts the tool set to the named tools. All
+// other tools are blocked from execution. Pass nil to re-enable all tools.
+// No-op if extensions are disabled.
+func (m *Kit) SetExtensionActiveTools(names []string) {
+	if m.extRunner != nil {
+		m.extRunner.SetActiveTools(names)
+	}
+}
+
+// SetModel changes the active model at runtime. The existing tools, system
+// prompt, and session are preserved. The model string should be in
+// "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
+// Returns an error if the model string is invalid or the provider cannot
+// be created.
+func (m *Kit) SetModel(ctx context.Context, modelString string) error {
+	// Validate the model string first.
+	if _, _, err := ParseModelString(modelString); err != nil {
+		return err
+	}
+
+	// Build a provider config from current settings, overriding the model.
+	config := &models.ProviderConfig{
+		ModelString:    modelString,
+		ProviderAPIKey: viper.GetString("provider-api-key"),
+		ProviderURL:    viper.GetString("provider-url"),
+		MaxTokens:      viper.GetInt("max-tokens"),
+		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
+	}
+	temperature := float32(viper.GetFloat64("temperature"))
+	config.Temperature = &temperature
+	topP := float32(viper.GetFloat64("top-p"))
+	config.TopP = &topP
+	topK := int32(viper.GetInt("top-k"))
+	config.TopK = &topK
+
+	if err := m.agent.SetModel(ctx, config); err != nil {
+		return err
+	}
+
+	m.modelString = modelString
+
+	// Update extension context's Model field.
+	if m.extRunner != nil {
+		extCtx := m.extRunner.GetContext()
+		extCtx.Model = modelString
+		m.extRunner.SetContext(extCtx)
+	}
+
+	return nil
+}
+
+// GetAvailableModels returns a list of known models from the registry. Each
+// entry includes provider, model ID, context limit, and whether the model
+// supports reasoning. This is an advisory list — models not in the registry
+// can still be used by specifying their provider/model string.
+func (m *Kit) GetAvailableModels() []extensions.ModelInfoEntry {
+	registry := models.GetGlobalRegistry()
+	var result []extensions.ModelInfoEntry
+	for _, providerID := range registry.GetFantasyProviders() {
+		modelsMap, err := registry.GetModelsForProvider(providerID)
+		if err != nil {
+			continue
+		}
+		for modelID, info := range modelsMap {
+			result = append(result, extensions.ModelInfoEntry{
+				Provider:     providerID,
+				ModelID:      modelID,
+				Name:         info.Name,
+				ContextLimit: info.Limit.Context,
+				OutputLimit:  info.Limit.Output,
+				Reasoning:    info.Reasoning,
+			})
+		}
+	}
+	return result
+}
+
+// GetExtensionOption resolves a named extension option value.
+func (m *Kit) GetExtensionOption(name string) string {
+	if m.extRunner == nil {
+		return ""
+	}
+	return m.extRunner.GetOption(name)
+}
+
+// SetExtensionOption stores a runtime override for a named extension option.
+func (m *Kit) SetExtensionOption(name, value string) {
+	if m.extRunner != nil {
+		m.extRunner.SetOption(name, value)
+	}
+}
+
+// EmitExtensionCustomEvent dispatches a named event to all extension handlers.
+// No-op if extensions are disabled.
+func (m *Kit) EmitExtensionCustomEvent(name, data string) {
+	if m.extRunner != nil {
+		m.extRunner.EmitCustomEvent(name, data)
+	}
+}
+
+// ExecuteCompletion makes a standalone LLM completion call for extensions.
+// When req.Model is empty the current agent model is reused (no provider
+// creation overhead). When req.Model is set a temporary provider is created,
+// used, and closed.
+func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
+	var (
+		llmModel  fantasy.LanguageModel
+		closer    func()
+		usedModel string
+	)
+
+	if req.Model == "" {
+		// Reuse the active agent's model.
+		llmModel = m.agent.GetModel()
+		usedModel = m.modelString
+		closer = func() {} // nothing to clean up
+	} else {
+		// Create a temporary provider for the requested model.
+		config := &models.ProviderConfig{
+			ModelString:   req.Model,
+			TLSSkipVerify: viper.GetBool("tls-skip-verify"),
+		}
+		if req.MaxTokens > 0 {
+			config.MaxTokens = req.MaxTokens
+		}
+		providerResult, err := models.CreateProvider(ctx, config)
+		if err != nil {
+			return extensions.CompleteResponse{}, fmt.Errorf("create provider for %q: %w", req.Model, err)
+		}
+		llmModel = providerResult.Model
+		usedModel = req.Model
+		closer = func() {
+			if providerResult.Closer != nil {
+				_ = providerResult.Closer.Close()
+			}
+		}
+	}
+	defer closer()
+
+	// Build fantasy agent options (no tools — just a simple completion).
+	var agentOpts []fantasy.AgentOption
+	if req.System != "" {
+		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(req.System))
+	}
+	if req.MaxTokens > 0 {
+		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(req.MaxTokens)))
+	}
+
+	completionAgent := fantasy.NewAgent(llmModel, agentOpts...)
+
+	// Convert extension SessionMessage history to fantasy.Message slice.
+	var messages []fantasy.Message
+	for _, sm := range req.Messages {
+		messages = append(messages, fantasy.Message{
+			Role: fantasy.MessageRole(sm.Role),
+			Content: []fantasy.MessagePart{
+				fantasy.TextPart{Text: sm.Content},
+			},
+		})
+	}
+
+	// Streaming path.
+	if req.OnChunk != nil {
+		result, err := completionAgent.Stream(ctx, fantasy.AgentStreamCall{
+			Prompt:   req.Prompt,
+			Messages: messages,
+			OnTextDelta: func(_, text string) error {
+				req.OnChunk(text)
+				return nil
+			},
+		})
+		if err != nil {
+			return extensions.CompleteResponse{}, fmt.Errorf("streaming completion: %w", err)
+		}
+		return extensions.CompleteResponse{
+			Text:         result.Response.Content.Text(),
+			InputTokens:  int(result.Response.Usage.InputTokens),
+			OutputTokens: int(result.Response.Usage.OutputTokens),
+			Model:        usedModel,
+		}, nil
+	}
+
+	// Non-streaming path.
+	result, err := completionAgent.Generate(ctx, fantasy.AgentCall{
+		Prompt:   req.Prompt,
+		Messages: messages,
+	})
+	if err != nil {
+		return extensions.CompleteResponse{}, fmt.Errorf("completion: %w", err)
+	}
+	return extensions.CompleteResponse{
+		Text:         result.Response.Content.Text(),
+		InputTokens:  int(result.Response.Usage.InputTokens),
+		OutputTokens: int(result.Response.Usage.OutputTokens),
+		Model:        usedModel,
+	}, nil
 }
 
 // HasExtensions returns true if the extension runner is configured and active.

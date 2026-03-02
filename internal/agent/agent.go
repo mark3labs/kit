@@ -74,6 +74,7 @@ type Agent struct {
 	streamingEnabled bool
 	coreTools        []fantasy.AgentTool
 	extraTools       []fantasy.AgentTool
+	toolWrapper      func([]fantasy.AgentTool) []fantasy.AgentTool // stored for SetModel rebuild
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -179,6 +180,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		streamingEnabled: agentConfig.StreamingEnabled,
 		coreTools:        coreTools,
 		extraTools:       agentConfig.ExtraTools,
+		toolWrapper:      agentConfig.ToolWrapper,
 	}, nil
 }
 
@@ -455,6 +457,11 @@ func (a *Agent) GetTools() []fantasy.AgentTool {
 	return allTools
 }
 
+// GetCoreToolCount returns the number of core tools.
+func (a *Agent) GetCoreToolCount() int {
+	return len(a.coreTools)
+}
+
 // GetMCPToolCount returns the number of tools loaded from external MCP servers.
 func (a *Agent) GetMCPToolCount() int {
 	if a.toolManager == nil {
@@ -479,6 +486,69 @@ func (a *Agent) GetLoadedServerNames() []string {
 		return nil
 	}
 	return a.toolManager.GetLoadedServerNames()
+}
+
+// SetModel swaps the agent's LLM provider to a new model. The existing tools,
+// system prompt, and configuration are preserved. The old provider is closed
+// if it has a closer. Returns the previous model string for notification.
+func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) error {
+	providerResult, err := models.CreateProvider(ctx, config)
+	if err != nil {
+		return fmt.Errorf("failed to create model provider: %v", err)
+	}
+
+	// Rebuild tool list (same as NewAgent).
+	allTools := make([]fantasy.AgentTool, len(a.coreTools))
+	copy(allTools, a.coreTools)
+	if a.toolManager != nil {
+		allTools = append(allTools, a.toolManager.GetTools()...)
+	}
+	if len(a.extraTools) > 0 {
+		allTools = append(allTools, a.extraTools...)
+	}
+	if a.toolWrapper != nil {
+		allTools = a.toolWrapper(allTools)
+	}
+
+	// Rebuild fantasy agent options.
+	var agentOpts []fantasy.AgentOption
+	if a.systemPrompt != "" {
+		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(a.systemPrompt))
+	}
+	if len(allTools) > 0 {
+		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
+	}
+	if a.maxSteps > 0 {
+		agentOpts = append(agentOpts, fantasy.WithStopConditions(
+			fantasy.StepCountIs(a.maxSteps),
+		))
+	}
+
+	newFantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
+
+	// Close old provider.
+	if a.providerCloser != nil {
+		_ = a.providerCloser.Close()
+	}
+
+	// Update model info on MCP tool manager.
+	if a.toolManager != nil {
+		a.toolManager.SetModel(providerResult.Model)
+	}
+
+	// Swap fields.
+	a.fantasyAgent = newFantasyAgent
+	a.model = providerResult.Model
+	a.providerCloser = providerResult.Closer
+
+	// Update provider type.
+	if config.ModelString != "" {
+		if p, _, err := models.ParseModelString(config.ModelString); err == nil {
+			a.providerType = p
+		}
+	}
+
+	return nil
 }
 
 // GetModel returns the underlying fantasy LanguageModel.

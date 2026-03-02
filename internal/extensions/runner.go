@@ -2,36 +2,44 @@ package extensions
 
 import (
 	"fmt"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/charmbracelet/log"
+	"github.com/spf13/viper"
 )
 
 // Runner manages loaded extensions and dispatches events to their handlers
 // sequentially, mirroring Pi's ExtensionRunner. Handlers execute in extension
 // load order; for cancellable events the first blocking result wins.
 type Runner struct {
-	extensions    []LoadedExtension
-	ctx           Context
-	widgets       map[string]WidgetConfig   // keyed by widget ID
-	statusEntries map[string]StatusBarEntry // keyed by status key
-	header        *HeaderFooterConfig       // nil = no custom header
-	footer        *HeaderFooterConfig       // nil = no custom footer
-	customEditor  *EditorConfig             // nil = no custom editor interceptor
-	uiVisibility  *UIVisibility             // nil = show everything (default)
-	mu            sync.RWMutex
+	extensions      []LoadedExtension
+	ctx             Context
+	widgets         map[string]WidgetConfig   // keyed by widget ID
+	statusEntries   map[string]StatusBarEntry // keyed by status key
+	header          *HeaderFooterConfig       // nil = no custom header
+	footer          *HeaderFooterConfig       // nil = no custom footer
+	customEditor    *EditorConfig             // nil = no custom editor interceptor
+	uiVisibility    *UIVisibility             // nil = show everything (default)
+	disabledTools   map[string]bool           // nil = all tools enabled
+	customEventSubs map[string][]func(string) // inter-extension event bus
+	optionOverrides map[string]string         // runtime option overrides
+	mu              sync.RWMutex
 }
 
 // LoadedExtension represents a single extension that has been discovered,
 // loaded, and initialised. It holds the registered handlers and any custom
 // tools, commands, or tool renderers the extension provided.
 type LoadedExtension struct {
-	Path          string
-	Handlers      map[EventType][]HandlerFunc
-	Tools         []ToolDef
-	Commands      []CommandDef
-	ToolRenderers []ToolRenderConfig
+	Path                string
+	Handlers            map[EventType][]HandlerFunc
+	Tools               []ToolDef
+	Commands            []CommandDef
+	ToolRenderers       []ToolRenderConfig
+	CustomEventHandlers map[string][]func(string) // inter-extension event bus
+	Options             []OptionDef               // registered configuration options
 }
 
 // NewRunner creates a Runner from a set of loaded extensions.
@@ -352,6 +360,150 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 		}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Inter-extension event bus
+// ---------------------------------------------------------------------------
+
+// SubscribeCustomEvent registers a handler for a named custom event. Handlers
+// execute in registration order when EmitCustomEvent is called. Thread-safe.
+func (r *Runner) SubscribeCustomEvent(name string, handler func(string)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.customEventSubs == nil {
+		r.customEventSubs = make(map[string][]func(string))
+	}
+	r.customEventSubs[name] = append(r.customEventSubs[name], handler)
+}
+
+// EmitCustomEvent dispatches a named event to all subscribed handlers.
+// Handlers run synchronously in extension load order. Panics are recovered
+// and logged. Thread-safe.
+func (r *Runner) EmitCustomEvent(name, data string) {
+	// Collect handlers: extension-registered (Init-time) + dynamic subs.
+	r.mu.RLock()
+	dynamicHandlers := r.customEventSubs[name]
+	r.mu.RUnlock()
+
+	safeInvoke := func(h func(string)) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Warn("custom event handler panicked",
+					"event", name,
+					"err", fmt.Sprintf("%v", rec))
+			}
+		}()
+		h(data)
+	}
+
+	// Extension-registered handlers first (in load order).
+	for i := range r.extensions {
+		for _, h := range r.extensions[i].CustomEventHandlers[name] {
+			safeInvoke(h)
+		}
+	}
+	// Then dynamic subscriptions.
+	for _, h := range dynamicHandlers {
+		safeInvoke(h)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tool management
+// ---------------------------------------------------------------------------
+
+// SetActiveTools restricts the tool set to the named tools. All tools not in
+// the list are disabled. Passing nil or an empty slice re-enables all tools.
+// Thread-safe.
+func (r *Runner) SetActiveTools(names []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(names) == 0 {
+		r.disabledTools = nil
+		return
+	}
+	active := make(map[string]bool, len(names))
+	for _, n := range names {
+		active[n] = true
+	}
+	r.disabledTools = active // non-nil = only these tools are allowed
+}
+
+// IsToolDisabled returns true if the tool has been disabled via SetActiveTools.
+// Thread-safe.
+func (r *Runner) IsToolDisabled(toolName string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.disabledTools == nil {
+		return false // no filter = all enabled
+	}
+	return !r.disabledTools[toolName]
+}
+
+// ---------------------------------------------------------------------------
+// Extension options
+// ---------------------------------------------------------------------------
+
+// GetOption resolves a named option value in priority order:
+//  1. Runtime override (via SetOption)
+//  2. Environment variable: KIT_OPT_<NAME> (uppercased, dashes → underscores)
+//  3. Viper config: options.<name>
+//  4. Default value from RegisterOption
+//
+// Returns empty string if the option was never registered.
+// Thread-safe.
+func (r *Runner) GetOption(name string) string {
+	// 1. Runtime override.
+	r.mu.RLock()
+	if v, ok := r.optionOverrides[name]; ok {
+		r.mu.RUnlock()
+		return v
+	}
+	r.mu.RUnlock()
+
+	// 2. Environment variable: KIT_OPT_<NAME>
+	envKey := "KIT_OPT_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	if v := os.Getenv(envKey); v != "" {
+		return v
+	}
+
+	// 3. Viper config: options.<name>
+	configKey := "options." + name
+	if v := viper.GetString(configKey); v != "" {
+		return v
+	}
+
+	// 4. Default from registered option defs.
+	for i := range r.extensions {
+		for _, opt := range r.extensions[i].Options {
+			if opt.Name == name {
+				return opt.Default
+			}
+		}
+	}
+
+	return ""
+}
+
+// SetOption stores a runtime override for a named option. This takes highest
+// priority over env vars, config, and defaults. Thread-safe.
+func (r *Runner) SetOption(name, value string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.optionOverrides == nil {
+		r.optionOverrides = make(map[string]string)
+	}
+	r.optionOverrides[name] = value
+}
+
+// RegisteredOptions returns all option definitions from all loaded extensions.
+func (r *Runner) RegisteredOptions() []OptionDef {
+	var opts []OptionDef
+	for i := range r.extensions {
+		opts = append(opts, r.extensions[i].Options...)
+	}
+	return opts
 }
 
 // ---------------------------------------------------------------------------

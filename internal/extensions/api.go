@@ -64,6 +64,19 @@ type Context struct {
 	//   }()
 	SendMessage func(string)
 
+	// CancelAndSend cancels the current agent turn (if running), clears
+	// the message queue, and sends a new message that executes as soon as
+	// cancellation completes. If the agent is idle, the message executes
+	// immediately. This is the "steer" delivery mode.
+	//
+	// Use this for directive changes that should interrupt the current
+	// operation, e.g. switching modes or redirecting the agent.
+	//
+	// Example:
+	//
+	//   ctx.CancelAndSend("Stop what you're doing and focus on the tests")
+	CancelAndSend func(string)
+
 	// SetWidget places or updates a persistent widget in the TUI. Widgets
 	// remain visible across agent turns until explicitly removed. The
 	// widget is identified by WidgetConfig.ID; calling SetWidget with the
@@ -300,6 +313,127 @@ type Context struct {
 	// RemoveStatus removes a keyed status bar entry. No-op if the key
 	// does not exist.
 	RemoveStatus func(key string)
+
+	// --- Extension Options (Gap 7) ---
+
+	// GetOption returns the value of a named extension option. Options are
+	// resolved in priority order:
+	//   1. Runtime override (via SetOption)
+	//   2. Environment variable: KIT_OPT_<NAME> (uppercase, dashes → underscores)
+	//   3. Config file: options.<name> in .kit.yml
+	//   4. Default value registered by the extension
+	//
+	// Returns empty string if the option was not registered.
+	//
+	// Example:
+	//
+	//   preset := ctx.GetOption("preset")
+	//   if preset == "fast" {
+	//       ctx.SetModel("anthropic/claude-haiku-3-5-20241022")
+	//   }
+	GetOption func(name string) string
+
+	// SetOption sets a runtime override for a named extension option. This
+	// takes highest priority over env vars, config, and defaults. Useful for
+	// persisting user choices during a session.
+	SetOption func(name string, value string)
+
+	// --- Model Management (Gap 2) ---
+
+	// SetModel changes the active LLM model at runtime. The model string
+	// should be in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
+	// Existing tools, system prompt, and session are preserved. Returns an
+	// error if the model string is invalid or the provider cannot be created.
+	//
+	// Example:
+	//
+	//   err := ctx.SetModel("openai/gpt-4o")
+	//   if err != nil {
+	//       ctx.PrintError("Failed to switch model: " + err.Error())
+	//   }
+	SetModel func(modelString string) error
+
+	// GetAvailableModels returns a list of known models from the registry.
+	// This is an advisory list — models not in the registry can still be
+	// used by specifying their provider/model string directly.
+	//
+	// Example:
+	//
+	//   models := ctx.GetAvailableModels()
+	//   for _, m := range models {
+	//       fmt.Printf("%s/%s (ctx: %dk)\n", m.Provider, m.ModelID, m.ContextLimit/1000)
+	//   }
+	GetAvailableModels func() []ModelInfoEntry
+
+	// --- Inter-Extension Event Bus (Gap 13) ---
+
+	// EmitCustomEvent publishes a named event that other extensions can
+	// subscribe to via api.OnCustomEvent(). Data is an arbitrary string
+	// (JSON-encode complex payloads). Handlers run synchronously in
+	// registration order.
+	//
+	// Example:
+	//
+	//   ctx.EmitCustomEvent("plan-mode:toggled", `{"active":true}`)
+	EmitCustomEvent func(name string, data string)
+
+	// --- Tool Management (Gap 3) ---
+
+	// GetAllTools returns information about all tools available to the agent,
+	// including core tools (bash, read, write, etc.), MCP server tools, and
+	// extension-registered tools. Each entry includes the tool's enabled status.
+	//
+	// Example — list read-only tools:
+	//
+	//   for _, t := range ctx.GetAllTools() {
+	//       if t.Source == "core" && t.Enabled {
+	//           fmt.Println(t.Name, "-", t.Description)
+	//       }
+	//   }
+	GetAllTools func() []ToolInfo
+
+	// SetActiveTools restricts the agent to only the named tools. Tools not
+	// in the list are blocked from execution (the LLM receives an error if
+	// it tries to call them). Pass nil or an empty slice to re-enable all
+	// tools. Tool names are case-sensitive.
+	//
+	// Example — plan mode (read-only):
+	//
+	//   ctx.SetActiveTools([]string{"Read", "Glob", "Grep", "LS"})
+	SetActiveTools func(names []string)
+
+	// --- Direct LLM Completion (Gap 17) ---
+
+	// Complete makes a standalone LLM completion call, bypassing the agent
+	// tool loop. Use this for summarisation, question extraction, or any
+	// sub-task that needs an LLM response without tool access.
+	//
+	// If Model is empty the current session model is reused (no extra
+	// provider creation overhead). Specify a different model string to
+	// use a cheaper/faster model for the sub-task.
+	//
+	// Example — summarise with a fast model:
+	//
+	//   resp, err := ctx.Complete(ext.CompleteRequest{
+	//       Model:  "anthropic/claude-haiku-3-5-20241022",
+	//       System: "You are a concise summarisation assistant.",
+	//       Prompt: "Summarise this conversation:\n" + text,
+	//   })
+	//   if err != nil {
+	//       ctx.PrintError("completion failed: " + err.Error())
+	//       return
+	//   }
+	//   ctx.PrintInfo(resp.Text)
+	//
+	// Example — streaming completion:
+	//
+	//   resp, err := ctx.Complete(ext.CompleteRequest{
+	//       Prompt: "Explain quantum computing",
+	//       OnChunk: func(chunk string) {
+	//           fmt.Print(chunk) // stream to stdout
+	//       },
+	//   })
+	Complete func(CompleteRequest) (CompleteResponse, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +472,53 @@ type ExtensionEntry struct {
 	Data string
 	// Timestamp is the RFC3339-formatted creation time.
 	Timestamp string
+}
+
+// ---------------------------------------------------------------------------
+// LLM completion types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// CompleteRequest configures a standalone LLM completion call. Extensions use
+// this with ctx.Complete() to make direct LLM calls without the agent tool loop.
+type CompleteRequest struct {
+	// Model is the model to use in "provider/model" format (e.g.
+	// "anthropic/claude-haiku-3-5-20241022"). Empty string uses the current
+	// session model, avoiding extra provider creation overhead.
+	Model string
+
+	// Prompt is the user input text sent to the model.
+	Prompt string
+
+	// System is an optional system prompt. Empty uses no system prompt.
+	System string
+
+	// Messages is optional conversation history. If provided, Prompt is
+	// appended as the final user message.
+	Messages []SessionMessage
+
+	// MaxTokens limits the response length (0 = provider default).
+	MaxTokens int
+
+	// OnChunk is called for each streaming text delta. When set, the
+	// completion is performed in streaming mode. When nil, the call blocks
+	// until the full response is available.
+	OnChunk func(chunk string)
+}
+
+// CompleteResponse contains the LLM response and usage metadata from a
+// standalone completion call.
+type CompleteResponse struct {
+	// Text is the complete response text.
+	Text string
+
+	// InputTokens is the number of tokens in the request.
+	InputTokens int
+
+	// OutputTokens is the number of tokens in the response.
+	OutputTokens int
+
+	// Model is the actual model used (useful when CompleteRequest.Model was empty).
+	Model string
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +579,8 @@ type API struct {
 	registerToolFn         func(ToolDef)
 	registerCmdFn          func(CommandDef)
 	registerToolRendererFn func(ToolRenderConfig)
+	onCustomEvent          func(name string, handler func(string))
+	registerOption         func(OptionDef)
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -476,6 +659,22 @@ func (a *API) RegisterTool(tool ToolDef) {
 // RegisterCommand adds a slash command available in interactive mode.
 func (a *API) RegisterCommand(cmd CommandDef) {
 	a.registerCmdFn(cmd)
+}
+
+// RegisterOption declares a named configuration option. The option can be set
+// via environment variables (KIT_OPT_<NAME>) or config file (options.<name>).
+// Multiple extensions can register options with the same name; the last default
+// wins.
+func (a *API) RegisterOption(opt OptionDef) {
+	a.registerOption(opt)
+}
+
+// OnCustomEvent registers a handler for a custom inter-extension event.
+// The handler receives the data string published by EmitCustomEvent.
+// Multiple handlers can subscribe to the same event name; they execute
+// in registration order.
+func (a *API) OnCustomEvent(name string, handler func(string)) {
+	a.onCustomEvent(name, handler)
 }
 
 // RegisterToolRenderer registers a custom renderer for a specific tool's
@@ -743,6 +942,44 @@ type OverlayResult struct {
 }
 
 // ---------------------------------------------------------------------------
+// Model info types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ModelInfoEntry represents a known model from the registry. Used by
+// GetAvailableModels to let extensions discover which models are available.
+type ModelInfoEntry struct {
+	// Provider is the provider ID (e.g. "anthropic", "openai").
+	Provider string
+	// ModelID is the model identifier (e.g. "claude-sonnet-4-5-20250929").
+	ModelID string
+	// Name is the human-readable model name.
+	Name string
+	// ContextLimit is the maximum context window in tokens (0 if unknown).
+	ContextLimit int
+	// OutputLimit is the maximum output tokens (0 if unknown).
+	OutputLimit int
+	// Reasoning is true if the model supports extended thinking.
+	Reasoning bool
+}
+
+// ---------------------------------------------------------------------------
+// Tool info types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ToolInfo provides read-only information about a tool available to the agent.
+// Used by GetAllTools to let extensions inspect and filter the tool set.
+type ToolInfo struct {
+	// Name is the tool's unique identifier.
+	Name string
+	// Description is the tool's human-readable description.
+	Description string
+	// Source indicates where the tool came from: "core", "mcp", or "extension".
+	Source string
+	// Enabled is true if the tool is currently active.
+	Enabled bool
+}
+
+// ---------------------------------------------------------------------------
 // ToolDef / CommandDef
 // ---------------------------------------------------------------------------
 
@@ -759,6 +996,23 @@ type CommandDef struct {
 	Name        string
 	Description string
 	Execute     func(args string, ctx Context) (string, error)
+}
+
+// ---------------------------------------------------------------------------
+// Extension options (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// OptionDef describes a configuration option that an extension can register.
+// Options are resolved from env vars, config file, or default value.
+type OptionDef struct {
+	// Name is the option identifier. Used as:
+	//   - Env var: KIT_OPT_<NAME> (uppercased, dashes → underscores)
+	//   - Config key: options.<name> in .kit.yml
+	Name string
+	// Description explains what the option controls.
+	Description string
+	// Default is the fallback value if not set via env or config.
+	Default string
 }
 
 // ---------------------------------------------------------------------------

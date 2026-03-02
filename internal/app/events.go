@@ -113,6 +113,16 @@ type CompactErrorEvent struct {
 	Err error
 }
 
+// ModelChangedEvent is sent when an extension changes the active model via
+// ctx.SetModel. The TUI updates the model name shown in the status bar and
+// message attribution.
+type ModelChangedEvent struct {
+	// ProviderName is the new provider (e.g. "anthropic").
+	ProviderName string
+	// ModelName is the new model ID (e.g. "claude-3-5-haiku-20241022").
+	ModelName string
+}
+
 // WidgetUpdateEvent is sent when an extension adds, updates, or removes a
 // widget via ctx.SetWidget or ctx.RemoveWidget. The TUI re-reads widget state
 // from its WidgetProvider on the next render cycle.

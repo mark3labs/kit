@@ -141,6 +141,34 @@ func (a *App) QueueLength() int {
 	return len(a.queue)
 }
 
+// Steer cancels the current agent step (if running), clears the queue, and
+// sends a new message that will execute as soon as the current step finishes
+// cancelling. If the agent is idle, the message executes immediately.
+// This is the "steer" delivery mode for SendMessage.
+func (a *App) Steer(prompt string) {
+	a.mu.Lock()
+
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
+
+	if !a.busy {
+		// Not busy — start immediately, same as Run().
+		a.busy = true
+		a.wg.Add(1)
+		a.mu.Unlock()
+		go a.drainQueue(prompt)
+		return
+	}
+
+	// Agent is busy: clear queue, insert steer message, then cancel.
+	a.queue = []string{prompt}
+	cancel := a.cancelStep
+	a.mu.Unlock()
+	cancel()
+}
+
 // ClearQueue discards all queued prompts. The caller is responsible for
 // updating any UI state (e.g. queue badge) — ClearQueue does NOT send
 // events to the program, because it may be called synchronously from
@@ -513,6 +541,17 @@ func (a *App) SetEditorTextFromExtension(text string) {
 	a.mu.Unlock()
 	if prog != nil {
 		prog.Send(EditorTextSetEvent{Text: text})
+	}
+}
+
+// NotifyModelChanged sends a ModelChangedEvent to the TUI so it updates
+// the model name in the status bar and message attribution.
+func (a *App) NotifyModelChanged(provider, model string) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(ModelChangedEvent{ProviderName: provider, ModelName: model})
 	}
 }
 

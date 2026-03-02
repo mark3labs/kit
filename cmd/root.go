@@ -14,6 +14,7 @@ import (
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -606,14 +607,15 @@ func runNormalMode(ctx context.Context) error {
 	if kitInstance.HasExtensions() {
 		cwd, _ := os.Getwd()
 		kitInstance.SetExtensionContext(extensions.Context{
-			CWD:         cwd,
-			Model:       modelName,
-			Interactive: promptFlag == "",
-			Print:       func(text string) { appInstance.PrintFromExtension("", text) },
-			PrintInfo:   func(text string) { appInstance.PrintFromExtension("info", text) },
-			PrintError:  func(text string) { appInstance.PrintFromExtension("error", text) },
-			PrintBlock:  appInstance.PrintBlockFromExtension,
-			SendMessage: func(text string) { appInstance.Run(text) },
+			CWD:           cwd,
+			Model:         modelName,
+			Interactive:   promptFlag == "",
+			Print:         func(text string) { appInstance.PrintFromExtension("", text) },
+			PrintInfo:     func(text string) { appInstance.PrintFromExtension("info", text) },
+			PrintError:    func(text string) { appInstance.PrintFromExtension("error", text) },
+			PrintBlock:    appInstance.PrintBlockFromExtension,
+			SendMessage:   func(text string) { appInstance.Run(text) },
+			CancelAndSend: func(text string) { appInstance.Steer(text) },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.SetExtensionWidget(config)
 				appInstance.NotifyWidgetUpdate()
@@ -736,6 +738,37 @@ func runNormalMode(ctx context.Context) error {
 			RemoveStatus: func(key string) {
 				kitInstance.RemoveExtensionStatus(key)
 				appInstance.NotifyWidgetUpdate()
+			},
+			GetOption: func(name string) string {
+				return kitInstance.GetExtensionOption(name)
+			},
+			SetOption: func(name string, value string) {
+				kitInstance.SetExtensionOption(name, value)
+			},
+			SetModel: func(modelString string) error {
+				err := kitInstance.SetModel(context.Background(), modelString)
+				if err != nil {
+					return err
+				}
+				// Notify TUI so it updates model in status bar.
+				p, m, _ := models.ParseModelString(modelString)
+				appInstance.NotifyModelChanged(p, m)
+				return nil
+			},
+			GetAvailableModels: func() []extensions.ModelInfoEntry {
+				return kitInstance.GetAvailableModels()
+			},
+			EmitCustomEvent: func(name string, data string) {
+				kitInstance.EmitExtensionCustomEvent(name, data)
+			},
+			Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
+				return kitInstance.ExecuteCompletion(context.Background(), req)
+			},
+			GetAllTools: func() []extensions.ToolInfo {
+				return kitInstance.GetExtensionToolInfos()
+			},
+			SetActiveTools: func(names []string) {
+				kitInstance.SetExtensionActiveTools(names)
 			},
 			ShowOverlay: func(config extensions.OverlayConfig) extensions.OverlayResult {
 				ch := make(chan app.OverlayResponse, 1)

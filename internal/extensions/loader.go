@@ -292,6 +292,15 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		registerToolRendererFn: func(config ToolRenderConfig) {
 			ext.ToolRenderers = append(ext.ToolRenderers, config)
 		},
+		onCustomEvent: func(name string, handler func(string)) {
+			if ext.CustomEventHandlers == nil {
+				ext.CustomEventHandlers = make(map[string][]func(string))
+			}
+			ext.CustomEventHandlers[name] = append(ext.CustomEventHandlers[name], handler)
+		},
+		registerOption: func(opt OptionDef) {
+			ext.Options = append(ext.Options, opt)
+		},
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.

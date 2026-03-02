@@ -17,11 +17,10 @@ func WrapToolsWithExtensions(tools []fantasy.AgentTool, runner *Runner) []fantas
 	if runner == nil {
 		return tools
 	}
-	if !runner.HasHandlers(ToolCall) && !runner.HasHandlers(ToolResult) &&
-		!runner.HasHandlers(ToolExecutionStart) && !runner.HasHandlers(ToolExecutionEnd) {
-		return tools
-	}
-
+	// Always wrap tools through the runner so that SetActiveTools
+	// (disabled-tool checking) and event handlers both work. The
+	// overhead for disabled-tool checking is a single map lookup
+	// per tool call, which is negligible.
 	wrapped := make([]fantasy.AgentTool, len(tools))
 	for i, tool := range tools {
 		wrapped[i] = &wrappedTool{inner: tool, runner: runner}
@@ -54,6 +53,13 @@ func (w *wrappedTool) SetProviderOptions(o fantasy.ProviderOptions) { w.inner.Se
 
 func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	toolName := w.inner.Info().Name
+
+	// 0. Check if tool is disabled via SetActiveTools.
+	if w.runner.IsToolDisabled(toolName) {
+		return fantasy.NewTextErrorResponse(
+				fmt.Sprintf("Error: tool %q is currently disabled", toolName)),
+			fmt.Errorf("tool %q disabled by extension", toolName)
+	}
 
 	// 1. Emit ToolCall — extensions can block execution.
 	if w.runner.HasHandlers(ToolCall) {
