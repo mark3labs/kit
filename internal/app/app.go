@@ -627,6 +627,32 @@ func (a *App) SendOverlayRequest(evt OverlayRequestEvent) {
 	}
 }
 
+// SuspendTUI temporarily releases the terminal from the TUI, runs the
+// callback (which may spawn interactive subprocesses), and then restores
+// the TUI. In non-interactive mode (no program registered) the callback
+// runs directly with no terminal state changes.
+//
+// Safe to call from any goroutine (extension command handlers run in
+// goroutines). Blocks until the callback returns.
+func (a *App) SuspendTUI(callback func()) error {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog == nil {
+		// Non-interactive: just run the callback directly.
+		callback()
+		return nil
+	}
+	if err := prog.ReleaseTerminal(); err != nil {
+		return fmt.Errorf("release terminal: %w", err)
+	}
+	callback()
+	if err := prog.RestoreTerminal(); err != nil {
+		return fmt.Errorf("restore terminal: %w", err)
+	}
+	return nil
+}
+
 // PrintBlockFromExtension outputs a custom styled block from an extension.
 func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 	a.mu.Lock()

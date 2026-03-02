@@ -44,6 +44,7 @@ type LoadedExtension struct {
 	Tools               []ToolDef
 	Commands            []CommandDef
 	ToolRenderers       []ToolRenderConfig
+	MessageRenderers    []MessageRendererConfig   // named message renderers
 	CustomEventHandlers map[string][]func(string) // inter-extension event bus
 	Options             []OptionDef               // registered configuration options
 	Shortcuts           []ShortcutEntry           // global keyboard shortcuts
@@ -367,6 +368,51 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 		}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Message renderer management
+// ---------------------------------------------------------------------------
+
+// GetMessageRenderer returns the named message renderer, or nil if no
+// extension registered a renderer with that name. If multiple extensions
+// register the same name, the last one (by load order) wins.
+func (r *Runner) GetMessageRenderer(name string) *MessageRendererConfig {
+	for i := len(r.extensions) - 1; i >= 0; i-- {
+		for j := len(r.extensions[i].MessageRenderers) - 1; j >= 0; j-- {
+			if r.extensions[i].MessageRenderers[j].Name == name {
+				config := r.extensions[i].MessageRenderers[j]
+				return &config
+			}
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Hot-reload
+// ---------------------------------------------------------------------------
+
+// Reload replaces the loaded extensions with a fresh set and clears all
+// dynamic state (widgets, status, header/footer, editor, visibility,
+// disabled tools, custom event subscriptions). Option overrides are
+// preserved across reloads since they represent user intent.
+//
+// The caller is responsible for emitting SessionShutdown before calling
+// Reload and SessionStart after.
+func (r *Runner) Reload(exts []LoadedExtension) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.extensions = exts
+	r.widgets = nil
+	r.statusEntries = nil
+	r.header = nil
+	r.footer = nil
+	r.customEditor = nil
+	r.uiVisibility = nil
+	r.disabledTools = nil
+	r.customEventSubs = nil
+	// optionOverrides are intentionally preserved.
 }
 
 // ---------------------------------------------------------------------------

@@ -77,6 +77,9 @@ func Symbols() interp.Exports {
 			// Tool renderer types
 			"ToolRenderConfig": reflect.ValueOf((*ToolRenderConfig)(nil)),
 
+			// Message renderer types
+			"MessageRendererConfig": reflect.ValueOf((*MessageRendererConfig)(nil)),
+
 			// Editor interceptor types
 			"EditorKeyActionType":  reflect.ValueOf((*EditorKeyActionType)(nil)),
 			"EditorKeyPassthrough": reflect.ValueOf(EditorKeyPassthrough),

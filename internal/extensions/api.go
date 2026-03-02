@@ -434,6 +434,63 @@ type Context struct {
 	//       },
 	//   })
 	Complete func(CompleteRequest) (CompleteResponse, error)
+
+	// SuspendTUI temporarily releases the terminal from the TUI, runs the
+	// provided callback (which may spawn interactive processes like vim or
+	// htop), and then restores the TUI. In non-interactive mode the
+	// callback runs directly with no terminal changes.
+	//
+	// The callback has full access to stdin/stdout/stderr while the TUI is
+	// suspended. Return from the callback to restore the TUI.
+	//
+	// Example — launch $EDITOR:
+	//
+	//   err := ctx.SuspendTUI(func() {
+	//       editor := os.Getenv("EDITOR")
+	//       if editor == "" { editor = "vim" }
+	//       cmd := exec.Command(editor, "file.go")
+	//       cmd.Stdin = os.Stdin
+	//       cmd.Stdout = os.Stdout
+	//       cmd.Stderr = os.Stderr
+	//       cmd.Run()
+	//   })
+	SuspendTUI func(callback func()) error
+
+	// RenderMessage outputs text using a named message renderer registered
+	// by an extension via api.RegisterMessageRenderer(). If no renderer
+	// with the given name exists, the content is printed as plain text.
+	//
+	// This allows extensions to define reusable visual styles (borders,
+	// colors, formatting) for specific message categories and invoke them
+	// by name at runtime.
+	//
+	// Example:
+	//
+	//   ctx.RenderMessage("build-status", "All 42 tests passed.")
+	RenderMessage func(rendererName string, content string)
+
+	// ReloadExtensions hot-reloads all extensions from disk. Existing
+	// extensions receive a SessionShutdown event, then new code is loaded
+	// and receives a SessionStart event. Event handlers, commands,
+	// renderers, and shortcuts update immediately; extension-defined tools
+	// are NOT updated (they are baked into the agent at creation time).
+	//
+	// After calling ReloadExtensions the calling extension's code has been
+	// replaced; the caller should return promptly.
+	//
+	// Example:
+	//
+	//   api.RegisterCommand(ext.CommandDef{
+	//       Name: "reload",
+	//       Description: "Hot-reload all extensions",
+	//       Execute: func(args string, ctx ext.Context) (string, error) {
+	//           if err := ctx.ReloadExtensions(); err != nil {
+	//               return "", err
+	//           }
+	//           return "Extensions reloaded", nil
+	//       },
+	//   })
+	ReloadExtensions func() error
 }
 
 // ---------------------------------------------------------------------------
@@ -586,30 +643,31 @@ type PrintBlockOpts struct {
 // register typed event handlers, custom tools, and slash commands.
 type API struct {
 	// Event-specific registration functions (wired by the loader).
-	onToolCall             func(func(ToolCallEvent, Context) *ToolCallResult)
-	onToolExecStart        func(func(ToolExecutionStartEvent, Context))
-	onToolExecEnd          func(func(ToolExecutionEndEvent, Context))
-	onToolResult           func(func(ToolResultEvent, Context) *ToolResultResult)
-	onInput                func(func(InputEvent, Context) *InputResult)
-	onBeforeAgentStart     func(func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult)
-	onAgentStart           func(func(AgentStartEvent, Context))
-	onAgentEnd             func(func(AgentEndEvent, Context))
-	onMessageStart         func(func(MessageStartEvent, Context))
-	onMessageUpdate        func(func(MessageUpdateEvent, Context))
-	onMessageEnd           func(func(MessageEndEvent, Context))
-	onSessionStart         func(func(SessionStartEvent, Context))
-	onSessionShutdown      func(func(SessionShutdownEvent, Context))
-	registerToolFn         func(ToolDef)
-	registerCmdFn          func(CommandDef)
-	registerToolRendererFn func(ToolRenderConfig)
-	onModelChange          func(func(ModelChangeEvent, Context))
-	onContextPrepare       func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
-	onBeforeFork           func(func(BeforeForkEvent, Context) *BeforeForkResult)
-	onBeforeSessionSwitch  func(func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult)
-	onBeforeCompact        func(func(BeforeCompactEvent, Context) *BeforeCompactResult)
-	onCustomEvent          func(name string, handler func(string))
-	registerOption         func(OptionDef)
-	registerShortcutFn     func(ShortcutDef, func(Context))
+	onToolCall                func(func(ToolCallEvent, Context) *ToolCallResult)
+	onToolExecStart           func(func(ToolExecutionStartEvent, Context))
+	onToolExecEnd             func(func(ToolExecutionEndEvent, Context))
+	onToolResult              func(func(ToolResultEvent, Context) *ToolResultResult)
+	onInput                   func(func(InputEvent, Context) *InputResult)
+	onBeforeAgentStart        func(func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult)
+	onAgentStart              func(func(AgentStartEvent, Context))
+	onAgentEnd                func(func(AgentEndEvent, Context))
+	onMessageStart            func(func(MessageStartEvent, Context))
+	onMessageUpdate           func(func(MessageUpdateEvent, Context))
+	onMessageEnd              func(func(MessageEndEvent, Context))
+	onSessionStart            func(func(SessionStartEvent, Context))
+	onSessionShutdown         func(func(SessionShutdownEvent, Context))
+	registerToolFn            func(ToolDef)
+	registerCmdFn             func(CommandDef)
+	registerToolRendererFn    func(ToolRenderConfig)
+	onModelChange             func(func(ModelChangeEvent, Context))
+	onContextPrepare          func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
+	onBeforeFork              func(func(BeforeForkEvent, Context) *BeforeForkResult)
+	onBeforeSessionSwitch     func(func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult)
+	onBeforeCompact           func(func(BeforeCompactEvent, Context) *BeforeCompactResult)
+	onCustomEvent             func(name string, handler func(string))
+	registerOption            func(OptionDef)
+	registerShortcutFn        func(ShortcutDef, func(Context))
+	registerMessageRendererFn func(MessageRendererConfig)
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -775,6 +833,17 @@ func (a *API) OnBeforeCompact(handler func(BeforeCompactEvent, Context) *BeforeC
 // extensions register renderers for the same tool name, the last one wins.
 func (a *API) RegisterToolRenderer(config ToolRenderConfig) {
 	a.registerToolRendererFn(config)
+}
+
+// RegisterMessageRenderer registers a named message renderer that extensions
+// can invoke via ctx.RenderMessage(name, content). Use this to define
+// reusable visual styles for branded output, progress reports, or custom
+// notification formats. If multiple extensions register the same name, the
+// last one wins.
+func (a *API) RegisterMessageRenderer(config MessageRendererConfig) {
+	if a.registerMessageRendererFn != nil {
+		a.registerMessageRendererFn(config)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,6 +1195,38 @@ type ShortcutDef struct {
 	Key string
 	// Description explains what the shortcut does (shown in /shortcuts help).
 	Description string
+}
+
+// ---------------------------------------------------------------------------
+// Custom message rendering (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// MessageRendererConfig provides a named rendering function that extensions
+// can invoke via ctx.RenderMessage(name, content). Unlike tool renderers
+// (which hook into the automatic tool result display), message renderers are
+// invoked explicitly by extension code for branded status updates, progress
+// reports, or any custom visual output.
+//
+// Example:
+//
+//	api.RegisterMessageRenderer(ext.MessageRendererConfig{
+//	    Name: "build-status",
+//	    Render: func(content string, width int) string {
+//	        border := strings.Repeat("─", width-4)
+//	        return "╭" + border + "╮\n│ " + content + "\n╰" + border + "╯"
+//	    },
+//	})
+type MessageRendererConfig struct {
+	// Name uniquely identifies this renderer. Used by ctx.RenderMessage
+	// to look it up at call time. Should be namespaced to avoid collisions
+	// (e.g. "myext:build-status").
+	Name string
+
+	// Render produces the styled output string from raw content. Receives
+	// the content and the terminal width in columns. Return the final
+	// ANSI-styled string to print; it will be emitted via tea.Println
+	// (or plain stdout in non-interactive mode).
+	Render func(content string, width int) string
 }
 
 // ---------------------------------------------------------------------------

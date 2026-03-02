@@ -570,6 +570,48 @@ func (m *Kit) EmitExtensionCustomEvent(name, data string) {
 	}
 }
 
+// GetExtensionMessageRenderer returns the named message renderer, or nil
+// if no extension registered a renderer with that name.
+func (m *Kit) GetExtensionMessageRenderer(name string) *extensions.MessageRendererConfig {
+	if m.extRunner == nil {
+		return nil
+	}
+	return m.extRunner.GetMessageRenderer(name)
+}
+
+// ReloadExtensions hot-reloads all extensions from disk. Event handlers,
+// commands, renderers, and shortcuts update immediately. Extension-defined
+// tools are NOT updated (they are baked into the agent at creation time).
+func (m *Kit) ReloadExtensions() error {
+	if m.extRunner == nil {
+		return fmt.Errorf("no extensions loaded")
+	}
+
+	// Emit shutdown to old extensions.
+	if m.extRunner.HasHandlers(extensions.SessionShutdown) {
+		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
+	}
+
+	// Re-load from disk.
+	extraPaths := viper.GetStringSlice("extension")
+	loaded, err := extensions.LoadExtensions(extraPaths)
+	if err != nil {
+		return fmt.Errorf("reloading extensions: %w", err)
+	}
+
+	// Swap extensions on the runner (clears dynamic state).
+	m.extRunner.Reload(loaded)
+
+	// Re-set context and emit SessionStart.
+	ctx := m.extRunner.GetContext()
+	m.extRunner.SetContext(ctx)
+	if m.extRunner.HasHandlers(extensions.SessionStart) {
+		_, _ = m.extRunner.Emit(extensions.SessionStartEvent{SessionID: ctx.SessionID})
+	}
+
+	return nil
+}
+
 // ExecuteCompletion makes a standalone LLM completion call for extensions.
 // When req.Model is empty the current agent model is reused (no provider
 // creation overhead). When req.Model is set a temporary provider is created,

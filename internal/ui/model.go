@@ -289,6 +289,11 @@ type AppModelOptions struct {
 	// Handlers are called in a goroutine to avoid blocking the TUI event
 	// loop. May be nil if no extensions are loaded.
 	GetGlobalShortcuts func() map[string]func()
+
+	// GetExtensionCommands, if non-nil, returns the current extension
+	// commands. Called on WidgetUpdateEvent to refresh the command list
+	// after an extension hot-reload. May be nil if no extensions loaded.
+	GetExtensionCommands func() []ExtensionCommand
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -414,6 +419,10 @@ type AppModel struct {
 	// May be nil if no extensions are loaded.
 	getGlobalShortcuts func() map[string]func()
 
+	// getExtensionCommands returns the current extension commands. Used
+	// to refresh the command list after an extension hot-reload. May be nil.
+	getExtensionCommands func() []ExtensionCommand
+
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
 	prompt *promptOverlay
@@ -532,6 +541,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitBeforeFork = opts.EmitBeforeFork
 	m.emitBeforeSessionSwitch = opts.EmitBeforeSessionSwitch
 	m.getGlobalShortcuts = opts.GetGlobalShortcuts
+	m.getExtensionCommands = opts.GetExtensionCommands
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -1052,6 +1062,31 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// stream region accounts for widget space. View() will read the
 		// latest widget state on the next render.
 		m.distributeHeight()
+
+		// Refresh extension commands (e.g. after hot-reload). The callback
+		// returns the current set from the runner which may have changed.
+		if m.getExtensionCommands != nil {
+			newCmds := m.getExtensionCommands()
+			m.extensionCommands = newCmds
+			if ic, ok := m.input.(*InputComponent); ok {
+				// Remove old extension commands and add fresh ones.
+				var builtins []SlashCommand
+				for _, sc := range ic.commands {
+					if sc.Category != "Extensions" {
+						builtins = append(builtins, sc)
+					}
+				}
+				for _, ec := range newCmds {
+					builtins = append(builtins, SlashCommand{
+						Name:        ec.Name,
+						Description: ec.Description,
+						Category:    "Extensions",
+						Complete:    ec.Complete,
+					})
+				}
+				ic.commands = builtins
+			}
+		}
 
 	case app.EditorTextSetEvent:
 		// Extension wants to pre-fill the input editor with text.

@@ -334,6 +334,9 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		registerToolRendererFn: func(config ToolRenderConfig) {
 			ext.ToolRenderers = append(ext.ToolRenderers, config)
 		},
+		registerMessageRendererFn: func(config MessageRendererConfig) {
+			ext.MessageRenderers = append(ext.MessageRenderers, config)
+		},
 		onCustomEvent: func(name string, handler func(string)) {
 			if ext.CustomEventHandlers == nil {
 				ext.CustomEventHandlers = make(map[string][]func(string))
