@@ -48,6 +48,28 @@ func Init(api ext.API) {
 			ctx.PrintInfo(fmt.Sprintf("Bookmarked: %s (at message %d)", label, len(msgs)))
 			return "", nil
 		},
+		Complete: func(prefix string, ctx ext.Context) []string {
+			// Suggest existing bookmark labels so the user can quickly
+			// re-bookmark at the same label.
+			entries := ctx.GetEntries("bookmark")
+			var labels []string
+			seen := map[string]bool{}
+			for _, e := range entries {
+				var data map[string]any
+				if err := json.Unmarshal([]byte(e.Data), &data); err != nil {
+					continue
+				}
+				label, _ := data["label"].(string)
+				if label == "" || seen[label] {
+					continue
+				}
+				if prefix == "" || strings.HasPrefix(strings.ToLower(label), strings.ToLower(prefix)) {
+					labels = append(labels, label)
+					seen[label] = true
+				}
+			}
+			return labels
+		},
 	})
 
 	api.RegisterCommand(ext.CommandDef{

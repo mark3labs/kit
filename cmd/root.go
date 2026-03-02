@@ -296,13 +296,19 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 		if len(name) > 0 && name[0] != '/' {
 			name = "/" + name
 		}
-		cmds = append(cmds, ui.ExtensionCommand{
+		ec := ui.ExtensionCommand{
 			Name:        name,
 			Description: d.Description,
 			Execute: func(args string) (string, error) {
 				return d.Execute(args, k.GetExtensionContext())
 			},
-		})
+		}
+		if d.Complete != nil {
+			ec.Complete = func(prefix string) []string {
+				return d.Complete(prefix, k.GetExtensionContext())
+			}
+		}
+		cmds = append(cmds, ec)
 	}
 	return cmds
 }

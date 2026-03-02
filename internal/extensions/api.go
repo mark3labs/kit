@@ -1004,6 +1004,10 @@ type CommandDef struct {
 	Name        string
 	Description string
 	Execute     func(args string, ctx Context) (string, error)
+	// Complete provides argument tab-completion for this command.
+	// Called with the partial argument text typed so far; returns
+	// candidate completions. Nil means no argument completion.
+	Complete func(prefix string, ctx Context) []string
 }
 
 // ---------------------------------------------------------------------------

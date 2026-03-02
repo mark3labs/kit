@@ -9,7 +9,8 @@ type SlashCommand struct {
 	Name        string
 	Description string
 	Aliases     []string
-	Category    string // e.g., "Navigation", "System", "Info"
+	Category    string                       // e.g., "Navigation", "System", "Info"
+	Complete    func(prefix string) []string // optional argument tab-completion
 }
 
 // SlashCommands provides the global registry of all available slash commands
@@ -136,6 +137,7 @@ type ExtensionCommand struct {
 	Name        string
 	Description string
 	Execute     func(args string) (string, error)
+	Complete    func(prefix string) []string // optional argument tab-completion
 }
 
 // FindExtensionCommand looks up an extension command by name from the given

@@ -517,6 +517,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 				Name:        ec.Name,
 				Description: ec.Description,
 				Category:    "Extensions",
+				Complete:    ec.Complete,
 			})
 		}
 	}

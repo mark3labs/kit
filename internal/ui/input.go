@@ -36,6 +36,13 @@ type InputComponent struct {
 	title       string
 	submitNext  bool // defer submit one tick so popup dismisses cleanly
 
+	// Argument completion state. When the user types "/cmd " followed by
+	// a partial argument and the command has a Complete function, the popup
+	// switches to argument-completion mode showing suggestions from Complete.
+	argMode      bool           // true when showing arg completions
+	argCommand   string         // command prefix for arg mode (e.g. "/bookmark")
+	argSynthCmds []SlashCommand // backing storage for synthetic arg entries
+
 	// appCtrl is used for slash commands that mutate app state.
 	// May be nil in tests; nil-safe.
 	appCtrl AppController
@@ -141,7 +148,11 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 				if s.selected < len(s.filtered) {
-					s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+					if s.argMode {
+						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
+					} else {
+						s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+					}
 					s.showPopup = false
 					s.selected = 0
 					s.textarea.CursorEnd()
@@ -150,8 +161,12 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				if s.selected < len(s.filtered) {
-					// Populate textarea with selected command and submit on next tick.
-					s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+					// Populate textarea with selected item and submit on next tick.
+					if s.argMode {
+						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
+					} else {
+						s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+					}
 					s.textarea.CursorEnd()
 					s.showPopup = false
 					s.selected = 0
@@ -175,12 +190,26 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if value != s.lastValue {
 			s.lastValue = value
 			lines := strings.Split(value, "\n")
-			if len(lines) == 1 && strings.HasPrefix(lines[0], "/") && !strings.Contains(lines[0], " ") {
-				s.showPopup = true
-				s.filtered = FuzzyMatchCommands(lines[0], s.commands)
-				s.selected = 0
+			if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
+				if !strings.Contains(lines[0], " ") {
+					// Command name completion.
+					s.showPopup = true
+					s.argMode = false
+					s.filtered = FuzzyMatchCommands(lines[0], s.commands)
+					s.selected = 0
+				} else if suggestions := s.completeArgs(lines[0]); len(suggestions) > 0 {
+					// Argument completion for a command with a Complete function.
+					s.showPopup = true
+					// s.argMode, s.argCommand, s.argSynthCmds, s.filtered
+					// are set by completeArgs.
+					s.selected = 0
+				} else {
+					s.showPopup = false
+					s.argMode = false
+				}
 			} else {
 				s.showPopup = false
+				s.argMode = false
 			}
 		}
 		return s, cmd
@@ -330,4 +359,48 @@ func (s *InputComponent) renderPopup() string {
 		Render("↑↓ navigate • tab complete • ↵ select • esc dismiss")
 
 	return popupStyle.Render(content + "\n\n" + footer)
+}
+
+// completeArgs checks whether the input line matches a command with a Complete
+// function, calls it, and populates the arg-mode state on success. Returns the
+// list of suggestions (empty means no completions available).
+func (s *InputComponent) completeArgs(line string) []FuzzyMatch {
+	parts := strings.SplitN(line, " ", 2)
+	cmdName := parts[0]
+	argPrefix := ""
+	if len(parts) > 1 {
+		argPrefix = parts[1]
+	}
+
+	cmd := s.findCommandWithComplete(cmdName)
+	if cmd == nil {
+		return nil
+	}
+
+	suggestions := cmd.Complete(argPrefix)
+	if len(suggestions) == 0 {
+		s.argMode = false
+		return nil
+	}
+
+	s.argMode = true
+	s.argCommand = cmdName
+	s.argSynthCmds = make([]SlashCommand, len(suggestions))
+	s.filtered = make([]FuzzyMatch, len(suggestions))
+	for i, sug := range suggestions {
+		s.argSynthCmds[i] = SlashCommand{Name: sug}
+		s.filtered[i] = FuzzyMatch{Command: &s.argSynthCmds[i]}
+	}
+	return s.filtered
+}
+
+// findCommandWithComplete looks up a command by name that has a non-nil
+// Complete function.
+func (s *InputComponent) findCommandWithComplete(name string) *SlashCommand {
+	for i := range s.commands {
+		if s.commands[i].Name == name && s.commands[i].Complete != nil {
+			return &s.commands[i]
+		}
+	}
+	return nil
 }
