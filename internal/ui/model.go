@@ -272,6 +272,17 @@ type AppModelOptions struct {
 	// extension entries alongside the built-in model/usage display.
 	// May be nil if no extensions are loaded.
 	GetStatusBarEntries func() []StatusBarEntryData
+
+	// EmitBeforeFork, if non-nil, is called before branching to a
+	// different session tree entry. Returns (cancelled, reason) where
+	// cancelled=true means the fork should be aborted. May be nil if
+	// no extensions are loaded.
+	EmitBeforeFork func(targetID string, isUserMsg bool, userText string) (bool, string)
+
+	// EmitBeforeSessionSwitch, if non-nil, is called before switching
+	// to a new session branch (e.g. /new, /clear). Returns (cancelled,
+	// reason). May be nil if no extensions are loaded.
+	EmitBeforeSessionSwitch func(reason string) (bool, string)
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -384,6 +395,14 @@ type AppModel struct {
 
 	// getStatusBarEntries returns extension-provided status bar entries. May be nil.
 	getStatusBarEntries func() []StatusBarEntryData
+
+	// emitBeforeFork emits a before-fork event to extensions. Returns
+	// (cancelled, reason). May be nil if no extensions are loaded.
+	emitBeforeFork func(targetID string, isUserMsg bool, userText string) (bool, string)
+
+	// emitBeforeSessionSwitch emits a before-session-switch event to extensions.
+	// Returns (cancelled, reason). May be nil if no extensions are loaded.
+	emitBeforeSessionSwitch func(reason string) (bool, string)
 
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
@@ -500,6 +519,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getEditorInterceptor = opts.GetEditorInterceptor
 	m.getUIVisibility = opts.GetUIVisibility
 	m.getStatusBarEntries = opts.GetStatusBarEntries
+	m.emitBeforeFork = opts.EmitBeforeFork
+	m.emitBeforeSessionSwitch = opts.EmitBeforeSessionSwitch
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -662,6 +683,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+
+			// Emit before-fork event — extensions can cancel the operation.
+			if m.emitBeforeFork != nil {
+				if cancelled, reason := m.emitBeforeFork(targetID, msg.IsUser, msg.UserText); cancelled {
+					m.treeSelector = nil
+					m.state = stateInput
+					return m, m.printSystemMessage(reason)
+				}
+			}
+
 			_ = ts.Branch(targetID)
 			m.appCtrl.ClearMessages()
 
@@ -1912,6 +1943,13 @@ func (m *AppModel) handleForkCommand() tea.Cmd {
 
 // handleNewCommand starts a fresh session by resetting the tree leaf.
 func (m *AppModel) handleNewCommand() tea.Cmd {
+	// Emit before-session-switch event — extensions can cancel.
+	if m.emitBeforeSessionSwitch != nil {
+		if cancelled, reason := m.emitBeforeSessionSwitch("new"); cancelled {
+			return m.printSystemMessage(reason)
+		}
+	}
+
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
 		// No tree session — just clear messages.

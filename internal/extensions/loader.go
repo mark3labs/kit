@@ -298,6 +298,33 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return *r
 			})
 		},
+		onBeforeFork: func(h func(BeforeForkEvent, Context) *BeforeForkResult) {
+			reg(BeforeFork, func(e Event, c Context) Result {
+				r := h(e.(BeforeForkEvent), c)
+				if r == nil {
+					return nil
+				}
+				return *r
+			})
+		},
+		onBeforeSessionSwitch: func(h func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult) {
+			reg(BeforeSessionSwitch, func(e Event, c Context) Result {
+				r := h(e.(BeforeSessionSwitchEvent), c)
+				if r == nil {
+					return nil
+				}
+				return *r
+			})
+		},
+		onBeforeCompact: func(h func(BeforeCompactEvent, Context) *BeforeCompactResult) {
+			reg(BeforeCompact, func(e Event, c Context) Result {
+				r := h(e.(BeforeCompactEvent), c)
+				if r == nil {
+					return nil
+				}
+				return *r
+			})
+		},
 		registerToolFn: func(tool ToolDef) {
 			ext.Tools = append(ext.Tools, tool)
 		},

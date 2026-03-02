@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllEventTypes_Count(t *testing.T) {
 	all := AllEventTypes()
-	if len(all) != 15 {
-		t.Fatalf("expected 15 event types, got %d", len(all))
+	if len(all) != 18 {
+		t.Fatalf("expected 18 event types, got %d", len(all))
 	}
 }
 
@@ -52,6 +52,9 @@ func TestEventType_TypeMethod(t *testing.T) {
 		{SessionShutdownEvent{}, SessionShutdown},
 		{ModelChangeEvent{NewModel: "a/b"}, ModelChange},
 		{ContextPrepareEvent{Messages: []ContextMessage{{Index: 0, Role: "user", Content: "hi"}}}, ContextPrepare},
+		{BeforeForkEvent{TargetID: "abc"}, BeforeFork},
+		{BeforeSessionSwitchEvent{Reason: "new"}, BeforeSessionSwitch},
+		{BeforeCompactEvent{EstimatedTokens: 1000}, BeforeCompact},
 	}
 
 	for _, tt := range tests {

@@ -56,6 +56,18 @@ const (
 	// before the messages are sent to the LLM. Handlers can filter, reorder,
 	// or inject messages into the context window.
 	ContextPrepare EventType = "context_prepare"
+
+	// BeforeFork fires before the session tree is branched to a different
+	// entry point. Handlers can cancel the fork by returning Cancel=true.
+	BeforeFork EventType = "before_fork"
+
+	// BeforeSessionSwitch fires before the session is switched to a new
+	// branch (e.g. /new command). Handlers can cancel by returning Cancel=true.
+	BeforeSessionSwitch EventType = "before_session_switch"
+
+	// BeforeCompact fires before context compaction runs. Handlers can
+	// cancel compaction by returning Cancel=true.
+	BeforeCompact EventType = "before_compact"
 )
 
 // AllEventTypes returns every supported event type.
@@ -66,6 +78,7 @@ func AllEventTypes() []EventType {
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,
 		ModelChange, ContextPrepare,
+		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 	}
 }
 

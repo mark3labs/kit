@@ -604,6 +604,9 @@ type API struct {
 	registerToolRendererFn func(ToolRenderConfig)
 	onModelChange          func(func(ModelChangeEvent, Context))
 	onContextPrepare       func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
+	onBeforeFork           func(func(BeforeForkEvent, Context) *BeforeForkResult)
+	onBeforeSessionSwitch  func(func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult)
+	onBeforeCompact        func(func(BeforeCompactEvent, Context) *BeforeCompactResult)
 	onCustomEvent          func(name string, handler func(string))
 	registerOption         func(OptionDef)
 }
@@ -730,6 +733,27 @@ func (a *API) RegisterOption(opt OptionDef) {
 // in registration order.
 func (a *API) OnCustomEvent(name string, handler func(string)) {
 	a.onCustomEvent(name, handler)
+}
+
+// OnBeforeFork registers a handler that fires before the session tree is
+// branched to a different entry point. Return a non-nil BeforeForkResult
+// with Cancel=true to prevent the fork.
+func (a *API) OnBeforeFork(handler func(BeforeForkEvent, Context) *BeforeForkResult) {
+	a.onBeforeFork(handler)
+}
+
+// OnBeforeSessionSwitch registers a handler that fires before the session
+// is switched to a new branch (e.g. /new command). Return a non-nil
+// BeforeSessionSwitchResult with Cancel=true to prevent the switch.
+func (a *API) OnBeforeSessionSwitch(handler func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult) {
+	a.onBeforeSessionSwitch(handler)
+}
+
+// OnBeforeCompact registers a handler that fires before context compaction
+// runs. Return a non-nil BeforeCompactResult with Cancel=true to prevent
+// compaction from proceeding.
+func (a *API) OnBeforeCompact(handler func(BeforeCompactEvent, Context) *BeforeCompactResult) {
+	a.onBeforeCompact(handler)
 }
 
 // RegisterToolRenderer registers a custom renderer for a specific tool's
@@ -1385,3 +1409,82 @@ type ContextPrepareResult struct {
 }
 
 func (ContextPrepareResult) isResult() {}
+
+// BeforeForkEvent fires before the session tree is branched to a different
+// entry point (via the tree selector or /fork command).
+type BeforeForkEvent struct {
+	// TargetID is the session entry ID being branched to.
+	TargetID string
+	// IsUserMessage is true if the selected entry is a user message
+	// (which causes the fork to target the parent entry).
+	IsUserMessage bool
+	// UserText is the user message text (non-empty only when IsUserMessage is true).
+	UserText string
+}
+
+func (e BeforeForkEvent) Type() EventType { return BeforeFork }
+
+// BeforeForkResult controls whether the fork proceeds. Return Cancel=true
+// with an optional Reason to block the fork.
+type BeforeForkResult struct {
+	// Cancel, when true, prevents the fork from proceeding.
+	Cancel bool
+	// Reason is a human-readable explanation shown to the user when
+	// Cancel is true. Empty string uses a default message.
+	Reason string
+}
+
+func (BeforeForkResult) isResult() {}
+
+// BeforeSessionSwitchEvent fires before the session is switched to a new
+// branch (e.g. /new or /clear commands).
+type BeforeSessionSwitchEvent struct {
+	// Reason describes why the switch is happening: "new" for /new command,
+	// "clear" for /clear command.
+	Reason string
+}
+
+func (e BeforeSessionSwitchEvent) Type() EventType { return BeforeSessionSwitch }
+
+// BeforeSessionSwitchResult controls whether the session switch proceeds.
+// Return Cancel=true with an optional Reason to block the switch.
+type BeforeSessionSwitchResult struct {
+	// Cancel, when true, prevents the session switch from proceeding.
+	Cancel bool
+	// Reason is a human-readable explanation shown to the user when
+	// Cancel is true. Empty string uses a default message.
+	Reason string
+}
+
+func (BeforeSessionSwitchResult) isResult() {}
+
+// BeforeCompactEvent fires before context compaction runs. Provides
+// information about the current context state to help extensions decide
+// whether to allow or block compaction.
+type BeforeCompactEvent struct {
+	// EstimatedTokens is the estimated token count of the conversation.
+	EstimatedTokens int
+	// ContextLimit is the model's context window size in tokens.
+	ContextLimit int
+	// UsagePercent is the fraction of context used (0.0–1.0).
+	UsagePercent float64
+	// MessageCount is the number of messages in the conversation.
+	MessageCount int
+	// IsAutomatic is true when compaction was triggered automatically
+	// (as opposed to manual /compact command).
+	IsAutomatic bool
+}
+
+func (e BeforeCompactEvent) Type() EventType { return BeforeCompact }
+
+// BeforeCompactResult controls whether compaction proceeds. Return
+// Cancel=true with an optional Reason to block compaction.
+type BeforeCompactResult struct {
+	// Cancel, when true, prevents compaction from proceeding.
+	Cancel bool
+	// Reason is a human-readable explanation shown to the user when
+	// Cancel is true. Empty string uses a default message.
+	Reason string
+}
+
+func (BeforeCompactResult) isResult() {}

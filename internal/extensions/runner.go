@@ -527,6 +527,12 @@ func isBlocking(result Result) bool {
 		return r.Block
 	case InputResult:
 		return r.Action == "handled"
+	case BeforeForkResult:
+		return r.Cancel
+	case BeforeSessionSwitchResult:
+		return r.Cancel
+	case BeforeCompactResult:
+		return r.Cancel
 	}
 	return false
 }

@@ -97,6 +97,14 @@ func Symbols() interp.Exports {
 			"ContextPrepareEvent":  reflect.ValueOf((*ContextPrepareEvent)(nil)),
 			"ContextPrepareResult": reflect.ValueOf((*ContextPrepareResult)(nil)),
 
+			// Session lifecycle types
+			"BeforeForkEvent":           reflect.ValueOf((*BeforeForkEvent)(nil)),
+			"BeforeForkResult":          reflect.ValueOf((*BeforeForkResult)(nil)),
+			"BeforeSessionSwitchEvent":  reflect.ValueOf((*BeforeSessionSwitchEvent)(nil)),
+			"BeforeSessionSwitchResult": reflect.ValueOf((*BeforeSessionSwitchResult)(nil)),
+			"BeforeCompactEvent":        reflect.ValueOf((*BeforeCompactEvent)(nil)),
+			"BeforeCompactResult":       reflect.ValueOf((*BeforeCompactResult)(nil)),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

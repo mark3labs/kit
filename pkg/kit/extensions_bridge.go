@@ -157,4 +157,25 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			return &ContextPrepareResult{Messages: rebuilt}
 		})
 	}
+
+	// --- Compaction hook ---
+	// Extension BeforeCompact → SDK BeforeCompact hook.
+	if runner.HasHandlers(extensions.BeforeCompact) {
+		m.OnBeforeCompact(HookPriorityNormal, func(h BeforeCompactHook) *BeforeCompactResult {
+			result, _ := runner.Emit(extensions.BeforeCompactEvent{
+				EstimatedTokens: h.EstimatedTokens,
+				ContextLimit:    h.ContextLimit,
+				UsagePercent:    h.UsagePercent,
+				MessageCount:    h.MessageCount,
+				IsAutomatic:     h.IsAutomatic,
+			})
+			if r, ok := result.(extensions.BeforeCompactResult); ok && r.Cancel {
+				return &BeforeCompactResult{
+					Cancel: true,
+					Reason: r.Reason,
+				}
+			}
+			return nil
+		})
+	}
 }

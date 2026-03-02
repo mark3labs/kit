@@ -91,6 +91,28 @@ type ContextPrepareResult struct {
 	Messages []fantasy.Message
 }
 
+// BeforeCompactHook is the input for hooks that fire before compaction runs.
+type BeforeCompactHook struct {
+	// EstimatedTokens is the estimated token count of the conversation.
+	EstimatedTokens int
+	// ContextLimit is the model's context window size in tokens.
+	ContextLimit int
+	// UsagePercent is the fraction of context used (0.0–1.0).
+	UsagePercent float64
+	// MessageCount is the number of messages in the conversation.
+	MessageCount int
+	// IsAutomatic is true when compaction was triggered automatically.
+	IsAutomatic bool
+}
+
+// BeforeCompactResult controls whether compaction proceeds.
+type BeforeCompactResult struct {
+	// Cancel, when true, prevents compaction from proceeding.
+	Cancel bool
+	// Reason is a human-readable explanation when Cancel is true.
+	Reason string
+}
+
 // ---------------------------------------------------------------------------
 // Generic hook registry with priority ordering
 // ---------------------------------------------------------------------------
@@ -203,6 +225,14 @@ func (m *Kit) OnAfterTurn(p HookPriority, h func(AfterTurnHook)) func() {
 // Returns an unregister function.
 func (m *Kit) OnContextPrepare(p HookPriority, h func(ContextPrepareHook) *ContextPrepareResult) func() {
 	return m.contextPrepare.register(p, h)
+}
+
+// OnBeforeCompact registers a hook that fires before context compaction runs.
+// Return a non-nil BeforeCompactResult with Cancel=true to prevent compaction.
+// Hooks execute in priority order; the first non-nil result wins.
+// Returns an unregister function.
+func (m *Kit) OnBeforeCompact(p HookPriority, h func(BeforeCompactHook) *BeforeCompactResult) func() {
+	return m.beforeCompact.register(p, h)
 }
 
 // ---------------------------------------------------------------------------

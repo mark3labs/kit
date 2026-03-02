@@ -52,6 +52,7 @@ type Kit struct {
 	beforeTurn      *hookRegistry[BeforeTurnHook, BeforeTurnResult]
 	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
 	contextPrepare  *hookRegistry[ContextPrepareHook, ContextPrepareResult]
+	beforeCompact   *hookRegistry[BeforeCompactHook, BeforeCompactResult]
 
 	// lastInputTokens stores the API-reported input token count from the
 	// most recent turn. Used by GetContextStats() to return accurate usage
@@ -643,6 +644,48 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 	}, nil
 }
 
+// EmitBeforeFork emits a BeforeFork event to extensions and returns
+// whether the fork was cancelled and the reason. No-op if extensions are
+// disabled (returns false, "").
+func (m *Kit) EmitBeforeFork(targetID string, isUserMsg bool, userText string) (cancelled bool, reason string) {
+	if m.extRunner == nil || !m.extRunner.HasHandlers(extensions.BeforeFork) {
+		return false, ""
+	}
+	result, _ := m.extRunner.Emit(extensions.BeforeForkEvent{
+		TargetID:      targetID,
+		IsUserMessage: isUserMsg,
+		UserText:      userText,
+	})
+	if r, ok := result.(extensions.BeforeForkResult); ok && r.Cancel {
+		reason := r.Reason
+		if reason == "" {
+			reason = "Fork cancelled by extension."
+		}
+		return true, reason
+	}
+	return false, ""
+}
+
+// EmitBeforeSessionSwitch emits a BeforeSessionSwitch event to extensions
+// and returns whether the switch was cancelled and the reason. No-op if
+// extensions are disabled (returns false, "").
+func (m *Kit) EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string) {
+	if m.extRunner == nil || !m.extRunner.HasHandlers(extensions.BeforeSessionSwitch) {
+		return false, ""
+	}
+	result, _ := m.extRunner.Emit(extensions.BeforeSessionSwitchEvent{
+		Reason: switchReason,
+	})
+	if r, ok := result.(extensions.BeforeSessionSwitchResult); ok && r.Cancel {
+		reason := r.Reason
+		if reason == "" {
+			reason = "Session switch cancelled by extension."
+		}
+		return true, reason
+	}
+	return false, ""
+}
+
 // HasExtensions returns true if the extension runner is configured and active.
 func (m *Kit) HasExtensions() bool {
 	return m.extRunner != nil
@@ -825,6 +868,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	beforeTurn := newHookRegistry[BeforeTurnHook, BeforeTurnResult]()
 	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
 	contextPrepare := newHookRegistry[ContextPrepareHook, ContextPrepareResult]()
+	beforeCompact := newHookRegistry[BeforeCompactHook, BeforeCompactResult]()
 
 	// Build agent setup options, pulling CLI-specific fields when available.
 	setupOpts := kitsetup.AgentSetupOptions{
@@ -869,6 +913,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		beforeTurn:      beforeTurn,
 		afterTurn:       afterTurn,
 		contextPrepare:  contextPrepare,
+		beforeCompact:   beforeCompact,
 	}
 
 	// Bridge extension events to SDK hooks.
@@ -1144,7 +1189,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	// Auto-compact if enabled and conversation is near the context limit.
 	if m.autoCompact && m.ShouldCompact() {
-		_, _ = m.Compact(ctx, m.compactionOpts, "") // best-effort
+		_, _ = m.compactInternal(ctx, m.compactionOpts, "", true) // best-effort, automatic
 	}
 
 	// Build context from the tree so only the current branch is sent.

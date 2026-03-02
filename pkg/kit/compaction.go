@@ -86,6 +86,12 @@ func (m *Kit) GetContextStats() ContextStats {
 // After compaction, the tree session is cleared and replaced with the
 // compacted messages (summary + preserved recent messages).
 func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions, customInstructions string) (*CompactionResult, error) {
+	return m.compactInternal(ctx, opts, customInstructions, false)
+}
+
+// compactInternal is the shared compaction implementation. The isAutomatic
+// flag distinguishes auto-triggered compaction from manual /compact.
+func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, customInstructions string, isAutomatic bool) (*CompactionResult, error) {
 	if opts == nil {
 		if m.compactionOpts != nil {
 			opts = m.compactionOpts
@@ -104,6 +110,24 @@ func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions, customInstru
 	messages := m.treeSession.GetFantasyMessages()
 	if len(messages) < 2 {
 		return nil, fmt.Errorf("cannot compact: need at least 2 messages")
+	}
+
+	// Run before-compact hook — extensions can cancel compaction.
+	if m.beforeCompact.hasHooks() {
+		stats := m.GetContextStats()
+		if hookResult := m.beforeCompact.run(BeforeCompactHook{
+			EstimatedTokens: stats.EstimatedTokens,
+			ContextLimit:    stats.ContextLimit,
+			UsagePercent:    stats.UsagePercent,
+			MessageCount:    stats.MessageCount,
+			IsAutomatic:     isAutomatic,
+		}); hookResult != nil && hookResult.Cancel {
+			reason := hookResult.Reason
+			if reason == "" {
+				reason = "compaction cancelled by extension"
+			}
+			return nil, fmt.Errorf("%s", reason)
+		}
 	}
 
 	model := m.agent.GetModel()
