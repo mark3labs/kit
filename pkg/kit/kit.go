@@ -321,24 +321,24 @@ func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
 			continue
 		}
 		// Flatten content parts into a single text string.
-		var content string
+		var content strings.Builder
 		for _, p := range msg.Parts {
 			switch pt := p.(type) {
 			case message.TextContent:
-				content += pt.Text
+				content.WriteString(pt.Text)
 			case message.ReasoningContent:
-				content += pt.Thinking
+				content.WriteString(pt.Thinking)
 			case message.ToolCall:
-				content += fmt.Sprintf("[tool_call: %s(%s)]", pt.Name, pt.Input)
+				fmt.Fprintf(&content, "[tool_call: %s(%s)]", pt.Name, pt.Input)
 			case message.ToolResult:
-				content += fmt.Sprintf("[tool_result: %s]", pt.Content)
+				fmt.Fprintf(&content, "[tool_result: %s]", pt.Content)
 			}
 		}
 		msgs = append(msgs, extensions.SessionMessage{
 			ID:        me.ID,
 			ParentID:  me.ParentID,
 			Role:      string(msg.Role),
-			Content:   content,
+			Content:   content.String(),
 			Model:     msg.Model,
 			Provider:  msg.Provider,
 			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),

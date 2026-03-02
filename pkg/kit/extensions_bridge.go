@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"strings"
+
 	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/extensions"
 )
@@ -109,16 +111,16 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
 			for i, msg := range h.Messages {
 				// Extract text from content parts.
-				var text string
+				var text strings.Builder
 				for _, part := range msg.Content {
 					if tp, ok := part.(fantasy.TextPart); ok {
-						text += tp.Text
+						text.WriteString(tp.Text)
 					}
 				}
 				extMsgs[i] = extensions.ContextMessage{
 					Index:   i,
 					Role:    string(msg.Role),
-					Content: text,
+					Content: text.String(),
 				}
 			}
 
