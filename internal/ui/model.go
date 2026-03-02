@@ -1722,7 +1722,7 @@ func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
 // and on step completion.
 //
 // After flushing, a ClearScreen is issued to force a full terminal redraw.
-// This is the bubbletea equivalent of pi's "clearOnShrink" mechanism: when
+// When
 // the stream content is moved to scrollback the view height shrinks, and
 // bubbletea's inline renderer doesn't clear the orphaned terminal rows
 // below the managed region. ClearScreen ensures a clean redraw.
@@ -1935,7 +1935,7 @@ func (m *AppModel) handleNameCommand() tea.Cmd {
 	}
 	// For now, prompt user to provide name via input. We print instructions
 	// and the next non-command input starting with "name:" will be captured.
-	// TODO: inline input dialog like pi's implementation.
+	// TODO: inline input dialog.
 	currentName := ts.GetSessionName()
 	if currentName != "" {
 		return m.printSystemMessage(fmt.Sprintf("Current session name: %q\nTo rename, type: `/name <new name>` (not yet implemented — use the session file directly).", currentName))

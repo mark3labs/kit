@@ -10,8 +10,7 @@ import (
 )
 
 // Init automatically commits staged changes when the session shuts down,
-// using the last assistant message as the commit message. Inspired by
-// Pi's auto-commit-on-exit.ts.
+// using the last assistant message as the commit message.
 //
 // Only commits if:
 //   - There are staged changes (git diff --cached is non-empty)

@@ -516,6 +516,22 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 	}
 }
 
+// QuitFromExtension triggers a graceful shutdown. In interactive mode it
+// sends a tea.QuitMsg to the program so the TUI exits cleanly. In
+// non-interactive mode it cancels the root context, stopping any in-flight
+// step. Safe to call from any goroutine; idempotent.
+func (a *App) QuitFromExtension() {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(tea.QuitMsg{})
+		return
+	}
+	// Non-interactive: cancel the root context.
+	a.rootCancel()
+}
+
 // PrintFromExtension outputs text from an extension to the user. The level
 // controls styling: "" for plain text, "info" for a system message block,
 // "error" for an error block. In interactive mode it sends an

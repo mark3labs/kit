@@ -1,7 +1,7 @@
 // Package compaction provides context window management with token estimation,
 // compaction triggers, and LLM-based conversation summarization.
 //
-// The algorithm mirrors Pi's approach: preserve a token budget of recent
+// The algorithm preserves a token budget of recent
 // messages (KeepRecentTokens, default 20 000) rather than a fixed message
 // count. Auto-compaction fires when estimated context usage exceeds
 // contextWindow − ReserveTokens.
@@ -50,8 +50,8 @@ func estimateSingleMessageTokens(msg fantasy.Message) int {
 // Auto-compact trigger
 // ---------------------------------------------------------------------------
 
-// ShouldCompact reports whether auto-compaction should fire. It uses Pi's
-// formula: contextTokens > contextWindow − reserveTokens.
+// ShouldCompact reports whether auto-compaction should fire.
+// Formula: contextTokens > contextWindow − reserveTokens.
 func ShouldCompact(messages []fantasy.Message, contextWindow int, reserveTokens int) bool {
 	if contextWindow <= 0 || reserveTokens <= 0 {
 		return false
@@ -72,8 +72,8 @@ type CompactionResult struct {
 	MessagesRemoved int    // Number of messages replaced by the summary
 }
 
-// CompactionOptions configures compaction behaviour. Pi-style token-based
-// defaults are applied for zero-value fields.
+// CompactionOptions configures compaction behaviour. Token-based defaults
+// are applied for zero-value fields.
 type CompactionOptions struct {
 	ContextWindow    int    // Model's context window size (tokens)
 	ReserveTokens    int    // Tokens to reserve for LLM response, default 16384
@@ -81,7 +81,7 @@ type CompactionOptions struct {
 	SummaryPrompt    string // Custom summary prompt (empty = use default)
 }
 
-// defaults fills zero-value fields with sensible Pi-style defaults.
+// defaults fills zero-value fields with sensible defaults.
 func (o *CompactionOptions) defaults() {
 	if o.ReserveTokens <= 0 {
 		o.ReserveTokens = 16384
@@ -92,13 +92,13 @@ func (o *CompactionOptions) defaults() {
 }
 
 // defaultSystemPrompt is the system prompt sent to the summarisation LLM.
-// Matches Pi's compaction system prompt.
+
 const defaultSystemPrompt = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
 
 // defaultSummaryPrompt is the user prompt appended after the serialised
-// conversation. Matches Pi's initial-compaction format.
+// conversation.
 const defaultSummaryPrompt = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
 Use this EXACT format:
@@ -133,7 +133,7 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.`
 
 // ---------------------------------------------------------------------------
-// Cut point (token-based, Pi-style)
+// Cut point (token-based)
 // ---------------------------------------------------------------------------
 
 // isValidCutPoint returns true if the message at index i is a valid place to
@@ -208,11 +208,11 @@ func forceCutPoint(messages []fantasy.Message) int {
 }
 
 // ---------------------------------------------------------------------------
-// Message serialisation (Pi-style)
+// Message serialisation
 // ---------------------------------------------------------------------------
 
 // roleLabel returns a human-readable label for a fantasy message role,
-// matching Pi's serialisation format.
+
 func roleLabel(role fantasy.MessageRole) string {
 	switch role {
 	case fantasy.MessageRoleUser:
@@ -230,7 +230,7 @@ func roleLabel(role fantasy.MessageRole) string {
 
 // serializeMessages converts a slice of fantasy messages into a plain-text
 // representation suitable for sending to the summarisation LLM. The format
-// mirrors Pi's compaction serialisation.
+
 func serializeMessages(messages []fantasy.Message) string {
 	var sb strings.Builder
 	for _, msg := range messages {
@@ -277,8 +277,8 @@ func Compact(
 	cutPoint := FindCutPoint(messages, opts.KeepRecentTokens)
 	if cutPoint == 0 {
 		// All messages fit within the keep budget. Force a cut that
-		// keeps only the last non-tool message — matching Pi, which
-		// always compacts when the user explicitly requests it.
+		// keeps only the last non-tool message — always compact when
+		// the user explicitly requests it.
 		cutPoint = forceCutPoint(messages)
 		if cutPoint == 0 {
 			return nil, messages, nil
@@ -289,7 +289,7 @@ func Compact(
 	recentMessages := messages[cutPoint:]
 	originalTokens := EstimateMessageTokens(messages)
 
-	// Serialise old messages to text, matching Pi's format.
+	// Serialise old messages to text.
 	conversationText := serializeMessages(oldMessages)
 
 	// Build the user-facing prompt: conversation text + summary instructions.

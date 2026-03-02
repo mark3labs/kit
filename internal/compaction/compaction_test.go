@@ -63,7 +63,7 @@ func TestEstimateMessageTokens_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ShouldCompact (Pi-style: contextTokens > contextWindow - reserveTokens)
+// ShouldCompact (contextTokens > contextWindow - reserveTokens)
 // ---------------------------------------------------------------------------
 
 func TestShouldCompact(t *testing.T) {
@@ -94,7 +94,7 @@ func TestShouldCompact(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// FindCutPoint (token-based, Pi-style)
+// FindCutPoint (token-based)
 // ---------------------------------------------------------------------------
 
 func TestFindCutPoint_TokenBased(t *testing.T) {

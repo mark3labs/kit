@@ -616,6 +616,7 @@ func runNormalMode(ctx context.Context) error {
 			PrintBlock:    appInstance.PrintBlockFromExtension,
 			SendMessage:   func(text string) { appInstance.Run(text) },
 			CancelAndSend: func(text string) { appInstance.Steer(text) },
+			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.SetExtensionWidget(config)
 				appInstance.NotifyWidgetUpdate()
@@ -746,6 +747,8 @@ func runNormalMode(ctx context.Context) error {
 				kitInstance.SetExtensionOption(name, value)
 			},
 			SetModel: func(modelString string) error {
+				// Capture previous model for the ModelChange event.
+				previousModel := kitInstance.GetExtensionContext().Model
 				err := kitInstance.SetModel(context.Background(), modelString)
 				if err != nil {
 					return err
@@ -753,6 +756,10 @@ func runNormalMode(ctx context.Context) error {
 				// Notify TUI so it updates model in status bar.
 				p, m, _ := models.ParseModelString(modelString)
 				appInstance.NotifyModelChanged(p, m)
+				// Update the context's Model field so handlers see it.
+				kitInstance.UpdateExtensionContextModel(modelString)
+				// Fire OnModelChange event to extensions.
+				kitInstance.EmitModelChange(modelString, previousModel, "extension")
 				return nil
 			},
 			GetAvailableModels: func() []extensions.ModelInfoEntry {

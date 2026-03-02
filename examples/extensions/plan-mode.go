@@ -10,8 +10,7 @@ import (
 
 // Init implements a plan/explore mode that restricts the agent to read-only
 // tools. Toggle with /plan (or start in plan mode via KIT_OPT_PLAN=true).
-// Inspired by Pi's plan-mode extension.
-//
+
 // In plan mode the agent can only use read, grep, find, and ls — it cannot
 // write files, run bash, or make edits. This is useful for exploring a
 // codebase, reviewing architecture, or generating plans before executing.

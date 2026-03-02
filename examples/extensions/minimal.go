@@ -10,7 +10,7 @@ import (
 	"kit/ext"
 )
 
-// Init demonstrates a minimal-chrome extension — a port of Pi's minimal.ts.
+// Init demonstrates a minimal-chrome extension.
 // Hides the startup banner, status bar, separator, and input hint, replacing
 // them with a compact footer showing model name and a context usage bar:
 //

@@ -146,6 +146,17 @@ func (m *Kit) GetExtensionContext() extensions.Context {
 	return extensions.Context{}
 }
 
+// UpdateExtensionContextModel updates the Model field on the extension
+// context so subsequent event handlers see the new model. This is a
+// targeted update that avoids replacing the entire Context struct.
+func (m *Kit) UpdateExtensionContextModel(model string) {
+	if m.extRunner != nil {
+		ctx := m.extRunner.GetContext()
+		ctx.Model = model
+		m.extRunner.SetContext(ctx)
+	}
+}
+
 // EmitSessionStart fires the SessionStart event for extensions.
 // No-op if extensions are disabled or no handlers are registered.
 func (m *Kit) EmitSessionStart() {
@@ -513,6 +524,18 @@ func (m *Kit) SetExtensionOption(name, value string) {
 	}
 }
 
+// EmitModelChange fires the ModelChange event for extensions.
+// No-op if extensions are disabled or no handlers are registered.
+func (m *Kit) EmitModelChange(newModel, previousModel, source string) {
+	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.ModelChange) {
+		_, _ = m.extRunner.Emit(extensions.ModelChangeEvent{
+			NewModel:      newModel,
+			PreviousModel: previousModel,
+			Source:        source,
+		})
+	}
+}
+
 // EmitExtensionCustomEvent dispatches a named event to all extension handlers.
 // No-op if extensions are disabled.
 func (m *Kit) EmitExtensionCustomEvent(name, data string) {
@@ -757,8 +780,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 
 	// Always compose the system prompt with runtime context: base prompt +
-	// AGENTS.md context + skills metadata + date/cwd. This matches Pi's
-	// buildSystemPrompt() convention.
+	// AGENTS.md context + skills metadata + date/cwd.
 	{
 		basePrompt := viper.GetString("system-prompt")
 		pb := skills.NewPromptBuilder(basePrompt)
@@ -891,7 +913,7 @@ func loadContextFiles(cwd string) []*ContextFile {
 // so, re-reads the skill file, strips its YAML frontmatter, wraps the body in
 // a <skill> block with baseDir metadata, and appends any trailing user args.
 // Returns the original text unchanged when the prefix is absent or the skill is
-// not found. This matches Pi's _expandSkillCommand() convention.
+// not found.
 func (m *Kit) expandSkillCommand(prompt string) string {
 	if !strings.HasPrefix(prompt, "/skill:") {
 		return prompt

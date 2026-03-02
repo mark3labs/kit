@@ -6,7 +6,7 @@ import "kit/ext"
 
 // Init injects a pirate persona into the system prompt, causing the LLM to
 // respond in pirate-speak. Demonstrates OnBeforeAgentStart system prompt
-// injection. Inspired by Pi's pirate.ts.
+// injection.
 //
 // Usage: kit -e examples/extensions/pirate.go
 func Init(api ext.API) {

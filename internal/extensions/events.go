@@ -1,4 +1,4 @@
-// Package extensions implements a Pi-style in-process extension system for KIT.
+// Package extensions implements an in-process extension system for KIT.
 // Extensions are plain Go files loaded at runtime via Yaegi (a Go interpreter).
 // They register event handlers using an API object, enabling tool interception,
 // input transformation, and lifecycle observation — all without recompilation.
@@ -48,6 +48,9 @@ const (
 
 	// SessionShutdown fires when the application is closing.
 	SessionShutdown EventType = "session_shutdown"
+
+	// ModelChange fires after the active model is changed via ctx.SetModel().
+	ModelChange EventType = "model_change"
 )
 
 // AllEventTypes returns every supported event type.
@@ -57,6 +60,7 @@ func AllEventTypes() []EventType {
 		Input, BeforeAgentStart, AgentStart, AgentEnd,
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,
+		ModelChange,
 	}
 }
 

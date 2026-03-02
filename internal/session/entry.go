@@ -11,8 +11,8 @@ import (
 )
 
 // EntryType identifies the kind of entry stored in a JSONL session file.
-// Following pi's design, sessions are append-only JSONL files where each line
-// is a typed entry linked by id/parent_id to form a tree structure.
+// Sessions are append-only JSONL files where each line is a typed entry
+// linked by id/parent_id to form a tree structure.
 type EntryType string
 
 const (

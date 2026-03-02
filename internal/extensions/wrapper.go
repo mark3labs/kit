@@ -9,8 +9,7 @@ import (
 
 // WrapToolsWithExtensions wraps each tool so that ToolCall and ToolResult
 // events are emitted through the extension runner before and after execution.
-// This is the Go equivalent of Pi's wrapper.ts pattern.
-//
+
 // If the runner has no relevant handlers the original tools are returned
 // unchanged (zero overhead).
 func WrapToolsWithExtensions(tools []fantasy.AgentTool, runner *Runner) []fantasy.AgentTool {

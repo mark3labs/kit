@@ -11,7 +11,7 @@ import (
 
 // defaultSystemPrompt is the built-in system prompt used when no custom
 // prompt is configured. It describes the available core tools and provides
-// usage guidelines, matching the Pi SDK's default prompt style.
+// usage guidelines.
 const defaultSystemPrompt = `You are an expert coding assistant operating inside kit, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:

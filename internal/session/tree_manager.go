@@ -16,7 +16,7 @@ import (
 )
 
 // TreeNode represents a node in the session tree for display purposes.
-// It mirrors pi's SessionTreeNode design.
+
 type TreeNode struct {
 	Entry    any         // the underlying entry (*MessageEntry, *ModelChangeEntry, etc.)
 	ID       string      // entry ID
@@ -25,7 +25,7 @@ type TreeNode struct {
 }
 
 // TreeManager manages a tree-structured JSONL session. It is the replacement
-// for the linear session.Manager, following pi's design decisions:
+// for the linear session.Manager:
 //
 //   - JSONL append-only format (one JSON object per line)
 //   - Tree structure via id/parent_id on every entry
@@ -717,7 +717,7 @@ func (tm *TreeManager) buildTreeNode(id string) *TreeNode {
 // --- Path conventions ---
 
 // DefaultSessionDir returns the default session storage directory for a cwd.
-// Following pi's convention: ~/.kit/sessions/--<cwd-path>--/
+// Convention: ~/.kit/sessions/--<cwd-path>--/
 func DefaultSessionDir(cwd string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {

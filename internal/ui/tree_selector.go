@@ -52,8 +52,7 @@ type FlatNode struct {
 }
 
 // TreeSelectorComponent is a Bubble Tea component that renders the session
-// tree as an ASCII art list with navigation and selection. It follows pi's
-// tree selector design.
+// tree as an ASCII art list with navigation and selection.
 type TreeSelectorComponent struct {
 	tm         *session.TreeManager
 	flatNodes  []FlatNode

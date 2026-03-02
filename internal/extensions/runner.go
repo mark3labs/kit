@@ -12,7 +12,7 @@ import (
 )
 
 // Runner manages loaded extensions and dispatches events to their handlers
-// sequentially, mirroring Pi's ExtensionRunner. Handlers execute in extension
+// sequentially. Handlers execute in extension
 // load order; for cancellable events the first blocking result wins.
 type Runner struct {
 	extensions      []LoadedExtension

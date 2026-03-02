@@ -11,7 +11,7 @@ import (
 
 // Init adds a /summarize command that generates a concise summary of the
 // current conversation using a direct LLM completion. Demonstrates the
-// ctx.Complete API (Gap 17). Inspired by Pi's summarize.ts.
+// ctx.Complete API.
 //
 // The summary is displayed in a styled block and can optionally be saved
 // to the session via AppendEntry for later retrieval.

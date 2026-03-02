@@ -13,7 +13,7 @@ import (
 
 // Init adds bookmark commands for marking and recalling important points in
 // a conversation. Bookmarks are persisted in the session tree and survive
-// restarts. Inspired by Pi's bookmark.ts.
+// restarts.
 //
 // Commands:
 //

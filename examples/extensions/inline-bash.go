@@ -12,7 +12,7 @@ import (
 
 // Init expands inline bash expressions in user prompts before they reach the
 // LLM. Text like !{git branch --show-current} is replaced with the command's
-// stdout. Inspired by Pi's inline-bash.ts.
+// stdout.
 //
 // Examples:
 //

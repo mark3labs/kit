@@ -12,7 +12,7 @@ import (
 )
 
 // SessionInfo contains metadata about a discovered session, used for listing
-// and session picker display. Follows pi's SessionInfo design.
+// and session picker display.
 type SessionInfo struct {
 	// Path is the absolute path to the JSONL session file.
 	Path string

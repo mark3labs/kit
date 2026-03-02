@@ -11,8 +11,7 @@ import (
 
 // Init sends a desktop notification when the agent finishes responding.
 // Useful for long-running tasks — get notified without watching the terminal.
-// Inspired by Pi's notify.ts.
-//
+
 // Supports: Linux (notify-send), macOS (osascript).
 //
 // Usage: kit -e examples/extensions/notify.go

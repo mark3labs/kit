@@ -14,7 +14,7 @@ import (
 // Init loads project-specific rules from .kit/rules/ into the system prompt.
 // Each .md file in the rules directory is injected as additional context,
 // giving projects a way to customise LLM behaviour without editing the
-// main system prompt. Inspired by Pi's claude-rules.ts.
+// main system prompt.
 //
 // Place rule files in:
 //

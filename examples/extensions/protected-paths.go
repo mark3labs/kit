@@ -10,7 +10,7 @@ import (
 )
 
 // Init blocks tool calls that attempt to write, edit, or delete files in
-// protected paths. Inspired by Pi's protected-paths.ts.
+// protected paths.
 //
 // Protected: .env*, .git/, secrets/, credentials*, *.pem, *.key
 //

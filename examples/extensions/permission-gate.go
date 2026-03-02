@@ -10,7 +10,7 @@ import (
 )
 
 // Init intercepts potentially dangerous bash commands and asks the user for
-// confirmation before allowing execution. Inspired by Pi's permission-gate.ts.
+// confirmation before allowing execution.
 //
 // Dangerous patterns: rm -rf, sudo, chmod 777, mkfs, dd, > /dev/
 //

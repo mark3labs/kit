@@ -245,8 +245,6 @@ type Context struct {
 	//   fmt.Sprintf("[%s%s] %d%%", strings.Repeat("#", pct/10), strings.Repeat("-", 10-pct/10), pct)
 	GetContextStats func() ContextStats
 
-	// --- Session Management (Gap 1) ---
-
 	// GetMessages returns the conversation messages on the current branch,
 	// ordered from root to leaf. This is a read-only view; extensions
 	// cannot modify messages directly.
@@ -264,8 +262,6 @@ type Context struct {
 	// GetSessionPath returns the file path of the current session's JSONL
 	// file. Returns empty string for in-memory (ephemeral) sessions.
 	GetSessionPath func() string
-
-	// --- Session Persistence (Gap 2) ---
 
 	// AppendEntry persists custom extension data in the session tree.
 	// The data survives across session restarts and can be retrieved via
@@ -299,8 +295,6 @@ type Context struct {
 	//   ctx.SetEditorText("Please review the changes in src/main.go")
 	SetEditorText func(text string)
 
-	// --- Keyed Status Bar (Gap M3) ---
-
 	// SetStatus places or updates a keyed entry in the TUI status bar.
 	// Multiple entries from different extensions coexist; each is identified
 	// by a unique key. Lower priority values render further left.
@@ -313,8 +307,6 @@ type Context struct {
 	// RemoveStatus removes a keyed status bar entry. No-op if the key
 	// does not exist.
 	RemoveStatus func(key string)
-
-	// --- Extension Options (Gap 7) ---
 
 	// GetOption returns the value of a named extension option. Options are
 	// resolved in priority order:
@@ -337,8 +329,6 @@ type Context struct {
 	// takes highest priority over env vars, config, and defaults. Useful for
 	// persisting user choices during a session.
 	SetOption func(name string, value string)
-
-	// --- Model Management (Gap 2) ---
 
 	// SetModel changes the active LLM model at runtime. The model string
 	// should be in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
@@ -365,8 +355,6 @@ type Context struct {
 	//   }
 	GetAvailableModels func() []ModelInfoEntry
 
-	// --- Inter-Extension Event Bus (Gap 13) ---
-
 	// EmitCustomEvent publishes a named event that other extensions can
 	// subscribe to via api.OnCustomEvent(). Data is an arbitrary string
 	// (JSON-encode complex payloads). Handlers run synchronously in
@@ -376,8 +364,6 @@ type Context struct {
 	//
 	//   ctx.EmitCustomEvent("plan-mode:toggled", `{"active":true}`)
 	EmitCustomEvent func(name string, data string)
-
-	// --- Tool Management (Gap 3) ---
 
 	// GetAllTools returns information about all tools available to the agent,
 	// including core tools (bash, read, write, etc.), MCP server tools, and
@@ -402,7 +388,21 @@ type Context struct {
 	//   ctx.SetActiveTools([]string{"Read", "Glob", "Grep", "LS"})
 	SetActiveTools func(names []string)
 
-	// --- Direct LLM Completion (Gap 17) ---
+	// Exit triggers a graceful application shutdown. In interactive mode
+	// this sends a quit signal to the TUI; in non-interactive mode it
+	// cancels the current operation. Safe to call from any goroutine.
+	//
+	// Example:
+	//
+	//   api.RegisterCommand(ext.CommandDef{
+	//       Name:        "quit",
+	//       Description: "Exit the application",
+	//       Execute: func(args string, ctx ext.Context) (string, error) {
+	//           ctx.Exit()
+	//           return "", nil
+	//       },
+	//   })
+	Exit func()
 
 	// Complete makes a standalone LLM completion call, bypassing the agent
 	// tool loop. Use this for summarisation, question extraction, or any
@@ -579,6 +579,7 @@ type API struct {
 	registerToolFn         func(ToolDef)
 	registerCmdFn          func(CommandDef)
 	registerToolRendererFn func(ToolRenderConfig)
+	onModelChange          func(func(ModelChangeEvent, Context))
 	onCustomEvent          func(name string, handler func(string))
 	registerOption         func(OptionDef)
 }
@@ -649,6 +650,13 @@ func (a *API) OnSessionStart(handler func(SessionStartEvent, Context)) {
 // OnSessionShutdown registers a handler for when the application is closing.
 func (a *API) OnSessionShutdown(handler func(SessionShutdownEvent, Context)) {
 	a.onSessionShutdown(handler)
+}
+
+// OnModelChange registers a handler that fires after the active model is
+// changed via ctx.SetModel(). The handler receives the new and previous model
+// strings plus the source of the change.
+func (a *API) OnModelChange(handler func(ModelChangeEvent, Context)) {
+	a.onModelChange(handler)
 }
 
 // RegisterTool adds a custom tool that the LLM can invoke.
@@ -1126,8 +1134,7 @@ type EditorKeyAction struct {
 // submit) and/or modify the rendered output (add mode indicators, apply visual
 // effects).
 //
-// This follows Pi's extension editor pattern (modal editor, rainbow editor)
-// but uses concrete function fields instead of interfaces for Yaegi safety.
+// Uses concrete function fields instead of interfaces for Yaegi safety.
 //
 // IMPORTANT (Yaegi limitation): Function fields MUST be set using anonymous
 // function literals (closures), NOT bare function references. Yaegi does not
@@ -1289,4 +1296,17 @@ func (e SessionStartEvent) Type() EventType { return SessionStart }
 // SessionShutdownEvent fires when the application is closing.
 type SessionShutdownEvent struct{}
 
+// ModelChangeEvent fires after the active model is changed via ctx.SetModel().
+type ModelChangeEvent struct {
+	// NewModel is the model string that was set (e.g. "anthropic/claude-sonnet-4-5-20250929").
+	NewModel string
+	// PreviousModel is the model string before the change.
+	PreviousModel string
+	// Source indicates what triggered the change: "extension" for ctx.SetModel(),
+	// "user" for interactive model selection.
+	Source string
+}
+
 func (e SessionShutdownEvent) Type() EventType { return SessionShutdown }
+
+func (e ModelChangeEvent) Type() EventType { return ModelChange }

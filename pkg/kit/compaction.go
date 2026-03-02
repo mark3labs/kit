@@ -23,8 +23,8 @@ func (m *Kit) EstimateContextTokens() int {
 }
 
 // ShouldCompact reports whether the conversation is near the model's context
-// limit and should be compacted. Uses Pi's formula:
-// contextTokens > contextWindow − reserveTokens.
+// limit and should be compacted.
+// Formula: contextTokens > contextWindow − reserveTokens.
 // Returns false if the model's context limit is unknown.
 func (m *Kit) ShouldCompact() bool {
 	info := m.GetModelInfo()

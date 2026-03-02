@@ -110,6 +110,7 @@ func Symbols() interp.Exports {
 			"MessageEndEvent":         reflect.ValueOf((*MessageEndEvent)(nil)),
 			"SessionStartEvent":       reflect.ValueOf((*SessionStartEvent)(nil)),
 			"SessionShutdownEvent":    reflect.ValueOf((*SessionShutdownEvent)(nil)),
+			"ModelChangeEvent":        reflect.ValueOf((*ModelChangeEvent)(nil)),
 		},
 	}
 }

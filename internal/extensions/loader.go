@@ -283,6 +283,12 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return nil
 			})
 		},
+		onModelChange: func(h func(ModelChangeEvent, Context)) {
+			reg(ModelChange, func(e Event, c Context) Result {
+				h(e.(ModelChangeEvent), c)
+				return nil
+			})
+		},
 		registerToolFn: func(tool ToolDef) {
 			ext.Tools = append(ext.Tools, tool)
 		},

@@ -202,7 +202,7 @@ func LoadSkills(cwd string) ([]*Skill, error) {
 // FormatForPrompt formats skills as metadata-only XML for inclusion in a
 // system prompt. Only the name, description, and file location are included;
 // the agent reads the full skill file on demand using the read tool. This
-// matches the Pi SDK's formatSkillsForPrompt convention.
+
 func FormatForPrompt(skills []*Skill) string {
 	if len(skills) == 0 {
 		return ""

@@ -1,7 +1,7 @@
 // Package core provides the built-in core tools for KIT's coding agent.
 // These tools are direct fantasy.AgentTool implementations — no MCP layer,
-// no JSON-RPC, no serialization overhead. They match the pi coding agent's
-// core tool set: bash, read, write, edit, grep, find, ls.
+// no JSON-RPC, no serialization overhead. Core tool set: bash, read, write,
+// edit, grep, find, ls.
 package core
 
 import (
@@ -65,7 +65,7 @@ func parseArgs(input string, target any) error {
 }
 
 // CodingTools returns the default set of core tools for a coding agent:
-// bash, read, write, edit. This matches pi's codingTools collection.
+// bash, read, write, edit.
 func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
 		NewBashTool(opts...),
@@ -76,7 +76,7 @@ func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
 }
 
 // ReadOnlyTools returns tools for read-only exploration:
-// read, grep, find, ls. This matches pi's readOnlyTools collection.
+// read, grep, find, ls.
 func ReadOnlyTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
 		NewReadTool(opts...),
