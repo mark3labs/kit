@@ -1,6 +1,9 @@
 package kit
 
-import "github.com/mark3labs/kit/internal/extensions"
+import (
+	"charm.land/fantasy"
+	"github.com/mark3labs/kit/internal/extensions"
+)
 
 // bridgeExtensions registers extension event handlers as SDK hooks and
 // subscribes to SDK observation events to forward them to the extension runner.
@@ -95,6 +98,63 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 					StopReason: stopReason,
 				})
 			}
+		})
+	}
+
+	// --- Context filtering hook ---
+	// Extension ContextPrepare → SDK ContextPrepare hook.
+	if runner.HasHandlers(extensions.ContextPrepare) {
+		m.OnContextPrepare(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
+			// Convert fantasy.Message slice to extension ContextMessage slice.
+			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
+			for i, msg := range h.Messages {
+				// Extract text from content parts.
+				var text string
+				for _, part := range msg.Content {
+					if tp, ok := part.(fantasy.TextPart); ok {
+						text += tp.Text
+					}
+				}
+				extMsgs[i] = extensions.ContextMessage{
+					Index:   i,
+					Role:    string(msg.Role),
+					Content: text,
+				}
+			}
+
+			result, _ := runner.Emit(extensions.ContextPrepareEvent{Messages: extMsgs})
+			r, ok := result.(extensions.ContextPrepareResult)
+			if !ok || r.Messages == nil {
+				return nil
+			}
+
+			// Rebuild fantasy.Message slice from extension result.
+			rebuilt := make([]fantasy.Message, 0, len(r.Messages))
+			for _, cm := range r.Messages {
+				if cm.Index >= 0 && cm.Index < len(h.Messages) {
+					// Reuse original message (preserves tool calls, reasoning, etc.)
+					rebuilt = append(rebuilt, h.Messages[cm.Index])
+				} else {
+					// New message injected by extension.
+					role := fantasy.MessageRoleUser
+					switch cm.Role {
+					case "assistant":
+						role = fantasy.MessageRoleAssistant
+					case "system":
+						role = fantasy.MessageRoleSystem
+					case "tool":
+						role = fantasy.MessageRoleTool
+					}
+					rebuilt = append(rebuilt, fantasy.Message{
+						Role: role,
+						Content: []fantasy.MessagePart{
+							fantasy.TextPart{Text: cm.Content},
+						},
+					})
+				}
+			}
+
+			return &ContextPrepareResult{Messages: rebuilt}
 		})
 	}
 }

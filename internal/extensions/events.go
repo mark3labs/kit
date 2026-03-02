@@ -51,6 +51,11 @@ const (
 
 	// ModelChange fires after the active model is changed via ctx.SetModel().
 	ModelChange EventType = "model_change"
+
+	// ContextPrepare fires after context is built from the session tree and
+	// before the messages are sent to the LLM. Handlers can filter, reorder,
+	// or inject messages into the context window.
+	ContextPrepare EventType = "context_prepare"
 )
 
 // AllEventTypes returns every supported event type.
@@ -60,7 +65,7 @@ func AllEventTypes() []EventType {
 		Input, BeforeAgentStart, AgentStart, AgentEnd,
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,
-		ModelChange,
+		ModelChange, ContextPrepare,
 	}
 }
 

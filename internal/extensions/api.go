@@ -475,6 +475,29 @@ type ExtensionEntry struct {
 }
 
 // ---------------------------------------------------------------------------
+// Context filtering types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ContextMessage represents a single message in the LLM context window.
+// Used by OnContextPrepare to let extensions inspect and modify the messages
+// that will be sent to the LLM.
+type ContextMessage struct {
+	// Index is the position of this message in the original context array
+	// (0-based). When returning messages from a ContextPrepareResult,
+	// messages with Index >= 0 reuse the original fantasy.Message at that
+	// position (preserving tool calls, reasoning, and other complex parts).
+	// Set Index to -1 for newly injected messages (created from Role + Content).
+	Index int
+
+	// Role is the message role: "user", "assistant", "system", or "tool".
+	Role string
+
+	// Content is the text content of the message. For assistant messages
+	// with tool calls, this includes a text summary of the calls.
+	Content string
+}
+
+// ---------------------------------------------------------------------------
 // LLM completion types (exposed to Yaegi — concrete structs)
 // ---------------------------------------------------------------------------
 
@@ -580,6 +603,7 @@ type API struct {
 	registerCmdFn          func(CommandDef)
 	registerToolRendererFn func(ToolRenderConfig)
 	onModelChange          func(func(ModelChangeEvent, Context))
+	onContextPrepare       func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
 	onCustomEvent          func(name string, handler func(string))
 	registerOption         func(OptionDef)
 }
@@ -657,6 +681,29 @@ func (a *API) OnSessionShutdown(handler func(SessionShutdownEvent, Context)) {
 // strings plus the source of the change.
 func (a *API) OnModelChange(handler func(ModelChangeEvent, Context)) {
 	a.onModelChange(handler)
+}
+
+// OnContextPrepare registers a handler that fires after the context window is
+// built from the session tree (including compaction) and before the messages
+// are sent to the LLM. The handler can inspect the context and return a
+// modified message set to filter, reorder, or inject messages.
+//
+// Return nil to leave the context unchanged. Return a non-nil result with
+// a Messages slice to replace the context window entirely. Messages with a
+// non-negative Index reuse the original message at that position (preserving
+// tool calls, reasoning parts, etc.); messages with Index < 0 are created
+// fresh from Role + Content.
+//
+// Example — inject a RAG context message:
+//
+//	api.OnContextPrepare(func(e ext.ContextPrepareEvent, ctx ext.Context) *ext.ContextPrepareResult {
+//	    ragContext := fetchRelevantDocs(e.Messages[len(e.Messages)-1].Content)
+//	    injected := ext.ContextMessage{Index: -1, Role: "system", Content: ragContext}
+//	    msgs := append([]ext.ContextMessage{injected}, e.Messages...)
+//	    return &ext.ContextPrepareResult{Messages: msgs}
+//	})
+func (a *API) OnContextPrepare(handler func(ContextPrepareEvent, Context) *ContextPrepareResult) {
+	a.onContextPrepare(handler)
 }
 
 // RegisterTool adds a custom tool that the LLM can invoke.
@@ -1314,3 +1361,27 @@ type ModelChangeEvent struct {
 func (e SessionShutdownEvent) Type() EventType { return SessionShutdown }
 
 func (e ModelChangeEvent) Type() EventType { return ModelChange }
+
+// ContextPrepareEvent fires after the context window is built from the session
+// tree and before the messages are sent to the LLM. Handlers can inspect the
+// messages and return a modified set to filter, reorder, or inject context.
+type ContextPrepareEvent struct {
+	// Messages is the current context window that will be sent to the LLM.
+	// Each ContextMessage includes an Index field that maps back to the
+	// position in the original message array (for identity-preserving edits).
+	Messages []ContextMessage
+}
+
+func (e ContextPrepareEvent) Type() EventType { return ContextPrepare }
+
+// ContextPrepareResult allows extensions to replace the context window.
+// Return nil to leave the context unchanged.
+type ContextPrepareResult struct {
+	// Messages replaces the entire context window. Each entry with a
+	// non-negative Index reuses the original message at that position
+	// (preserving tool calls, reasoning, etc.); entries with Index < 0
+	// are created fresh from Role + Content.
+	Messages []ContextMessage
+}
+
+func (ContextPrepareResult) isResult() {}

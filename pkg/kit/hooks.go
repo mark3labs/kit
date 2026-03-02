@@ -76,6 +76,21 @@ type AfterTurnHook struct {
 // AfterTurnResult is a placeholder — after-turn hooks are observation-only.
 type AfterTurnResult struct{}
 
+// ContextPrepareHook is the input for hooks that fire after the context window
+// is assembled from the session tree (including compaction) and before the
+// messages are sent to the LLM. Hooks can filter, reorder, or inject messages.
+type ContextPrepareHook struct {
+	// Messages is the current context as fantasy.Message objects.
+	Messages []fantasy.Message
+}
+
+// ContextPrepareResult can replace the context window.
+type ContextPrepareResult struct {
+	// Messages replaces the entire context window. If nil, the original
+	// messages are used.
+	Messages []fantasy.Message
+}
+
 // ---------------------------------------------------------------------------
 // Generic hook registry with priority ordering
 // ---------------------------------------------------------------------------
@@ -179,6 +194,15 @@ func (m *Kit) OnAfterTurn(p HookPriority, h func(AfterTurnHook)) func() {
 		h(input)
 		return nil
 	})
+}
+
+// OnContextPrepare registers a hook that fires after the context window is
+// built from the session tree and before messages are sent to the LLM. Return
+// a non-nil ContextPrepareResult with Messages to replace the entire context.
+// Hooks execute in priority order; the first non-nil result wins.
+// Returns an unregister function.
+func (m *Kit) OnContextPrepare(p HookPriority, h func(ContextPrepareHook) *ContextPrepareResult) func() {
+	return m.contextPrepare.register(p, h)
 }
 
 // ---------------------------------------------------------------------------

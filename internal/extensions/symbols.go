@@ -92,6 +92,11 @@ func Symbols() interp.Exports {
 			"PromptInputConfig":   reflect.ValueOf((*PromptInputConfig)(nil)),
 			"PromptInputResult":   reflect.ValueOf((*PromptInputResult)(nil)),
 
+			// Context filtering types
+			"ContextMessage":       reflect.ValueOf((*ContextMessage)(nil)),
+			"ContextPrepareEvent":  reflect.ValueOf((*ContextPrepareEvent)(nil)),
+			"ContextPrepareResult": reflect.ValueOf((*ContextPrepareResult)(nil)),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

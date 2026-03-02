@@ -51,6 +51,7 @@ type Kit struct {
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
 	beforeTurn      *hookRegistry[BeforeTurnHook, BeforeTurnResult]
 	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
+	contextPrepare  *hookRegistry[ContextPrepareHook, ContextPrepareResult]
 
 	// lastInputTokens stores the API-reported input token count from the
 	// most recent turn. Used by GetContextStats() to return accurate usage
@@ -823,6 +824,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	afterToolResult := newHookRegistry[AfterToolResultHook, AfterToolResultResult]()
 	beforeTurn := newHookRegistry[BeforeTurnHook, BeforeTurnResult]()
 	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
+	contextPrepare := newHookRegistry[ContextPrepareHook, ContextPrepareResult]()
 
 	// Build agent setup options, pulling CLI-specific fields when available.
 	setupOpts := kitsetup.AgentSetupOptions{
@@ -866,6 +868,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		afterToolResult: afterToolResult,
 		beforeTurn:      beforeTurn,
 		afterTurn:       afterTurn,
+		contextPrepare:  contextPrepare,
 	}
 
 	// Bridge extension events to SDK hooks.
@@ -1146,6 +1149,14 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	// Build context from the tree so only the current branch is sent.
 	messages := m.treeSession.GetFantasyMessages()
+
+	// Run ContextPrepare hooks — extensions can filter, reorder, or inject messages.
+	if m.contextPrepare.hasHooks() {
+		if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
+			messages = hookResult.Messages
+		}
+	}
+
 	sentCount := len(messages)
 
 	m.events.emit(TurnStartEvent{Prompt: promptLabel})

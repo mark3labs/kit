@@ -289,6 +289,15 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return nil
 			})
 		},
+		onContextPrepare: func(h func(ContextPrepareEvent, Context) *ContextPrepareResult) {
+			reg(ContextPrepare, func(e Event, c Context) Result {
+				r := h(e.(ContextPrepareEvent), c)
+				if r == nil {
+					return nil
+				}
+				return *r
+			})
+		},
 		registerToolFn: func(tool ToolDef) {
 			ext.Tools = append(ext.Tools, tool)
 		},
