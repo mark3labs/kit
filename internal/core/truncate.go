@@ -9,6 +9,11 @@ const (
 	defaultMaxLines = 2000
 	defaultMaxBytes = 50 * 1024 // 50KB
 	grepMaxLineLen  = 500
+
+	// DefaultMaxLines is the exported default line limit for truncation.
+	DefaultMaxLines = defaultMaxLines
+	// DefaultMaxBytes is the exported default byte limit for truncation.
+	DefaultMaxBytes = defaultMaxBytes
 )
 
 // TruncationResult describes how output was truncated.
@@ -20,9 +25,9 @@ type TruncationResult struct {
 	Kept      int    // lines kept after truncation
 }
 
-// truncateTail keeps the last maxLines lines and at most maxBytes bytes.
+// TruncateTail keeps the last maxLines lines and at most maxBytes bytes.
 // Used for bash output where the tail is most relevant.
-func truncateTail(content string, maxLines, maxBytes int) TruncationResult {
+func TruncateTail(content string, maxLines, maxBytes int) TruncationResult {
 	if maxLines <= 0 {
 		maxLines = defaultMaxLines
 	}

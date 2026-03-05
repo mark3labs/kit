@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -2399,20 +2400,20 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 		}
 
 		// Combine stdout + stderr.
-		var output strings.Builder
+		var combined strings.Builder
 		if stdout.Len() > 0 {
-			output.WriteString(stdout.String())
+			combined.WriteString(stdout.String())
 		}
 		if stderr.Len() > 0 {
-			if output.Len() > 0 {
-				output.WriteString("\n")
+			if combined.Len() > 0 {
+				combined.WriteString("\n")
 			}
-			output.WriteString(stderr.String())
+			combined.WriteString(stderr.String())
 		}
 
 		return shellCommandResultMsg{
 			Command:            command,
-			Output:             output.String(),
+			Output:             combined.String(),
 			ExitCode:           exitCode,
 			Err:                err,
 			ExcludeFromContext: excludeFromContext,
@@ -2438,11 +2439,19 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	var content strings.Builder
 	content.WriteString(header)
 
+	// Truncate output for display using the same limits as the core bash tool
+	// (2000 lines / 50KB, keeping the tail which is most relevant).
+	displayOutput := msg.Output
+	if displayOutput != "" {
+		tr := core.TruncateTail(displayOutput, core.DefaultMaxLines, core.DefaultMaxBytes)
+		displayOutput = tr.Content
+	}
+
 	if msg.Err != nil {
 		content.WriteString(fmt.Sprintf("\n\nError: %v", msg.Err))
-	} else if msg.Output != "" {
+	} else if displayOutput != "" {
 		content.WriteString("\n\n")
-		content.WriteString(msg.Output)
+		content.WriteString(displayOutput)
 	} else {
 		content.WriteString("\n\n(no output)")
 	}
@@ -2473,14 +2482,16 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	// next turn. This does NOT trigger an LLM response — it only adds
 	// to the conversation history.
 	if !msg.ExcludeFromContext && m.appCtrl != nil {
-		var output string
-		if msg.Output != "" {
-			output = msg.Output
+		// Truncate context output with the same limits as display.
+		contextOutput := msg.Output
+		if contextOutput != "" {
+			tr := core.TruncateTail(contextOutput, core.DefaultMaxLines, core.DefaultMaxBytes)
+			contextOutput = tr.Content
 		} else {
-			output = "(no output)"
+			contextOutput = "(no output)"
 		}
 		contextMsg := fmt.Sprintf("<shell_command>\n<command>%s</command>\n<output>\n%s</output>\n<exit_code>%d</exit_code>\n</shell_command>",
-			msg.Command, output, msg.ExitCode)
+			msg.Command, contextOutput, msg.ExitCode)
 		m.appCtrl.AddContextMessage(contextMsg)
 	}
 

@@ -130,7 +130,7 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	// Truncate from tail (keep last N lines, most relevant for bash)
-	tr := truncateTail(output, defaultMaxLines, defaultMaxBytes)
+	tr := TruncateTail(output, defaultMaxLines, defaultMaxBytes)
 
 	if exitCode != 0 {
 		return fantasy.NewTextErrorResponse(tr.Content), nil
