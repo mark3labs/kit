@@ -101,10 +101,16 @@ func (a *kitUIAdapter) GetExtensionToolCount() int {
 // an interface to interact with various AI models through a unified interface
 // with support for MCP servers and tool integration.
 var rootCmd = &cobra.Command{
-	Use:   "kit",
+	Use:   "kit [@file...] [prompt]",
 	Short: "Chat with AI models through a unified interface",
 	Long:  `KIT (Knowledge Inference Tool) — A lightweight AI agent for coding`,
+	Args:  cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Parse positional args: @-prefixed args are file attachments,
+		// remaining args form the prompt (like Pi: kit @code.ts "Review this").
+		if len(args) > 0 {
+			processPositionalArgs(args)
+		}
 		return runKit(context.Background())
 	},
 }
@@ -275,6 +281,60 @@ func init() {
 
 	// Add subcommands
 	rootCmd.AddCommand(authCmd)
+}
+
+// processPositionalArgs separates positional CLI arguments into @file
+// attachments and prompt text. File content is read and prepended to
+// promptFlag so the agent receives it. This enables the Pi-style pattern:
+//
+//	kit @code.ts @test.ts "Review these files"
+func processPositionalArgs(args []string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+
+	var fileTokens []string
+	var promptParts []string
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "@") && len(arg) > 1 {
+			fileTokens = append(fileTokens, arg)
+		} else {
+			promptParts = append(promptParts, arg)
+		}
+	}
+
+	// Build file content prefix from @file arguments.
+	var fileContent strings.Builder
+	for _, token := range fileTokens {
+		expanded := ui.ProcessFileAttachments(token, cwd)
+		if expanded != token {
+			// File was resolved — add it.
+			fileContent.WriteString(expanded)
+			fileContent.WriteString("\n\n")
+		}
+	}
+
+	// Combine: if we have both files and a prompt flag or positional prompt,
+	// merge them. Positional prompt text is appended to any existing --prompt.
+	if len(promptParts) > 0 {
+		extra := strings.Join(promptParts, " ")
+		if promptFlag != "" {
+			promptFlag = promptFlag + " " + extra
+		} else {
+			promptFlag = extra
+		}
+	}
+
+	// Prepend file content to the prompt.
+	if fileContent.Len() > 0 {
+		if promptFlag == "" {
+			promptFlag = strings.TrimSpace(fileContent.String())
+		} else {
+			promptFlag = strings.TrimSpace(fileContent.String()) + "\n\n" + promptFlag
+		}
+	}
 }
 
 func runKit(ctx context.Context) error {
