@@ -705,34 +705,31 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Emit before-fork event — extensions can cancel the operation.
+			// Emit before-fork event in a goroutine so that extension handlers
+			// can call blocking operations (e.g. ctx.PromptConfirm) without
+			// deadlocking the BubbleTea event loop.
 			if m.emitBeforeFork != nil {
-				if cancelled, reason := m.emitBeforeFork(targetID, msg.IsUser, msg.UserText); cancelled {
-					m.treeSelector = nil
-					m.state = stateInput
-					return m, m.printSystemMessage(reason)
-				}
+				emit := m.emitBeforeFork
+				ctrl := m.appCtrl
+				forkTargetID := targetID
+				forkIsUser := msg.IsUser
+				forkUserText := msg.UserText
+				go func() {
+					cancelled, reason := emit(forkTargetID, forkIsUser, forkUserText)
+					ctrl.SendEvent(beforeForkResultMsg{
+						cancelled: cancelled,
+						reason:    reason,
+						targetID:  forkTargetID,
+						isUser:    forkIsUser,
+						userText:  forkUserText,
+					})
+				}()
+				m.treeSelector = nil
+				m.state = stateInput
+				return m, func() tea.Msg { return nil }
 			}
 
-			_ = ts.Branch(targetID)
-			m.appCtrl.ClearMessages()
-
-			// If it was a user message, populate the input with the text.
-			if msg.IsUser && msg.UserText != "" {
-				if ic, ok := m.input.(*InputComponent); ok {
-					ic.textarea.SetValue(msg.UserText)
-					ic.textarea.CursorEnd()
-				}
-			}
-
-			cmds = append(cmds, m.printSystemMessage(
-				fmt.Sprintf("Navigated to branch point. %s",
-					func() string {
-						if msg.IsUser {
-							return "Edit and resubmit to create a new branch."
-						}
-						return "Continue from this point."
-					}())))
+			cmds = append(cmds, m.performFork(targetID, msg.IsUser, msg.UserText))
 		}
 		m.treeSelector = nil
 		m.state = stateInput
@@ -1161,6 +1158,24 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fmt.Sprintf("Command %s error: %v", msg.name, msg.err)))
 		} else if msg.output != "" {
 			cmds = append(cmds, m.printSystemMessage(msg.output))
+		}
+
+	case beforeSessionSwitchResultMsg:
+		// Async before-session-switch hook completed. Proceed with the
+		// session reset if the hook did not cancel.
+		if msg.cancelled {
+			cmds = append(cmds, m.printSystemMessage(msg.reason))
+		} else {
+			cmds = append(cmds, m.performNewSession())
+		}
+
+	case beforeForkResultMsg:
+		// Async before-fork hook completed. Proceed with the fork if the
+		// hook did not cancel.
+		if msg.cancelled {
+			cmds = append(cmds, m.printSystemMessage(msg.reason))
+		} else {
+			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
 		}
 
 	case app.ExtensionPrintEvent:
@@ -2004,13 +2019,28 @@ func (m *AppModel) handleForkCommand() tea.Cmd {
 
 // handleNewCommand starts a fresh session by resetting the tree leaf.
 func (m *AppModel) handleNewCommand() tea.Cmd {
-	// Emit before-session-switch event — extensions can cancel.
+	// Emit before-session-switch event in a goroutine so that extension
+	// handlers can call blocking operations (e.g. ctx.PromptConfirm) without
+	// deadlocking the BubbleTea event loop.
 	if m.emitBeforeSessionSwitch != nil {
-		if cancelled, reason := m.emitBeforeSessionSwitch("new"); cancelled {
-			return m.printSystemMessage(reason)
-		}
+		emit := m.emitBeforeSessionSwitch
+		ctrl := m.appCtrl
+		go func() {
+			cancelled, reason := emit("new")
+			ctrl.SendEvent(beforeSessionSwitchResultMsg{
+				cancelled: cancelled,
+				reason:    reason,
+			})
+		}()
+		return func() tea.Msg { return nil }
 	}
 
+	return m.performNewSession()
+}
+
+// performNewSession performs the actual session reset. Called either directly
+// (when no before-hook exists) or after the async hook completes.
+func (m *AppModel) performNewSession() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
 		// No tree session — just clear messages.
@@ -2025,6 +2055,35 @@ func (m *AppModel) handleNewCommand() tea.Cmd {
 		m.appCtrl.ClearMessages()
 	}
 	return m.printSystemMessage("New branch started. Previous conversation is preserved in the tree.")
+}
+
+// performFork performs the actual tree branch. Called either directly (when no
+// before-hook exists) or after the async before-fork hook completes.
+func (m *AppModel) performFork(targetID string, isUser bool, userText string) tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return m.printSystemMessage("No tree session active.")
+	}
+
+	_ = ts.Branch(targetID)
+	m.appCtrl.ClearMessages()
+
+	// If it was a user message, populate the input with the text.
+	if isUser && userText != "" {
+		if ic, ok := m.input.(*InputComponent); ok {
+			ic.textarea.SetValue(userText)
+			ic.textarea.CursorEnd()
+		}
+	}
+
+	return m.printSystemMessage(
+		fmt.Sprintf("Navigated to branch point. %s",
+			func() string {
+				if isUser {
+					return "Edit and resubmit to create a new branch."
+				}
+				return "Continue from this point."
+			}()))
 }
 
 // handleNameCommand sets a display name for the current session.
@@ -2098,6 +2157,26 @@ type extensionCmdResultMsg struct {
 	name   string
 	output string
 	err    error
+}
+
+// beforeSessionSwitchResultMsg carries the result of an asynchronously
+// executed before-session-switch hook. The hook runs in a goroutine so that
+// blocking operations like ctx.PromptConfirm() do not deadlock the TUI.
+type beforeSessionSwitchResultMsg struct {
+	cancelled bool
+	reason    string
+}
+
+// beforeForkResultMsg carries the result of an asynchronously executed
+// before-fork hook along with the fork context needed to complete the
+// operation if the hook allows it.
+type beforeForkResultMsg struct {
+	cancelled bool
+	reason    string
+	// Fork context — preserved so the operation can proceed after the hook.
+	targetID string
+	isUser   bool
+	userText string
 }
 
 // updatePromptState handles all messages while the prompt overlay is active.
