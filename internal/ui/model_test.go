@@ -57,6 +57,10 @@ func (s *stubAppController) SendEvent(_ tea.Msg) {
 	// no-op in tests
 }
 
+func (s *stubAppController) AddContextMessage(_ string) {
+	// no-op in tests
+}
+
 // --------------------------------------------------------------------------
 // Stub child components
 // --------------------------------------------------------------------------

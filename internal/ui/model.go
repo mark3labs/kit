@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -72,6 +75,11 @@ type AppController interface {
 	// results back to the TUI without going through tea.Cmd (which can stall
 	// when the goroutine blocks on interactive prompts).
 	SendEvent(tea.Msg)
+	// AddContextMessage adds a user-role message to the conversation history
+	// without triggering an LLM response. Used by the ! shell command prefix
+	// to inject command output into context so the LLM can reference it in
+	// subsequent turns.
+	AddContextMessage(text string)
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -941,6 +949,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateWorking
 		}
 
+	// ── Shell command (! / !!) ───────────────────────────────────────────────
+	case shellCommandMsg:
+		// Execute the shell command asynchronously so the TUI stays responsive.
+		cmds = append(cmds, m.executeShellCommand(msg))
+
+	case shellCommandResultMsg:
+		cmds = append(cmds, m.handleShellCommandResult(msg))
+
 	// ── App layer events ─────────────────────────────────────────────────────
 
 	case app.SpinnerEvent:
@@ -1733,7 +1749,10 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		help += skillHelp.String()
 	}
 
-	help += "**Keys:**\n" +
+	help += "**Shell Commands:**\n" +
+		"- `!command`: Run shell command, output included in LLM context\n" +
+		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
+		"**Keys:**\n" +
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
 		"You can also just type your message to chat with the AI assistant."
@@ -2330,4 +2349,140 @@ func (m *AppModel) resolveOverlay(resp app.OverlayResponse) {
 	}
 	m.overlay = nil
 	m.state = m.preOverlayState
+}
+
+// --------------------------------------------------------------------------
+// Shell command execution (! and !!)
+// --------------------------------------------------------------------------
+
+// shellCommandTimeout is the maximum duration for a user shell command.
+const shellCommandTimeout = 120 * time.Second
+
+// executeShellCommand runs a shell command asynchronously and returns the
+// result as a shellCommandResultMsg. This is launched from Update() as a
+// tea.Cmd so the TUI stays responsive during execution.
+func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
+	command := msg.Command
+	excludeFromContext := msg.ExcludeFromContext
+	cwd := m.cwd
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), shellCommandTimeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		if cwd != "" {
+			cmd.Dir = cwd
+		}
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+				// Non-zero exit is reported via exitCode, not as an error.
+				err = nil
+			} else if ctx.Err() == context.DeadlineExceeded {
+				return shellCommandResultMsg{
+					Command:            command,
+					Output:             fmt.Sprintf("command timed out after %v", shellCommandTimeout),
+					ExitCode:           -1,
+					Err:                fmt.Errorf("command timed out after %v", shellCommandTimeout),
+					ExcludeFromContext: excludeFromContext,
+				}
+			}
+		}
+
+		// Combine stdout + stderr.
+		var output strings.Builder
+		if stdout.Len() > 0 {
+			output.WriteString(stdout.String())
+		}
+		if stderr.Len() > 0 {
+			if output.Len() > 0 {
+				output.WriteString("\n")
+			}
+			output.WriteString(stderr.String())
+		}
+
+		return shellCommandResultMsg{
+			Command:            command,
+			Output:             output.String(),
+			ExitCode:           exitCode,
+			Err:                err,
+			ExcludeFromContext: excludeFromContext,
+		}
+	}
+}
+
+// handleShellCommandResult processes the result of a shell command execution.
+// It prints the output to scrollback and optionally injects it into the
+// conversation context (for ! commands) so the LLM can see it.
+func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
+	theme := GetTheme()
+
+	// Build the display header.
+	var header string
+	if msg.ExcludeFromContext {
+		header = fmt.Sprintf("$ %s  (excluded from context)", msg.Command)
+	} else {
+		header = fmt.Sprintf("$ %s", msg.Command)
+	}
+
+	// Build the output content.
+	var content strings.Builder
+	content.WriteString(header)
+
+	if msg.Err != nil {
+		content.WriteString(fmt.Sprintf("\n\nError: %v", msg.Err))
+	} else if msg.Output != "" {
+		content.WriteString("\n\n")
+		content.WriteString(msg.Output)
+	} else {
+		content.WriteString("\n\n(no output)")
+	}
+
+	if msg.ExitCode != 0 {
+		content.WriteString(fmt.Sprintf("\n\nExit code: %d", msg.ExitCode))
+	}
+
+	// Choose border color: dim for excluded, accent for included.
+	borderClr := theme.Accent
+	if msg.ExcludeFromContext {
+		borderClr = theme.Muted
+	}
+
+	rendered := renderContentBlock(
+		content.String(),
+		m.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderClr),
+		WithMarginBottom(1),
+	)
+
+	var cmds []tea.Cmd
+	cmds = append(cmds, tea.Println(rendered))
+
+	// For ! (included in context): inject the command output into the
+	// conversation as a user message so the LLM can reference it on the
+	// next turn. This does NOT trigger an LLM response — it only adds
+	// to the conversation history.
+	if !msg.ExcludeFromContext && m.appCtrl != nil {
+		var output string
+		if msg.Output != "" {
+			output = msg.Output
+		} else {
+			output = "(no output)"
+		}
+		contextMsg := fmt.Sprintf("<shell_command>\n<command>%s</command>\n<output>\n%s</output>\n<exit_code>%d</exit_code>\n</shell_command>",
+			msg.Command, output, msg.ExitCode)
+		m.appCtrl.AddContextMessage(contextMsg)
+	}
+
+	return tea.Batch(cmds...)
 }

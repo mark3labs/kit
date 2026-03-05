@@ -28,3 +28,33 @@ type TreeNodeSelectedMsg struct {
 
 // TreeCancelledMsg is sent when the user cancels the tree selector (ESC).
 type TreeCancelledMsg struct{}
+
+// shellCommandMsg is sent by the InputComponent when the user submits a
+// ! or !! prefixed command. The parent model intercepts this to execute
+// the shell command directly instead of forwarding to the LLM.
+//
+// Matching pi's behavior:
+//   - !cmd  → run shell command, output INCLUDED in LLM context
+//   - !!cmd → run shell command, output EXCLUDED from LLM context
+type shellCommandMsg struct {
+	// Command is the shell command to execute (prefix stripped).
+	Command string
+	// ExcludeFromContext is true for !! (output excluded from LLM context),
+	// false for ! (output included in LLM context).
+	ExcludeFromContext bool
+}
+
+// shellCommandResultMsg carries the result of a shell command execution
+// back to the parent model for display.
+type shellCommandResultMsg struct {
+	// Command is the original shell command that was executed.
+	Command string
+	// Output is the combined stdout/stderr output.
+	Output string
+	// ExitCode is the process exit code (0 = success).
+	ExitCode int
+	// Err is non-nil if the command failed to start or timed out.
+	Err error
+	// ExcludeFromContext mirrors the flag from shellCommandMsg.
+	ExcludeFromContext bool
+}

@@ -282,10 +282,32 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleSubmit processes the submitted text. Slash commands that affect app
 // state are executed here; /quit returns tea.Quit; everything else returns a
 // submitMsg tea.Cmd for the parent to forward to app.Run().
+//
+// Shell command prefixes (matching pi's behavior):
+//   - !cmd  → execute shell command, output INCLUDED in LLM context
+//   - !!cmd → execute shell command, output EXCLUDED from LLM context
 func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil
+	}
+
+	// Check for shell command prefixes before slash commands. Test !! first
+	// (more specific) to avoid matching the single-! case for double-bang.
+	if strings.HasPrefix(trimmed, "!!") {
+		cmd := strings.TrimSpace(trimmed[2:])
+		if cmd != "" {
+			return func() tea.Msg {
+				return shellCommandMsg{Command: cmd, ExcludeFromContext: true}
+			}
+		}
+	} else if strings.HasPrefix(trimmed, "!") {
+		cmd := strings.TrimSpace(trimmed[1:])
+		if cmd != "" {
+			return func() tea.Msg {
+				return shellCommandMsg{Command: cmd, ExcludeFromContext: false}
+			}
+		}
 	}
 
 	// Resolve via canonical command lookup so aliases are handled uniformly.

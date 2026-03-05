@@ -197,6 +197,22 @@ func (a *App) GetTreeSession() *session.TreeManager {
 	return a.opts.TreeSession
 }
 
+// AddContextMessage adds a user-role message to the conversation history
+// without triggering an LLM response. Used by the ! shell command prefix
+// to inject command output into context so the LLM can reference it in
+// subsequent turns.
+//
+// Satisfies ui.AppController.
+func (a *App) AddContextMessage(text string) {
+	msg := fantasy.NewUserMessage(text)
+	a.store.Add(msg)
+
+	// Persist to tree session if active.
+	if ts := a.opts.TreeSession; ts != nil {
+		_, _ = ts.AppendFantasyMessage(msg)
+	}
+}
+
 // CompactConversation summarises older messages to free context space. It
 // returns an error synchronously if compaction cannot start (agent busy or
 // app closed). The actual compaction runs in a background goroutine and
