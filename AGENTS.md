@@ -83,9 +83,9 @@ tmux kill-session -t kittest              # cleanup
 ### Non-Interactive Kit (Subprocess Spawning)
 Extensions can spawn Kit as a subprocess for sub-agent patterns:
 ```bash
-kit --prompt "question" --quiet --no-session --no-extensions --system-prompt /path/to/prompt.txt --model provider/model
+kit --quiet --no-session --no-extensions --system-prompt /path/to/prompt.txt --model provider/model "question"
 ```
-Key flags: `--quiet` (stdout only, no TUI), `--no-session` (ephemeral), `--no-extensions` (prevent recursive loading), `--system-prompt` (string or file path).
+Positional args are the prompt. `@file` args attach file content. Key flags: `--quiet` (stdout only, no TUI), `--no-session` (ephemeral), `--no-extensions` (prevent recursive loading), `--system-prompt` (string or file path).
 
 ## External Repo Research
 - **ALWAYS use `btca`** to search external repos (e.g. iteratr, other reference codebases)

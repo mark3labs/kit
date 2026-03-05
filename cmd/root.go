@@ -29,7 +29,7 @@ var (
 	providerURL      string
 	providerAPIKey   string
 	debugMode        bool
-	promptFlag       string
+	positionalPrompt string // set by processPositionalArgs from CLI positional args
 	quietFlag        bool
 	jsonFlag         bool
 	noExitFlag       bool
@@ -208,9 +208,7 @@ func init() {
 			"model to use (format: provider/model)")
 	rootCmd.PersistentFlags().
 		BoolVar(&debugMode, "debug", false, "enable debug logging")
-	rootCmd.PersistentFlags().
-		StringVarP(&promptFlag, "prompt", "p", "", "non-interactive prompt (prefer positional args instead)")
-	_ = rootCmd.PersistentFlags().MarkHidden("prompt")
+
 	rootCmd.PersistentFlags().
 		BoolVar(&quietFlag, "quiet", false, "suppress all output (non-interactive mode only)")
 	rootCmd.PersistentFlags().
@@ -259,7 +257,6 @@ func init() {
 	_ = viper.BindPFlag("system-prompt", rootCmd.PersistentFlags().Lookup("system-prompt"))
 	_ = viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
-	_ = viper.BindPFlag("prompt", rootCmd.PersistentFlags().Lookup("prompt"))
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
 	_ = viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
@@ -286,7 +283,7 @@ func init() {
 
 // processPositionalArgs separates positional CLI arguments into @file
 // attachments and prompt text. File content is read and prepended to
-// promptFlag so the agent receives it. Positional args are the primary
+// positionalPrompt so the agent receives it. Positional args are the primary
 // way to run non-interactive mode:
 //
 //	kit "Explain this codebase"
@@ -323,19 +320,19 @@ func processPositionalArgs(args []string) {
 	// value (for backward compat with subprocess invocations).
 	if len(promptParts) > 0 {
 		extra := strings.Join(promptParts, " ")
-		if promptFlag != "" {
-			promptFlag = promptFlag + " " + extra
+		if positionalPrompt != "" {
+			positionalPrompt = positionalPrompt + " " + extra
 		} else {
-			promptFlag = extra
+			positionalPrompt = extra
 		}
 	}
 
 	// Prepend file content to the prompt.
 	if fileContent.Len() > 0 {
-		if promptFlag == "" {
-			promptFlag = strings.TrimSpace(fileContent.String())
+		if positionalPrompt == "" {
+			positionalPrompt = strings.TrimSpace(fileContent.String())
 		} else {
-			promptFlag = strings.TrimSpace(fileContent.String()) + "\n\n" + promptFlag
+			positionalPrompt = strings.TrimSpace(fileContent.String()) + "\n\n" + positionalPrompt
 		}
 	}
 }
@@ -584,16 +581,16 @@ func globalShortcutsProviderForUI(k *kit.Kit) func() map[string]func() {
 
 func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
-	if quietFlag && promptFlag == "" {
+	if quietFlag && positionalPrompt == "" {
 		return fmt.Errorf("--quiet requires a prompt (e.g. kit \"your question\" --quiet)")
 	}
-	if jsonFlag && promptFlag == "" {
+	if jsonFlag && positionalPrompt == "" {
 		return fmt.Errorf("--json requires a prompt (e.g. kit \"your question\" --json)")
 	}
 	if jsonFlag && noExitFlag {
 		return fmt.Errorf("--json and --no-exit flags cannot be used together")
 	}
-	if noExitFlag && promptFlag == "" {
+	if noExitFlag && positionalPrompt == "" {
 		return fmt.Errorf("--no-exit requires a prompt (e.g. kit \"your question\" --no-exit)")
 	}
 
@@ -661,7 +658,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Create CLI for non-interactive mode only.
 	var cli *ui.CLI
-	if promptFlag != "" {
+	if positionalPrompt != "" {
 		cli, err = SetupCLIForNonInteractive(kitInstance)
 		if err != nil {
 			return fmt.Errorf("failed to setup CLI: %v", err)
@@ -708,7 +705,7 @@ func runNormalMode(ctx context.Context) error {
 		kitInstance.SetExtensionContext(extensions.Context{
 			CWD:           cwd,
 			Model:         modelName,
-			Interactive:   promptFlag == "",
+			Interactive:   positionalPrompt == "",
 			Print:         func(text string) { appInstance.PrintFromExtension("", text) },
 			PrintInfo:     func(text string) { appInstance.PrintFromExtension("info", text) },
 			PrintError:    func(text string) { appInstance.PrintFromExtension("error", text) },
@@ -966,8 +963,8 @@ func runNormalMode(ctx context.Context) error {
 	}
 
 	// Check if running in non-interactive mode
-	if promptFlag != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, promptFlag, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands)
+	if positionalPrompt != "" {
+		return runNonInteractiveModeApp(ctx, appInstance, cli, positionalPrompt, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands)
 	}
 
 	// Quiet mode is not allowed in interactive mode

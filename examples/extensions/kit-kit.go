@@ -488,11 +488,11 @@ func queryExpert(name, question string) (output string, exitCode int, elapsed ti
 	// Build subprocess arguments. Use --json for structured output parsing.
 	// Don't pass --model; the subprocess inherits the same config/env default.
 	args := []string{
-		"--prompt", question,
 		"--json",
 		"--no-session",
 		"--no-extensions",
 		"--system-prompt", tmpFile.Name(),
+		question,
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer

@@ -23,7 +23,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management**: Tree-based conversation history with branching support
-- **Non-Interactive Mode**: Script-friendly `--prompt` mode with JSON output
+- **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **Go SDK**: Embed Kit in your own applications
 
 ## Installation
@@ -57,7 +57,10 @@ go build -o kit ./cmd/kit
 kit
 
 # Run a one-off prompt
-kit --prompt "List files in src/"
+kit "List files in src/"
+
+# Attach files as context
+kit @main.go @test.go "Review these files"
 
 # Continue the most recent session
 kit --continue
@@ -70,13 +73,13 @@ kit --model anthropic/claude-sonnet-4-5-20250929
 
 ```bash
 # Get JSON output for scripting
-kit --prompt "Explain main.go" --json
+kit "Explain main.go" --json
 
 # Quiet mode (final response only)
-kit --quiet --prompt "Run tests"
+kit "Run tests" --quiet
 
 # Ephemeral mode (no session file)
-kit --prompt "Quick question" --no-session
+kit "Quick question" --no-session
 ```
 
 ## Configuration
@@ -142,11 +145,10 @@ mcpServers:
 --resume, -r             Interactive session picker
 --no-session             Ephemeral mode, no persistence
 
-# Behavior
---prompt, -p             Run in non-interactive mode with given prompt
---quiet                  Suppress all output (only with --prompt)
---json                   Output response as JSON (only with --prompt)
---no-exit                Continue to interactive mode after --prompt
+# Behavior (non-interactive: pass prompt as positional arg)
+--quiet                  Suppress all output (non-interactive only)
+--json                   Output response as JSON (non-interactive only)
+--no-exit                Enter interactive mode after prompt completes
 --max-steps              Maximum agent steps (0 for unlimited)
 --stream                 Enable streaming output (default: true)
 --compact                Enable compact output mode
@@ -378,7 +380,7 @@ host.ClearSession()
 Spawn Kit as a subprocess for multi-agent orchestration:
 
 ```bash
-kit --prompt "Analyze codebase" \
+kit "Analyze codebase" \
     --json \
     --no-session \
     --no-extensions \

@@ -209,10 +209,10 @@ func spawnAgent(state *subState) {
 	}
 
 	args := []string{
-		"--prompt", prompt,
 		"--json",
 		"--no-session",
 		"--no-extensions",
+		prompt,
 	}
 
 	cmd := exec.Command(kitBinary, args...)
