@@ -1065,11 +1065,13 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		termHeight = 24
 	}
 
+	cwd, _ := os.Getwd()
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
 		CompactMode:             viper.GetBool("compact"),
 		ModelName:               modelName,
 		ProviderName:            providerName,
 		LoadingMessage:          loadingMessage,
+		Cwd:                     cwd,
 		Width:                   termWidth,
 		Height:                  termHeight,
 		ServerNames:             serverNames,

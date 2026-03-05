@@ -201,6 +201,10 @@ type AppModelOptions struct {
 	// (e.g. GPU fallback info). Displayed at startup when non-empty.
 	LoadingMessage string
 
+	// Cwd is the working directory for @file autocomplete and path resolution.
+	// If empty, @file features are disabled.
+	Cwd string
+
 	// Width is the initial terminal width in columns.
 	Width int
 
@@ -449,6 +453,9 @@ type AppModel struct {
 	// so the model can return to it when the overlay completes.
 	preOverlayState appState
 
+	// cwd is the working directory for @file path resolution.
+	cwd string
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -526,6 +533,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		serverNames:    opts.ServerNames,
 		toolNames:      opts.ToolNames,
 		usageTracker:   opts.UsageTracker,
+		cwd:            opts.Cwd,
 		width:          width,
 		height:         height,
 	}
@@ -551,6 +559,11 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
+
+	// Wire up cwd for @file autocomplete.
+	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
+		ic.SetCwd(opts.Cwd)
+	}
 
 	// Merge extension commands into the InputComponent's autocomplete source.
 	if ic, ok := m.input.(*InputComponent); ok && len(opts.ExtensionCommands) > 0 {
@@ -898,12 +911,20 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Regular prompt — forward to the app layer.
+		// Preprocess @file references: expand them into XML-wrapped file
+		// content before sending to the agent. The display text (shown in
+		// scrollback) uses the original user text so the UI stays clean.
+		processedText := msg.Text
+		if m.cwd != "" {
+			processedText = ProcessFileAttachments(msg.Text, m.cwd)
+		}
+
 		if m.appCtrl != nil {
 			// Run returns the queue depth: >0 means the prompt was queued
 			// (agent is busy). We update queuedMessages directly here
 			// instead of relying on an event from prog.Send(), which would
 			// deadlock when called synchronously from within Update().
-			if qLen := m.appCtrl.Run(msg.Text); qLen > 0 {
+			if qLen := m.appCtrl.Run(processedText); qLen > 0 {
 				// Queued: anchor the message text above the input with a
 				// "queued" badge. It will be printed to scrollback when
 				// the agent picks it up (on QueueUpdatedEvent).

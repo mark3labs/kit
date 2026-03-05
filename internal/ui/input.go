@@ -43,6 +43,18 @@ type InputComponent struct {
 	argCommand   string         // command prefix for arg mode (e.g. "/bookmark")
 	argSynthCmds []SlashCommand // backing storage for synthetic arg entries
 
+	// File completion state. When the user types @ followed by a partial
+	// file path, the popup shows file/directory suggestions from the cwd.
+	fileMode        bool             // true when showing @file completions
+	filePrefix      string           // current text after @ being matched
+	fileAtStartIdx  int              // byte offset of @ in the textarea value
+	fileSuggestions []FileSuggestion // backing storage for file entries
+	fileSynthCmds   []SlashCommand   // synthetic SlashCommands wrapping file entries
+
+	// cwd is the working directory used for @file path resolution and
+	// autocomplete suggestions. Set by the parent via SetCwd.
+	cwd string
+
 	// appCtrl is used for slash commands that mutate app state.
 	// May be nil in tests; nil-safe.
 	appCtrl AppController
@@ -88,6 +100,12 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 		title:       title,
 		appCtrl:     appCtrl,
 	}
+}
+
+// SetCwd sets the working directory used for @file autocomplete suggestions
+// and path resolution. Should be called by the parent after construction.
+func (s *InputComponent) SetCwd(cwd string) {
+	s.cwd = cwd
 }
 
 // Init implements tea.Model. Starts the cursor blink animation.
@@ -148,19 +166,29 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 				if s.selected < len(s.filtered) {
-					if s.argMode {
+					if s.fileMode {
+						s.applyFileCompletion(s.selected)
+					} else if s.argMode {
 						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
+						s.showPopup = false
+						s.selected = 0
 					} else {
 						s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+						s.showPopup = false
+						s.selected = 0
 					}
-					s.showPopup = false
-					s.selected = 0
 					s.textarea.CursorEnd()
 				}
 				return s, nil
 
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				if s.selected < len(s.filtered) {
+					if s.fileMode {
+						// Apply file completion but don't submit.
+						s.applyFileCompletion(s.selected)
+						s.textarea.CursorEnd()
+						return s, nil
+					}
 					// Populate textarea with selected item and submit on next tick.
 					if s.argMode {
 						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
@@ -190,7 +218,37 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if value != s.lastValue {
 			s.lastValue = value
 			lines := strings.Split(value, "\n")
-			if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
+			line := lines[len(lines)-1] // current line (last line for multi-line)
+
+			// Check for @file trigger first.
+			cursorCol := len(line) // approximate: cursor is at end after typing
+			if hasAt, prefix, atIdx := ExtractAtPrefix(line, cursorCol); hasAt && s.cwd != "" {
+				suggestions := GetFileSuggestions(prefix, s.cwd)
+				if len(suggestions) > 0 {
+					s.showPopup = true
+					s.fileMode = true
+					s.argMode = false
+					s.filePrefix = prefix
+					s.fileAtStartIdx = atIdx
+					s.fileSuggestions = suggestions
+					s.fileSynthCmds = make([]SlashCommand, len(suggestions))
+					s.filtered = make([]FuzzyMatch, len(suggestions))
+					for i, fs := range suggestions {
+						name := fs.RelPath
+						desc := ""
+						if fs.IsDir {
+							desc = "directory"
+						}
+						s.fileSynthCmds[i] = SlashCommand{Name: name, Description: desc}
+						s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
+					}
+					s.selected = 0
+				} else {
+					s.showPopup = false
+					s.fileMode = false
+				}
+			} else if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
+				s.fileMode = false
 				if !strings.Contains(lines[0], " ") {
 					// Command name completion.
 					s.showPopup = true
@@ -210,6 +268,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				s.showPopup = false
 				s.argMode = false
+				s.fileMode = false
 			}
 		}
 		return s, cmd
@@ -335,16 +394,32 @@ func (s *InputComponent) renderPopup() string {
 			descStyle = descStyle.Foreground(lipgloss.Color("250"))
 		}
 
-		nameWidth := 15
-		name := nameStyle.Width(nameWidth - 2).Render(sc.Name)
+		if s.fileMode {
+			// File mode: use full width for the path, show description
+			// (e.g. "directory") inline after a gap.
+			maxNameLen := s.width - 24
+			displayName := sc.Name
+			if len(displayName) > maxNameLen && maxNameLen > 3 {
+				displayName = displayName[:maxNameLen-3] + "..."
+			}
+			name := nameStyle.Render(displayName)
+			if sc.Description != "" {
+				items = append(items, indicator+name+"  "+descStyle.Render(sc.Description))
+			} else {
+				items = append(items, indicator+name)
+			}
+		} else {
+			nameWidth := 15
+			name := nameStyle.Width(nameWidth - 2).Render(sc.Name)
 
-		desc := sc.Description
-		maxDescLen := s.width - nameWidth - 14
-		if len(desc) > maxDescLen && maxDescLen > 3 {
-			desc = desc[:maxDescLen-3] + "..."
+			desc := sc.Description
+			maxDescLen := s.width - nameWidth - 14
+			if len(desc) > maxDescLen && maxDescLen > 3 {
+				desc = desc[:maxDescLen-3] + "..."
+			}
+
+			items = append(items, indicator+name+descStyle.Render(desc))
 		}
-
-		items = append(items, indicator+name+descStyle.Render(desc))
 	}
 
 	if startIdx > 0 {
@@ -403,4 +478,57 @@ func (s *InputComponent) findCommandWithComplete(name string) *SlashCommand {
 		}
 	}
 	return nil
+}
+
+// applyFileCompletion replaces the @prefix in the textarea with the selected
+// file suggestion. For directories, it keeps the popup open for further
+// drilling. For files, it closes the popup and adds a trailing space.
+func (s *InputComponent) applyFileCompletion(idx int) {
+	if idx >= len(s.fileSuggestions) {
+		return
+	}
+
+	suggestion := s.fileSuggestions[idx]
+	value := s.textarea.Value()
+
+	// Build the replacement text. The @ and everything after it up to the
+	// cursor should be replaced with @<selected path>.
+	// Find the current line's contribution.
+	lines := strings.Split(value, "\n")
+	lastLine := lines[len(lines)-1]
+
+	// Reconstruct: everything before the @ on the last line + @<path>
+	beforeAt := lastLine[:s.fileAtStartIdx]
+	needsQuote := strings.Contains(suggestion.RelPath, " ")
+
+	var replacement string
+	if needsQuote {
+		replacement = `@"` + suggestion.RelPath + `"`
+	} else {
+		replacement = "@" + suggestion.RelPath
+	}
+
+	// For files, add a trailing space. For directories, don't — allow
+	// continued drilling into the directory.
+	if !suggestion.IsDir {
+		replacement += " "
+	}
+
+	newLastLine := beforeAt + replacement
+
+	// Reconstruct the full value with the updated last line.
+	lines[len(lines)-1] = newLastLine
+	newValue := strings.Join(lines, "\n")
+
+	s.textarea.SetValue(newValue)
+	s.textarea.CursorEnd()
+
+	if suggestion.IsDir {
+		// Keep popup open — trigger a refresh for the new directory.
+		s.lastValue = "" // force re-evaluation on next update tick
+	} else {
+		s.showPopup = false
+		s.fileMode = false
+		s.selected = 0
+	}
 }
