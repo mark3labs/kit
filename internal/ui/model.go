@@ -2439,12 +2439,18 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	var content strings.Builder
 	content.WriteString(header)
 
-	// Truncate output for display using the same limits as the core bash tool
-	// (2000 lines / 50KB, keeping the tail which is most relevant).
+	// Display-level truncation: show first maxShellDisplayLines lines with a
+	// "...(N more lines)" hint, matching the tool result renderer behavior.
+	const maxShellDisplayLines = 20
+
 	displayOutput := msg.Output
+	var displayHiddenCount int
 	if displayOutput != "" {
-		tr := core.TruncateTail(displayOutput, core.DefaultMaxLines, core.DefaultMaxBytes)
-		displayOutput = tr.Content
+		lines := strings.Split(displayOutput, "\n")
+		if len(lines) > maxShellDisplayLines {
+			displayHiddenCount = len(lines) - maxShellDisplayLines
+			displayOutput = strings.Join(lines[:maxShellDisplayLines], "\n")
+		}
 	}
 
 	if msg.Err != nil {
@@ -2452,6 +2458,9 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	} else if displayOutput != "" {
 		content.WriteString("\n\n")
 		content.WriteString(displayOutput)
+		if displayHiddenCount > 0 {
+			content.WriteString(fmt.Sprintf("\n\n...(%d more lines)", displayHiddenCount))
+		}
 	} else {
 		content.WriteString("\n\n(no output)")
 	}
