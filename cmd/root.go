@@ -209,13 +209,14 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&debugMode, "debug", false, "enable debug logging")
 	rootCmd.PersistentFlags().
-		StringVarP(&promptFlag, "prompt", "p", "", "run in non-interactive mode with the given prompt")
+		StringVarP(&promptFlag, "prompt", "p", "", "non-interactive prompt (prefer positional args instead)")
+	_ = rootCmd.PersistentFlags().MarkHidden("prompt")
 	rootCmd.PersistentFlags().
-		BoolVar(&quietFlag, "quiet", false, "suppress all output (only works with --prompt)")
+		BoolVar(&quietFlag, "quiet", false, "suppress all output (non-interactive mode only)")
 	rootCmd.PersistentFlags().
-		BoolVar(&jsonFlag, "json", false, "output response as JSON (only works with --prompt)")
+		BoolVar(&jsonFlag, "json", false, "output response as JSON (non-interactive mode only)")
 	rootCmd.PersistentFlags().
-		BoolVar(&noExitFlag, "no-exit", false, "prevent non-interactive mode from exiting, show input prompt instead")
+		BoolVar(&noExitFlag, "no-exit", false, "enter interactive mode after non-interactive prompt completes")
 	rootCmd.PersistentFlags().
 		IntVar(&maxSteps, "max-steps", 0, "maximum number of agent steps (0 for unlimited)")
 	rootCmd.PersistentFlags().
@@ -285,8 +286,10 @@ func init() {
 
 // processPositionalArgs separates positional CLI arguments into @file
 // attachments and prompt text. File content is read and prepended to
-// promptFlag so the agent receives it. This enables the Pi-style pattern:
+// promptFlag so the agent receives it. Positional args are the primary
+// way to run non-interactive mode:
 //
+//	kit "Explain this codebase"
 //	kit @code.ts @test.ts "Review these files"
 func processPositionalArgs(args []string) {
 	cwd, err := os.Getwd()
@@ -316,8 +319,8 @@ func processPositionalArgs(args []string) {
 		}
 	}
 
-	// Combine: if we have both files and a prompt flag or positional prompt,
-	// merge them. Positional prompt text is appended to any existing --prompt.
+	// Combine: positional prompt text is appended to any existing --prompt
+	// value (for backward compat with subprocess invocations).
 	if len(promptParts) > 0 {
 		extra := strings.Join(promptParts, " ")
 		if promptFlag != "" {
@@ -582,16 +585,16 @@ func globalShortcutsProviderForUI(k *kit.Kit) func() map[string]func() {
 func runNormalMode(ctx context.Context) error {
 	// Validate flag combinations
 	if quietFlag && promptFlag == "" {
-		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
+		return fmt.Errorf("--quiet requires a prompt (e.g. kit \"your question\" --quiet)")
 	}
 	if jsonFlag && promptFlag == "" {
-		return fmt.Errorf("--json flag can only be used with --prompt/-p")
+		return fmt.Errorf("--json requires a prompt (e.g. kit \"your question\" --json)")
 	}
 	if jsonFlag && noExitFlag {
 		return fmt.Errorf("--json and --no-exit flags cannot be used together")
 	}
 	if noExitFlag && promptFlag == "" {
-		return fmt.Errorf("--no-exit flag can only be used with --prompt/-p")
+		return fmt.Errorf("--no-exit requires a prompt (e.g. kit \"your question\" --no-exit)")
 	}
 
 	// Set up logging
@@ -969,7 +972,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Quiet mode is not allowed in interactive mode
 	if quietFlag {
-		return fmt.Errorf("--quiet flag can only be used with --prompt/-p")
+		return fmt.Errorf("--quiet requires a prompt")
 	}
 
 	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands)
