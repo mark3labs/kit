@@ -63,9 +63,8 @@ func ExtractAtPrefix(line string, cursorCol int) (hasAt bool, prefix string, sta
 	raw := text[atIdx+1:]
 
 	// Handle quoted paths: @"some path" — strip leading quote.
-	if strings.HasPrefix(raw, `"`) {
-		raw = strings.TrimPrefix(raw, `"`)
-		raw = strings.TrimSuffix(raw, `"`)
+	if after, found := strings.CutPrefix(raw, `"`); found {
+		raw = strings.TrimSuffix(after, `"`)
 	}
 
 	return true, raw, atIdx
@@ -168,7 +167,7 @@ func listFilesGit(searchDir, cwd string) []FileSuggestion {
 	cmd.Dir = searchDir
 	out, err := cmd.Output()
 	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 			if line == "" {
 				continue
 			}
@@ -183,7 +182,7 @@ func listFilesGit(searchDir, cwd string) []FileSuggestion {
 	cmd2.Dir = searchDir
 	out2, err := cmd2.Output()
 	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out2)), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(string(out2)), "\n") {
 			if line == "" {
 				continue
 			}

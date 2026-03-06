@@ -2454,19 +2454,19 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	}
 
 	if msg.Err != nil {
-		content.WriteString(fmt.Sprintf("\n\nError: %v", msg.Err))
+		fmt.Fprintf(&content, "\n\nError: %v", msg.Err)
 	} else if displayOutput != "" {
 		content.WriteString("\n\n")
 		content.WriteString(displayOutput)
 		if displayHiddenCount > 0 {
-			content.WriteString(fmt.Sprintf("\n\n...(%d more lines)", displayHiddenCount))
+			fmt.Fprintf(&content, "\n\n...(%d more lines)", displayHiddenCount)
 		}
 	} else {
 		content.WriteString("\n\n(no output)")
 	}
 
 	if msg.ExitCode != 0 {
-		content.WriteString(fmt.Sprintf("\n\nExit code: %d", msg.ExitCode))
+		fmt.Fprintf(&content, "\n\nExit code: %d", msg.ExitCode)
 	}
 
 	// Choose border color: dim for excluded, accent for included.
