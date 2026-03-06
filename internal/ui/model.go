@@ -38,6 +38,9 @@ const (
 	// stateOverlay means an extension-triggered modal overlay dialog is active.
 	// The overlay takes over the full view until the user completes or cancels.
 	stateOverlay
+
+	// stateModelSelector means the /model selector overlay is active.
+	stateModelSelector
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -307,6 +310,17 @@ type AppModelOptions struct {
 	// commands. Called on WidgetUpdateEvent to refresh the command list
 	// after an extension hot-reload. May be nil if no extensions loaded.
 	GetExtensionCommands func() []ExtensionCommand
+
+	// SetModel changes the active model at runtime. The model string uses
+	// "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
+	// Returns an error if the model string is invalid or the provider cannot
+	// be created. May be nil if model switching is not supported.
+	SetModel func(modelString string) error
+
+	// EmitModelChange fires the OnModelChange extension event after a
+	// successful model switch. Parameters are (newModel, previousModel, source).
+	// May be nil if extensions are not loaded.
+	EmitModelChange func(newModel, previousModel, source string)
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -436,6 +450,16 @@ type AppModel struct {
 	// to refresh the command list after an extension hot-reload. May be nil.
 	getExtensionCommands func() []ExtensionCommand
 
+	// setModel changes the active model at runtime. Wired from cmd/root.go.
+	// May be nil if model switching is not supported.
+	setModel func(modelString string) error
+
+	// emitModelChange fires the OnModelChange extension event. May be nil.
+	emitModelChange func(newModel, previousModel, source string)
+
+	// modelSelector is the model selection overlay, active in stateModelSelector.
+	modelSelector *ModelSelectorComponent
+
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
 	prompt *promptOverlay
@@ -559,6 +583,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitBeforeSessionSwitch = opts.EmitBeforeSessionSwitch
 	m.getGlobalShortcuts = opts.GetGlobalShortcuts
 	m.getExtensionCommands = opts.GetExtensionCommands
+	m.setModel = opts.SetModel
+	m.emitModelChange = opts.EmitModelChange
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -762,6 +788,39 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	// ── Model selector events ────────────────────────────────────────────────
+	case ModelSelectedMsg:
+		m.modelSelector = nil
+		m.state = stateInput
+		if m.setModel != nil {
+			previousModel := m.providerName + "/" + m.modelName
+			if err := m.setModel(msg.ModelString); err != nil {
+				cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err)))
+			} else {
+				// Update display state directly — we cannot use
+				// NotifyModelChanged (prog.Send) from inside Update()
+				// without deadlocking BubbleTea.
+				parts := strings.SplitN(msg.ModelString, "/", 2)
+				if len(parts) == 2 {
+					m.providerName = parts[0]
+					m.modelName = parts[1]
+				}
+				cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString)))
+				if m.emitModelChange != nil {
+					emit := m.emitModelChange
+					newModel := msg.ModelString
+					prev := previousModel
+					go emit(newModel, prev, "user")
+				}
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case ModelSelectorCancelledMsg:
+		m.modelSelector = nil
+		m.state = stateInput
+		return m, nil
+
 	// ── Window resize ────────────────────────────────────────────────────────
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -816,6 +875,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateTreeSelector && m.treeSelector != nil {
 			updated, cmd := m.treeSelector.Update(msg)
 			m.treeSelector = updated.(*TreeSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Route to model selector when active.
+		if m.state == stateModelSelector && m.modelSelector != nil {
+			updated, cmd := m.modelSelector.Update(msg)
+			m.modelSelector = updated.(*ModelSelectorComponent)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -901,14 +968,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// /compact supports optional args: "/compact Focus on API decisions".
+		// /compact and /model support optional args (e.g. "/compact Focus on API",
+		// "/model anthropic/claude-haiku-3-5-20241022").
 		// GetCommandByName won't match the full text, so check the prefix.
 		if name, args, ok := strings.Cut(msg.Text, " "); ok {
-			if sc := GetCommandByName(name); sc != nil && sc.Name == "/compact" {
-				if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
-					cmds = append(cmds, cmd)
+			if sc := GetCommandByName(name); sc != nil {
+				switch sc.Name {
+				case "/compact":
+					if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					return m, tea.Batch(cmds...)
+				case "/model":
+					if cmd := m.handleModelCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					return m, tea.Batch(cmds...)
 				}
-				return m, tea.Batch(cmds...)
 			}
 		}
 
@@ -1256,6 +1332,11 @@ func (m *AppModel) View() tea.View {
 		return m.treeSelector.View()
 	}
 
+	// Model selector overlay replaces the normal layout.
+	if m.state == stateModelSelector && m.modelSelector != nil {
+		return m.modelSelector.View()
+	}
+
 	// Overlay dialog replaces the normal layout.
 	if m.state == stateOverlay && m.overlay != nil {
 		return tea.NewView(m.overlay.Render())
@@ -1595,6 +1676,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		return m.printUsageMessage()
 	case "/reset-usage":
 		return m.printResetUsage()
+	case "/model":
+		return m.handleModelCommand("")
 	case "/compact":
 		return m.handleCompactCommand("")
 	case "/clear":
@@ -2021,6 +2104,50 @@ func remapKey(name string) (tea.KeyPressMsg, bool) {
 		}
 		return tea.KeyPressMsg{}, false
 	}
+}
+
+// --------------------------------------------------------------------------
+// Model command handler
+// --------------------------------------------------------------------------
+
+// handleModelCommand handles the /model slash command. With no arguments, it
+// opens an interactive model selector overlay with fuzzy finding. With an
+// argument (e.g. "/model anthropic/claude-haiku-3-5-20241022"), it switches
+// to that model directly.
+func (m *AppModel) handleModelCommand(args string) tea.Cmd {
+	if m.setModel == nil {
+		return m.printSystemMessage("Model switching is not available.")
+	}
+
+	if args == "" {
+		// Open the interactive model selector.
+		currentModel := m.providerName + "/" + m.modelName
+		m.modelSelector = NewModelSelector(currentModel, m.width, m.height)
+		m.state = stateModelSelector
+		return nil
+	}
+
+	// Direct model switch with the provided model string.
+	previousModel := m.providerName + "/" + m.modelName
+	if err := m.setModel(args); err != nil {
+		return m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
+	}
+
+	// Update display state directly (cannot use prog.Send from Update).
+	parts := strings.SplitN(args, "/", 2)
+	if len(parts) == 2 {
+		m.providerName = parts[0]
+		m.modelName = parts[1]
+	}
+
+	if m.emitModelChange != nil {
+		emit := m.emitModelChange
+		prev := previousModel
+		newModel := args
+		go emit(newModel, prev, "user")
+	}
+
+	return m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
 }
 
 // --------------------------------------------------------------------------

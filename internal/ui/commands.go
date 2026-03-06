@@ -67,6 +67,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/co"},
 	},
 	{
+		Name:        "/model",
+		Description: "Switch to a different model",
+		Category:    "System",
+		Aliases:     []string{"/m"},
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",
