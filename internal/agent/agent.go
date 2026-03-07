@@ -157,6 +157,27 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		))
 	}
 
+	// Pass provider-specific options (e.g. OpenAI Responses API reasoning settings).
+	if providerResult.ProviderOptions != nil {
+		agentOpts = append(agentOpts, fantasy.WithProviderOptions(providerResult.ProviderOptions))
+	}
+
+	// Pass generation parameters when available.
+	if agentConfig.ModelConfig != nil {
+		if agentConfig.ModelConfig.MaxTokens > 0 {
+			agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(agentConfig.ModelConfig.MaxTokens)))
+		}
+		if agentConfig.ModelConfig.Temperature != nil {
+			agentOpts = append(agentOpts, fantasy.WithTemperature(float64(*agentConfig.ModelConfig.Temperature)))
+		}
+		if agentConfig.ModelConfig.TopP != nil {
+			agentOpts = append(agentOpts, fantasy.WithTopP(float64(*agentConfig.ModelConfig.TopP)))
+		}
+		if agentConfig.ModelConfig.TopK != nil {
+			agentOpts = append(agentOpts, fantasy.WithTopK(int64(*agentConfig.ModelConfig.TopK)))
+		}
+	}
+
 	// Create the fantasy agent
 	fantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
 
@@ -522,6 +543,25 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 		agentOpts = append(agentOpts, fantasy.WithStopConditions(
 			fantasy.StepCountIs(a.maxSteps),
 		))
+	}
+
+	// Pass provider-specific options (e.g. OpenAI Responses API reasoning settings).
+	if providerResult.ProviderOptions != nil {
+		agentOpts = append(agentOpts, fantasy.WithProviderOptions(providerResult.ProviderOptions))
+	}
+
+	// Pass generation parameters when available.
+	if config.MaxTokens > 0 {
+		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(config.MaxTokens)))
+	}
+	if config.Temperature != nil {
+		agentOpts = append(agentOpts, fantasy.WithTemperature(float64(*config.Temperature)))
+	}
+	if config.TopP != nil {
+		agentOpts = append(agentOpts, fantasy.WithTopP(float64(*config.TopP)))
+	}
+	if config.TopK != nil {
+		agentOpts = append(agentOpts, fantasy.WithTopK(int64(*config.TopK)))
 	}
 
 	newFantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)

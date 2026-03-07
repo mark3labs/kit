@@ -618,9 +618,10 @@ func (m *Kit) ReloadExtensions() error {
 // used, and closed.
 func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
 	var (
-		llmModel  fantasy.LanguageModel
-		closer    func()
-		usedModel string
+		llmModel    fantasy.LanguageModel
+		closer      func()
+		usedModel   string
+		providerOps fantasy.ProviderOptions
 	)
 
 	if req.Model == "" {
@@ -643,6 +644,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 		}
 		llmModel = providerResult.Model
 		usedModel = req.Model
+		providerOps = providerResult.ProviderOptions
 		closer = func() {
 			if providerResult.Closer != nil {
 				_ = providerResult.Closer.Close()
@@ -658,6 +660,9 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 	}
 	if req.MaxTokens > 0 {
 		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(req.MaxTokens)))
+	}
+	if providerOps != nil {
+		agentOpts = append(agentOpts, fantasy.WithProviderOptions(providerOps))
 	}
 
 	completionAgent := fantasy.NewAgent(llmModel, agentOpts...)

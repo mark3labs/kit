@@ -2,6 +2,7 @@ package extensions
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"charm.land/fantasy"
@@ -125,10 +126,49 @@ type extensionTool struct {
 }
 
 func (t *extensionTool) Info() fantasy.ToolInfo {
-	return fantasy.ToolInfo{
+	info := fantasy.ToolInfo{
 		Name:        t.def.Name,
 		Description: t.def.Description,
 	}
+
+	// Parse the extension's JSON Schema and extract the properties map.
+	// Fantasy expects Parameters to contain property definitions directly
+	// (e.g. {"command": {"type":"string"}}) and wraps them into a full
+	// JSON Schema object internally. If the extension provides a full
+	// schema with "type":"object" and "properties", we extract just the
+	// properties. Required fields are also extracted if present.
+	if t.def.Parameters != "" {
+		var schema map[string]any
+		if err := json.Unmarshal([]byte(t.def.Parameters), &schema); err == nil {
+			if props, ok := schema["properties"].(map[string]any); ok {
+				info.Parameters = props
+			} else {
+				// Schema doesn't have "properties" — use as-is (may be
+				// a flat property map already matching fantasy's format).
+				info.Parameters = schema
+			}
+			// Extract required fields if present.
+			if req, ok := schema["required"].([]any); ok {
+				for _, r := range req {
+					if s, ok := r.(string); ok {
+						info.Required = append(info.Required, s)
+					}
+				}
+			}
+		}
+	}
+
+	// Ensure Parameters and Required are never nil — the OpenAI Responses API
+	// rejects tools where these fields serialize to JSON null instead of
+	// empty object/array.
+	if info.Parameters == nil {
+		info.Parameters = map[string]any{}
+	}
+	if info.Required == nil {
+		info.Required = []string{}
+	}
+
+	return info
 }
 
 func (t *extensionTool) ProviderOptions() fantasy.ProviderOptions     { return t.providerOptions }

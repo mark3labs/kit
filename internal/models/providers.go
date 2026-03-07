@@ -82,6 +82,9 @@ type ProviderResult struct {
 	// Closer is an optional cleanup function for providers that hold
 	// resources (e.g. kronk's loaded models). May be nil.
 	Closer io.Closer
+	// ProviderOptions contains provider-specific options to be passed to the
+	// fantasy agent (e.g. OpenAI Responses API reasoning options).
+	ProviderOptions fantasy.ProviderOptions
 }
 
 // ParseModelString parses a model string in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5").
@@ -297,6 +300,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(apiKey))
+	opts = append(opts, openai.WithUseResponsesAPI())
 
 	if config.ProviderURL != "" {
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
@@ -316,7 +320,9 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	providerOpts := buildOpenAIProviderOptions(modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 // resolveAPIKey returns the first non-empty API key from the explicit key
@@ -345,6 +351,32 @@ func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
 		fmt.Fprintf(os.Stderr, "Warning: max_tokens (%d) exceeds model's known output limit (%d) for %s\n",
 			config.MaxTokens, modelInfo.Limit.Output, modelInfo.ID)
 	}
+}
+
+// buildOpenAIProviderOptions returns fantasy.ProviderOptions configured for
+// OpenAI Responses API models. For reasoning models it sets reasoning_summary
+// to "auto" and includes encrypted reasoning content — matching the behaviour
+// of crush's coordinator. For non-responses or non-reasoning models the
+// returned map is nil (no extra options needed).
+func buildOpenAIProviderOptions(modelName string) fantasy.ProviderOptions {
+	if !openai.IsResponsesModel(modelName) {
+		return nil
+	}
+
+	if openai.IsResponsesReasoningModel(modelName) {
+		reasoningSummary := "auto"
+		opts := &openai.ResponsesProviderOptions{
+			ReasoningSummary: &reasoningSummary,
+			Include: []openai.IncludeType{
+				openai.IncludeReasoningEncryptedContent,
+			},
+		}
+		return fantasy.ProviderOptions{
+			openai.Name: opts,
+		}
+	}
+
+	return nil
 }
 
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -434,6 +466,7 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(apiKey))
+	opts = append(opts, openai.WithUseResponsesAPI())
 
 	if config.ProviderURL != "" {
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
@@ -453,7 +486,10 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 		return nil, fmt.Errorf("failed to create OpenAI model: %w", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	// Build provider options for OpenAI Responses API reasoning models.
+	providerOpts := buildOpenAIProviderOptions(modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
