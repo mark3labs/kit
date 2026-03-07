@@ -58,6 +58,9 @@ type StreamingResponseHandler func(content string)
 // ToolCallContentHandler is a function type for handling content that accompanies tool calls.
 type ToolCallContentHandler func(content string)
 
+// ReasoningDeltaHandler is a function type for handling streaming reasoning/thinking deltas.
+type ReasoningDeltaHandler func(delta string)
+
 // Agent represents an AI agent with core tool integration using the fantasy library.
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
 // fantasy.AgentTool implementations — no MCP layer, no serialization overhead.
@@ -211,7 +214,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil)
+		onResponse, onToolCallContent, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
@@ -221,6 +224,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 	onStreamingResponse StreamingResponseHandler,
+	onReasoningDelta ReasoningDeltaHandler,
 ) (*GenerateWithLoopResult, error) {
 
 	// Fantasy requires the current user input as Prompt, with prior messages as history.
@@ -236,13 +240,24 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// Stream is required to observe tool execution in real time. The non-streaming
 	// Generate path is reserved for the simple case with no callbacks at all.
 	hasCallbacks := onToolCall != nil || onToolExecution != nil || onToolResult != nil ||
-		onToolCallContent != nil || onStreamingResponse != nil
+		onToolCallContent != nil || onStreamingResponse != nil || onReasoningDelta != nil
 
 	if a.streamingEnabled || hasCallbacks {
 		// Use fantasy's streaming agent
 		result, err := a.fantasyAgent.Stream(ctx, fantasy.AgentStreamCall{
 			Prompt:   prompt,
 			Messages: history,
+
+			// Reasoning/thinking streaming callback
+			OnReasoningDelta: func(id, delta string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if onReasoningDelta != nil {
+					onReasoningDelta(delta)
+				}
+				return nil
+			},
 
 			// Text streaming callback
 			OnTextDelta: func(id, text string) error {

@@ -1,6 +1,11 @@
 package ui
 
-import "slices"
+import (
+	"slices"
+	"strings"
+
+	"github.com/mark3labs/kit/internal/models"
+)
 
 // SlashCommand represents a user-invokable slash command with its metadata.
 // Commands can have multiple aliases and are organized by category for better
@@ -71,6 +76,23 @@ var SlashCommands = []SlashCommand{
 		Description: "Switch to a different model",
 		Category:    "System",
 		Aliases:     []string{"/m"},
+	},
+	{
+		Name:        "/thinking",
+		Description: "Set thinking/reasoning level (off, minimal, low, medium, high)",
+		Category:    "System",
+		Aliases:     []string{"/think"},
+		Complete: func(prefix string) []string {
+			levels := models.ThinkingLevels()
+			var matches []string
+			for _, l := range levels {
+				s := string(l)
+				if prefix == "" || strings.HasPrefix(s, strings.ToLower(prefix)) {
+					matches = append(matches, s)
+				}
+			}
+			return matches
+		},
 	},
 	{
 		Name:        "/quit",

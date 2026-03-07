@@ -165,6 +165,9 @@ type Config struct {
 	TopK          *int32   `json:"top-k,omitempty" yaml:"top-k,omitempty"`
 	StopSequences []string `json:"stop-sequences,omitempty" yaml:"stop-sequences,omitempty"`
 
+	// Thinking / extended reasoning
+	ThinkingLevel string `json:"thinking-level,omitempty" yaml:"thinking-level,omitempty"`
+
 	// TLS configuration
 	TLSSkipVerify bool `json:"tls-skip-verify,omitempty" yaml:"tls-skip-verify,omitempty"`
 }

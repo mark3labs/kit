@@ -121,6 +121,12 @@ type StreamComponent struct {
 	// streamContent accumulates all streaming text chunks.
 	streamContent strings.Builder
 
+	// reasoningContent accumulates reasoning/thinking text chunks.
+	reasoningContent strings.Builder
+
+	// thinkingVisible controls whether reasoning blocks are shown or collapsed.
+	thinkingVisible bool
+
 	// messageRenderer renders assistant messages in standard mode.
 	messageRenderer *MessageRenderer
 
@@ -177,6 +183,7 @@ func (s *StreamComponent) Reset() {
 	s.spinnerFrame = 0
 	s.spinnerMsg = ""
 	s.streamContent.Reset()
+	s.reasoningContent.Reset()
 	s.timestamp = time.Time{}
 }
 
@@ -184,11 +191,22 @@ func (s *StreamComponent) Reset() {
 // streaming text. Returns empty string if no text has been accumulated. Used by
 // the parent AppModel to flush content via tea.Println() before resetting.
 func (s *StreamComponent) GetRenderedContent() string {
+	var sections []string
+
+	// Include rendered reasoning block if present.
+	if reasoning := s.reasoningContent.String(); reasoning != "" {
+		sections = append(sections, s.renderReasoningBlock(reasoning))
+	}
+
 	text := s.streamContent.String()
-	if text == "" {
+	if text != "" {
+		sections = append(sections, s.renderStreamingText(text))
+	}
+
+	if len(sections) == 0 {
 		return ""
 	}
-	return s.renderStreamingText(text)
+	return strings.Join(sections, "\n")
 }
 
 // --------------------------------------------------------------------------
@@ -228,7 +246,16 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.timestamp = time.Now()
 			}
 			return s, streamSpinnerTickCmd()
+		} else if !msg.Show && s.spinning {
+			s.spinning = false
 		}
+
+	case app.ReasoningChunkEvent:
+		s.phase = streamPhaseActive
+		if s.timestamp.IsZero() {
+			s.timestamp = time.Now()
+		}
+		s.reasoningContent.WriteString(msg.Delta)
 
 	case app.StreamChunkEvent:
 		s.phase = streamPhaseActive
@@ -271,14 +298,25 @@ func (s *StreamComponent) render() string {
 		return ""
 	}
 
+	var sections []string
+
+	// Render reasoning/thinking block above the main text if present.
+	if reasoning := s.reasoningContent.String(); reasoning != "" {
+		sections = append(sections, s.renderReasoningBlock(reasoning))
+	}
+
 	// Render streaming text only. The spinner is rendered in the status bar
 	// by the parent so it never changes the stream region height.
 	text := s.streamContent.String()
-	if text == "" {
+	if text != "" {
+		sections = append(sections, s.renderStreamingText(text))
+	}
+
+	if len(sections) == 0 {
 		return ""
 	}
 
-	content := s.renderStreamingText(text)
+	content := strings.Join(sections, "\n")
 
 	// Clamp to height if constrained: keep the last h lines so the most
 	// recent output is always visible.
@@ -291,6 +329,44 @@ func (s *StreamComponent) render() string {
 	}
 
 	return content
+}
+
+// renderReasoningBlock renders the reasoning/thinking content. When thinking
+// is visible, the full reasoning text is shown in muted italic style. When
+// collapsed, a "Thinking..." label is shown instead.
+func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
+	theme := GetTheme()
+
+	if !s.thinkingVisible {
+		// Show collapsed "Thinking..." label.
+		return lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true).
+			Render("Thinking...")
+	}
+
+	// Render full reasoning text in muted italic style.
+	style := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Italic(true)
+
+	// Wrap to terminal width.
+	maxWidth := s.width - 4 // leave some margin
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
+	styled := style.Width(maxWidth).Render(reasoning)
+	return styled
+}
+
+// SetThinkingVisible sets whether reasoning blocks are shown or collapsed.
+func (s *StreamComponent) SetThinkingVisible(visible bool) {
+	s.thinkingVisible = visible
+}
+
+// HasReasoning returns true if any reasoning content has been accumulated.
+func (s *StreamComponent) HasReasoning() bool {
+	return s.reasoningContent.Len() > 0
 }
 
 // SpinnerView returns the rendered spinner line for the parent to embed in the

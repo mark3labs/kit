@@ -45,6 +45,7 @@ func setSDKDefaults() {
 	viper.SetDefault("top-p", 0.95)
 	viper.SetDefault("top-k", 40)
 	viper.SetDefault("stream", true)
+	viper.SetDefault("thinking-level", "off")
 	viper.SetDefault("num-gpu-layers", -1)
 	viper.SetDefault("main-gpu", 0)
 }

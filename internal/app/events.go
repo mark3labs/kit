@@ -9,6 +9,13 @@ type StreamChunkEvent struct {
 	Content string
 }
 
+// ReasoningChunkEvent is sent when a streaming reasoning/thinking delta arrives
+// from the LLM. Thinking content is rendered separately from regular text.
+type ReasoningChunkEvent struct {
+	// Delta is the incremental reasoning text from the streaming response.
+	Delta string
+}
+
 // ToolCallStartedEvent is sent when a tool call has been parsed and is about to execute.
 // It carries the tool name and its arguments for display purposes.
 type ToolCallStartedEvent struct {

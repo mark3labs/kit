@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/core"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -321,6 +322,13 @@ type AppModelOptions struct {
 	// successful model switch. Parameters are (newModel, previousModel, source).
 	// May be nil if extensions are not loaded.
 	EmitModelChange func(newModel, previousModel, source string)
+
+	// ThinkingLevel is the initial thinking level (e.g. "off", "medium").
+	ThinkingLevel string
+	// IsReasoningModel is true when the current model supports reasoning.
+	IsReasoningModel bool
+	// SetThinkingLevel changes the thinking level on the agent/provider.
+	SetThinkingLevel func(level string) error
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -442,6 +450,16 @@ type AppModel struct {
 	// Returns (cancelled, reason). May be nil if no extensions are loaded.
 	emitBeforeSessionSwitch func(reason string) (bool, string)
 
+	// thinkingLevel is the current extended thinking level.
+	thinkingLevel string
+	// thinkingVisible controls whether reasoning blocks are shown or collapsed.
+	thinkingVisible bool
+	// isReasoningModel is true when the current model supports reasoning.
+	isReasoningModel bool
+	// setThinkingLevel is a callback to change the thinking level on the agent.
+	// It takes the new level string and returns an error if the change fails.
+	setThinkingLevel func(level string) error
+
 	// getGlobalShortcuts returns extension-registered keyboard shortcuts.
 	// May be nil if no extensions are loaded.
 	getGlobalShortcuts func() map[string]func()
@@ -519,6 +537,10 @@ type streamComponentIface interface {
 	// Returns "" when the spinner is not active. The parent renders this in the
 	// status bar so the spinner never changes the view height.
 	SpinnerView() string
+	// SetThinkingVisible sets whether reasoning blocks are shown or collapsed.
+	SetThinkingVisible(visible bool)
+	// HasReasoning returns true if any reasoning content has been accumulated.
+	HasReasoning() bool
 }
 
 // --------------------------------------------------------------------------
@@ -585,6 +607,10 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getExtensionCommands = opts.GetExtensionCommands
 	m.setModel = opts.SetModel
 	m.emitModelChange = opts.EmitModelChange
+	m.thinkingLevel = opts.ThinkingLevel
+	m.thinkingVisible = true // default to showing thinking blocks
+	m.isReasoningModel = opts.IsReasoningModel
+	m.setThinkingLevel = opts.SetThinkingLevel
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -613,6 +639,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	}
 
 	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
+	m.stream.SetThinkingVisible(m.thinkingVisible)
 
 	// Propagate initial height distribution to children.
 	m.distributeHeight()
@@ -871,6 +898,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Thinking keybindings — only when the model supports reasoning.
+		if m.isReasoningModel {
+			switch msg.String() {
+			case "ctrl+t":
+				// Toggle thinking block visibility.
+				m.thinkingVisible = !m.thinkingVisible
+				if m.stream != nil {
+					m.stream.SetThinkingVisible(m.thinkingVisible)
+				}
+				return m, tea.Batch(cmds...)
+			case "shift+tab":
+				// Cycle thinking level.
+				m.cycleThinkingLevel()
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		// Route to tree selector when active.
 		if m.state == stateTreeSelector && m.treeSelector != nil {
 			updated, cmd := m.treeSelector.Update(msg)
@@ -984,6 +1028,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						cmds = append(cmds, cmd)
 					}
 					return m, tea.Batch(cmds...)
+				case "/thinking":
+					if cmd := m.handleThinkingCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					return m, tea.Batch(cmds...)
 				}
 			}
 		}
@@ -1052,6 +1101,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case app.ReasoningChunkEvent:
+		if m.stream != nil {
+			_, cmd := m.stream.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
 	case app.StreamChunkEvent:
 		if m.stream != nil {
 			_, cmd := m.stream.Update(msg)
@@ -1087,13 +1142,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// double-printing.
 
 	case app.ResponseCompleteEvent:
-		// Non-streaming mode: this carries the full response text (StreamChunkEvents
-		// never fire). Print it immediately.
-		if msg.Content != "" {
+		// This event fires for both streaming and non-streaming paths.
+		// In streaming mode, the content was already delivered via StreamChunkEvents
+		// and is sitting in the stream component (possibly with reasoning). Don't
+		// print or reset — flushStreamContent() handles it on the next step.
+		// In non-streaming mode (no stream content accumulated), print the text.
+		hasStreamContent := m.stream != nil && m.stream.GetRenderedContent() != ""
+		if !hasStreamContent && msg.Content != "" {
 			cmds = append(cmds, m.printAssistantMessage(msg.Content))
-		}
-		if m.stream != nil {
-			m.stream.Reset() // stop spinner
+			if m.stream != nil {
+				m.stream.Reset()
+			}
 		}
 
 	case app.MessageCreatedEvent:
@@ -1448,8 +1507,14 @@ func (m *AppModel) renderStatusBar() string {
 		leftSide = m.stream.SpinnerView()
 	}
 
-	// Middle: extension status bar entries (sorted by priority).
+	// Middle: thinking level (when reasoning model) + extension status bar entries.
 	var middleParts []string
+	if m.isReasoningModel && m.thinkingLevel != "" && m.thinkingLevel != "off" {
+		thinkingLabel := "Thinking: " + m.thinkingLevel
+		middleParts = append(middleParts, lipgloss.NewStyle().
+			Foreground(theme.Secondary).
+			Render(thinkingLabel))
+	}
 	if m.getStatusBarEntries != nil {
 		entries := m.getStatusBarEntries()
 		for _, e := range entries {
@@ -1491,6 +1556,35 @@ func (m *AppModel) renderStatusBar() string {
 	gap := max(m.width-usedWidth, 1)
 
 	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
+}
+
+// cycleThinkingLevel advances to the next thinking level and applies it.
+func (m *AppModel) cycleThinkingLevel() {
+	levels := []string{"off", "minimal", "low", "medium", "high"}
+	current := m.thinkingLevel
+	if current == "" {
+		current = "off"
+	}
+
+	// Find current index and advance to next.
+	idx := 0
+	for i, l := range levels {
+		if l == current {
+			idx = i
+			break
+		}
+	}
+	next := levels[(idx+1)%len(levels)]
+	m.thinkingLevel = next
+
+	// Apply the change to the agent/provider.
+	if m.setThinkingLevel != nil {
+		// Run in goroutine to avoid blocking the event loop (provider
+		// recreation may take time).
+		go func() {
+			_ = m.setThinkingLevel(next)
+		}()
+	}
 }
 
 // renderSeparator renders the separator line with an optional queue count badge.
@@ -1678,6 +1772,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		return m.printResetUsage()
 	case "/model":
 		return m.handleModelCommand("")
+	case "/thinking":
+		return m.handleThinkingCommand("")
 	case "/compact":
 		return m.handleCompactCommand("")
 	case "/clear":
@@ -2148,6 +2244,49 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	}
 
 	return m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
+}
+
+// --------------------------------------------------------------------------
+// Thinking command handler
+// --------------------------------------------------------------------------
+
+// handleThinkingCommand changes or displays the current thinking/reasoning level.
+// With no arguments, it shows the current level. With a level argument (off,
+// minimal, low, medium, high) it switches to that level.
+func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
+	if !m.isReasoningModel {
+		return m.printSystemMessage("Current model does not support thinking/reasoning.")
+	}
+
+	if args == "" {
+		// Show current level with descriptions.
+		var lines []string
+		levels := models.ThinkingLevels()
+		for _, l := range levels {
+			marker := "  "
+			if string(l) == m.thinkingLevel {
+				marker = "▸ "
+			}
+			lines = append(lines, fmt.Sprintf("%s%s — %s", marker, l, models.ThinkingLevelDescription(l)))
+		}
+		header := fmt.Sprintf("Current thinking level: %s\n\nAvailable levels:", m.thinkingLevel)
+		return m.printSystemMessage(header + "\n" + strings.Join(lines, "\n"))
+	}
+
+	// Parse and validate the level.
+	level := models.ParseThinkingLevel(args)
+	if string(level) != strings.ToLower(args) {
+		return m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, minimal, low, medium, high", args))
+	}
+
+	// Apply the change.
+	m.thinkingLevel = string(level)
+	if m.setThinkingLevel != nil {
+		go func() {
+			_ = m.setThinkingLevel(string(level))
+		}()
+	}
+	return m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
 }
 
 // --------------------------------------------------------------------------

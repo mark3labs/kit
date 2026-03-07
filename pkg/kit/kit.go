@@ -485,6 +485,7 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		ProviderURL:    viper.GetString("provider-url"),
 		MaxTokens:      viper.GetInt("max-tokens"),
 		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
+		ThinkingLevel:  models.ParseThinkingLevel(viper.GetString("thinking-level")),
 	}
 	temperature := float32(viper.GetFloat64("temperature"))
 	config.Temperature = &temperature
@@ -1198,6 +1199,9 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(chunk string) {
 			m.events.emit(MessageUpdateEvent{Chunk: chunk})
 		},
+		func(delta string) {
+			m.events.emit(ReasoningDeltaEvent{Delta: delta})
+		},
 	)
 }
 
@@ -1486,6 +1490,27 @@ func (m *Kit) GetModelInfo() *ModelInfo {
 		return nil
 	}
 	return LookupModel(provider, modelID)
+}
+
+// IsReasoningModel returns true if the current model supports extended thinking / reasoning.
+func (m *Kit) IsReasoningModel() bool {
+	info := m.GetModelInfo()
+	return info != nil && info.Reasoning
+}
+
+// GetThinkingLevel returns the current thinking level.
+func (m *Kit) GetThinkingLevel() string {
+	return viper.GetString("thinking-level")
+}
+
+// SetThinkingLevel changes the thinking level and recreates the agent with
+// the new thinking budget. Returns an error if provider recreation fails.
+func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
+	viper.Set("thinking-level", level)
+	// Recreate agent with new thinking config by re-running SetModel
+	// with the same model string. SetModel rebuilds the provider and
+	// passes the updated viper config (including thinking-level).
+	return m.SetModel(ctx, m.modelString)
 }
 
 // GetTools returns all tools available to the agent (core + MCP + extensions).

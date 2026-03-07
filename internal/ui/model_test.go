@@ -83,6 +83,8 @@ func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.r
 func (s *stubStreamComponent) SetHeight(h int)            { s.height = h }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
 func (s *stubStreamComponent) SpinnerView() string        { return "" }
+func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
+func (s *stubStreamComponent) HasReasoning() bool         { return false }
 
 // stubInputComponent satisfies inputComponentIface without rendering anything.
 type stubInputComponent struct {

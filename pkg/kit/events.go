@@ -34,6 +34,8 @@ const (
 	EventResponse EventType = "response"
 	// EventCompaction fires after a successful compaction.
 	EventCompaction EventType = "compaction"
+	// EventReasoningDelta fires for each streaming reasoning/thinking chunk.
+	EventReasoningDelta EventType = "reasoning_delta"
 )
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,14 @@ type MessageUpdateEvent struct {
 
 // EventType implements Event.
 func (e MessageUpdateEvent) EventType() EventType { return EventMessageUpdate }
+
+// ReasoningDeltaEvent fires for each streaming reasoning/thinking chunk.
+type ReasoningDeltaEvent struct {
+	Delta string
+}
+
+// EventType implements Event.
+func (e ReasoningDeltaEvent) EventType() EventType { return EventReasoningDelta }
 
 // MessageEndEvent fires when the assistant message is complete.
 type MessageEndEvent struct {

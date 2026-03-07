@@ -522,6 +522,8 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 			sendFn(ResponseCompleteEvent{Content: ev.Content})
 		case kit.MessageUpdateEvent:
 			sendFn(StreamChunkEvent{Content: ev.Chunk})
+		case kit.ReasoningDeltaEvent:
+			sendFn(ReasoningChunkEvent{Delta: ev.Delta})
 		}
 	}))
 

@@ -79,6 +79,7 @@ func BuildProviderConfig() (*models.ProviderConfig, string, error) {
 		NumGPU:         &numGPU,
 		MainGPU:        &mainGPU,
 		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
+		ThinkingLevel:  models.ParseThinkingLevel(viper.GetString("thinking-level")),
 	}
 
 	return cfg, systemPrompt, nil

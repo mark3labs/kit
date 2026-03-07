@@ -57,6 +57,66 @@ func resolveModelAlias(provider, modelName string) string {
 	return modelName
 }
 
+// ThinkingLevel controls extended thinking / reasoning budget for supported models.
+type ThinkingLevel string
+
+const (
+	ThinkingOff     ThinkingLevel = "off"
+	ThinkingMinimal ThinkingLevel = "minimal"
+	ThinkingLow     ThinkingLevel = "low"
+	ThinkingMedium  ThinkingLevel = "medium"
+	ThinkingHigh    ThinkingLevel = "high"
+)
+
+// ThinkingLevels returns the ordered list of available thinking levels for cycling.
+func ThinkingLevels() []ThinkingLevel {
+	return []ThinkingLevel{ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh}
+}
+
+// ThinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off".
+func ThinkingBudgetTokens(level ThinkingLevel) int64 {
+	switch level {
+	case ThinkingMinimal:
+		return 1024
+	case ThinkingLow:
+		return 4096
+	case ThinkingMedium:
+		return 10240
+	case ThinkingHigh:
+		return 20480
+	default:
+		return 0
+	}
+}
+
+// ThinkingLevelDescription returns a human-readable description of a thinking level.
+func ThinkingLevelDescription(level ThinkingLevel) string {
+	switch level {
+	case ThinkingOff:
+		return "No reasoning"
+	case ThinkingMinimal:
+		return "Very brief reasoning (~1k tokens)"
+	case ThinkingLow:
+		return "Light reasoning (~4k tokens)"
+	case ThinkingMedium:
+		return "Moderate reasoning (~10k tokens)"
+	case ThinkingHigh:
+		return "Deep reasoning (~20k tokens)"
+	default:
+		return "No reasoning"
+	}
+}
+
+// ParseThinkingLevel converts a string to a ThinkingLevel, defaulting to ThinkingOff.
+func ParseThinkingLevel(s string) ThinkingLevel {
+	switch ThinkingLevel(s) {
+	case ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
+		return ThinkingLevel(s)
+	default:
+		return ThinkingOff
+	}
+}
+
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
 	ModelString    string
@@ -71,6 +131,7 @@ type ProviderConfig struct {
 	NumGPU         *int32
 	MainGPU        *int32
 	TLSSkipVerify  bool
+	ThinkingLevel  ThinkingLevel
 }
 
 // ProviderResult contains the result of provider creation.
@@ -320,7 +381,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
 	}
 
-	providerOpts := buildOpenAIProviderOptions(modelName)
+	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
@@ -355,10 +416,10 @@ func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
 
 // buildOpenAIProviderOptions returns fantasy.ProviderOptions configured for
 // OpenAI Responses API models. For reasoning models it sets reasoning_summary
-// to "auto" and includes encrypted reasoning content — matching the behaviour
-// of crush's coordinator. For non-responses or non-reasoning models the
+// to "auto", includes encrypted reasoning content, and maps the ThinkingLevel
+// to an OpenAI ReasoningEffort. For non-responses or non-reasoning models the
 // returned map is nil (no extra options needed).
-func buildOpenAIProviderOptions(modelName string) fantasy.ProviderOptions {
+func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
 	if !openai.IsResponsesModel(modelName) {
 		return nil
 	}
@@ -371,12 +432,69 @@ func buildOpenAIProviderOptions(modelName string) fantasy.ProviderOptions {
 				openai.IncludeReasoningEncryptedContent,
 			},
 		}
+
+		// Map ThinkingLevel to OpenAI ReasoningEffort.
+		if effort := thinkingLevelToReasoningEffort(config.ThinkingLevel); effort != nil {
+			opts.ReasoningEffort = effort
+		}
+
 		return fantasy.ProviderOptions{
 			openai.Name: opts,
 		}
 	}
 
 	return nil
+}
+
+// thinkingLevelToReasoningEffort maps a ThinkingLevel to an OpenAI ReasoningEffort.
+// Returns nil for ThinkingOff (use the model's default).
+func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort {
+	switch level {
+	case ThinkingMinimal:
+		return openai.ReasoningEffortOption(openai.ReasoningEffortMinimal)
+	case ThinkingLow:
+		return openai.ReasoningEffortOption(openai.ReasoningEffortLow)
+	case ThinkingMedium:
+		return openai.ReasoningEffortOption(openai.ReasoningEffortMedium)
+	case ThinkingHigh:
+		return openai.ReasoningEffortOption(openai.ReasoningEffortHigh)
+	default:
+		return nil
+	}
+}
+
+// buildAnthropicProviderOptions returns fantasy.ProviderOptions configured for
+// Anthropic models with extended thinking. When thinking is enabled, it sets
+// SendReasoning to true and configures the thinking budget. For thinking-off
+// or non-reasoning models the returned map is nil.
+//
+// Anthropic requires max_tokens > thinking.budget_tokens. If the configured
+// MaxTokens is too low, it is bumped to budget + 4096 to leave room for the
+// actual response.
+func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
+	if config.ThinkingLevel == "" || config.ThinkingLevel == ThinkingOff {
+		return nil
+	}
+
+	budget := ThinkingBudgetTokens(config.ThinkingLevel)
+	if budget == 0 {
+		return nil
+	}
+
+	// Ensure MaxTokens exceeds the thinking budget (Anthropic requirement).
+	minRequired := int(budget) + 4096
+	if config.MaxTokens < minRequired {
+		config.MaxTokens = minRequired
+	}
+
+	sendReasoning := true
+	opts := &anthropic.ProviderOptions{
+		SendReasoning: &sendReasoning,
+		Thinking: &anthropic.ThinkingProviderOption{
+			BudgetTokens: budget,
+		},
+	}
+	return anthropic.NewProviderOptions(opts)
 }
 
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -415,7 +533,10 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 		return nil, fmt.Errorf("failed to create Anthropic model: %w", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	// Build provider options for extended thinking (reasoning budget).
+	providerOpts := buildAnthropicProviderOptions(config, modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
@@ -487,7 +608,7 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	// Build provider options for OpenAI Responses API reasoning models.
-	providerOpts := buildOpenAIProviderOptions(modelName)
+	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
