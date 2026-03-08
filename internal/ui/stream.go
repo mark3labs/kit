@@ -351,10 +351,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		Italic(true)
 
 	// Wrap to terminal width.
-	maxWidth := s.width - 4 // leave some margin
-	if maxWidth < 20 {
-		maxWidth = 20
-	}
+	maxWidth := max(s.width-4, 20) // leave some margin
 	styled := style.Width(maxWidth).Render(reasoning)
 	return styled
 }
