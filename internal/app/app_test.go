@@ -494,7 +494,11 @@ func TestQueueLength_reflects(t *testing.T) {
 	}
 
 	app.mu.Lock()
-	app.queue = append(app.queue, "a", "b", "c")
+	app.queue = append(app.queue,
+		queueItem{Prompt: "a"},
+		queueItem{Prompt: "b"},
+		queueItem{Prompt: "c"},
+	)
 	app.mu.Unlock()
 
 	if got := app.QueueLength(); got != 3 {

@@ -58,6 +58,16 @@ type ToolResult struct {
 
 func (ToolResult) isPart() {}
 
+// ImageContent holds image data within a message. The data is stored as raw
+// bytes (not base64-encoded); serialization handles encoding. MediaType is a
+// MIME type such as "image/png" or "image/jpeg".
+type ImageContent struct {
+	Data      []byte `json:"data"`
+	MediaType string `json:"media_type"`
+}
+
+func (ImageContent) isPart() {}
+
 // Finish marks the end of an assistant turn, carrying the stop reason.
 type Finish struct {
 	Reason string `json:"reason"` // "end_turn", "tool_use", "max_tokens", etc.
@@ -129,6 +139,17 @@ func (m *Message) ToolResults() []ToolResult {
 	return results
 }
 
+// Images returns all ImageContent parts from this message.
+func (m *Message) Images() []ImageContent {
+	var images []ImageContent
+	for _, part := range m.Parts {
+		if ic, ok := part.(ImageContent); ok {
+			images = append(images, ic)
+		}
+	}
+	return images
+}
+
 // Reasoning returns the ReasoningContent if present, or a zero value.
 func (m *Message) Reasoning() ReasoningContent {
 	for _, part := range m.Parts {
@@ -170,6 +191,7 @@ const (
 	toolCallType   partType = "tool_call"
 	toolResultType partType = "tool_result"
 	finishType     partType = "finish"
+	imageType      partType = "image"
 )
 
 type partWrapper struct {
@@ -194,6 +216,8 @@ func MarshalParts(parts []ContentPart) ([]byte, error) {
 			pt = toolResultType
 		case Finish:
 			pt = finishType
+		case ImageContent:
+			pt = imageType
 		default:
 			return nil, fmt.Errorf("unknown content part type: %T", part)
 		}
@@ -245,6 +269,12 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 			var p Finish
 			if err := json.Unmarshal(w.Data, &p); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal finish part: %w", err)
+			}
+			part = p
+		case imageType:
+			var p ImageContent
+			if err := json.Unmarshal(w.Data, &p); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal image part: %w", err)
 			}
 			part = p
 		default:
@@ -323,13 +353,25 @@ func (m *Message) ToFantasyMessages() []fantasy.Message {
 		}}
 
 	case RoleUser:
+		var parts []fantasy.MessagePart
 		text := m.Content()
-		if text == "" {
+		if text != "" {
+			parts = append(parts, fantasy.TextPart{Text: text})
+		}
+		for _, part := range m.Parts {
+			if ic, ok := part.(ImageContent); ok {
+				parts = append(parts, fantasy.FilePart{
+					Data:      ic.Data,
+					MediaType: ic.MediaType,
+				})
+			}
+		}
+		if len(parts) == 0 {
 			return nil
 		}
 		return []fantasy.Message{{
 			Role:    fantasy.MessageRoleUser,
-			Content: []fantasy.MessagePart{fantasy.TextPart{Text: text}},
+			Content: parts,
 		}}
 
 	case RoleSystem:
@@ -386,6 +428,13 @@ func FromFantasyMessage(msg fantasy.Message) Message {
 			if p.Text != "" {
 				m.Parts = append(m.Parts, ReasoningContent{
 					Thinking: p.Text,
+				})
+			}
+		case fantasy.FilePart:
+			if len(p.Data) > 0 {
+				m.Parts = append(m.Parts, ImageContent{
+					Data:      p.Data,
+					MediaType: p.MediaType,
 				})
 			}
 		}

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
+
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/models"
@@ -85,6 +87,11 @@ type AppController interface {
 	// to inject command output into context so the LLM can reference it in
 	// subsequent turns.
 	AddContextMessage(text string)
+	// RunWithFiles queues a multimodal prompt (text + images) for execution.
+	// Behaves like Run but includes file parts (e.g. clipboard images)
+	// alongside the text. Returns the current queue depth (0 = started
+	// immediately, >0 = queued).
+	RunWithFiles(prompt string, files []fantasy.FilePart) int
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -974,16 +981,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// If remap target is unrecognized, fall through to normal handling.
 					case EditorKeySubmit:
 						text := action.SubmitText
+						var images []ImageAttachment
 						if text == "" {
 							if ic, ok := m.input.(*InputComponent); ok {
 								text = strings.TrimSpace(ic.textarea.Value())
+								images = ic.ClearPendingImages()
 								ic.textarea.SetValue("")
 								ic.textarea.CursorEnd()
 							}
 						}
 						if text != "" {
 							cmds = append(cmds, func() tea.Msg {
-								return submitMsg{Text: text}
+								return submitMsg{Text: text, Images: images}
 							})
 						}
 						intercepted = true
@@ -1053,23 +1062,44 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			processedText = ProcessFileAttachments(msg.Text, m.cwd)
 		}
 
+		// Convert image attachments to fantasy.FilePart for the app layer.
+		var fileParts []fantasy.FilePart
+		for _, img := range msg.Images {
+			fileParts = append(fileParts, fantasy.FilePart{
+				Data:      img.Data,
+				MediaType: img.MediaType,
+			})
+		}
+
+		// Build display text for scrollback (include image count if any).
+		displayText := msg.Text
+		if len(msg.Images) > 0 {
+			displayText = fmt.Sprintf("%s\n[%d image(s) attached]", msg.Text, len(msg.Images))
+		}
+
 		if m.appCtrl != nil {
 			// Run returns the queue depth: >0 means the prompt was queued
 			// (agent is busy). We update queuedMessages directly here
 			// instead of relying on an event from prog.Send(), which would
 			// deadlock when called synchronously from within Update().
-			if qLen := m.appCtrl.Run(processedText); qLen > 0 {
+			var qLen int
+			if len(fileParts) > 0 {
+				qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+			} else {
+				qLen = m.appCtrl.Run(processedText)
+			}
+			if qLen > 0 {
 				// Queued: anchor the message text above the input with a
 				// "queued" badge. It will be printed to scrollback when
 				// the agent picks it up (on QueueUpdatedEvent).
-				m.queuedMessages = append(m.queuedMessages, msg.Text)
+				m.queuedMessages = append(m.queuedMessages, displayText)
 				m.distributeHeight()
 			} else {
 				// Started immediately: print to scrollback now.
-				cmds = append(cmds, m.printUserMessage(msg.Text))
+				cmds = append(cmds, m.printUserMessage(displayText))
 			}
 		} else {
-			cmds = append(cmds, m.printUserMessage(msg.Text))
+			cmds = append(cmds, m.printUserMessage(displayText))
 		}
 		if m.state != stateWorking {
 			m.state = stateWorking

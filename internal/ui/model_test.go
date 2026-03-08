@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/session"
 )
@@ -59,6 +60,11 @@ func (s *stubAppController) SendEvent(_ tea.Msg) {
 
 func (s *stubAppController) AddContextMessage(_ string) {
 	// no-op in tests
+}
+
+func (s *stubAppController) RunWithFiles(prompt string, _ []fantasy.FilePart) int {
+	s.runCalls = append(s.runCalls, prompt)
+	return s.queueLen
 }
 
 // --------------------------------------------------------------------------

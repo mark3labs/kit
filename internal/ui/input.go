@@ -1,12 +1,15 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/clipboard"
 )
 
 // InputComponent is the interactive text input field for the parent AppModel.
@@ -61,6 +64,16 @@ type InputComponent struct {
 
 	// hideHint suppresses the "enter submit · ctrl+j..." hint text.
 	hideHint bool
+
+	// pendingImages holds clipboard images attached to the next submission.
+	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
+	pendingImages []ImageAttachment
+}
+
+// clipboardImageMsg is the result of an async clipboard image read.
+type clipboardImageMsg struct {
+	image *ImageAttachment
+	err   error
 }
 
 // NewInputComponent creates a new InputComponent with the given width, title,
@@ -137,6 +150,16 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.textarea.SetWidth(msg.Width - 8)
 		return s, nil
 
+	case clipboardImageMsg:
+		if msg.err != nil {
+			// Silently ignore — no image on clipboard or tool unavailable.
+			return s, nil
+		}
+		if msg.image != nil {
+			s.pendingImages = append(s.pendingImages, *msg.image)
+		}
+		return s, nil
+
 	case tea.KeyPressMsg:
 		if !s.showPopup {
 			switch msg.String() {
@@ -146,6 +169,15 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.textarea.CursorEnd()
 				s.lastValue = ""
 				return s, s.handleSubmit(value)
+			case "ctrl+v":
+				// Try to read an image from the clipboard asynchronously.
+				return s, readClipboardImageCmd()
+			case "ctrl+u":
+				// Clear all pending image attachments.
+				if len(s.pendingImages) > 0 {
+					s.pendingImages = nil
+					return s, nil
+				}
 			}
 		}
 
@@ -330,9 +362,12 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	}
 
 	// For all other input (including unrecognised slash commands and regular
-	// prompts) hand off to the parent via submitMsg.
+	// prompts) hand off to the parent via submitMsg. Attach any pending
+	// images and clear them.
+	images := s.pendingImages
+	s.pendingImages = nil
 	return func() tea.Msg {
-		return submitMsg{Text: trimmed}
+		return submitMsg{Text: trimmed, Images: images}
 	}
 }
 
@@ -367,14 +402,26 @@ func (s *InputComponent) View() tea.View {
 		view.WriteString(s.renderPopup())
 	}
 
+	// Show image attachment indicator when images are pending.
+	if len(s.pendingImages) > 0 {
+		imgStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			PaddingLeft(3)
+
+		label := fmt.Sprintf("[%d image(s) attached] ctrl+u to clear", len(s.pendingImages))
+		view.WriteString("\n")
+		view.WriteString(imgStyle.Render(label))
+	}
+
 	if !s.hideHint {
 		helpStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
 			MarginTop(1).
 			PaddingLeft(3)
 
+		hint := "enter submit • ctrl+j / alt+enter new line • ctrl+v paste image"
 		view.WriteString("\n")
-		view.WriteString(helpStyle.Render("enter submit • ctrl+j / alt+enter new line"))
+		view.WriteString(helpStyle.Render(hint))
 	}
 
 	return tea.NewView(containerStyle.Render(view.String()))
@@ -500,6 +547,36 @@ func (s *InputComponent) findCommandWithComplete(name string) *SlashCommand {
 		}
 	}
 	return nil
+}
+
+// readClipboardImageCmd returns a tea.Cmd that reads an image from the system
+// clipboard. The result is delivered as a clipboardImageMsg.
+func readClipboardImageCmd() tea.Cmd {
+	return func() tea.Msg {
+		img, err := clipboard.ReadImage()
+		if err != nil {
+			return clipboardImageMsg{err: err}
+		}
+		return clipboardImageMsg{
+			image: &ImageAttachment{
+				Data:      img.Data,
+				MediaType: img.MediaType,
+			},
+		}
+	}
+}
+
+// ClearPendingImages removes all pending image attachments and returns them.
+// Used by the parent model when consuming images for submission.
+func (s *InputComponent) ClearPendingImages() []ImageAttachment {
+	images := s.pendingImages
+	s.pendingImages = nil
+	return images
+}
+
+// PendingImageCount returns the number of images currently attached.
+func (s *InputComponent) PendingImageCount() int {
+	return len(s.pendingImages)
 }
 
 // applyFileCompletion replaces the @prefix in the textarea with the selected

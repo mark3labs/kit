@@ -1,10 +1,23 @@
 package ui
 
+// ImageAttachment holds a clipboard image that will be sent alongside the
+// user's text prompt to the LLM. The data is raw image bytes; MediaType is
+// a MIME type like "image/png".
+type ImageAttachment struct {
+	// Data is the raw image bytes (PNG, JPEG, etc.).
+	Data []byte
+	// MediaType is the MIME type (e.g. "image/png", "image/jpeg").
+	MediaType string
+}
+
 // submitMsg is sent by the InputComponent when the user submits a text prompt.
 // The parent model receives this and calls app.Run(Text) to start agent processing.
 type submitMsg struct {
 	// Text is the user's input text to send to the agent.
 	Text string
+	// Images holds clipboard image attachments to send alongside the text.
+	// Empty when no images are attached.
+	Images []ImageAttachment
 }
 
 // cancelTimerExpiredMsg is sent by the tea.Tick command that starts when the user

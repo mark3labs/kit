@@ -1469,6 +1469,15 @@ func (m *Kit) PromptResult(ctx context.Context, message string) (*TurnResult, er
 	})
 }
 
+// PromptResultWithFiles sends a multimodal message (text + images) and returns
+// the full turn result. The files parameter carries binary file data (e.g.
+// clipboard images) that are included alongside the text in the user message.
+func (m *Kit) PromptResultWithFiles(ctx context.Context, message string, files []fantasy.FilePart) (*TurnResult, error) {
+	return m.runTurn(ctx, message, message, []fantasy.Message{
+		fantasy.NewUserMessage(message, files...),
+	})
+}
+
 // ClearSession resets the tree session's leaf pointer to the root, starting
 // a fresh conversation branch.
 func (m *Kit) ClearSession() {

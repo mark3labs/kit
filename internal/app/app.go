@@ -13,6 +13,12 @@ import (
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
+// queueItem holds a prompt and optional image attachments for the execution queue.
+type queueItem struct {
+	Prompt string
+	Files  []fantasy.FilePart
+}
+
 // App is the application-layer orchestrator. It owns the agentic loop,
 // conversation history (via MessageStore), and queue management. It is
 // designed to be created once per session and reused across multiple prompts.
@@ -47,7 +53,7 @@ type App struct {
 	// mu protects busy, queue, and cancelStep.
 	mu    sync.Mutex
 	busy  bool
-	queue []string
+	queue []queueItem
 
 	// wg tracks in-flight goroutines; Close() waits on it.
 	wg sync.WaitGroup
@@ -100,6 +106,16 @@ func (a *App) SetProgram(p *tea.Program) {
 //
 // Satisfies ui.AppController.
 func (a *App) Run(prompt string) int {
+	return a.RunWithFiles(prompt, nil)
+}
+
+// RunWithFiles queues a multimodal prompt (text + image files) for execution.
+// If the app is idle the prompt executes immediately; otherwise it is queued.
+// Returns the current queue depth (0 = started immediately, >0 = queued).
+//
+// Satisfies ui.AppController (via RunWithImages which converts ImageAttachment
+// to fantasy.FilePart).
+func (a *App) RunWithFiles(prompt string, files []fantasy.FilePart) int {
 	a.mu.Lock()
 
 	if a.closed {
@@ -107,8 +123,10 @@ func (a *App) Run(prompt string) int {
 		return 0
 	}
 
+	item := queueItem{Prompt: prompt, Files: files}
+
 	if a.busy {
-		a.queue = append(a.queue, prompt)
+		a.queue = append(a.queue, item)
 		qLen := len(a.queue)
 		a.mu.Unlock()
 		return qLen
@@ -117,7 +135,7 @@ func (a *App) Run(prompt string) int {
 	a.busy = true
 	a.wg.Add(1)
 	a.mu.Unlock()
-	go a.drainQueue(prompt)
+	go a.drainQueue(item)
 	return 0
 }
 
@@ -153,17 +171,19 @@ func (a *App) Steer(prompt string) {
 		return
 	}
 
+	item := queueItem{Prompt: prompt}
+
 	if !a.busy {
 		// Not busy — start immediately, same as Run().
 		a.busy = true
 		a.wg.Add(1)
 		a.mu.Unlock()
-		go a.drainQueue(prompt)
+		go a.drainQueue(item)
 		return
 	}
 
 	// Agent is busy: clear queue, insert steer message, then cancel.
-	a.queue = []string{prompt}
+	a.queue = []queueItem{item}
 	cancel := a.cancelStep
 	a.mu.Unlock()
 	cancel()
@@ -287,7 +307,7 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, nil)
+	result, err := a.executeStep(stepCtx, prompt, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -309,7 +329,7 @@ func (a *App) RunOnceResult(ctx context.Context, prompt string) (*kit.TurnResult
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	return a.executeStep(stepCtx, prompt, nil)
+	return a.executeStep(stepCtx, prompt, nil, nil)
 }
 
 // RunOnceWithDisplay executes a single agent step synchronously, sending
@@ -330,7 +350,7 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, eventFn)
+	result, err := a.executeStep(stepCtx, prompt, eventFn, nil)
 	if err != nil {
 		return err
 	}
@@ -371,15 +391,15 @@ func (a *App) Close() {
 // Internal: queue drain loop
 // --------------------------------------------------------------------------
 
-// drainQueue runs in a goroutine. It executes the given prompt and then
+// drainQueue runs in a goroutine. It executes the given item and then
 // continues draining the queue until it is empty.
 // Must be called with a.busy == true and a.wg incremented.
-func (a *App) drainQueue(firstPrompt string) {
+func (a *App) drainQueue(first queueItem) {
 	defer a.wg.Done()
 
-	prompt := firstPrompt
+	item := first
 	for {
-		a.runPrompt(prompt)
+		a.runQueueItem(item)
 
 		a.mu.Lock()
 		// Stop draining if the app is shutting down.
@@ -394,7 +414,7 @@ func (a *App) drainQueue(firstPrompt string) {
 			a.mu.Unlock()
 			return
 		}
-		prompt = a.queue[0]
+		item = a.queue[0]
 		a.queue = a.queue[1:]
 		qLen := len(a.queue)
 		a.mu.Unlock()
@@ -403,9 +423,9 @@ func (a *App) drainQueue(firstPrompt string) {
 	}
 }
 
-// runPrompt executes a single prompt: adds the user message to the store,
+// runQueueItem executes a single queue item: adds the user message to the store,
 // runs the agent step, and sends the appropriate event to the program.
-func (a *App) runPrompt(prompt string) {
+func (a *App) runQueueItem(item queueItem) {
 	// Create a per-step cancellable context.
 	stepCtx, cancel := context.WithCancel(a.rootCtx)
 	a.mu.Lock()
@@ -424,7 +444,7 @@ func (a *App) runPrompt(prompt string) {
 		}
 	}
 
-	result, err := a.executeStep(stepCtx, prompt, eventFn)
+	result, err := a.executeStep(stepCtx, item.Prompt, eventFn, item.Files)
 	if err != nil {
 		if stepCtx.Err() != nil {
 			// Step was cancelled by the user (e.g. double-ESC). Send a
@@ -445,9 +465,9 @@ func (a *App) runPrompt(prompt string) {
 // --------------------------------------------------------------------------
 
 // executeStep runs a single agentic step by delegating to the SDK's
-// PromptResult(), which handles session persistence, hooks, extension
-// events, and the generation loop.
-func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg)) (*kit.TurnResult, error) {
+// PromptResult() (or PromptResultWithFiles for multimodal), which handles
+// session persistence, hooks, extension events, and the generation loop.
+func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg), files []fantasy.FilePart) (*kit.TurnResult, error) {
 	// Test hook: bypass SDK entirely.
 	if a.opts.PromptFunc != nil {
 		return a.opts.PromptFunc(ctx, prompt)
@@ -467,7 +487,13 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	// Show spinner while the agent works.
 	sendFn(SpinnerEvent{Show: true})
 
-	result, err := a.opts.Kit.PromptResult(ctx, prompt)
+	var result *kit.TurnResult
+	var err error
+	if len(files) > 0 {
+		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, files)
+	} else {
+		result, err = a.opts.Kit.PromptResult(ctx, prompt)
+	}
 	if err != nil {
 		return nil, err
 	}
