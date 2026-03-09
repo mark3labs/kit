@@ -228,8 +228,10 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 ) (*GenerateWithLoopResult, error) {
 
 	// Fantasy requires the current user input as Prompt, with prior messages as history.
-	// Extract the last user message text as the prompt, and pass everything before it as Messages.
-	prompt, history := splitPromptAndHistory(messages)
+	// Extract the last user message text and files as the prompt, and pass everything
+	// before it as Messages. Files (e.g. clipboard images) are passed via the Files
+	// field so Fantasy includes them in the API request.
+	prompt, files, history := splitPromptAndHistory(messages)
 
 	// Track current tool call info for callbacks
 	var currentToolName string
@@ -246,6 +248,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		// Use fantasy's streaming agent
 		result, err := a.fantasyAgent.Stream(ctx, fantasy.AgentStreamCall{
 			Prompt:   prompt,
+			Files:    files,
 			Messages: history,
 
 			// Reasoning/thinking streaming callback
@@ -340,6 +343,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// Non-streaming path with no callbacks — use the simpler Generate call.
 	result, err := a.fantasyAgent.Generate(ctx, fantasy.AgentCall{
 		Prompt:   prompt,
+		Files:    files,
 		Messages: history,
 	})
 	if err != nil {
@@ -360,27 +364,32 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 // and returns everything before it as conversation history. Fantasy's agent
 // requires the current turn's input as Prompt (string), with prior messages
 // passed separately as Messages (history).
-func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.Message) {
+func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.FilePart, []fantasy.Message) {
 	if len(messages) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 
 	// Walk backwards to find the last user message
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == fantasy.MessageRoleUser {
-			// Extract text from the user message parts
+			// Extract text and file parts from the user message
 			var prompt string
+			var files []fantasy.FilePart
 			for _, part := range messages[i].Content {
-				if tp, ok := part.(fantasy.TextPart); ok {
-					prompt = tp.Text
-					break
+				switch p := part.(type) {
+				case fantasy.TextPart:
+					if prompt == "" {
+						prompt = p.Text
+					}
+				case fantasy.FilePart:
+					files = append(files, p)
 				}
 			}
 			// History is everything except this last user message
 			history := make([]fantasy.Message, 0, len(messages)-1)
 			history = append(history, messages[:i]...)
 			history = append(history, messages[i+1:]...)
-			return prompt, history
+			return prompt, files, history
 		}
 	}
 
@@ -388,11 +397,11 @@ func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.Messag
 	last := messages[len(messages)-1]
 	for _, part := range last.Content {
 		if tp, ok := part.(fantasy.TextPart); ok {
-			return tp.Text, messages[:len(messages)-1]
+			return tp.Text, nil, messages[:len(messages)-1]
 		}
 	}
 
-	return "", messages
+	return "", nil, messages
 }
 
 // convertAgentResult converts a fantasy AgentResult to our GenerateWithLoopResult.

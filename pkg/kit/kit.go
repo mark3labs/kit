@@ -1222,10 +1222,12 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// <skill> block, and appends any trailing user args.
 	if expanded := m.expandSkillCommand(prompt); expanded != prompt {
 		prompt = expanded
-		// Replace the last user message in preMessages with the expanded text.
+		// Replace the last user message in preMessages with the expanded text,
+		// preserving any file parts (e.g. clipboard images).
 		for i := len(preMessages) - 1; i >= 0; i-- {
 			if preMessages[i].Role == fantasy.MessageRoleUser {
-				preMessages[i] = fantasy.NewUserMessage(expanded)
+				files := extractFileParts(preMessages[i])
+				preMessages[i] = fantasy.NewUserMessage(expanded, files...)
 				break
 			}
 		}
@@ -1234,11 +1236,13 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// Run BeforeTurn hooks — can modify the prompt, inject system/context messages.
 	if m.beforeTurn.hasHooks() {
 		if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
-			// Override prompt text in the last user message.
+			// Override prompt text in the last user message, preserving
+			// any file parts (e.g. clipboard images).
 			if hookResult.Prompt != nil {
 				for i := len(preMessages) - 1; i >= 0; i-- {
 					if preMessages[i].Role == fantasy.MessageRoleUser {
-						preMessages[i] = fantasy.NewUserMessage(*hookResult.Prompt)
+						files := extractFileParts(preMessages[i])
+						preMessages[i] = fantasy.NewUserMessage(*hookResult.Prompt, files...)
 						break
 					}
 				}
@@ -1525,6 +1529,18 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 // GetTools returns all tools available to the agent (core + MCP + extensions).
 func (m *Kit) GetTools() []Tool {
 	return m.agent.GetTools()
+}
+
+// extractFileParts returns all FilePart entries from a message's Content.
+// Used to preserve image attachments when replacing user message text.
+func extractFileParts(msg fantasy.Message) []fantasy.FilePart {
+	var files []fantasy.FilePart
+	for _, part := range msg.Content {
+		if fp, ok := part.(fantasy.FilePart); ok {
+			files = append(files, fp)
+		}
+	}
+	return files
 }
 
 // Close cleans up resources including MCP server connections, model resources,
