@@ -320,6 +320,8 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 // createAutoRoutedAnthropicProvider creates an anthropic provider for
 // third-party providers with anthropic-compatible APIs (e.g. minimax).
 func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
+	clearConflictingAnthropicSamplingParams(config)
+
 	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
 	if apiKey == "" {
 		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
@@ -414,6 +416,16 @@ func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
 	}
 }
 
+// clearConflictingAnthropicSamplingParams ensures that temperature and top_p are
+// not both sent to the Anthropic API, which rejects requests containing both.
+// When both are set (typically from defaults), top_p is cleared so that
+// temperature takes precedence.
+func clearConflictingAnthropicSamplingParams(config *ProviderConfig) {
+	if config.Temperature != nil && config.TopP != nil {
+		config.TopP = nil
+	}
+}
+
 // buildOpenAIProviderOptions returns fantasy.ProviderOptions configured for
 // OpenAI Responses API models. For reasoning models it sets reasoning_summary
 // to "auto", includes encrypted reasoning content, and maps the ThinkingLevel
@@ -498,6 +510,8 @@ func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fan
 }
 
 func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	clearConflictingAnthropicSamplingParams(config)
+
 	apiKey, source, err := auth.GetAnthropicAPIKey(config.ProviderAPIKey)
 	if err != nil {
 		return nil, err
@@ -540,6 +554,8 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 }
 
 func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	clearConflictingAnthropicSamplingParams(config)
+
 	projectID := firstNonEmpty(
 		os.Getenv("GOOGLE_VERTEX_PROJECT"),
 		os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID"),
