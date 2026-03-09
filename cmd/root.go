@@ -924,6 +924,9 @@ func runNormalMode(ctx context.Context) error {
 					Index:  resp.Index,
 				}
 			},
+			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
+				return extensions.SpawnSubagent(config)
+			},
 		})
 		kitInstance.EmitSessionStart()
 	}

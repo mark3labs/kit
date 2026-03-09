@@ -29,6 +29,12 @@ type SessionInfo struct {
 	// ParentSessionPath is the parent session path if this session was forked.
 	ParentSessionPath string
 
+	// ParentSessionID is the UUID of the parent session (for subagent sessions).
+	ParentSessionID string
+
+	// SubagentTask is the original task prompt (for subagent sessions).
+	SubagentTask string
+
 	// Created is when the session was first created.
 	Created time.Time
 
@@ -162,6 +168,8 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 			info.Created = h.Timestamp
 			info.Modified = h.Timestamp
 			info.ParentSessionPath = h.ParentSession
+			info.ParentSessionID = h.ParentSessionID
+			info.SubagentTask = h.SubagentTask
 			continue
 		}
 
@@ -244,4 +252,28 @@ func extractTextPreview(partsJSON json.RawMessage) string {
 // DeleteSession removes a session file from disk.
 func DeleteSession(path string) error {
 	return os.Remove(path)
+}
+
+// ListChildSessions returns all sessions that have the given session ID as
+// their parent. This is useful for finding subagent sessions spawned from
+// a parent session. Results are sorted by creation time (newest first).
+func ListChildSessions(parentID string) ([]SessionInfo, error) {
+	if parentID == "" {
+		return nil, nil
+	}
+
+	allSessions, err := ListAllSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	var children []SessionInfo
+	for _, s := range allSessions {
+		if s.ParentSessionID == parentID {
+			children = append(children, s)
+		}
+	}
+
+	// Already sorted by modification time from ListAllSessions
+	return children, nil
 }

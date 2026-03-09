@@ -491,6 +491,41 @@ type Context struct {
 	//       },
 	//   })
 	ReloadExtensions func() error
+
+	// SpawnSubagent spawns a child Kit instance to perform a task autonomously.
+	// The subagent runs as a separate subprocess with full tool access but
+	// isolated session and extensions (--no-session --no-extensions).
+	//
+	// When config.Blocking is true, blocks until completion and returns the
+	// result directly (handle is nil). When false, returns immediately with
+	// a handle for monitoring/cancellation.
+	//
+	// Example — blocking call:
+	//
+	//   _, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+	//       Prompt:   "Research authentication patterns in this codebase",
+	//       Blocking: true,
+	//       Timeout:  2 * time.Minute,
+	//   })
+	//   if err != nil {
+	//       ctx.PrintError("spawn failed: " + err.Error())
+	//       return
+	//   }
+	//   ctx.PrintInfo("Subagent result:\n" + result.Response)
+	//
+	// Example — background spawn with callbacks:
+	//
+	//   handle, _, _ := ctx.SpawnSubagent(ext.SubagentConfig{
+	//       Prompt: "Write unit tests for UserService",
+	//       OnOutput: func(chunk string) {
+	//           // Live output streaming
+	//       },
+	//       OnComplete: func(result ext.SubagentResult) {
+	//           ctx.SendMessage("Subagent finished:\n" + result.Response)
+	//       },
+	//   })
+	//   // handle.Kill() to cancel, handle.Wait() to block
+	SpawnSubagent func(SubagentConfig) (*SubagentHandle, *SubagentResult, error)
 }
 
 // ---------------------------------------------------------------------------

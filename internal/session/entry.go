@@ -38,6 +38,10 @@ type SessionHeader struct {
 	Timestamp     time.Time `json:"timestamp"`                // creation time
 	Cwd           string    `json:"cwd"`                      // working directory
 	ParentSession string    `json:"parent_session,omitempty"` // path to parent if forked
+
+	// Subagent fields (set when session is created by a subagent)
+	ParentSessionID string `json:"parent_session_id,omitempty"` // UUID of parent session
+	SubagentTask    string `json:"subagent_task,omitempty"`     // original task prompt
 }
 
 // Entry is the common structure shared by all tree entries (everything except

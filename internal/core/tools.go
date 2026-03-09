@@ -96,5 +96,6 @@ func AllTools(opts ...ToolOption) []fantasy.AgentTool {
 		NewGrepTool(opts...),
 		NewFindTool(opts...),
 		NewLsTool(opts...),
+		NewSubagentTool(opts...),
 	}
 }
