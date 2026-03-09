@@ -64,6 +64,18 @@
       "name": "yaegi",
       "url": "https://github.com/traefik/yaegi",
       "branch": "master"
+    },
+    {
+      "type": "git",
+      "name": "acp-go-sdk",
+      "url": "https://github.com/coder/acp-go-sdk",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "opencode",
+      "url": "https://github.com/anomalyco/opencode",
+      "branch": "dev"
     }
   ],
   "model": "claude-haiku-4-5",

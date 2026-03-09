@@ -24,6 +24,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management**: Tree-based conversation history with branching support
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
+- **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
 - **Go SDK**: Embed Kit in your own applications
 
 ## Installation
@@ -81,6 +82,20 @@ kit "Run tests" --quiet
 # Ephemeral mode (no session file)
 kit "Quick question" --no-session
 ```
+
+### ACP Server Mode
+
+Kit can run as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server, enabling ACP-compatible clients (such as [OpenCode](https://github.com/sst/opencode)) to drive Kit as a remote coding agent over stdio.
+
+```bash
+# Start Kit as an ACP server (communicates via JSON-RPC 2.0 on stdin/stdout)
+kit acp
+
+# With debug logging to stderr
+kit acp --debug
+```
+
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol. Sessions are persisted to Kit's normal JSONL session files, so they can be resumed later.
 
 ## Configuration
 
@@ -188,6 +203,10 @@ kit update-models        # Update local model database from models.dev
 kit extensions list      # List discovered extensions
 kit extensions validate  # Validate extension files
 kit extensions init      # Generate example extension template
+
+# ACP server
+kit acp                  # Start as ACP agent (stdio JSON-RPC)
+kit acp --debug          # With debug logging to stderr
 ```
 
 ## Extension System
@@ -458,6 +477,7 @@ internal/extensions/ - Yaegi extension system
 internal/core/     - Built-in tools
 internal/tools/    - MCP tool integration
 internal/config/   - Configuration management
+internal/acpserver/ - ACP (Agent Client Protocol) server
 internal/session/  - Session persistence
 internal/models/   - Provider and model management
 examples/extensions/ - Example extension files
