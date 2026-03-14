@@ -909,9 +909,8 @@ func renderSubagentBody(toolResult string, width int) string {
 	// For successful results, extract a brief preview of the actual result
 	if strings.Contains(statusLine, "successfully") {
 		// Find where "Result:" starts and extract a preview
-		resultIdx := strings.Index(result, "Result:\n")
-		if resultIdx != -1 {
-			resultContent := strings.TrimSpace(result[resultIdx+8:])
+		if _, resultContent, found := strings.Cut(result, "Result:\n"); found {
+			resultContent = strings.TrimSpace(resultContent)
 			if resultContent != "" {
 				// Show first 3 meaningful lines as preview
 				preview := extractSubagentPreview(resultContent, 3, width-4)
