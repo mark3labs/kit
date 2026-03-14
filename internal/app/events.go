@@ -30,6 +30,8 @@ type ToolCallStartedEvent struct {
 type ToolExecutionEvent struct {
 	// ToolName is the name of the tool being executed.
 	ToolName string
+	// ToolArgs is the JSON-encoded arguments for the tool call (only set when IsStarting is true).
+	ToolArgs string
 	// IsStarting is true when execution is beginning, false when it is complete.
 	IsStarting bool
 }

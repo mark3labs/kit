@@ -111,6 +111,7 @@ func (e ToolCallEvent) EventType() EventType { return EventToolCall }
 // ToolExecutionStartEvent fires when a tool begins executing.
 type ToolExecutionStartEvent struct {
 	ToolName string
+	ToolArgs string
 }
 
 // EventType implements Event.

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -267,7 +268,8 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.ToolExecutionEvent:
 		if msg.IsStarting {
 			// Show the tool name on the spinner while the tool executes.
-			s.spinnerMsg = "Executing " + msg.ToolName + "…"
+			// For spawn_subagent, show a descriptive message with the task.
+			s.spinnerMsg = formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -397,4 +399,23 @@ func (s *StreamComponent) renderStreamingText(text string) string {
 	}
 	msg := s.messageRenderer.RenderAssistantMessage(text, ts, s.modelName)
 	return msg.Content
+}
+
+// formatToolExecutionMessage creates a descriptive spinner message for tool execution.
+// For spawn_subagent, it extracts and displays the task being performed.
+func formatToolExecutionMessage(toolName, toolArgs string) string {
+	if toolName == "spawn_subagent" && toolArgs != "" {
+		var args struct {
+			Task string `json:"task"`
+		}
+		if err := json.Unmarshal([]byte(toolArgs), &args); err == nil && args.Task != "" {
+			// Truncate long tasks for display
+			task := args.Task
+			if len(task) > 60 {
+				task = task[:57] + "..."
+			}
+			return "Subagent: " + task
+		}
+	}
+	return "Executing " + toolName + "…"
 }

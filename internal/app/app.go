@@ -534,7 +534,7 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 		case kit.ToolCallEvent:
 			sendFn(ToolCallStartedEvent{ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
 		case kit.ToolExecutionStartEvent:
-			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, IsStarting: true})
+			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true})
 		case kit.ToolExecutionEndEvent:
 			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, IsStarting: false})
 		case kit.ToolResultEvent:

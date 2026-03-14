@@ -49,6 +49,10 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		if body := renderBashBody(toolResult, width); body != "" {
 			return body
 		}
+	case toolName == "spawn_subagent":
+		if body := renderSubagentBody(toolResult, width); body != "" {
+			return body
+		}
 	}
 	return "" // fall back to default
 }
@@ -716,6 +720,8 @@ func renderToolBodyCompact(toolName, toolArgs, toolResult string, width int) str
 	case toolName == "bash" || toolName == "run_shell_cmd" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
 		return renderBashCompact(toolResult, width)
+	case toolName == "spawn_subagent":
+		return renderSubagentCompact(toolResult)
 	}
 	return ""
 }
@@ -869,4 +875,123 @@ func renderBashCompact(toolResult string, width int) string {
 	}
 
 	return lipgloss.NewStyle().Foreground(theme.Muted).Render(summary)
+}
+
+// ---------------------------------------------------------------------------
+// Subagent tool renderers — show only summary, not full output
+// ---------------------------------------------------------------------------
+
+// renderSubagentBody renders a clean summary of subagent results.
+// Extracts timing/token info and shows only a brief summary instead of raw output.
+func renderSubagentBody(toolResult string, width int) string {
+	theme := getTheme()
+	result := strings.TrimSpace(toolResult)
+	if result == "" {
+		return ""
+	}
+
+	// Parse the subagent result format:
+	// "Subagent completed successfully in Xs. (tokens: N in / M out)\n\nResult:\n..."
+	// or "Subagent failed (exit code X) after Ys.\n\nError: ...\n\nPartial output:\n..."
+
+	lines := strings.Split(result, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	// First line is always the status summary
+	statusLine := lines[0]
+
+	// Build a clean summary
+	var summary strings.Builder
+	summary.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(statusLine))
+
+	// For successful results, extract a brief preview of the actual result
+	if strings.Contains(statusLine, "successfully") {
+		// Find where "Result:" starts and extract a preview
+		resultIdx := strings.Index(result, "Result:\n")
+		if resultIdx != -1 {
+			resultContent := strings.TrimSpace(result[resultIdx+8:])
+			if resultContent != "" {
+				// Show first 3 meaningful lines as preview
+				preview := extractSubagentPreview(resultContent, 3, width-4)
+				if preview != "" {
+					summary.WriteString("\n\n")
+					summary.WriteString(lipgloss.NewStyle().
+						Foreground(theme.Muted).
+						Italic(true).
+						Render(preview))
+				}
+			}
+		}
+	}
+
+	return summary.String()
+}
+
+// extractSubagentPreview extracts the first N non-empty lines from content,
+// truncating each line to maxWidth.
+func extractSubagentPreview(content string, maxLines, maxWidth int) string {
+	lines := strings.Split(content, "\n")
+	var preview []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Truncate long lines
+		if len(trimmed) > maxWidth {
+			trimmed = trimmed[:maxWidth-3] + "..."
+		}
+		preview = append(preview, trimmed)
+
+		if len(preview) >= maxLines {
+			break
+		}
+	}
+
+	if len(preview) == 0 {
+		return ""
+	}
+
+	result := strings.Join(preview, "\n")
+
+	// Count remaining lines for "more" indicator
+	totalLines := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			totalLines++
+		}
+	}
+	if totalLines > maxLines {
+		result += fmt.Sprintf("\n...(%d more lines)", totalLines-maxLines)
+	}
+
+	return result
+}
+
+// renderSubagentCompact returns a brief one-line summary for subagent results.
+func renderSubagentCompact(toolResult string) string {
+	result := strings.TrimSpace(toolResult)
+	if result == "" {
+		return ""
+	}
+
+	theme := getTheme()
+
+	// Extract just the first line which contains the status
+	lines := strings.Split(result, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	statusLine := lines[0]
+
+	// Make it more compact by removing redundant words
+	statusLine = strings.Replace(statusLine, "Subagent completed successfully in ", "Completed in ", 1)
+	statusLine = strings.Replace(statusLine, "Subagent failed", "Failed", 1)
+
+	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(statusLine)
 }

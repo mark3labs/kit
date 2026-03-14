@@ -44,7 +44,7 @@ type AgentConfig struct {
 type ToolCallHandler func(toolName, toolArgs string)
 
 // ToolExecutionHandler is a function type for handling tool execution start/end events.
-type ToolExecutionHandler func(toolName string, isStarting bool)
+type ToolExecutionHandler func(toolName, toolArgs string, isStarting bool)
 
 // ToolResultHandler is a function type for handling tool results.
 type ToolResultHandler func(toolName, toolArgs, result string, isError bool)
@@ -288,7 +288,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 				// Notify tool execution starting
 				if onToolExecution != nil {
-					onToolExecution(tc.ToolName, true)
+					onToolExecution(tc.ToolName, tc.Input, true)
 				}
 
 				return nil
@@ -301,7 +301,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				}
 				// Notify tool execution finished
 				if onToolExecution != nil {
-					onToolExecution(tr.ToolName, false)
+					onToolExecution(tr.ToolName, currentToolArgs, false)
 				}
 
 				if onToolResult != nil {

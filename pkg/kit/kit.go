@@ -1177,9 +1177,9 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
 		},
-		func(toolName string, isStarting bool) {
+		func(toolName, toolArgs string, isStarting bool) {
 			if isStarting {
-				m.events.emit(ToolExecutionStartEvent{ToolName: toolName})
+				m.events.emit(ToolExecutionStartEvent{ToolName: toolName, ToolArgs: toolArgs})
 			} else {
 				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
 			}
