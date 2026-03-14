@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -421,20 +420,10 @@ func removeFromSlice(slice []string, s string) []string {
 }
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-// For spawn_subagent, it extracts and displays the task being performed.
+// For spawn_subagent, it shows simply as "Subagent" with optional task preview.
 func formatToolExecutionMessage(toolName, toolArgs string) string {
-	if toolName == "spawn_subagent" && toolArgs != "" {
-		var args struct {
-			Task string `json:"task"`
-		}
-		if err := json.Unmarshal([]byte(toolArgs), &args); err == nil && args.Task != "" {
-			// Truncate long tasks for display
-			task := args.Task
-			if len(task) > 60 {
-				task = task[:57] + "..."
-			}
-			return "Subagent: " + task
-		}
+	if toolName == "spawn_subagent" {
+		return "Subagent"
 	}
-	return "Executing " + toolName + "…"
+	return toolName
 }
