@@ -59,6 +59,7 @@ func NewGrepTool(opts ...ToolOption) fantasy.AgentTool {
 				},
 			},
 			Required: []string{"pattern"},
+			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			return executeGrep(ctx, call, cfg.WorkDir)

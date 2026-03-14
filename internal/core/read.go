@@ -38,6 +38,7 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 				},
 			},
 			Required: []string{"path"},
+			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			return executeRead(ctx, call, cfg.WorkDir)

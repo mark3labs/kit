@@ -115,9 +115,9 @@ type StreamComponent struct {
 	// spinnerFrame is the current frame index.
 	spinnerFrame int
 
-	// spinnerMsg is the label shown next to the KITT animation (e.g.
-	// "Executing tool_name…"). Empty string means no label.
-	spinnerMsg string
+	// activeTools tracks the names of tools currently executing in parallel.
+	// When multiple tools run concurrently, all are displayed in the spinner.
+	activeTools []string
 
 	// streamContent accumulates all streaming text chunks.
 	streamContent strings.Builder
@@ -182,7 +182,7 @@ func (s *StreamComponent) Reset() {
 	s.phase = streamPhaseIdle
 	s.spinning = false
 	s.spinnerFrame = 0
-	s.spinnerMsg = ""
+	s.activeTools = nil
 	s.streamContent.Reset()
 	s.reasoningContent.Reset()
 	s.timestamp = time.Time{}
@@ -267,9 +267,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.ToolExecutionEvent:
 		if msg.IsStarting {
-			// Show the tool name on the spinner while the tool executes.
-			// For spawn_subagent, show a descriptive message with the task.
-			s.spinnerMsg = formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
+			// Add tool to active list for parallel execution display.
+			toolDisplay := formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
+			s.activeTools = append(s.activeTools, toolDisplay)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -277,8 +277,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, streamSpinnerTickCmd()
 			}
 		} else {
-			// Tool finished — clear execution label but keep spinning.
-			s.spinnerMsg = ""
+			// Tool finished — remove from active list but keep spinning if others remain.
+			toolDisplay := formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
+			s.activeTools = removeFromSlice(s.activeTools, toolDisplay)
 		}
 	}
 
@@ -375,14 +376,22 @@ func (s *StreamComponent) SpinnerView() string {
 		return ""
 	}
 	frame := s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
-	if s.spinnerMsg == "" {
+	if len(s.activeTools) == 0 {
 		return "  " + frame
 	}
 	theme := GetTheme()
 	msgStyle := lipgloss.NewStyle().
 		Foreground(theme.Text).
 		Italic(true)
-	return "  " + frame + " " + msgStyle.Render(s.spinnerMsg)
+
+	// Format active tools list
+	var toolsMsg string
+	if len(s.activeTools) == 1 {
+		toolsMsg = s.activeTools[0]
+	} else {
+		toolsMsg = "Running: " + strings.Join(s.activeTools, ", ")
+	}
+	return "  " + frame + " " + msgStyle.Render(toolsMsg)
 }
 
 // renderStreamingText renders the accumulated streaming text as a live assistant
@@ -399,6 +408,16 @@ func (s *StreamComponent) renderStreamingText(text string) string {
 	}
 	msg := s.messageRenderer.RenderAssistantMessage(text, ts, s.modelName)
 	return msg.Content
+}
+
+// removeFromSlice removes the first occurrence of a string from a slice.
+func removeFromSlice(slice []string, s string) []string {
+	for i, v := range slice {
+		if v == s {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
 }
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.

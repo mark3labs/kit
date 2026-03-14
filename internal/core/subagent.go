@@ -57,6 +57,7 @@ Example use cases:
 				},
 			},
 			Required: []string{"task"},
+			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			return executeSubagent(ctx, call)

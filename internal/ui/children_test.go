@@ -397,8 +397,8 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	if !c.spinning {
 		t.Fatal("expected spinning=true during tool execution")
 	}
-	if !strings.Contains(c.spinnerMsg, "exec_tool") {
-		t.Fatalf("expected spinnerMsg to contain tool name, got %q", c.spinnerMsg)
+	if len(c.activeTools) != 1 || !strings.Contains(c.activeTools[0], "exec_tool") {
+		t.Fatalf("expected activeTools to contain tool name, got %v", c.activeTools)
 	}
 	if cmd == nil {
 		t.Fatal("expected tick cmd from ToolExecutionEvent{IsStarting:true}")
@@ -410,7 +410,11 @@ func TestStreamComponent_ToolExecution_NotStarting_KeepsSpinning(t *testing.T) {
 	c := newTestStream()
 	// Start spinning first (simulating execution in progress).
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
-	c.spinnerMsg = "Executing some_tool…"
+	// Simulate a tool starting
+	c = sendStreamMsg(c, app.ToolExecutionEvent{
+		ToolName:   "some_tool",
+		IsStarting: true,
+	})
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{
 		ToolName:   "some_tool",
@@ -420,8 +424,41 @@ func TestStreamComponent_ToolExecution_NotStarting_KeepsSpinning(t *testing.T) {
 	if !c.spinning {
 		t.Fatal("expected spinning=true after tool execution finished (spinner keeps running)")
 	}
-	if c.spinnerMsg != "" {
-		t.Fatalf("expected spinnerMsg cleared after tool finished, got %q", c.spinnerMsg)
+	if len(c.activeTools) != 0 {
+		t.Fatalf("expected activeTools cleared after tool finished, got %v", c.activeTools)
+	}
+}
+
+// TestStreamComponent_ParallelToolExecution verifies multiple tools can run concurrently.
+func TestStreamComponent_ParallelToolExecution(t *testing.T) {
+	c := newTestStream()
+
+	// Start three tools in parallel
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "read", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "grep", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "find", IsStarting: true})
+
+	if len(c.activeTools) != 3 {
+		t.Fatalf("expected 3 active tools, got %d: %v", len(c.activeTools), c.activeTools)
+	}
+
+	// Check SpinnerView shows all tools
+	view := c.SpinnerView()
+	if !strings.Contains(view, "Running:") {
+		t.Fatalf("expected spinner view to contain 'Running:' for multiple tools, got %q", view)
+	}
+
+	// Finish one tool
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "grep", IsStarting: false})
+	if len(c.activeTools) != 2 {
+		t.Fatalf("expected 2 active tools after one finished, got %d: %v", len(c.activeTools), c.activeTools)
+	}
+
+	// Finish remaining tools
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "read", IsStarting: false})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "find", IsStarting: false})
+	if len(c.activeTools) != 0 {
+		t.Fatalf("expected 0 active tools after all finished, got %d: %v", len(c.activeTools), c.activeTools)
 	}
 }
 
@@ -480,8 +517,8 @@ func TestStreamComponent_Reset(t *testing.T) {
 	if !c.timestamp.IsZero() {
 		t.Fatal("expected zero timestamp after Reset()")
 	}
-	if c.spinnerMsg != "" {
-		t.Fatalf("expected spinnerMsg empty after Reset(), got %q", c.spinnerMsg)
+	if len(c.activeTools) != 0 {
+		t.Fatalf("expected activeTools empty after Reset(), got %v", c.activeTools)
 	}
 }
 

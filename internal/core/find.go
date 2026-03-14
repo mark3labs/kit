@@ -39,6 +39,7 @@ func NewFindTool(opts ...ToolOption) fantasy.AgentTool {
 				},
 			},
 			Required: []string{"pattern"},
+			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			return executeFind(ctx, call, cfg.WorkDir)
