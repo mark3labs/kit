@@ -846,8 +846,8 @@ func applyMode(ctx ext.Context, active bool, tools []string) {
 
 ## Key Files for Reference
 
-- `internal/extensions/api.go` — Complete API type definitions
-- `internal/extensions/runner.go` — Event dispatch and state management
-- `internal/extensions/loader.go` — Yaegi interpreter setup
-- `internal/extensions/symbols.go` — All types exported to extensions
-- `examples/extensions/` — 25+ working example extensions
+- [`internal/extensions/api.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/api.go) — Complete API type definitions
+- [`internal/extensions/runner.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/runner.go) — Event dispatch and state management
+- [`internal/extensions/loader.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/loader.go) — Yaegi interpreter setup
+- [`internal/extensions/symbols.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/symbols.go) — All types exported to extensions
+- [`examples/extensions/`](https://github.com/mark3labs/kit/tree/main/examples/extensions) — 25+ working example extensions
