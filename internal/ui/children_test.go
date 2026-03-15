@@ -348,6 +348,9 @@ func TestStreamComponent_SpinnerKeepsRunningDuringStreaming(t *testing.T) {
 	// Receive first chunk — spinner should keep running.
 	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "hello"})
 
+	// Flush pending chunks (simulates the 16ms tick firing).
+	c = sendStreamMsg(c, streamFlushTickMsg{})
+
 	if !c.spinning {
 		t.Fatal("expected spinning=true after first chunk")
 	}
@@ -371,6 +374,9 @@ func TestStreamComponent_ChunkAccumulation(t *testing.T) {
 	for _, chunk := range chunks {
 		c = sendStreamMsg(c, app.StreamChunkEvent{Content: chunk})
 	}
+
+	// Flush pending chunks (simulates the 16ms tick firing).
+	c = sendStreamMsg(c, streamFlushTickMsg{})
 
 	got := c.streamContent.String()
 	want := "Hello, world!"

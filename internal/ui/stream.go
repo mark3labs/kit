@@ -69,6 +69,25 @@ func streamSpinnerTickCmd() tea.Cmd {
 	})
 }
 
+// streamFlushTickMsg fires when it's time to commit pending chunks to the
+// main content builders and trigger a re-render. This coalesces rapid
+// streaming chunks into fewer expensive markdown re-renders.
+type streamFlushTickMsg struct{}
+
+// streamFlushInterval is the coalescing window for stream chunks. Chunks
+// arriving within this window are batched into a single render pass.
+// 16ms ≈ 60 fps — fast enough to appear smooth, slow enough to coalesce
+// bursts from the LLM provider.
+const streamFlushInterval = 16 * time.Millisecond
+
+// streamFlushTickCmd returns a tea.Cmd that fires streamFlushTickMsg after
+// the coalescing interval.
+func streamFlushTickCmd() tea.Cmd {
+	return tea.Tick(streamFlushInterval, func(_ time.Time) tea.Msg {
+		return streamFlushTickMsg{}
+	})
+}
+
 // streamPhase tracks what the StreamComponent is currently displaying.
 type streamPhase int
 
@@ -118,11 +137,33 @@ type StreamComponent struct {
 	// When multiple tools run concurrently, all are displayed in the spinner.
 	activeTools []string
 
-	// streamContent accumulates all streaming text chunks.
+	// streamContent holds committed streaming text (flushed from pending).
 	streamContent strings.Builder
 
-	// reasoningContent accumulates reasoning/thinking text chunks.
+	// reasoningContent holds committed reasoning text (flushed from pending).
 	reasoningContent strings.Builder
+
+	// pendingStream accumulates streaming text chunks between flush ticks.
+	// Chunks are written here immediately on arrival, then moved to
+	// streamContent when the flush tick fires.
+	pendingStream strings.Builder
+
+	// pendingReasoning accumulates reasoning chunks between flush ticks.
+	pendingReasoning strings.Builder
+
+	// flushPending is true while a flush tick is in-flight. Prevents
+	// scheduling duplicate ticks when multiple chunks arrive within
+	// the same coalescing window.
+	flushPending bool
+
+	// renderCache holds the last rendered output string. Reused by View()
+	// between flush ticks to avoid redundant markdown re-parsing.
+	renderCache string
+
+	// renderDirty is true when committed content has changed since the
+	// last render. Set on flush tick; cleared after render() rebuilds
+	// the cache.
+	renderDirty bool
 
 	// thinkingVisible controls whether reasoning blocks are shown or collapsed.
 	thinkingVisible bool
@@ -172,7 +213,12 @@ func (s *StreamComponent) SetHeight(h int) {
 	if h < 0 {
 		h = 0
 	}
-	s.height = h
+	if s.height != h {
+		s.height = h
+		// Invalidate cache — height clamp affects output.
+		s.renderCache = ""
+		s.renderDirty = true
+	}
 }
 
 // Reset clears all accumulated state so the component is ready for the next
@@ -184,13 +230,24 @@ func (s *StreamComponent) Reset() {
 	s.activeTools = nil
 	s.streamContent.Reset()
 	s.reasoningContent.Reset()
+	s.pendingStream.Reset()
+	s.pendingReasoning.Reset()
+	s.flushPending = false
+	s.renderCache = ""
+	s.renderDirty = false
 	s.timestamp = time.Time{}
 }
 
 // GetRenderedContent returns the rendered assistant message from the accumulated
 // streaming text. Returns empty string if no text has been accumulated. Used by
 // the parent AppModel to flush content via tea.Println() before resetting.
+//
+// This commits any pending chunks first so the output includes all received
+// content, not just what has been flushed by the tick.
 func (s *StreamComponent) GetRenderedContent() string {
+	// Commit any pending chunks so the final output is complete.
+	s.commitPending()
+
 	var sections []string
 
 	// Include rendered reasoning block if present.
@@ -207,6 +264,21 @@ func (s *StreamComponent) GetRenderedContent() string {
 		return ""
 	}
 	return strings.Join(sections, "\n")
+}
+
+// commitPending moves any pending chunks to the committed content builders.
+// Called before reading content for scrollback output or on flush tick.
+func (s *StreamComponent) commitPending() {
+	if s.pendingStream.Len() > 0 {
+		s.streamContent.WriteString(s.pendingStream.String())
+		s.pendingStream.Reset()
+		s.renderDirty = true
+	}
+	if s.pendingReasoning.Len() > 0 {
+		s.reasoningContent.WriteString(s.pendingReasoning.String())
+		s.pendingReasoning.Reset()
+		s.renderDirty = true
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -227,6 +299,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.width = msg.Width
 		s.messageRenderer.SetWidth(s.width)
 		s.compactRenderer.SetWidth(s.width)
+		// Invalidate render cache — width change affects wrapping/styling.
+		s.renderCache = ""
+		s.renderDirty = true
 
 	case streamSpinnerTickMsg:
 		if s.spinning {
@@ -250,19 +325,31 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinning = false
 		}
 
+	case streamFlushTickMsg:
+		s.flushPending = false
+		s.commitPending()
+
 	case app.ReasoningChunkEvent:
 		s.phase = streamPhaseActive
 		if s.timestamp.IsZero() {
 			s.timestamp = time.Now()
 		}
-		s.reasoningContent.WriteString(msg.Delta)
+		s.pendingReasoning.WriteString(msg.Delta)
+		if !s.flushPending {
+			s.flushPending = true
+			return s, streamFlushTickCmd()
+		}
 
 	case app.StreamChunkEvent:
 		s.phase = streamPhaseActive
 		if s.timestamp.IsZero() {
 			s.timestamp = time.Now()
 		}
-		s.streamContent.WriteString(msg.Content)
+		s.pendingStream.WriteString(msg.Content)
+		if !s.flushPending {
+			s.flushPending = true
+			return s, streamFlushTickCmd()
+		}
 
 	case app.ToolExecutionEvent:
 		if msg.IsStarting {
@@ -294,10 +381,18 @@ func (s *StreamComponent) View() tea.View {
 // Internal rendering
 // --------------------------------------------------------------------------
 
-// render builds the full content string for the stream region.
+// render builds the full content string for the stream region. Uses a render
+// cache to avoid redundant markdown re-parsing between flush ticks. The cache
+// is invalidated when committed content changes (flush tick), terminal width
+// changes, or height/thinking visibility changes.
 func (s *StreamComponent) render() string {
 	if s.phase == streamPhaseIdle {
 		return ""
+	}
+
+	// Return cached render if committed content hasn't changed.
+	if !s.renderDirty {
+		return s.renderCache
 	}
 
 	var sections []string
@@ -315,6 +410,8 @@ func (s *StreamComponent) render() string {
 	}
 
 	if len(sections) == 0 {
+		s.renderCache = ""
+		s.renderDirty = false
 		return ""
 	}
 
@@ -330,6 +427,8 @@ func (s *StreamComponent) render() string {
 		}
 	}
 
+	s.renderCache = content
+	s.renderDirty = false
 	return content
 }
 
@@ -360,12 +459,18 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 
 // SetThinkingVisible sets whether reasoning blocks are shown or collapsed.
 func (s *StreamComponent) SetThinkingVisible(visible bool) {
-	s.thinkingVisible = visible
+	if s.thinkingVisible != visible {
+		s.thinkingVisible = visible
+		// Invalidate cache — thinking visibility affects rendered output.
+		s.renderCache = ""
+		s.renderDirty = true
+	}
 }
 
-// HasReasoning returns true if any reasoning content has been accumulated.
+// HasReasoning returns true if any reasoning content has been accumulated
+// (committed or pending).
 func (s *StreamComponent) HasReasoning() bool {
-	return s.reasoningContent.Len() > 0
+	return s.reasoningContent.Len() > 0 || s.pendingReasoning.Len() > 0
 }
 
 // SpinnerView returns the rendered spinner line for the parent to embed in the
