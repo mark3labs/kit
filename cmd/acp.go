@@ -50,8 +50,6 @@ func runACP(cmd *cobra.Command, _ []string) error {
 		})))
 	}
 
-	fmt.Fprintln(os.Stderr, "kit: ACP server ready on stdio")
-
 	// Wait for either the client to disconnect or a signal.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
