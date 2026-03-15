@@ -24,6 +24,7 @@ func TestHookRegistry_RegisterAndRun(t *testing.T) {
 	got := hr.run("hello")
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if *got != "handled: hello" {
 		t.Errorf("expected 'handled: hello', got %q", *got)
@@ -51,6 +52,7 @@ func TestHookRegistry_FirstNonNilWins(t *testing.T) {
 	got := hr.run("test")
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if *got != "second: test" {
 		t.Errorf("expected 'second: test', got %q", *got)
@@ -77,6 +79,7 @@ func TestHookRegistry_PriorityOrdering(t *testing.T) {
 	got := hr.run("x")
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if *got != "high" {
 		t.Errorf("expected 'high' (priority 0 runs first), got %q", *got)
@@ -441,6 +444,7 @@ func TestBeforeTurnHook_PromptOverride(t *testing.T) {
 	result := hr.run(BeforeTurnHook{Prompt: "original"})
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.Prompt == nil || *result.Prompt != "modified prompt" {
 		t.Errorf("expected prompt override, got %v", result.Prompt)
@@ -462,6 +466,7 @@ func TestBeforeTurnHook_InjectSystemAndContext(t *testing.T) {
 	result := hr.run(BeforeTurnHook{Prompt: "hello"})
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.SystemPrompt == nil || *result.SystemPrompt != "be concise" {
 		t.Errorf("expected system prompt injection")

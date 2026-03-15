@@ -24,6 +24,7 @@ func TestUsageTracker_OAuthCosts(t *testing.T) {
 	stats := regularTracker.GetLastRequestStats()
 	if stats == nil {
 		t.Fatal("Expected stats to be non-nil")
+		return
 	}
 
 	// Check that costs are calculated for regular API key
@@ -48,6 +49,7 @@ func TestUsageTracker_OAuthCosts(t *testing.T) {
 	oauthStats := oauthTracker.GetLastRequestStats()
 	if oauthStats == nil {
 		t.Fatal("Expected OAuth stats to be non-nil")
+		return
 	}
 
 	// Check that all costs are $0 for OAuth

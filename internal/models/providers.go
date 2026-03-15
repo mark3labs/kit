@@ -210,10 +210,11 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		}
 	}
 
-	// Validate environment variables
-	if err := registry.ValidateEnvironment(provider, config.ProviderAPIKey); err != nil {
-		return nil, err
-	}
+	// NOTE: We intentionally skip registry.ValidateEnvironment() here.
+	// Each create*Provider function handles its own auth resolution and
+	// produces provider-specific error messages. The early env-var check
+	// was too narrow — it didn't account for stored credentials (e.g.
+	// OAuth tokens from 'kit auth login') and blocked valid auth paths.
 
 	// Validate config against known model limits when metadata is available
 	if modelInfo != nil {
@@ -1042,9 +1043,21 @@ type oauthTransport struct {
 }
 
 func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Resolve the freshest available token. The credential manager
+	// automatically refreshes tokens nearing expiry (5-minute buffer).
+	// This keeps long-lived sessions (e.g. ACP) working across token
+	// renewals. Falls back to the originally-provided token if the
+	// credential manager is unavailable.
+	token := t.accessToken
+	if cm, err := auth.NewCredentialManager(); err == nil {
+		if fresh, err := cm.GetValidAccessToken(); err == nil && fresh != "" {
+			token = fresh
+		}
+	}
+
 	newReq := req.Clone(req.Context())
 	newReq.Header.Del("x-api-key")
-	newReq.Header.Set("Authorization", "Bearer "+t.accessToken)
+	newReq.Header.Set("Authorization", "Bearer "+token)
 	newReq.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	newReq.Header.Set("anthropic-version", "2023-06-01")
 

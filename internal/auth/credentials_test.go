@@ -51,6 +51,7 @@ func TestCredentialManager(t *testing.T) {
 	}
 	if creds == nil {
 		t.Fatal("Expected credentials to be returned")
+		return
 	}
 	if creds.APIKey != testAPIKey {
 		t.Errorf("Expected API key %s, got %s", testAPIKey, creds.APIKey)
@@ -236,6 +237,7 @@ func TestCredentialStorePersistence(t *testing.T) {
 	}
 	if creds == nil {
 		t.Fatal("Expected credentials to persist")
+		return
 	}
 	if creds.APIKey != testAPIKey {
 		t.Errorf("Expected API key %s, got %s", testAPIKey, creds.APIKey)

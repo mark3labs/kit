@@ -78,6 +78,7 @@ func TestCreateOAuthHTTPClient(t *testing.T) {
 
 			if client == nil {
 				t.Fatal("expected non-nil client")
+				return
 			}
 
 			// Check that the transport is an oauthTransport

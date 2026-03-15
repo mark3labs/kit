@@ -90,6 +90,7 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 
 	sess, err := a.registry.create(ctx, cwd)
 	if err != nil {
+		log.Error("acp: session creation failed", "cwd", cwd, "error", err)
 		return acp.NewSessionResponse{}, fmt.Errorf("create session: %w", err)
 	}
 

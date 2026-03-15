@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/mark3labs/kit/internal/auth"
 )
 
 //go:embed embedded_models.json
@@ -171,12 +173,25 @@ func (r *ModelsRegistry) GetRequiredEnvVars(provider string) ([]string, error) {
 	return providerInfo.Env, nil
 }
 
-// ValidateEnvironment checks if required environment variables are set.
-// Returns nil for providers not in the registry (unknown providers are
-// assumed to handle auth themselves or via --provider-api-key).
+// ValidateEnvironment checks if required credentials are available for a
+// provider. It checks the explicit API key, stored credentials (for
+// providers that support them, such as Anthropic OAuth), and environment
+// variables. Returns nil for providers not in the registry (unknown
+// providers are assumed to handle auth themselves or via --provider-api-key).
 func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) error {
 	if apiKey != "" {
 		return nil
+	}
+
+	// For anthropic, also check stored credentials (OAuth / API key)
+	// since auth resolution goes through the credential manager, not
+	// just environment variables.
+	if provider == "anthropic" {
+		if cm, err := auth.NewCredentialManager(); err == nil {
+			if has, _ := cm.HasAnthropicCredentials(); has {
+				return nil
+			}
+		}
 	}
 
 	envVars, err := r.GetRequiredEnvVars(provider)

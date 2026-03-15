@@ -3,6 +3,7 @@ package acpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -39,6 +40,12 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 		Streaming:  true,
 	})
 	if err != nil {
+		// Provide actionable guidance for provider auth errors, which are
+		// the most common failure mode when running via ACP.
+		msg := err.Error()
+		if strings.Contains(msg, "API key") || strings.Contains(msg, "credentials") || strings.Contains(msg, "OAuth") {
+			return nil, fmt.Errorf("provider authentication failed: %w — run 'kit auth login <provider>' or set the appropriate environment variable before starting 'kit acp'", err)
+		}
 		return nil, fmt.Errorf("create kit instance: %w", err)
 	}
 
