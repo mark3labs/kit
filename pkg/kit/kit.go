@@ -1300,10 +1300,17 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Fall back to parent's model.
+	// Resolve model: fall back to parent's model, and inherit the parent's
+	// provider when only a bare model name is given (e.g. "claude-haiku"
+	// instead of "anthropic/claude-haiku"). This avoids provider guessing.
 	model := cfg.Model
 	if model == "" {
 		model = m.modelString
+	} else if !strings.Contains(model, "/") {
+		// Bare model name — prepend parent's provider.
+		if parts := strings.SplitN(m.modelString, "/", 2); len(parts) == 2 {
+			model = parts[0] + "/" + model
+		}
 	}
 
 	// Default system prompt.
