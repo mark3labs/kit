@@ -14,6 +14,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/kitsetup"
 	"github.com/mark3labs/kit/internal/message"
@@ -894,10 +895,18 @@ func InitTreeSession(opts *Options) (*session.TreeManager, error) {
 // New creates a Kit instance using the same initialization as the CLI.
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
+// viperInitMu serializes viper writes during kit.New(). Viper's global state
+// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
+// must not overlap the Set()/Get() window.
+var viperInitMu sync.Mutex
+
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
+
+	viperInitMu.Lock()
+	defer viperInitMu.Unlock()
 
 	// Set CLI-equivalent defaults for viper. When used as an SDK (without
 	// cobra), these defaults are not registered via flag bindings.
@@ -1219,6 +1228,143 @@ type TurnResult struct {
 }
 
 // ---------------------------------------------------------------------------
+// In-process subagent
+// ---------------------------------------------------------------------------
+
+// SubagentConfig configures an in-process subagent spawned via Kit.Subagent().
+type SubagentConfig struct {
+	// Prompt is the task/instruction for the subagent (required).
+	Prompt string
+
+	// Model overrides the parent's model (e.g. "anthropic/claude-haiku-3-5-20241022").
+	// Empty string uses the parent's current model.
+	Model string
+
+	// SystemPrompt provides domain-specific instructions for the subagent.
+	// Empty string uses a minimal default prompt.
+	SystemPrompt string
+
+	// Tools overrides the tool set. If nil, SubagentTools() is used (all
+	// core tools except spawn_subagent, preventing infinite recursion).
+	Tools []Tool
+
+	// NoSession, when true, uses an in-memory ephemeral session. When false
+	// (default), the subagent's session is persisted and can be loaded for
+	// replay/inspection.
+	NoSession bool
+
+	// Timeout limits execution time. Zero means 5 minute default.
+	Timeout time.Duration
+
+	// OnEvent, when set, receives all events from the subagent's event bus.
+	// This enables the parent to stream subagent tool calls, text chunks,
+	// etc. in real time.
+	OnEvent func(Event)
+}
+
+// SubagentResult contains the outcome of an in-process subagent execution.
+type SubagentResult struct {
+	// Response is the subagent's final text response.
+	Response string
+	// Error is set if the subagent failed (nil on success).
+	Error error
+	// SessionID is the subagent's session identifier (for replay).
+	SessionID string
+	// StopReason is the LLM's finish reason for the subagent's final turn.
+	StopReason string
+	// Usage contains token usage from the subagent's run.
+	Usage *FantasyUsage
+	// Elapsed is the total execution time.
+	Elapsed time.Duration
+}
+
+// Subagent spawns an in-process child Kit instance to perform a task. The
+// child gets its own session, event bus, and agent loop but shares the
+// parent's config (API keys, provider settings) and defaults to the parent's
+// model when SubagentConfig.Model is empty.
+//
+// This is the recommended way to run subagents in the SDK — no subprocess,
+// no kit binary dependency, native Go types for results.
+func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult, error) {
+	if cfg.Prompt == "" {
+		return nil, fmt.Errorf("subagent prompt is required")
+	}
+
+	start := time.Now()
+
+	// Default timeout.
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Fall back to parent's model.
+	model := cfg.Model
+	if model == "" {
+		model = m.modelString
+	}
+
+	// Default system prompt.
+	systemPrompt := cfg.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are a helpful coding assistant. Complete the task efficiently and thoroughly."
+	}
+
+	// Default tools: everything except spawn_subagent.
+	tools := cfg.Tools
+	if tools == nil {
+		tools = SubagentTools()
+	}
+
+	// Create child Kit instance.
+	child, err := New(ctx, &Options{
+		Model:        model,
+		SystemPrompt: systemPrompt,
+		Tools:        tools,
+		NoSession:    cfg.NoSession,
+		Quiet:        true,
+	})
+	if err != nil {
+		return &SubagentResult{
+			Error:   fmt.Errorf("failed to create subagent: %w", err),
+			Elapsed: time.Since(start),
+		}, err
+	}
+	defer func() { _ = child.Close() }()
+
+	// Forward events to parent if requested.
+	if cfg.OnEvent != nil {
+		child.Subscribe(cfg.OnEvent)
+	}
+
+	// Run the prompt.
+	result, err := child.PromptResult(ctx, cfg.Prompt)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		return &SubagentResult{
+			Error:     err,
+			SessionID: child.GetSessionID(),
+			Elapsed:   elapsed,
+		}, err
+	}
+
+	subResult := &SubagentResult{
+		Response:   result.Response,
+		SessionID:  child.GetSessionID(),
+		StopReason: result.StopReason,
+		Elapsed:    elapsed,
+	}
+	if result.TotalUsage != nil {
+		subResult.Usage = result.TotalUsage
+	}
+
+	return subResult, nil
+}
+
+// ---------------------------------------------------------------------------
 // Shared generation helpers
 // ---------------------------------------------------------------------------
 
@@ -1226,6 +1372,34 @@ type TurnResult struct {
 // All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
+	// Inject the in-process subagent spawner into the context so the
+	// spawn_subagent core tool can create child Kit instances without
+	// importing pkg/kit (which would create an import cycle).
+	ctx = core.WithSubagentSpawner(ctx, func(
+		spawnCtx context.Context, prompt, model, systemPrompt string, timeout time.Duration,
+	) (*core.SubagentSpawnResult, error) {
+		result, err := m.Subagent(spawnCtx, SubagentConfig{
+			Prompt:       prompt,
+			Model:        model,
+			SystemPrompt: systemPrompt,
+			Timeout:      timeout,
+		})
+		if result == nil {
+			return &core.SubagentSpawnResult{Error: err}, err
+		}
+		sr := &core.SubagentSpawnResult{
+			Response:  result.Response,
+			Error:     result.Error,
+			SessionID: result.SessionID,
+			Elapsed:   result.Elapsed,
+		}
+		if result.Usage != nil {
+			sr.InputTokens = result.Usage.InputTokens
+			sr.OutputTokens = result.Usage.OutputTokens
+		}
+		return sr, err
+	})
+
 	return m.agent.GenerateWithLoopAndStreaming(ctx, messages,
 		func(toolCallID, toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{

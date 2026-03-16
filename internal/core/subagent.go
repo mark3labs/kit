@@ -6,11 +6,49 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/mark3labs/kit/internal/extensions"
 )
 
 const defaultSubagentTimeout = 5 * time.Minute
 const maxSubagentTimeout = 30 * time.Minute
+
+// ---------------------------------------------------------------------------
+// Context-based subagent spawner
+// ---------------------------------------------------------------------------
+
+// SubagentSpawnResult carries the outcome of an in-process subagent spawn.
+type SubagentSpawnResult struct {
+	Response     string
+	Error        error
+	SessionID    string
+	InputTokens  int64
+	OutputTokens int64
+	Elapsed      time.Duration
+}
+
+// SubagentSpawnFunc is a callback that spawns an in-process subagent. The
+// parent Kit instance injects this into the context so the core tool can
+// call back without importing pkg/kit (which would create a cycle).
+type SubagentSpawnFunc func(ctx context.Context, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error)
+
+type subagentCtxKey struct{}
+
+// WithSubagentSpawner stores a spawn function in the context so that the
+// spawn_subagent core tool can create in-process subagents.
+func WithSubagentSpawner(ctx context.Context, fn SubagentSpawnFunc) context.Context {
+	return context.WithValue(ctx, subagentCtxKey{}, fn)
+}
+
+// getSubagentSpawner retrieves the spawn function from the context.
+func getSubagentSpawner(ctx context.Context) SubagentSpawnFunc {
+	if fn, ok := ctx.Value(subagentCtxKey{}).(SubagentSpawnFunc); ok {
+		return fn
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// spawn_subagent tool
+// ---------------------------------------------------------------------------
 
 type subagentArgs struct {
 	Task           string `json:"task"`
@@ -24,9 +62,10 @@ func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name: "spawn_subagent",
-			Description: `Spawn a background subagent to perform a task autonomously.
+			Description: `Spawn a subagent to perform a task autonomously.
 
-The subagent runs as a separate Kit instance with full tool access. Use this to:
+The subagent runs as a separate in-process Kit instance with full tool access
+(except spawning further subagents). Use this to:
 - Delegate independent subtasks that can run in parallel
 - Perform research or analysis without blocking your main work
 - Execute tasks that benefit from a fresh context window
@@ -74,38 +113,40 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		return fantasy.NewTextErrorResponse("task parameter is required"), nil
 	}
 
-	// Determine timeout
+	// Determine timeout.
 	timeout := defaultSubagentTimeout
 	if args.TimeoutSeconds > 0 {
 		timeout = min(time.Duration(args.TimeoutSeconds)*time.Second, maxSubagentTimeout)
 	}
 
-	// Spawn subagent in blocking mode
-	_, result, err := extensions.SpawnSubagent(extensions.SubagentConfig{
-		Prompt:       args.Task,
-		Model:        args.Model,
-		SystemPrompt: args.SystemPrompt,
-		Timeout:      timeout,
-		Blocking:     true,
-	})
-	if err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to spawn subagent: %v", err)), nil
+	// Retrieve in-process spawner from context.
+	spawner := getSubagentSpawner(ctx)
+	if spawner == nil {
+		return fantasy.NewTextErrorResponse(
+			"Error: subagent spawner not available. " +
+				"Ensure Kit is initialized with subagent support.",
+		), fmt.Errorf("no subagent spawner in context")
 	}
 
-	if result.Error != nil {
-		// Subagent failed but we still have partial output
-		response := fmt.Sprintf("Subagent failed (exit code %d) after %ds.\n\nError: %v",
-			result.ExitCode, int(result.Elapsed.Seconds()), result.Error)
+	// Spawn in-process subagent.
+	result, err := spawner(ctx, args.Task, args.Model, args.SystemPrompt, timeout)
+	if err != nil || result.Error != nil {
+		spawnErr := err
+		if spawnErr == nil {
+			spawnErr = result.Error
+		}
+		response := fmt.Sprintf("Subagent failed after %ds.\n\nError: %v",
+			int(result.Elapsed.Seconds()), spawnErr)
 		if result.Response != "" {
 			response += fmt.Sprintf("\n\nPartial output:\n%s", truncateResponse(result.Response, 8000))
 		}
 		return fantasy.NewTextErrorResponse(response), nil
 	}
 
-	// Build successful response
+	// Build successful response.
 	response := fmt.Sprintf("Subagent completed successfully in %ds.", int(result.Elapsed.Seconds()))
-	if result.Usage != nil {
-		response += fmt.Sprintf(" (tokens: %d in / %d out)", result.Usage.InputTokens, result.Usage.OutputTokens)
+	if result.InputTokens > 0 || result.OutputTokens > 0 {
+		response += fmt.Sprintf(" (tokens: %d in / %d out)", result.InputTokens, result.OutputTokens)
 	}
 	response += fmt.Sprintf("\n\nResult:\n%s", truncateResponse(result.Response, 12000))
 

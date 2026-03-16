@@ -86,8 +86,9 @@ func ReadOnlyTools(opts ...ToolOption) []fantasy.AgentTool {
 	}
 }
 
-// AllTools returns all available core tools.
-func AllTools(opts ...ToolOption) []fantasy.AgentTool {
+// SubagentTools returns all core tools except spawn_subagent. This prevents
+// infinite recursion when a subagent is itself a Kit instance.
+func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
 		NewBashTool(opts...),
 		NewReadTool(opts...),
@@ -96,6 +97,10 @@ func AllTools(opts ...ToolOption) []fantasy.AgentTool {
 		NewGrepTool(opts...),
 		NewFindTool(opts...),
 		NewLsTool(opts...),
-		NewSubagentTool(opts...),
 	}
+}
+
+// AllTools returns all available core tools.
+func AllTools(opts ...ToolOption) []fantasy.AgentTool {
+	return append(SubagentTools(opts...), NewSubagentTool(opts...))
 }

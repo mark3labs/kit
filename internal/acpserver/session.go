@@ -152,7 +152,29 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 				return kitInstance.ExecuteCompletion(context.Background(), req)
 			},
 			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				return extensions.SpawnSubagent(config)
+				result, err := kitInstance.Subagent(context.Background(), kit.SubagentConfig{
+					Prompt:       config.Prompt,
+					Model:        config.Model,
+					SystemPrompt: config.SystemPrompt,
+					Timeout:      config.Timeout,
+					NoSession:    config.NoSession,
+				})
+				if result == nil {
+					return nil, &extensions.SubagentResult{Error: err}, err
+				}
+				extResult := &extensions.SubagentResult{
+					Response:  result.Response,
+					Error:     result.Error,
+					SessionID: result.SessionID,
+					Elapsed:   result.Elapsed,
+				}
+				if result.Usage != nil {
+					extResult.Usage = &extensions.SubagentUsage{
+						InputTokens:  result.Usage.InputTokens,
+						OutputTokens: result.Usage.OutputTokens,
+					}
+				}
+				return nil, extResult, err
 			},
 
 			// Render — fall back to logging.
