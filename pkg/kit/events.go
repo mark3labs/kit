@@ -198,7 +198,8 @@ type ToolResultEvent struct {
 
 // ToolResultMetadata carries structured data from tool executions.
 type ToolResultMetadata struct {
-	FileDiffs []FileDiffInfo `json:"file_diffs,omitempty"` // Present for edit/write tools
+	FileDiffs         []FileDiffInfo `json:"file_diffs,omitempty"`          // Present for edit/write tools
+	SubagentSessionID string         `json:"subagent_session_id,omitempty"` // Present for spawn_subagent tool
 }
 
 // FileDiffInfo describes a file modification from an edit or write tool.
