@@ -41,13 +41,15 @@ type AgentConfig struct {
 }
 
 // ToolCallHandler is a function type for handling tool calls as they happen.
-type ToolCallHandler func(toolName, toolArgs string)
+type ToolCallHandler func(toolCallID, toolName, toolArgs string)
 
 // ToolExecutionHandler is a function type for handling tool execution start/end events.
-type ToolExecutionHandler func(toolName, toolArgs string, isStarting bool)
+type ToolExecutionHandler func(toolCallID, toolName, toolArgs string, isStarting bool)
 
 // ToolResultHandler is a function type for handling tool results.
-type ToolResultHandler func(toolName, toolArgs, result string, isError bool)
+// The metadata parameter carries optional structured data (e.g. file diff
+// info) from the tool execution, JSON-encoded. It may be empty.
+type ToolResultHandler func(toolCallID, toolName, toolArgs, result, metadata string, isError bool)
 
 // ResponseHandler is a function type for handling LLM responses.
 type ResponseHandler func(content string)
@@ -90,6 +92,8 @@ type GenerateWithLoopResult struct {
 	Messages []message.Message
 	// TotalUsage contains aggregate token usage across all steps
 	TotalUsage fantasy.Usage
+	// StopReason is the LLM provider's finish reason for the final response.
+	StopReason string
 }
 
 // NewAgent creates a new Agent with core tools and optional MCP tool integration.
@@ -283,12 +287,12 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 				// Notify about the tool call
 				if onToolCall != nil {
-					onToolCall(tc.ToolName, tc.Input)
+					onToolCall(tc.ToolCallID, tc.ToolName, tc.Input)
 				}
 
 				// Notify tool execution starting
 				if onToolExecution != nil {
-					onToolExecution(tc.ToolName, tc.Input, true)
+					onToolExecution(tc.ToolCallID, tc.ToolName, tc.Input, true)
 				}
 
 				return nil
@@ -301,13 +305,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				}
 				// Notify tool execution finished
 				if onToolExecution != nil {
-					onToolExecution(tr.ToolName, currentToolArgs, false)
+					onToolExecution(tr.ToolCallID, tr.ToolName, currentToolArgs, false)
 				}
 
 				if onToolResult != nil {
 					// Extract result text and error status
 					resultText, isError := extractToolResultText(tr)
-					onToolResult(tr.ToolName, currentToolArgs, resultText, isError)
+					onToolResult(tr.ToolCallID, tr.ToolName, currentToolArgs, resultText, tr.ClientMetadata, isError)
 				}
 
 				return nil
@@ -426,6 +430,7 @@ func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.
 		ConversationMessages: allFantasyMessages,
 		Messages:             allMessages,
 		TotalUsage:           result.TotalUsage,
+		StopReason:           string(result.Response.FinishReason),
 	}
 }
 

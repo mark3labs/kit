@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"charm.land/fantasy"
 )
@@ -53,6 +54,14 @@ func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (f
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}
 
+	// Read existing content before writing (for diff metadata).
+	var beforeContent string
+	isNew := true
+	if existing, readErr := os.ReadFile(absPath); readErr == nil {
+		beforeContent = string(existing)
+		isNew = false
+	}
+
 	// Create parent directories
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -63,5 +72,27 @@ func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (f
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 
-	return fantasy.NewTextResponse(fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), args.Path)), nil
+	resp := fantasy.NewTextResponse(fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), args.Path))
+	return fantasy.WithResponseMetadata(resp, writeDiffMeta(absPath, beforeContent, args.Content, isNew)), nil
+}
+
+// writeDiffMeta builds the structured metadata attached to write tool responses.
+func writeDiffMeta(path, beforeContent, afterContent string, isNew bool) map[string]any {
+	additions := strings.Count(afterContent, "\n") + 1
+	deletions := 0
+	if !isNew {
+		deletions = strings.Count(beforeContent, "\n") + 1
+	}
+	return map[string]any{
+		"file_diffs": []map[string]any{{
+			"path":      path,
+			"additions": additions,
+			"deletions": deletions,
+			"is_new":    isNew,
+			"diff_blocks": []map[string]any{{
+				"old_text": beforeContent,
+				"new_text": afterContent,
+			}},
+		}},
+	}
 }

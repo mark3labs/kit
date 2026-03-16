@@ -186,7 +186,10 @@ func (a *Agent) subscribeEvents(ctx context.Context, k *kit.Kit, sessionID acp.S
 			update = &u
 
 		case kit.ToolCallEvent:
-			tcID := acp.ToolCallId(fmt.Sprintf("tc_%d", a.toolCallCounter.Add(1)))
+			tcID := acp.ToolCallId(ev.ToolCallID)
+			if tcID == "" {
+				tcID = acp.ToolCallId(fmt.Sprintf("tc_%d", a.toolCallCounter.Add(1)))
+			}
 			u := acp.StartToolCall(tcID, ev.ToolName,
 				acp.WithStartStatus(acp.ToolCallStatusInProgress),
 				acp.WithStartRawInput(parseToolArgs(ev.ToolArgs)),
@@ -194,7 +197,10 @@ func (a *Agent) subscribeEvents(ctx context.Context, k *kit.Kit, sessionID acp.S
 			update = &u
 
 		case kit.ToolResultEvent:
-			tcID := acp.ToolCallId(fmt.Sprintf("tc_%d", a.toolCallCounter.Load()))
+			tcID := acp.ToolCallId(ev.ToolCallID)
+			if tcID == "" {
+				tcID = acp.ToolCallId(fmt.Sprintf("tc_%d", a.toolCallCounter.Load()))
+			}
 			status := acp.ToolCallStatusCompleted
 			if ev.IsError {
 				status = acp.ToolCallStatusFailed

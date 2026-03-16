@@ -532,14 +532,14 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 	unsubs = append(unsubs, k.Subscribe(func(e kit.Event) {
 		switch ev := e.(type) {
 		case kit.ToolCallEvent:
-			sendFn(ToolCallStartedEvent{ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
+			sendFn(ToolCallStartedEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
 		case kit.ToolExecutionStartEvent:
-			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true})
+			sendFn(ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true})
 		case kit.ToolExecutionEndEvent:
-			sendFn(ToolExecutionEvent{ToolName: ev.ToolName, IsStarting: false})
+			sendFn(ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, IsStarting: false})
 		case kit.ToolResultEvent:
 			sendFn(ToolResultEvent{
-				ToolName: ev.ToolName, ToolArgs: ev.ToolArgs,
+				ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs,
 				Result: ev.Result, IsError: ev.IsError,
 			})
 		case kit.ToolCallContentEvent:

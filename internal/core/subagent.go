@@ -109,7 +109,16 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	}
 	response += fmt.Sprintf("\n\nResult:\n%s", truncateResponse(result.Response, 12000))
 
-	return fantasy.NewTextResponse(response), nil
+	resp := fantasy.NewTextResponse(response)
+
+	// Attach subagent session ID as metadata when available.
+	if result.SessionID != "" {
+		resp = fantasy.WithResponseMetadata(resp, map[string]any{
+			"subagent_session_id": result.SessionID,
+		})
+	}
+
+	return resp, nil
 }
 
 // truncateResponse limits the response length to avoid overwhelming context windows.

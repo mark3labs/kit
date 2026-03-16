@@ -76,13 +76,15 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	// If no exact match, try fuzzy matching
 	if count == 0 {
 		if idx, matchLen := fuzzyMatch(normalized, normalizedOld); idx >= 0 {
-			// Apply fuzzy match
+			// Apply fuzzy match — the matched text is the original content slice
+			matchedText := normalized[idx : idx+matchLen]
 			newContent := normalized[:idx] + args.NewText + normalized[idx+matchLen:]
 			if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 			}
 			diff := generateDiff(absPath, normalized, newContent, idx)
-			return fantasy.NewTextResponse(fmt.Sprintf("Applied edit (fuzzy match) to %s\n%s", args.Path, diff)), nil
+			resp := fantasy.NewTextResponse(fmt.Sprintf("Applied edit (fuzzy match) to %s\n%s", args.Path, diff))
+			return fantasy.WithResponseMetadata(resp, editDiffMeta(absPath, matchedText, args.NewText)), nil
 		}
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("old_text not found in %s", args.Path)), nil
 	}
@@ -100,7 +102,23 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 
 	idx := strings.Index(normalized, normalizedOld)
 	diff := generateDiff(absPath, normalized, newContent, idx)
-	return fantasy.NewTextResponse(fmt.Sprintf("Applied edit to %s\n%s", args.Path, diff)), nil
+	resp := fantasy.NewTextResponse(fmt.Sprintf("Applied edit to %s\n%s", args.Path, diff))
+	return fantasy.WithResponseMetadata(resp, editDiffMeta(absPath, normalizedOld, args.NewText)), nil
+}
+
+// editDiffMeta builds the structured metadata attached to edit tool responses.
+func editDiffMeta(path, oldText, newText string) map[string]any {
+	return map[string]any{
+		"file_diffs": []map[string]any{{
+			"path":      path,
+			"additions": strings.Count(newText, "\n") + 1,
+			"deletions": strings.Count(oldText, "\n") + 1,
+			"diff_blocks": []map[string]any{{
+				"old_text": oldText,
+				"new_text": newText,
+			}},
+		}},
+	}
 }
 
 // fuzzyMatch tries to find old_text with relaxed matching:

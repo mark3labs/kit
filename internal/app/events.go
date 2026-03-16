@@ -19,6 +19,8 @@ type ReasoningChunkEvent struct {
 // ToolCallStartedEvent is sent when a tool call has been parsed and is about to execute.
 // It carries the tool name and its arguments for display purposes.
 type ToolCallStartedEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
 	// ToolName is the name of the tool being called.
 	ToolName string
 	// ToolArgs is the JSON-encoded arguments for the tool call.
@@ -28,6 +30,8 @@ type ToolCallStartedEvent struct {
 // ToolExecutionEvent is sent when a tool starts or finishes executing.
 // The IsStarting flag distinguishes between the start and end of execution.
 type ToolExecutionEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
 	// ToolName is the name of the tool being executed.
 	ToolName string
 	// ToolArgs is the JSON-encoded arguments for the tool call (only set when IsStarting is true).
@@ -38,6 +42,8 @@ type ToolExecutionEvent struct {
 
 // ToolResultEvent is sent after a tool execution completes with its result.
 type ToolResultEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
 	// ToolName is the name of the tool that was executed.
 	ToolName string
 	// ToolArgs is the JSON-encoded arguments that were passed to the tool.

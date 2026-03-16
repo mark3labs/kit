@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -339,6 +340,50 @@ func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
 			ParentID:  me.ParentID,
 			Role:      string(msg.Role),
 			Content:   content.String(),
+			Model:     msg.Model,
+			Provider:  msg.Provider,
+			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return msgs
+}
+
+// StructuredMessage represents a conversation message with typed content parts
+// (tool calls, reasoning, finish markers, etc.) instead of flattened text.
+type StructuredMessage struct {
+	ID        string
+	ParentID  string
+	Role      MessageRole
+	Parts     []ContentPart
+	Model     string
+	Provider  string
+	Timestamp string // RFC3339 format
+}
+
+// GetStructuredMessages returns the conversation messages on the current
+// branch with full typed content parts. Unlike GetSessionMessages() which
+// flattens all content to a single text string, this preserves tool calls,
+// tool results, reasoning blocks, and finish markers as distinct typed parts.
+func (m *Kit) GetStructuredMessages() []StructuredMessage {
+	if m.treeSession == nil {
+		return nil
+	}
+	branch := m.treeSession.GetBranch("")
+	var msgs []StructuredMessage
+	for _, entry := range branch {
+		me, ok := entry.(*session.MessageEntry)
+		if !ok {
+			continue
+		}
+		msg, err := me.ToMessage()
+		if err != nil {
+			continue
+		}
+		msgs = append(msgs, StructuredMessage{
+			ID:        me.ID,
+			ParentID:  me.ParentID,
+			Role:      msg.Role,
+			Parts:     msg.Parts,
 			Model:     msg.Model,
 			Provider:  msg.Provider,
 			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
@@ -1150,6 +1195,14 @@ type TurnResult struct {
 	// Response is the assistant's final text response.
 	Response string
 
+	// StopReason indicates why the turn ended. Derived from the LLM
+	// provider's finish reason: "stop", "length" (max tokens), "tool-calls",
+	// "content-filter", "error", "other", "unknown".
+	StopReason string
+
+	// SessionID is the UUID of the session this turn belongs to.
+	SessionID string
+
 	// TotalUsage is the aggregate token usage across all steps in the turn
 	// (includes tool-calling loop iterations). Nil if the provider didn't
 	// report usage.
@@ -1174,21 +1227,32 @@ type TurnResult struct {
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
 	return m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		func(toolName, toolArgs string) {
-			m.events.emit(ToolCallEvent{ToolName: toolName, ToolArgs: toolArgs})
+		func(toolCallID, toolName, toolArgs string) {
+			m.events.emit(ToolCallEvent{
+				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
+				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
+			})
 		},
-		func(toolName, toolArgs string, isStarting bool) {
+		func(toolCallID, toolName, toolArgs string, isStarting bool) {
 			if isStarting {
-				m.events.emit(ToolExecutionStartEvent{ToolName: toolName, ToolArgs: toolArgs})
+				m.events.emit(ToolExecutionStartEvent{ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName), ToolArgs: toolArgs})
 			} else {
-				m.events.emit(ToolExecutionEndEvent{ToolName: toolName})
+				m.events.emit(ToolExecutionEndEvent{ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName)})
 			}
 		},
-		func(toolName, toolArgs, resultText string, isError bool) {
-			m.events.emit(ToolResultEvent{
-				ToolName: toolName, ToolArgs: toolArgs,
+		func(toolCallID, toolName, toolArgs, resultText, metadata string, isError bool) {
+			evt := ToolResultEvent{
+				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
+				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
 				Result: resultText, IsError: isError,
-			})
+			}
+			if metadata != "" {
+				var meta ToolResultMetadata
+				if err := json.Unmarshal([]byte(metadata), &meta); err == nil {
+					evt.Metadata = &meta
+				}
+			}
+			m.events.emit(evt)
 		},
 		func(content string) {
 			m.events.emit(ResponseEvent{Content: content})
@@ -1317,8 +1381,10 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		m.lastInputTokensMu.Unlock()
 	}
 
+	stopReason := result.StopReason
+
 	m.events.emit(MessageEndEvent{Content: responseText})
-	m.events.emit(TurnEndEvent{Response: responseText})
+	m.events.emit(TurnEndEvent{Response: responseText, StopReason: stopReason})
 
 	// Run AfterTurn hooks.
 	if m.afterTurn.hasHooks() {
@@ -1327,8 +1393,10 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	// Build TurnResult with usage stats.
 	turnResult := &TurnResult{
-		Response: responseText,
-		Messages: result.ConversationMessages,
+		Response:   responseText,
+		StopReason: stopReason,
+		SessionID:  m.GetSessionID(),
+		Messages:   result.ConversationMessages,
 	}
 	totalUsage := result.TotalUsage
 	turnResult.TotalUsage = &totalUsage

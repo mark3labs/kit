@@ -1086,15 +1086,19 @@ func buildJSONOutput(result *kit.TurnResult, model string) ([]byte, error) {
 		CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	}
 	type jsonEnvelope struct {
-		Response string        `json:"response"`
-		Model    string        `json:"model"`
-		Usage    *jsonUsage    `json:"usage,omitempty"`
-		Messages []jsonMessage `json:"messages"`
+		Response   string        `json:"response"`
+		Model      string        `json:"model"`
+		StopReason string        `json:"stop_reason,omitempty"`
+		SessionID  string        `json:"session_id,omitempty"`
+		Usage      *jsonUsage    `json:"usage,omitempty"`
+		Messages   []jsonMessage `json:"messages"`
 	}
 
 	out := jsonEnvelope{
-		Response: result.Response,
-		Model:    model,
+		Response:   result.Response,
+		Model:      model,
+		StopReason: result.StopReason,
+		SessionID:  result.SessionID,
 	}
 
 	if result.TotalUsage != nil {

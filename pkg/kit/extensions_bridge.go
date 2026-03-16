@@ -89,11 +89,13 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
 			if ev, ok := e.(TurnEndEvent); ok {
-				stopReason := "completed"
+				stopReason := ev.StopReason
 				response := ev.Response
 				if ev.Error != nil {
 					stopReason = "error"
 					response = ""
+				} else if stopReason == "" {
+					stopReason = "completed"
 				}
 				_, _ = runner.Emit(extensions.AgentEndEvent{
 					Response:   response,

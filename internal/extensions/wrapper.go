@@ -40,6 +40,37 @@ func ExtensionToolsAsFantasy(defs []ToolDef, runner *Runner) []fantasy.AgentTool
 	return tools
 }
 
+// coreToolKinds maps built-in tool names to their kind classification.
+var coreToolKinds = map[string]string{
+	"bash":           "execute",
+	"edit":           "edit",
+	"write":          "edit",
+	"read":           "read",
+	"ls":             "read",
+	"grep":           "search",
+	"find":           "search",
+	"spawn_subagent": "agent",
+}
+
+// toolKindFor returns the ToolKind for a given tool name, defaulting to
+// "execute" for unknown tools (including MCP tools).
+func toolKindFor(toolName string) string {
+	if kind, ok := coreToolKinds[toolName]; ok {
+		return kind
+	}
+	return "execute"
+}
+
+// parseToolArgsJSON attempts to parse JSON-encoded tool args into a map.
+// Returns nil on failure (non-fatal convenience parsing).
+func parseToolArgsJSON(input string) map[string]any {
+	var parsed map[string]any
+	if json.Unmarshal([]byte(input), &parsed) == nil {
+		return parsed
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // wrappedTool — intercepts tool calls through the extension runner
 // ---------------------------------------------------------------------------
@@ -63,12 +94,16 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			fmt.Errorf("tool %q disabled by extension", toolName)
 	}
 
+	kind := toolKindFor(toolName)
+
 	// 1. Emit ToolCall — extensions can block execution.
 	if w.runner.HasHandlers(ToolCall) {
 		result, _ := w.runner.Emit(ToolCallEvent{
 			ToolName:   toolName,
 			ToolCallID: call.ID,
+			ToolKind:   kind,
 			Input:      call.Input,
+			ParsedArgs: parseToolArgsJSON(call.Input),
 			Source:     "llm",
 		})
 		if r, ok := result.(ToolCallResult); ok && r.Block {
@@ -83,7 +118,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 
 	// 2. Emit ToolExecutionStart.
 	if w.runner.HasHandlers(ToolExecutionStart) {
-		_, _ = w.runner.Emit(ToolExecutionStartEvent{ToolName: toolName})
+		_, _ = w.runner.Emit(ToolExecutionStartEvent{ToolCallID: call.ID, ToolName: toolName, ToolKind: kind})
 	}
 
 	// 3. Execute the actual tool.
@@ -91,16 +126,19 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 
 	// 4. Emit ToolExecutionEnd.
 	if w.runner.HasHandlers(ToolExecutionEnd) {
-		_, _ = w.runner.Emit(ToolExecutionEndEvent{ToolName: toolName})
+		_, _ = w.runner.Emit(ToolExecutionEndEvent{ToolCallID: call.ID, ToolName: toolName, ToolKind: kind})
 	}
 
 	// 5. Emit ToolResult — extensions can modify output.
 	if w.runner.HasHandlers(ToolResult) {
 		result, _ := w.runner.Emit(ToolResultEvent{
-			ToolName: toolName,
-			Input:    call.Input,
-			Content:  resp.Content,
-			IsError:  err != nil || resp.IsError,
+			ToolCallID: call.ID,
+			ToolName:   toolName,
+			ToolKind:   kind,
+			Input:      call.Input,
+			Content:    resp.Content,
+			IsError:    err != nil || resp.IsError,
+			Metadata:   resp.Metadata,
 		})
 		if r, ok := result.(ToolResultResult); ok {
 			if r.Content != nil {

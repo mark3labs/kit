@@ -31,8 +31,9 @@ const (
 
 // BeforeToolCallHook is the input for hooks that fire before a tool executes.
 type BeforeToolCallHook struct {
-	ToolName string
-	ToolArgs string
+	ToolCallID string
+	ToolName   string
+	ToolArgs   string
 }
 
 // BeforeToolCallResult controls whether the tool call proceeds.
@@ -43,10 +44,11 @@ type BeforeToolCallResult struct {
 
 // AfterToolResultHook is the input for hooks that fire after a tool executes.
 type AfterToolResultHook struct {
-	ToolName string
-	ToolArgs string
-	Result   string
-	IsError  bool
+	ToolCallID string
+	ToolName   string
+	ToolArgs   string
+	Result     string
+	IsError    bool
 }
 
 // AfterToolResultResult can modify the tool's output before it reaches the LLM.
@@ -258,8 +260,9 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 	// 1. BeforeToolCall — can block execution.
 	if h.beforeToolCall.hasHooks() {
 		if result := h.beforeToolCall.run(BeforeToolCallHook{
-			ToolName: toolName,
-			ToolArgs: call.Input,
+			ToolCallID: call.ID,
+			ToolName:   toolName,
+			ToolArgs:   call.Input,
 		}); result != nil && result.Block {
 			reason := result.Reason
 			if reason == "" {
@@ -276,10 +279,11 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 	// 3. AfterToolResult — can modify output.
 	if h.afterToolResult.hasHooks() {
 		if result := h.afterToolResult.run(AfterToolResultHook{
-			ToolName: toolName,
-			ToolArgs: call.Input,
-			Result:   resp.Content,
-			IsError:  err != nil || resp.IsError,
+			ToolCallID: call.ID,
+			ToolName:   toolName,
+			ToolArgs:   call.Input,
+			Result:     resp.Content,
+			IsError:    err != nil || resp.IsError,
 		}); result != nil {
 			if result.Result != nil {
 				resp.Content = *result.Result

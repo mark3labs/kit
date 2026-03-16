@@ -47,8 +47,15 @@ type SubagentConfig struct {
 	// and returns immediately with a handle.
 	Blocking bool
 
+	// NoSession, when true, runs the subagent without persisting a session
+	// file. By default (false), subagent sessions are persisted so they can
+	// be loaded for replay/inspection. Set to true for ephemeral tasks
+	// where session history is not needed.
+	NoSession bool
+
 	// ParentSessionID links the subagent's session to the parent (optional).
-	// When set, the subagent's session is persisted with a parent reference.
+	// When set, the subagent's session header includes a parent reference
+	// so viewers can navigate the session tree.
 	ParentSessionID string
 }
 
@@ -68,6 +75,11 @@ type SubagentResult struct {
 
 	// Usage contains token usage if available.
 	Usage *SubagentUsage
+
+	// SessionID is the subagent's session identifier, if available.
+	// Populated when the subagent persists its session (requires running
+	// without --no-session). Empty for ephemeral sessions.
+	SessionID string
 }
 
 // SubagentUsage contains token usage from the subagent's run.
@@ -120,8 +132,10 @@ func (h *SubagentHandle) Done() <-chan struct{} {
 
 // subagentJSONOutput matches the JSON envelope produced by `kit --json`.
 type subagentJSONOutput struct {
-	Response string `json:"response"`
-	Usage    *struct {
+	Response   string `json:"response"`
+	StopReason string `json:"stop_reason,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
+	Usage      *struct {
 		InputTokens  int64 `json:"input_tokens"`
 		OutputTokens int64 `json:"output_tokens"`
 	} `json:"usage,omitempty"`
@@ -175,8 +189,10 @@ func SpawnSubagent(cfg SubagentConfig) (*SubagentHandle, *SubagentResult, error)
 	// Build subprocess arguments.
 	args := []string{
 		"--json",
-		"--no-session",
 		"--no-extensions",
+	}
+	if cfg.NoSession {
+		args = append(args, "--no-session")
 	}
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
@@ -294,6 +310,7 @@ func SpawnSubagent(cfg SubagentConfig) (*SubagentHandle, *SubagentResult, error)
 		var parsed subagentJSONOutput
 		if raw != "" && json.Unmarshal([]byte(raw), &parsed) == nil {
 			result.Response = parsed.Response
+			result.SessionID = parsed.SessionID
 			if parsed.Usage != nil {
 				result.Usage = &SubagentUsage{
 					InputTokens:  parsed.Usage.InputTokens,

@@ -1432,7 +1432,9 @@ type EditorConfig struct {
 type ToolCallEvent struct {
 	ToolName   string
 	ToolCallID string
-	Input      string // JSON-encoded tool parameters
+	ToolKind   string         // Tool classification: "execute", "edit", "read", "search", "agent"
+	Input      string         // JSON-encoded tool parameters
+	ParsedArgs map[string]any // Pre-parsed arguments for convenience (nil on parse failure)
 	// Source indicates who initiated the tool call.
 	// Currently always "llm" (all tool calls originate from the LLM agent loop).
 	// Future user-initiated tool features may set this to "user".
@@ -1451,24 +1453,31 @@ func (ToolCallResult) isResult() {}
 
 // ToolExecutionStartEvent fires when a tool begins executing.
 type ToolExecutionStartEvent struct {
-	ToolName string
+	ToolCallID string
+	ToolName   string
+	ToolKind   string
 }
 
 func (e ToolExecutionStartEvent) Type() EventType { return ToolExecutionStart }
 
 // ToolExecutionEndEvent fires when a tool finishes executing.
 type ToolExecutionEndEvent struct {
-	ToolName string
+	ToolCallID string
+	ToolName   string
+	ToolKind   string
 }
 
 func (e ToolExecutionEndEvent) Type() EventType { return ToolExecutionEnd }
 
 // ToolResultEvent fires after tool execution with the output.
 type ToolResultEvent struct {
-	ToolName string
-	Input    string
-	Content  string
-	IsError  bool
+	ToolCallID string
+	ToolName   string
+	ToolKind   string
+	Input      string
+	Content    string
+	IsError    bool
+	Metadata   string // Optional JSON-encoded structured metadata (e.g. file diffs)
 }
 
 func (e ToolResultEvent) Type() EventType { return ToolResult }
