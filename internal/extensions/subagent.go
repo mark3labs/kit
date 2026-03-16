@@ -38,6 +38,11 @@ type SubagentConfig struct {
 	// Called from a goroutine; must be safe for concurrent use.
 	OnOutput func(chunk string)
 
+	// OnEvent receives real-time events from the subagent's execution:
+	// text chunks, tool calls, tool results, reasoning deltas, etc.
+	// Called synchronously from the subagent's event loop.
+	OnEvent func(SubagentEvent)
+
 	// OnComplete is called when the subagent finishes (success or error).
 	// Called from a goroutine; must be safe for concurrent use.
 	OnComplete func(result SubagentResult)
@@ -57,6 +62,33 @@ type SubagentConfig struct {
 	// When set, the subagent's session header includes a parent reference
 	// so viewers can navigate the session tree.
 	ParentSessionID string
+}
+
+// SubagentEvent carries a real-time event from a running subagent. Extensions
+// use the Type field to determine what happened and read the relevant fields.
+// This is a concrete struct (not an interface) for Yaegi compatibility.
+type SubagentEvent struct {
+	// Type identifies the event: "text", "reasoning", "tool_call",
+	// "tool_result", "tool_execution_start", "tool_execution_end",
+	// "turn_start", "turn_end".
+	Type string
+
+	// Content carries text for "text" and "reasoning" events.
+	Content string
+
+	// ToolCallID is set on tool_call, tool_result, tool_execution_start,
+	// and tool_execution_end events.
+	ToolCallID string
+	// ToolName is set on tool-related events.
+	ToolName string
+	// ToolKind is set on tool-related events.
+	ToolKind string
+	// ToolArgs is set on tool_call events (JSON-encoded).
+	ToolArgs string
+	// ToolResult is set on tool_result events.
+	ToolResult string
+	// IsError is set on tool_result events.
+	IsError bool
 }
 
 // SubagentResult contains the outcome of a subagent execution.

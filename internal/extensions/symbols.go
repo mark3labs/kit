@@ -115,6 +115,7 @@ func Symbols() interp.Exports {
 			"SubagentResult": reflect.ValueOf((*SubagentResult)(nil)),
 			"SubagentUsage":  reflect.ValueOf((*SubagentUsage)(nil)),
 			"SubagentHandle": reflect.ValueOf((*SubagentHandle)(nil)),
+			"SubagentEvent":  reflect.ValueOf((*SubagentEvent)(nil)),
 
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),

@@ -152,13 +152,22 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 				return kitInstance.ExecuteCompletion(context.Background(), req)
 			},
 			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				result, err := kitInstance.Subagent(context.Background(), kit.SubagentConfig{
+				sdkCfg := kit.SubagentConfig{
 					Prompt:       config.Prompt,
 					Model:        config.Model,
 					SystemPrompt: config.SystemPrompt,
 					Timeout:      config.Timeout,
 					NoSession:    config.NoSession,
-				})
+				}
+				if config.OnEvent != nil {
+					sdkCfg.OnEvent = func(e kit.Event) {
+						se := sdkEventToSubagentEvent(e)
+						if se.Type != "" {
+							config.OnEvent(se)
+						}
+					}
+				}
+				result, err := kitInstance.Subagent(context.Background(), sdkCfg)
 				if result == nil {
 					return nil, &extensions.SubagentResult{Error: err}, err
 				}
@@ -245,4 +254,41 @@ func (s *acpSession) clearCancel() {
 	s.cancelMu.Lock()
 	defer s.cancelMu.Unlock()
 	s.cancelFn = nil
+}
+
+// sdkEventToSubagentEvent converts an SDK event to an extension SubagentEvent.
+func sdkEventToSubagentEvent(e kit.Event) extensions.SubagentEvent {
+	switch ev := e.(type) {
+	case kit.MessageUpdateEvent:
+		return extensions.SubagentEvent{Type: "text", Content: ev.Chunk}
+	case kit.ReasoningDeltaEvent:
+		return extensions.SubagentEvent{Type: "reasoning", Content: ev.Delta}
+	case kit.ToolCallEvent:
+		return extensions.SubagentEvent{
+			Type: "tool_call", ToolCallID: ev.ToolCallID,
+			ToolName: ev.ToolName, ToolKind: ev.ToolKind, ToolArgs: ev.ToolArgs,
+		}
+	case kit.ToolExecutionStartEvent:
+		return extensions.SubagentEvent{
+			Type: "tool_execution_start", ToolCallID: ev.ToolCallID,
+			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
+		}
+	case kit.ToolExecutionEndEvent:
+		return extensions.SubagentEvent{
+			Type: "tool_execution_end", ToolCallID: ev.ToolCallID,
+			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
+		}
+	case kit.ToolResultEvent:
+		return extensions.SubagentEvent{
+			Type: "tool_result", ToolCallID: ev.ToolCallID,
+			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
+			ToolResult: ev.Result, IsError: ev.IsError,
+		}
+	case kit.TurnStartEvent:
+		return extensions.SubagentEvent{Type: "turn_start"}
+	case kit.TurnEndEvent:
+		return extensions.SubagentEvent{Type: "turn_end"}
+	default:
+		return extensions.SubagentEvent{}
+	}
 }
