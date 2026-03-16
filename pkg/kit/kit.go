@@ -1325,15 +1325,33 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		tools = SubagentTools()
 	}
 
-	// Create child Kit instance.
-	child, err := New(ctx, &Options{
+	// Create child Kit instance. If the requested model fails (bad name,
+	// unsupported provider, etc.), fall back to the parent's model so the
+	// agent gets a useful error message instead of a hard failure.
+	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
-	})
-	if err != nil {
+	}
+	child, err := New(ctx, childOpts)
+	if err != nil && model != m.modelString {
+		// Model-specific failure — retry with parent's model.
+		childOpts.Model = m.modelString
+		child, err = New(ctx, childOpts)
+		if err != nil {
+			return &SubagentResult{
+				Error:   fmt.Errorf("failed to create subagent: %w", err),
+				Elapsed: time.Since(start),
+			}, err
+		}
+		// Prepend a note so the agent knows which model is actually running.
+		cfg.Prompt = fmt.Sprintf(
+			"[Note: requested model %q was not available, using %s instead.]\n\n%s",
+			model, m.modelString, cfg.Prompt,
+		)
+	} else if err != nil {
 		return &SubagentResult{
 			Error:   fmt.Errorf("failed to create subagent: %w", err),
 			Elapsed: time.Since(start),
