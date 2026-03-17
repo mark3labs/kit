@@ -47,12 +47,17 @@ func (r *CompactRenderer) RenderUserMessage(content string, timestamp time.Time)
 	symbol := lipgloss.NewStyle().Foreground(theme.Secondary).Render(">")
 	label := lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render("User")
 
-	// Convert single newlines to paragraph breaks so they survive glamour's
-	// markdown rendering (glamour treats single \n as a soft break).
-	content = strings.ReplaceAll(content, "\n", "\n\n")
-
-	// Format content for user messages (preserve formatting, no truncation)
-	compactContent := r.formatUserAssistantContent(content)
+	// Only run markdown rendering when the message contains code spans or
+	// fenced code blocks. Plain text is rendered directly so that newlines
+	// are preserved without the extra paragraph spacing glamour adds.
+	var compactContent string
+	if strings.Contains(content, "`") {
+		mdContent := strings.ReplaceAll(content, "\n", "\n\n")
+		compactContent = r.formatUserAssistantContent(mdContent)
+		compactContent = removeBlankLines(compactContent)
+	} else {
+		compactContent = content
+	}
 
 	// Handle multi-line content
 	lines := strings.Split(compactContent, "\n")

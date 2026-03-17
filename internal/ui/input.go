@@ -89,10 +89,10 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 	ta.SetHeight(3)        // Default to 3 lines like huh
 	ta.Focus()
 
-	// Override InsertNewline so only ctrl+j and alt+enter insert newlines.
+	// Override InsertNewline so only ctrl+j and shift+enter insert newlines.
 	// Enter always submits the input.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("ctrl+j", "alt+enter"),
+		key.WithKeys("ctrl+j", "shift+enter"),
 		key.WithHelp("ctrl+j", "insert newline"),
 	)
 
@@ -419,7 +419,7 @@ func (s *InputComponent) View() tea.View {
 			MarginTop(1).
 			PaddingLeft(3)
 
-		hint := "enter submit • ctrl+j / alt+enter new line • ctrl+v paste image"
+		hint := "enter submit • ctrl+j / shift+enter new line • ctrl+v paste image"
 		view.WriteString("\n")
 		view.WriteString(helpStyle.Render(hint))
 	}

@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
 )
+
+// ansiEscapeRe matches ANSI escape sequences used for terminal styling.
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // MessageType represents different categories of messages displayed in the UI,
 // each with distinct visual styling and formatting rules.
@@ -193,13 +197,21 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	timeStr := timestamp.Local().Format("15:04")
 	username := getSystemUsername()
 
-	// Convert single newlines to paragraph breaks so they survive glamour's
-	// markdown rendering (glamour treats single \n as a soft break).
-	content = strings.ReplaceAll(content, "\n", "\n\n")
-
 	theme := getTheme()
 
-	messageContent := r.renderMarkdown(content, r.width-8) // Account for padding and borders
+	// Only run markdown rendering when the message contains code spans or
+	// fenced code blocks. Plain text is rendered directly so that newlines
+	// are preserved without the extra paragraph spacing glamour adds.
+	var messageContent string
+	if strings.Contains(content, "`") {
+		// Glamour treats single \n as a soft break, so convert to paragraph
+		// breaks and collapse the resulting blank lines after rendering.
+		mdContent := strings.ReplaceAll(content, "\n", "\n\n")
+		messageContent = r.renderMarkdown(mdContent, r.width-8)
+		messageContent = removeBlankLines(messageContent)
+	} else {
+		messageContent = content
+	}
 
 	// Create info line
 	info := fmt.Sprintf(" %s (%s)", username, timeStr)
@@ -709,4 +721,20 @@ func (r *MessageRenderer) formatBashOutput(result string, width int, theme Theme
 func (r *MessageRenderer) renderMarkdown(content string, width int) string {
 	rendered := toMarkdown(content, width)
 	return strings.TrimSuffix(rendered, "\n")
+}
+
+// removeBlankLines removes lines that are visually blank from rendered output.
+// Glamour wraps every character (including padding spaces) with ANSI color
+// codes, so we must strip escape sequences before checking whether a line is
+// empty. This collapses paragraph spacing so user messages render without
+// extra vertical gaps.
+func removeBlankLines(s string) string {
+	lines := strings.Split(s, "\n")
+	filtered := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(ansiEscapeRe.ReplaceAllString(line, "")) != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	return strings.Join(filtered, "\n")
 }

@@ -396,6 +396,12 @@ type AppModel struct {
 	// the input and move to scrollback when the agent picks them up.
 	queuedMessages []string
 
+	// pendingUserPrints holds user messages that have been consumed from the
+	// queue but not yet printed to scrollback. They are deferred until
+	// SpinnerEvent{Show: true} so the previous assistant response can be
+	// flushed first, preserving chronological order.
+	pendingUserPrints []string
+
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
@@ -1091,12 +1097,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if qLen > 0 {
 				// Queued: anchor the message text above the input with a
 				// "queued" badge. It will be printed to scrollback when
-				// the agent picks it up (on QueueUpdatedEvent).
+				// the agent picks it up (via SpinnerEvent).
 				m.queuedMessages = append(m.queuedMessages, displayText)
 				m.distributeHeight()
 			} else {
-				// Started immediately: print to scrollback now.
-				cmds = append(cmds, m.printUserMessage(displayText))
+				// Started immediately. Flush any leftover stream content
+				// from the previous step first, then print the user
+				// message — combined in a single tea.Println so
+				// scrollback stays in chronological order.
+				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+				cmds = append(cmds, m.flushStreamAndPendingUserMessages())
 			}
 		} else {
 			cmds = append(cmds, m.printUserMessage(displayText))
@@ -1119,10 +1129,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// SpinnerEvent{Show: true} means a new agent step has started (either
 		// freshly or from the queue after a previous step completed). Flush
 		// any leftover stream content from the previous step to scrollback
-		// before starting the new one. This deferred flush avoids shrinking
-		// the view at step-completion time (which leaves blank lines).
+		// before starting the new one, followed by any pending user messages
+		// from the queue. Everything is emitted in a single tea.Println to
+		// guarantee chronological ordering in scrollback.
 		if msg.Show {
-			cmds = append(cmds, m.flushStreamContent())
+			cmds = append(cmds, m.flushStreamAndPendingUserMessages())
 			m.state = stateWorking
 			m.distributeHeight()
 		}
@@ -1189,13 +1200,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Informational — no action needed by parent.
 
 	case app.QueueUpdatedEvent:
-		// drainQueue popped item(s) from the queue. Move consumed messages
-		// from the anchored display to scrollback (they are now being processed
-		// or about to be).
+		// drainQueue popped item(s) from the queue. Move consumed
+		// messages to pendingUserPrints — they will be printed to
+		// scrollback in the next SpinnerEvent{Show: true} after the
+		// previous assistant response is flushed.
 		for len(m.queuedMessages) > msg.Length {
 			text := m.queuedMessages[0]
 			m.queuedMessages = m.queuedMessages[1:]
-			cmds = append(cmds, m.printUserMessage(text))
+			m.pendingUserPrints = append(m.pendingUserPrints, text)
 		}
 		m.distributeHeight()
 
@@ -2080,8 +2092,7 @@ func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
 // and on step completion.
 //
 // After flushing, a ClearScreen is issued to force a full terminal redraw.
-// When
-// the stream content is moved to scrollback the view height shrinks, and
+// When the stream content is moved to scrollback the view height shrinks, and
 // bubbletea's inline renderer doesn't clear the orphaned terminal rows
 // below the managed region. ClearScreen ensures a clean redraw.
 func (m *AppModel) flushStreamContent() tea.Cmd {
@@ -2095,6 +2106,37 @@ func (m *AppModel) flushStreamContent() tea.Cmd {
 	m.stream.Reset()
 	return tea.Sequence(
 		tea.Println(content),
+		func() tea.Msg { return tea.ClearScreen() },
+	)
+}
+
+// flushStreamAndPendingUserMessages flushes the previous assistant response
+// and any pending queued user messages to scrollback in a single tea.Println
+// call, guaranteeing chronological order. Called from SpinnerEvent{Show: true}
+// where all previous stream chunks are guaranteed to have been processed.
+func (m *AppModel) flushStreamAndPendingUserMessages() tea.Cmd {
+	var parts []string
+
+	// 1. Flush previous stream content (assistant response).
+	if m.stream != nil {
+		if content := m.stream.GetRenderedContent(); content != "" {
+			m.stream.Reset()
+			parts = append(parts, content)
+		}
+	}
+
+	// 2. Render pending user messages from the queue.
+	for _, text := range m.pendingUserPrints {
+		rendered := m.renderer.RenderUserMessage(text, time.Now()).Content
+		parts = append(parts, rendered)
+	}
+	m.pendingUserPrints = nil
+
+	if len(parts) == 0 {
+		return nil
+	}
+	return tea.Sequence(
+		tea.Println(strings.Join(parts, "\n")),
 		func() tea.Msg { return tea.ClearScreen() },
 	)
 }

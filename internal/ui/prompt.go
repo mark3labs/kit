@@ -83,7 +83,7 @@ func newInputPrompt(message, placeholder, defaultValue string, width, height int
 
 	// Prevent Enter from inserting a newline — we intercept it for submit.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("ctrl+j", "alt+enter"),
+		key.WithKeys("ctrl+j", "shift+enter"),
 	)
 
 	if defaultValue != "" {

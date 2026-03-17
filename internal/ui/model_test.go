@@ -405,14 +405,16 @@ func TestQueuedMessages_storedOnQueuedSubmit(t *testing.T) {
 }
 
 // TestQueuedMessages_poppedOnQueueUpdated verifies that QueueUpdatedEvent pops
-// consumed messages from queuedMessages and prints them to scrollback.
+// consumed messages from queuedMessages and moves them to pendingUserPrints.
+// The actual printing is deferred to SpinnerEvent{Show: true} to preserve
+// chronological order with the preceding assistant response.
 func TestQueuedMessages_poppedOnQueueUpdated(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 	m.queuedMessages = []string{"first", "second", "third"}
 
 	// Simulate drainQueue popping one item (length goes from 3 to 2).
-	_, cmd := m.Update(app.QueueUpdatedEvent{Length: 2})
+	m = sendMsg(m, app.QueueUpdatedEvent{Length: 2})
 
 	if len(m.queuedMessages) != 2 {
 		t.Fatalf("expected 2 queued messages after pop, got %d", len(m.queuedMessages))
@@ -420,14 +422,17 @@ func TestQueuedMessages_poppedOnQueueUpdated(t *testing.T) {
 	if m.queuedMessages[0] != "second" {
 		t.Fatalf("expected first remaining message 'second', got %q", m.queuedMessages[0])
 	}
-	// Should produce a cmd (tea.Println for the popped user message).
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) for popped message")
+	// Popped message should be deferred to pendingUserPrints.
+	if len(m.pendingUserPrints) != 1 {
+		t.Fatalf("expected 1 pending user print, got %d", len(m.pendingUserPrints))
+	}
+	if m.pendingUserPrints[0] != "first" {
+		t.Fatalf("expected pending message 'first', got %q", m.pendingUserPrints[0])
 	}
 }
 
 // TestQueuedMessages_allPoppedOnDrain verifies that QueueUpdatedEvent with
-// Length=0 pops all remaining queued messages.
+// Length=0 pops all remaining queued messages into pendingUserPrints.
 func TestQueuedMessages_allPoppedOnDrain(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
@@ -437,6 +442,9 @@ func TestQueuedMessages_allPoppedOnDrain(t *testing.T) {
 
 	if len(m.queuedMessages) != 0 {
 		t.Fatalf("expected 0 queued messages after drain, got %d", len(m.queuedMessages))
+	}
+	if len(m.pendingUserPrints) != 2 {
+		t.Fatalf("expected 2 pending user prints, got %d", len(m.pendingUserPrints))
 	}
 }
 
