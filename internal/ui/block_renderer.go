@@ -11,6 +11,7 @@ type blockRenderer struct {
 	align         *lipgloss.Position
 	borderColor   *color.Color
 	background    *color.Color
+	foreground    *color.Color
 	fullWidth     bool
 	noBorder      bool
 	paddingTop    int
@@ -123,6 +124,15 @@ func WithBackground(c color.Color) renderingOption {
 	}
 }
 
+// WithForeground returns a renderingOption that overrides the default text
+// foreground color (theme.Text) for the block. Useful for muted or
+// de-emphasized content blocks.
+func WithForeground(c color.Color) renderingOption {
+	return func(br *blockRenderer) {
+		br.foreground = &c
+	}
+}
+
 // WithWidth returns a renderingOption that sets a specific width for the block
 // in characters. This overrides the default container width and allows precise
 // control over the block's horizontal dimensions.
@@ -167,13 +177,19 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 
 	theme := GetTheme()
 
+	// Resolve foreground color: caller override or theme default.
+	fgColor := theme.Text
+	if renderer.foreground != nil {
+		fgColor = *renderer.foreground
+	}
+
 	// Single-pass render: padding, border, and foreground in one style.
 	style := lipgloss.NewStyle().
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
 		PaddingTop(renderer.paddingTop).
 		PaddingBottom(renderer.paddingBottom).
-		Foreground(theme.Text)
+		Foreground(fgColor)
 
 	if hasBorder {
 		style = style.BorderStyle(lipgloss.ThickBorder())

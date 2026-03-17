@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -165,8 +166,14 @@ type StreamComponent struct {
 	// the cache.
 	renderDirty bool
 
-	// thinkingVisible controls whether reasoning blocks are shown or collapsed.
+	// thinkingVisible controls whether reasoning blocks are expanded or collapsed.
 	thinkingVisible bool
+
+	// reasoningStartTime records when the first reasoning chunk was received.
+	reasoningStartTime time.Time
+
+	// reasoningDuration holds the total reasoning time, frozen when streaming text begins.
+	reasoningDuration time.Duration
 
 	// messageRenderer renders assistant messages in standard mode.
 	messageRenderer *MessageRenderer
@@ -236,6 +243,8 @@ func (s *StreamComponent) Reset() {
 	s.renderCache = ""
 	s.renderDirty = false
 	s.timestamp = time.Time{}
+	s.reasoningStartTime = time.Time{}
+	s.reasoningDuration = 0
 }
 
 // GetRenderedContent returns the rendered assistant message from the accumulated
@@ -334,6 +343,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.timestamp.IsZero() {
 			s.timestamp = time.Now()
 		}
+		if s.reasoningStartTime.IsZero() {
+			s.reasoningStartTime = time.Now()
+		}
 		s.pendingReasoning.WriteString(msg.Delta)
 		if !s.flushPending {
 			s.flushPending = true
@@ -344,6 +356,10 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.phase = streamPhaseActive
 		if s.timestamp.IsZero() {
 			s.timestamp = time.Now()
+		}
+		// Freeze reasoning duration on transition from reasoning to streaming.
+		if s.reasoningDuration == 0 && !s.reasoningStartTime.IsZero() {
+			s.reasoningDuration = time.Since(s.reasoningStartTime)
 		}
 		s.pendingStream.WriteString(msg.Content)
 		if !s.flushPending {
@@ -432,29 +448,65 @@ func (s *StreamComponent) render() string {
 	return content
 }
 
-// renderReasoningBlock renders the reasoning/thinking content. When thinking
-// is visible, the full reasoning text is shown in muted italic style. When
-// collapsed, a "Thinking..." label is shown instead.
+// renderReasoningBlock renders the reasoning/thinking content in a surface-tinted
+// box. When collapsed, shows the last 10 lines with a truncation hint. When
+// expanded, shows all lines. Includes a "Thought for Xs" duration footer.
 func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	theme := GetTheme()
+	maxWidth := max(s.width-4, 20)
 
-	if !s.thinkingVisible {
-		// Show collapsed "Thinking..." label.
-		return lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Italic(true).
-			Render("Thinking...")
-	}
+	lines := strings.Split(strings.TrimRight(reasoning, "\n"), "\n")
 
-	// Render full reasoning text in muted italic style.
-	style := lipgloss.NewStyle().
+	contentStyle := lipgloss.NewStyle().
 		Foreground(theme.Muted).
 		Italic(true)
 
-	// Wrap to terminal width.
-	maxWidth := max(s.width-4, 20) // leave some margin
-	styled := style.Width(maxWidth).Render(reasoning)
-	return styled
+	var parts []string
+
+	// When collapsed and content exceeds 10 lines, show only the last 10
+	// with a truncation hint (matching iteratr's thinking block pattern).
+	const maxCollapsedLines = 10
+	if !s.thinkingVisible && len(lines) > maxCollapsedLines {
+		hidden := len(lines) - maxCollapsedLines
+		hintStyle := lipgloss.NewStyle().
+			Foreground(theme.VeryMuted).
+			Italic(true)
+		parts = append(parts, hintStyle.Render(fmt.Sprintf("... (%d lines hidden)", hidden)))
+		lines = lines[len(lines)-maxCollapsedLines:]
+	}
+
+	// Render reasoning text.
+	parts = append(parts, contentStyle.Width(maxWidth).Render(strings.Join(lines, "\n")))
+
+	// Duration footer.
+	var duration time.Duration
+	if s.reasoningDuration > 0 {
+		duration = s.reasoningDuration
+	} else if !s.reasoningStartTime.IsZero() {
+		duration = time.Since(s.reasoningStartTime)
+	}
+	if duration > 0 {
+		var durationStr string
+		if duration < time.Second {
+			durationStr = fmt.Sprintf("%dms", duration.Milliseconds())
+		} else {
+			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
+		}
+		footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ") +
+			lipgloss.NewStyle().Foreground(theme.Info).Render(durationStr)
+		parts = append(parts, footer)
+	}
+
+	innerContent := strings.Join(parts, "\n")
+
+	// Wrap in box with surface background for visual distinction.
+	boxStyle := lipgloss.NewStyle().
+		Background(theme.MutedBorder). // Surface0 (#313244)
+		PaddingLeft(1).
+		Width(maxWidth + 2).
+		MarginBottom(1)
+
+	return boxStyle.Render(innerContent)
 }
 
 // SetThinkingVisible sets whether reasoning blocks are shown or collapsed.

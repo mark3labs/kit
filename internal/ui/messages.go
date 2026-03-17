@@ -3,8 +3,6 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/user"
 	"regexp"
 	"sort"
 	"strings"
@@ -158,21 +156,6 @@ type MessageRenderer struct {
 	getToolRenderer func(toolName string) *ToolRendererData
 }
 
-// getSystemUsername returns the current system username, fallback to "User"
-func getSystemUsername() string {
-	if currentUser, err := user.Current(); err == nil && currentUser.Username != "" {
-		return currentUser.Username
-	}
-	// Fallback to environment variable
-	if username := os.Getenv("USER"); username != "" {
-		return username
-	}
-	if username := os.Getenv("USERNAME"); username != "" {
-		return username
-	}
-	return "User"
-}
-
 // NewMessageRenderer creates and initializes a new MessageRenderer with the specified
 // terminal width and debug mode setting. The width parameter determines line wrapping
 // and layout calculations.
@@ -193,10 +176,6 @@ func (r *MessageRenderer) SetWidth(width int) {
 // formatting, including the system username, timestamp, and markdown-rendered content.
 // The message is displayed with a colored right border for visual distinction.
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
-	// Format timestamp and username
-	timeStr := timestamp.Local().Format("15:04")
-	username := getSystemUsername()
-
 	theme := getTheme()
 
 	// Only run markdown rendering when the message contains code spans or
@@ -213,19 +192,14 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 		messageContent = content
 	}
 
-	// Create info line
-	info := fmt.Sprintf(" %s (%s)", username, timeStr)
+	fullContent := strings.TrimSuffix(messageContent, "\n")
 
-	// Combine content and info
-	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
-		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
-
-	// Use the block renderer — left border with Primary color, no background.
+	// Left border with Blue color for user messages.
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
 		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.Primary),
+		WithBorderColor(theme.Info),
 		WithMarginBottom(1),
 	)
 
@@ -242,14 +216,8 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 // are displayed with a special "Finished without output" message. The message features
 // a colored left border for visual distinction.
 func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage {
-	// Format timestamp and model info with better defaults
-	timeStr := timestamp.Local().Format("15:04")
-	if modelName == "" {
-		modelName = "Assistant"
-	}
-
-	// Handle empty content with better styling
 	theme := getTheme()
+
 	var messageContent string
 	if strings.TrimSpace(content) == "" {
 		messageContent = lipgloss.NewStyle().
@@ -258,21 +226,16 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 			Align(lipgloss.Center).
 			Render("Finished without output")
 	} else {
-		messageContent = r.renderMarkdown(content, r.width-8) // Account for padding and borders
+		messageContent = r.renderMarkdown(content, r.width-8)
 	}
 
-	// Create info line
-	info := fmt.Sprintf(" %s (%s)", modelName, timeStr)
+	fullContent := strings.TrimSuffix(messageContent, "\n")
 
-	// Combine content and info
-	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
-		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
-
-	// Use the new block renderer — no borders for agent messages.
+	// Left border with Primary (Mauve) color for assistant messages.
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
-		WithNoBorder(),
+		WithBorderColor(theme.Primary),
 		WithMarginBottom(1),
 	)
 
@@ -288,35 +251,24 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 // and informational notifications. These messages are displayed with a distinctive system
 // color border and "KIT System" label to differentiate them from user and AI content.
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
-	// Format timestamp
-	timeStr := timestamp.Local().Format("15:04")
-
-	// Handle empty content with better styling
 	theme := getTheme()
+
 	var messageContent string
 	if strings.TrimSpace(content) == "" {
-		messageContent = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(theme.Muted).
-			Align(lipgloss.Center).
-			Render("No content available")
+		messageContent = "No content available"
+	} else if strings.Contains(content, "`") {
+		messageContent = r.renderMarkdown(content, r.width-8)
 	} else {
-		messageContent = r.renderMarkdown(content, r.width-8) // Account for padding and borders
+		messageContent = content
 	}
 
-	// Create info line
-	info := fmt.Sprintf(" KIT System (%s)", timeStr)
+	fullContent := "◇ " + strings.TrimSuffix(messageContent, "\n")
 
-	// Combine content and info
-	fullContent := strings.TrimSuffix(messageContent, "\n") + "\n" +
-		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
-
-	// Use the new block renderer
 	rendered := renderContentBlock(
 		fullContent,
 		r.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.System),
+		WithNoBorder(),
+		WithForeground(theme.Muted),
 		WithMarginBottom(1),
 	)
 
@@ -334,29 +286,22 @@ func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Tim
 func (r *MessageRenderer) RenderDebugMessage(message string, timestamp time.Time) UIMessage {
 	baseStyle := lipgloss.NewStyle()
 
-	// Create the main message style with border using tool color
 	theme := getTheme()
 	style := baseStyle.
-		Width(r.width - 3). // Account for left margin
+		Width(r.width - 3).
 		BorderLeft(true).
 		Foreground(theme.Muted).
 		BorderForeground(theme.Tool).
 		BorderStyle(lipgloss.ThickBorder()).
 		PaddingLeft(1).
-		MarginLeft(2).  // Add left margin like other messages
-		MarginBottom(1) // Add bottom margin
+		MarginLeft(2).
+		MarginBottom(1)
 
-	// Format timestamp
-	timeStr := timestamp.Local().Format("02 Jan 2006 03:04 PM")
-
-	// Create header with debug icon
 	header := baseStyle.
 		Foreground(theme.Tool).
 		Bold(true).
 		Render("🔍 Debug Output")
 
-	// Process and format the message content
-	// Split into lines and format each one
 	lines := strings.Split(message, "\n")
 	var formattedLines []string
 	for _, line := range lines {
@@ -369,17 +314,9 @@ func (r *MessageRenderer) RenderDebugMessage(message string, timestamp time.Time
 		Foreground(theme.Muted).
 		Render(strings.Join(formattedLines, "\n"))
 
-	// Create info line
-	info := baseStyle.
-		Width(r.width - 5). // Account for margins and padding
-		Foreground(theme.Muted).
-		Render(fmt.Sprintf(" KIT (%s)", timeStr))
-
-	// Combine all parts
 	fullContent := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		content,
-		info,
 	)
 
 	return UIMessage{
@@ -394,7 +331,6 @@ func (r *MessageRenderer) RenderDebugMessage(message string, timestamp time.Time
 func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timestamp time.Time) UIMessage {
 	baseStyle := lipgloss.NewStyle()
 
-	// Create the main message style with border using tool color
 	theme := getTheme()
 	style := baseStyle.
 		Width(r.width - 1).
@@ -404,16 +340,11 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 		BorderStyle(lipgloss.ThickBorder()).
 		PaddingLeft(1)
 
-	// Format timestamp
-	timeStr := timestamp.Local().Format("02 Jan 2006 03:04 PM")
-
-	// Create header with debug icon
 	header := baseStyle.
 		Foreground(theme.Tool).
 		Bold(true).
 		Render("🔧 Debug Configuration")
 
-	// Format configuration settings
 	var configLines []string
 	for key, value := range config {
 		if value != nil {
@@ -425,18 +356,10 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 		Foreground(theme.Muted).
 		Render(strings.Join(configLines, "\n"))
 
-	// Create info line
-	info := baseStyle.
-		Width(r.width - 1).
-		Foreground(theme.Muted).
-		Render(fmt.Sprintf(" KIT (%s)", timeStr))
-
-	// Combine parts
 	parts := []string{header}
 	if len(configLines) > 0 {
 		parts = append(parts, configContent)
 	}
-	parts = append(parts, info)
 
 	rendered := style.Render(
 		lipgloss.JoinVertical(lipgloss.Left, parts...),
@@ -454,26 +377,15 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 // bold text to ensure visibility. Error messages include timestamp information and
 // are displayed with an error-colored border for immediate recognition.
 func (r *MessageRenderer) RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage {
-	// Format timestamp
-	timeStr := timestamp.Local().Format("15:04")
-
-	// Format error content
 	theme := getTheme()
+
 	errorContent := lipgloss.NewStyle().
 		Foreground(theme.Error).
 		Bold(true).
 		Render(errorMsg)
 
-	// Create info line
-	info := fmt.Sprintf(" Error (%s)", timeStr)
-
-	// Combine content and info
-	fullContent := errorContent + "\n" +
-		lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(info)
-
-	// Use the new block renderer
 	rendered := renderContentBlock(
-		fullContent,
+		errorContent,
 		r.width,
 		WithAlign(lipgloss.Left),
 		WithBorderColor(theme.Error),
@@ -571,7 +483,7 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	if extRd != nil && extRd.DisplayName != "" {
 		displayName = extRd.DisplayName
 	}
-	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
+	nameStr := lipgloss.NewStyle().Foreground(theme.Info).Bold(true).Render(displayName)
 
 	// Format params with width budget for the header line.
 	// Check extension renderer for custom header params first.

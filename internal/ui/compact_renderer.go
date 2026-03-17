@@ -44,8 +44,8 @@ func (r *CompactRenderer) SetWidth(width int) {
 // and metadata.
 func (r *CompactRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
 	theme := getTheme()
-	symbol := lipgloss.NewStyle().Foreground(theme.Secondary).Render(">")
-	label := lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render("User")
+	symbol := lipgloss.NewStyle().Foreground(theme.Info).Render(">")
+	label := lipgloss.NewStyle().Foreground(theme.Info).Bold(true).Render("User")
 
 	// Only run markdown rendering when the message contains code spans or
 	// fenced code blocks. Plain text is rendered directly so that newlines
@@ -175,7 +175,7 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	if extRd != nil && extRd.DisplayName != "" {
 		displayName = extRd.DisplayName
 	}
-	nameStr := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(displayName)
+	nameStr := lipgloss.NewStyle().Foreground(theme.Info).Bold(true).Render(displayName)
 
 	// Format params — check extension renderer first.
 	paramBudget := max(r.width-10-len(displayName), 20)
@@ -240,8 +240,8 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 // formatted to fit on a single line for minimal space usage.
 func (r *CompactRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
 	theme := getTheme()
-	symbol := lipgloss.NewStyle().Foreground(theme.System).Render("*")
-	label := lipgloss.NewStyle().Foreground(theme.System).Bold(true).Render("System")
+	symbol := lipgloss.NewStyle().Foreground(theme.Muted).Render("◇")
+	label := lipgloss.NewStyle().Foreground(theme.Muted).Bold(true).Render("System")
 
 	compactContent := r.formatCompactContent(content)
 
