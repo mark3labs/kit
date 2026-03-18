@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
+	"charm.land/huh/v2"
 	"github.com/mark3labs/kit/internal/auth"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -171,14 +171,15 @@ func loginAnthropic() error {
 
 	// Check if already authenticated
 	if hasAuth, err := cm.HasAnthropicCredentials(); err == nil && hasAuth {
-		fmt.Print("You are already authenticated with Anthropic. Do you want to re-authenticate? (y/N): ")
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read response: %w", err)
-		}
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
+		var reauth bool
+		err := huh.NewConfirm().
+			Title("You are already authenticated with Anthropic").
+			Description("Do you want to re-authenticate?").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&reauth).
+			Run()
+		if err != nil || !reauth {
 			fmt.Println("Authentication cancelled.")
 			return nil
 		}
@@ -204,10 +205,13 @@ func loginAnthropic() error {
 
 	// Wait for user to complete OAuth flow
 	fmt.Println("After authorizing the application, you'll receive an authorization code.")
-	fmt.Print("Please enter the authorization code: ")
 
-	reader := bufio.NewReader(os.Stdin)
-	code, err := reader.ReadString('\n')
+	var code string
+	err = huh.NewInput().
+		Title("Authorization code").
+		Description("Paste the code from your browser").
+		Value(&code).
+		Run()
 	if err != nil {
 		return fmt.Errorf("failed to read authorization code: %w", err)
 	}
@@ -255,15 +259,15 @@ func logoutAnthropic() error {
 	}
 
 	// Confirm logout
-	fmt.Print("Are you sure you want to remove your Anthropic credentials? (y/N): ")
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	if response != "y" && response != "yes" {
+	var confirm bool
+	err = huh.NewConfirm().
+		Title("Remove Anthropic credentials").
+		Description("Are you sure you want to remove your stored credentials?").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&confirm).
+		Run()
+	if err != nil || !confirm {
 		fmt.Println("Logout cancelled.")
 		return nil
 	}

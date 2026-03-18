@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/extensions"
@@ -151,60 +150,14 @@ func runInstallWithSelection(installer *extensions.Installer, source *extensions
 		return runInstallPackage(installer, source, scope)
 	}
 
-	// Show found extensions
-	fmt.Printf("Found %d extensions in %s:\n", len(previews), source.String())
-	for _, p := range previews {
-		fmt.Printf("  - %s (%s)\n", p.Name, p.Path)
-	}
-	fmt.Println()
-
-	// Build options for multi-select
-	options := make([]string, len(previews))
-	defaultSelected := make([]int, len(previews))
-	for i, p := range previews {
-		options[i] = fmt.Sprintf("%s (%s)", p.Name, p.Path)
-		defaultSelected[i] = i // All selected by default
-	}
-
-	// Show selection prompt (simple implementation using fmt.Scanln)
-	fmt.Println("Select extensions to install:")
-	fmt.Println("  [1] Install all extensions (default)")
-	fmt.Println("  [2] Install specific extensions")
-	fmt.Println()
-	fmt.Print("Enter choice (1 or 2): ")
-
-	var choice string
-	if _, err := fmt.Scanln(&choice); err != nil {
-		choice = "1" // Default to all on error
-	}
-
-	var includePaths []string
-	if choice == "2" {
-		// User wants to select specific extensions
-		fmt.Println("\nEnter the numbers of extensions to install (comma-separated, e.g., 1,3,5):")
-		for i, p := range previews {
-			fmt.Printf("  [%d] %s (%s)\n", i+1, p.Name, p.Path)
-		}
-		fmt.Println()
-		fmt.Print("Selection: ")
-
-		var selection string
-		if _, err := fmt.Scanln(&selection); err != nil {
-			fmt.Println("No input received, cancelling install.")
+	// Use multi-select UI for selection
+	includePaths, err := multiSelectForInstall(previews)
+	if err != nil {
+		if err.Error() == "selection cancelled" {
+			fmt.Println("Install cancelled.")
 			return nil
 		}
-
-		// Parse selection
-		selected := parseSelection(selection, len(previews))
-		if len(selected) == 0 {
-			fmt.Println("No extensions selected, cancelling install.")
-			return nil
-		}
-
-		includePaths = make([]string, len(selected))
-		for i, idx := range selected {
-			includePaths[i] = previews[idx].Path
-		}
+		return fmt.Errorf("selection failed: %w", err)
 	}
 
 	// Install with includes (if empty, installs all)
@@ -229,29 +182,6 @@ func runInstallWithSelection(installer *extensions.Installer, source *extensions
 
 	log.Info("extension installed with selection", "source", source.String(), "scope", scope, "selected", len(includePaths))
 	return nil
-}
-
-func parseSelection(input string, max int) []int {
-	var selected []int
-	// Simple comma-separated parsing
-	parts := strings.Split(input, ",")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		// Try to parse as number
-		var num int
-		if _, err := fmt.Sscanf(part, "%d", &num); err != nil {
-			continue
-		}
-		// Convert to 0-based index and validate
-		idx := num - 1
-		if idx >= 0 && idx < max {
-			selected = append(selected, idx)
-		}
-	}
-	return selected
 }
 
 func runUpdate(installer *extensions.Installer, source *extensions.GitSource, scope extensions.InstallScope) error {

@@ -135,7 +135,133 @@ func findExtensionsInDir(dir string) []string {
 	return results
 }
 
-// findExtensionsInGitPackages scans installed git packages for extension files.
+// findExtensionsInRepo scans a git repository for extensions using opinionated conventions.
+// Extensions are ONLY recognized in:
+//  1. Root-level *.go files
+//  2. Files in examples/extensions/ or examples/ext/ subdirectories
+//  3. Files in any top-level ext/ directory
+//  4. Files in any subdirectory that ends in -ext/ or -extensions/
+//
+// Everything else (cmd/, internal/, pkg/, etc.) is ignored.
+func findExtensionsInRepo(repoPath string) []string {
+	var results []string
+	multiFileDirs := make(map[string]bool)
+
+	_ = filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, _ := filepath.Rel(repoPath, path)
+		relPath = filepath.ToSlash(relPath)
+
+		// Skip directories we know don't contain extensions
+		if info.IsDir() {
+			switch info.Name() {
+			case ".git", ".github", "node_modules", "vendor", "dist", "build":
+				return filepath.SkipDir
+			}
+
+			// Skip internal code directories
+			if strings.HasPrefix(relPath, "internal/") ||
+				strings.HasPrefix(relPath, "cmd/") ||
+				strings.HasPrefix(relPath, "pkg/") ||
+				strings.HasPrefix(relPath, "test/") ||
+				strings.HasPrefix(relPath, "tests/") {
+				return filepath.SkipDir
+			}
+
+			// Root directory - scan it
+			if relPath == "." {
+				return nil
+			}
+
+			base := info.Name()
+			isExtDir := base == "extensions" || base == "ext" ||
+				strings.HasSuffix(base, "-extensions") || strings.HasSuffix(base, "-ext")
+
+			isExamplesSubdir := relPath == "examples" || strings.HasPrefix(relPath, "examples/")
+
+			if !isExtDir && !isExamplesSubdir {
+				mainPath := filepath.Join(path, "main.go")
+				if _, err := os.Stat(mainPath); err == nil {
+					if relPath == base { // Top-level directory
+						if !multiFileDirs[relPath] {
+							multiFileDirs[relPath] = true
+							results = append(results, mainPath)
+						}
+						return filepath.SkipDir
+					}
+					if isExamplesSubdir || isExtDir {
+						if !multiFileDirs[relPath] {
+							multiFileDirs[relPath] = true
+							results = append(results, mainPath)
+						}
+						return filepath.SkipDir
+					}
+				}
+				return filepath.SkipDir
+			}
+
+			// Check for main.go
+			mainPath := filepath.Join(path, "main.go")
+			if _, err := os.Stat(mainPath); err == nil {
+				if !multiFileDirs[relPath] {
+					multiFileDirs[relPath] = true
+					results = append(results, mainPath)
+				}
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+
+		// It's a file
+		if !strings.HasSuffix(info.Name(), ".go") {
+			return nil
+		}
+
+		if info.Name() == "main.go" {
+			return nil
+		}
+
+		parentDir := filepath.Dir(relPath)
+		if parentDir == "." {
+			// Root-level .go file - valid extension
+			results = append(results, path)
+			return nil
+		}
+
+		// Must be in valid extension directory
+		isValidExtDir := false
+		if strings.HasPrefix(parentDir, "examples/extensions/") ||
+			parentDir == "examples/extensions" {
+			isValidExtDir = true
+		} else if strings.HasPrefix(parentDir, "examples/ext/") ||
+			parentDir == "examples/ext" {
+			isValidExtDir = true
+		} else if strings.HasPrefix(parentDir, "ext/") ||
+			parentDir == "ext" {
+			isValidExtDir = true
+		} else if strings.Contains(parentDir, "-extensions/") ||
+			strings.HasSuffix(parentDir, "-extensions") {
+			isValidExtDir = true
+		} else if strings.Contains(parentDir, "-ext/") ||
+			strings.HasSuffix(parentDir, "-ext") {
+			isValidExtDir = true
+		}
+
+		if !isValidExtDir {
+			return nil
+		}
+
+		results = append(results, path)
+		return nil
+	})
+
+	return results
+}
+
 // Each git package is stored at <gitRoot>/<host>/<owner>/<repo>/ and can contain
 // .go files or a main.go in subdirectories.
 // If a package has a manifest with Include field, only those paths are loaded.
@@ -212,8 +338,8 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 						}
 					}
 				} else {
-					// Find all extensions within this repo
-					results = append(results, findExtensionsInDir(repoPath)...)
+					// Find all extensions within this repo using convention-based scanning
+					results = append(results, findExtensionsInRepo(repoPath)...)
 				}
 			}
 		}

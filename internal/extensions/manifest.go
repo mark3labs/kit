@@ -200,8 +200,14 @@ type ExtensionPreview struct {
 	IsMain bool `json:"is_main"`
 }
 
-// ScanForExtensions discovers all extensions in a directory.
-// Returns a list of ExtensionPreview for each .go file and main.go in subdirs.
+// ScanForExtensions discovers all extensions in a directory using opinionated conventions.
+// Extensions are ONLY recognized in these specific locations:
+//  1. Root-level *.go files
+//  2. Files in examples/extensions/ or examples/ext/ subdirectories
+//  3. Files in any top-level ext/ directory
+//  4. Files in any subdirectory that ends in -ext/ or -extensions/
+//
+// Everything else (cmd/, internal/, pkg/, etc.) is ignored.
 func ScanForExtensions(dir string) ([]ExtensionPreview, error) {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -209,50 +215,151 @@ func ScanForExtensions(dir string) ([]ExtensionPreview, error) {
 	}
 
 	var previews []ExtensionPreview
+	multiFileDirs := make(map[string]bool)
 
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip directories at the root level (they're handled by main.go check)
+		relPath, _ := filepath.Rel(dir, path)
+		relPath = filepath.ToSlash(relPath)
+
+		// Skip directories we know don't contain extensions
 		if info.IsDir() {
+			// Never scan these directories
+			switch info.Name() {
+			case ".git", ".github", "node_modules", "vendor", "dist", "build":
+				return filepath.SkipDir
+			}
+
+			// Skip internal code directories
+			if strings.HasPrefix(relPath, "internal/") ||
+				strings.HasPrefix(relPath, "cmd/") ||
+				strings.HasPrefix(relPath, "pkg/") ||
+				strings.HasPrefix(relPath, "test/") ||
+				strings.HasPrefix(relPath, "tests/") {
+				return filepath.SkipDir
+			}
+
+			// Root directory - scan it
+			if relPath == "." {
+				return nil
+			}
+
+			// Check if this directory is an extension location by name
+			// Pattern: must be named "extensions", "ext", or end with those
+			base := info.Name()
+			isExtDir := base == "extensions" || base == "ext" ||
+				strings.HasSuffix(base, "-extensions") || strings.HasSuffix(base, "-ext")
+
+			// Or check if it's a subdirectory of examples/ that might contain extensions
+			isExamplesSubdir := relPath == "examples" || strings.HasPrefix(relPath, "examples/")
+
+			if !isExtDir && !isExamplesSubdir {
+				// Check for main.go before skipping
+				mainPath := filepath.Join(path, "main.go")
+				if _, err := os.Stat(mainPath); err == nil {
+					// This is a package with main.go at root level
+					if relPath == base { // Top-level directory
+						if !multiFileDirs[relPath] {
+							multiFileDirs[relPath] = true
+							previews = append(previews, ExtensionPreview{
+								Path:   "./" + relPath + "/main.go",
+								Name:   deriveExtensionName(relPath+"/main.go", true),
+								IsMain: true,
+							})
+						}
+						return filepath.SkipDir
+					}
+					// Inside a valid extensions directory
+					if isExamplesSubdir || isExtDir {
+						if !multiFileDirs[relPath] {
+							multiFileDirs[relPath] = true
+							previews = append(previews, ExtensionPreview{
+								Path:   "./" + relPath + "/main.go",
+								Name:   deriveExtensionName(relPath+"/main.go", true),
+								IsMain: true,
+							})
+						}
+						return filepath.SkipDir
+					}
+				}
+
+				// Not an extension location
+				return filepath.SkipDir
+			}
+
 			// Check for main.go in this directory
 			mainPath := filepath.Join(path, "main.go")
 			if _, err := os.Stat(mainPath); err == nil {
-				rel, _ := filepath.Rel(dir, mainPath)
-				previews = append(previews, ExtensionPreview{
-					Path:   "./" + filepath.ToSlash(rel),
-					Name:   deriveExtensionName(rel, true),
-					IsMain: true,
-				})
-				// Don't descend into this directory
+				if !multiFileDirs[relPath] {
+					multiFileDirs[relPath] = true
+					previews = append(previews, ExtensionPreview{
+						Path:   "./" + relPath + "/main.go",
+						Name:   deriveExtensionName(relPath+"/main.go", true),
+						IsMain: true,
+					})
+				}
 				return filepath.SkipDir
 			}
+
+			// Scan this extensions directory
 			return nil
 		}
 
-		// Only process .go files
+		// It's a file - check if it's a valid extension
 		if !strings.HasSuffix(info.Name(), ".go") {
 			return nil
 		}
 
-		// Skip main.go at root level (we'll catch it above)
-		if info.Name() == "main.go" && filepath.Dir(path) == dir {
-			rel, _ := filepath.Rel(dir, path)
+		if info.Name() == "main.go" {
+			return nil // Already handled above
+		}
+
+		// Check if parent is a valid extension location
+		parentDir := filepath.Dir(relPath)
+		if parentDir == "." {
+			// Root-level .go file - valid extension
 			previews = append(previews, ExtensionPreview{
-				Path:   "./" + filepath.ToSlash(rel),
-				Name:   deriveExtensionName(rel, true),
-				IsMain: true,
+				Path:   "./" + relPath,
+				Name:   deriveExtensionName(relPath, false),
+				IsMain: false,
 			})
 			return nil
 		}
 
-		// Regular .go file
-		rel, _ := filepath.Rel(dir, path)
+		// Check if we're in a valid extension directory
+		// Valid locations are:
+		// - examples/extensions/*
+		// - examples/ext/*
+		// - ext/* (top-level)
+		// - Any *-extensions/* or *-ext/* directory
+		isValidExtDir := false
+		if strings.HasPrefix(parentDir, "examples/extensions/") ||
+			parentDir == "examples/extensions" {
+			isValidExtDir = true
+		} else if strings.HasPrefix(parentDir, "examples/ext/") ||
+			parentDir == "examples/ext" {
+			isValidExtDir = true
+		} else if strings.HasPrefix(parentDir, "ext/") ||
+			parentDir == "ext" {
+			isValidExtDir = true
+		} else if strings.Contains(parentDir, "-extensions/") ||
+			strings.HasSuffix(parentDir, "-extensions") {
+			isValidExtDir = true
+		} else if strings.Contains(parentDir, "-ext/") ||
+			strings.HasSuffix(parentDir, "-ext") {
+			isValidExtDir = true
+		}
+
+		if !isValidExtDir {
+			return nil
+		}
+
 		previews = append(previews, ExtensionPreview{
-			Path:   "./" + filepath.ToSlash(rel),
-			Name:   deriveExtensionName(rel, false),
+			Path:   "./" + relPath,
+			Name:   deriveExtensionName(relPath, false),
 			IsMain: false,
 		})
 
