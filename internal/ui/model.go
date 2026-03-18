@@ -1130,10 +1130,22 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
 	case shellCommandMsg:
+		// Show spinner while the shell command runs.
+		m.state = stateWorking
+		if m.stream != nil {
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			cmds = append(cmds, cmd)
+		}
 		// Execute the shell command asynchronously so the TUI stays responsive.
 		cmds = append(cmds, m.executeShellCommand(msg))
 
 	case shellCommandResultMsg:
+		// Stop spinner now that the command has finished.
+		if m.stream != nil {
+			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			cmds = append(cmds, cmd)
+		}
+		m.state = stateInput
 		cmds = append(cmds, m.handleShellCommandResult(msg))
 
 	// ── App layer events ─────────────────────────────────────────────────────
