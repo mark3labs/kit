@@ -304,6 +304,15 @@ func Init(api ext.API) {
 func TestLoadExtensions_SkipsBadFiles(t *testing.T) {
 	dir := t.TempDir()
 
+	// Isolate from host environment so globally-installed extensions
+	// are not discovered alongside the test fixtures.
+	isolated := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(isolated, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(isolated, "data"))
+	origWd, _ := os.Getwd()
+	_ = os.Chdir(isolated)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
 	// Good extension
 	good := `package main
 import "kit/ext"

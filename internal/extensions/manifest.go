@@ -383,8 +383,8 @@ func deriveExtensionName(relPath string, isMain bool) string {
 	base := filepath.Base(relPath)
 
 	if isMain && dir != "." {
-		// Use directory name for main.go files
-		name := strings.ReplaceAll(dir, "/", " ")
+		// Use immediate parent directory name for main.go files
+		name := filepath.Base(dir)
 		name = strings.ReplaceAll(name, "_", " ")
 		name = strings.ReplaceAll(name, "-", " ")
 		return cases.Title(language.English).String(name) + " Extension"
