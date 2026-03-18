@@ -1606,10 +1606,31 @@ func (m *AppModel) renderStatusBar() string {
 
 	rightSide := strings.Join(rightParts, "  ")
 
-	// Fill the gap between left+middle and right with spaces.
-	usedWidth := lipgloss.Width(leftSide) + lipgloss.Width(middleSide) + lipgloss.Width(rightSide)
-	gap := max(m.width-usedWidth, 1)
+	// Progressive truncation to keep the status bar on one line.
+	// When content exceeds terminal width, drop sections in order:
+	// middle (extensions/thinking) → usage stats → model label → right side.
+	leftW := lipgloss.Width(leftSide)
+	middleW := lipgloss.Width(middleSide)
+	rightW := lipgloss.Width(rightSide)
 
+	// Need at least 1 space gap between left+middle and right.
+	if leftW+middleW+rightW+1 > m.width {
+		// Drop middle section first (extensions/thinking status).
+		middleSide = ""
+		middleW = 0
+	}
+	if leftW+rightW+1 > m.width && len(rightParts) > 1 {
+		// Drop usage stats, keep model label.
+		rightSide = rightParts[0]
+		rightW = lipgloss.Width(rightSide)
+	}
+	if leftW+rightW+1 > m.width {
+		// Drop right side entirely.
+		rightSide = ""
+		rightW = 0
+	}
+
+	gap := max(m.width-leftW-middleW-rightW, 1)
 	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
 }
 
@@ -2194,7 +2215,7 @@ func (m *AppModel) drainScrollback() tea.Cmd {
 //	stream region  = total - header - separator(1) - widgets - queued(N*5) - input(measured) - widgets - statusBar(1) - footer
 //	separator      = 1 line
 //	above widgets  = measured dynamically
-//	queued msgs    = ~5 lines per message (padding + text + badge + padding)
+//	queued msgs    = measured dynamically via lipgloss.Height()
 //	input region   = measured dynamically via lipgloss.Height()
 //	below widgets  = measured dynamically
 //	status bar     = 1 line (always present)
@@ -2210,8 +2231,12 @@ func (m *AppModel) distributeHeight() {
 	if vis.HideStatusBar {
 		statusBarLines = 0
 	}
-	const linesPerQueuedMsg = 5
-	queuedLines := len(m.queuedMessages) * linesPerQueuedMsg
+	// Measure actual queued message height instead of using a fixed estimate,
+	// since text wrapping at different widths changes the rendered line count.
+	var queuedLines int
+	if queuedView := m.renderQueuedMessages(); queuedView != "" {
+		queuedLines = lipgloss.Height(queuedView)
+	}
 
 	// Propagate hint visibility before measuring input height.
 	if ic, ok := m.input.(*InputComponent); ok {
@@ -2256,6 +2281,17 @@ func (m *AppModel) distributeHeight() {
 	if m.stream != nil {
 		m.stream.SetHeight(streamHeight)
 	}
+}
+
+// clamp constrains v to the range [lo, hi].
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // repeatRune returns a string consisting of n repetitions of r.

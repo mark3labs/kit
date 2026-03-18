@@ -217,7 +217,14 @@ func (ts *TreeSelectorComponent) View() tea.View {
 	// Header.
 	b.WriteString(headerStyle.Render("Session Tree"))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓: move  ←/→: page  enter: select  esc: cancel  ^O: cycle filter"))
+	// Adapt help text to terminal width.
+	if ts.width >= 70 {
+		b.WriteString(helpStyle.Render("↑/↓: move  ←/→: page  enter: select  esc: cancel  ^O: cycle filter"))
+	} else if ts.width >= 45 {
+		b.WriteString(helpStyle.Render("↑↓ move  ↵ select  esc cancel  ^O filter"))
+	} else {
+		b.WriteString(helpStyle.Render("↑↓ ↵ esc ^O"))
+	}
 	b.WriteString("\n")
 
 	if ts.search != "" {
@@ -269,9 +276,10 @@ func (ts *TreeSelectorComponent) IsActive() bool {
 // --- Internal helpers ---
 
 func (ts *TreeSelectorComponent) visibleHeight() int {
-	// Reserve lines for header(3) + search(1) + separator(1) + footer(2).
-	h := max(ts.height/2-7, 5)
-	return h
+	// Chrome: header(1) + help(1) + separator(1) + entries + separator(1) + footer(1) = 5 fixed.
+	// Optional search line adds 1 more. Use 7 as a safe estimate.
+	const chromeLines = 7
+	return max(ts.height-chromeLines, 3)
 }
 
 func (ts *TreeSelectorComponent) rebuildFlatList() {
@@ -389,7 +397,7 @@ func (ts *TreeSelectorComponent) passesFilter(node *session.TreeNode) bool {
 
 func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool) string {
 	theme := GetTheme()
-	maxWidth := ts.width - 4
+	maxWidth := max(ts.width-4, 10)
 
 	// Cursor indicator.
 	var cursor string
@@ -401,9 +409,10 @@ func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool
 
 	// Role-colored content.
 	text := ts.entryDisplayText(node.Entry)
-	if len(text) > maxWidth-len(node.Prefix)-10 {
-		trimLen := maxWidth - len(node.Prefix) - 13
-		if trimLen > 0 && trimLen < len(text) {
+	available := maxWidth - len(node.Prefix) - 10
+	if available > 3 && len(text) > available {
+		trimLen := max(available-3, 1)
+		if trimLen < len(text) {
 			text = text[:trimLen] + "..."
 		}
 	}

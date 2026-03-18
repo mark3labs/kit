@@ -419,7 +419,18 @@ func (s *InputComponent) View() tea.View {
 			MarginTop(1).
 			PaddingLeft(3)
 
-		hint := "enter submit • ctrl+j / shift+enter new line • ctrl+v paste image"
+		// Adapt hint text to available width (accounting for left padding of 3).
+		var hint string
+		availableHintWidth := s.width - 3
+		if availableHintWidth >= 67 {
+			hint = "enter submit • ctrl+j / shift+enter new line • ctrl+v paste image"
+		} else if availableHintWidth >= 40 {
+			hint = "↵ submit • ctrl+j newline • ctrl+v image"
+		} else if availableHintWidth >= 20 {
+			hint = "↵ submit • ctrl+j"
+		} else {
+			hint = "↵ submit"
+		}
 		view.WriteString("\n")
 		view.WriteString(helpStyle.Render(hint))
 	}
@@ -429,12 +440,16 @@ func (s *InputComponent) View() tea.View {
 
 // renderPopup renders the autocomplete popup for slash command suggestions.
 func (s *InputComponent) renderPopup() string {
+	popupWidth := max(s.width-4, 20)
 	popupStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("236")).
 		Padding(1, 2).
-		Width(s.width - 4).
+		Width(popupWidth).
 		MarginLeft(0)
+
+	// Inner content width: popup minus border (2) and horizontal padding (4).
+	innerWidth := max(popupWidth-6, 10)
 
 	var items []string
 
@@ -466,28 +481,51 @@ func (s *InputComponent) renderPopup() string {
 		if s.fileMode {
 			// File mode: use full width for the path, show description
 			// (e.g. "directory") inline after a gap.
-			maxNameLen := s.width - 24
+			maxNameLen := max(innerWidth-16, 8)
 			displayName := sc.Name
 			if len(displayName) > maxNameLen && maxNameLen > 3 {
 				displayName = displayName[:maxNameLen-3] + "..."
 			}
 			name := nameStyle.Render(displayName)
-			if sc.Description != "" {
+			if sc.Description != "" && innerWidth > 30 {
 				items = append(items, indicator+name+"  "+descStyle.Render(sc.Description))
 			} else {
 				items = append(items, indicator+name)
 			}
 		} else {
-			nameWidth := 15
-			name := nameStyle.Width(nameWidth - 2).Render(sc.Name)
+			// Line layout: indicator(2) + name(nameWidth-2 visual) + desc.
+			if innerWidth < 20 {
+				// Very narrow: show truncated name only, no fixed column.
+				displayName := sc.Name
+				maxName := max(innerWidth-2, 3)
+				if len(displayName) > maxName {
+					displayName = displayName[:maxName-1] + "…"
+				}
+				items = append(items, indicator+nameStyle.Render(displayName))
+			} else {
+				nameWidth := 15
+				if innerWidth < 25 {
+					nameWidth = max(innerWidth*2/5+1, 8)
+				}
+				maxNameChars := nameWidth - 2
+				displayName := sc.Name
+				if len(displayName) > maxNameChars {
+					displayName = displayName[:maxNameChars-1] + "…"
+				}
+				name := nameStyle.Width(maxNameChars).Render(displayName)
 
-			desc := sc.Description
-			maxDescLen := s.width - nameWidth - 14
-			if len(desc) > maxDescLen && maxDescLen > 3 {
-				desc = desc[:maxDescLen-3] + "..."
+				// Description gets remaining space.
+				maxDescLen := max(innerWidth-nameWidth, 0)
+				desc := sc.Description
+				if maxDescLen < 4 {
+					items = append(items, indicator+name)
+				} else {
+					if len(desc) > maxDescLen {
+						desc = desc[:maxDescLen-3] + "..."
+					}
+					items = append(items, indicator+name+descStyle.Render(desc))
+				}
 			}
-
-			items = append(items, indicator+name+descStyle.Render(desc))
 		}
 	}
 
@@ -499,8 +537,18 @@ func (s *InputComponent) renderPopup() string {
 	}
 
 	content := strings.Join(items, "\n")
+
+	// Adapt footer text to available width.
+	var footerText string
+	if innerWidth >= 50 {
+		footerText = "↑↓ navigate • tab complete • ↵ select • esc dismiss"
+	} else if innerWidth >= 30 {
+		footerText = "↑↓ nav • tab • ↵ select • esc"
+	} else {
+		footerText = "↑↓ tab ↵ esc"
+	}
 	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Italic(true).
-		Render("↑↓ navigate • tab complete • ↵ select • esc dismiss")
+		Render(footerText)
 
 	return popupStyle.Render(content + "\n\n" + footer)
 }

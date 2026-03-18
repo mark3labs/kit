@@ -208,9 +208,20 @@ func (ms *ModelSelectorComponent) View() tea.View {
 	// Header.
 	b.WriteString(headerStyle.Render("Model Selector"))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓: move  enter: select  esc: cancel  type to filter"))
+	// Adapt help text to terminal width.
+	if ms.width >= 56 {
+		b.WriteString(helpStyle.Render("↑/↓: move  enter: select  esc: cancel  type to filter"))
+	} else if ms.width >= 35 {
+		b.WriteString(helpStyle.Render("↑↓ move  ↵ select  esc  type"))
+	} else {
+		b.WriteString(helpStyle.Render("↑↓ ↵ esc"))
+	}
 	b.WriteString("\n")
-	b.WriteString(infoStyle.Render("Only showing models with configured API keys"))
+	if ms.width >= 48 {
+		b.WriteString(infoStyle.Render("Only showing models with configured API keys"))
+	} else {
+		b.WriteString(infoStyle.Render("Models with API keys"))
+	}
 	b.WriteString("\n")
 
 	// Search input.
@@ -281,9 +292,9 @@ func (ms *ModelSelectorComponent) IsActive() bool {
 // --- Internal helpers ---
 
 func (ms *ModelSelectorComponent) visibleHeight() int {
-	// Reserve: header(1) + help(1) + info(1) + search(1) + separator(1) + footer(2) = 7
-	h := max(ms.height-7, 5)
-	return h
+	// Reserve: header(1) + help(1) + info(1) + search(1) + separator(1) + footer(2) = 7.
+	// Minimum 3 entries so the selector is still usable on short terminals.
+	return max(ms.height-7, 3)
 }
 
 func (ms *ModelSelectorComponent) rebuildFiltered() {
@@ -396,8 +407,37 @@ func (ms *ModelSelectorComponent) renderEntry(entry ModelEntry, isCursor bool) s
 
 	// Active model checkmark.
 	var active string
+	activeWidth := 0
 	if entry.Provider+"/"+entry.ModelID == ms.currentModel {
 		active = lipgloss.NewStyle().Foreground(theme.Success).Render(" \u2713")
+		activeWidth = 2 // " ✓"
+	}
+
+	// Truncate model ID and provider tag to fit terminal width.
+	// Layout: cursor(3) + model + " " + provider + active.
+	// Use rune length for display-width accuracy (the "…" suffix is 1 rune / 1 column).
+	const cursorWidth = 3
+	available := max(ms.width-cursorWidth-activeWidth-1, 10) // 1 for space between model and provider
+	provDisplayLen := len([]rune(providerStr))
+	modelDisplayLen := len([]rune(modelStr))
+
+	if modelDisplayLen+1+provDisplayLen > available {
+		// Prioritize model name — truncate it, but keep provider visible.
+		maxModel := max(available-provDisplayLen-1, 6)
+		if maxModel < modelDisplayLen {
+			if maxModel > 3 {
+				runes := []rune(modelStr)
+				modelStr = string(runes[:maxModel-1]) + "…"
+			} else {
+				runes := []rune(modelStr)
+				modelStr = string(runes[:maxModel])
+			}
+		}
+		// If provider itself is too long, drop it.
+		modelDisplayLen = len([]rune(modelStr))
+		if modelDisplayLen+1+provDisplayLen > available {
+			providerStr = ""
+		}
 	}
 
 	// Style the model ID.
@@ -409,5 +449,9 @@ func (ms *ModelSelectorComponent) renderEntry(entry ModelEntry, isCursor bool) s
 	// Style the provider tag.
 	providerStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
-	return cursor + modelStyle.Render(modelStr) + " " + providerStyle.Render(providerStr) + active
+	result := cursor + modelStyle.Render(modelStr)
+	if providerStr != "" {
+		result += " " + providerStyle.Render(providerStr)
+	}
+	return result + active
 }

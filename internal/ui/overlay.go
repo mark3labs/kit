@@ -135,31 +135,24 @@ func (o *overlayDialog) handleKey(msg tea.KeyPressMsg) (*overlayResult, tea.Cmd)
 func (o *overlayDialog) Render() string {
 	theme := GetTheme()
 
-	// Calculate dialog dimensions.
+	// Calculate dialog dimensions, clamped to terminal bounds.
+	termW := max(o.width, 10)
+	termH := max(o.height, 5)
+
 	dw := o.dialogWidth
 	if dw == 0 {
-		dw = o.width * 60 / 100
+		dw = termW * 60 / 100
 	}
-	if dw < 30 {
-		dw = 30
-	}
-	if dw > o.width-4 {
-		dw = o.width - 4
-	}
+	dw = clamp(dw, min(24, termW), termW-2)
 
 	mh := o.maxHeight
 	if mh == 0 {
-		mh = o.height * 80 / 100
+		mh = termH * 80 / 100
 	}
-	if mh < 8 {
-		mh = 8
-	}
-	if mh > o.height-2 {
-		mh = o.height - 2
-	}
+	mh = clamp(mh, min(6, termH), termH)
 
 	// Inner width accounts for border (2) + horizontal padding (2 left + 1 right).
-	innerWidth := max(dw-5, 10)
+	innerWidth := max(dw-5, 6)
 
 	// Render body text (potentially as markdown).
 	bodyText := o.content
@@ -268,18 +261,27 @@ func (o *overlayDialog) Render() string {
 
 	dialog := dialogStyle.Render(innerContent)
 
-	// Key hints below the dialog.
+	// Key hints below the dialog, adapted to width.
 	var hints []string
-	if scrollable {
-		hints = append(hints, "↑/↓ scroll")
-	}
-	if len(o.actions) > 0 {
-		hints = append(hints, "←/→ switch")
-		hints = append(hints, "Enter select")
+	if termW >= 50 {
+		if scrollable {
+			hints = append(hints, "↑/↓ scroll")
+		}
+		if len(o.actions) > 0 {
+			hints = append(hints, "←/→ switch")
+			hints = append(hints, "Enter select")
+		} else {
+			hints = append(hints, "Enter dismiss")
+		}
+		hints = append(hints, "Esc cancel")
 	} else {
-		hints = append(hints, "Enter dismiss")
+		if len(o.actions) > 0 {
+			hints = append(hints, "↵ select")
+		} else {
+			hints = append(hints, "↵ ok")
+		}
+		hints = append(hints, "esc")
 	}
-	hints = append(hints, "Esc cancel")
 	hintText := lipgloss.NewStyle().
 		Foreground(theme.Muted).
 		Render("  " + strings.Join(hints, "  "))
