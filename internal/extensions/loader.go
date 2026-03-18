@@ -71,9 +71,21 @@ func discoverExtensionPaths(extraPaths []string) []string {
 		add(p)
 	}
 
+	// Global installed git packages: $XDG_DATA_HOME/kit/git/
+	globalGitDir := globalGitInstallRoot()
+	for _, p := range findExtensionsInGitPackages(globalGitDir) {
+		add(p)
+	}
+
 	// Project-local extensions: .kit/extensions/
 	localDir := filepath.Join(".kit", "extensions")
 	for _, p := range findExtensionsInDir(localDir) {
+		add(p)
+	}
+
+	// Project-local installed git packages: .kit/git/
+	projectGitDir := filepath.Join(".kit", "git")
+	for _, p := range findExtensionsInGitPackages(projectGitDir) {
 		add(p)
 	}
 
@@ -120,6 +132,93 @@ func findExtensionsInDir(dir string) []string {
 			}
 		}
 	}
+	return results
+}
+
+// findExtensionsInGitPackages scans installed git packages for extension files.
+// Each git package is stored at <gitRoot>/<host>/<owner>/<repo>/ and can contain
+// .go files or a main.go in subdirectories.
+// If a package has a manifest with Include field, only those paths are loaded.
+func findExtensionsInGitPackages(gitRoot string) []string {
+	info, err := os.Stat(gitRoot)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+
+	var results []string
+
+	// Load the manifest if it exists
+	manifestPath := filepath.Join(gitRoot, "packages.json")
+	manifest, _ := loadManifestFromPath(manifestPath)
+	// Build a map of package identity -> include list
+	includeMap := make(map[string][]string)
+	if manifest != nil {
+		for _, entry := range manifest.Packages {
+			if len(entry.Include) > 0 {
+				identity := fmt.Sprintf("%s/%s", entry.Host, entry.Path)
+				includeMap[identity] = entry.Include
+			}
+		}
+	}
+
+	// Walk through host directories (e.g., github.com/)
+	hosts, err := os.ReadDir(gitRoot)
+	if err != nil {
+		return nil
+	}
+
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		hostPath := filepath.Join(gitRoot, host.Name())
+
+		// Walk through owner directories (e.g., github.com/user/)
+		owners, err := os.ReadDir(hostPath)
+		if err != nil {
+			continue
+		}
+
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			ownerPath := filepath.Join(hostPath, owner.Name())
+
+			// Walk through repo directories (e.g., github.com/user/repo/)
+			repos, err := os.ReadDir(ownerPath)
+			if err != nil {
+				continue
+			}
+
+			for _, repo := range repos {
+				if !repo.IsDir() {
+					continue
+				}
+				repoPath := filepath.Join(ownerPath, repo.Name())
+
+				// Check if there's an include filter for this package
+				identity := fmt.Sprintf("%s/%s/%s", host.Name(), owner.Name(), repo.Name())
+				includes, hasFilter := includeMap[identity]
+
+				if hasFilter {
+					// Only include specific paths
+					for _, include := range includes {
+						// Convert relative path to absolute
+						include = strings.TrimPrefix(include, "./")
+						fullPath := filepath.Join(repoPath, filepath.FromSlash(include))
+						if _, err := os.Stat(fullPath); err == nil {
+							results = append(results, fullPath)
+						}
+					}
+				} else {
+					// Find all extensions within this repo
+					results = append(results, findExtensionsInDir(repoPath)...)
+				}
+			}
+		}
+	}
+
 	return results
 }
 

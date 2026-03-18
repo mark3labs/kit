@@ -90,12 +90,14 @@ func Symbols() interp.Exports {
 			"EditorConfig":         reflect.ValueOf((*EditorConfig)(nil)),
 
 			// Prompt types
-			"PromptSelectConfig":  reflect.ValueOf((*PromptSelectConfig)(nil)),
-			"PromptSelectResult":  reflect.ValueOf((*PromptSelectResult)(nil)),
-			"PromptConfirmConfig": reflect.ValueOf((*PromptConfirmConfig)(nil)),
-			"PromptConfirmResult": reflect.ValueOf((*PromptConfirmResult)(nil)),
-			"PromptInputConfig":   reflect.ValueOf((*PromptInputConfig)(nil)),
-			"PromptInputResult":   reflect.ValueOf((*PromptInputResult)(nil)),
+			"PromptSelectConfig":      reflect.ValueOf((*PromptSelectConfig)(nil)),
+			"PromptSelectResult":      reflect.ValueOf((*PromptSelectResult)(nil)),
+			"PromptConfirmConfig":     reflect.ValueOf((*PromptConfirmConfig)(nil)),
+			"PromptConfirmResult":     reflect.ValueOf((*PromptConfirmResult)(nil)),
+			"PromptInputConfig":       reflect.ValueOf((*PromptInputConfig)(nil)),
+			"PromptInputResult":       reflect.ValueOf((*PromptInputResult)(nil)),
+			"PromptMultiSelectConfig": reflect.ValueOf((*PromptMultiSelectConfig)(nil)),
+			"PromptMultiSelectResult": reflect.ValueOf((*PromptMultiSelectResult)(nil)),
 
 			// Context filtering types
 			"ContextMessage":       reflect.ValueOf((*ContextMessage)(nil)),

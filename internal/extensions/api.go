@@ -174,6 +174,22 @@ type Context struct {
 	//   }
 	PromptInput func(PromptInputConfig) PromptInputResult
 
+	// PromptMultiSelect shows a multi-selection list to the user, allowing
+	// them to toggle options with spacebar and confirm with enter. In
+	// non-interactive mode, returns all options as selected.
+	//
+	// Example:
+	//
+	//   result := ctx.PromptMultiSelect(ext.PromptMultiSelectConfig{
+	//       Message: "Select extensions to install:",
+	//       Options: []string{"git", "todo", "weather"},
+	//       DefaultSelected: []int{0, 1, 2},  // All selected by default
+	//   })
+	//   if !result.Cancelled {
+	//       fmt.Println("Selected:", result.Values)
+	//   }
+	PromptMultiSelect func(PromptMultiSelectConfig) PromptMultiSelectResult
+
 	// ShowOverlay displays a modal overlay dialog that blocks until the
 	// user dismisses it or selects an action. The overlay renders as a
 	// centered (or anchored) bordered box over the TUI. Returns a
@@ -997,6 +1013,29 @@ type PromptInputResult struct {
 	// Value is the text the user entered.
 	Value string
 	// Cancelled is true if the user dismissed the prompt.
+	Cancelled bool
+}
+
+// PromptMultiSelectConfig configures a multi-selection prompt that allows
+// the user to toggle multiple options and confirm their selection.
+type PromptMultiSelectConfig struct {
+	// Message is the question or instruction displayed to the user.
+	Message string
+	// Options is the list of choices the user can select from.
+	Options []string
+	// DefaultSelected contains indices of options that should be
+	// pre-selected when the prompt appears. If nil, all options are selected.
+	DefaultSelected []int
+}
+
+// PromptMultiSelectResult is the response from a multi-selection prompt.
+type PromptMultiSelectResult struct {
+	// Values contains the text of selected options.
+	Values []string
+	// Indices contains the zero-based indices of selected options.
+	Indices []int
+	// Cancelled is true if the user dismissed the prompt (ESC) or
+	// the prompt was unavailable (non-interactive mode).
 	Cancelled bool
 }
 
