@@ -13,7 +13,6 @@ var (
 	installLocalFlag     bool
 	installUpdateFlag    bool
 	installUninstallFlag bool
-	installSelectFlag    bool
 	installAllFlag       bool
 )
 
@@ -25,6 +24,9 @@ var installCmd = &cobra.Command{
 The install command downloads and installs Kit extensions from git repositories.
 Extensions are stored in the global extensions directory by default, or in the
 project's .kit/git/ directory when using the --local flag.
+
+When a repo contains multiple extensions, an interactive multi-select is shown
+so you can choose which to install. Use --all to skip selection and install everything.
 
 Supported URL formats:
   - github.com/user/repo (shorthand, defaults to HTTPS)
@@ -38,17 +40,11 @@ You can pin to a specific version, tag, or commit using @:
   - github.com/user/repo@main
   - github.com/user/repo@abc1234
 
-Selection modes for repos with multiple extensions:
-  - Default: install all extensions
-  - --select: interactively choose which extensions to install
-  - --all: explicitly install all extensions (same as default)
-
 Examples:
   kit install github.com/user/my-extension
   kit install github.com/user/my-extension@v1.0.0
-  kit install git:github.com/user/my-extension --local
-  kit install https://github.com/user/my-extension --select
-  kit install github.com/user/collection --select --local`,
+  kit install github.com/user/my-extension --local
+  kit install github.com/user/collection --all`,
 	Args: cobra.ExactArgs(1),
 	RunE: runInstall,
 }
@@ -57,8 +53,7 @@ func init() {
 	installCmd.Flags().BoolVarP(&installLocalFlag, "local", "l", false, "Install to project-local .kit/git/ directory")
 	installCmd.Flags().BoolVarP(&installUpdateFlag, "update", "u", false, "Update an already-installed package")
 	installCmd.Flags().BoolVar(&installUninstallFlag, "uninstall", false, "Remove an installed package")
-	installCmd.Flags().BoolVarP(&installSelectFlag, "select", "i", false, "Interactively select which extensions to install")
-	installCmd.Flags().BoolVar(&installAllFlag, "all", false, "Install all extensions (default behavior)")
+	installCmd.Flags().BoolVar(&installAllFlag, "all", false, "Install all extensions without prompting")
 
 	rootCmd.AddCommand(installCmd)
 }
@@ -106,34 +101,7 @@ func runInstallPackage(installer *extensions.Installer, source *extensions.GitSo
 		return fmt.Errorf("extension already installed (scope: %s). Use --update to update or --uninstall to remove", existingScope)
 	}
 
-	// If --select flag is used, show interactive selection
-	if installSelectFlag {
-		return runInstallWithSelection(installer, source, scope)
-	}
-
-	// Install all extensions
-	if err := installer.Install(source, scope); err != nil {
-		return fmt.Errorf("install failed: %w", err)
-	}
-
-	// Show success message
-	scopeStr := "globally"
-	if scope == extensions.ScopeProject {
-		scopeStr = "locally in .kit/git/"
-	}
-
-	if source.Pinned {
-		fmt.Printf("Installed %s at %s %s\n", source.String(), source.Ref, scopeStr)
-	} else {
-		fmt.Printf("Installed %s %s\n", source.String(), scopeStr)
-	}
-
-	log.Info("extension installed", "source", source.String(), "scope", scope)
-	return nil
-}
-
-func runInstallWithSelection(installer *extensions.Installer, source *extensions.GitSource, scope extensions.InstallScope) error {
-	// Preview extensions in the repo
+	// Preview extensions to decide if we need multi-select
 	previews, tempDir, err := installer.PreviewExtensions(source)
 	if err != nil {
 		return fmt.Errorf("previewing extensions: %w", err)
@@ -144,43 +112,47 @@ func runInstallWithSelection(installer *extensions.Installer, source *extensions
 		return fmt.Errorf("no extensions found in %s", source.String())
 	}
 
-	// If only one extension, just install it
-	if len(previews) == 1 {
-		fmt.Printf("Found 1 extension in %s:\n  - %s (%s)\n\n", source.String(), previews[0].Name, previews[0].Path)
-		return runInstallPackage(installer, source, scope)
+	scopeStr := "globally"
+	if scope == extensions.ScopeProject {
+		scopeStr = "locally in .kit/git/"
 	}
 
-	// Use multi-select UI for selection
+	// Single extension or --all flag: install everything directly
+	if len(previews) == 1 || installAllFlag {
+		if err := installer.Install(source, scope); err != nil {
+			return fmt.Errorf("install failed: %w", err)
+		}
+
+		if source.Pinned {
+			fmt.Printf("Installed %s at %s %s\n", source.String(), source.Ref, scopeStr)
+		} else {
+			fmt.Printf("Installed %d extension(s) from %s %s\n", len(previews), source.String(), scopeStr)
+		}
+
+		log.Info("extension installed", "source", source.String(), "scope", scope)
+		return nil
+	}
+
+	// Multiple extensions: show interactive selection
 	includePaths, err := multiSelectForInstall(previews)
 	if err != nil {
-		if err.Error() == "selection cancelled" {
+		if err.Error() == "selection cancelled" || err.Error() == "no extensions selected" {
 			fmt.Println("Install cancelled.")
 			return nil
 		}
 		return fmt.Errorf("selection failed: %w", err)
 	}
 
-	// Install with includes (if empty, installs all)
 	if err := installer.InstallWithInclude(source, scope, includePaths); err != nil {
 		return fmt.Errorf("install failed: %w", err)
 	}
 
-	// Show success message
-	scopeStr := "globally"
-	if scope == extensions.ScopeProject {
-		scopeStr = "locally in .kit/git/"
+	fmt.Printf("Installed %d extension(s) from %s %s\n", len(includePaths), source.String(), scopeStr)
+	for _, path := range includePaths {
+		fmt.Printf("  - %s\n", path)
 	}
 
-	if len(includePaths) > 0 {
-		fmt.Printf("Installed %d extension(s) from %s %s\n", len(includePaths), source.String(), scopeStr)
-		for _, path := range includePaths {
-			fmt.Printf("  - %s\n", path)
-		}
-	} else {
-		fmt.Printf("Installed %s %s\n", source.String(), scopeStr)
-	}
-
-	log.Info("extension installed with selection", "source", source.String(), "scope", scope, "selected", len(includePaths))
+	log.Info("extension installed", "source", source.String(), "scope", scope, "selected", len(includePaths))
 	return nil
 }
 
