@@ -560,9 +560,10 @@ func TestStreamComponent_SpinnerTick_AdvancesFrame(t *testing.T) {
 	// Start spinning first.
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
 	initialFrame := c.spinnerFrame
+	gen := c.spinnerGeneration
 
-	// Send a tick.
-	_, cmd := c.Update(streamSpinnerTickMsg{})
+	// Send a tick with the current generation.
+	_, cmd := c.Update(streamSpinnerTickMsg{generation: gen})
 
 	if c.spinnerFrame != initialFrame+1 {
 		t.Fatalf("expected spinnerFrame=%d, got %d", initialFrame+1, c.spinnerFrame)
@@ -581,5 +582,42 @@ func TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinning(t *testing.T) 
 	_, cmd := c.Update(streamSpinnerTickMsg{})
 	if cmd != nil {
 		t.Fatal("expected no tick reschedule when not spinning")
+	}
+}
+
+// TestStreamComponent_StaleTick_Discarded verifies that a tick from a previous
+// spinner generation is silently discarded, preventing duplicate concurrent
+// tick loops that would double the animation speed.
+func TestStreamComponent_StaleTick_Discarded(t *testing.T) {
+	c := newTestStream()
+
+	// Start spinner → generation 1.
+	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
+	staleGen := c.spinnerGeneration
+
+	// Stop spinner → generation bumped to 2.
+	c = sendStreamMsg(c, app.SpinnerEvent{Show: false})
+
+	// Restart spinner → generation bumped to 3.
+	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
+	currentGen := c.spinnerGeneration
+	frameBefore := c.spinnerFrame
+
+	// Simulate a stale tick from the first spinner session arriving.
+	_, cmd := c.Update(streamSpinnerTickMsg{generation: staleGen})
+	if c.spinnerFrame != frameBefore {
+		t.Fatalf("stale tick should not advance frame: expected %d, got %d", frameBefore, c.spinnerFrame)
+	}
+	if cmd != nil {
+		t.Fatal("stale tick should not reschedule")
+	}
+
+	// A tick from the current generation should still work.
+	_, cmd = c.Update(streamSpinnerTickMsg{generation: currentGen})
+	if c.spinnerFrame != frameBefore+1 {
+		t.Fatalf("current-gen tick should advance frame: expected %d, got %d", frameBefore+1, c.spinnerFrame)
+	}
+	if cmd == nil {
+		t.Fatal("current-gen tick should reschedule")
 	}
 }

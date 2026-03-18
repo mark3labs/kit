@@ -59,14 +59,20 @@ func knightRiderFrames() []string {
 }
 
 // streamSpinnerTickMsg is the internal tick message that drives the KITT-style
-// spinner animation inside StreamComponent.
-type streamSpinnerTickMsg struct{}
+// spinner animation inside StreamComponent. The generation field ties each tick
+// to the spinner session that created it so that stale ticks from a previous
+// start/stop cycle are silently discarded instead of creating a second
+// concurrent tick loop (which doubles the animation speed).
+type streamSpinnerTickMsg struct {
+	generation uint64
+}
 
 // streamSpinnerTickCmd returns a tea.Cmd that fires streamSpinnerTickMsg at the
-// KITT animation frame rate (14 fps).
-func streamSpinnerTickCmd() tea.Cmd {
+// KITT animation frame rate (14 fps). The generation parameter is embedded in
+// the message so the receiver can verify it matches the current spinner session.
+func streamSpinnerTickCmd(generation uint64) tea.Cmd {
 	return tea.Tick(time.Second/14, func(_ time.Time) tea.Msg {
-		return streamSpinnerTickMsg{}
+		return streamSpinnerTickMsg{generation: generation}
 	})
 }
 
@@ -127,6 +133,15 @@ type StreamComponent struct {
 	// It is orthogonal to whether streaming text is present: the spinner
 	// remains visible alongside streaming text until Reset().
 	spinning bool
+
+	// spinnerGeneration is incremented each time a new spinner tick loop
+	// is started. Tick messages carry the generation they were created for;
+	// if a tick's generation doesn't match the current one, it is a stale
+	// tick from a previous start/stop cycle and is silently discarded.
+	// This prevents multiple concurrent tick loops from accumulating when
+	// the spinner is rapidly stopped and restarted (e.g. SpinnerEvent
+	// hide → ToolExecutionEvent start before the old tick fires).
+	spinnerGeneration uint64
 
 	// spinnerFrames are the pre-rendered KITT animation frames.
 	spinnerFrames []string
@@ -233,6 +248,7 @@ func (s *StreamComponent) SetHeight(h int) {
 func (s *StreamComponent) Reset() {
 	s.phase = streamPhaseIdle
 	s.spinning = false
+	s.spinnerGeneration++ // invalidate any in-flight tick commands
 	s.spinnerFrame = 0
 	s.activeTools = nil
 	s.streamContent.Reset()
@@ -313,11 +329,15 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.renderDirty = true
 
 	case streamSpinnerTickMsg:
-		if s.spinning {
+		// Only continue the tick loop if this tick belongs to the current
+		// spinner session. Stale ticks from a previous start/stop cycle
+		// are silently dropped, preventing duplicate concurrent tick loops
+		// that would double (or worse) the animation speed.
+		if s.spinning && msg.generation == s.spinnerGeneration {
 			s.spinnerFrame++
-			return s, streamSpinnerTickCmd()
+			return s, streamSpinnerTickCmd(s.spinnerGeneration)
 		}
-		// Spinning stopped; let the tick loop die naturally.
+		// Spinning stopped or generation mismatch; let the tick loop die.
 
 	// ── App-layer events ──────────────────────────────────────────────────
 
@@ -325,13 +345,17 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Show && !s.spinning {
 			s.phase = streamPhaseActive
 			s.spinning = true
+			s.spinnerGeneration++ // new session; invalidate any stale ticks
 			s.spinnerFrame = 0
 			if s.timestamp.IsZero() {
 				s.timestamp = time.Now()
 			}
-			return s, streamSpinnerTickCmd()
+			return s, streamSpinnerTickCmd(s.spinnerGeneration)
 		} else if !msg.Show && s.spinning {
 			s.spinning = false
+			// Bump generation so any in-flight tick from this session is
+			// discarded if spinning is restarted before it fires.
+			s.spinnerGeneration++
 		}
 
 	case streamFlushTickMsg:
@@ -376,7 +400,8 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !s.spinning {
 				s.phase = streamPhaseActive
 				s.spinning = true
-				return s, streamSpinnerTickCmd()
+				s.spinnerGeneration++ // new session; invalidate stale ticks
+				return s, streamSpinnerTickCmd(s.spinnerGeneration)
 			}
 		} else {
 			// Tool finished — remove from active list but keep spinning if others remain.
