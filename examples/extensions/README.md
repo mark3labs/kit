@@ -77,6 +77,12 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `subagent-widget.go` | Widget with subagent updates | Goroutines + widgets |
 | `dev-reload.go` | Hot reload extensions | `ReloadExtensions` |
 
+### Integrations
+
+| Extension | Description | Key API |
+|-----------|-------------|---------|
+| `kit-telegram/` | Telegram relay for remote monitoring & control | `RegisterCommand`, `OnAgentStart/End`, `SetStatus`, `SendMessage` |
+
 ### Rendering
 
 | Extension | Description | Key API |
@@ -121,6 +127,17 @@ Complex real-world example:
 - External process management (LSP server)
 - File watching
 - Diagnostics aggregation
+
+### kit-telegram/
+Full-featured Telegram integration:
+- Slash command with subcommands and tab completion
+- Interactive guided setup flow with prompts
+- Background long-polling goroutine
+- Progress message rendering edited in place
+- Message queue with edit-before-dispatch
+- Remote command handling from Telegram
+- Status bar and widget updates
+- Config persistence with atomic writes
 
 ## Multi-File Extension Example
 
