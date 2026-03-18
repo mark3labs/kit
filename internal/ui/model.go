@@ -402,6 +402,14 @@ type AppModel struct {
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
 
+	// scrollbackBuf collects rendered content during a single Update() call.
+	// All print helpers append here instead of returning tea.Println directly.
+	// The buffer is drained into a single atomic tea.Println at the end of
+	// each Update call via drainScrollback(). If the stream component has
+	// unflushed content, it is automatically prepended so that new messages
+	// always appear below the previous assistant response.
+	scrollbackBuf []string
+
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
@@ -835,7 +843,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.setModel != nil {
 			previousModel := m.providerName + "/" + m.modelName
 			if err := m.setModel(msg.ModelString); err != nil {
-				cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err)))
+				m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
 			} else {
 				// Update display state directly — we cannot use
 				// NotifyModelChanged (prog.Send) from inside Update()
@@ -845,7 +853,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.providerName = parts[0]
 					m.modelName = parts[1]
 				}
-				cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString)))
+				m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString))
 				if m.emitModelChange != nil {
 					emit := m.emitModelChange
 					newModel := msg.ModelString
@@ -854,6 +862,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	case ModelSelectorCancelledMsg:
@@ -1024,6 +1033,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := m.handleSlashCommand(sc); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+			cmds = append(cmds, m.drainScrollback())
 			return m, tea.Batch(cmds...)
 		}
 
@@ -1037,16 +1047,19 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
+					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/model":
 					if cmd := m.handleModelCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
+					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/thinking":
 					if cmd := m.handleThinkingCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
+					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				}
 			}
@@ -1103,13 +1116,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				// Started immediately. Flush any leftover stream content
 				// from the previous step first, then print the user
-				// message — combined in a single tea.Println so
+				// message — combined via the scrollback buffer so
 				// scrollback stays in chronological order.
 				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-				cmds = append(cmds, m.flushStreamAndPendingUserMessages())
+				m.flushStreamAndPendingUserMessages()
 			}
 		} else {
-			cmds = append(cmds, m.printUserMessage(displayText))
+			m.printUserMessage(displayText)
 		}
 		if m.state != stateWorking {
 			m.state = stateWorking
@@ -1130,10 +1143,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// freshly or from the queue after a previous step completed). Flush
 		// any leftover stream content from the previous step to scrollback
 		// before starting the new one, followed by any pending user messages
-		// from the queue. Everything is emitted in a single tea.Println to
-		// guarantee chronological ordering in scrollback.
+		// from the queue. Everything goes through the scrollback buffer to
+		// guarantee chronological ordering.
 		if msg.Show {
-			cmds = append(cmds, m.flushStreamAndPendingUserMessages())
+			m.flushStreamAndPendingUserMessages()
 			m.state = stateWorking
 			m.distributeHeight()
 		}
@@ -1159,7 +1172,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// always completes before tool calls fire). The tool call itself is
 		// NOT printed here — a unified block (header + result) will be
 		// rendered when the ToolResultEvent arrives.
-		cmds = append(cmds, m.flushStreamContent())
+		m.flushStreamContent()
 
 	case app.ToolExecutionEvent:
 		// Pass to stream component for execution spinner display.
@@ -1169,8 +1182,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.ToolResultEvent:
-		// Print tool result immediately to scrollback.
-		cmds = append(cmds, m.printToolResult(msg))
+		// Buffer tool result for scrollback.
+		m.printToolResult(msg)
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
 			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
@@ -1190,7 +1203,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// In non-streaming mode (no stream content accumulated), print the text.
 		hasStreamContent := m.stream != nil && m.stream.GetRenderedContent() != ""
 		if !hasStreamContent && msg.Content != "" {
-			cmds = append(cmds, m.printAssistantMessage(msg.Content))
+			m.printAssistantMessage(msg.Content)
 			if m.stream != nil {
 				m.stream.Reset()
 			}
@@ -1244,7 +1257,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		if msg.Err != nil {
-			cmds = append(cmds, m.printErrorResponse(msg))
+			m.printErrorResponse(msg)
 		}
 		m.state = stateInput
 		m.canceling = false
@@ -1254,14 +1267,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream.Reset()
 		}
 		m.state = stateInput
-		cmds = append(cmds, m.printCompactResult(msg))
+		m.printCompactResult(msg)
 
 	case app.CompactErrorEvent:
 		if m.stream != nil {
 			m.stream.Reset()
 		}
 		m.state = stateInput
-		cmds = append(cmds, m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err)))
+		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
 
 	case app.ModelChangedEvent:
 		// Extension changed the model — update display name in status bar
@@ -1369,17 +1382,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case extensionCmdResultMsg:
 		// Async extension slash command completed. Render output/error.
 		if msg.err != nil {
-			cmds = append(cmds, m.printSystemMessage(
-				fmt.Sprintf("Command %s error: %v", msg.name, msg.err)))
+			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
 		} else if msg.output != "" {
-			cmds = append(cmds, m.printSystemMessage(msg.output))
+			m.printSystemMessage(msg.output)
 		}
 
 	case beforeSessionSwitchResultMsg:
 		// Async before-session-switch hook completed. Proceed with the
 		// session reset if the hook did not cancel.
 		if msg.cancelled {
-			cmds = append(cmds, m.printSystemMessage(msg.reason))
+			m.printSystemMessage(msg.reason)
 		} else {
 			cmds = append(cmds, m.performNewSession())
 		}
@@ -1388,7 +1400,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Async before-fork hook completed. Proceed with the fork if the
 		// hook did not cancel.
 		if msg.cancelled {
-			cmds = append(cmds, m.printSystemMessage(msg.reason))
+			m.printSystemMessage(msg.reason)
 		} else {
 			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
 		}
@@ -1397,15 +1409,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Extension output — route through styled renderers when a level is set.
 		switch msg.Level {
 		case "info":
-			cmds = append(cmds, m.printSystemMessage(msg.Text))
+			m.printSystemMessage(msg.Text)
 		case "error":
-			cmds = append(cmds, m.printErrorResponse(app.StepErrorEvent{
+			m.printErrorResponse(app.StepErrorEvent{
 				Err: fmt.Errorf("%s", msg.Text),
-			}))
+			})
 		case "block":
-			cmds = append(cmds, m.printExtensionBlock(msg))
+			m.printExtensionBlock(msg)
 		default:
-			cmds = append(cmds, tea.Println(msg.Text))
+			m.appendScrollback(msg.Text)
 		}
 
 	default:
@@ -1420,6 +1432,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	cmds = append(cmds, m.drainScrollback())
 	return m, tea.Batch(cmds...)
 }
 
@@ -1765,30 +1778,28 @@ func (m *AppModel) renderQueuedMessages() string {
 // Print helpers — emit content to scrollback via tea.Println
 // --------------------------------------------------------------------------
 
-// printUserMessage renders a user message and emits it above the BT region.
-func (m *AppModel) printUserMessage(text string) tea.Cmd {
-	return tea.Println(m.renderer.RenderUserMessage(text, time.Now()).Content)
+// printUserMessage renders a user message into the scrollback buffer.
+func (m *AppModel) printUserMessage(text string) {
+	m.appendScrollback(m.renderer.RenderUserMessage(text, time.Now()).Content)
 }
 
-// printAssistantMessage renders an assistant message and emits it above the BT region.
-func (m *AppModel) printAssistantMessage(text string) tea.Cmd {
-	if text == "" {
-		return nil
+// printAssistantMessage renders an assistant message into the scrollback buffer.
+func (m *AppModel) printAssistantMessage(text string) {
+	if text != "" {
+		m.appendScrollback(m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName).Content)
 	}
-	return tea.Println(m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName).Content)
 }
 
-// printToolResult renders a tool result message and emits it above the BT region.
-func (m *AppModel) printToolResult(evt app.ToolResultEvent) tea.Cmd {
-	return tea.Println(m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content)
+// printToolResult renders a tool result message into the scrollback buffer.
+func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
+	m.appendScrollback(m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content)
 }
 
-// printErrorResponse renders an error message and emits it above the BT region.
-func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) tea.Cmd {
-	if evt.Err == nil {
-		return nil
+// printErrorResponse renders an error message into the scrollback buffer.
+func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
+	if evt.Err != nil {
+		m.appendScrollback(m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now()).Content)
 	}
-	return tea.Println(m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now()).Content)
 }
 
 // --------------------------------------------------------------------------
@@ -1803,15 +1814,15 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 	case "/quit":
 		return tea.Quit
 	case "/help":
-		return m.printHelpMessage()
+		m.printHelpMessage()
 	case "/tools":
-		return m.printToolsMessage()
+		m.printToolsMessage()
 	case "/servers":
-		return m.printServersMessage()
+		m.printServersMessage()
 	case "/usage":
-		return m.printUsageMessage()
+		m.printUsageMessage()
 	case "/reset-usage":
-		return m.printResetUsage()
+		m.printResetUsage()
 	case "/model":
 		return m.handleModelCommand("")
 	case "/thinking":
@@ -1822,14 +1833,13 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
 		}
-		return m.printSystemMessage("Conversation cleared. Starting fresh.")
+		m.printSystemMessage("Conversation cleared. Starting fresh.")
 	case "/clear-queue":
 		if m.appCtrl != nil {
 			m.appCtrl.ClearQueue()
 		}
 		m.queuedMessages = m.queuedMessages[:0]
 		m.distributeHeight()
-		return nil
 
 	case "/tree":
 		return m.handleTreeCommand()
@@ -1843,18 +1853,19 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		return m.handleSessionInfoCommand()
 
 	default:
-		return m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
+		m.printSystemMessage(fmt.Sprintf("Unknown command: %s", sc.Name))
 	}
+	return nil
 }
 
-// printSystemMessage renders a system-level message and emits it above the BT region.
-func (m *AppModel) printSystemMessage(text string) tea.Cmd {
-	return tea.Println(m.renderer.RenderSystemMessage(text, time.Now()).Content)
+// printSystemMessage renders a system-level message into the scrollback buffer.
+func (m *AppModel) printSystemMessage(text string) {
+	m.appendScrollback(m.renderer.RenderSystemMessage(text, time.Now()).Content)
 }
 
 // printExtensionBlock renders a custom styled block from an extension with
-// caller-chosen border color and optional subtitle, then emits it to scrollback.
-func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) tea.Cmd {
+// caller-chosen border color and optional subtitle into the scrollback buffer.
+func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 	theme := GetTheme()
 
 	// Resolve border color: use the extension's hex value, fall back to theme accent.
@@ -1877,7 +1888,7 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) tea.Cmd {
 		WithBorderColor(borderClr),
 		WithMarginBottom(1),
 	)
-	return tea.Println(rendered)
+	m.appendScrollback(rendered)
 }
 
 // handleExtensionCommand checks if the submitted text matches an extension-
@@ -1928,7 +1939,7 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 }
 
 // printHelpMessage renders the help text listing all available slash commands.
-func (m *AppModel) printHelpMessage() tea.Cmd {
+func (m *AppModel) printHelpMessage() {
 	help := "## Available Commands\n\n" +
 		"**Info:**\n" +
 		"- `/help`: Show this help message\n" +
@@ -1978,11 +1989,11 @@ func (m *AppModel) printHelpMessage() tea.Cmd {
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
 		"You can also just type your message to chat with the AI assistant."
-	return m.printSystemMessage(help)
+	m.printSystemMessage(help)
 }
 
 // printToolsMessage renders the list of available tools.
-func (m *AppModel) printToolsMessage() tea.Cmd {
+func (m *AppModel) printToolsMessage() {
 	var content string
 	content = "## Available Tools\n\n"
 	if len(m.toolNames) == 0 {
@@ -1992,11 +2003,11 @@ func (m *AppModel) printToolsMessage() tea.Cmd {
 			content += fmt.Sprintf("%d. `%s`\n", i+1, tool)
 		}
 	}
-	return m.printSystemMessage(content)
+	m.printSystemMessage(content)
 }
 
 // printServersMessage renders the list of configured MCP servers.
-func (m *AppModel) printServersMessage() tea.Cmd {
+func (m *AppModel) printServersMessage() {
 	var content string
 	content = "## Configured MCP Servers\n\n"
 	if len(m.serverNames) == 0 {
@@ -2006,13 +2017,14 @@ func (m *AppModel) printServersMessage() tea.Cmd {
 			content += fmt.Sprintf("%d. `%s`\n", i+1, server)
 		}
 	}
-	return m.printSystemMessage(content)
+	m.printSystemMessage(content)
 }
 
 // printUsageMessage renders token usage statistics.
-func (m *AppModel) printUsageMessage() tea.Cmd {
+func (m *AppModel) printUsageMessage() {
 	if m.usageTracker == nil {
-		return m.printSystemMessage("Usage tracking is not available for this model.")
+		m.printSystemMessage("Usage tracking is not available for this model.")
+		return
 	}
 
 	sessionStats := m.usageTracker.GetSessionStats()
@@ -2026,16 +2038,17 @@ func (m *AppModel) printUsageMessage() tea.Cmd {
 	content += fmt.Sprintf("**Session Total:** %d input + %d output tokens = $%.6f (%d requests)\n",
 		sessionStats.TotalInputTokens, sessionStats.TotalOutputTokens, sessionStats.TotalCost, sessionStats.RequestCount)
 
-	return m.printSystemMessage(content)
+	m.printSystemMessage(content)
 }
 
 // printResetUsage resets usage statistics and prints a confirmation.
-func (m *AppModel) printResetUsage() tea.Cmd {
+func (m *AppModel) printResetUsage() {
 	if m.usageTracker == nil {
-		return m.printSystemMessage("Usage tracking is not available for this model.")
+		m.printSystemMessage("Usage tracking is not available for this model.")
+		return
 	}
 	m.usageTracker.Reset()
-	return m.printSystemMessage("Usage statistics have been reset.")
+	m.printSystemMessage("Usage statistics have been reset.")
 }
 
 // handleCompactCommand starts an async compaction. It returns a tea.Cmd that
@@ -2045,23 +2058,26 @@ func (m *AppModel) printResetUsage() tea.Cmd {
 // prompt (e.g. "Focus on the API design decisions").
 func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 	if m.appCtrl == nil {
-		return m.printSystemMessage("Compaction is not available.")
+		m.printSystemMessage("Compaction is not available.")
+		return nil
 	}
 	if err := m.appCtrl.CompactConversation(customInstructions); err != nil {
-		return m.printSystemMessage(fmt.Sprintf("Cannot compact: %v", err))
+		m.printSystemMessage(fmt.Sprintf("Cannot compact: %v", err))
+		return nil
 	}
 	// Transition to working state so the spinner shows while compaction runs.
 	m.state = stateWorking
+	m.printSystemMessage("Compacting conversation...")
 	var spinnerCmd tea.Cmd
 	if m.stream != nil {
 		_, spinnerCmd = m.stream.Update(app.SpinnerEvent{Show: true})
 	}
-	return tea.Batch(m.printSystemMessage("Compacting conversation..."), spinnerCmd)
+	return spinnerCmd
 }
 
 // printCompactResult renders the compaction summary in a styled block with
-// a distinct border color and a stats subtitle.
-func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
+// a distinct border color and a stats subtitle into the scrollback buffer.
+func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) {
 	theme := GetTheme()
 
 	saved := evt.OriginalTokens - evt.CompactedTokens
@@ -2083,62 +2099,89 @@ func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) tea.Cmd {
 		WithBorderColor(theme.Secondary),
 		WithMarginBottom(1),
 	)
-	return tea.Println(rendered)
+	m.appendScrollback(rendered)
 }
 
-// flushStreamContent gets the rendered content from the stream component,
-// emits it above the BT region via tea.Println, and resets the stream. This
-// is called before printing tool calls (streaming completes before tools fire)
-// and on step completion.
-//
-// After flushing, a ClearScreen is issued to force a full terminal redraw.
-// When the stream content is moved to scrollback the view height shrinks, and
-// bubbletea's inline renderer doesn't clear the orphaned terminal rows
-// below the managed region. ClearScreen ensures a clean redraw.
-func (m *AppModel) flushStreamContent() tea.Cmd {
+// flushStreamContent moves rendered content from the stream component into the
+// scrollback buffer and resets the stream. Called before tool calls (streaming
+// completes before tools fire). The actual tea.Println is deferred to
+// drainScrollback() at the end of the Update cycle.
+func (m *AppModel) flushStreamContent() {
 	if m.stream == nil {
-		return nil
+		return
 	}
 	content := m.stream.GetRenderedContent()
 	if content == "" {
-		return nil
+		return
 	}
 	m.stream.Reset()
-	return tea.Sequence(
-		tea.Println(content),
-		func() tea.Msg { return tea.ClearScreen() },
-	)
+	m.appendScrollback(content)
 }
 
-// flushStreamAndPendingUserMessages flushes the previous assistant response
-// and any pending queued user messages to scrollback in a single tea.Println
-// call, guaranteeing chronological order. Called from SpinnerEvent{Show: true}
-// where all previous stream chunks are guaranteed to have been processed.
-func (m *AppModel) flushStreamAndPendingUserMessages() tea.Cmd {
-	var parts []string
-
+// flushStreamAndPendingUserMessages moves the previous assistant response and
+// any pending queued user messages into the scrollback buffer. Called from
+// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
+// have been processed. The actual tea.Println is deferred to drainScrollback().
+func (m *AppModel) flushStreamAndPendingUserMessages() {
 	// 1. Flush previous stream content (assistant response).
 	if m.stream != nil {
 		if content := m.stream.GetRenderedContent(); content != "" {
 			m.stream.Reset()
-			parts = append(parts, content)
+			m.appendScrollback(content)
 		}
 	}
 
 	// 2. Render pending user messages from the queue.
 	for _, text := range m.pendingUserPrints {
 		rendered := m.renderer.RenderUserMessage(text, time.Now()).Content
-		parts = append(parts, rendered)
+		m.appendScrollback(rendered)
 	}
 	m.pendingUserPrints = nil
+}
 
-	if len(parts) == 0 {
+// appendScrollback adds rendered content to the scrollback buffer. The content
+// will be emitted via tea.Println when drainScrollback is called at the end of
+// the current Update cycle.
+func (m *AppModel) appendScrollback(content string) {
+	if content != "" {
+		m.scrollbackBuf = append(m.scrollbackBuf, content)
+	}
+}
+
+// drainScrollback flushes the scrollback buffer into a single tea.Println. If
+// the stream component has unflushed content, it is automatically prepended so
+// that new messages always appear below the previous assistant response. When
+// stream content is flushed a ClearScreen follows to clean up orphaned terminal
+// rows left after the view height shrinks. Returns nil if there is nothing to
+// print.
+func (m *AppModel) drainScrollback() tea.Cmd {
+	if len(m.scrollbackBuf) == 0 {
 		return nil
 	}
-	return tea.Sequence(
-		tea.Println(strings.Join(parts, "\n")),
-		func() tea.Msg { return tea.ClearScreen() },
-	)
+
+	var parts []string
+	needsClear := false
+
+	// Auto-flush any stream content so it appears before new messages.
+	if m.stream != nil {
+		if content := m.stream.GetRenderedContent(); content != "" {
+			m.stream.Reset()
+			parts = append(parts, content)
+			needsClear = true
+		}
+	}
+
+	parts = append(parts, m.scrollbackBuf...)
+	m.scrollbackBuf = m.scrollbackBuf[:0]
+
+	printCmd := tea.Println(strings.Join(parts, "\n"))
+	if needsClear {
+		return tea.Sequence(
+			printCmd,
+			func() tea.Msg { return tea.ClearScreen() },
+		)
+	}
+	return printCmd
 }
 
 // distributeHeight recalculates child component heights after a window resize,
@@ -2284,7 +2327,8 @@ func remapKey(name string) (tea.KeyPressMsg, bool) {
 // to that model directly.
 func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	if m.setModel == nil {
-		return m.printSystemMessage("Model switching is not available.")
+		m.printSystemMessage("Model switching is not available.")
+		return nil
 	}
 
 	if args == "" {
@@ -2298,7 +2342,8 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	// Direct model switch with the provided model string.
 	previousModel := m.providerName + "/" + m.modelName
 	if err := m.setModel(args); err != nil {
-		return m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
+		m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
+		return nil
 	}
 
 	// Update display state directly (cannot use prog.Send from Update).
@@ -2315,7 +2360,8 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 		go emit(newModel, prev, "user")
 	}
 
-	return m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
+	m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
+	return nil
 }
 
 // --------------------------------------------------------------------------
@@ -2327,7 +2373,8 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 // minimal, low, medium, high) it switches to that level.
 func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	if !m.isReasoningModel {
-		return m.printSystemMessage("Current model does not support thinking/reasoning.")
+		m.printSystemMessage("Current model does not support thinking/reasoning.")
+		return nil
 	}
 
 	if args == "" {
@@ -2342,13 +2389,15 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 			lines = append(lines, fmt.Sprintf("%s%s — %s", marker, l, models.ThinkingLevelDescription(l)))
 		}
 		header := fmt.Sprintf("Current thinking level: %s\n\nAvailable levels:", m.thinkingLevel)
-		return m.printSystemMessage(header + "\n" + strings.Join(lines, "\n"))
+		m.printSystemMessage(header + "\n" + strings.Join(lines, "\n"))
+		return nil
 	}
 
 	// Parse and validate the level.
 	level := models.ParseThinkingLevel(args)
 	if string(level) != strings.ToLower(args) {
-		return m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, minimal, low, medium, high", args))
+		m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, minimal, low, medium, high", args))
+		return nil
 	}
 
 	// Apply the change.
@@ -2358,7 +2407,8 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 			_ = m.setThinkingLevel(string(level))
 		}()
 	}
-	return m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
+	m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
+	return nil
 }
 
 // --------------------------------------------------------------------------
@@ -2369,10 +2419,12 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 func (m *AppModel) handleTreeCommand() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
-		return m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+		m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+		return nil
 	}
 	if ts.EntryCount() == 0 {
-		return m.printSystemMessage("No entries in session yet.")
+		m.printSystemMessage("No entries in session yet.")
+		return nil
 	}
 
 	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
@@ -2385,10 +2437,12 @@ func (m *AppModel) handleTreeCommand() tea.Cmd {
 func (m *AppModel) handleForkCommand() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
-		return m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+		m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
+		return nil
 	}
 	if ts.EntryCount() == 0 {
-		return m.printSystemMessage("No entries to fork from.")
+		m.printSystemMessage("No entries to fork from.")
+		return nil
 	}
 
 	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
@@ -2426,14 +2480,16 @@ func (m *AppModel) performNewSession() tea.Cmd {
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
 		}
-		return m.printSystemMessage("Conversation cleared. Starting fresh.")
+		m.printSystemMessage("Conversation cleared. Starting fresh.")
+		return nil
 	}
 
 	ts.ResetLeaf()
 	if m.appCtrl != nil {
 		m.appCtrl.ClearMessages()
 	}
-	return m.printSystemMessage("New branch started. Previous conversation is preserved in the tree.")
+	m.printSystemMessage("New branch started. Previous conversation is preserved in the tree.")
+	return nil
 }
 
 // performFork performs the actual tree branch. Called either directly (when no
@@ -2441,7 +2497,8 @@ func (m *AppModel) performNewSession() tea.Cmd {
 func (m *AppModel) performFork(targetID string, isUser bool, userText string) tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
-		return m.printSystemMessage("No tree session active.")
+		m.printSystemMessage("No tree session active.")
+		return nil
 	}
 
 	_ = ts.Branch(targetID)
@@ -2455,7 +2512,7 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 		}
 	}
 
-	return m.printSystemMessage(
+	m.printSystemMessage(
 		fmt.Sprintf("Navigated to branch point. %s",
 			func() string {
 				if isUser {
@@ -2463,29 +2520,34 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 				}
 				return "Continue from this point."
 			}()))
+	return nil
 }
 
 // handleNameCommand sets a display name for the current session.
 func (m *AppModel) handleNameCommand() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
-		return m.printSystemMessage("No tree session active.")
+		m.printSystemMessage("No tree session active.")
+		return nil
 	}
 	// For now, prompt user to provide name via input. We print instructions
 	// and the next non-command input starting with "name:" will be captured.
 	// TODO: inline input dialog.
 	currentName := ts.GetSessionName()
 	if currentName != "" {
-		return m.printSystemMessage(fmt.Sprintf("Current session name: %q\nTo rename, type: `/name <new name>` (not yet implemented — use the session file directly).", currentName))
+		m.printSystemMessage(fmt.Sprintf("Current session name: %q\nTo rename, type: `/name <new name>` (not yet implemented — use the session file directly).", currentName))
+		return nil
 	}
-	return m.printSystemMessage("To name this session, use: `/name <new name>` (not yet implemented — use the session file directly).")
+	m.printSystemMessage("To name this session, use: `/name <new name>` (not yet implemented — use the session file directly).")
+	return nil
 }
 
 // handleSessionInfoCommand shows session statistics.
 func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
-		return m.printSystemMessage("No tree session active.")
+		m.printSystemMessage("No tree session active.")
+		return nil
 	}
 
 	header := ts.GetHeader()
@@ -2510,7 +2572,8 @@ func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
 		info += fmt.Sprintf("- **Name:** %s\n", name)
 	}
 
-	return m.printSystemMessage(info)
+	m.printSystemMessage(info)
+	return nil
 }
 
 // --------------------------------------------------------------------------
@@ -2821,8 +2884,7 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 		WithMarginBottom(1),
 	)
 
-	var cmds []tea.Cmd
-	cmds = append(cmds, tea.Println(rendered))
+	m.appendScrollback(rendered)
 
 	// For ! (included in context): inject the command output into the
 	// conversation as a user message so the LLM can reference it on the
@@ -2842,5 +2904,5 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 		m.appCtrl.AddContextMessage(contextMsg)
 	}
 
-	return tea.Batch(cmds...)
+	return nil
 }
