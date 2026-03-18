@@ -12,3 +12,5 @@ dist/
 contribute/output/
 CONTEXT.md
 output/
+.agents/
+skills-lock.json
