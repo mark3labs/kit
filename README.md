@@ -18,7 +18,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 ## Features
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
-- **Built-in Core Tools**: bash, read, write, edit, grep, find, ls - no MCP overhead
+- **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, spawn_subagent - no MCP overhead
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
@@ -103,8 +103,8 @@ Kit looks for configuration in the following locations (in order of priority):
 
 1. CLI flags
 2. Environment variables (with `KIT_` prefix)
-3. `./.kit.yml` (project-local)
-4. `~/.kit.yml` (global)
+3. `./.kit.yml` / `./.kit.yaml` / `./.kit.json` (project-local)
+4. `~/.kit.yml` / `~/.kit.yaml` / `~/.kit.json` (global)
 
 ### Basic Configuration
 
@@ -179,6 +179,7 @@ mcpServers:
 --top-p                  Nucleus sampling 0.0-1.0 (default: 0.95)
 --top-k                  Limit top K tokens (default: 40)
 --stop-sequences         Custom stop sequences (comma-separated)
+--thinking-level         Extended thinking level: off, minimal, low, medium, high (default: off)
 
 # System
 --config                 Config file path (default: ~/.kit.yml)
@@ -190,23 +191,30 @@ mcpServers:
 
 ```bash
 # Authentication (for OAuth-enabled providers)
-kit auth login           # Start OAuth flow
-kit auth logout          # Remove credentials
-kit auth status          # Check authentication status
+kit auth login [provider]    # Start OAuth flow (e.g., anthropic)
+kit auth logout [provider]   # Remove credentials for provider
+kit auth status              # Check authentication status
 
 # Model database
-kit models               # List available models
-kit models --all         # Show all providers (not just Fantasy-compatible)
-kit update-models        # Update local model database from models.dev
+kit models [provider]        # List available models (optionally filter by provider)
+kit models --all             # Show all providers (not just Fantasy-compatible)
+kit update-models [source]   # Update model database (from models.dev, URL, file, or 'embedded')
 
 # Extension management
-kit extensions list      # List discovered extensions
-kit extensions validate  # Validate extension files
-kit extensions init      # Generate example extension template
+kit extensions list          # List discovered extensions
+kit extensions validate      # Validate extension files
+kit extensions init          # Generate example extension template
+kit install <git-url>        # Install extensions from git repositories
+kit install -l <git-url>     # Install to project-local .kit/git/ directory
+kit install -u <git-url>     # Update an already-installed package
+kit install --uninstall <pkg> # Remove an installed package
+
+# Skills
+kit skill                    # Install the Kit extensions skill via skills.sh
 
 # ACP server
-kit acp                  # Start as ACP agent (stdio JSON-RPC)
-kit acp --debug          # With debug logging to stderr
+kit acp                      # Start as ACP agent (stdio JSON-RPC)
+kit acp --debug              # With debug logging to stderr
 ```
 
 ## Extension System
@@ -239,37 +247,67 @@ kit -e examples/extensions/minimal.go
 
 ### Extension Capabilities
 
-**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnAgentStart, OnAgentEnd, OnToolCall, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact
+**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnToolCall, OnToolExecutionStart, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact
 
 **Custom Components**:
 - **Tools**: Add new tools the LLM can invoke
 - **Commands**: Register slash commands (e.g., `/mycommand`)
+- **Options**: Register configurable extension options
 - **Widgets**: Persistent status displays above/below input
+- **Headers/Footers**: Persistent content above/below the conversation
+- **Status Bar**: Custom status bar entries
 - **Shortcuts**: Global keyboard shortcuts
 - **Overlays**: Modal dialogs with markdown content
 - **Tool Renderers**: Customize how tool calls display
+- **Message Renderers**: Custom rendering for assistant messages
 - **Editor Interceptors**: Handle key events and wrap rendering
+- **Interactive Prompts**: Select, confirm, input, and multi-select dialogs
+- **Subagents**: Spawn in-process child Kit instances
+- **LLM Completion**: Direct model calls via `Complete()`
+- **Custom Events**: Inter-extension communication via `EmitCustomEvent`
 
 ### Extension Examples
 
 See the `examples/extensions/` directory:
 
 - `minimal.go` - Clean UI with custom footer
-- `notify.go` - Desktop notifications
-- `widget-status.go` - Persistent status widgets
-- `custom-editor-demo.go` - Vim-like modal editor
-- `prompt-demo.go` - Interactive prompts (select/confirm/input)
-- `tool-logger.go` - Log all tool calls
-- `overlay-demo.go` - Modal dialogs
-- `plan-mode.go` - Read-only planning mode
-- `subagent-widget.go` - Multi-agent orchestration
 - `auto-commit.go` - Auto-commit on shutdown
+- `bookmark.go` - Bookmark conversations
+- `branded-output.go` - Branded output rendering
+- `compact-notify.go` - Notification on compaction
+- `confirm-destructive.go` - Confirm destructive operations
+- `context-inject.go` - Inject context into conversations
+- `custom-editor-demo.go` - Vim-like modal editor
+- `dev-reload.go` - Development live-reload
+- `header-footer-demo.go` - Custom headers and footers
+- `inline-bash.go` - Inline bash execution
+- `interactive-shell.go` - Interactive shell integration
+- `kit-kit.go` - Kit-in-Kit (sub-agent spawning)
+- `lsp-diagnostics.go` - LSP diagnostic integration
+- `notify.go` - Desktop notifications
+- `overlay-demo.go` - Modal dialogs
+- `permission-gate.go` - Permission gating for tools
+- `pirate.go` - Pirate-themed personality
+- `plan-mode.go` - Read-only planning mode
+- `project-rules.go` - Project-specific rules
+- `prompt-demo.go` - Interactive prompts (select/confirm/input)
+- `protected-paths.go` - Path protection for sensitive files
+- `subagent-widget.go` - Multi-agent orchestration with status widget
+- `subagent-test.go` - Subagent testing utilities
+- `summarize.go` - Conversation summarization
+- `tool-logger.go` - Log all tool calls
+- `tool-renderer-demo.go` - Custom tool call rendering
+- `widget-status.go` - Persistent status widgets
 
 ### Loading Extensions
 
 **Auto-discovery** (loads automatically):
-- `./.kit/extensions/*.go` (project-local)
-- `~/.config/kit/extensions/*.go` (global)
+- `~/.config/kit/extensions/*.go` (global single files)
+- `~/.config/kit/extensions/*/main.go` (global subdirectory extensions)
+- `.kit/extensions/*.go` (project-local single files)
+- `.kit/extensions/*/main.go` (project-local subdirectory extensions)
+- `~/.local/share/kit/git/` (global git-installed packages)
+- `.kit/git/` (project-local git-installed packages)
 
 **Explicit loading**:
 ```bash
@@ -288,7 +326,8 @@ Kit uses a tree-based session model that supports branching and forking conversa
 
 ### Session Locations
 
-- Default: `~/.local/share/kit/sessions/<cwd-hash>/<uuid>.jsonl`
+- Default: `~/.kit/sessions/<cwd-path>/<timestamp>_<id>.jsonl`
+- Path separators in the working directory are replaced with `--` (e.g., `/home/user/project` becomes `home--user--project`)
 - Each line is a session entry (messages, tool calls, extension data)
 - Supports branching from any message to explore alternate paths
 
@@ -355,6 +394,19 @@ host, err := kit.New(ctx, &kit.Options{
     MaxSteps:     10,
     Streaming:    true,
     Quiet:        true,
+
+    // Session options
+    SessionPath:  "./session.jsonl",  // Open specific session
+    Continue:     true,                // Resume most recent session
+    NoSession:    true,                // Ephemeral mode
+
+    // Tool options
+    ExtraTools:   []kit.Tool{...},     // Additional tools alongside defaults
+
+    // Compaction
+    AutoCompact:  true,                // Auto-compact near context limit
+
+    Debug:        true,                // Debug logging
 })
 ```
 
@@ -384,12 +436,27 @@ response, err := host.PromptWithCallbacks(
 ### Session Management
 
 ```go
+// Multi-turn conversations retain context automatically
 host.Prompt(ctx, "My name is Alice")
 response, _ := host.Prompt(ctx, "What's my name?")
 
-host.SaveSession("./session.json")
-host.LoadSession("./session.json")
+// Sessions are persisted automatically to JSONL files.
+// Access session info:
+path := host.GetSessionPath()
+id := host.GetSessionID()
+
+// Clear conversation history
 host.ClearSession()
+```
+
+Session persistence is configured via `Options`:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionPath: "./my-session.jsonl",  // Open specific session
+    Continue:    true,                   // Resume most recent session
+    NoSession:   true,                   // Ephemeral mode
+})
 ```
 
 ## Advanced Usage
@@ -413,12 +480,25 @@ Parse the JSON output:
 {
   "response": "Final assistant response text",
   "model": "anthropic/claude-haiku-3-5-20241022",
+  "stop_reason": "end_turn",
+  "session_id": "a1b2c3d4e5f6",
   "usage": {
     "input_tokens": 1024,
     "output_tokens": 512,
-    "total_tokens": 1536
+    "total_tokens": 1536,
+    "cache_read_tokens": 0,
+    "cache_creation_tokens": 0
   },
-  "messages": [...]
+  "messages": [
+    {
+      "role": "assistant",
+      "parts": [
+        {"type": "text", "data": "..."},
+        {"type": "tool_call", "data": {"name": "...", "args": "..."}},
+        {"type": "tool_result", "data": {"name": "...", "result": "..."}}
+      ]
+    }
+  ]
 }
 ```
 
@@ -468,19 +548,27 @@ go fmt ./...
 ### Project Structure
 
 ```
-cmd/kit/           - CLI entry point
-cmd/               - CLI command implementations
-pkg/kit/           - Go SDK
-internal/agent/    - Agent loop and tool execution
-internal/ui/       - Bubble Tea TUI components
+cmd/kit/             - CLI entry point (main.go)
+cmd/                 - CLI command implementations (root, auth, models, etc.)
+pkg/kit/             - Go SDK for embedding Kit
+internal/app/        - Application orchestrator (agent loop, message store, queue)
+internal/agent/      - Agent execution and tool dispatch
+internal/auth/       - OAuth authentication and credential storage
+internal/acpserver/  - ACP (Agent Client Protocol) server
+internal/clipboard/  - Cross-platform clipboard operations
+internal/compaction/ - Conversation compaction and summarization
+internal/config/     - Configuration management
+internal/core/       - Built-in tools (bash, read, write, edit, grep, find, ls)
 internal/extensions/ - Yaegi extension system
-internal/core/     - Built-in tools
-internal/tools/    - MCP tool integration
-internal/config/   - Configuration management
-internal/acpserver/ - ACP (Agent Client Protocol) server
-internal/session/  - Session persistence
-internal/models/   - Provider and model management
+internal/kitsetup/   - Initial setup wizard
+internal/message/    - Message content types and structured content blocks
+internal/models/     - Provider and model management
+internal/session/    - Session persistence (tree-based JSONL)
+internal/skills/     - Skill loading and system prompt composition
+internal/tools/      - MCP tool integration
+internal/ui/         - Bubble Tea TUI components
 examples/extensions/ - Example extension files
+npm/                 - NPM package wrapper for distribution
 ```
 
 ## Supported Providers
@@ -509,18 +597,23 @@ google/gemini-2.0-flash-exp
 ### Model Aliases
 
 ```bash
-claude-opus-latest      → claude-opus-4-20250514
-claude-sonnet-latest    → claude-sonnet-4-5-20250929
-claude-3-5-haiku-latest → claude-3-5-haiku-20241022
+claude-opus-latest        → claude-opus-4-20250514
+claude-sonnet-latest      → claude-sonnet-4-5-20250929
+claude-4-opus-latest      → claude-opus-4-20250514
+claude-4-sonnet-latest    → claude-sonnet-4-5-20250929
+claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
+claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
+claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
+claude-3-opus-latest      → claude-3-opus-20240229
 ```
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please see the [contribution guide](contribute/contribute.md) for guidelines.
 
 ## License
 
-[Apache 2.0](LICENSE)
+[MIT](LICENSE)
 
 ## Community
 
