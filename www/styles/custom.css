@@ -1,0 +1,30 @@
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"],
+html,
+html[data-theme="dark"],
+#tome-root,
+#tome-root *,
+[data-theme],
+body,
+div {
+  --bg: #08080a !important;
+  --sf: #0e0e12 !important;
+  --sfH: #141418 !important;
+  --bd: #1a1a22 !important;
+  --tx: #e8e0e0 !important;
+  --tx2: #8a8090 !important;
+  --txM: #6a6070 !important;
+  --ac: #e03030 !important;
+  --acD: rgba(224, 48, 48, 0.12) !important;
+  --acT: #ff4444 !important;
+  --cdBg: #0a0a0e !important;
+  --cdTx: #c8a0a0 !important;
+  --sbBg: #0a0a0d !important;
+  --hdBg: rgba(8, 8, 10, 0.92) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #e8e0e0 !important;
+  font-style: normal !important;
+}

@@ -1,0 +1,66 @@
+---
+title: Global Flags
+description: Complete reference for all Kit CLI flags.
+---
+
+# Global Flags
+
+All flags can be passed to the root `kit` command.
+
+## Model and provider
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--model` | `-m` | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `--provider-api-key` | — | — | API key for the provider |
+| `--provider-url` | — | — | Base URL for provider API |
+| `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
+
+## Session management
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--session` | `-s` | — | Open specific JSONL session file |
+| `--continue` | `-c` | `false` | Resume most recent session for current directory |
+| `--resume` | `-r` | `false` | Interactive session picker |
+| `--no-session` | — | `false` | Ephemeral mode, no persistence |
+
+## Behavior
+
+These flags control Kit's behavior. When a prompt is passed as a positional argument, Kit runs in non-interactive mode.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--quiet` | — | `false` | Suppress all output (non-interactive only) |
+| `--json` | — | `false` | Output response as JSON (non-interactive only) |
+| `--no-exit` | — | `false` | Enter interactive mode after prompt completes |
+| `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
+| `--stream` | — | `true` | Enable streaming output |
+| `--compact` | — | `false` | Enable compact output mode |
+| `--auto-compact` | — | `false` | Auto-compact conversation near context limit |
+
+## Extensions
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--extension` | `-e` | — | Load additional extension file(s) (repeatable) |
+| `--no-extensions` | — | `false` | Disable all extensions |
+
+## Generation parameters
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--max-tokens` | — | `4096` | Maximum tokens in response |
+| `--temperature` | — | `0.7` | Randomness 0.0–1.0 |
+| `--top-p` | — | `0.95` | Nucleus sampling 0.0–1.0 |
+| `--top-k` | — | `40` | Limit top K tokens |
+| `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
+| `--thinking-level` | — | `off` | Extended thinking level: off, minimal, low, medium, high |
+
+## System
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--config` | — | `~/.kit.yml` | Config file path |
+| `--system-prompt` | — | — | System prompt text or file path |
+| `--debug` | — | `false` | Enable debug logging |

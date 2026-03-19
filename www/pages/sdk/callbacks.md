@@ -1,0 +1,115 @@
+---
+title: Callbacks
+description: Monitor tool calls and streaming output with the Kit Go SDK.
+---
+
+# Callbacks
+
+## PromptWithCallbacks
+
+The `PromptWithCallbacks` method provides real-time visibility into tool calls and streaming output:
+
+```go
+response, err := host.PromptWithCallbacks(
+    ctx,
+    "List files in current directory",
+    func(name, args string) {
+        // Called when the model invokes a tool
+        fmt.Println("Calling tool:", name)
+    },
+    func(name, args, result string, isError bool) {
+        // Called when a tool returns its result
+        if isError {
+            fmt.Println("Tool failed:", name)
+        }
+    },
+    func(chunk string) {
+        // Called for each streaming text chunk
+        fmt.Print(chunk)
+    },
+)
+```
+
+### Callback signatures
+
+| Callback | Signature | When |
+|----------|-----------|------|
+| `onToolCall` | `func(name, args string)` | Model requests a tool call |
+| `onToolResult` | `func(name, args, result string, isError bool)` | Tool execution completes |
+| `onStreaming` | `func(chunk string)` | Streaming text chunk received |
+
+Any callback can be `nil` if you don't need it:
+
+```go
+// Only care about streaming output
+response, err := host.PromptWithCallbacks(ctx, "Hello", nil, nil, func(chunk string) {
+    fmt.Print(chunk)
+})
+```
+
+## Event-based monitoring
+
+For more granular control, use the event subscription API:
+
+```go
+// Subscribe returns an unsubscribe function
+unsub := host.OnToolCall(func(event kit.ToolCallEvent) {
+    fmt.Printf("Tool: %s, Args: %s\n", event.Name, event.Args)
+})
+defer unsub()
+
+unsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {
+    fmt.Printf("Result: %s (error: %v)\n", event.Name, event.IsError)
+})
+defer unsub2()
+
+unsub3 := host.OnStreaming(func(event kit.MessageUpdateEvent) {
+    fmt.Print(event.Chunk)
+})
+defer unsub3()
+
+unsub4 := host.OnResponse(func(event kit.ResponseEvent) {
+    fmt.Println("Final response received")
+})
+defer unsub4()
+
+unsub5 := host.OnTurnStart(func(event kit.TurnStartEvent) {
+    fmt.Println("Turn started")
+})
+defer unsub5()
+
+unsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {
+    fmt.Println("Turn ended")
+})
+defer unsub6()
+```
+
+## Hook system
+
+Hooks allow you to intercept and modify behavior. Unlike events, hooks can modify or cancel operations:
+
+```go
+// Intercept tool calls before execution
+host.OnBeforeToolCall(0, func(ctx context.Context, name string, args string) (string, error) {
+    if name == "bash" {
+        log.Println("Bash command:", args)
+    }
+    return args, nil // return modified args or error to cancel
+})
+
+// Process results after tool execution
+host.OnAfterToolResult(0, func(ctx context.Context, name string, result string) (string, error) {
+    return result, nil
+})
+
+// Before/after each agent turn
+host.OnBeforeTurn(0, func(ctx context.Context) error {
+    return nil
+})
+
+host.OnAfterTurn(0, func(ctx context.Context) error {
+    return nil
+})
+```
+
+The first argument is a priority (lower = runs first).

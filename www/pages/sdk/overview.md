@@ -1,0 +1,114 @@
+---
+title: Go SDK
+description: Embed Kit in your Go applications.
+---
+
+# Go SDK
+
+The `pkg/kit` package lets you embed Kit as a library in your Go applications.
+
+## Installation
+
+```bash
+go get github.com/mark3labs/kit/pkg/kit
+```
+
+## Basic usage
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    kit "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create Kit instance with default configuration
+    host, err := kit.New(ctx, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer host.Close()
+
+    // Send a prompt
+    response, err := host.Prompt(ctx, "What is 2+2?")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    println(response)
+}
+```
+
+## Multi-turn conversations
+
+Conversations retain context automatically across calls:
+
+```go
+host.Prompt(ctx, "My name is Alice")
+response, _ := host.Prompt(ctx, "What's my name?")
+// response: "Your name is Alice"
+```
+
+## Additional prompt methods
+
+The SDK provides several prompt variants:
+
+| Method | Description |
+|--------|-------------|
+| `Prompt(ctx, message)` | Simple prompt, returns response string |
+| `PromptWithCallbacks(ctx, message, ...)` | With tool call and streaming callbacks |
+| `PromptWithOptions(ctx, message, opts)` | With per-call options |
+| `PromptResult(ctx, message)` | Returns full `TurnResult` with usage stats |
+| `PromptResultWithFiles(ctx, message, files)` | Multimodal with file attachments |
+| `Steer(ctx, instruction)` | System-level steering without user message |
+| `FollowUp(ctx, text)` | Continue without new user input |
+
+## Event system
+
+Subscribe to events for monitoring:
+
+```go
+unsubscribe := host.OnToolCall(func(event kit.ToolCallEvent) {
+    fmt.Println("Tool called:", event.Name)
+})
+defer unsubscribe()
+
+host.OnToolResult(func(event kit.ToolResultEvent) {
+    fmt.Println("Tool result:", event.Name)
+})
+
+host.OnStreaming(func(event kit.MessageUpdateEvent) {
+    fmt.Print(event.Chunk)
+})
+```
+
+## Model management
+
+Switch models at runtime:
+
+```go
+host.SetModel(ctx, "openai/gpt-4o")
+info := host.GetModelInfo()
+models := host.GetAvailableModels()
+```
+
+## Context and compaction
+
+Monitor and manage context usage:
+
+```go
+tokens := host.EstimateContextTokens()
+stats := host.GetContextStats()
+
+if host.ShouldCompact() {
+    result, err := host.Compact(ctx, nil, "")
+}
+```
+
+See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.

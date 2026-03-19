@@ -1,0 +1,119 @@
+---
+title: Loading Extensions
+description: How Kit discovers and loads extensions.
+---
+
+# Loading Extensions
+
+## Auto-discovery
+
+Kit automatically discovers and loads extensions from these paths, in order:
+
+| Path | Scope |
+|------|-------|
+| `~/.config/kit/extensions/*.go` | Global single files |
+| `~/.config/kit/extensions/*/main.go` | Global subdirectory extensions |
+| `.kit/extensions/*.go` | Project-local single files |
+| `.kit/extensions/*/main.go` | Project-local subdirectory extensions |
+| `~/.local/share/kit/git/` | Global git-installed packages |
+| `.kit/git/` | Project-local git-installed packages |
+
+## Explicit loading
+
+Load extensions by path using the `-e` flag:
+
+```bash
+kit -e path/to/extension.go
+```
+
+Load multiple extensions:
+
+```bash
+kit -e ext1.go -e ext2.go
+```
+
+## Disabling extensions
+
+Disable all auto-discovered extensions:
+
+```bash
+kit --no-extensions
+```
+
+You can combine `--no-extensions` with `-e` to load only specific extensions:
+
+```bash
+kit --no-extensions -e my-extension.go
+```
+
+## Installing from git
+
+Install extensions from git repositories using `kit install`:
+
+```bash
+# Install globally (to ~/.local/share/kit/git/)
+kit install https://github.com/user/my-kit-extension.git
+
+# Install project-locally (to .kit/git/)
+kit install -l https://github.com/user/my-kit-extension.git
+
+# Update an installed package
+kit install -u https://github.com/user/my-kit-extension.git
+
+# Remove
+kit install --uninstall my-kit-extension
+```
+
+## Extension structure
+
+### Single-file extensions
+
+A single `.go` file with an `Init` function:
+
+```go
+//go:build ignore
+
+package main
+
+import "kit/ext"
+
+func Init(api ext.API) {
+    // register handlers, tools, commands, etc.
+}
+```
+
+The `//go:build ignore` directive prevents the Go toolchain from trying to compile the file as part of a normal build.
+
+### Subdirectory extensions
+
+For more complex extensions, create a directory with a `main.go` entry point:
+
+```
+.kit/extensions/my-extension/
+├── main.go      # Must contain Init(api ext.API)
+├── helpers.go   # Additional source files
+└── config.go
+```
+
+### Package-level state
+
+Yaegi supports package-level variables captured in closures. This is the standard way to maintain state across event callbacks:
+
+```go
+package main
+
+import "kit/ext"
+
+var callCount int
+
+func Init(api ext.API) {
+    api.OnToolCall(func(_ ext.ToolCallEvent, ctx ext.Context) {
+        callCount++
+        ctx.SetFooter(ext.HeaderFooterConfig{
+            Content: ext.WidgetContent{
+                Text: fmt.Sprintf("Tools called: %d", callCount),
+            },
+        })
+    })
+}
+```

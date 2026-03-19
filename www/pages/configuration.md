@@ -1,0 +1,96 @@
+---
+title: Configuration
+description: Configure Kit using config files, environment variables, and CLI flags.
+---
+
+# Configuration
+
+Kit looks for configuration in the following locations, in order of priority:
+
+1. CLI flags
+2. Environment variables (with `KIT_` prefix)
+3. `./.kit.yml` / `./.kit.yaml` / `./.kit.json` (project-local)
+4. `~/.kit.yml` / `~/.kit.yaml` / `~/.kit.json` (global)
+
+## Basic configuration
+
+Create `~/.kit.yml`:
+
+```yaml
+model: anthropic/claude-sonnet-4-5-20250929
+max-tokens: 4096
+temperature: 0.7
+stream: true
+```
+
+## All configuration keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `model` | string | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `max-tokens` | int | `4096` | Maximum tokens in response |
+| `temperature` | float | `0.7` | Randomness 0.0–1.0 |
+| `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
+| `top-k` | int | `40` | Limit top K tokens |
+| `stream` | bool | `true` | Enable streaming output |
+| `debug` | bool | `false` | Enable debug logging |
+| `compact` | bool | `false` | Enable compact output mode |
+| `system-prompt` | string | — | System prompt text or file path |
+| `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
+| `thinking-level` | string | `off` | Extended thinking: off, minimal, low, medium, high |
+| `provider-api-key` | string | — | API key for the provider |
+| `provider-url` | string | — | Base URL for provider API |
+| `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
+| `stop-sequences` | list | — | Custom stop sequences |
+| `theme` | string | — | UI theme |
+| `markdown-theme` | string | — | Markdown rendering theme |
+
+## Environment variables
+
+Any configuration key can be set via environment variable with the `KIT_` prefix. Hyphens become underscores:
+
+```bash
+export KIT_MODEL="openai/gpt-4o"
+export KIT_MAX_TOKENS="8192"
+export KIT_TEMPERATURE="0.5"
+```
+
+Provider API keys use their own environment variables:
+
+```bash
+export ANTHROPIC_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="..."
+```
+
+## MCP server configuration
+
+Add external MCP servers to your `.kit.yml`:
+
+```yaml
+mcpServers:
+  filesystem:
+    type: local
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]
+    environment:
+      LOG_LEVEL: "info"
+    allowedTools: ["read_file", "write_file"]
+    excludedTools: ["delete_file"]
+
+  search:
+    type: remote
+    url: "https://mcp.example.com/search"
+```
+
+### MCP server fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `local` (stdio) or `remote` (streamable HTTP) |
+| `command` | list | Command and args for local servers |
+| `environment` | map | Environment variables for the server process |
+| `url` | string | URL for remote servers |
+| `allowedTools` | list | Whitelist of tool names to expose |
+| `excludedTools` | list | Blacklist of tool names to hide |
+
+A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.

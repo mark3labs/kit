@@ -1,0 +1,74 @@
+---
+title: Extension System
+description: Overview of Kit's Go-based extension system.
+---
+
+# Extension System
+
+Extensions are Go source files interpreted at runtime via [Yaegi](https://github.com/traefik/yaegi). They can add custom tools, slash commands, widgets, keyboard shortcuts, and intercept lifecycle events — all without recompiling Kit.
+
+## Minimal extension
+
+```go
+//go:build ignore
+
+package main
+
+import "kit/ext"
+
+func Init(api ext.API) {
+    api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+        ctx.SetFooter(ext.HeaderFooterConfig{
+            Content: ext.WidgetContent{Text: "Custom Footer"},
+        })
+    })
+}
+```
+
+Run it with:
+
+```bash
+kit -e examples/extensions/minimal.go
+```
+
+## How extensions work
+
+1. Kit discovers extension files from [auto-discovery paths](/extensions/loading) or explicit `-e` flags
+2. Each `.go` file is loaded into a Yaegi interpreter with access to the `kit/ext` package
+3. Kit calls the `Init(api ext.API)` function in each extension
+4. The extension registers callbacks, tools, commands, and UI components via the `api` and `ctx` objects
+
+## Key concepts
+
+### The `API` object
+
+Passed to `Init()`, the `API` object is used to register lifecycle event handlers and static components:
+
+- **Lifecycle handlers** — `api.OnSessionStart(...)`, `api.OnToolCall(...)`, etc.
+- **Tools** — `api.RegisterTool(ext.ToolDef{...})`
+- **Commands** — `api.RegisterCommand(ext.CommandDef{...})`
+- **Shortcuts** — `api.RegisterShortcut(ext.ShortcutDef{...}, handler)`
+- **Tool renderers** — `api.RegisterToolRenderer(ext.ToolRenderConfig{...})`
+- **Message renderers** — `api.RegisterMessageRenderer(ext.MessageRendererConfig{...})`
+- **Options** — `api.RegisterOption(ext.OptionDef{...})`
+
+### The `Context` object
+
+Passed to event handlers, the `Context` object provides runtime access to Kit's state and UI:
+
+- **Output** — `ctx.Print(...)`, `ctx.PrintInfo(...)`, `ctx.PrintError(...)`
+- **UI components** — `ctx.SetWidget(...)`, `ctx.SetHeader(...)`, `ctx.SetFooter(...)`, `ctx.SetStatus(...)`
+- **Editor** — `ctx.SetEditor(...)`, `ctx.ResetEditor()`
+- **Prompts** — `ctx.PromptSelect(...)`, `ctx.PromptConfirm(...)`, `ctx.PromptInput(...)`
+- **Overlays** — `ctx.ShowOverlay(...)`
+- **Messages** — `ctx.SendMessage(...)`, `ctx.GetMessages()`
+- **Model** — `ctx.SetModel(...)`, `ctx.GetAvailableModels()`
+- **Tools** — `ctx.GetAllTools()`, `ctx.SetActiveTools(...)`
+- **Context stats** — `ctx.GetContextStats()`
+- **Session data** — `ctx.AppendEntry(...)`, `ctx.GetEntries(...)`
+- **Subagents** — `ctx.SpawnSubagent(...)`
+- **LLM completion** — `ctx.Complete(...)`
+- **Custom events** — `ctx.EmitCustomEvent(...)`
+- **App control** — `ctx.Exit()`, `ctx.ReloadExtensions()`
+
+See [Capabilities](/extensions/capabilities) for full details on each component type.
