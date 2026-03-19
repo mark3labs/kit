@@ -222,7 +222,7 @@ func NewStreamComponent(compactMode bool, width int, modelName string) *StreamCo
 		spinnerFrames:   knightRiderFrames(),
 		compactMode:     compactMode,
 		modelName:       modelName,
-		messageRenderer: NewMessageRenderer(width, false),
+		messageRenderer: newMessageRenderer(width, false),
 		compactRenderer: NewCompactRenderer(width, false),
 		width:           width,
 	}

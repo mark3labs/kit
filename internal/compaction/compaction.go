@@ -19,8 +19,8 @@ import (
 // Token estimation
 // ---------------------------------------------------------------------------
 
-// EstimateTokens provides a rough token count (~4 chars per token).
-func EstimateTokens(text string) int {
+// estimateTokens provides a rough token count (~4 chars per token).
+func estimateTokens(text string) int {
 	return len(text) / 4
 }
 
@@ -40,7 +40,7 @@ func estimateSingleMessageTokens(msg fantasy.Message) int {
 	total := 0
 	for _, part := range msg.Content {
 		if tp, ok := part.(fantasy.TextPart); ok {
-			total += EstimateTokens(tp.Text)
+			total += estimateTokens(tp.Text)
 		}
 	}
 	return total

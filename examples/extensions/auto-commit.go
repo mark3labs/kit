@@ -23,8 +23,7 @@ import (
 func Init(api ext.API) {
 	api.OnSessionShutdown(func(_ ext.SessionShutdownEvent, ctx ext.Context) {
 		// Check for staged changes.
-		diff, err := exec.Command("git", "diff", "--cached", "--quiet").CombinedOutput()
-		_ = diff
+		err := exec.Command("git", "diff", "--cached", "--quiet").Run()
 		if err == nil {
 			return // exit code 0 means no staged changes
 		}

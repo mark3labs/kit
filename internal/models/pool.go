@@ -166,28 +166,3 @@ func (p *ProviderPool) Close() {
 	}
 	p.mu.Unlock()
 }
-
-// Stats returns current pool statistics.
-func (p *ProviderPool) Stats() PoolStats {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	stats := PoolStats{
-		TotalProviders: len(p.providers),
-	}
-	for _, pp := range p.providers {
-		if pp.refs > 0 {
-			stats.ActiveProviders++
-		} else {
-			stats.IdleProviders++
-		}
-	}
-	return stats
-}
-
-// PoolStats contains provider pool statistics.
-type PoolStats struct {
-	TotalProviders  int
-	ActiveProviders int
-	IdleProviders   int
-}

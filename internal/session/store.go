@@ -253,27 +253,3 @@ func extractTextPreview(partsJSON json.RawMessage) string {
 func DeleteSession(path string) error {
 	return os.Remove(path)
 }
-
-// ListChildSessions returns all sessions that have the given session ID as
-// their parent. This is useful for finding subagent sessions spawned from
-// a parent session. Results are sorted by creation time (newest first).
-func ListChildSessions(parentID string) ([]SessionInfo, error) {
-	if parentID == "" {
-		return nil, nil
-	}
-
-	allSessions, err := ListAllSessions()
-	if err != nil {
-		return nil, err
-	}
-
-	var children []SessionInfo
-	for _, s := range allSessions {
-		if s.ParentSessionID == parentID {
-			children = append(children, s)
-		}
-	}
-
-	// Already sorted by modification time from ListAllSessions
-	return children, nil
-}

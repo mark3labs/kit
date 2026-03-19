@@ -41,7 +41,7 @@ func ReadImage() (*ImageData, error) {
 		return nil, ErrNoImage
 	}
 
-	return nil, ErrNoClipboardTool
+	return nil, errNoClipboardTool
 }
 
 // readWithXclip reads image data using xclip.

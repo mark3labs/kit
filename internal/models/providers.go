@@ -49,7 +49,7 @@ func resolveModelAlias(provider, modelName string) string {
 	}
 
 	if resolved, exists := aliasMap[modelName]; exists {
-		if _, err := registry.ValidateModel(provider, resolved); err == nil {
+		if registry.LookupModel(provider, resolved) != nil {
 			return resolved
 		}
 	}
@@ -73,8 +73,8 @@ func ThinkingLevels() []ThinkingLevel {
 	return []ThinkingLevel{ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh}
 }
 
-// ThinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off".
-func ThinkingBudgetTokens(level ThinkingLevel) int64 {
+// thinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off".
+func thinkingBudgetTokens(level ThinkingLevel) int64 {
 	switch level {
 	case ThinkingMinimal:
 		return 1024
@@ -160,16 +160,6 @@ func ParseModelString(modelString string) (provider, model string, err error) {
 			return parts[0], parts[1], nil
 		}
 		return "", "", fmt.Errorf("invalid model format %q: expected provider/model (e.g. anthropic/claude-sonnet-4-5)", modelString)
-	}
-
-	// Legacy colon-separated format
-	if strings.Contains(modelString, ":") {
-		parts := strings.SplitN(modelString, ":", 2)
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			fmt.Fprintf(os.Stderr, "Warning: model format %q uses deprecated colon separator. Use %s/%s instead.\n",
-				modelString, parts[0], parts[1])
-			return parts[0], parts[1], nil
-		}
 	}
 
 	return "", "", fmt.Errorf("invalid model format %q: expected provider/model (e.g. anthropic/claude-sonnet-4-5)", modelString)
@@ -489,7 +479,7 @@ func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fan
 		return nil
 	}
 
-	budget := ThinkingBudgetTokens(config.ThinkingLevel)
+	budget := thinkingBudgetTokens(config.ThinkingLevel)
 	if budget == 0 {
 		return nil
 	}

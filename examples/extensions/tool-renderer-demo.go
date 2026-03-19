@@ -28,7 +28,7 @@ func Init(api ext.API) {
 		DisplayName: "File",
 		BorderColor: "#89b4fa", // Catppuccin blue
 		RenderHeader: func(toolArgs string, width int) string {
-			var args map[string]interface{}
+			var args map[string]any
 			if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 				return ""
 			}
@@ -72,7 +72,7 @@ func Init(api ext.API) {
 		Background:  "#1e1e2e", // Dark background
 		BorderColor: "#a6e3a1", // Catppuccin green
 		RenderHeader: func(toolArgs string, width int) string {
-			var args map[string]interface{}
+			var args map[string]any
 			if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 				return ""
 			}

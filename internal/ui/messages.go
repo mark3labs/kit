@@ -156,10 +156,10 @@ type MessageRenderer struct {
 	getToolRenderer func(toolName string) *ToolRendererData
 }
 
-// NewMessageRenderer creates and initializes a new MessageRenderer with the specified
+// newMessageRenderer creates and initializes a new MessageRenderer with the specified
 // terminal width and debug mode setting. The width parameter determines line wrapping
 // and layout calculations.
-func NewMessageRenderer(width int, debug bool) *MessageRenderer {
+func newMessageRenderer(width int, debug bool) *MessageRenderer {
 	return &MessageRenderer{
 		width: width,
 		debug: debug,

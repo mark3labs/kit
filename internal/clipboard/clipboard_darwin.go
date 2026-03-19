@@ -7,9 +7,8 @@ import (
 )
 
 // ReadImage reads image data from the system clipboard on macOS.
-// It uses osascript to check if the clipboard contains an image and then
-// reads the data using a temporary approach. If the clipboard contains
-// an image, it writes it to stdout as PNG data.
+// It uses osascript to check if the clipboard contains an image via
+// NSPasteboard and writes it to stdout as PNG data.
 func ReadImage() (*ImageData, error) {
 	// Use osascript to write clipboard image to stdout via a pipe.
 	// The script checks if the clipboard has a «class PNGf» item.

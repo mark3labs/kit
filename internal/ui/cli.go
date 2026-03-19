@@ -36,7 +36,7 @@ func NewCLI(debug bool, compact bool) (*CLI, error) {
 	if compact {
 		cli.renderer = NewCompactRenderer(cli.width, debug)
 	} else {
-		cli.renderer = NewMessageRenderer(cli.width, debug)
+		cli.renderer = newMessageRenderer(cli.width, debug)
 	}
 
 	return cli, nil
@@ -106,13 +106,6 @@ func (c *CLI) DisplayAssistantMessage(message string) error {
 func (c *CLI) DisplayAssistantMessageWithModel(message, modelName string) error {
 	fmt.Println(c.renderer.RenderAssistantMessage(message, time.Now(), modelName).Content)
 	return nil
-}
-
-// DisplayToolCallMessage is a no-op retained for backward compatibility. Tool
-// calls are now rendered as part of the unified tool block in DisplayToolMessage,
-// which combines the invocation header with the execution result.
-func (c *CLI) DisplayToolCallMessage(toolName, toolArgs string) {
-	// No-op: unified tool blocks are rendered in DisplayToolMessage.
 }
 
 // DisplayToolMessage renders and displays the complete result of a tool execution,

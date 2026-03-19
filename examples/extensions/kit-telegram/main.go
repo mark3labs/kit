@@ -23,14 +23,14 @@ import (
 // ──────────────────────────────────────────────
 
 type RelayConfig struct {
-	Version        int     `json:"version"`
-	Enabled        bool    `json:"enabled"`
-	BotToken       string  `json:"botToken"`
-	BotID          int64   `json:"botId"`
-	BotUsername    string  `json:"botUsername"`
-	ChatID         int64   `json:"chatId"`
-	AllowedUserIDs []int64 `json:"allowedUserIds"`
-	LastValidatedAt string `json:"lastValidatedAt"`
+	Version         int     `json:"version"`
+	Enabled         bool    `json:"enabled"`
+	BotToken        string  `json:"botToken"`
+	BotID           int64   `json:"botId"`
+	BotUsername     string  `json:"botUsername"`
+	ChatID          int64   `json:"chatId"`
+	AllowedUserIDs  []int64 `json:"allowedUserIds"`
+	LastValidatedAt string  `json:"lastValidatedAt"`
 }
 
 type TelegramUser struct {
@@ -53,17 +53,17 @@ type TelegramChatMember struct {
 }
 
 type TelegramMessage struct {
-	MessageID      int          `json:"message_id"`
-	Date           int64        `json:"date"`
-	Text           string       `json:"text"`
-	Caption        string       `json:"caption"`
-	From           TelegramUser `json:"from"`
-	Chat           TelegramChat `json:"chat"`
-	EditDate       int64        `json:"edit_date"`
+	MessageID int          `json:"message_id"`
+	Date      int64        `json:"date"`
+	Text      string       `json:"text"`
+	Caption   string       `json:"caption"`
+	From      TelegramUser `json:"from"`
+	Chat      TelegramChat `json:"chat"`
+	EditDate  int64        `json:"edit_date"`
 }
 
 type TelegramUpdate struct {
-	UpdateID      int64           `json:"update_id"`
+	UpdateID      int64            `json:"update_id"`
 	Message       *TelegramMessage `json:"message"`
 	EditedMessage *TelegramMessage `json:"edited_message"`
 }
@@ -91,13 +91,13 @@ type RenderAction struct {
 }
 
 type ActiveRunState struct {
-	ID                int
-	StartedAt         time.Time
-	StepCount         int
-	ProgressMessageID int
-	LastRenderedText  string
-	Actions           []RenderAction
-	LastAssistantText string
+	ID                 int
+	StartedAt          time.Time
+	StepCount          int
+	ProgressMessageID  int
+	LastRenderedText   string
+	Actions            []RenderAction
+	LastAssistantText  string
 	LastAssistantError bool
 }
 
@@ -137,16 +137,16 @@ var (
 	config *RelayConfig
 
 	// Relay connection
-	pollLoopActive     bool
-	pollGeneration     int
-	pollStopCh         chan struct{}
-	lastAPISuccessAt   time.Time
-	retryActive        bool
-	retryAttempt       int
-	retryLogPath       string
-	currentOffset      int64
-	offsetInitialized  bool
-	isConnecting       bool
+	pollLoopActive    bool
+	pollGeneration    int
+	pollStopCh        chan struct{}
+	lastAPISuccessAt  time.Time
+	retryActive       bool
+	retryAttempt      int
+	retryLogPath      string
+	currentOffset     int64
+	offsetInitialized bool
+	isConnecting      bool
 
 	// Spinner
 	spinnerIndex  int
@@ -169,8 +169,8 @@ var (
 	pendingTest *PendingTest
 
 	// Latest context for background goroutines
-	latestCtx     ext.Context
-	latestCtxSet  bool
+	latestCtx    ext.Context
+	latestCtxSet bool
 
 	// Debug mode
 	debugMode bool
@@ -255,7 +255,7 @@ func createRetryLogPath() string {
 	return filepath.Join(failureLogDir(), stamp+".log")
 }
 
-func appendFailureLog(path string, entry map[string]interface{}) {
+func appendFailureLog(path string, entry map[string]any) {
 	dir := filepath.Dir(path)
 	os.MkdirAll(dir, 0755)
 	data, _ := json.Marshal(entry)
@@ -271,7 +271,7 @@ func appendFailureLog(path string, entry map[string]interface{}) {
 // Telegram Bot API client
 // ──────────────────────────────────────────────
 
-func telegramRequest(token string, method string, body map[string]interface{}, timeoutSec int) (json.RawMessage, error) {
+func telegramRequest(token string, method string, body map[string]any, timeoutSec int) (json.RawMessage, error) {
 	url := fmt.Sprintf("%s/bot%s/%s", telegramAPIBase, token, method)
 	payload, _ := json.Marshal(body)
 	client := &http.Client{Timeout: time.Duration(timeoutSec) * time.Second}
@@ -295,7 +295,7 @@ func telegramRequest(token string, method string, body map[string]interface{}, t
 }
 
 func tgGetMe(token string) (*TelegramUser, error) {
-	result, err := telegramRequest(token, "getMe", map[string]interface{}{}, 15)
+	result, err := telegramRequest(token, "getMe", map[string]any{}, 15)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func tgGetMe(token string) (*TelegramUser, error) {
 }
 
 func tgGetChat(token string, chatID int64) (*TelegramChat, error) {
-	result, err := telegramRequest(token, "getChat", map[string]interface{}{
+	result, err := telegramRequest(token, "getChat", map[string]any{
 		"chat_id": chatID,
 	}, 15)
 	if err != nil {
@@ -321,7 +321,7 @@ func tgGetChat(token string, chatID int64) (*TelegramChat, error) {
 }
 
 func tgGetChatMember(token string, chatID int64, userID int64) (*TelegramChatMember, error) {
-	result, err := telegramRequest(token, "getChatMember", map[string]interface{}{
+	result, err := telegramRequest(token, "getChatMember", map[string]any{
 		"chat_id": chatID,
 		"user_id": userID,
 	}, 15)
@@ -336,7 +336,7 @@ func tgGetChatMember(token string, chatID int64, userID int64) (*TelegramChatMem
 }
 
 func tgGetUpdates(token string, offset int64, hasOffset bool, timeoutSeconds int, clientTimeoutSec int) ([]TelegramUpdate, error) {
-	body := map[string]interface{}{
+	body := map[string]any{
 		"timeout":         timeoutSeconds,
 		"allowed_updates": []string{"message", "edited_message"},
 	}
@@ -355,7 +355,7 @@ func tgGetUpdates(token string, offset int64, hasOffset bool, timeoutSeconds int
 }
 
 func tgSendMessage(token string, chatID int64, text string) (*TelegramMessage, error) {
-	result, err := telegramRequest(token, "sendMessage", map[string]interface{}{
+	result, err := telegramRequest(token, "sendMessage", map[string]any{
 		"chat_id":                  chatID,
 		"text":                     text,
 		"disable_web_page_preview": true,
@@ -371,9 +371,9 @@ func tgSendMessage(token string, chatID int64, text string) (*TelegramMessage, e
 }
 
 func tgEditMessageText(token string, chatID int64, messageID int, text string) (*TelegramMessage, error) {
-	result, err := telegramRequest(token, "editMessageText", map[string]interface{}{
+	result, err := telegramRequest(token, "editMessageText", map[string]any{
 		"chat_id":                  chatID,
-		"message_id":              messageID,
+		"message_id":               messageID,
 		"text":                     text,
 		"disable_web_page_preview": true,
 	}, 30)
@@ -480,7 +480,7 @@ func handleAPIFailure(err error, operation string) {
 	attempt := retryAttempt
 	mu.Unlock()
 
-	appendFailureLog(logPath, map[string]interface{}{
+	appendFailureLog(logPath, map[string]any{
 		"timestamp":     time.Now().Format(time.RFC3339),
 		"operation":     operation,
 		"attempt":       attempt,
@@ -880,10 +880,10 @@ func formatElapsed(d time.Duration) string {
 }
 
 func summarizeToolAction(toolName string, inputJSON string) string {
-	var args map[string]interface{}
+	var args map[string]any
 	json.Unmarshal([]byte(inputJSON), &args)
 	if args == nil {
-		args = make(map[string]interface{})
+		args = make(map[string]any)
 	}
 	getStr := func(key string, fallback string) string {
 		if v, ok := args[key]; ok {
@@ -919,10 +919,10 @@ func summarizeToolResult(toolName string, inputJSON string, isError bool) string
 	if isError {
 		return "failed " + summarizeToolAction(toolName, inputJSON)
 	}
-	var args map[string]interface{}
+	var args map[string]any
 	json.Unmarshal([]byte(inputJSON), &args)
 	if args == nil {
-		args = make(map[string]interface{})
+		args = make(map[string]any)
 	}
 	getStr := func(key string, fallback string) string {
 		if v, ok := args[key]; ok {
@@ -1718,7 +1718,7 @@ func runConnectFlow(ctx ext.Context) {
 		Enabled:         enableNow,
 		BotToken:        token,
 		BotID:           me.ID,
-		BotUsername:      me.Username,
+		BotUsername:     me.Username,
 		ChatID:          resolved.chatID,
 		AllowedUserIDs:  resolved.allowedUserIDs,
 		LastValidatedAt: time.Now().Format(time.RFC3339),

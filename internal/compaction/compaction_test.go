@@ -36,9 +36,9 @@ func TestEstimateTokens(t *testing.T) {
 		{"hello world", 2}, // 11 / 4 = 2
 	}
 	for _, tt := range tests {
-		got := EstimateTokens(tt.text)
+		got := estimateTokens(tt.text)
 		if got != tt.want {
-			t.Errorf("EstimateTokens(%q) = %d, want %d", tt.text, got, tt.want)
+			t.Errorf("estimateTokens(%q) = %d, want %d", tt.text, got, tt.want)
 		}
 	}
 }

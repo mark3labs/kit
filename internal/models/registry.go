@@ -147,24 +147,8 @@ func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 	return &modelInfo
 }
 
-// ValidateModel validates if a model exists and returns detailed information.
-// Deprecated: Use LookupModel instead — it returns nil for unknown models
-// rather than an error, letting the provider API be the authority.
-func (r *ModelsRegistry) ValidateModel(provider, modelID string) (*ModelInfo, error) {
-	if info := r.LookupModel(provider, modelID); info != nil {
-		return info, nil
-	}
-
-	providerInfo, exists := r.providers[provider]
-	if !exists {
-		return nil, fmt.Errorf("unsupported provider: %s", provider)
-	}
-
-	return nil, fmt.Errorf("model %s not found for provider %s", modelID, providerInfo.ID)
-}
-
-// GetRequiredEnvVars returns the required environment variables for a provider.
-func (r *ModelsRegistry) GetRequiredEnvVars(provider string) ([]string, error) {
+// getRequiredEnvVars returns the required environment variables for a provider.
+func (r *ModelsRegistry) getRequiredEnvVars(provider string) ([]string, error) {
 	providerInfo, exists := r.providers[provider]
 	if !exists {
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
@@ -194,7 +178,7 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 		}
 	}
 
-	envVars, err := r.GetRequiredEnvVars(provider)
+	envVars, err := r.getRequiredEnvVars(provider)
 	if err != nil {
 		// Unknown provider — nothing to validate
 		return nil

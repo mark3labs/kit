@@ -51,8 +51,8 @@ func CreateUsageTracker(modelString, providerAPIKey string) *UsageTracker {
 	}
 
 	registry := models.GetGlobalRegistry()
-	modelInfo, err := registry.ValidateModel(provider, model)
-	if err != nil {
+	modelInfo := registry.LookupModel(provider, model)
+	if modelInfo == nil {
 		return nil
 	}
 
@@ -94,7 +94,7 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 		// Skip usage tracking for ollama as it's not in models.dev
 		if provider != "ollama" {
 			registry := models.GetGlobalRegistry()
-			if modelInfo, err := registry.ValidateModel(provider, model); err == nil {
+			if modelInfo := registry.LookupModel(provider, model); modelInfo != nil {
 				// Check if OAuth credentials are being used for Anthropic models
 				isOAuth := false
 				if provider == "anthropic" {

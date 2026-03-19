@@ -71,5 +71,5 @@ func DetectMediaType(data []byte) string {
 // ErrNoImage is returned when the clipboard does not contain image data.
 var ErrNoImage = fmt.Errorf("no image data on clipboard")
 
-// ErrNoClipboardTool is returned when no suitable clipboard tool is found.
-var ErrNoClipboardTool = fmt.Errorf("no clipboard tool available (install xclip, wl-paste, or use macOS)")
+// errNoClipboardTool is returned when no suitable clipboard tool is found.
+var errNoClipboardTool = fmt.Errorf("no clipboard tool available (install xclip, wl-paste, or use macOS)")

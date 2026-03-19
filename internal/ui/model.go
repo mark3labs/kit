@@ -372,11 +372,9 @@ type AppModel struct {
 	appCtrl AppController
 
 	// input is the child input component (slash commands + autocomplete).
-	// Placeholder until InputComponent is implemented in TAS-15.
 	input inputComponentIface
 
 	// stream is the child streaming display component (spinner + streaming text).
-	// Placeholder until StreamComponent is implemented in TAS-16.
 	stream streamComponentIface
 
 	// renderer renders completed messages for tea.Println output. It is either
@@ -593,7 +591,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		cr.getToolRenderer = opts.GetToolRenderer
 		rdr = cr
 	} else {
-		mr := NewMessageRenderer(width, false)
+		mr := newMessageRenderer(width, false)
 		mr.getToolRenderer = opts.GetToolRenderer
 		rdr = mr
 	}

@@ -144,17 +144,6 @@ func NewMessageEntry(parentID string, msg message.Message) (*MessageEntry, error
 	}, nil
 }
 
-// NewMessageEntryFromRaw creates a MessageEntry with pre-marshaled parts.
-func NewMessageEntryFromRaw(parentID, role string, parts json.RawMessage, model, provider string) *MessageEntry {
-	return &MessageEntry{
-		Entry:    NewEntry(EntryTypeMessage, parentID),
-		Role:     role,
-		Parts:    parts,
-		Model:    model,
-		Provider: provider,
-	}
-}
-
 // NewModelChangeEntry creates a ModelChangeEntry.
 func NewModelChangeEntry(parentID, provider, modelID string) *ModelChangeEntry {
 	return &ModelChangeEntry{

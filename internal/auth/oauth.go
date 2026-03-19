@@ -49,12 +49,12 @@ func NewOAuthClient() *OAuthClient {
 	}
 }
 
-// GeneratePKCE generates a cryptographically secure PKCE verifier and challenge pair
+// generatePKCE generates a cryptographically secure PKCE verifier and challenge pair
 // for the OAuth 2.0 PKCE flow. The verifier is a random 32-byte string encoded as
 // base64url, and the challenge is the SHA256 hash of the verifier, also base64url encoded.
 // Returns the verifier (to be stored securely), challenge (to be sent with auth request),
 // and any error encountered during generation.
-func GeneratePKCE() (verifier, challenge string, err error) {
+func generatePKCE() (verifier, challenge string, err error) {
 	// Generate 32 bytes of random data
 	verifierBytes := make([]byte, 32)
 	if _, err := rand.Read(verifierBytes); err != nil {
@@ -76,7 +76,7 @@ func GeneratePKCE() (verifier, challenge string, err error) {
 // and PKCE challenge. Returns an AuthData structure containing the URL for user
 // authentication and the PKCE verifier for the subsequent code exchange.
 func (c *OAuthClient) GetAuthorizationURL() (*AuthData, error) {
-	verifier, challenge, err := GeneratePKCE()
+	verifier, challenge, err := generatePKCE()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate PKCE: %w", err)
 	}
