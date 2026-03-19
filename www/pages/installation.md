@@ -1,14 +1,22 @@
 ---
 title: Installation
-description: Install Kit using npm, Go, or build from source.
+description: Install Kit using npm, bun, pnpm, Go, or build from source.
 ---
 
 # Installation
 
-## Using npm (recommended)
+## Using npm / bun / pnpm
 
 ```bash
 npm install -g @mark3labs/kit
+```
+
+```bash
+bun install -g @mark3labs/kit
+```
+
+```bash
+pnpm install -g @mark3labs/kit
 ```
 
 ## Using Go

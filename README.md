@@ -29,10 +29,14 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 ## Installation
 
-### Using npm (recommended)
+### Using npm / bun / pnpm
 
 ```bash
 npm install -g @mark3labs/kit
+# or
+bun install -g @mark3labs/kit
+# or
+pnpm install -g @mark3labs/kit
 ```
 
 ### Using Go
