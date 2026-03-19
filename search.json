@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "generator": "tome",
+  "site": "Kit",
+  "totalPages": 20,
+  "searchEndpoint": "/pagefind/pagefind.js",
+  "pages": [
+    {
+      "id": "advanced/json-output",
+      "url": "https://go-kit.dev/advanced/json-output",
+      "title": "JSON Output",
+      "description": "Machine-readable JSON output for scripting and automation.",
+      "headings": [
+        "Response format",
+        "Fields",
+        "Top-level",
+        "Usage",
+        "Message parts",
+        "Parsing in scripts",
+        "bash + jq",
+        "Go SDK"
+      ],
+      "tags": [],
+      "wordCount": 331
+    },
+    {
+      "id": "advanced/subagents",
+      "url": "https://go-kit.dev/advanced/subagents",
+      "title": "Subagents",
+      "description": "Multi-agent orchestration with Kit subagents.",
+      "headings": [
+        "Subprocess pattern",
+        "Built-in spawn_subagent tool",
+        "Extension subagents",
+        "Go SDK subagents"
+      ],
+      "tags": [],
+      "wordCount": 247
+    },
+    {
+      "id": "advanced/testing",
+      "url": "https://go-kit.dev/advanced/testing",
+      "title": "Testing with tmux",
+      "description": "Test Kit's TUI non-interactively using tmux.",
+      "headings": [
+        "Basic pattern",
+        "Testing extensions",
+        "Tips"
+      ],
+      "tags": [],
+      "wordCount": 264
+    },
+    {
+      "id": "cli/commands",
+      "url": "https://go-kit.dev/cli/commands",
+      "title": "Commands",
+      "description": "Complete reference for all Kit CLI subcommands.",
+      "headings": [
+        "Authentication",
+        "Model database",
+        "Extension management",
+        "Installing extensions from git",
+        "Skills",
+        "ACP server"
+      ],
+      "tags": [],
+      "wordCount": 258
+    },
+    {
+      "id": "cli/flags",
+      "url": "https://go-kit.dev/cli/flags",
+      "title": "Global Flags",
+      "description": "Complete reference for all Kit CLI flags.",
+      "headings": [
+        "Model and provider",
+        "Session management",
+        "Behavior",
+        "Extensions",
+        "Generation parameters",
+        "System"
+      ],
+      "tags": [],
+      "wordCount": 434
+    },
+    {
+      "id": "configuration",
+      "url": "https://go-kit.dev/configuration",
+      "title": "Configuration",
+      "description": "Configure Kit using config files, environment variables, and CLI flags.",
+      "headings": [
+        "Basic configuration",
+        "All configuration keys",
+        "Environment variables",
+        "MCP server configuration",
+        "MCP server fields"
+      ],
+      "tags": [],
+      "wordCount": 444
+    },
+    {
+      "id": "development",
+      "url": "https://go-kit.dev/development",
+      "title": "Development",
+      "description": "Build, test, and contribute to Kit.",
+      "headings": [
+        "Build and test",
+        "Project structure",
+        "Architecture overview",
+        "Multi-provider LLM support",
+        "MCP client-server model",
+        "Extension system",
+        "TUI architecture",
+        "Decoupling pattern",
+        "Contributing",
+        "Community"
+      ],
+      "tags": [],
+      "wordCount": 350
+    },
+    {
+      "id": "extensions/capabilities",
+      "url": "https://go-kit.dev/extensions/capabilities",
+      "title": "Capabilities",
+      "description": "All extension capabilities — lifecycle events, tools, commands, widgets, and more.",
+      "headings": [
+        "Lifecycle events",
+        "Example",
+        "Tools",
+        "Commands",
+        "Widgets",
+        "Headers and footers",
+        "Status bar",
+        "Shortcuts",
+        "Overlays",
+        "Tool renderers",
+        "Message renderers",
+        "Editor interceptors",
+        "Interactive prompts",
+        "Options",
+        "Subagents",
+        "LLM completion",
+        "Custom events"
+      ],
+      "tags": [],
+      "wordCount": 638
+    },
+    {
+      "id": "extensions/examples",
+      "url": "https://go-kit.dev/extensions/examples",
+      "title": "Examples",
+      "description": "Catalog of example extensions included with Kit.",
+      "headings": [
+        "UI and display",
+        "Workflow and automation",
+        "Interactive features",
+        "Agent and context",
+        "Multi-agent",
+        "Development",
+        "Subdirectory extensions"
+      ],
+      "tags": [],
+      "wordCount": 318
+    },
+    {
+      "id": "extensions/loading",
+      "url": "https://go-kit.dev/extensions/loading",
+      "title": "Loading Extensions",
+      "description": "How Kit discovers and loads extensions.",
+      "headings": [
+        "Auto-discovery",
+        "Explicit loading",
+        "Disabling extensions",
+        "Installing from git",
+        "Extension structure",
+        "Single-file extensions",
+        "Subdirectory extensions",
+        "Package-level state"
+      ],
+      "tags": [],
+      "wordCount": 302
+    },
+    {
+      "id": "extensions/overview",
+      "url": "https://go-kit.dev/extensions/overview",
+      "title": "Extension System",
+      "description": "Overview of Kit's Go-based extension system.",
+      "headings": [
+        "Minimal extension",
+        "How extensions work",
+        "Key concepts",
+        "The API object",
+        "The Context object"
+      ],
+      "tags": [],
+      "wordCount": 286
+    },
+    {
+      "id": "index",
+      "url": "https://go-kit.dev/",
+      "title": "Kit",
+      "description": "Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.",
+      "headings": [
+        "Features",
+        "Quick links"
+      ],
+      "tags": [],
+      "wordCount": 216
+    },
+    {
+      "id": "installation",
+      "url": "https://go-kit.dev/installation",
+      "title": "Installation",
+      "description": "Install Kit using npm, Go, or build from source.",
+      "headings": [
+        "Using npm (recommended)",
+        "Using Go",
+        "Building from source",
+        "Verifying the installation",
+        "Setting up a provider"
+      ],
+      "tags": [],
+      "wordCount": 116
+    },
+    {
+      "id": "providers",
+      "url": "https://go-kit.dev/providers",
+      "title": "Providers",
+      "description": "Supported LLM providers and model configuration.",
+      "headings": [
+        "Supported providers",
+        "Model string format",
+        "Model aliases",
+        "Specifying a model",
+        "Authentication",
+        "API keys",
+        "OAuth",
+        "Custom provider URL",
+        "Model database"
+      ],
+      "tags": [],
+      "wordCount": 343
+    },
+    {
+      "id": "quick-start",
+      "url": "https://go-kit.dev/quick-start",
+      "title": "Quick Start",
+      "description": "Get up and running with Kit in minutes.",
+      "headings": [
+        "Basic usage",
+        "Non-interactive mode",
+        "Resuming sessions",
+        "ACP server mode"
+      ],
+      "tags": [],
+      "wordCount": 212
+    },
+    {
+      "id": "sdk/callbacks",
+      "url": "https://go-kit.dev/sdk/callbacks",
+      "title": "Callbacks",
+      "description": "Monitor tool calls and streaming output with the Kit Go SDK.",
+      "headings": [
+        "PromptWithCallbacks",
+        "Callback signatures",
+        "Event-based monitoring",
+        "Hook system"
+      ],
+      "tags": [],
+      "wordCount": 356
+    },
+    {
+      "id": "sdk/options",
+      "url": "https://go-kit.dev/sdk/options",
+      "title": "SDK Options",
+      "description": "Configuration options for the Kit Go SDK.",
+      "headings": [
+        "Full options reference",
+        "Options fields"
+      ],
+      "tags": [],
+      "wordCount": 309
+    },
+    {
+      "id": "sdk/overview",
+      "url": "https://go-kit.dev/sdk/overview",
+      "title": "Go SDK",
+      "description": "Embed Kit in your Go applications.",
+      "headings": [
+        "Installation",
+        "Basic usage",
+        "Multi-turn conversations",
+        "Additional prompt methods",
+        "Event system",
+        "Model management",
+        "Context and compaction"
+      ],
+      "tags": [],
+      "wordCount": 287
+    },
+    {
+      "id": "sdk/sessions",
+      "url": "https://go-kit.dev/sdk/sessions",
+      "title": "SDK Sessions",
+      "description": "Session management in the Kit Go SDK.",
+      "headings": [
+        "Automatic persistence",
+        "Accessing session info",
+        "Configuring sessions via Options",
+        "Clearing history",
+        "Tree-based sessions",
+        "Listing and managing sessions"
+      ],
+      "tags": [],
+      "wordCount": 241
+    },
+    {
+      "id": "sessions",
+      "url": "https://go-kit.dev/sessions",
+      "title": "Session Management",
+      "description": "How Kit persists and manages conversation sessions.",
+      "headings": [
+        "Session storage",
+        "Resuming sessions",
+        "Continue most recent",
+        "Interactive picker",
+        "Open a specific session",
+        "Ephemeral mode"
+      ],
+      "tags": [],
+      "wordCount": 152
+    }
+  ]
+}

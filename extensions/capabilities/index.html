@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capabilities | Kit</title>
+<meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
+<link rel="canonical" href="/extensions/capabilities">
+<link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
+<script type="module" src="/assets/index-BdEV_URu.js"></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Capabilities","description":"All extension capabilities — lifecycle events, tools, commands, widgets, and more.","url":"https://go-kit.dev/extensions/capabilities","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
+</head>
+<body>
+<div id="tome-root"></div>
+<div data-pagefind-body style="display:none"><h1>Capabilities</h1>
+# Extension Capabilities
+
+## Lifecycle events
+
+Extensions can hook into 18 lifecycle events:
+
+| Event | Description |
+|-------|-------------|
+| `OnSessionStart` | Session initialized |
+| `OnSessionShutdown` | Session ending |
+| `OnBeforeAgentStart` | Before the agent loop begins |
+| `OnAgentStart` | Agent loop started |
+| `OnAgentEnd` | Agent loop completed |
+| `OnToolCall` | Tool call requested by the model |
+| `OnToolExecutionStart` | Tool execution beginning |
+| `OnToolExecutionEnd` | Tool execution completed |
+| `OnToolResult` | Tool result returned |
+| `OnInput` | User input received |
+| `OnMessageStart` | Assistant message started |
+| `OnMessageUpdate` | Streaming text chunk received |
+| `OnMessageEnd` | Assistant message completed |
+| `OnModelChange` | Model switched |
+| `OnContextPrepare` | Context being assembled for the model |
+| `OnBeforeFork` | Before forking a conversation branch |
+| `OnBeforeSessionSwitch` | Before switching sessions |
+| `OnBeforeCompact` | Before conversation compaction |
+
+### Example
+
+```go
+api.OnToolCall(func(event ext.ToolCallEvent, ctx ext.Context) {
+    ctx.PrintInfo("Calling tool: " + event.Name)
+})
+
+api.OnAgentEnd(func(_ ext.AgentEndEvent, ctx ext.Context) {
+    ctx.PrintInfo("Agent finished")
+})
+```
+
+## Tools
+
+Register custom tools that the LLM can invoke:
+
+```go
+api.RegisterTool(ext.ToolDef{
+    Name:        "weather",
+    Description: "Get current weather for a location",
+    Parameters: map[string]ext.ParameterDef{
+        "city": {Type: "string", Description: "City name", Required: true},
+    },
+    Handler: func(ctx ext.Context, params map[string]any) (string, error) {
+        city := params["city"].(string)
+        return "Sunny, 72°F in " + city, nil
+    },
+})
+```
+
+## Commands
+
+Register slash commands that users can invoke directly:
+
+```go
+api.RegisterCommand(ext.CommandDef{
+    Name:        "stats",
+    Description: "Show context statistics",
+    Handler: func(ctx ext.Context, args string) {
+        stats := ctx.GetContextStats()
+        ctx.PrintInfo(fmt.Sprintf("Tokens: %d", stats.TotalTokens))
+    },
+})
+```
+
+## Widgets
+
+Add persistent status displays above or below the input area:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:       "token-count",
+    Position: "bottom",
+    Content:  ext.WidgetContent{Text: "Tokens: 1,234"},
+})
+
+// Update later
+ctx.SetWidget(ext.WidgetConfig{
+    ID:       "token-count",
+    Position: "bottom",
+    Content:  ext.WidgetContent{Text: "Tokens: 2,456"},
+})
+
+// Remove
+ctx.RemoveWidget("token-count")
+```
+
+## Headers and footers
+
+Persistent content above and below the conversation:
+
+```go
+ctx.SetHeader(ext.HeaderFooterConfig{
+    Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+})
+
+ctx.SetFooter(ext.HeaderFooterConfig{
+    Content: ext.WidgetContent{Text: "Plan Mode (read-only)"},
+})
+```
+
+## Status bar
+
+Custom status bar entries:
+
+```go
+ctx.SetStatus("mode", "Planning")
+ctx.RemoveStatus("mode")
+```
+
+## Shortcuts
+
+Global keyboard shortcuts:
+
+```go
+api.RegisterShortcut(ext.ShortcutDef{
+    Key:         "ctrl+t",
+    Description: "Toggle plan mode",
+}, func(ctx ext.Context) {
+    // handle shortcut
+})
+```
+
+## Overlays
+
+Modal dialogs with markdown content:
+
+```go
+ctx.ShowOverlay(ext.OverlayConfig{
+    Title:   "Help",
+    Content: "# Keyboard Shortcuts\n\n- **ctrl+t** — Toggle plan mode\n- **ctrl+s** — Save session",
+})
+```
+
+## Tool renderers
+
+Customize how specific tool calls are displayed in the TUI:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName: "bash",
+    Render: func(name, args, result string, isError bool) string {
+        return "$ " + args + "\n" + result
+    },
+})
+```
+
+## Message renderers
+
+Custom rendering for assistant messages:
+
+```go
+api.RegisterMessageRenderer(ext.MessageRendererConfig{
+    Name: "custom",
+    Render: func(content string) string {
+        return ">> " + content
+    },
+})
+```
+
+## Editor interceptors
+
+Handle key events and wrap the editor's rendering:
+
+```go
+ctx.SetEditor(ext.EditorConfig{
+    HandleKey: func(key, text string) ext.EditorKeyAction {
+        if key == "escape" {
+            return ext.EditorKeyAction{Handled: true}
+        }
+        return ext.EditorKeyAction{Handled: false}
+    },
+})
+```
+
+## Interactive prompts
+
+Select, confirm, input, and multi-select dialogs:
+
+```go
+// Single select
+response := ctx.PromptSelect(ext.PromptSelectConfig{
+    Title:   "Choose a model",
+    Options: []string{"claude-sonnet", "gpt-4o", "llama3"},
+})
+
+// Confirm
+confirmed := ctx.PromptConfirm(ext.PromptConfirmConfig{
+    Title: "Delete this file?",
+})
+
+// Text input
+name := ctx.PromptInput(ext.PromptInputConfig{
+    Title:       "Enter project name",
+    Placeholder: "my-project",
+})
+```
+
+## Options
+
+Register configurable extension options:
+
+```go
+api.RegisterOption(ext.OptionDef{
+    Name:         "auto-commit",
+    Description:  "Automatically commit on shutdown",
+    DefaultValue: "false",
+})
+```
+
+## Subagents
+
+Spawn in-process child Kit instances:
+
+```go
+result := ctx.SpawnSubagent(ext.SubagentConfig{
+    Task:         "Analyze the test files and summarize coverage",
+    Model:        "anthropic/claude-haiku-3-5-20241022",
+    SystemPrompt: "You are a test analysis expert.",
+})
+```
+
+## LLM completion
+
+Make direct model calls without going through the agent loop:
+
+```go
+response := ctx.Complete(ext.CompleteRequest{
+    Prompt: "Summarize this in one sentence: " + content,
+})
+```
+
+## Custom events
+
+Inter-extension communication:
+
+```go
+// Emit
+ctx.EmitCustomEvent("my-extension:data-ready", payload)
+
+// Listen
+api.OnCustomEvent("my-extension:data-ready", func(data any, ctx ext.Context) {
+    // handle event
+})
+```</div>
+</body>
+</html>

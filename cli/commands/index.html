@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commands | Kit</title>
+<meta name="description" content="Complete reference for all Kit CLI subcommands.">
+<link rel="canonical" href="/cli/commands">
+<link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
+<script type="module" src="/assets/index-BdEV_URu.js"></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Commands","description":"Complete reference for all Kit CLI subcommands.","url":"https://go-kit.dev/cli/commands","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
+</head>
+<body>
+<div id="tome-root"></div>
+<div data-pagefind-body style="display:none"><h1>Commands</h1>
+# Commands
+
+## Authentication
+
+For OAuth-enabled providers like Anthropic.
+
+```bash
+kit auth login [provider]    # Start OAuth flow (e.g., anthropic)
+kit auth logout [provider]   # Remove credentials for provider
+kit auth status              # Check authentication status
+```
+
+## Model database
+
+Manage the local model database that maps provider names to API configurations.
+
+```bash
+kit models [provider]        # List available models (optionally filter by provider)
+kit models --all             # Show all providers (not just Fantasy-compatible)
+kit update-models [source]   # Update model database
+```
+
+The `update-models` command accepts an optional source argument:
+- *(none)* — update from [models.dev](https://models.dev)
+- A URL — fetch from a custom endpoint
+- A file path — load from a local file
+- `embedded` — reset to the bundled database
+
+## Extension management
+
+```bash
+kit extensions list          # List discovered extensions
+kit extensions validate      # Validate extension files
+kit extensions init          # Generate example extension template
+```
+
+### Installing extensions from git
+
+```bash
+kit install <git-url>        # Install extensions from git repositories
+kit install -l <git-url>     # Install to project-local .kit/git/ directory
+kit install -u <git-url>     # Update an already-installed package
+kit install --uninstall <pkg> # Remove an installed package
+kit install --all            # Install all extensions without prompting
+```
+
+## Skills
+
+```bash
+kit skill                    # Install the Kit extensions skill via skills.sh
+```
+
+## ACP server
+
+Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.
+
+```bash
+kit acp                      # Start as ACP agent
+kit acp --debug              # With debug logging to stderr
+```</div>
+</body>
+</html>

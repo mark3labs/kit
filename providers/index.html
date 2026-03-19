@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Providers | Kit</title>
+<meta name="description" content="Supported LLM providers and model configuration.">
+<link rel="canonical" href="/providers">
+<link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
+<script type="module" src="/assets/index-BdEV_URu.js"></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Providers","description":"Supported LLM providers and model configuration.","url":"https://go-kit.dev/providers","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
+</head>
+<body>
+<div id="tome-root"></div>
+<div data-pagefind-body style="display:none"><h1>Providers</h1>
+# Providers
+
+Kit supports a wide range of LLM providers through a unified `provider/model` string format.
+
+## Supported providers
+
+| Provider | Prefix | Description |
+|----------|--------|-------------|
+| **Anthropic** | `anthropic/` | Claude models (native, prompt caching, OAuth) |
+| **OpenAI** | `openai/` | GPT models |
+| **Google** | `google/` or `gemini/` | Gemini models |
+| **Ollama** | `ollama/` | Local models |
+| **Azure OpenAI** | `azure/` | Azure-hosted OpenAI |
+| **AWS Bedrock** | `bedrock/` | Bedrock models |
+| **Google Vertex** | `google-vertex-anthropic/` | Claude on Vertex AI |
+| **OpenRouter** | `openrouter/` | Multi-provider router |
+| **Vercel AI** | `vercel/` | Vercel AI SDK models |
+| **Auto-routed** | any | Any provider from the models.dev database |
+
+## Model string format
+
+```bash
+provider/model            # Standard format
+anthropic/claude-sonnet-4-5-20250929
+openai/gpt-4o
+ollama/llama3
+google/gemini-2.0-flash-exp
+```
+
+## Model aliases
+
+Kit provides aliases for commonly used models:
+
+```bash
+claude-opus-latest        → claude-opus-4-20250514
+claude-sonnet-latest      → claude-sonnet-4-5-20250929
+claude-4-opus-latest      → claude-opus-4-20250514
+claude-4-sonnet-latest    → claude-sonnet-4-5-20250929
+claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
+claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
+claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
+claude-3-opus-latest      → claude-3-opus-20240229
+```
+
+## Specifying a model
+
+Via CLI flag:
+
+```bash
+kit --model openai/gpt-4o
+kit -m ollama/llama3
+```
+
+Via config file:
+
+```yaml
+model: anthropic/claude-sonnet-4-5-20250929
+```
+
+Via environment variable:
+
+```bash
+export KIT_MODEL="google/gemini-2.0-flash-exp"
+```
+
+## Authentication
+
+### API keys
+
+Set the appropriate environment variable for your provider:
+
+```bash
+export ANTHROPIC_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="..."
+```
+
+Or pass it directly:
+
+```bash
+kit --provider-api-key "sk-..." --model openai/gpt-4o
+```
+
+### OAuth
+
+For providers that support OAuth (e.g., Anthropic):
+
+```bash
+kit auth login anthropic     # Start OAuth flow
+kit auth status              # Check authentication status
+kit auth logout anthropic    # Remove credentials
+```
+
+### Custom provider URL
+
+For self-hosted or proxy endpoints:
+
+```bash
+kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
+```
+
+## Model database
+
+Kit ships with a local model database that maps provider names to API configurations. You can manage it with:
+
+```bash
+kit models                   # List available models
+kit models openai            # Filter by provider
+kit models --all             # Show all providers
+kit update-models            # Update from models.dev
+kit update-models embedded   # Reset to bundled database
+```</div>
+</body>
+</html>

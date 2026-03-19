@@ -1,0 +1,56 @@
+# Kit
+
+> Documentation site powered by [Tome](https://tome.dev)
+
+## Overview
+
+This is the documentation for **Kit**. It is a static documentation site with full-text search, structured data, and machine-readable formats.
+
+## Available Resources
+
+| Resource | Path | Description |
+|----------|------|-------------|
+| llms.txt | /llms.txt | Lightweight page index with titles, descriptions, and URLs |
+| llms-full.txt | /llms-full.txt | Full raw markdown content of all pages |
+| MCP manifest | /mcp.json | Machine-readable page metadata with headings and tags |
+| skill.md | /skill.md | This file — agent capabilities and site structure |
+| robots.txt | /robots.txt | Crawler directives with AI agent permissions |
+| Search API | /search.json | Pagefind search index metadata for programmatic search |
+
+## Site Structure
+
+### Pages
+
+- **[JSON Output](https://go-kit.dev/advanced/json-output)** — Machine-readable JSON output for scripting and automation.
+- **[Subagents](https://go-kit.dev/advanced/subagents)** — Multi-agent orchestration with Kit subagents.
+- **[Testing with tmux](https://go-kit.dev/advanced/testing)** — Test Kit's TUI non-interactively using tmux.
+- **[Commands](https://go-kit.dev/cli/commands)** — Complete reference for all Kit CLI subcommands.
+- **[Global Flags](https://go-kit.dev/cli/flags)** — Complete reference for all Kit CLI flags.
+- **[Configuration](https://go-kit.dev/configuration)** — Configure Kit using config files, environment variables, and CLI flags.
+- **[Development](https://go-kit.dev/development)** — Build, test, and contribute to Kit.
+- **[Capabilities](https://go-kit.dev/extensions/capabilities)** — All extension capabilities — lifecycle events, tools, commands, widgets, and more.
+- **[Examples](https://go-kit.dev/extensions/examples)** — Catalog of example extensions included with Kit.
+- **[Loading Extensions](https://go-kit.dev/extensions/loading)** — How Kit discovers and loads extensions.
+- **[Extension System](https://go-kit.dev/extensions/overview)** — Overview of Kit's Go-based extension system.
+- **[Kit](https://go-kit.dev/)** — Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
+- **[Installation](https://go-kit.dev/installation)** — Install Kit using npm, Go, or build from source.
+- **[Providers](https://go-kit.dev/providers)** — Supported LLM providers and model configuration.
+- **[Quick Start](https://go-kit.dev/quick-start)** — Get up and running with Kit in minutes.
+- **[Callbacks](https://go-kit.dev/sdk/callbacks)** — Monitor tool calls and streaming output with the Kit Go SDK.
+- **[SDK Options](https://go-kit.dev/sdk/options)** — Configuration options for the Kit Go SDK.
+- **[Go SDK](https://go-kit.dev/sdk/overview)** — Embed Kit in your Go applications.
+- **[SDK Sessions](https://go-kit.dev/sdk/sessions)** — Session management in the Kit Go SDK.
+- **[Session Management](https://go-kit.dev/sessions)** — How Kit persists and manages conversation sessions.
+
+## How to Use This Site
+
+### For AI Agents
+
+1. **Quick overview**: Read `/llms.txt` for a page index with titles and URLs
+2. **Full content**: Read `/llms-full.txt` for complete raw markdown of all pages
+3. **Structured data**: Parse `/mcp.json` for machine-readable metadata including headings, tags, and content
+4. **Search**: Use Pagefind search at `/pagefind/pagefind.js` or check `/search.json` for index metadata
+
+### Capabilities
+
+- **Search provider**: local

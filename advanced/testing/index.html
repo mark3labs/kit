@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Testing with tmux | Kit</title>
+<meta name="description" content="Test Kit's TUI non-interactively using tmux.">
+<link rel="canonical" href="/advanced/testing">
+<link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
+<script type="module" src="/assets/index-BdEV_URu.js"></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Testing with tmux","description":"Test Kit's TUI non-interactively using tmux.","url":"https://go-kit.dev/advanced/testing","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
+</head>
+<body>
+<div id="tome-root"></div>
+<div data-pagefind-body style="display:none"><h1>Testing with tmux</h1>
+# Testing with tmux
+
+Kit's interactive TUI can be tested non-interactively using tmux. This is useful for automated testing, CI pipelines, and extension development.
+
+## Basic pattern
+
+```bash
+# Start Kit in a detached tmux session
+tmux new-session -d -s kittest -x 120 -y 40 \
+  "output/kit -e ext.go --no-session 2>kit_stderr.log"
+
+# Wait for startup
+sleep 3
+
+# Capture the current screen
+tmux capture-pane -t kittest -p
+
+# Send input
+tmux send-keys -t kittest '/command' Enter
+
+# Wait for response
+sleep 2
+
+# Capture updated screen
+tmux capture-pane -t kittest -p
+
+# Cleanup
+tmux kill-session -t kittest
+```
+
+## Testing extensions
+
+When testing extensions, the pattern is:
+
+1. Build Kit with your changes
+2. Start Kit in tmux with the extension loaded
+3. Send slash commands or prompts
+4. Capture and verify the screen output
+5. Check stderr logs for errors
+
+```bash
+# Build first
+go build -o output/kit ./cmd/kit
+
+# Start with extension
+tmux new-session -d -s kittest -x 120 -y 40 \
+  "output/kit -e examples/extensions/widget-status.go --no-session 2>kit_stderr.log"
+
+sleep 3
+
+# Verify widget appears in screen
+tmux capture-pane -t kittest -p | grep "Status"
+
+# Send a slash command
+tmux send-keys -t kittest '/stats' Enter
+sleep 1
+tmux capture-pane -t kittest -p
+
+# Cleanup
+tmux kill-session -t kittest
+```
+
+## Tips
+
+- Use `-x` and `-y` to set consistent terminal dimensions
+- Redirect stderr to a log file (`2>kit.log`) for debugging
+- Use `--no-session` to avoid creating session files during tests
+- Add sufficient `sleep` between commands for the TUI to render
+- Use `grep` on captured pane output to verify specific content</div>
+</body>
+</html>

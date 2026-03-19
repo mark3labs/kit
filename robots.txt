@@ -1,0 +1,42 @@
+# Tome Documentation Site
+# https://tome.dev
+
+User-agent: *
+Allow: /
+
+# AI Crawlers — explicitly allowed
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+# Machine-readable resources
+Sitemap: https://go-kit.dev/sitemap.xml
+
+# AI/LLM Resources
+# llms.txt: https://go-kit.dev/llms.txt
+# llms-full.txt: https://go-kit.dev/llms-full.txt
+# skill.md: https://go-kit.dev/skill.md
+# MCP manifest: https://go-kit.dev/mcp.json

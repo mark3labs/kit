@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Development | Kit</title>
+<meta name="description" content="Build, test, and contribute to Kit.">
+<link rel="canonical" href="/development">
+<link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
+<script type="module" src="/assets/index-BdEV_URu.js"></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Development","description":"Build, test, and contribute to Kit.","url":"https://go-kit.dev/development","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
+</head>
+<body>
+<div id="tome-root"></div>
+<div data-pagefind-body style="display:none"><h1>Development</h1>
+# Development
+
+## Build and test
+
+```bash
+# Build
+go build -o output/kit ./cmd/kit
+
+# Run all tests
+go test -race ./...
+
+# Run a specific test
+go test -race ./cmd -run TestScriptExecution
+
+# Lint
+go vet ./...
+
+# Format
+go fmt ./...
+```
+
+## Project structure
+
+```
+cmd/kit/             - CLI entry point (main.go)
+cmd/                 - CLI command implementations (root, auth, models, etc.)
+pkg/kit/             - Go SDK for embedding Kit
+internal/app/        - Application orchestrator (agent loop, message store, queue)
+internal/agent/      - Agent execution and tool dispatch
+internal/auth/       - OAuth authentication and credential storage
+internal/acpserver/  - ACP (Agent Client Protocol) server
+internal/clipboard/  - Cross-platform clipboard operations
+internal/compaction/ - Conversation compaction and summarization
+internal/config/     - Configuration management
+internal/core/       - Built-in tools (bash, read, write, edit, grep, find, ls)
+internal/extensions/ - Yaegi extension system
+internal/kitsetup/   - Initial setup wizard
+internal/message/    - Message content types and structured content blocks
+internal/models/     - Provider and model management
+internal/session/    - Session persistence (tree-based JSONL)
+internal/skills/     - Skill loading and system prompt composition
+internal/tools/      - MCP tool integration
+internal/ui/         - Bubble Tea TUI components
+examples/extensions/ - Example extension files
+npm/                 - NPM package wrapper for distribution
+```
+
+## Architecture overview
+
+Kit is built around a few key architectural patterns:
+
+### Multi-provider LLM support
+
+The `llm.Provider` interface abstracts different LLM providers. Each provider implements message formatting, tool calling, and streaming for its specific API.
+
+### MCP client-server model
+
+External tools are integrated via the Model Context Protocol (MCP). Kit acts as an MCP client, connecting to MCP servers configured in `.kit.yml`.
+
+### Extension system
+
+Extensions are Go source files interpreted at runtime by Yaegi. The `internal/extensions/` package manages loading, symbol export, and lifecycle dispatch. See the [Extension System](/extensions/overview) docs for details.
+
+### TUI architecture
+
+The interactive terminal UI is built with [Bubble Tea v2](https://github.com/charmbracelet/bubbletea), using a parent-child model where `AppModel` manages child components (`InputComponent`, `StreamComponent`, etc.).
+
+### Decoupling pattern
+
+`cmd/root.go` contains converter functions (e.g., `widgetProviderForUI()`) that bridge `internal/extensions/` types to `internal/ui/` types. The UI never imports the extensions package directly.
+
+## Contributing
+
+Contributions are welcome! Please see the [contribution guide](https://github.com/mark3labs/kit/blob/master/contribute/contribute.md) for guidelines.
+
+## Community
+
+- [Discord](https://discord.gg/RqSS2NQVsY)
+- [GitHub Issues](https://github.com/mark3labs/kit/issues)</div>
+</body>
+</html>
