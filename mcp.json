@@ -194,16 +194,16 @@
     {
       "url": "/installation",
       "title": "Installation",
-      "description": "Install Kit using npm, Go, or build from source.",
+      "description": "Install Kit using npm, bun, pnpm, Go, or build from source.",
       "headings": [
-        "Using npm (recommended)",
+        "Using npm / bun / pnpm",
         "Using Go",
         "Building from source",
         "Verifying the installation",
         "Setting up a provider"
       ],
       "tags": [],
-      "content": "\n# Installation\n\n## Using npm (recommended)\n\n```bash\nnpm install -g @mark3labs/kit\n```\n\n## Using Go\n\n```bash\ngo install github.com/mark3labs/kit/cmd/kit@latest\n```\n\n## Building from source\n\n```bash\ngit clone https://github.com/mark3labs/kit.git\ncd kit\ngo build -o kit ./cmd/kit\n```\n\n## Verifying the installation\n\nAfter installing, verify Kit is available:\n\n```bash\nkit --help\n```\n\n## Setting up a provider\n\nKit needs at least one LLM provider configured. Set an API key for your preferred provider:\n\n```bash\n# Anthropic (default provider)\nexport ANTHROPIC_API_KEY=\"sk-...\"\n\n# OpenAI\nexport OPENAI_API_KEY=\"sk-...\"\n\n# Google Gemini\nexport GOOGLE_API_KEY=\"...\"\n```\n\nFor OAuth-enabled providers like Anthropic, you can also authenticate interactively:\n\n```bash\nkit auth login anthropic\n```\n\nSee [Providers](/providers) for the full list of supported providers and their configuration.\n"
+      "content": "\n# Installation\n\n## Using npm / bun / pnpm\n\n```bash\nnpm install -g @mark3labs/kit\n```\n\n```bash\nbun install -g @mark3labs/kit\n```\n\n```bash\npnpm install -g @mark3labs/kit\n```\n\n## Using Go\n\n```bash\ngo install github.com/mark3labs/kit/cmd/kit@latest\n```\n\n## Building from source\n\n```bash\ngit clone https://github.com/mark3labs/kit.git\ncd kit\ngo build -o kit ./cmd/kit\n```\n\n## Verifying the installation\n\nAfter installing, verify Kit is available:\n\n```bash\nkit --help\n```\n\n## Setting up a provider\n\nKit needs at least one LLM provider configured. Set an API key for your preferred provider:\n\n```bash\n# Anthropic (default provider)\nexport ANTHROPIC_API_KEY=\"sk-...\"\n\n# OpenAI\nexport OPENAI_API_KEY=\"sk-...\"\n\n# Google Gemini\nexport GOOGLE_API_KEY=\"...\"\n```\n\nFor OAuth-enabled providers like Anthropic, you can also authenticate interactively:\n\n```bash\nkit auth login anthropic\n```\n\nSee [Providers](/providers) for the full list of supported providers and their configuration.\n"
     },
     {
       "url": "/providers",

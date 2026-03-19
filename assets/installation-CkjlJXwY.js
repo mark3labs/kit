@@ -1,6 +1,8 @@
-const n={frontmatter:{title:"Installation",description:"Install Kit using npm, Go, or build from source.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="installation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#installation"><span class="icon icon-link"></span></a>Installation</h1>
-<h2 id="using-npm-recommended"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#using-npm-recommended"><span class="icon icon-link"></span></a>Using npm (recommended)</h2>
+const s={frontmatter:{title:"Installation",description:"Install Kit using npm, bun, pnpm, Go, or build from source.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="installation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#installation"><span class="icon icon-link"></span></a>Installation</h1>
+<h2 id="using-npm--bun--pnpm"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#using-npm--bun--pnpm"><span class="icon icon-link"></span></a>Using npm / bun / pnpm</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -g</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @mark3labs/kit</span></span></code></pre>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">bun</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -g</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @mark3labs/kit</span></span></code></pre>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">pnpm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -g</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @mark3labs/kit</span></span></code></pre>
 <h2 id="using-go"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#using-go"><span class="icon icon-link"></span></a>Using Go</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github.com/mark3labs/kit/cmd/kit@latest</span></span></code></pre>
 <h2 id="building-from-source"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#building-from-source"><span class="icon icon-link"></span></a>Building from source</h2>
@@ -22,13 +24,21 @@ const n={frontmatter:{title:"Installation",description:"Install Kit using npm, G
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">export</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> GOOGLE_API_KEY</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"..."</span></span></code></pre>
 <p>For OAuth-enabled providers like Anthropic, you can also authenticate interactively:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic</span></span></code></pre>
-<p>See <a href="/providers">Providers</a> for the full list of supported providers and their configuration.</p>`,headings:[{depth:2,text:"Using npm (recommended)",id:"using-npm-recommended"},{depth:2,text:"Using Go",id:"using-go"},{depth:2,text:"Building from source",id:"building-from-source"},{depth:2,text:"Verifying the installation",id:"verifying-the-installation"},{depth:2,text:"Setting up a provider",id:"setting-up-a-provider"}],raw:`
+<p>See <a href="/providers">Providers</a> for the full list of supported providers and their configuration.</p>`,headings:[{depth:2,text:"Using npm / bun / pnpm",id:"using-npm--bun--pnpm"},{depth:2,text:"Using Go",id:"using-go"},{depth:2,text:"Building from source",id:"building-from-source"},{depth:2,text:"Verifying the installation",id:"verifying-the-installation"},{depth:2,text:"Setting up a provider",id:"setting-up-a-provider"}],raw:`
 # Installation
 
-## Using npm (recommended)
+## Using npm / bun / pnpm
 
 \`\`\`bash
 npm install -g @mark3labs/kit
+\`\`\`
+
+\`\`\`bash
+bun install -g @mark3labs/kit
+\`\`\`
+
+\`\`\`bash
+pnpm install -g @mark3labs/kit
 \`\`\`
 
 ## Using Go
@@ -75,4 +85,4 @@ kit auth login anthropic
 \`\`\`
 
 See [Providers](/providers) for the full list of supported providers and their configuration.
-`};export{n as default};
+`};export{s as default};

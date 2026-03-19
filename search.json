@@ -210,16 +210,16 @@
       "id": "installation",
       "url": "https://go-kit.dev/installation",
       "title": "Installation",
-      "description": "Install Kit using npm, Go, or build from source.",
+      "description": "Install Kit using npm, bun, pnpm, Go, or build from source.",
       "headings": [
-        "Using npm (recommended)",
+        "Using npm / bun / pnpm",
         "Using Go",
         "Building from source",
         "Verifying the installation",
         "Setting up a provider"
       ],
       "tags": [],
-      "wordCount": 116
+      "wordCount": 131
     },
     {
       "id": "providers",

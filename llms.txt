@@ -14,7 +14,7 @@
 - [Loading Extensions](https://go-kit.dev/extensions/loading) - How Kit discovers and loads extensions.
 - [Extension System](https://go-kit.dev/extensions/overview) - Overview of Kit's Go-based extension system.
 - [Kit](https://go-kit.dev/) - Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
-- [Installation](https://go-kit.dev/installation) - Install Kit using npm, Go, or build from source.
+- [Installation](https://go-kit.dev/installation) - Install Kit using npm, bun, pnpm, Go, or build from source.
 - [Providers](https://go-kit.dev/providers) - Supported LLM providers and model configuration.
 - [Quick Start](https://go-kit.dev/quick-start) - Get up and running with Kit in minutes.
 - [Callbacks](https://go-kit.dev/sdk/callbacks) - Monitor tool calls and streaming output with the Kit Go SDK.
