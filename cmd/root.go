@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"strings"
@@ -141,24 +142,58 @@ func LoadConfigWithEnvSubstitution(configPath string) error {
 	return kit.LoadConfigWithEnvSubstitution(configPath)
 }
 
-func configToUiTheme(theme config.Theme) ui.Theme {
+// adaptiveOrDefault converts a config.AdaptiveColor to a resolved color.Color,
+// falling back to fallback when both Light and Dark are empty.
+func adaptiveOrDefault(ac config.AdaptiveColor, fallback color.Color) color.Color {
+	if ac.Light == "" && ac.Dark == "" {
+		return fallback
+	}
+	return ui.AdaptiveColor(ac.Light, ac.Dark)
+}
+
+func configToUiTheme(cfg config.Theme) ui.Theme {
+	def := ui.DefaultTheme()
 	return ui.Theme{
-		Primary:     ui.AdaptiveColor(theme.Primary.Light, theme.Primary.Dark),
-		Secondary:   ui.AdaptiveColor(theme.Secondary.Light, theme.Secondary.Dark),
-		Success:     ui.AdaptiveColor(theme.Success.Light, theme.Success.Dark),
-		Warning:     ui.AdaptiveColor(theme.Warning.Light, theme.Warning.Dark),
-		Error:       ui.AdaptiveColor(theme.Error.Light, theme.Error.Dark),
-		Info:        ui.AdaptiveColor(theme.Info.Light, theme.Info.Dark),
-		Text:        ui.AdaptiveColor(theme.Text.Light, theme.Text.Dark),
-		Muted:       ui.AdaptiveColor(theme.Muted.Light, theme.Muted.Dark),
-		VeryMuted:   ui.AdaptiveColor(theme.VeryMuted.Light, theme.VeryMuted.Dark),
-		Background:  ui.AdaptiveColor(theme.Background.Light, theme.Background.Dark),
-		Border:      ui.AdaptiveColor(theme.Border.Light, theme.Border.Dark),
-		MutedBorder: ui.AdaptiveColor(theme.MutedBorder.Light, theme.MutedBorder.Dark),
-		System:      ui.AdaptiveColor(theme.System.Light, theme.System.Dark),
-		Tool:        ui.AdaptiveColor(theme.Tool.Light, theme.Tool.Dark),
-		Accent:      ui.AdaptiveColor(theme.Accent.Light, theme.Accent.Dark),
-		Highlight:   ui.AdaptiveColor(theme.Highlight.Light, theme.Highlight.Dark),
+		Primary:     adaptiveOrDefault(cfg.Primary, def.Primary),
+		Secondary:   adaptiveOrDefault(cfg.Secondary, def.Secondary),
+		Success:     adaptiveOrDefault(cfg.Success, def.Success),
+		Warning:     adaptiveOrDefault(cfg.Warning, def.Warning),
+		Error:       adaptiveOrDefault(cfg.Error, def.Error),
+		Info:        adaptiveOrDefault(cfg.Info, def.Info),
+		Text:        adaptiveOrDefault(cfg.Text, def.Text),
+		Muted:       adaptiveOrDefault(cfg.Muted, def.Muted),
+		VeryMuted:   adaptiveOrDefault(cfg.VeryMuted, def.VeryMuted),
+		Background:  adaptiveOrDefault(cfg.Background, def.Background),
+		Border:      adaptiveOrDefault(cfg.Border, def.Border),
+		MutedBorder: adaptiveOrDefault(cfg.MutedBorder, def.MutedBorder),
+		System:      adaptiveOrDefault(cfg.System, def.System),
+		Tool:        adaptiveOrDefault(cfg.Tool, def.Tool),
+		Accent:      adaptiveOrDefault(cfg.Accent, def.Accent),
+		Highlight:   adaptiveOrDefault(cfg.Highlight, def.Highlight),
+
+		DiffInsertBg:  adaptiveOrDefault(cfg.DiffInsertBg, def.DiffInsertBg),
+		DiffDeleteBg:  adaptiveOrDefault(cfg.DiffDeleteBg, def.DiffDeleteBg),
+		DiffEqualBg:   adaptiveOrDefault(cfg.DiffEqualBg, def.DiffEqualBg),
+		DiffMissingBg: adaptiveOrDefault(cfg.DiffMissingBg, def.DiffMissingBg),
+
+		CodeBg:   adaptiveOrDefault(cfg.CodeBg, def.CodeBg),
+		GutterBg: adaptiveOrDefault(cfg.GutterBg, def.GutterBg),
+		WriteBg:  adaptiveOrDefault(cfg.WriteBg, def.WriteBg),
+
+		Markdown: ui.MarkdownThemeColors{
+			Text:    adaptiveOrDefault(cfg.Markdown.Text, def.Markdown.Text),
+			Muted:   adaptiveOrDefault(cfg.Markdown.Muted, def.Markdown.Muted),
+			Heading: adaptiveOrDefault(cfg.Markdown.Heading, def.Markdown.Heading),
+			Emph:    adaptiveOrDefault(cfg.Markdown.Emph, def.Markdown.Emph),
+			Strong:  adaptiveOrDefault(cfg.Markdown.Strong, def.Markdown.Strong),
+			Link:    adaptiveOrDefault(cfg.Markdown.Link, def.Markdown.Link),
+			Code:    adaptiveOrDefault(cfg.Markdown.Code, def.Markdown.Code),
+			Error:   adaptiveOrDefault(cfg.Markdown.Error, def.Markdown.Error),
+			Keyword: adaptiveOrDefault(cfg.Markdown.Keyword, def.Markdown.Keyword),
+			String:  adaptiveOrDefault(cfg.Markdown.String, def.Markdown.String),
+			Number:  adaptiveOrDefault(cfg.Markdown.Number, def.Markdown.Number),
+			Comment: adaptiveOrDefault(cfg.Markdown.Comment, def.Markdown.Comment),
+		},
 	}
 }
 

@@ -39,9 +39,26 @@ func SetTheme(theme Theme) {
 	currentTheme = theme
 }
 
+// MarkdownThemeColors defines colors for markdown rendering and syntax highlighting.
+type MarkdownThemeColors struct {
+	Text    color.Color
+	Muted   color.Color
+	Heading color.Color
+	Emph    color.Color
+	Strong  color.Color
+	Link    color.Color
+	Code    color.Color
+	Error   color.Color
+	Keyword color.Color
+	String  color.Color
+	Number  color.Color
+	Comment color.Color
+}
+
 // Theme defines a comprehensive color scheme for the application's UI, supporting
-// both light and dark terminal modes through adaptive colors. It includes semantic
-// colors for different message types and UI elements, based on the Catppuccin color palette.
+// both light and dark terminal modes through adaptive colors. Inspired by the
+// Knight Rider KITT aesthetic — scanner reds, amber dashboard glows, and dark
+// cockpit tones.
 type Theme struct {
 	Primary     color.Color
 	Secondary   color.Color
@@ -70,40 +87,60 @@ type Theme struct {
 	CodeBg   color.Color // Background for code blocks (Read tool)
 	GutterBg color.Color // Line-number gutter background
 	WriteBg  color.Color // Green-tinted bg for Write tool content
+
+	// Markdown rendering and syntax highlighting colors
+	Markdown MarkdownThemeColors
 }
 
-// DefaultTheme creates and returns the default KIT theme based on the Catppuccin
-// Mocha (dark) and Latte (light) color palettes. This theme provides a cohesive,
-// pleasant visual experience with carefully selected colors for different UI elements.
+// DefaultTheme creates and returns the default KIT theme inspired by the
+// Knight Rider KITT aesthetic — scanner reds, amber dashboard glows, and a
+// dark cockpit. No blues or bright greens; everything stays in the warm
+// red/amber/gray family of KITT's instrument panel.
 func DefaultTheme() Theme {
 	return Theme{
-		Primary:     AdaptiveColor("#8839ef", "#cba6f7"), // Latte/Mocha Mauve
-		Secondary:   AdaptiveColor("#04a5e5", "#89dceb"), // Latte/Mocha Sky
-		Success:     AdaptiveColor("#40a02b", "#a6e3a1"), // Latte/Mocha Green
-		Warning:     AdaptiveColor("#df8e1d", "#f9e2af"), // Latte/Mocha Yellow
-		Error:       AdaptiveColor("#d20f39", "#f38ba8"), // Latte/Mocha Red
-		Info:        AdaptiveColor("#1e66f5", "#89b4fa"), // Latte/Mocha Blue
-		Text:        AdaptiveColor("#4c4f69", "#cdd6f4"), // Latte/Mocha Text
-		Muted:       AdaptiveColor("#6c6f85", "#a6adc8"), // Latte/Mocha Subtext 0
-		VeryMuted:   AdaptiveColor("#9ca0b0", "#6c7086"), // Latte/Mocha Overlay 0
-		Background:  AdaptiveColor("#eff1f5", "#1e1e2e"), // Latte/Mocha Base
-		Border:      AdaptiveColor("#acb0be", "#585b70"), // Latte/Mocha Surface 2
-		MutedBorder: AdaptiveColor("#ccd0da", "#313244"), // Latte/Mocha Surface 0
-		System:      AdaptiveColor("#179299", "#94e2d5"), // Latte/Mocha Teal
-		Tool:        AdaptiveColor("#fe640b", "#fab387"), // Latte/Mocha Peach
-		Accent:      AdaptiveColor("#ea76cb", "#f5c2e7"), // Latte/Mocha Pink
-		Highlight:   AdaptiveColor("#e6e9ef", "#181825"), // Latte Mantle / Mocha Mantle
+		Primary:     AdaptiveColor("#CC1100", "#FF2200"), // KITT scanner red
+		Secondary:   AdaptiveColor("#CC6600", "#FF8800"), // Amber dashboard glow
+		Success:     AdaptiveColor("#998800", "#CCAA00"), // Warm gold — system OK
+		Warning:     AdaptiveColor("#CC8800", "#FFB800"), // Amber caution light
+		Error:       AdaptiveColor("#CC0000", "#FF3333"), // Alert red
+		Info:        AdaptiveColor("#BB6600", "#DD8833"), // Warm amber readout
+		Text:        AdaptiveColor("#1A1A1A", "#E0E0E0"), // Console text
+		Muted:       AdaptiveColor("#707070", "#808080"), // Dimmed readout
+		VeryMuted:   AdaptiveColor("#A0A0A0", "#505050"), // Inactive element
+		Background:  AdaptiveColor("#F0F0F0", "#0D0D0D"), // Cockpit interior
+		Border:      AdaptiveColor("#B0B0B0", "#3A3A3A"), // Panel edge
+		MutedBorder: AdaptiveColor("#D0D0D0", "#222222"), // Subtle divider
+		System:      AdaptiveColor("#CC6600", "#FF8800"), // Amber system status
+		Tool:        AdaptiveColor("#CC6600", "#FF8800"), // Amber instrument
+		Accent:      AdaptiveColor("#DD2222", "#FF4444"), // Secondary scanner glow
+		Highlight:   AdaptiveColor("#FFF0F0", "#1A1010"), // Red-tinted mantle
 
-		// Diff backgrounds — subtle tinted variants of the base palette
-		DiffInsertBg:  AdaptiveColor("#d5f0d5", "#1a3a2a"), // Green tint
-		DiffDeleteBg:  AdaptiveColor("#f5d5d5", "#3a1a2a"), // Red tint
-		DiffEqualBg:   AdaptiveColor("#eceef3", "#232336"), // Neutral
-		DiffMissingBg: AdaptiveColor("#e4e6eb", "#1a1a2e"), // Darker neutral
+		// Diff backgrounds
+		DiffInsertBg:  AdaptiveColor("#F0E8D0", "#2A2410"), // Warm amber tint (added)
+		DiffDeleteBg:  AdaptiveColor("#F5D5D5", "#2E1A1A"), // Red tint (removed)
+		DiffEqualBg:   AdaptiveColor("#E8E8E8", "#161616"), // Neutral
+		DiffMissingBg: AdaptiveColor("#E0E0E0", "#111111"), // Darker neutral
 
 		// Code & output backgrounds
-		CodeBg:   AdaptiveColor("#eceef3", "#232336"), // Matches DiffEqualBg
-		GutterBg: AdaptiveColor("#e4e6eb", "#1a1a2e"), // Slightly darker
-		WriteBg:  AdaptiveColor("#d5f0d5", "#1a3a2a"), // Matches DiffInsertBg (green tint)
+		CodeBg:   AdaptiveColor("#E8E8E8", "#161616"), // Matches DiffEqualBg
+		GutterBg: AdaptiveColor("#E0E0E0", "#111111"), // Slightly darker
+		WriteBg:  AdaptiveColor("#F0E8D0", "#2A2410"), // Warm amber tint
+
+		// Markdown & syntax highlighting — all warm tones
+		Markdown: MarkdownThemeColors{
+			Text:    AdaptiveColor("#1A1A1A", "#E0E0E0"), // Console text
+			Muted:   AdaptiveColor("#707070", "#808080"), // Dimmed readout
+			Heading: AdaptiveColor("#CC1100", "#FF4444"), // Scanner red accent
+			Emph:    AdaptiveColor("#CC8800", "#FFB800"), // Amber emphasis
+			Strong:  AdaptiveColor("#1A1A1A", "#E0E0E0"), // Bright text
+			Link:    AdaptiveColor("#CC4400", "#FF7744"), // Warm orange link
+			Code:    AdaptiveColor("#333333", "#CCCCCC"), // Inline code
+			Error:   AdaptiveColor("#CC0000", "#FF3333"), // Alert red
+			Keyword: AdaptiveColor("#CC3300", "#FF6644"), // Orange-red keyword
+			String:  AdaptiveColor("#BB7700", "#DDAA33"), // Amber string
+			Number:  AdaptiveColor("#CC8800", "#FFB800"), // Amber number
+			Comment: AdaptiveColor("#909090", "#606060"), // Dark gray comment
+		},
 	}
 }
 

@@ -96,11 +96,12 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 		key.WithHelp("ctrl+j", "insert newline"),
 	)
 
-	// Style the textarea to match huh theme
+	// Style the textarea using theme colors.
+	theme := GetTheme()
 	styles := ta.Styles()
 	styles.Focused.Base = lipgloss.NewStyle()
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
 	styles.Focused.Prompt = lipgloss.NewStyle()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
@@ -376,9 +377,11 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 func (s *InputComponent) View() tea.View {
 	containerStyle := lipgloss.NewStyle()
 
+	theme := GetTheme()
+
 	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
+		Foreground(theme.Text).
 		MarginBottom(1).
 		PaddingLeft(3)
 
@@ -388,7 +391,7 @@ func (s *InputComponent) View() tea.View {
 		BorderRight(false).
 		BorderTop(false).
 		BorderBottom(false).
-		BorderForeground(lipgloss.Color("39")).
+		BorderForeground(theme.Primary).
 		PaddingLeft(2).    // match message block paddingLeft
 		Width(s.width - 1) // full width minus left border
 
@@ -405,7 +408,7 @@ func (s *InputComponent) View() tea.View {
 	// Show image attachment indicator when images are pending.
 	if len(s.pendingImages) > 0 {
 		imgStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(theme.Secondary).
 			PaddingLeft(3)
 
 		label := fmt.Sprintf("[%d image(s) attached] ctrl+u to clear", len(s.pendingImages))
@@ -415,7 +418,7 @@ func (s *InputComponent) View() tea.View {
 
 	if !s.hideHint {
 		helpStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(theme.VeryMuted).
 			MarginTop(1).
 			PaddingLeft(3)
 
@@ -440,10 +443,11 @@ func (s *InputComponent) View() tea.View {
 
 // renderPopup renders the autocomplete popup for slash command suggestions.
 func (s *InputComponent) renderPopup() string {
+	theme := GetTheme()
 	popupWidth := max(s.width-4, 20)
 	popupStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("236")).
+		BorderForeground(theme.MutedBorder).
 		Padding(1, 2).
 		Width(popupWidth).
 		MarginLeft(0)
@@ -466,16 +470,16 @@ func (s *InputComponent) renderPopup() string {
 
 		var indicator string
 		if i == s.selected {
-			indicator = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("> ")
+			indicator = lipgloss.NewStyle().Foreground(theme.Primary).Render("> ")
 		} else {
 			indicator = "  "
 		}
 
-		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+		nameStyle := lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
+		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 		if i == s.selected {
-			nameStyle = nameStyle.Foreground(lipgloss.Color("87"))
-			descStyle = descStyle.Foreground(lipgloss.Color("250"))
+			nameStyle = nameStyle.Foreground(theme.Primary)
+			descStyle = descStyle.Foreground(theme.Text)
 		}
 
 		if s.fileMode {
@@ -530,10 +534,10 @@ func (s *InputComponent) renderPopup() string {
 	}
 
 	if startIdx > 0 {
-		items = append([]string{lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render("  ↑ more above")}, items...)
+		items = append([]string{lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("  ↑ more above")}, items...)
 	}
 	if endIdx < len(s.filtered) {
-		items = append(items, lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render("  ↓ more below"))
+		items = append(items, lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("  ↓ more below"))
 	}
 
 	content := strings.Join(items, "\n")
@@ -547,7 +551,7 @@ func (s *InputComponent) renderPopup() string {
 	} else {
 		footerText = "↑↓ tab ↵ esc"
 	}
-	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Italic(true).
+	footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Italic(true).
 		Render(footerText)
 
 	return popupStyle.Render(content + "\n\n" + footer)

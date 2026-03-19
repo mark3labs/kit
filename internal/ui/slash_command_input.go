@@ -49,11 +49,12 @@ func NewSlashCommandInput(width int, title string) *SlashCommandInput {
 		key.WithHelp("ctrl+j", "insert newline"),
 	)
 
-	// Style the textarea to match huh theme
+	// Style the textarea using theme colors.
+	theme := GetTheme()
 	styles := ta.Styles()
 	styles.Focused.Base = lipgloss.NewStyle()
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
 	styles.Focused.Prompt = lipgloss.NewStyle()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
@@ -178,9 +179,11 @@ func (s *SlashCommandInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *SlashCommandInput) View() tea.View {
 	containerStyle := lipgloss.NewStyle()
 
+	theme := GetTheme()
+
 	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
+		Foreground(theme.Text).
 		MarginBottom(1).
 		PaddingLeft(3)
 
@@ -191,7 +194,7 @@ func (s *SlashCommandInput) View() tea.View {
 		BorderRight(false).
 		BorderTop(false).
 		BorderBottom(false).
-		BorderForeground(lipgloss.Color("39")).
+		BorderForeground(theme.Primary).
 		PaddingLeft(2).    // match message block paddingLeft
 		Width(s.width - 1) // full width minus left border
 
@@ -223,7 +226,7 @@ func (s *SlashCommandInput) View() tea.View {
 	// Add help text at bottom (unless hidden by extension).
 	if !s.hideHint {
 		helpStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
+			Foreground(theme.VeryMuted).
 			MarginTop(1).
 			PaddingLeft(3)
 
@@ -240,10 +243,12 @@ func (s *SlashCommandInput) View() tea.View {
 
 // renderPopup renders the autocomplete popup
 func (s *SlashCommandInput) renderPopup() string {
+	theme := GetTheme()
+
 	// Popup styling
 	popupStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("236")).
+		BorderForeground(theme.MutedBorder).
 		Padding(1, 2).
 		Width(s.width - 4). // Account for container padding
 		MarginLeft(0)       // No extra margin needed due to container padding
@@ -268,7 +273,7 @@ func (s *SlashCommandInput) renderPopup() string {
 		var indicator string
 		if i == s.selected {
 			indicator = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("39")).
+				Foreground(theme.Primary).
 				Render("> ")
 		} else {
 			indicator = "  "
@@ -276,16 +281,16 @@ func (s *SlashCommandInput) renderPopup() string {
 
 		// Format item
 		nameStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(theme.Secondary).
 			Bold(true)
 
 		descStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("243"))
+			Foreground(theme.Muted)
 
 		// Highlight selected item
 		if i == s.selected {
-			nameStyle = nameStyle.Foreground(lipgloss.Color("87"))
-			descStyle = descStyle.Foreground(lipgloss.Color("250"))
+			nameStyle = nameStyle.Foreground(theme.Primary)
+			descStyle = descStyle.Foreground(theme.Text)
 		}
 
 		// Format with proper spacing
@@ -305,11 +310,11 @@ func (s *SlashCommandInput) renderPopup() string {
 
 	// Add scroll indicators if needed
 	if startIdx > 0 {
-		scrollUpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+		scrollUpStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 		items = append([]string{scrollUpStyle.Render("  ↑ more above")}, items...)
 	}
 	if endIdx < len(s.filtered) {
-		scrollDownStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+		scrollDownStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 		items = append(items, scrollDownStyle.Render("  ↓ more below"))
 	}
 	// Join items
@@ -317,7 +322,7 @@ func (s *SlashCommandInput) renderPopup() string {
 
 	// Add footer hint
 	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("238")).
+		Foreground(theme.VeryMuted).
 		Italic(true)
 	footer := footerStyle.Render("↑↓ navigate • tab complete • ↵ select • esc dismiss")
 

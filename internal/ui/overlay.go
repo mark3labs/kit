@@ -242,7 +242,7 @@ func (o *overlayDialog) Render() string {
 	innerContent := strings.Join(parts, "\n")
 
 	// Resolve border color.
-	borderClr := lipgloss.Color("#89b4fa") // default blue
+	borderClr := theme.Info
 	if o.borderColor != "" {
 		borderClr = lipgloss.Color(o.borderColor)
 	}

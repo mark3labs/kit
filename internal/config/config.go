@@ -105,42 +105,56 @@ type AdaptiveColor struct {
 	Dark  string `json:"dark,omitempty" yaml:"dark,omitempty"`
 }
 
+// MarkdownThemeConfig defines color overrides for markdown rendering and
+// syntax highlighting.
+type MarkdownThemeConfig struct {
+	Text    AdaptiveColor `json:"text,omitzero" yaml:"text,omitempty"`
+	Muted   AdaptiveColor `json:"muted,omitzero" yaml:"muted,omitempty"`
+	Heading AdaptiveColor `json:"heading,omitzero" yaml:"heading,omitempty"`
+	Emph    AdaptiveColor `json:"emph,omitzero" yaml:"emph,omitempty"`
+	Strong  AdaptiveColor `json:"strong,omitzero" yaml:"strong,omitempty"`
+	Link    AdaptiveColor `json:"link,omitzero" yaml:"link,omitempty"`
+	Code    AdaptiveColor `json:"code,omitzero" yaml:"code,omitempty"`
+	Error   AdaptiveColor `json:"error,omitzero" yaml:"error,omitempty"`
+	Keyword AdaptiveColor `json:"keyword,omitzero" yaml:"keyword,omitempty"`
+	String  AdaptiveColor `json:"string,omitzero" yaml:"string,omitempty"`
+	Number  AdaptiveColor `json:"number,omitzero" yaml:"number,omitempty"`
+	Comment AdaptiveColor `json:"comment,omitzero" yaml:"comment,omitempty"`
+}
+
 // Theme defines the color scheme for the application UI with adaptive colors
 // that support both light and dark modes.
 type Theme struct {
-	Primary     AdaptiveColor `json:"primary" yaml:"primary"`
-	Secondary   AdaptiveColor `json:"secondary" yaml:"secondary"`
-	Success     AdaptiveColor `json:"success" yaml:"success"`
-	Warning     AdaptiveColor `json:"warning" yaml:"warning"`
-	Error       AdaptiveColor `json:"error" yaml:"error"`
-	Info        AdaptiveColor `json:"info" yaml:"info"`
-	Text        AdaptiveColor `json:"text" yaml:"text"`
-	Muted       AdaptiveColor `json:"muted" yaml:"muted"`
-	VeryMuted   AdaptiveColor `json:"very-muted" yaml:"very-muted"`
-	Background  AdaptiveColor `json:"background" yaml:"background"`
-	Border      AdaptiveColor `json:"border" yaml:"border"`
-	MutedBorder AdaptiveColor `json:"muted-border" yaml:"muted-border"`
-	System      AdaptiveColor `json:"system" yaml:"system"`
-	Tool        AdaptiveColor `json:"tool" yaml:"tool"`
-	Accent      AdaptiveColor `json:"accent" yaml:"accent"`
-	Highlight   AdaptiveColor `json:"highlight" yaml:"highlight"`
-}
+	Primary     AdaptiveColor `json:"primary,omitzero" yaml:"primary,omitempty"`
+	Secondary   AdaptiveColor `json:"secondary,omitzero" yaml:"secondary,omitempty"`
+	Success     AdaptiveColor `json:"success,omitzero" yaml:"success,omitempty"`
+	Warning     AdaptiveColor `json:"warning,omitzero" yaml:"warning,omitempty"`
+	Error       AdaptiveColor `json:"error,omitzero" yaml:"error,omitempty"`
+	Info        AdaptiveColor `json:"info,omitzero" yaml:"info,omitempty"`
+	Text        AdaptiveColor `json:"text,omitzero" yaml:"text,omitempty"`
+	Muted       AdaptiveColor `json:"muted,omitzero" yaml:"muted,omitempty"`
+	VeryMuted   AdaptiveColor `json:"very-muted,omitzero" yaml:"very-muted,omitempty"`
+	Background  AdaptiveColor `json:"background,omitzero" yaml:"background,omitempty"`
+	Border      AdaptiveColor `json:"border,omitzero" yaml:"border,omitempty"`
+	MutedBorder AdaptiveColor `json:"muted-border,omitzero" yaml:"muted-border,omitempty"`
+	System      AdaptiveColor `json:"system,omitzero" yaml:"system,omitempty"`
+	Tool        AdaptiveColor `json:"tool,omitzero" yaml:"tool,omitempty"`
+	Accent      AdaptiveColor `json:"accent,omitzero" yaml:"accent,omitempty"`
+	Highlight   AdaptiveColor `json:"highlight,omitzero" yaml:"highlight,omitempty"`
 
-// MarkdownTheme defines the color scheme for markdown rendering with syntax
-// highlighting support and adaptive colors for light and dark modes.
-type MarkdownTheme struct {
-	Text    AdaptiveColor `json:"text" yaml:"text"`
-	Muted   AdaptiveColor `json:"muted" yaml:"muted"`
-	Heading AdaptiveColor `json:"heading" yaml:"heading"`
-	Emph    AdaptiveColor `json:"emph" yaml:"emph"`
-	Strong  AdaptiveColor `json:"strong" yaml:"strong"`
-	Link    AdaptiveColor `json:"link" yaml:"link"`
-	Code    AdaptiveColor `json:"code" yaml:"code"`
-	Error   AdaptiveColor `json:"error" yaml:"error"`
-	Keyword AdaptiveColor `json:"keyword" yaml:"keyword"`
-	String  AdaptiveColor `json:"string" yaml:"string"`
-	Number  AdaptiveColor `json:"number" yaml:"number"`
-	Comment AdaptiveColor `json:"comment" yaml:"comment"`
+	// Diff block backgrounds
+	DiffInsertBg  AdaptiveColor `json:"diff-insert-bg,omitzero" yaml:"diff-insert-bg,omitempty"`
+	DiffDeleteBg  AdaptiveColor `json:"diff-delete-bg,omitzero" yaml:"diff-delete-bg,omitempty"`
+	DiffEqualBg   AdaptiveColor `json:"diff-equal-bg,omitzero" yaml:"diff-equal-bg,omitempty"`
+	DiffMissingBg AdaptiveColor `json:"diff-missing-bg,omitzero" yaml:"diff-missing-bg,omitempty"`
+
+	// Code/output block backgrounds
+	CodeBg   AdaptiveColor `json:"code-bg,omitzero" yaml:"code-bg,omitempty"`
+	GutterBg AdaptiveColor `json:"gutter-bg,omitzero" yaml:"gutter-bg,omitempty"`
+	WriteBg  AdaptiveColor `json:"write-bg,omitzero" yaml:"write-bg,omitempty"`
+
+	// Markdown rendering and syntax highlighting
+	Markdown MarkdownThemeConfig `json:"markdown,omitzero" yaml:"markdown,omitempty"`
 }
 
 // Config represents the complete application configuration including MCP servers,
@@ -157,7 +171,6 @@ type Config struct {
 	ProviderURL    string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`
 	Stream         *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
 	Theme          any                        `json:"theme" yaml:"theme"`
-	MarkdownTheme  any                        `json:"markdown-theme" yaml:"markdown-theme"`
 	// Model generation parameters
 	MaxTokens     int      `json:"max-tokens,omitempty" yaml:"max-tokens,omitempty"`
 	Temperature   *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`

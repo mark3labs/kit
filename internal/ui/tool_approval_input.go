@@ -28,11 +28,12 @@ func NewToolApprovalInput(toolName, toolArgs string, width int) *ToolApprovalInp
 	ta.SetHeight(4)        // Default to 3 lines like huh
 	ta.Focus()
 
-	// Style the textarea to match huh theme
+	// Style the textarea using theme colors.
+	theme := GetTheme()
 	styles := ta.Styles()
 	styles.Focused.Base = lipgloss.NewStyle()
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
 	styles.Focused.Prompt = lipgloss.NewStyle()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	ta.SetStyles(styles)
@@ -87,9 +88,11 @@ func (t *ToolApprovalInput) View() tea.View {
 	}
 	containerStyle := lipgloss.NewStyle()
 
+	theme := GetTheme()
+
 	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
+		Foreground(theme.Text).
 		MarginBottom(1).
 		PaddingLeft(3)
 
@@ -100,19 +103,19 @@ func (t *ToolApprovalInput) View() tea.View {
 		BorderRight(false).
 		BorderTop(false).
 		BorderBottom(false).
-		BorderForeground(lipgloss.Color("39")).
+		BorderForeground(theme.Primary).
 		PaddingLeft(2).    // match message block paddingLeft
 		Width(t.width - 1) // full width minus left border
 
 	// Style for the currently selected/highlighted option
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("42")). // Bright green
+		Foreground(theme.Success).
 		Bold(true).
 		Underline(true)
 
 	// Style for the unselected/unhighlighted option
 	unselectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")) // Dark gray
+		Foreground(theme.VeryMuted)
 
 	// Build the view
 	var view strings.Builder

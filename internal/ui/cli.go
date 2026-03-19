@@ -134,7 +134,7 @@ func (c *CLI) DisplayInfo(message string) {
 func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
 	theme := GetTheme()
 
-	var borderClr = lipgloss.Color("#89b4fa")
+	borderClr := theme.Info
 	if borderColor != "" {
 		borderClr = lipgloss.Color(borderColor)
 	}

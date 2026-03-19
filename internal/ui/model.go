@@ -1545,8 +1545,9 @@ func (m *AppModel) renderStream() string {
 
 	// Show canceling warning if set.
 	if m.canceling {
+		theme := GetTheme()
 		warning := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
+			Foreground(theme.Warning).
 			Bold(true).
 			Render("  ⚠ Press ESC again to cancel")
 		return lipgloss.JoinVertical(lipgloss.Left,
@@ -1899,8 +1900,8 @@ func (m *AppModel) printSystemMessage(text string) {
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 	theme := GetTheme()
 
-	// Resolve border color: use the extension's hex value, fall back to theme accent.
-	var borderClr = lipgloss.Color("#89b4fa") // default blue
+	// Resolve border color: use the extension's hex value, fall back to theme info.
+	borderClr := theme.Info
 	if evt.BorderColor != "" {
 		borderClr = lipgloss.Color(evt.BorderColor)
 	}
