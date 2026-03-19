@@ -3,6 +3,7 @@ export default {
   name: "Kit",
   logo: "/logo.jpg",
   favicon: "/logo.jpg",
+  baseUrl: "https://go-kit.dev",
   theme: {
     preset: "cipher",
     accent: "#e03030",
