@@ -21,6 +21,10 @@ jobs:
         working-directory: ./www
         run: bun install
 
+      - name: Generate Tome entry
+        working-directory: ./www
+        run: mkdir -p .tome && echo 'import "@tomehq/theme/entry";' > .tome/entry.tsx
+
       - name: Build
         working-directory: ./www
         run: bun run build
