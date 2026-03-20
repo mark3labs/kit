@@ -416,6 +416,17 @@ result := ctx.PromptInput(ext.PromptInputConfig{
 if !result.Cancelled {
     // result.Value string
 }
+
+// Multi-select (toggle with spacebar, confirm with enter)
+result := ctx.PromptMultiSelect(ext.PromptMultiSelectConfig{
+    Message: "Select extensions to install:",
+    Options: []string{"git", "todo", "weather"},
+    DefaultSelected: []int{0, 1, 2},  // pre-selected indices; nil = all selected
+})
+if !result.Cancelled {
+    // result.Values []string — selected option texts
+    // result.Indices []int — selected option indices
+}
 ```
 
 ### Overlay Dialogs
@@ -828,13 +839,85 @@ api.RegisterCommand(ext.CommandDef{
 
 ### Pattern: Spawning Kit as a Sub-Agent
 
-Extensions can spawn Kit as a subprocess for delegation:
+Use `ctx.SpawnSubagent` to spawn an isolated child Kit instance. The subagent runs as a subprocess with `--json --no-extensions` flags, ensuring isolation.
+
+**Blocking mode** — waits for completion:
+
+```go
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Analyze the test files and summarize coverage",
+    Model:        "anthropic/claude-haiku-3-5-20241022",  // empty = parent's model
+    SystemPrompt: "You are a test analysis expert.",
+    Timeout:      2 * time.Minute,  // 0 = 5 minute default
+    Blocking:     true,
+})
+if err != nil {
+    ctx.PrintError("spawn failed: " + err.Error())
+    return
+}
+if result.Error != nil {
+    ctx.PrintError("subagent failed: " + result.Error.Error())
+    return
+}
+ctx.PrintInfo("Result:\n" + result.Response)
+// result.Elapsed, result.ExitCode, result.SessionID
+// result.Usage.InputTokens, result.Usage.OutputTokens (if available)
+```
+
+**Background mode** — returns immediately with a handle:
+
+```go
+handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt: "Write unit tests for UserService",
+    OnOutput: func(chunk string) {
+        // Live stderr streaming (progress, tool calls, etc.)
+    },
+    OnEvent: func(event ext.SubagentEvent) {
+        // Real-time events: "text", "reasoning", "tool_call",
+        // "tool_result", "tool_execution_start", "tool_execution_end",
+        // "turn_start", "turn_end"
+        // event.Type, event.Content, event.ToolName, event.ToolArgs, etc.
+    },
+    OnComplete: func(result ext.SubagentResult) {
+        ctx.SendMessage("Subagent finished:\n" + result.Response)
+    },
+})
+// handle.Kill()        — terminate the subagent
+// handle.Wait()        — block until completion, returns SubagentResult
+// <-handle.Done()      — channel that closes on completion
+```
+
+**SubagentConfig fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Prompt` | string | Task instruction (required) |
+| `Model` | string | Override model ("provider/model"), empty = parent's |
+| `SystemPrompt` | string | Custom system prompt, empty = default |
+| `Timeout` | time.Duration | Execution limit, 0 = 5 minutes |
+| `Blocking` | bool | Wait for completion vs return handle |
+| `NoSession` | bool | Don't persist subagent session file |
+| `ParentSessionID` | string | Link to parent session (optional) |
+| `OnOutput` | func(string) | Stderr streaming callback |
+| `OnEvent` | func(SubagentEvent) | Real-time event callback |
+| `OnComplete` | func(SubagentResult) | Completion callback |
+
+**SubagentResult fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Response` | string | Final text response |
+| `Error` | error | Non-nil on failure |
+| `ExitCode` | int | Process exit code (0 = success) |
+| `Elapsed` | time.Duration | Total execution time |
+| `Usage` | *SubagentUsage | Token usage (InputTokens, OutputTokens) |
+| `SessionID` | string | Subagent's session ID (if persisted) |
+
+You can also spawn Kit as a raw subprocess for simpler cases:
 
 ```bash
 kit --quiet --no-session --no-extensions --system-prompt "You are a reviewer" --model anthropic/claude-sonnet-4-20250514 "Review this code"
 ```
-
-Key flags: `--quiet` (stdout only, no TUI), `--no-session` (ephemeral), `--no-extensions` (prevent recursion), `--system-prompt` (string or file path).
 
 ---
 
