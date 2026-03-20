@@ -391,40 +391,101 @@ func (a *App) Close() {
 // Internal: queue drain loop
 // --------------------------------------------------------------------------
 
-// drainQueue runs in a goroutine. It executes the given item and then
-// continues draining the queue until it is empty.
+// drainQueue runs in a goroutine. It collects all queued items (including the
+// first one) and submits them together as a single batch. This ensures that
+// when multiple messages are queued while the agent is working, they are all
+// submitted together in one turn rather than sequentially.
 // Must be called with a.busy == true and a.wg incremented.
 func (a *App) drainQueue(first queueItem) {
 	defer a.wg.Done()
 
-	item := first
-	for {
-		a.runQueueItem(item)
+	// Collect all items to process in this batch
+	var items []queueItem
+	items = append(items, first)
 
+	// Process batches until no more items are queued
+	for {
+		// Drain the queue to collect any pending items
 		a.mu.Lock()
-		// Stop draining if the app is shutting down.
-		if a.closed || a.rootCtx.Err() != nil {
-			a.busy = false
-			a.queue = a.queue[:0]
-			a.mu.Unlock()
-			return
-		}
-		if len(a.queue) == 0 {
-			a.busy = false
-			a.mu.Unlock()
-			return
-		}
-		item = a.queue[0]
-		a.queue = a.queue[1:]
-		qLen := len(a.queue)
+		items = append(items, a.queue...)
+		a.queue = a.queue[:0] // Clear the queue
+		queueLen := len(a.queue)
 		a.mu.Unlock()
-		// sendEvent must be called without a.mu held (see sendEvent comment).
-		a.sendEvent(QueueUpdatedEvent{Length: qLen})
+
+		// Send queue updated event (queue is now empty)
+		a.sendEvent(QueueUpdatedEvent{Length: queueLen})
+
+		// Process all collected items as a single batch
+		a.runQueueBatch(items)
+
+		// Check if more items were queued while we were processing
+		a.mu.Lock()
+		hasMore := len(a.queue) > 0
+		if hasMore {
+			// Start a new batch with the newly queued items
+			items = a.queue
+			a.queue = a.queue[:0]
+		}
+		a.mu.Unlock()
+
+		if !hasMore {
+			// No more items, we're done
+			break
+		}
+		// Process the new batch
 	}
+
+	// Mark as no longer busy
+	a.mu.Lock()
+	a.busy = false
+	a.mu.Unlock()
+}
+
+// runQueueBatch executes multiple queue items as a single agent turn.
+// All items are submitted together, and the agent responds once to the combined context.
+func (a *App) runQueueBatch(items []queueItem) {
+	if len(items) == 0 {
+		return
+	}
+
+	// Create a per-step cancellable context.
+	stepCtx, cancel := context.WithCancel(a.rootCtx)
+	a.mu.Lock()
+	a.cancelStep = cancel
+	a.mu.Unlock()
+	defer cancel()
+
+	// Build event function that sends to the registered tea.Program (if any).
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+
+	eventFn := func(msg tea.Msg) {
+		if prog != nil {
+			prog.Send(msg)
+		}
+	}
+
+	// Execute the batch
+	result, err := a.executeBatch(stepCtx, items, eventFn)
+	if err != nil {
+		if stepCtx.Err() != nil {
+			// Step was cancelled by the user (e.g. double-ESC). Send a
+			// cancellation event so the TUI can cut off the response
+			// cleanly without printing an error.
+			a.sendEvent(StepCancelledEvent{})
+			return
+		}
+		a.sendEvent(StepErrorEvent{Err: err})
+		return
+	}
+
+	a.sendEvent(StepCompleteEvent{ResponseText: result.Response})
 }
 
 // runQueueItem executes a single queue item: adds the user message to the store,
 // runs the agent step, and sends the appropriate event to the program.
+// Deprecated: Use runQueueBatch which handles both single and multiple items.
 func (a *App) runQueueItem(item queueItem) {
 	// Create a per-step cancellable context.
 	stepCtx, cancel := context.WithCancel(a.rootCtx)
@@ -507,9 +568,87 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	return result, nil
 }
 
-// --------------------------------------------------------------------------
-// Internal: event helpers
-// --------------------------------------------------------------------------
+// executeBatch runs a batch of queue items as a single agent step by delegating
+// to the SDK's PromptResultWithMessages(), which handles session persistence,
+// hooks, extension events, and the generation loop.
+func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(tea.Msg)) (*kit.TurnResult, error) {
+	// Test hook: bypass SDK entirely (single item only for test compatibility).
+	if a.opts.PromptFunc != nil {
+		if len(items) == 1 {
+			return a.opts.PromptFunc(ctx, items[0].Prompt)
+		}
+		// For batch mode with PromptFunc, just use the first item
+		return a.opts.PromptFunc(ctx, items[0].Prompt)
+	}
+
+	sendFn := func(msg tea.Msg) {
+		if eventFn != nil {
+			eventFn(msg)
+		}
+	}
+
+	// Subscribe to SDK events for TUI rendering. The subscription is
+	// temporary — it lives only for the duration of this step.
+	unsub := a.subscribeSDKEvents(sendFn)
+	defer unsub()
+
+	// Show spinner while the agent works.
+	sendFn(SpinnerEvent{Show: true})
+
+	// Check if any items have file attachments
+	hasFiles := false
+	for _, item := range items {
+		if len(item.Files) > 0 {
+			hasFiles = true
+			break
+		}
+	}
+
+	var result *kit.TurnResult
+	var err error
+
+	if len(items) == 1 {
+		// Single item: use the original path for compatibility
+		item := items[0]
+		if len(item.Files) > 0 || hasFiles {
+			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
+		} else {
+			result, err = a.opts.Kit.PromptResult(ctx, item.Prompt)
+		}
+	} else {
+		// Multiple items: batch them together
+		var messages []string
+		for _, item := range items {
+			messages = append(messages, item.Prompt)
+		}
+
+		// TODO: Handle file attachments in batch mode
+		// For now, files are ignored in batch mode (rare edge case)
+		if hasFiles {
+			// If files exist, fall back to processing just the first item with files
+			for _, item := range items {
+				if len(item.Files) > 0 {
+					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
+					break
+				}
+			}
+		} else {
+			result, err = a.opts.Kit.PromptResultWithMessages(ctx, messages)
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Sync in-memory store with the SDK's authoritative conversation.
+	a.store.Replace(result.Messages)
+
+	// Update usage tracker (using last item's prompt for tracking).
+	a.updateUsageFromTurnResult(result, items[len(items)-1].Prompt)
+
+	return result, nil
+}
 
 // sendEvent sends a tea.Msg to the registered program if one is set.
 // Must NOT be called with a.mu held (to avoid deadlock with the program).

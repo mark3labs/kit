@@ -1554,6 +1554,14 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	result, err := m.generate(ctx, messages)
 	if err != nil {
+		// Persist any messages that were generated during this turn (tool calls,
+		// tool results) even if the generation was cancelled. This ensures that
+		// partial progress like completed tool executions are not lost.
+		if result != nil && len(result.ConversationMessages) > sentCount {
+			for _, msg := range result.ConversationMessages[sentCount:] {
+				_, _ = m.treeSession.AppendFantasyMessage(msg)
+			}
+		}
 		m.events.emit(TurnEndEvent{Error: err})
 		// Run AfterTurn hooks even on error.
 		if m.afterTurn.hasHooks() {
@@ -1750,6 +1758,30 @@ func (m *Kit) PromptResultWithFiles(ctx context.Context, message string, files [
 	return m.runTurn(ctx, message, message, []fantasy.Message{
 		fantasy.NewUserMessage(message, files...),
 	})
+}
+
+// PromptResultWithMessages submits multiple user messages in a single turn.
+// All messages are persisted to the session and sent to the agent together.
+// The agent will respond once to the combined context of all messages.
+// Returns the full turn result including usage statistics and conversation messages.
+func (m *Kit) PromptResultWithMessages(ctx context.Context, messages []string) (*TurnResult, error) {
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("no messages provided")
+	}
+
+	// Build prompt label from all messages
+	promptLabel := strings.Join(messages, " | ")
+	if len(promptLabel) > 100 {
+		promptLabel = promptLabel[:100] + "..."
+	}
+
+	// Build fantasy messages from all strings
+	var preMessages []fantasy.Message
+	for _, msg := range messages {
+		preMessages = append(preMessages, fantasy.NewUserMessage(msg))
+	}
+
+	return m.runTurn(ctx, promptLabel, messages[len(messages)-1], preMessages)
 }
 
 // ClearSession resets the tree session's leaf pointer to the root, starting
