@@ -353,6 +353,42 @@ kit -e ext1.go -e ext2.go  # Multiple extensions
 kit --no-extensions
 ```
 
+### Testing Extensions
+
+Kit provides a testing package to help you write unit tests for your extensions:
+
+```go
+package main
+
+import (
+    "testing"
+    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/internal/extensions"
+)
+
+func TestMyExtension(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Emit events and verify behavior
+    _, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    
+    // Verify the extension printed something
+    test.AssertPrinted(t, harness, "session started")
+}
+```
+
+**Available assertions:**
+- `AssertBlocked()`, `AssertNotBlocked()` — Verify tool blocking
+- `AssertWidgetSet()`, `AssertWidgetText()` — Verify widget content
+- `AssertPrinted()`, `AssertPrintedContains()` — Verify output
+- `AssertToolRegistered()`, `AssertCommandRegistered()` — Verify registration
+
+See `examples/extensions/tool-logger_test.go` for a complete example with 14 test cases covering tool calls, input handling, and session lifecycle.
+
 ## Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.

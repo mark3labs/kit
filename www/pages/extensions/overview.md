@@ -69,6 +69,5 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
 - **Custom events** — `ctx.EmitCustomEvent(...)`
-- **App control** — `ctx.Exit()`, `ctx.ReloadExtensions()`
 
-See [Capabilities](/extensions/capabilities) for full details on each component type.
+See [Capabilities](/extensions/capabilities) for full details on each component type, and [Testing](/extensions/testing) for writing tests for your extensions.
