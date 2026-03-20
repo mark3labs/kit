@@ -752,6 +752,48 @@ Key flags: `--quiet` (stdout only, no TUI), `--no-session` (ephemeral), `--no-ex
 
 ## Testing Extensions
 
+Kit provides a testing package to help you write unit tests for your extensions:
+
+```go
+package main
+
+import (
+    "testing"
+    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/internal/extensions"
+)
+
+func TestMyExtension(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Test event handlers
+    _, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    
+    // Verify behavior with assertions
+    test.AssertPrinted(t, harness, "session started")
+    test.AssertWidgetSet(t, harness, "my-widget")
+    
+    // Test tool blocking
+    result, _ := harness.Emit(extensions.ToolCallEvent{ToolName: "dangerous"})
+    test.AssertBlocked(t, result, "not allowed")
+}
+```
+
+**Key testing patterns:**
+- Load extensions with `LoadFile()` or `LoadString()` for inline code
+- Emit events with `Emit()` to trigger handlers
+- Verify with 25+ assertion helpers: `AssertWidgetSet()`, `AssertToolRegistered()`, `AssertPrintInfo()`, etc.
+- Mock prompts by setting results on `harness.Context().SetPromptSelectResult()`
+- Test multiple scenarios per extension with isolated harness instances
+
+See `examples/extensions/tool-logger_test.go` for a complete example with 14 test cases.
+
+### CLI Testing Commands
+
 ```bash
 # Validate syntax of all discovered extensions
 kit extensions validate
@@ -1003,4 +1045,6 @@ func applyMode(ctx ext.Context, active bool, tools []string) {
 - [`internal/extensions/runner.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/runner.go) — Event dispatch and state management
 - [`internal/extensions/loader.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/loader.go) — Yaegi interpreter setup
 - [`internal/extensions/symbols.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/symbols.go) — All types exported to extensions
+- [`internal/extensions/test/`](https://github.com/mark3labs/kit/tree/main/internal/extensions/test) — Testing package with harness, mocks, and assertions
+- [`examples/extensions/tool-logger_test.go`](https://github.com/mark3labs/kit/blob/main/examples/extensions/tool-logger_test.go) — Complete test example
 - [`examples/extensions/`](https://github.com/mark3labs/kit/tree/main/examples/extensions) — 25+ working example extensions
