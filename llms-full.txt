@@ -17,7 +17,7 @@ kit "Explain main.go" --json --quiet --no-session
 ```json
 {
   "response": "Final assistant response text",
-  "model": "anthropic/claude-haiku-3-5-20241022",
+  "model": "anthropic/claude-haiku-latest",
   "stop_reason": "end_turn",
   "session_id": "a1b2c3d4e5f6",
   "usage": {
@@ -113,7 +113,7 @@ kit "Analyze codebase" \
     --no-session \
     --no-extensions \
     --quiet \
-    --model anthropic/claude-haiku-3-5-20241022
+    --model anthropic/claude-haiku-latest
 ```
 
 Key flags for subprocess usage:
@@ -135,7 +135,7 @@ Kit includes a built-in `spawn_subagent` tool that the LLM can use to delegate t
 ```
 spawn_subagent(
     task: "Analyze the test files and summarize coverage",
-    model: "anthropic/claude-haiku-3-5-20241022",   // optional
+    model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
     timeout_seconds: 300                               // optional, max 1800
 )
@@ -150,7 +150,7 @@ Extensions can spawn subagents programmatically:
 ```go
 result := ctx.SpawnSubagent(ext.SubagentConfig{
     Task:         "Review this code for security issues",
-    Model:        "anthropic/claude-sonnet-4-5-20250929",
+    Model:        "anthropic/claude-sonnet-latest",
     SystemPrompt: "You are a security auditor.",
 })
 ```
@@ -162,7 +162,7 @@ The SDK provides in-process subagent spawning:
 ```go
 result, err := host.Subagent(ctx, kit.SubagentConfig{
     Task:         "Summarize the changes in this PR",
-    Model:        "anthropic/claude-haiku-3-5-20241022",
+    Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a code reviewer.",
     Timeout:      5 * time.Minute,
 })
@@ -343,7 +343,7 @@ All flags can be passed to the root `kit` command.
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--model` | `-m` | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
 | `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
@@ -415,7 +415,7 @@ Kit looks for configuration in the following locations, in order of priority:
 Create `~/.kit.yml`:
 
 ```yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
@@ -425,7 +425,7 @@ stream: true
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `model` | string | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `max-tokens` | int | `4096` | Maximum tokens in response |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
@@ -825,7 +825,7 @@ Spawn in-process child Kit instances:
 ```go
 result := ctx.SpawnSubagent(ext.SubagentConfig{
     Task:         "Analyze the test files and summarize coverage",
-    Model:        "anthropic/claude-haiku-3-5-20241022",
+    Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a test analysis expert.",
 })
 ```
@@ -1720,25 +1720,53 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 
 ```bash
 provider/model            # Standard format
-anthropic/claude-sonnet-4-5-20250929
+anthropic/claude-sonnet-latest
 openai/gpt-4o
 ollama/llama3
-google/gemini-2.0-flash-exp
+google/gemini-2.5-flash
 ```
 
 ## Model aliases
 
 Kit provides aliases for commonly used models:
 
+### Anthropic Claude
+
 ```bash
-claude-opus-latest        → claude-opus-4-20250514
-claude-sonnet-latest      → claude-sonnet-4-5-20250929
-claude-4-opus-latest      → claude-opus-4-20250514
-claude-4-sonnet-latest    → claude-sonnet-4-5-20250929
+claude-opus-latest        → claude-opus-4-6
+claude-sonnet-latest      → claude-sonnet-4-6
+claude-haiku-latest       → claude-haiku-4-5
+claude-4-opus-latest      → claude-opus-4-6
+claude-4-sonnet-latest    → claude-sonnet-4-6
+claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
 claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
 claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
 claude-3-opus-latest      → claude-3-opus-20240229
+```
+
+### OpenAI GPT
+
+```bash
+o1-latest                 → o1
+o3-latest                 → o3
+o4-latest                 → o4-mini
+gpt-5-latest              → gpt-5.4
+gpt-5-chat-latest         → gpt-5.4
+gpt-4-latest              → gpt-4o
+gpt-4                     → gpt-4o
+gpt-3.5-latest            → gpt-3.5-turbo
+gpt-3.5                   → gpt-3.5-turbo
+codex-latest              → codex-mini-latest
+```
+
+### Google Gemini
+
+```bash
+gemini-pro-latest         → gemini-2.5-pro
+gemini-flash-latest       → gemini-2.5-flash
+gemini-flash              → gemini-2.5-flash
+gemini-pro                → gemini-2.5-pro
 ```
 
 ## Specifying a model
@@ -1753,7 +1781,7 @@ kit -m ollama/llama3
 Via config file:
 
 ```yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 ```
 
 Via environment variable:
@@ -1839,7 +1867,7 @@ kit @main.go @test.go "Review these files"
 Use a specific model:
 
 ```bash
-kit --model anthropic/claude-sonnet-4-5-20250929
+kit --model anthropic/claude-sonnet-latest
 ```
 
 ## Non-interactive mode

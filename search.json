@@ -272,6 +272,9 @@
         "Supported providers",
         "Model string format",
         "Model aliases",
+        "Anthropic Claude",
+        "OpenAI GPT",
+        "Google Gemini",
         "Specifying a model",
         "Authentication",
         "API keys",
@@ -280,7 +283,7 @@
         "Model database"
       ],
       "tags": [],
-      "wordCount": 343
+      "wordCount": 404
     },
     {
       "id": "quick-start",

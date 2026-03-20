@@ -213,7 +213,7 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <p>Spawn in-process child Kit instances:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Task:         </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Analyze the test files and summarize coverage"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-3-5-20241022"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-latest"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a test analysis expert."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="llm-completion"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#llm-completion"><span class="icon icon-link"></span></a>LLM completion</h2>
@@ -474,7 +474,7 @@ Spawn in-process child Kit instances:
 \`\`\`go
 result := ctx.SpawnSubagent(ext.SubagentConfig{
     Task:         "Analyze the test files and summarize coverage",
-    Model:        "anthropic/claude-haiku-3-5-20241022",
+    Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a test analysis expert.",
 })
 \`\`\`

@@ -64,26 +64,45 @@ const s={frontmatter:{title:"Providers",description:"Supported LLM providers and
 </table>
 <h2 id="model-string-format"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-string-format"><span class="icon icon-link"></span></a>Model string format</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">provider/model</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Standard format</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">anthropic/claude-sonnet-4-5-20250929</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">anthropic/claude-sonnet-latest</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">openai/gpt-4o</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">ollama/llama3</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">google/gemini-2.0-flash-exp</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">google/gemini-2.5-flash</span></span></code></pre>
 <h2 id="model-aliases"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-aliases"><span class="icon icon-link"></span></a>Model aliases</h2>
 <p>Kit provides aliases for commonly used models:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">        →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-opus-4-20250514</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-5-20250929</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-opus-4-20250514</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">    →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-5-20250929</span></span>
+<h3 id="anthropic-claude"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#anthropic-claude"><span class="icon icon-link"></span></a>Anthropic Claude</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">        →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-opus-4-6</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-6</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">       →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-haiku-4-5</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-opus-4-6</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">    →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-6</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">     →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-haiku-4-5</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-7-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-7-sonnet-20250219</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-sonnet-20241022</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-haiku-20241022</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-opus-20240229</span></span></code></pre>
+<h3 id="openai-gpt"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#openai-gpt"><span class="icon icon-link"></span></a>OpenAI GPT</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o1-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o1</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o3-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o3</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o4-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o4-mini</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-5-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-5.4</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-5-chat-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">         →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-5.4</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-4-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-4o</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-4</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                     →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-4o</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-3.5-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">            →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-3.5-turbo</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-3.5</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-3.5-turbo</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">codex-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> codex-mini-latest</span></span></code></pre>
+<h3 id="google-gemini"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#google-gemini"><span class="icon icon-link"></span></a>Google Gemini</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-pro-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">         →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-flash-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">       →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-flash</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-flash</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-pro</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span></code></pre>
 <h2 id="specifying-a-model"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#specifying-a-model"><span class="icon icon-link"></span></a>Specifying a model</h2>
 <p>Via CLI flag:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ollama/llama3</span></span></code></pre>
 <p>Via config file:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">model</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">anthropic/claude-sonnet-4-5-20250929</span></span></code></pre>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">model</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">anthropic/claude-sonnet-latest</span></span></code></pre>
 <p>Via environment variable:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">export</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> KIT_MODEL</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"google/gemini-2.0-flash-exp"</span></span></code></pre>
 <h2 id="authentication"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#authentication"><span class="icon icon-link"></span></a>Authentication</h2>
@@ -108,7 +127,7 @@ const s={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Filter by provider</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Update from models.dev</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Model database",id:"model-database"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:3,text:"Anthropic Claude",id:"anthropic-claude"},{depth:3,text:"OpenAI GPT",id:"openai-gpt"},{depth:3,text:"Google Gemini",id:"google-gemini"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Model database",id:"model-database"}],raw:`
 # Providers
 
 Kit supports a wide range of LLM providers through a unified \`provider/model\` string format.
@@ -132,25 +151,53 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 
 \`\`\`bash
 provider/model            # Standard format
-anthropic/claude-sonnet-4-5-20250929
+anthropic/claude-sonnet-latest
 openai/gpt-4o
 ollama/llama3
-google/gemini-2.0-flash-exp
+google/gemini-2.5-flash
 \`\`\`
 
 ## Model aliases
 
 Kit provides aliases for commonly used models:
 
+### Anthropic Claude
+
 \`\`\`bash
-claude-opus-latest        → claude-opus-4-20250514
-claude-sonnet-latest      → claude-sonnet-4-5-20250929
-claude-4-opus-latest      → claude-opus-4-20250514
-claude-4-sonnet-latest    → claude-sonnet-4-5-20250929
+claude-opus-latest        → claude-opus-4-6
+claude-sonnet-latest      → claude-sonnet-4-6
+claude-haiku-latest       → claude-haiku-4-5
+claude-4-opus-latest      → claude-opus-4-6
+claude-4-sonnet-latest    → claude-sonnet-4-6
+claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
 claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
 claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
 claude-3-opus-latest      → claude-3-opus-20240229
+\`\`\`
+
+### OpenAI GPT
+
+\`\`\`bash
+o1-latest                 → o1
+o3-latest                 → o3
+o4-latest                 → o4-mini
+gpt-5-latest              → gpt-5.4
+gpt-5-chat-latest         → gpt-5.4
+gpt-4-latest              → gpt-4o
+gpt-4                     → gpt-4o
+gpt-3.5-latest            → gpt-3.5-turbo
+gpt-3.5                   → gpt-3.5-turbo
+codex-latest              → codex-mini-latest
+\`\`\`
+
+### Google Gemini
+
+\`\`\`bash
+gemini-pro-latest         → gemini-2.5-pro
+gemini-flash-latest       → gemini-2.5-flash
+gemini-flash              → gemini-2.5-flash
+gemini-pro                → gemini-2.5-pro
 \`\`\`
 
 ## Specifying a model
@@ -165,7 +212,7 @@ kit -m ollama/llama3
 Via config file:
 
 \`\`\`yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 \`\`\`
 
 Via environment variable:

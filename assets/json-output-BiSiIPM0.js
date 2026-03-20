@@ -4,7 +4,7 @@ const s={frontmatter:{title:"JSON Output",description:"Machine-readable JSON out
 <h2 id="response-format"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#response-format"><span class="icon icon-link"></span></a>Response format</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "response"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Final assistant response text"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "model"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-3-5-20241022"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "model"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-latest"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "stop_reason"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"end_turn"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "session_id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"a1b2c3d4e5f6"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">  "usage"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: {</span></span>
@@ -160,7 +160,7 @@ kit "Explain main.go" --json --quiet --no-session
 \`\`\`json
 {
   "response": "Final assistant response text",
-  "model": "anthropic/claude-haiku-3-5-20241022",
+  "model": "anthropic/claude-haiku-latest",
   "stop_reason": "end_turn",
   "session_id": "a1b2c3d4e5f6",
   "usage": {

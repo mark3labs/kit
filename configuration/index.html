@@ -7,7 +7,7 @@
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="canonical" href="/configuration">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-BRoEcEFQ.js"></script>
+<script type="module" src="/assets/index-Bx62R53D.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Configuration","description":"Configure Kit using config files, environment variables, and CLI flags.","url":"https://go-kit.dev/configuration","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -27,7 +27,7 @@ Kit looks for configuration in the following locations, in order of priority:
 Create `~/.kit.yml`:
 
 ```yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
@@ -37,7 +37,7 @@ stream: true
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `model` | string | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `max-tokens` | int | `4096` | Maximum tokens in response |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
