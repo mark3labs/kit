@@ -34,6 +34,7 @@ export default {
         "extensions/capabilities",
         "extensions/examples",
         "extensions/loading",
+        "extensions/testing",
       ],
     },
     {
