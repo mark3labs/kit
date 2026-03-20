@@ -1059,6 +1059,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
+				case "/theme":
+					if cmd := m.handleThemeCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					cmds = append(cmds, m.drainScrollback())
+					return m, tea.Batch(cmds...)
 				}
 			}
 		}
@@ -1857,6 +1863,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		m.printResetUsage()
 	case "/model":
 		return m.handleModelCommand("")
+	case "/theme":
+		return m.handleThemeCommand("")
 	case "/thinking":
 		return m.handleThinkingCommand("")
 	case "/compact":
@@ -2408,6 +2416,48 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	}
 
 	m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
+	return nil
+}
+
+// --------------------------------------------------------------------------
+// Theme command handler
+// --------------------------------------------------------------------------
+
+// handleThemeCommand switches the active color theme. With no arguments it
+// lists available themes and highlights the active one. With a name argument
+// (e.g. "/theme catppuccin") it switches immediately.
+func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
+	if args == "" {
+		// List available themes.
+		names := ListThemes()
+		active := ActiveThemeName()
+
+		var lines []string
+		lines = append(lines, "Available themes:")
+		for _, name := range names {
+			if name == active {
+				lines = append(lines, fmt.Sprintf("  * %s (active)", name))
+			} else {
+				lines = append(lines, fmt.Sprintf("    %s", name))
+			}
+		}
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("User themes:    %s", userThemesDir()))
+		if pdir := projectThemesDir(); pdir != "" {
+			lines = append(lines, fmt.Sprintf("Project themes: %s", pdir))
+		} else {
+			lines = append(lines, "Project themes: .kit/themes/ (not found)")
+		}
+		m.printSystemMessage(strings.Join(lines, "\n"))
+		return nil
+	}
+
+	if err := ApplyTheme(args); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Theme error: %v", err))
+		return nil
+	}
+
+	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
 	return nil
 }
 

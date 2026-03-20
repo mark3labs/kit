@@ -95,6 +95,24 @@ var SlashCommands = []SlashCommand{
 		},
 	},
 	{
+		Name:        "/theme",
+		Description: "Switch color theme (e.g. /theme catppuccin)",
+		Category:    "System",
+		Complete: func(prefix string) []string {
+			names := ListThemes()
+			if prefix == "" {
+				return names
+			}
+			var matches []string
+			for _, n := range names {
+				if strings.HasPrefix(n, strings.ToLower(prefix)) {
+					matches = append(matches, n)
+				}
+			}
+			return matches
+		},
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",

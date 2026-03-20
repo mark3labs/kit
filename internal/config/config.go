@@ -386,11 +386,10 @@ func FilepathOr[T any](key string, value *T) error {
 				fmt.Fprintf(os.Stderr, "%q", err)
 				os.Exit(1)
 			}
-			if filepath.Ext(absPath) == ".json" {
+			switch filepath.Ext(absPath) {
+			case ".json":
 				return json.Unmarshal(b, value)
-			}
-
-			if filepath.Ext(absPath) == ".yaml" {
+			case ".yaml", ".yml":
 				return yaml.Unmarshal(b, value)
 			}
 		}
