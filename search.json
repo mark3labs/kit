@@ -2,7 +2,7 @@
   "version": 1,
   "generator": "tome",
   "site": "Kit",
-  "totalPages": 20,
+  "totalPages": 21,
   "searchEndpoint": "/pagefind/pagefind.js",
   "pages": [
     {
@@ -61,10 +61,11 @@
         "Extension management",
         "Installing extensions from git",
         "Skills",
+        "Interactive slash commands",
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 258
+      "wordCount": 422
     },
     {
       "id": "cli/flags",
@@ -92,10 +93,11 @@
         "All configuration keys",
         "Environment variables",
         "MCP server configuration",
-        "MCP server fields"
+        "MCP server fields",
+        "Theme configuration"
       ],
       "tags": [],
-      "wordCount": 444
+      "wordCount": 496
     },
     {
       "id": "development",
@@ -139,10 +141,11 @@
         "Options",
         "Subagents",
         "LLM completion",
+        "Themes",
         "Custom events"
       ],
       "tags": [],
-      "wordCount": 638
+      "wordCount": 723
     },
     {
       "id": "extensions/examples",
@@ -328,6 +331,29 @@
       ],
       "tags": [],
       "wordCount": 152
+    },
+    {
+      "id": "themes",
+      "url": "https://go-kit.dev/themes",
+      "title": "Themes",
+      "description": "Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.",
+      "headings": [
+        "Quick start",
+        "Built-in themes",
+        "Custom theme files",
+        "Theme file format",
+        "Partial themes",
+        "Distributing themes",
+        "Config file theme",
+        "Extension theme API",
+        "Registering a theme",
+        "Switching themes",
+        "Listing available themes",
+        "ThemeColorConfig fields",
+        "Precedence order"
+      ],
+      "tags": [],
+      "wordCount": 931
     }
   ]
 }

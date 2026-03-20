@@ -7,7 +7,7 @@
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="canonical" href="/extensions/capabilities">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DjMCIdSu.js"></script>
+<script type="module" src="/assets/index-Di53hGcu.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Capabilities","description":"All extension capabilities — lifecycle events, tools, commands, widgets, and more.","url":"https://go-kit.dev/extensions/capabilities","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -251,6 +251,32 @@ response := ctx.Complete(ext.CompleteRequest{
     Prompt: "Summarize this in one sentence: " + content,
 })
 ```
+
+## Themes
+
+Register and switch color themes at runtime:
+
+```go
+// Register a custom theme
+ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+    Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+    Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+    Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+    Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+    Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+    Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+})
+
+// Switch to it
+ctx.SetTheme("neon")
+
+// List all available themes
+names := ctx.ListThemes()
+```
+
+See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
 
 ## Custom events
 

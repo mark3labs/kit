@@ -41,6 +41,7 @@ This is the documentation for **Kit**. It is a static documentation site with fu
 - **[Go SDK](https://go-kit.dev/sdk/overview)** — Embed Kit in your Go applications.
 - **[SDK Sessions](https://go-kit.dev/sdk/sessions)** — Session management in the Kit Go SDK.
 - **[Session Management](https://go-kit.dev/sessions)** — How Kit persists and manages conversation sessions.
+- **[Themes](https://go-kit.dev/themes)** — Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.
 
 ## How to Use This Site
 

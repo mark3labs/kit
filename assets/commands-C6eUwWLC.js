@@ -28,10 +28,90 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Install all extensions without prompting</span></span></code></pre>
 <h2 id="skills"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skills"><span class="icon icon-link"></span></a>Skills</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> skill</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # Install the Kit extensions skill via skills.sh</span></span></code></pre>
+<h2 id="interactive-slash-commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-slash-commands"><span class="icon icon-link"></span></a>Interactive slash commands</h2>
+<p>These commands are available inside the Kit TUI during an interactive session:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/help</code></td>
+<td>Show available commands</td>
+</tr>
+<tr>
+<td><code>/tools</code></td>
+<td>List available MCP tools</td>
+</tr>
+<tr>
+<td><code>/servers</code></td>
+<td>Show connected MCP servers</td>
+</tr>
+<tr>
+<td><code>/model [name]</code></td>
+<td>Switch model or open model selector</td>
+</tr>
+<tr>
+<td><code>/theme [name]</code></td>
+<td>Switch color theme or list available themes</td>
+</tr>
+<tr>
+<td><code>/thinking [level]</code></td>
+<td>Set thinking level (off, minimal, low, medium, high)</td>
+</tr>
+<tr>
+<td><code>/compact [focus]</code></td>
+<td>Summarize older messages to free context</td>
+</tr>
+<tr>
+<td><code>/clear</code></td>
+<td>Clear conversation</td>
+</tr>
+<tr>
+<td><code>/clear-queue</code></td>
+<td>Clear queued messages</td>
+</tr>
+<tr>
+<td><code>/usage</code></td>
+<td>Show token usage</td>
+</tr>
+<tr>
+<td><code>/reset-usage</code></td>
+<td>Reset usage statistics</td>
+</tr>
+<tr>
+<td><code>/tree</code></td>
+<td>Navigate session tree</td>
+</tr>
+<tr>
+<td><code>/fork</code></td>
+<td>Branch from an earlier message</td>
+</tr>
+<tr>
+<td><code>/new</code></td>
+<td>Start a new session</td>
+</tr>
+<tr>
+<td><code>/name</code></td>
+<td>Set session display name</td>
+</tr>
+<tr>
+<td><code>/session</code></td>
+<td>Show session info</td>
+</tr>
+<tr>
+<td><code>/quit</code></td>
+<td>Exit Kit</td>
+</tr>
+</tbody>
+</table>
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -83,6 +163,30 @@ kit install --all            # Install all extensions without prompting
 \`\`\`bash
 kit skill                    # Install the Kit extensions skill via skills.sh
 \`\`\`
+
+## Interactive slash commands
+
+These commands are available inside the Kit TUI during an interactive session:
+
+| Command | Description |
+|---------|-------------|
+| \`/help\` | Show available commands |
+| \`/tools\` | List available MCP tools |
+| \`/servers\` | Show connected MCP servers |
+| \`/model [name]\` | Switch model or open model selector |
+| \`/theme [name]\` | Switch color theme or list available themes |
+| \`/thinking [level]\` | Set thinking level (off, minimal, low, medium, high) |
+| \`/compact [focus]\` | Summarize older messages to free context |
+| \`/clear\` | Clear conversation |
+| \`/clear-queue\` | Clear queued messages |
+| \`/usage\` | Show token usage |
+| \`/reset-usage\` | Reset usage statistics |
+| \`/tree\` | Navigate session tree |
+| \`/fork\` | Branch from an earlier message |
+| \`/new\` | Start a new session |
+| \`/name\` | Set session display name |
+| \`/session\` | Show session info |
+| \`/quit\` | Exit Kit |
 
 ## ACP server
 

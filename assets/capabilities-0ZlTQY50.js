@@ -221,6 +221,26 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">response </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Complete</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CompleteRequest</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Summarize this in one sentence: "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> content,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h2 id="themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themes"><span class="icon icon-link"></span></a>Themes</h2>
+<p>Register and switch color themes at runtime:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Register a custom theme</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"neon"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColorConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Primary:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#CC00FF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#FF00FF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Secondary:  </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#0088CC"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#00FFFF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Success:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#00CC44"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#00FF66"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Warning:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#CCAA00"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#FFFF00"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Error:      </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#CC0033"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#FF0055"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Info:       </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#0088CC"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#00CCFF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Text:       </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#111111"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#F0F0F0"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Background: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#F0F0F0"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#0A0A14"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Switch to it</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"neon"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// List all available themes</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">names </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListThemes</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<p>See <a href="/themes">Themes</a> for the full theme file format, built-in themes, and color reference.</p>
 <h2 id="custom-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-events"><span class="icon icon-link"></span></a>Custom events</h2>
 <p>Inter-extension communication:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Emit</span></span>
@@ -229,7 +249,7 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Listen</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnCustomEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-extension:data-ready"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">data</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // handle event</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Custom events",id:"custom-events"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -468,6 +488,32 @@ response := ctx.Complete(ext.CompleteRequest{
     Prompt: "Summarize this in one sentence: " + content,
 })
 \`\`\`
+
+## Themes
+
+Register and switch color themes at runtime:
+
+\`\`\`go
+// Register a custom theme
+ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+    Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+    Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+    Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+    Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+    Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+    Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+})
+
+// Switch to it
+ctx.SetTheme("neon")
+
+// List all available themes
+names := ctx.ListThemes()
+\`\`\`
+
+See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
 
 ## Custom events
 

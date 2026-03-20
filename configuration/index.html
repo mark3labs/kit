@@ -7,7 +7,7 @@
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="canonical" href="/configuration">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DjMCIdSu.js"></script>
+<script type="module" src="/assets/index-Di53hGcu.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Configuration","description":"Configure Kit using config files, environment variables, and CLI flags.","url":"https://go-kit.dev/configuration","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -52,8 +52,7 @@ stream: true
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `stop-sequences` | list | — | Custom stop sequences |
-| `theme` | string | — | UI theme |
-| `markdown-theme` | string | — | Markdown rendering theme |
+| `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 
 ## Environment variables
 
@@ -103,6 +102,27 @@ mcpServers:
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
 
-A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.</div>
+A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
+
+## Theme configuration
+
+Set theme colors inline or reference an external file:
+
+```yaml
+# Inline partial overrides (unspecified fields inherit from default)
+theme:
+  primary:
+    light: "#8839ef"
+    dark: "#cba6f7"
+  error:
+    dark: "#FF0000"
+```
+
+```yaml
+# Reference external theme file
+theme: "./themes/my-custom-theme.yml"
+```
+
+See [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.</div>
 </body>
 </html>
