@@ -930,7 +930,7 @@ package main
 
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 
@@ -1216,6 +1216,6 @@ func applyMode(ctx ext.Context, active bool, tools []string) {
 - [`internal/extensions/runner.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/runner.go) — Event dispatch and state management
 - [`internal/extensions/loader.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/loader.go) — Yaegi interpreter setup
 - [`internal/extensions/symbols.go`](https://github.com/mark3labs/kit/blob/main/internal/extensions/symbols.go) — All types exported to extensions
-- [`internal/extensions/test/`](https://github.com/mark3labs/kit/tree/main/internal/extensions/test) — Testing package with harness, mocks, and assertions
+- [`pkg/extensions/test/`](https://github.com/mark3labs/kit/tree/main/pkg/extensions/test) — Testing package with harness, mocks, and assertions
 - [`examples/extensions/tool-logger_test.go`](https://github.com/mark3labs/kit/blob/main/examples/extensions/tool-logger_test.go) — Complete test example
 - [`examples/extensions/`](https://github.com/mark3labs/kit/tree/main/examples/extensions) — 25+ working example extensions

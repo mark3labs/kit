@@ -10,7 +10,7 @@
 //
 //	import (
 //	    "testing"
-//	    "github.com/mark3labs/kit/internal/extensions/test"
+//	    "github.com/mark3labs/kit/pkg/extensions/test"
 //	)
 //
 //	func TestMyExtension(t *testing.T) {

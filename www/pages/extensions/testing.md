@@ -5,7 +5,7 @@ description: Write unit tests for your Kit extensions using the test package.
 
 # Testing Extensions
 
-Kit provides a testing package (`github.com/mark3labs/kit/internal/extensions/test`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
+Kit provides a testing package (`github.com/mark3labs/kit/pkg/extensions/test`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
 
 ## Overview
 
@@ -25,7 +25,7 @@ The test package is part of the Kit codebase. Import it in your extension tests:
 ```go
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 ```
@@ -41,7 +41,7 @@ package main
 
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 

@@ -1,6 +1,6 @@
 # Testing Kit Extensions
 
-The `github.com/mark3labs/kit/internal/extensions/test` package provides utilities for testing Kit extensions using standard Go testing patterns.
+The `github.com/mark3labs/kit/pkg/extensions/test` package provides utilities for testing Kit extensions using standard Go testing patterns.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The test package is part of the Kit codebase. Import it in your extension tests:
 ```go
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 ```
@@ -32,7 +32,7 @@ package main
 
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 
@@ -336,7 +336,7 @@ package main
 
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 

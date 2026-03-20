@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/kit/internal/extensions"
-	"github.com/mark3labs/kit/internal/extensions/test"
+	"github.com/mark3labs/kit/pkg/extensions/test"
 )
 
 // Test that your extension loads without errors
