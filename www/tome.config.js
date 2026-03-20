@@ -21,7 +21,7 @@ export default {
     },
     {
       group: "Configuration",
-      pages: ["configuration", "providers"],
+      pages: ["configuration", "providers", "themes"],
     },
     {
       group: "CLI Reference",

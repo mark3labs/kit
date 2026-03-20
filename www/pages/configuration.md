@@ -42,8 +42,7 @@ stream: true
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `stop-sequences` | list | — | Custom stop sequences |
-| `theme` | string | — | UI theme |
-| `markdown-theme` | string | — | Markdown rendering theme |
+| `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 
 ## Environment variables
 
@@ -94,3 +93,24 @@ mcpServers:
 | `excludedTools` | list | Blacklist of tool names to hide |
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
+
+## Theme configuration
+
+Set theme colors inline or reference an external file:
+
+```yaml
+# Inline partial overrides (unspecified fields inherit from default)
+theme:
+  primary:
+    light: "#8839ef"
+    dark: "#cba6f7"
+  error:
+    dark: "#FF0000"
+```
+
+```yaml
+# Reference external theme file
+theme: "./themes/my-custom-theme.yml"
+```
+
+See [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.

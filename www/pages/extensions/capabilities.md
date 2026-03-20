@@ -242,6 +242,32 @@ response := ctx.Complete(ext.CompleteRequest{
 })
 ```
 
+## Themes
+
+Register and switch color themes at runtime:
+
+```go
+// Register a custom theme
+ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+    Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+    Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+    Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+    Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+    Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+    Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+})
+
+// Switch to it
+ctx.SetTheme("neon")
+
+// List all available themes
+names := ctx.ListThemes()
+```
+
+See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
+
 ## Custom events
 
 Inter-extension communication:

@@ -55,6 +55,30 @@ kit install --all            # Install all extensions without prompting
 kit skill                    # Install the Kit extensions skill via skills.sh
 ```
 
+## Interactive slash commands
+
+These commands are available inside the Kit TUI during an interactive session:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/tools` | List available MCP tools |
+| `/servers` | Show connected MCP servers |
+| `/model [name]` | Switch model or open model selector |
+| `/theme [name]` | Switch color theme or list available themes |
+| `/thinking [level]` | Set thinking level (off, minimal, low, medium, high) |
+| `/compact [focus]` | Summarize older messages to free context |
+| `/clear` | Clear conversation |
+| `/clear-queue` | Clear queued messages |
+| `/usage` | Show token usage |
+| `/reset-usage` | Reset usage statistics |
+| `/tree` | Navigate session tree |
+| `/fork` | Branch from an earlier message |
+| `/new` | Start a new session |
+| `/name` | Set session display name |
+| `/session` | Show session info |
+| `/quit` | Exit Kit |
+
 ## ACP server
 
 Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.

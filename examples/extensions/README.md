@@ -83,6 +83,12 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 |-----------|-------------|---------|
 | `kit-telegram/` | Telegram relay for remote monitoring & control | `RegisterCommand`, `OnAgentStart/End`, `SetStatus`, `SendMessage` |
 
+### Themes
+
+| Extension | Description | Key API |
+|-----------|-------------|---------|
+| `neon-theme.go` | Register and switch custom themes | `RegisterTheme`, `SetTheme` |
+
 ### Rendering
 
 | Extension | Description | Key API |

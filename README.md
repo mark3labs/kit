@@ -21,6 +21,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, spawn_subagent - no MCP overhead
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
+- **Theming**: 22 built-in color themes (KITT, Catppuccin, Dracula, Nord, etc.) with runtime switching and custom theme files
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management**: Tree-based conversation history with branching support
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
@@ -221,9 +222,35 @@ kit acp                      # Start as ACP agent (stdio JSON-RPC)
 kit acp --debug              # With debug logging to stderr
 ```
 
+## Themes
+
+Kit ships with 22 built-in color themes that control all UI elements. Switch at runtime:
+
+```
+/theme dracula
+/theme catppuccin
+/theme tokyonight
+```
+
+### Custom themes
+
+Drop a `.yml` file in `~/.config/kit/themes/` (user) or `.kit/themes/` (project):
+
+```yaml
+# ~/.config/kit/themes/my-theme.yml
+primary:
+  light: "#8839ef"
+  dark: "#cba6f7"
+success:
+  light: "#40a02b"
+  dark: "#a6e3a1"
+```
+
+Built-in themes: `kitt`, `catppuccin`, `dracula`, `tokyonight`, `nord`, `gruvbox`, `monokai`, `solarized`, `github`, `one-dark`, `rose-pine`, `ayu`, `material`, `everforest`, `kanagawa`, `amoled`, `synthwave`, `vesper`, `flexoki`, `matrix`, `vercel`, `zenburn`
+
 ## Extension System
 
-Extensions are Go source files that run via Yaegi interpreter. They can add custom tools, slash commands, widgets, keyboard shortcuts, and intercept lifecycle events.
+Extensions are Go source files that run via Yaegi interpreter. They can add custom tools, slash commands, widgets, keyboard shortcuts, themes, and intercept lifecycle events.
 
 ### Minimal Extension
 
@@ -268,6 +295,7 @@ kit -e examples/extensions/minimal.go
 - **Interactive Prompts**: Select, confirm, input, and multi-select dialogs
 - **Subagents**: Spawn in-process child Kit instances
 - **LLM Completion**: Direct model calls via `Complete()`
+- **Themes**: Register and switch color themes via `RegisterTheme`, `SetTheme`, `ListThemes`
 - **Custom Events**: Inter-extension communication via `EmitCustomEvent`
 
 ### Extension Examples
@@ -300,6 +328,7 @@ See the `examples/extensions/` directory:
 - `subagent-test.go` - Subagent testing utilities
 - `summarize.go` - Conversation summarization
 - `tool-logger.go` - Log all tool calls
+- `neon-theme.go` - Custom theme registration and switching
 - `tool-renderer-demo.go` - Custom tool call rendering
 - `widget-status.go` - Persistent status widgets
 

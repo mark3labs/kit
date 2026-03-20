@@ -1,0 +1,279 @@
+---
+title: Themes
+description: Customize Kit's appearance with built-in themes, custom theme files, and the extension theme API.
+---
+
+# Themes
+
+Kit ships with 22 built-in color themes and supports custom themes via YAML/JSON files or the extension API. Themes control all UI colors: input borders, popups, system messages, markdown rendering, syntax highlighting, and diff displays.
+
+## Quick start
+
+Switch themes at runtime with the `/theme` command:
+
+```
+/theme dracula
+/theme catppuccin
+/theme kitt
+```
+
+Run `/theme` with no arguments to list all available themes.
+
+## Built-in themes
+
+| Theme | Style |
+|-------|-------|
+| `kitt` | KITT-inspired reds and ambers (default) |
+| `catppuccin` | Soothing pastels (Mocha/Latte) |
+| `dracula` | Purple and cyan dark theme |
+| `tokyonight` | Cool blues with warm accents |
+| `nord` | Arctic, north-bluish palette |
+| `gruvbox` | Retro groove colors |
+| `monokai` | Classic syntax theme |
+| `solarized` | Precision colors for machines and people |
+| `github` | GitHub's light and dark palettes |
+| `one-dark` | Atom One Dark |
+| `rose-pine` | Soho vibes with muted tones |
+| `ayu` | Simple with bright colors |
+| `material` | Material Design palette |
+| `everforest` | Green-focused comfortable theme |
+| `kanagawa` | Dark theme inspired by Katsushika Hokusai |
+| `amoled` | Pure black background, vivid accents |
+| `synthwave` | Retro neon glows |
+| `vesper` | Warm minimalist dark theme |
+| `flexoki` | Inky reading palette |
+| `matrix` | Green-on-black terminal aesthetic |
+| `vercel` | Clean monochrome with blue accents |
+| `zenburn` | Low-contrast, warm dark theme |
+
+All themes support both light and dark terminal modes via adaptive colors.
+
+## Custom theme files
+
+Create a `.yml`, `.yaml`, or `.json` file with color definitions. Kit discovers themes from two directories:
+
+| Location | Scope | Precedence |
+|----------|-------|------------|
+| `~/.config/kit/themes/` | User (global) | Overrides built-ins |
+| `.kit/themes/` | Project-local | Overrides user and built-ins |
+
+### Theme file format
+
+A theme file defines adaptive color pairs with `light` and `dark` hex values. Any field left empty inherits from the default KITT theme.
+
+```yaml
+# ~/.config/kit/themes/my-theme.yml
+
+# Core semantic colors
+primary:
+  light: "#8839ef"
+  dark: "#cba6f7"
+secondary:
+  light: "#04a5e5"
+  dark: "#89dceb"
+success:
+  light: "#40a02b"
+  dark: "#a6e3a1"
+warning:
+  light: "#df8e1d"
+  dark: "#f9e2af"
+error:
+  light: "#d20f39"
+  dark: "#f38ba8"
+info:
+  light: "#1e66f5"
+  dark: "#89b4fa"
+
+# Text and chrome
+text:
+  light: "#4c4f69"
+  dark: "#cdd6f4"
+muted:
+  light: "#6c6f85"
+  dark: "#a6adc8"
+very-muted:
+  light: "#9ca0b0"
+  dark: "#6c7086"
+background:
+  light: "#eff1f5"
+  dark: "#1e1e2e"
+border:
+  light: "#acb0be"
+  dark: "#585b70"
+muted-border:
+  light: "#ccd0da"
+  dark: "#313244"
+
+# Semantic roles
+system:
+  light: "#179299"
+  dark: "#94e2d5"
+tool:
+  light: "#fe640b"
+  dark: "#fab387"
+accent:
+  light: "#ea76cb"
+  dark: "#f5c2e7"
+highlight:
+  light: "#e6e9ef"
+  dark: "#181825"
+
+# Diff backgrounds
+diff-insert-bg:
+  light: "#d5f0d5"
+  dark: "#1a3a2a"
+diff-delete-bg:
+  light: "#f5d5d5"
+  dark: "#3a1a2a"
+diff-equal-bg:
+  light: "#eceef3"
+  dark: "#232336"
+diff-missing-bg:
+  light: "#e4e6eb"
+  dark: "#1a1a2e"
+
+# Code block backgrounds
+code-bg:
+  light: "#eceef3"
+  dark: "#232336"
+gutter-bg:
+  light: "#e4e6eb"
+  dark: "#1a1a2e"
+write-bg:
+  light: "#d5f0d5"
+  dark: "#1a3a2a"
+
+# Markdown and syntax highlighting
+markdown:
+  heading:
+    light: "#1e66f5"
+    dark: "#89b4fa"
+  link:
+    light: "#1e66f5"
+    dark: "#89b4fa"
+  keyword:
+    light: "#8839ef"
+    dark: "#cba6f7"
+  string:
+    light: "#40a02b"
+    dark: "#a6e3a1"
+  number:
+    light: "#fe640b"
+    dark: "#fab387"
+  comment:
+    light: "#9ca0b0"
+    dark: "#6c7086"
+```
+
+### Partial themes
+
+You only need to define the colors you want to change. Unspecified fields fall back to the default theme:
+
+```yaml
+# Just override the primary and accent colors
+primary:
+  dark: "#FF00FF"
+accent:
+  dark: "#00FFFF"
+```
+
+### Distributing themes
+
+- **Personal**: Drop a file in `~/.config/kit/themes/`
+- **Team/project**: Drop a file in `.kit/themes/` and commit it to version control
+- **Override built-in**: Name your file the same as a built-in (e.g., `dracula.yml`) and it takes precedence
+
+## Config file theme
+
+You can also set theme colors directly in `.kit.yml`:
+
+```yaml
+theme:
+  primary:
+    light: "#8839ef"
+    dark: "#cba6f7"
+  error:
+    dark: "#FF0000"
+```
+
+Or reference an external theme file:
+
+```yaml
+theme: "./themes/my-custom-theme.yml"
+```
+
+## Extension theme API
+
+Extensions can register and switch themes programmatically at runtime.
+
+### Registering a theme
+
+```go
+api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+        Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+        Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+        Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+        Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+        Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+        Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+        Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+        Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+        MdKeyword:  ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+        MdString:   ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+        MdComment:  ext.ThemeColor{Light: "#888888", Dark: "#555555"},
+    })
+})
+```
+
+### Switching themes
+
+```go
+err := ctx.SetTheme("dracula")
+```
+
+### Listing available themes
+
+```go
+names := ctx.ListThemes()
+```
+
+### ThemeColorConfig fields
+
+| Field | Description |
+|-------|-------------|
+| `Primary` | Main brand/accent color |
+| `Secondary` | Secondary accent |
+| `Success` | Success states |
+| `Warning` | Warning states |
+| `Error` | Error/critical states |
+| `Info` | Informational states |
+| `Text` | Primary text |
+| `Muted` | Dimmed text |
+| `VeryMuted` | Very dimmed text |
+| `Background` | Base background |
+| `Border` | Panel borders |
+| `MutedBorder` | Subtle dividers |
+| `System` | System messages |
+| `Tool` | Tool-related elements |
+| `Accent` | Secondary highlight |
+| `Highlight` | Highlighted regions |
+| `MdHeading` | Markdown headings |
+| `MdLink` | Markdown links |
+| `MdKeyword` | Syntax: keywords |
+| `MdString` | Syntax: strings |
+| `MdNumber` | Syntax: numbers |
+| `MdComment` | Syntax: comments |
+
+Each field is an `ext.ThemeColor` with `Light` and `Dark` hex strings. Empty fields inherit from the default theme.
+
+## Precedence order
+
+When multiple sources define the same theme name, later sources win:
+
+1. Built-in presets (lowest)
+2. User themes (`~/.config/kit/themes/`)
+3. Project-local themes (`.kit/themes/`)
+4. Extension-registered themes (highest)
+
+Theme changes via `/theme` or `ctx.SetTheme()` take effect immediately on all UI elements, including previously rendered messages.
