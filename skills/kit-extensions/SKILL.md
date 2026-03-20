@@ -5,7 +5,7 @@ description: Guide for creating Kit extensions. Use when the user asks to build,
 
 # Kit Extensions Development Guide
 
-Kit extensions are single-file Go programs interpreted at runtime by Yaegi. They hook into Kit's lifecycle, register custom tools and slash commands, display widgets, intercept editor input, render tool output, and more.
+Kit extensions are single-file Go programs interpreted at runtime by Yaegi. They hook into Kit's lifecycle, register custom tools and slash commands, display widgets, intercept editor input, render tool output, register and switch color themes, and more.
 
 Extensions can be distributed via git repositories using `kit install`. Repos can contain single extensions or collections of multiple extensions.
 
@@ -531,6 +531,64 @@ ctx.SuspendTUI(func() {
 })
 ```
 
+### Themes
+
+Register, switch, and list color themes at runtime:
+
+```go
+// Register a custom theme (empty fields inherit from default).
+ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+    Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+    Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+    Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+    Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+    Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+    Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+    MdKeyword:  ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    MdString:   ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    MdComment:  ext.ThemeColor{Light: "#888888", Dark: "#555555"},
+})
+
+// Switch to a theme by name (built-in, file-based, or extension-registered).
+err := ctx.SetTheme("neon")
+
+// List all available theme names.
+names := ctx.ListThemes()  // []string
+```
+
+**ThemeColorConfig fields:**
+
+| Field | Description |
+|-------|-------------|
+| `Primary` | Main brand/accent color |
+| `Secondary` | Secondary accent |
+| `Success` | Success states |
+| `Warning` | Warning states |
+| `Error` | Error/critical states |
+| `Info` | Informational states |
+| `Text` | Primary text |
+| `Muted` | Dimmed text |
+| `VeryMuted` | Very dimmed text |
+| `Background` | Base background |
+| `Border` | Panel borders |
+| `MutedBorder` | Subtle dividers |
+| `System` | System messages |
+| `Tool` | Tool-related elements |
+| `Accent` | Secondary highlight |
+| `Highlight` | Highlighted regions |
+| `MdHeading` | Markdown headings |
+| `MdLink` | Markdown links |
+| `MdKeyword` | Syntax: keywords |
+| `MdString` | Syntax: strings |
+| `MdNumber` | Syntax: numbers |
+| `MdComment` | Syntax: comments |
+
+Each field is an `ext.ThemeColor` with `Light` and `Dark` hex strings. Kit ships 22 built-in themes: `kitt`, `catppuccin`, `dracula`, `tokyonight`, `nord`, `gruvbox`, `monokai`, `solarized`, `github`, `one-dark`, `rose-pine`, `ayu`, `material`, `everforest`, `kanagawa`, `amoled`, `synthwave`, `vesper`, `flexoki`, `matrix`, `vercel`, `zenburn`.
+
+Users can also drop `.yml`/`.yaml`/`.json` theme files in `~/.config/kit/themes/` (global) or `.kit/themes/` (project-local). Extension-registered themes take highest precedence.
+
 ### Application Control
 
 ```go
@@ -735,6 +793,36 @@ api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
             })
         }
     }()
+})
+```
+
+### Pattern: Custom Theme with Slash Command
+
+Register a theme and provide a slash command shortcut to activate it:
+
+```go
+api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+        Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+        Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+        Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+        Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+        Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+        Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+        Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+        Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+    })
+})
+
+api.RegisterCommand(ext.CommandDef{
+    Name:        "neon",
+    Description: "Switch to the neon cyberpunk theme",
+    Execute: func(args string, ctx ext.Context) (string, error) {
+        if err := ctx.SetTheme("neon"); err != nil {
+            return "", err
+        }
+        return "Neon theme activated!", nil
+    },
 })
 ```
 
