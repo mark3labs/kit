@@ -485,6 +485,36 @@ type Context struct {
 	//   ctx.RenderMessage("build-status", "All 42 tests passed.")
 	RenderMessage func(rendererName string, content string)
 
+	// RegisterTheme adds a named theme to the runtime theme registry.
+	// If a theme with the same name already exists it is replaced.
+	// The theme becomes available via /theme and ctx.SetTheme().
+	//
+	// Example:
+	//
+	//   ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+	//       Primary:   ext.ThemeColor{Dark: "#FF00FF"},
+	//       Secondary: ext.ThemeColor{Dark: "#00FFFF"},
+	//       Success:   ext.ThemeColor{Dark: "#00FF00"},
+	//       Warning:   ext.ThemeColor{Dark: "#FFFF00"},
+	//       Error:     ext.ThemeColor{Dark: "#FF0000"},
+	//       Info:      ext.ThemeColor{Dark: "#00FFFF"},
+	//       Text:      ext.ThemeColor{Dark: "#FFFFFF"},
+	//       Background: ext.ThemeColor{Dark: "#000000"},
+	//   })
+	RegisterTheme func(name string, config ThemeColorConfig)
+
+	// SetTheme switches the active color theme by name. The name must
+	// match a built-in theme, a user/project theme file, or a theme
+	// registered via RegisterTheme. Returns an error if not found.
+	//
+	// Example:
+	//
+	//   err := ctx.SetTheme("neon")
+	SetTheme func(name string) error
+
+	// ListThemes returns the names of all available themes.
+	ListThemes func() []string
+
 	// ReloadExtensions hot-reloads all extensions from disk. Existing
 	// extensions receive a SessionShutdown event, then new code is loaded
 	// and receives a SessionStart event. Event handlers, commands,
@@ -1723,3 +1753,44 @@ type BeforeCompactResult struct {
 }
 
 func (BeforeCompactResult) isResult() {}
+
+// ---------------------------------------------------------------------------
+// Theme types (exposed to Yaegi — concrete structs, string hex colors)
+// ---------------------------------------------------------------------------
+
+// ThemeColor is an adaptive color pair with light and dark hex values.
+// Either field may be empty to inherit from the default theme.
+type ThemeColor struct {
+	Light string
+	Dark  string
+}
+
+// ThemeColorConfig defines a complete color theme that extensions can register
+// programmatically via ctx.RegisterTheme(). Uses plain hex strings (not
+// color.Color) so the type is safe to pass across the Yaegi boundary.
+type ThemeColorConfig struct {
+	Primary     ThemeColor
+	Secondary   ThemeColor
+	Success     ThemeColor
+	Warning     ThemeColor
+	Error       ThemeColor
+	Info        ThemeColor
+	Text        ThemeColor
+	Muted       ThemeColor
+	VeryMuted   ThemeColor
+	Background  ThemeColor
+	Border      ThemeColor
+	MutedBorder ThemeColor
+	System      ThemeColor
+	Tool        ThemeColor
+	Accent      ThemeColor
+	Highlight   ThemeColor
+
+	// Markdown/syntax highlighting overrides.
+	MdHeading ThemeColor
+	MdLink    ThemeColor
+	MdKeyword ThemeColor
+	MdString  ThemeColor
+	MdNumber  ThemeColor
+	MdComment ThemeColor
+}

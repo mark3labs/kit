@@ -936,6 +936,28 @@ func runNormalMode(ctx context.Context) error {
 			SetActiveTools: func(names []string) {
 				kitInstance.SetExtensionActiveTools(names)
 			},
+			RegisterTheme: func(name string, config extensions.ThemeColorConfig) {
+				tc := func(c extensions.ThemeColor) [2]string { return [2]string{c.Light, c.Dark} }
+				ui.RegisterThemeFromConfig(name,
+					tc(config.Primary), tc(config.Secondary),
+					tc(config.Success), tc(config.Warning),
+					tc(config.Error), tc(config.Info),
+					tc(config.Text), tc(config.Muted),
+					tc(config.VeryMuted), tc(config.Background),
+					tc(config.Border), tc(config.MutedBorder),
+					tc(config.System), tc(config.Tool),
+					tc(config.Accent), tc(config.Highlight),
+					tc(config.MdHeading), tc(config.MdLink),
+					tc(config.MdKeyword), tc(config.MdString),
+					tc(config.MdNumber), tc(config.MdComment),
+				)
+			},
+			SetTheme: func(name string) error {
+				return ui.ApplyTheme(name)
+			},
+			ListThemes: func() []string {
+				return ui.ListThemes()
+			},
 			ShowOverlay: func(config extensions.OverlayConfig) extensions.OverlayResult {
 				ch := make(chan app.OverlayResponse, 1)
 				appInstance.SendOverlayRequest(app.OverlayRequestEvent{

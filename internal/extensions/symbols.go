@@ -119,6 +119,10 @@ func Symbols() interp.Exports {
 			"SubagentHandle": reflect.ValueOf((*SubagentHandle)(nil)),
 			"SubagentEvent":  reflect.ValueOf((*SubagentEvent)(nil)),
 
+			// Theme types
+			"ThemeColor":       reflect.ValueOf((*ThemeColor)(nil)),
+			"ThemeColorConfig": reflect.ValueOf((*ThemeColorConfig)(nil)),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

@@ -454,6 +454,37 @@ func RefreshThemeRegistry() {
 	initThemeRegistry()
 }
 
+// RegisterThemeFromConfig adds a theme to the runtime registry from an
+// extension's ThemeColorConfig (string hex pairs). Replaces any existing
+// entry with the same name. The theme is immediately available via
+// ListThemes, LoadThemeByName, and ApplyTheme.
+func RegisterThemeFromConfig(name string, primary, secondary, success, warning, error_, info, text, muted, veryMuted, background, border, mutedBorder, system, tool, accent, highlight, mdHeading, mdLink, mdKeyword, mdString, mdNumber, mdComment [2]string) {
+	if themeRegistry == nil {
+		initThemeRegistry()
+	}
+	t := makeTheme(presetColors{
+		primary: primary, secondary: secondary,
+		success: success, warning: warning,
+		error_: error_, info: info,
+		text: text, muted: muted,
+		veryMuted: veryMuted, background: background,
+		border: border, mutedBorder: mutedBorder,
+		system: system, tool: tool,
+		accent: accent, highlight: highlight,
+		mdHeading: mdHeading, mdLink: mdLink,
+		mdKeyword: mdKeyword, mdString: mdString,
+		mdNumber: mdNumber, mdComment: mdComment,
+	})
+	removeFromRegistry(name)
+	themeRegistry = append(themeRegistry, ThemeEntry{
+		Name:   name,
+		Source: "extension",
+		theme:  t,
+		loaded: true,
+	})
+	sortRegistry()
+}
+
 // ActiveThemeName returns the name of the currently active theme by comparing
 // against known entries. Returns "custom" if no match is found.
 func ActiveThemeName() string {
