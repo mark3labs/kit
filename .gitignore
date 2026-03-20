@@ -6,8 +6,6 @@ aidocs/
 *.log
 /kit
 .idea
-test/
-!internal/extensions/test/
 build/
 dist/
 contribute/output/
