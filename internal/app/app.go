@@ -217,6 +217,22 @@ func (a *App) GetTreeSession() *session.TreeManager {
 	return a.opts.TreeSession
 }
 
+// SwitchTreeSession replaces the active tree session with a new one and
+// reloads the in-memory message store from the new session's messages.
+// The old tree session is closed. Used by /resume to switch sessions.
+func (a *App) SwitchTreeSession(ts *session.TreeManager) {
+	// Close old session.
+	if old := a.opts.TreeSession; old != nil {
+		_ = old.Close()
+	}
+	a.opts.TreeSession = ts
+	// Reload messages from new session.
+	a.store.Clear()
+	if ts != nil {
+		a.store.Replace(ts.GetFantasyMessages())
+	}
+}
+
 // AddContextMessage adds a user-role message to the conversation history
 // without triggering an LLM response. Used by the ! shell command prefix
 // to inject command output into context so the LLM can reference it in
@@ -468,44 +484,6 @@ func (a *App) runQueueBatch(items []queueItem) {
 
 	// Execute the batch
 	result, err := a.executeBatch(stepCtx, items, eventFn)
-	if err != nil {
-		if stepCtx.Err() != nil {
-			// Step was cancelled by the user (e.g. double-ESC). Send a
-			// cancellation event so the TUI can cut off the response
-			// cleanly without printing an error.
-			a.sendEvent(StepCancelledEvent{})
-			return
-		}
-		a.sendEvent(StepErrorEvent{Err: err})
-		return
-	}
-
-	a.sendEvent(StepCompleteEvent{ResponseText: result.Response})
-}
-
-// runQueueItem executes a single queue item: adds the user message to the store,
-// runs the agent step, and sends the appropriate event to the program.
-// Deprecated: Use runQueueBatch which handles both single and multiple items.
-func (a *App) runQueueItem(item queueItem) {
-	// Create a per-step cancellable context.
-	stepCtx, cancel := context.WithCancel(a.rootCtx)
-	a.mu.Lock()
-	a.cancelStep = cancel
-	a.mu.Unlock()
-	defer cancel()
-
-	// Build event function that sends to the registered tea.Program (if any).
-	a.mu.Lock()
-	prog := a.program
-	a.mu.Unlock()
-
-	eventFn := func(msg tea.Msg) {
-		if prog != nil {
-			prog.Send(msg)
-		}
-	}
-
-	result, err := a.executeStep(stepCtx, item.Prompt, eventFn, item.Files)
 	if err != nil {
 		if stepCtx.Err() != nil {
 			// Step was cancelled by the user (e.g. double-ESC). Send a

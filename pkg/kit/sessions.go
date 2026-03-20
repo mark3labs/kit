@@ -34,6 +34,12 @@ func DeleteSession(path string) error {
 	return session.DeleteSession(path)
 }
 
+// OpenTreeSession opens an existing JSONL session file. This is a package-level
+// function (no Kit instance required) used by the CLI for session switching.
+func OpenTreeSession(path string) (*TreeManager, error) {
+	return session.OpenTreeSession(path)
+}
+
 // --- Instance methods on Kit ---
 
 // GetTreeSession returns the tree session manager, or nil if not configured.

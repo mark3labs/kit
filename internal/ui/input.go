@@ -68,7 +68,25 @@ type InputComponent struct {
 	// pendingImages holds clipboard images attached to the next submission.
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []ImageAttachment
+
+	// history stores previously submitted prompts (most recent last).
+	// Limited to maxHistory entries; duplicates of the previous entry are
+	// skipped. Empty strings are never stored.
+	history []string
+	// historyIndex is the current position when browsing history.
+	// When not browsing, historyIndex == len(history).
+	historyIndex int
+	// savedInput holds the user's in-progress text before they started
+	// browsing history, so it can be restored when they press down past
+	// the end of history.
+	savedInput string
+	// browsingHistory is true when the user is navigating history with
+	// up/down arrows. Set to false when they type a character or submit.
+	browsingHistory bool
 }
+
+// maxHistory is the maximum number of prompt entries kept in history.
+const maxHistory = 100
 
 // clipboardImageMsg is the result of an async clipboard image read.
 type clipboardImageMsg struct {
@@ -138,6 +156,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if s.submitNext {
 		s.submitNext = false
 		value := s.textarea.Value()
+		s.pushHistory(value)
 		s.textarea.SetValue("")
 		s.textarea.CursorEnd()
 		s.showPopup = false
@@ -166,10 +185,47 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+d", "enter":
 				value := s.textarea.Value()
+				s.pushHistory(value)
 				s.textarea.SetValue("")
 				s.textarea.CursorEnd()
 				s.lastValue = ""
 				return s, s.handleSubmit(value)
+			case "up":
+				// Navigate prompt history backward (older entries).
+				if len(s.history) > 0 {
+					if !s.browsingHistory {
+						// Start browsing — save current input.
+						s.savedInput = s.textarea.Value()
+						s.browsingHistory = true
+						s.historyIndex = len(s.history)
+					}
+					if s.historyIndex > 0 {
+						s.historyIndex--
+						s.textarea.SetValue(s.history[s.historyIndex])
+						s.textarea.CursorEnd()
+						s.lastValue = s.textarea.Value()
+					}
+					return s, nil
+				}
+			case "down":
+				// Navigate prompt history forward (newer entries).
+				if s.browsingHistory {
+					if s.historyIndex < len(s.history)-1 {
+						s.historyIndex++
+						s.textarea.SetValue(s.history[s.historyIndex])
+						s.textarea.CursorEnd()
+						s.lastValue = s.textarea.Value()
+					} else {
+						// Past the end — restore saved input.
+						s.historyIndex = len(s.history)
+						s.browsingHistory = false
+						s.textarea.SetValue(s.savedInput)
+						s.textarea.CursorEnd()
+						s.lastValue = s.textarea.Value()
+						s.savedInput = ""
+					}
+					return s, nil
+				}
 			case "ctrl+v":
 				// Try to read an image from the clipboard asynchronously.
 				return s, readClipboardImageCmd()
@@ -250,6 +306,11 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		value := s.textarea.Value()
 		if value != s.lastValue {
 			s.lastValue = value
+			// User typed something — exit history browsing mode.
+			if s.browsingHistory {
+				s.browsingHistory = false
+				s.savedInput = ""
+			}
 			lines := strings.Split(value, "\n")
 			line := lines[len(lines)-1] // current line (last line for multi-line)
 
@@ -370,6 +431,34 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	return func() tea.Msg {
 		return submitMsg{Text: trimmed, Images: images}
 	}
+}
+
+// pushHistory adds a prompt to the history ring buffer. Empty strings and
+// consecutive duplicates of the last entry are skipped. When the buffer
+// exceeds maxHistory, the oldest entry is dropped.
+func (s *InputComponent) pushHistory(value string) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return
+	}
+	// Skip consecutive duplicates.
+	if len(s.history) > 0 && s.history[len(s.history)-1] == trimmed {
+		s.resetHistoryBrowsing()
+		return
+	}
+	s.history = append(s.history, trimmed)
+	if len(s.history) > maxHistory {
+		s.history = s.history[len(s.history)-maxHistory:]
+	}
+	s.resetHistoryBrowsing()
+}
+
+// resetHistoryBrowsing resets the history browsing state so the index
+// points past the end (ready for new input).
+func (s *InputComponent) resetHistoryBrowsing() {
+	s.historyIndex = len(s.history)
+	s.browsingHistory = false
+	s.savedInput = ""
 }
 
 // View implements tea.Model. Renders the title, textarea, autocomplete popup

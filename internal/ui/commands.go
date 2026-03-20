@@ -142,6 +142,22 @@ var SlashCommands = []SlashCommand{
 		Category:    "Navigation",
 	},
 	{
+		Name:        "/resume",
+		Description: "Open session picker to switch sessions",
+		Category:    "Navigation",
+		Aliases:     []string{"/r"},
+	},
+	{
+		Name:        "/export",
+		Description: "Export session (JSONL by default, or /export path.jsonl)",
+		Category:    "System",
+	},
+	{
+		Name:        "/import",
+		Description: "Import a session from a JSONL file (/import path.jsonl)",
+		Category:    "System",
+	},
+	{
 		Name:        "/session",
 		Description: "Show session info and statistics",
 		Category:    "Info",

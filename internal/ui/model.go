@@ -44,6 +44,9 @@ const (
 
 	// stateModelSelector means the /model selector overlay is active.
 	stateModelSelector
+
+	// stateSessionSelector means the /resume session picker is active.
+	stateSessionSelector
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -330,6 +333,16 @@ type AppModelOptions struct {
 	// May be nil if extensions are not loaded.
 	EmitModelChange func(newModel, previousModel, source string)
 
+	// SwitchSession opens a session by JSONL file path, replacing the
+	// active tree session and reloading messages. Called when the user
+	// picks a session from /resume. May be nil if session switching is
+	// not supported.
+	SwitchSession func(path string) error
+
+	// ShowSessionPicker, when true, opens the session picker immediately
+	// on startup (used by --resume flag).
+	ShowSessionPicker bool
+
 	// ThinkingLevel is the initial thinking level (e.g. "off", "medium").
 	ThinkingLevel string
 	// IsReasoningModel is true when the current model supports reasoning.
@@ -497,6 +510,13 @@ type AppModel struct {
 	// modelSelector is the model selection overlay, active in stateModelSelector.
 	modelSelector *ModelSelectorComponent
 
+	// sessionSelector is the session picker overlay, active in stateSessionSelector.
+	sessionSelector *SessionSelectorComponent
+
+	// switchSession opens a session by JSONL path, replacing the active session.
+	// Wired from cmd/root.go.
+	switchSession func(path string) error
+
 	// prompt holds the state of an active interactive prompt overlay. Nil
 	// when no prompt is active. Managed by updatePromptState().
 	prompt *promptOverlay
@@ -630,6 +650,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.thinkingVisible = true // default to showing thinking blocks
 	m.isReasoningModel = opts.IsReasoningModel
 	m.setThinkingLevel = opts.SetThinkingLevel
+	m.switchSession = opts.SwitchSession
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -659,6 +680,12 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
 	m.stream.SetThinkingVisible(m.thinkingVisible)
+
+	// If --resume was passed, open the session picker immediately.
+	if opts.ShowSessionPicker {
+		m.sessionSelector = NewSessionSelector(opts.Cwd, width, height)
+		m.state = stateSessionSelector
+	}
 
 	// Propagate initial height distribution to children.
 	m.distributeHeight()
@@ -868,6 +895,33 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	// ── Session selector events ──────────────────────────────────────────────
+	case SessionSelectedMsg:
+		m.sessionSelector = nil
+		m.state = stateInput
+		if m.switchSession != nil {
+			if err := m.switchSession(msg.Path); err != nil {
+				m.printSystemMessage(fmt.Sprintf("Failed to switch session: %v", err))
+			} else {
+				m.printSystemMessage("Session loaded. Continue where you left off.")
+			}
+		} else {
+			m.printSystemMessage("Session switching not available.")
+		}
+		cmds = append(cmds, m.drainScrollback())
+		return m, tea.Batch(cmds...)
+
+	case SessionSelectorCancelledMsg:
+		m.sessionSelector = nil
+		m.state = stateInput
+		return m, nil
+
+	case SessionDeletedMsg:
+		// Session was deleted from picker — just show a message.
+		m.printSystemMessage(fmt.Sprintf("Deleted session: %s", msg.Name))
+		cmds = append(cmds, m.drainScrollback())
+		return m, tea.Batch(cmds...)
+
 	// ── Window resize ────────────────────────────────────────────────────────
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -947,6 +1001,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateModelSelector && m.modelSelector != nil {
 			updated, cmd := m.modelSelector.Update(msg)
 			m.modelSelector = updated.(*ModelSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Route to session selector when active.
+		if m.state == stateSessionSelector && m.sessionSelector != nil {
+			updated, cmd := m.sessionSelector.Update(msg)
+			m.sessionSelector = updated.(*SessionSelectorComponent)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -1061,6 +1123,24 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmds...)
 				case "/theme":
 					if cmd := m.handleThemeCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					cmds = append(cmds, m.drainScrollback())
+					return m, tea.Batch(cmds...)
+				case "/name":
+					if cmd := m.handleNameCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					cmds = append(cmds, m.drainScrollback())
+					return m, tea.Batch(cmds...)
+				case "/export":
+					if cmd := m.handleExportCommand(strings.TrimSpace(args)); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+					cmds = append(cmds, m.drainScrollback())
+					return m, tea.Batch(cmds...)
+				case "/import":
+					if cmd := m.handleImportCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 					cmds = append(cmds, m.drainScrollback())
@@ -1465,6 +1545,11 @@ func (m *AppModel) View() tea.View {
 	// Model selector overlay replaces the normal layout.
 	if m.state == stateModelSelector && m.modelSelector != nil {
 		return m.modelSelector.View()
+	}
+
+	// Session selector overlay replaces the normal layout.
+	if m.state == stateSessionSelector && m.sessionSelector != nil {
+		return m.sessionSelector.View()
 	}
 
 	// Overlay dialog replaces the normal layout.
@@ -1888,7 +1973,13 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 	case "/new":
 		return m.handleNewCommand()
 	case "/name":
-		return m.handleNameCommand()
+		return m.handleNameCommand("")
+	case "/resume":
+		return m.handleResumeCommand()
+	case "/export":
+		return m.handleExportCommand("")
+	case "/import":
+		return m.handleImportCommand("")
 	case "/session":
 		return m.handleSessionInfoCommand()
 
@@ -1990,10 +2081,14 @@ func (m *AppModel) printHelpMessage() {
 		"**Navigation:**\n" +
 		"- `/tree`: Navigate session tree (switch branches)\n" +
 		"- `/fork`: Branch from an earlier message\n" +
-		"- `/new`: Start a new branch (preserves history)\n\n" +
+		"- `/new`: Start a new branch (preserves history)\n" +
+		"- `/resume`: Open session picker to switch sessions\n" +
+		"- `/name <name>`: Set a display name for this session\n\n" +
 		"**System:**\n" +
 		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
 		"- `/clear`: Clear message history\n" +
+		"- `/export [path]`: Export session as JSONL\n" +
+		"- `/import <path.jsonl>`: Import session from JSONL file\n" +
 		"- `/reset-usage`: Reset usage statistics\n" +
 		"- `/quit`: Exit the application\n\n"
 
@@ -2621,21 +2716,124 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 }
 
 // handleNameCommand sets a display name for the current session.
-func (m *AppModel) handleNameCommand() tea.Cmd {
+// Usage: /name <new name> — sets the session name.
+//
+//	/name             — shows the current name.
+func (m *AppModel) handleNameCommand(args string) tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
-	// For now, prompt user to provide name via input. We print instructions
-	// and the next non-command input starting with "name:" will be captured.
-	// TODO: inline input dialog.
-	currentName := ts.GetSessionName()
-	if currentName != "" {
-		m.printSystemMessage(fmt.Sprintf("Current session name: %q\nTo rename, type: `/name <new name>` (not yet implemented — use the session file directly).", currentName))
+
+	if args == "" {
+		// No argument — show current name.
+		currentName := ts.GetSessionName()
+		if currentName != "" {
+			m.printSystemMessage(fmt.Sprintf("Session name: %q\nTo rename: `/name <new name>`", currentName))
+		} else {
+			m.printSystemMessage("Session has no name. Set one with: `/name <new name>`")
+		}
 		return nil
 	}
-	m.printSystemMessage("To name this session, use: `/name <new name>` (not yet implemented — use the session file directly).")
+
+	// Set the session name.
+	if _, err := ts.AppendSessionInfo(args); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to set session name: %v", err))
+		return nil
+	}
+	m.printSystemMessage(fmt.Sprintf("Session named %q", args))
+	return nil
+}
+
+// handleExportCommand exports the current session to a file.
+// Usage: /export          — copies the JSONL file to cwd with a descriptive name.
+//
+//	/export path.jsonl — copies to the specified path.
+func (m *AppModel) handleExportCommand(args string) tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		m.printSystemMessage("No tree session active.")
+		return nil
+	}
+
+	srcPath := ts.GetFilePath()
+	if srcPath == "" {
+		m.printSystemMessage("Session is in-memory (not persisted). Nothing to export.")
+		return nil
+	}
+
+	// Determine destination path.
+	dstPath := args
+	if dstPath == "" {
+		// Generate a name based on session name or ID.
+		name := ts.GetSessionName()
+		if name == "" {
+			name = ts.GetSessionID()[:12]
+		}
+		// Sanitize for filename.
+		name = strings.Map(func(r rune) rune {
+			if r == '/' || r == '\\' || r == ':' || r == ' ' {
+				return '_'
+			}
+			return r
+		}, name)
+		dstPath = fmt.Sprintf("session_%s.jsonl", name)
+	}
+
+	// Copy the file.
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to read session file: %v", err))
+		return nil
+	}
+
+	if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to write export file: %v", err))
+		return nil
+	}
+
+	m.printSystemMessage(fmt.Sprintf("Session exported to: %s (%d bytes)", dstPath, len(data)))
+	return nil
+}
+
+// handleImportCommand imports a session from a JSONL file.
+// Usage: /import path.jsonl
+func (m *AppModel) handleImportCommand(args string) tea.Cmd {
+	if args == "" {
+		m.printSystemMessage("Usage: `/import <path.jsonl>`")
+		return nil
+	}
+
+	if m.switchSession == nil {
+		m.printSystemMessage("Session switching is not available.")
+		return nil
+	}
+
+	// Verify file exists before attempting to switch.
+	if _, err := os.Stat(args); err != nil {
+		m.printSystemMessage(fmt.Sprintf("File not found: %s", args))
+		return nil
+	}
+
+	if err := m.switchSession(args); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to import session: %v", err))
+		return nil
+	}
+
+	m.printSystemMessage(fmt.Sprintf("Session imported from: %s", args))
+	return nil
+}
+
+// handleResumeCommand opens the session picker so the user can switch sessions.
+func (m *AppModel) handleResumeCommand() tea.Cmd {
+	if m.switchSession == nil {
+		m.printSystemMessage("Session switching is not available.")
+		return nil
+	}
+
+	m.sessionSelector = NewSessionSelector(m.cwd, m.width, m.height)
+	m.state = stateSessionSelector
 	return nil
 }
 
