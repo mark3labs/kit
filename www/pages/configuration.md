@@ -17,7 +17,7 @@ Kit looks for configuration in the following locations, in order of priority:
 Create `~/.kit.yml`:
 
 ```yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
@@ -27,7 +27,7 @@ stream: true
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `model` | string | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `max-tokens` | int | `4096` | Maximum tokens in response |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |

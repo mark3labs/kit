@@ -28,7 +28,7 @@ kit @main.go @test.go "Review these files"
 Use a specific model:
 
 ```bash
-kit --model anthropic/claude-sonnet-4-5-20250929
+kit --model anthropic/claude-sonnet-latest
 ```
 
 ## Non-interactive mode

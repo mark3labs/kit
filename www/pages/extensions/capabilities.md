@@ -227,7 +227,7 @@ Spawn in-process child Kit instances:
 ```go
 result := ctx.SpawnSubagent(ext.SubagentConfig{
     Task:         "Analyze the test files and summarize coverage",
-    Model:        "anthropic/claude-haiku-3-5-20241022",
+    Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a test analysis expert.",
 })
 ```

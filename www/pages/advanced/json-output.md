@@ -16,7 +16,7 @@ kit "Explain main.go" --json --quiet --no-session
 ```json
 {
   "response": "Final assistant response text",
-  "model": "anthropic/claude-haiku-3-5-20241022",
+  "model": "anthropic/claude-haiku-latest",
   "stop_reason": "end_turn",
   "session_id": "a1b2c3d4e5f6",
   "usage": {

@@ -17,7 +17,7 @@ kit "Analyze codebase" \
     --no-session \
     --no-extensions \
     --quiet \
-    --model anthropic/claude-haiku-3-5-20241022
+    --model anthropic/claude-haiku-latest
 ```
 
 Key flags for subprocess usage:
@@ -39,7 +39,7 @@ Kit includes a built-in `spawn_subagent` tool that the LLM can use to delegate t
 ```
 spawn_subagent(
     task: "Analyze the test files and summarize coverage",
-    model: "anthropic/claude-haiku-3-5-20241022",   // optional
+    model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
     timeout_seconds: 300                               // optional, max 1800
 )
@@ -54,7 +54,7 @@ Extensions can spawn subagents programmatically:
 ```go
 result := ctx.SpawnSubagent(ext.SubagentConfig{
     Task:         "Review this code for security issues",
-    Model:        "anthropic/claude-sonnet-4-5-20250929",
+    Model:        "anthropic/claude-sonnet-latest",
     SystemPrompt: "You are a security auditor.",
 })
 ```
@@ -66,7 +66,7 @@ The SDK provides in-process subagent spawning:
 ```go
 result, err := host.Subagent(ctx, kit.SubagentConfig{
     Task:         "Summarize the changes in this PR",
-    Model:        "anthropic/claude-haiku-3-5-20241022",
+    Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a code reviewer.",
     Timeout:      5 * time.Minute,
 })

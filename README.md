@@ -72,7 +72,7 @@ kit @main.go @test.go "Review these files"
 kit --continue
 
 # Use specific model
-kit --model anthropic/claude-sonnet-4-5-20250929
+kit --model anthropic/claude-sonnet-latest
 ```
 
 ### Non-Interactive Mode
@@ -116,7 +116,7 @@ Kit looks for configuration in the following locations (in order of priority):
 Create `~/.kit.yml`:
 
 ```yaml
-model: anthropic/claude-sonnet-4-5-20250929
+model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
@@ -657,7 +657,7 @@ npm/                 - NPM package wrapper for distribution
 
 ```bash
 provider/model            # Standard format
-anthropic/claude-sonnet-4-5-20250929
+anthropic/claude-sonnet-latest
 openai/gpt-4o
 ollama/llama3
 google/gemini-2.0-flash-exp
@@ -666,14 +666,35 @@ google/gemini-2.0-flash-exp
 ### Model Aliases
 
 ```bash
-claude-opus-latest        → claude-opus-4-20250514
-claude-sonnet-latest      → claude-sonnet-4-5-20250929
-claude-4-opus-latest      → claude-opus-4-20250514
-claude-4-sonnet-latest    → claude-sonnet-4-5-20250929
+# Anthropic Claude
+claude-opus-latest        → claude-opus-4-6
+claude-sonnet-latest      → claude-sonnet-4-6
+claude-haiku-latest       → claude-haiku-4-5
+claude-4-opus-latest      → claude-opus-4-6
+claude-4-sonnet-latest    → claude-sonnet-4-6
+claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
-claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
+claude-3-5-sonnet-latest   → claude-3-5-sonnet-20241022
 claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
 claude-3-opus-latest      → claude-3-opus-20240229
+
+# OpenAI GPT
+o1-latest                 → o1
+o3-latest                 → o3
+o4-latest                 → o4-mini
+gpt-5-latest              → gpt-5.4
+gpt-5-chat-latest         → gpt-5.4
+gpt-4-latest              → gpt-4o
+gpt-4                     → gpt-4o
+gpt-3.5-latest            → gpt-3.5-turbo
+gpt-3.5                   → gpt-3.5-turbo
+codex-latest              → codex-mini-latest
+
+# Google Gemini
+gemini-pro-latest         → gemini-2.5-pro
+gemini-flash-latest       → gemini-2.5-flash
+gemini-flash              → gemini-2.5-flash
+gemini-pro                → gemini-2.5-pro
 ```
 
 ## Contributing

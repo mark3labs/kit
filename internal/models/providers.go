@@ -37,15 +37,38 @@ func resolveModelAlias(provider, modelName string) string {
 	registry := GetGlobalRegistry()
 
 	aliasMap := map[string]string{
-		"claude-opus-latest":     "claude-opus-4-20250514",
-		"claude-sonnet-latest":   "claude-sonnet-4-5-20250929",
-		"claude-4-opus-latest":   "claude-opus-4-20250514",
-		"claude-4-sonnet-latest": "claude-sonnet-4-5-20250929",
-
+		// Anthropic aliases
+		"claude-opus-latest":       "claude-opus-4-6",
+		"claude-sonnet-latest":     "claude-sonnet-4-6",
+		"claude-haiku-latest":      "claude-haiku-4-5",
+		"claude-4-opus-latest":     "claude-opus-4-6",
+		"claude-4-sonnet-latest":   "claude-sonnet-4-6",
+		"claude-4-haiku-latest":    "claude-haiku-4-5",
 		"claude-3-5-haiku-latest":  "claude-3-5-haiku-20241022",
 		"claude-3-5-sonnet-latest": "claude-3-5-sonnet-20241022",
 		"claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
 		"claude-3-opus-latest":     "claude-3-opus-20240229",
+
+		// OpenAI aliases
+		"gpt-5-latest":      "gpt-5.4",
+		"gpt-5-chat-latest": "gpt-5.4",
+		"gpt-4-latest":      "gpt-4o",
+		"gpt-4":             "gpt-4o",
+		"gpt-3.5":           "gpt-3.5-turbo",
+		"gpt-3.5-latest":    "gpt-3.5-turbo",
+		"o1-latest":         "o1",
+		"o3-latest":         "o3",
+		"o4-latest":         "o4-mini",
+		"codex-latest":      "codex-mini-latest",
+
+		// Google Gemini aliases
+		"gemini-pro-latest": "gemini-2.5-pro",
+		"gemini-flash":      "gemini-2.5-flash",
+		"gemini-pro":        "gemini-2.5-pro",
+		"gemini-2-flash":    "gemini-2.0-flash",
+		"gemini-2-pro":      "gemini-2.5-pro",
+		"gemini-1.5-flash":  "gemini-1.5-flash",
+		"gemini-1.5-pro":    "gemini-1.5-pro",
 	}
 
 	if resolved, exists := aliasMap[modelName]; exists {
@@ -180,8 +203,8 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return nil, err
 	}
 
-	// Resolve model aliases (for OAuth compatibility)
-	if provider == "anthropic" || provider == "google-vertex-anthropic" {
+	// Resolve model aliases to full model names
+	if provider == "anthropic" || provider == "google-vertex-anthropic" || provider == "openai" || provider == "google" {
 		modelName = resolveModelAlias(provider, modelName)
 	}
 

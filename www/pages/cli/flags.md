@@ -11,7 +11,7 @@ All flags can be passed to the root `kit` command.
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--model` | `-m` | `anthropic/claude-sonnet-4-5-20250929` | Model to use (provider/model format) |
+| `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
 | `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
