@@ -32,6 +32,7 @@ This is the documentation for **Kit**. It is a static documentation site with fu
 - **[Examples](https://go-kit.dev/extensions/examples)** — Catalog of example extensions included with Kit.
 - **[Loading Extensions](https://go-kit.dev/extensions/loading)** — How Kit discovers and loads extensions.
 - **[Extension System](https://go-kit.dev/extensions/overview)** — Overview of Kit's Go-based extension system.
+- **[Testing Extensions](https://go-kit.dev/extensions/testing)** — Write unit tests for your Kit extensions using the test package.
 - **[Kit](https://go-kit.dev/)** — Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
 - **[Installation](https://go-kit.dev/installation)** — Install Kit using npm, bun, pnpm, Go, or build from source.
 - **[Providers](https://go-kit.dev/providers)** — Supported LLM providers and model configuration.

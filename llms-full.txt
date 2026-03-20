@@ -945,6 +945,8 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | Extension | Description |
 |-----------|-------------|
 | [`dev-reload.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go) | Development live-reload |
+| [`tool-logger_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) | Example extension tests (see [Testing](/extensions/testing)) |
+| [`extension_test_template.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go) | Copy-and-paste test template for your extensions |
 
 ## Subdirectory extensions
 
@@ -1143,9 +1145,456 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
 - **Custom events** — `ctx.EmitCustomEvent(...)`
-- **App control** — `ctx.Exit()`, `ctx.ReloadExtensions()`
 
-See [Capabilities](/extensions/capabilities) for full details on each component type.
+See [Capabilities](/extensions/capabilities) for full details on each component type, and [Testing](/extensions/testing) for writing tests for your extensions.
+
+---
+
+## Testing Extensions
+
+# Testing Extensions
+
+Kit provides a testing package (`github.com/mark3labs/kit/internal/extensions/test`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
+
+## Overview
+
+Extension tests allow you to:
+
+- Test event handlers without running the interactive TUI
+- Verify tool/command registration
+- Assert that context methods (Print, SetWidget, etc.) are called correctly
+- Test blocking and non-blocking event handling
+- Simulate user input and tool calls
+- Verify widget, header, footer, and status bar updates
+
+## Installation
+
+The test package is part of the Kit codebase. Import it in your extension tests:
+
+```go
+import (
+    "testing"
+    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/internal/extensions"
+)
+```
+
+## Basic Usage
+
+### Testing an Extension File
+
+Create a test file alongside your extension (e.g., `my-ext_test.go`):
+
+```go
+package main
+
+import (
+    "testing"
+    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/internal/extensions"
+)
+
+func TestMyExtension(t *testing.T) {
+    // Create a test harness
+    harness := test.New(t)
+    
+    // Load your extension
+    harness.LoadFile("my-ext.go")
+    
+    // Emit events and check results
+    result, err := harness.Emit(extensions.ToolCallEvent{
+        ToolName: "my_tool",
+        Input:    `{"key": "value"}`,
+    })
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    
+    // Use assertion helpers
+    test.AssertNotBlocked(t, result)
+    test.AssertPrinted(t, harness, "expected output")
+}
+```
+
+### Testing Inline Extension Code
+
+For quick tests or edge cases, you can load extension source directly:
+
+```go
+func TestToolBlocking(t *testing.T) {
+    src := `package main
+
+import "kit/ext"
+
+func Init(api ext.API) {
+    api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
+        if tc.ToolName == "dangerous" {
+            return &ext.ToolCallResult{Block: true, Reason: "not allowed"}
+        }
+        return nil
+    })
+}
+`
+    harness := test.New(t)
+    harness.LoadString(src, "test-ext.go")
+    
+    // Test the tool is blocked
+    result, _ := harness.Emit(extensions.ToolCallEvent{
+        ToolName: "dangerous",
+        Input:    "{}",
+    })
+    
+    test.AssertBlocked(t, result, "not allowed")
+}
+```
+
+## Common Testing Patterns
+
+### Testing Handler Registration
+
+Verify your extension registers the expected handlers:
+
+```go
+func TestHandlers(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    test.AssertHasHandlers(t, harness, extensions.ToolCall)
+    test.AssertHasHandlers(t, harness, extensions.SessionStart)
+    test.AssertNoHandlers(t, harness, extensions.AgentEnd) // Verify no unexpected handlers
+}
+```
+
+### Testing Tool Registration
+
+```go
+func TestTools(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Verify a specific tool is registered
+    test.AssertToolRegistered(t, harness, "my_tool")
+    
+    // Or inspect all tools
+    tools := harness.RegisteredTools()
+    for _, tool := range tools {
+        t.Logf("Tool: %s - %s", tool.Name, tool.Description)
+    }
+}
+```
+
+### Testing Commands
+
+```go
+func TestCommands(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    test.AssertCommandRegistered(t, harness, "mycommand")
+}
+```
+
+### Testing Widgets
+
+```go
+func TestWidgets(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Trigger event that creates the widget
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+    
+    // Verify widget was set
+    test.AssertWidgetSet(t, harness, "my-widget")
+    test.AssertWidgetText(t, harness, "my-widget", "Expected Text")
+    test.AssertWidgetTextContains(t, harness, "my-widget", "partial")
+    
+    // Check widget properties directly
+    widget, ok := harness.Context().GetWidget("my-widget")
+    if ok {
+        t.Logf("Border color: %s", widget.Style.BorderColor)
+    }
+}
+```
+
+### Testing Input Handling
+
+```go
+func TestInput(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    result, _ := harness.Emit(extensions.InputEvent{
+        Text:   "!mycommand",
+        Source: "cli",
+    })
+    
+    test.AssertInputHandled(t, result, "handled")
+}
+```
+
+### Testing Headers and Footers
+
+```go
+func TestHeaderFooter(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+    
+    test.AssertHeaderSet(t, harness)
+    test.AssertFooterSet(t, harness)
+    
+    // Inspect content
+    header := harness.Context().GetHeader()
+    if header != nil {
+        t.Logf("Header text: %s", header.Content.Text)
+    }
+}
+```
+
+### Testing Status Bar
+
+```go
+func TestStatus(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    _, _ = harness.Emit(extensions.AgentEndEvent{})
+    
+    test.AssertStatusSet(t, harness, "myext:status")
+    test.AssertStatusText(t, harness, "myext:status", "Ready")
+}
+```
+
+### Testing Print Output
+
+```go
+func TestOutput(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    _, _ = harness.Emit(extensions.ToolCallEvent{ToolName: "test"})
+    
+    // Exact match
+    test.AssertPrinted(t, harness, "exact output")
+    
+    // Partial match
+    test.AssertPrintedContains(t, harness, "partial")
+    
+    // Styled output
+    test.AssertPrintInfo(t, harness, "info message")
+    test.AssertPrintError(t, harness, "error message")
+}
+```
+
+### Testing with Prompts
+
+Configure mock prompt results for testing interactive behavior:
+
+```go
+func TestWithPrompts(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Configure what prompts should return
+    harness.Context().SetPromptSelectResult(extensions.PromptSelectResult{
+        Value:     "option1",
+        Index:     0,
+        Cancelled: false,
+    })
+    
+    harness.Context().SetPromptConfirmResult(extensions.PromptConfirmResult{
+        Value:     true,
+        Cancelled: false,
+    })
+    
+    // Now when your extension calls ctx.PromptSelect(), it gets this result
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+}
+```
+
+### Testing Complete Session Flow
+
+```go
+func TestFullSession(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    
+    // Simulate a complete session
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+    _, _ = harness.Emit(extensions.BeforeAgentStartEvent{})
+    _, _ = harness.Emit(extensions.AgentStartEvent{})
+    
+    // Multiple tool calls
+    tools := []string{"Read", "Grep", "Bash"}
+    for _, tool := range tools {
+        _, _ = harness.Emit(extensions.ToolCallEvent{ToolName: tool})
+        _, _ = harness.Emit(extensions.ToolResultEvent{ToolName: tool})
+    }
+    
+    _, _ = harness.Emit(extensions.AgentEndEvent{})
+    _, _ = harness.Emit(extensions.SessionShutdownEvent{})
+    
+    // Verify final state
+    test.AssertWidgetTextContains(t, harness, "status", "Complete")
+}
+```
+
+## Available Assertions
+
+The test package provides these assertion helpers:
+
+### Event Results
+
+| Function | Description |
+|----------|-------------|
+| `AssertNotBlocked(t, result)` | Verify tool was not blocked |
+| `AssertBlocked(t, result, reason)` | Verify tool was blocked with reason |
+| `AssertInputHandled(t, result, action)` | Verify input was handled |
+| `AssertInputTransformed(t, result, text)` | Verify input was transformed |
+
+### Context Interactions
+
+| Function | Description |
+|----------|-------------|
+| `AssertPrinted(t, harness, text)` | Verify exact print output |
+| `AssertPrintedContains(t, harness, substring)` | Verify partial print output |
+| `AssertPrintInfo(t, harness, text)` | Verify PrintInfo was called |
+| `AssertPrintError(t, harness, text)` | Verify PrintError was called |
+| `AssertWidgetSet(t, harness, id)` | Verify widget was set |
+| `AssertWidgetNotSet(t, harness, id)` | Verify widget was not set |
+| `AssertWidgetText(t, harness, id, text)` | Verify widget content |
+| `AssertWidgetTextContains(t, harness, id, substring)` | Verify widget contains text |
+| `AssertHeaderSet(t, harness)` | Verify header was set |
+| `AssertFooterSet(t, harness)` | Verify footer was set |
+| `AssertStatusSet(t, harness, key)` | Verify status was set |
+| `AssertStatusText(t, harness, key, text)` | Verify status text |
+
+### Registration
+
+| Function | Description |
+|----------|-------------|
+| `AssertToolRegistered(t, harness, name)` | Verify tool registration |
+| `AssertCommandRegistered(t, harness, name)` | Verify command registration |
+| `AssertHasHandlers(t, harness, eventType)` | Verify handlers exist |
+| `AssertNoHandlers(t, harness, eventType)` | Verify no handlers |
+
+### Messaging
+
+| Function | Description |
+|----------|-------------|
+| `AssertMessageSent(t, harness, text)` | Verify SendMessage was called |
+| `AssertCancelAndSend(t, harness, text)` | Verify CancelAndSend was called |
+
+## Helper Functions
+
+For custom assertions, extract result details:
+
+```go
+result, _ := harness.Emit(extensions.ToolCallEvent{...})
+tcr := test.GetToolCallResult(result)
+if tcr != nil {
+    t.Logf("Block: %v, Reason: %s", tcr.Block, tcr.Reason)
+}
+
+ir := test.GetInputResult(result)
+trr := test.GetToolResultResult(result)
+```
+
+## Advanced Usage
+
+### Accessing the Mock Context
+
+For custom verification:
+
+```go
+ctx := harness.Context()
+
+// Get all recorded prints
+prints := ctx.GetPrints()
+
+// Check options
+value := ctx.GetOption("my-option")
+
+// Verify widget properties
+widget, ok := ctx.GetWidget("my-widget")
+if ok && widget.Style.BorderColor == "#ff0000" {
+    t.Log("Widget has red border")
+}
+
+// Check status entries
+status, ok := ctx.GetStatus("myext:status")
+```
+
+### Testing Multiple Extensions
+
+Each harness is isolated:
+
+```go
+harness1 := test.New(t)
+harness1.LoadFile("ext1.go")
+
+harness2 := test.New(t)
+harness2.LoadFile("ext2.go")
+
+// Events to one don't affect the other
+```
+
+### Running Tests
+
+Run all tests in your extension directory:
+
+```bash
+cd examples/extensions
+go test -v
+```
+
+Run with race detector:
+
+```bash
+go test -race -v
+```
+
+Run a specific test:
+
+```bash
+go test -v -run TestMyExtension
+```
+
+## Best Practices
+
+1. **Test one behavior per test** — Keep tests focused and readable
+2. **Use inline source for edge cases** — `LoadString()` is great for testing specific scenarios
+3. **Use `LoadFile()` for integration tests** — Tests the actual extension file
+4. **Assert on context calls** — Verify your extension interacts with the context correctly
+5. **Test both positive and negative cases** — Verify tools are blocked AND allowed appropriately
+6. **Test all event handlers** — Make sure all registered handlers work correctly
+7. **Use descriptive test names** — `TestExtension_BlocksDangerousTools` is clearer than `Test1`
+
+## Limitations
+
+The test harness has these intentional limitations:
+
+- **No TUI rendering** — Widgets are recorded but not rendered visually
+- **Prompts return configured values** — Pre-configure prompt results in tests
+- **Subagents don't spawn real processes** — `SpawnSubagent()` returns nil/empty results
+- **LLM completions are mocked** — `Complete()` returns empty responses
+- **Some context methods are no-ops** — `Exit()`, `SetActiveTools()`, etc. don't have side effects
+
+These limitations focus testing on extension logic rather than the full Kit runtime.
+
+## Complete Example
+
+See `examples/extensions/tool-logger_test.go` for a complete example with 14 tests covering:
+
+- Handler registration
+- Tool call and result handling
+- Session lifecycle events
+- Input commands (`!time`, `!status`)
+- Unknown command handling
+- Concurrent operations (race condition check)
+- Real file logging verification
 
 ---
 

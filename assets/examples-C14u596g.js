@@ -176,6 +176,14 @@ const t={frontmatter:{title:"Examples",description:"Catalog of example extension
 <td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go"><code>dev-reload.go</code></a></td>
 <td>Development live-reload</td>
 </tr>
+<tr>
+<td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go"><code>tool-logger_test.go</code></a></td>
+<td>Example extension tests (see <a href="/extensions/testing">Testing</a>)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go"><code>extension_test_template.go</code></a></td>
+<td>Copy-and-paste test template for your extensions</td>
+</tr>
 </tbody>
 </table>
 <h2 id="subdirectory-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subdirectory-extensions"><span class="icon icon-link"></span></a>Subdirectory extensions</h2>
@@ -262,6 +270,8 @@ Kit ships with a rich set of example extensions in the \`examples/extensions/\` 
 | Extension | Description |
 |-----------|-------------|
 | [\`dev-reload.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go) | Development live-reload |
+| [\`tool-logger_test.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) | Example extension tests (see [Testing](/extensions/testing)) |
+| [\`extension_test_template.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go) | Copy-and-paste test template for your extensions |
 
 ## Subdirectory extensions
 

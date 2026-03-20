@@ -2,7 +2,7 @@
   "version": 1,
   "generator": "tome",
   "site": "Kit",
-  "totalPages": 21,
+  "totalPages": 22,
   "searchEndpoint": "/pagefind/pagefind.js",
   "pages": [
     {
@@ -162,7 +162,7 @@
         "Subdirectory extensions"
       ],
       "tags": [],
-      "wordCount": 318
+      "wordCount": 337
     },
     {
       "id": "extensions/loading",
@@ -195,7 +195,46 @@
         "The Context object"
       ],
       "tags": [],
-      "wordCount": 286
+      "wordCount": 288
+    },
+    {
+      "id": "extensions/testing",
+      "url": "https://go-kit.dev/extensions/testing",
+      "title": "Testing Extensions",
+      "description": "Write unit tests for your Kit extensions using the test package.",
+      "headings": [
+        "Overview",
+        "Installation",
+        "Basic Usage",
+        "Testing an Extension File",
+        "Testing Inline Extension Code",
+        "Common Testing Patterns",
+        "Testing Handler Registration",
+        "Testing Tool Registration",
+        "Testing Commands",
+        "Testing Widgets",
+        "Testing Input Handling",
+        "Testing Headers and Footers",
+        "Testing Status Bar",
+        "Testing Print Output",
+        "Testing with Prompts",
+        "Testing Complete Session Flow",
+        "Available Assertions",
+        "Event Results",
+        "Context Interactions",
+        "Registration",
+        "Messaging",
+        "Helper Functions",
+        "Advanced Usage",
+        "Accessing the Mock Context",
+        "Testing Multiple Extensions",
+        "Running Tests",
+        "Best Practices",
+        "Limitations",
+        "Complete Example"
+      ],
+      "tags": [],
+      "wordCount": 1366
     },
     {
       "id": "index",
