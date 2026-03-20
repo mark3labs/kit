@@ -1,5 +1,5 @@
 const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests for your Kit extensions using the test package.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="testing-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#testing-extensions"><span class="icon icon-link"></span></a>Testing Extensions</h1>
-<p>Kit provides a testing package (<code>github.com/mark3labs/kit/internal/extensions/test</code>) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.</p>
+<p>Kit provides a testing package (<code>github.com/mark3labs/kit/pkg/extensions/test</code>) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.</p>
 <h2 id="overview"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#overview"><span class="icon icon-link"></span></a>Overview</h2>
 <p>Extension tests allow you to:</p>
 <ul>
@@ -14,7 +14,7 @@ const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests f
 <p>The test package is part of the Kit codebase. Import it in your extension tests:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
 <h2 id="basic-usage"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#basic-usage"><span class="icon icon-link"></span></a>Basic Usage</h2>
@@ -24,7 +24,7 @@ const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests f
 <span class="line"></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"></span>
@@ -438,7 +438,7 @@ const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests f
 </ul>`,headings:[{depth:2,text:"Overview",id:"overview"},{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic Usage",id:"basic-usage"},{depth:3,text:"Testing an Extension File",id:"testing-an-extension-file"},{depth:3,text:"Testing Inline Extension Code",id:"testing-inline-extension-code"},{depth:2,text:"Common Testing Patterns",id:"common-testing-patterns"},{depth:3,text:"Testing Handler Registration",id:"testing-handler-registration"},{depth:3,text:"Testing Tool Registration",id:"testing-tool-registration"},{depth:3,text:"Testing Commands",id:"testing-commands"},{depth:3,text:"Testing Widgets",id:"testing-widgets"},{depth:3,text:"Testing Input Handling",id:"testing-input-handling"},{depth:3,text:"Testing Headers and Footers",id:"testing-headers-and-footers"},{depth:3,text:"Testing Status Bar",id:"testing-status-bar"},{depth:3,text:"Testing Print Output",id:"testing-print-output"},{depth:3,text:"Testing with Prompts",id:"testing-with-prompts"},{depth:3,text:"Testing Complete Session Flow",id:"testing-complete-session-flow"},{depth:2,text:"Available Assertions",id:"available-assertions"},{depth:3,text:"Event Results",id:"event-results"},{depth:3,text:"Context Interactions",id:"context-interactions"},{depth:3,text:"Registration",id:"registration"},{depth:3,text:"Messaging",id:"messaging"},{depth:2,text:"Helper Functions",id:"helper-functions"},{depth:2,text:"Advanced Usage",id:"advanced-usage"},{depth:3,text:"Accessing the Mock Context",id:"accessing-the-mock-context"},{depth:3,text:"Testing Multiple Extensions",id:"testing-multiple-extensions"},{depth:3,text:"Running Tests",id:"running-tests"},{depth:2,text:"Best Practices",id:"best-practices"},{depth:2,text:"Limitations",id:"limitations"},{depth:2,text:"Complete Example",id:"complete-example"}],raw:`
 # Testing Extensions
 
-Kit provides a testing package (\`github.com/mark3labs/kit/internal/extensions/test\`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
+Kit provides a testing package (\`github.com/mark3labs/kit/pkg/extensions/test\`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
 
 ## Overview
 
@@ -458,7 +458,7 @@ The test package is part of the Kit codebase. Import it in your extension tests:
 \`\`\`go
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 \`\`\`
@@ -474,7 +474,7 @@ package main
 
 import (
     "testing"
-    "github.com/mark3labs/kit/internal/extensions/test"
+    "github.com/mark3labs/kit/pkg/extensions/test"
     "github.com/mark3labs/kit/internal/extensions"
 )
 
