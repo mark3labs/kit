@@ -1408,9 +1408,6 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			Model:        model,
 			SystemPrompt: systemPrompt,
 			Timeout:      timeout,
-			OnEvent: func(e Event) {
-				m.events.emit(e)
-			},
 		})
 		if result == nil {
 			return &core.SubagentSpawnResult{Error: err}, err
