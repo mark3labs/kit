@@ -232,6 +232,9 @@ func init() {
 	if err == nil && viper.InConfig("theme") {
 		uiTheme := configToUiTheme(theme)
 		ui.SetTheme(uiTheme)
+	} else if pref := ui.LoadThemePreference(); pref != "" {
+		// No explicit theme in config — fall back to persisted preference.
+		_ = ui.ApplyThemeWithoutSave(pref)
 	}
 
 	rootCmd.PersistentFlags().

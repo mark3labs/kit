@@ -439,7 +439,23 @@ func LoadThemeByName(name string) (Theme, error) {
 }
 
 // ApplyTheme loads a theme by name and sets it as the active global theme.
+// The selection is persisted to ~/.config/kit/preferences.yml so it survives
+// across sessions. Persistence errors are silently ignored — the theme is
+// still applied in-memory even if the write fails.
 func ApplyTheme(name string) error {
+	t, err := LoadThemeByName(name)
+	if err != nil {
+		return err
+	}
+	SetTheme(t)
+	_ = SaveThemePreference(name)
+	return nil
+}
+
+// ApplyThemeWithoutSave loads a theme by name and sets it as the active global
+// theme without persisting the choice. Used at startup to restore a previously
+// saved preference without redundantly re-writing it.
+func ApplyThemeWithoutSave(name string) error {
 	t, err := LoadThemeByName(name)
 	if err != nil {
 		return err
