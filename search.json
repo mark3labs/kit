@@ -32,10 +32,11 @@
         "Subprocess pattern",
         "Built-in spawn_subagent tool",
         "Extension subagents",
-        "Go SDK subagents"
+        "Go SDK subagents",
+        "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 247
+      "wordCount": 365
     },
     {
       "id": "advanced/testing",
@@ -62,10 +63,11 @@
         "Installing extensions from git",
         "Skills",
         "Interactive slash commands",
+        "Prompt history",
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 422
+      "wordCount": 486
     },
     {
       "id": "cli/flags",
@@ -308,10 +310,11 @@
         "PromptWithCallbacks",
         "Callback signatures",
         "Event-based monitoring",
-        "Hook system"
+        "Hook system",
+        "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 356
+      "wordCount": 438
     },
     {
       "id": "sdk/options",
@@ -369,10 +372,11 @@
         "Continue most recent",
         "Interactive picker",
         "Open a specific session",
+        "Session commands",
         "Ephemeral mode"
       ],
       "tags": [],
-      "wordCount": 152
+      "wordCount": 285
     },
     {
       "id": "themes",
@@ -392,10 +396,11 @@
         "Switching themes",
         "Listing available themes",
         "ThemeColorConfig fields",
-        "Precedence order"
+        "Precedence order",
+        "Startup theme resolution"
       ],
       "tags": [],
-      "wordCount": 931
+      "wordCount": 1021
     }
   ]
 }

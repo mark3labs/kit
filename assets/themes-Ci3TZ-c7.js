@@ -7,6 +7,7 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 /theme kitt
 </code></pre>
 <p>Run <code>/theme</code> with no arguments to list all available themes.</p>
+<p><strong>Theme selections are automatically saved</strong> to <code>~/.config/kit/preferences.yml</code> and restored on next launch. You don't need to add anything to your config file — just <code>/theme &lt;name&gt;</code> and it sticks.</p>
 <h2 id="built-in-themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#built-in-themes"><span class="icon icon-link"></span></a>Built-in themes</h2>
 <table>
 <thead>
@@ -386,7 +387,15 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 <li>Project-local themes (<code>.kit/themes/</code>)</li>
 <li>Extension-registered themes (highest)</li>
 </ol>
-<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>`,headings:[{depth:2,text:"Quick start",id:"quick-start"},{depth:2,text:"Built-in themes",id:"built-in-themes"},{depth:2,text:"Custom theme files",id:"custom-theme-files"},{depth:3,text:"Theme file format",id:"theme-file-format"},{depth:3,text:"Partial themes",id:"partial-themes"},{depth:3,text:"Distributing themes",id:"distributing-themes"},{depth:2,text:"Config file theme",id:"config-file-theme"},{depth:2,text:"Extension theme API",id:"extension-theme-api"},{depth:3,text:"Registering a theme",id:"registering-a-theme"},{depth:3,text:"Switching themes",id:"switching-themes"},{depth:3,text:"Listing available themes",id:"listing-available-themes"},{depth:3,text:"ThemeColorConfig fields",id:"themecolorconfig-fields"},{depth:2,text:"Precedence order",id:"precedence-order"}],raw:`
+<h3 id="startup-theme-resolution"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#startup-theme-resolution"><span class="icon icon-link"></span></a>Startup theme resolution</h3>
+<p>At startup, Kit determines which theme to apply:</p>
+<ol>
+<li><strong><code>.kit.yml</code> <code>theme:</code> key</strong> — explicit config always wins (highest priority)</li>
+<li><strong><code>~/.config/kit/preferences.yml</code></strong> — persisted <code>/theme</code> selection</li>
+<li><strong>Default <code>kitt</code> theme</strong> — fallback</li>
+</ol>
+<p>The preferences file is updated automatically whenever you use <code>/theme</code> or <code>ctx.SetTheme()</code>. It is separate from <code>.kit.yml</code> so it never clobbers your config comments or formatting.</p>
+<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>`,headings:[{depth:2,text:"Quick start",id:"quick-start"},{depth:2,text:"Built-in themes",id:"built-in-themes"},{depth:2,text:"Custom theme files",id:"custom-theme-files"},{depth:3,text:"Theme file format",id:"theme-file-format"},{depth:3,text:"Partial themes",id:"partial-themes"},{depth:3,text:"Distributing themes",id:"distributing-themes"},{depth:2,text:"Config file theme",id:"config-file-theme"},{depth:2,text:"Extension theme API",id:"extension-theme-api"},{depth:3,text:"Registering a theme",id:"registering-a-theme"},{depth:3,text:"Switching themes",id:"switching-themes"},{depth:3,text:"Listing available themes",id:"listing-available-themes"},{depth:3,text:"ThemeColorConfig fields",id:"themecolorconfig-fields"},{depth:2,text:"Precedence order",id:"precedence-order"},{depth:3,text:"Startup theme resolution",id:"startup-theme-resolution"}],raw:`
 # Themes
 
 Kit ships with 22 built-in color themes and supports custom themes via YAML/JSON files or the extension API. Themes control all UI colors: input borders, popups, system messages, markdown rendering, syntax highlighting, and diff displays.
@@ -402,6 +411,8 @@ Switch themes at runtime with the \`/theme\` command:
 \`\`\`
 
 Run \`/theme\` with no arguments to list all available themes.
+
+**Theme selections are automatically saved** to \`~/.config/kit/preferences.yml\` and restored on next launch. You don't need to add anything to your config file — just \`/theme <name>\` and it sticks.
 
 ## Built-in themes
 
@@ -659,6 +670,16 @@ When multiple sources define the same theme name, later sources win:
 2. User themes (\`~/.config/kit/themes/\`)
 3. Project-local themes (\`.kit/themes/\`)
 4. Extension-registered themes (highest)
+
+### Startup theme resolution
+
+At startup, Kit determines which theme to apply:
+
+1. **\`.kit.yml\` \`theme:\` key** — explicit config always wins (highest priority)
+2. **\`~/.config/kit/preferences.yml\`** — persisted \`/theme\` selection
+3. **Default \`kitt\` theme** — fallback
+
+The preferences file is updated automatically whenever you use \`/theme\` or \`ctx.SetTheme()\`. It is separate from \`.kit.yml\` so it never clobbers your config comments or formatting.
 
 Theme changes via \`/theme\` or \`ctx.SetTheme()\` take effect immediately on all UI elements, including previously rendered messages.
 `};export{s as default};

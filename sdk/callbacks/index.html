@@ -7,7 +7,7 @@
 <meta name="description" content="Monitor tool calls and streaming output with the Kit Go SDK.">
 <link rel="canonical" href="/sdk/callbacks">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-B5aZ-LRA.js"></script>
+<script type="module" src="/assets/index-EZ7SCJoO.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Callbacks","description":"Monitor tool calls and streaming output with the Kit Go SDK.","url":"https://go-kit.dev/sdk/callbacks","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -122,6 +122,28 @@ host.OnAfterTurn(0, func(ctx context.Context) error {
 })
 ```
 
-The first argument is a priority (lower = runs first).</div>
+The first argument is a priority (lower = runs first).
+
+## Subagent event monitoring
+
+Monitor real-time events from LLM-initiated subagents (when the model uses the `spawn_subagent` tool):
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "spawn_subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            // Receives the same event types as Subscribe(), scoped to the child agent
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk)
+            case kit.ToolCallEvent:
+                fmt.Printf("Subagent calling: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+`SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.</div>
 </body>
 </html>

@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-B5aZ-LRA.js"></script>
+<script type="module" src="/assets/index-EZ7SCJoO.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Commands","description":"Complete reference for all Kit CLI subcommands.","url":"https://go-kit.dev/cli/commands","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -85,9 +85,16 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tree` | Navigate session tree |
 | `/fork` | Branch from an earlier message |
 | `/new` | Start a new session |
-| `/name` | Set session display name |
+| `/name [name]` | Set or show session display name |
+| `/resume` | Open session picker to switch sessions (alias: `/r`) |
 | `/session` | Show session info |
+| `/export [path]` | Export session as JSONL (default: auto-generated path) |
+| `/import <path>` | Import a session from a JSONL file |
 | `/quit` | Exit Kit |
+
+### Prompt history
+
+Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
 
 ## ACP server
 

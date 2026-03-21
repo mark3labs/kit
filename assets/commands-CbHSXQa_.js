@@ -95,12 +95,24 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 <td>Start a new session</td>
 </tr>
 <tr>
-<td><code>/name</code></td>
-<td>Set session display name</td>
+<td><code>/name [name]</code></td>
+<td>Set or show session display name</td>
+</tr>
+<tr>
+<td><code>/resume</code></td>
+<td>Open session picker to switch sessions (alias: <code>/r</code>)</td>
 </tr>
 <tr>
 <td><code>/session</code></td>
 <td>Show session info</td>
+</tr>
+<tr>
+<td><code>/export [path]</code></td>
+<td>Export session as JSONL (default: auto-generated path)</td>
+</tr>
+<tr>
+<td><code>/import &lt;path&gt;</code></td>
+<td>Import a session from a JSONL file</td>
 </tr>
 <tr>
 <td><code>/quit</code></td>
@@ -108,10 +120,12 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 </tbody>
 </table>
+<h3 id="prompt-history"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-history"><span class="icon icon-link"></span></a>Prompt history</h3>
+<p>Use <strong>↑</strong> and <strong>↓</strong> arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.</p>
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -184,9 +198,16 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/tree\` | Navigate session tree |
 | \`/fork\` | Branch from an earlier message |
 | \`/new\` | Start a new session |
-| \`/name\` | Set session display name |
+| \`/name [name]\` | Set or show session display name |
+| \`/resume\` | Open session picker to switch sessions (alias: \`/r\`) |
 | \`/session\` | Show session info |
+| \`/export [path]\` | Export session as JSONL (default: auto-generated path) |
+| \`/import <path>\` | Import a session from a JSONL file |
 | \`/quit\` | Exit Kit |
+
+### Prompt history
+
+Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
 
 ## ACP server
 

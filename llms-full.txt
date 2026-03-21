@@ -168,6 +168,31 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 })
 ```
 
+### Real-time subagent events
+
+Use `SubscribeSubagent` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the `spawn_subagent` tool). Register inside an `OnToolCall` handler using the tool call ID:
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "spawn_subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk) // streaming text from child
+            case kit.ToolCallEvent:
+                fmt.Printf("Child calling: %s\n", ev.ToolName)
+            case kit.ToolResultEvent:
+                fmt.Printf("Child result: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+The listener receives the same event types as `Subscribe()` (`ToolCallEvent`, `MessageUpdateEvent`, `ReasoningDeltaEvent`, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.
+
+If no listeners are registered for a tool call, no event dispatching overhead is incurred.
+
 ---
 
 ## Testing with tmux
@@ -318,9 +343,16 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tree` | Navigate session tree |
 | `/fork` | Branch from an earlier message |
 | `/new` | Start a new session |
-| `/name` | Set session display name |
+| `/name [name]` | Set or show session display name |
+| `/resume` | Open session picker to switch sessions (alias: `/r`) |
 | `/session` | Show session info |
+| `/export [path]` | Export session as JSONL (default: auto-generated path) |
+| `/import <path>` | Import a session from a JSONL file |
 | `/quit` | Exit Kit |
+
+### Prompt history
+
+Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
 
 ## ACP server
 
@@ -2039,6 +2071,28 @@ host.OnAfterTurn(0, func(ctx context.Context) error {
 
 The first argument is a priority (lower = runs first).
 
+## Subagent event monitoring
+
+Monitor real-time events from LLM-initiated subagents (when the model uses the `spawn_subagent` tool):
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "spawn_subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            // Receives the same event types as Subscribe(), scoped to the child agent
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk)
+            case kit.ToolCallEvent:
+                fmt.Printf("Subagent calling: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+`SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.
+
 ---
 
 ## SDK Options
@@ -2347,12 +2401,29 @@ kit --resume
 kit -r
 ```
 
+The session picker supports search, scope/filter toggles (all sessions vs. current directory), and session deletion. You can also open it during a session with the `/resume` slash command.
+
 ### Open a specific session
 
 ```bash
 kit --session path/to/session.jsonl
 kit -s path/to/session.jsonl
 ```
+
+## Session commands
+
+These slash commands are available during an interactive session:
+
+| Command | Description |
+|---------|-------------|
+| `/name [name]` | Set or display the session's display name |
+| `/session` | Show session info (path, ID, message count) |
+| `/resume` | Open the session picker to switch sessions |
+| `/export [path]` | Export session as JSONL (auto-generates path if omitted) |
+| `/import <path>` | Import and switch to a session from a JSONL file |
+| `/tree` | Navigate the session tree |
+| `/fork` | Branch from an earlier message |
+| `/new` | Start a fresh session |
 
 ## Ephemeral mode
 
@@ -2383,6 +2454,8 @@ Switch themes at runtime with the `/theme` command:
 ```
 
 Run `/theme` with no arguments to list all available themes.
+
+**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks.
 
 ## Built-in themes
 
@@ -2640,5 +2713,15 @@ When multiple sources define the same theme name, later sources win:
 2. User themes (`~/.config/kit/themes/`)
 3. Project-local themes (`.kit/themes/`)
 4. Extension-registered themes (highest)
+
+### Startup theme resolution
+
+At startup, Kit determines which theme to apply:
+
+1. **`.kit.yml` `theme:` key** — explicit config always wins (highest priority)
+2. **`~/.config/kit/preferences.yml`** — persisted `/theme` selection
+3. **Default `kitt` theme** — fallback
+
+The preferences file is updated automatically whenever you use `/theme` or `ctx.SetTheme()`. It is separate from `.kit.yml` so it never clobbers your config comments or formatting.
 
 Theme changes via `/theme` or `ctx.SetTheme()` take effect immediately on all UI elements, including previously rendered messages.
