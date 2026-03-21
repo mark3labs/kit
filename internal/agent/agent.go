@@ -249,6 +249,12 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		onToolCallContent != nil || onStreamingResponse != nil || onReasoningDelta != nil
 
 	if a.streamingEnabled || hasCallbacks {
+		// Track completed step messages so we can return partial results
+		// on cancellation. Fantasy's Stream() discards accumulated steps
+		// when it returns an error, but the OnStepFinish callback fires
+		// for every step that completed before the error occurred.
+		var completedStepMessages []fantasy.Message
+
 		// Use fantasy's streaming agent
 		result, err := a.fantasyAgent.Stream(ctx, fantasy.AgentStreamCall{
 			Prompt:   prompt,
@@ -319,6 +325,10 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 			// Step callbacks for content that accompanies tool calls
 			OnStepFinish: func(step fantasy.StepResult) error {
+				// Accumulate messages from completed steps so they can be
+				// persisted even if a later step is cancelled.
+				completedStepMessages = append(completedStepMessages, step.Messages...)
+
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
@@ -332,6 +342,20 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			},
 		})
 		if err != nil {
+			// On cancellation (or any error), return a partial result
+			// containing messages from completed steps so the caller can
+			// persist tool calls and results that finished before the
+			// cancellation. The original input messages are included so
+			// the caller sees the full conversation up to the point of
+			// cancellation.
+			if len(completedStepMessages) > 0 {
+				partialMessages := make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
+				partialMessages = append(partialMessages, messages...)
+				partialMessages = append(partialMessages, completedStepMessages...)
+				return &GenerateWithLoopResult{
+					ConversationMessages: partialMessages,
+				}, err
+			}
 			return nil, err
 		}
 
