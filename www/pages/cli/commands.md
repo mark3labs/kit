@@ -75,9 +75,16 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tree` | Navigate session tree |
 | `/fork` | Branch from an earlier message |
 | `/new` | Start a new session |
-| `/name` | Set session display name |
+| `/name [name]` | Set or show session display name |
+| `/resume` | Open session picker to switch sessions (alias: `/r`) |
 | `/session` | Show session info |
+| `/export [path]` | Export session as JSONL (default: auto-generated path) |
+| `/import <path>` | Import a session from a JSONL file |
 | `/quit` | Exit Kit |
+
+### Prompt history
+
+Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
 
 ## ACP server
 

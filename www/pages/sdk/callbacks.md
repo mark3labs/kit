@@ -113,3 +113,25 @@ host.OnAfterTurn(0, func(ctx context.Context) error {
 ```
 
 The first argument is a priority (lower = runs first).
+
+## Subagent event monitoring
+
+Monitor real-time events from LLM-initiated subagents (when the model uses the `spawn_subagent` tool):
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "spawn_subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            // Receives the same event types as Subscribe(), scoped to the child agent
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk)
+            case kit.ToolCallEvent:
+                fmt.Printf("Subagent calling: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+`SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.

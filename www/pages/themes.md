@@ -19,6 +19,8 @@ Switch themes at runtime with the `/theme` command:
 
 Run `/theme` with no arguments to list all available themes.
 
+**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks.
+
 ## Built-in themes
 
 | Theme | Style |
@@ -275,5 +277,15 @@ When multiple sources define the same theme name, later sources win:
 2. User themes (`~/.config/kit/themes/`)
 3. Project-local themes (`.kit/themes/`)
 4. Extension-registered themes (highest)
+
+### Startup theme resolution
+
+At startup, Kit determines which theme to apply:
+
+1. **`.kit.yml` `theme:` key** — explicit config always wins (highest priority)
+2. **`~/.config/kit/preferences.yml`** — persisted `/theme` selection
+3. **Default `kitt` theme** — fallback
+
+The preferences file is updated automatically whenever you use `/theme` or `ctx.SetTheme()`. It is separate from `.kit.yml` so it never clobbers your config comments or formatting.
 
 Theme changes via `/theme` or `ctx.SetTheme()` take effect immediately on all UI elements, including previously rendered messages.

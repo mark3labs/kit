@@ -71,3 +71,28 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Timeout:      5 * time.Minute,
 })
 ```
+
+### Real-time subagent events
+
+Use `SubscribeSubagent` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the `spawn_subagent` tool). Register inside an `OnToolCall` handler using the tool call ID:
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "spawn_subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk) // streaming text from child
+            case kit.ToolCallEvent:
+                fmt.Printf("Child calling: %s\n", ev.ToolName)
+            case kit.ToolResultEvent:
+                fmt.Printf("Child result: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+The listener receives the same event types as `Subscribe()` (`ToolCallEvent`, `MessageUpdateEvent`, `ReasoningDeltaEvent`, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.
+
+If no listeners are registered for a tool call, no event dispatching overhead is incurred.

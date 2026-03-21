@@ -39,12 +39,29 @@ kit --resume
 kit -r
 ```
 
+The session picker supports search, scope/filter toggles (all sessions vs. current directory), and session deletion. You can also open it during a session with the `/resume` slash command.
+
 ### Open a specific session
 
 ```bash
 kit --session path/to/session.jsonl
 kit -s path/to/session.jsonl
 ```
+
+## Session commands
+
+These slash commands are available during an interactive session:
+
+| Command | Description |
+|---------|-------------|
+| `/name [name]` | Set or display the session's display name |
+| `/session` | Show session info (path, ID, message count) |
+| `/resume` | Open the session picker to switch sessions |
+| `/export [path]` | Export session as JSONL (auto-generates path if omitted) |
+| `/import <path>` | Import and switch to a session from a JSONL file |
+| `/tree` | Navigate the session tree |
+| `/fork` | Branch from an earlier message |
+| `/new` | Start a fresh session |
 
 ## Ephemeral mode
 

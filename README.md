@@ -232,6 +232,8 @@ Kit ships with 22 built-in color themes that control all UI elements. Switch at 
 /theme tokyonight
 ```
 
+Theme selections are automatically saved and restored on next launch (stored in `~/.config/kit/preferences.yml`).
+
 ### Custom themes
 
 Drop a `.yml` file in `~/.config/kit/themes/` (user) or `.kit/themes/` (project):
