@@ -62,6 +62,10 @@ type Kit struct {
 	// tool definitions, etc.
 	lastInputTokensMu sync.RWMutex
 	lastInputTokens   int
+
+	// subagentListeners holds per-tool-call event listeners registered via
+	// SubscribeSubagent(). Keyed by toolCallID → *subagentListenerSet.
+	subagentListeners sync.Map
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -1401,14 +1405,23 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 	// spawn_subagent core tool can create child Kit instances without
 	// importing pkg/kit (which would create an import cycle).
 	ctx = core.WithSubagentSpawner(ctx, func(
-		spawnCtx context.Context, prompt, model, systemPrompt string, timeout time.Duration,
+		spawnCtx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration,
 	) (*core.SubagentSpawnResult, error) {
+		// Build OnEvent: dispatch to per-tool-call listeners if any are
+		// registered via SubscribeSubagent(). Listeners are cleaned up
+		// after the subagent completes.
+		var onEvent func(Event)
+		if listeners := m.getSubagentListenerSet(toolCallID); listeners != nil {
+			onEvent = listeners.emit
+		}
 		result, err := m.Subagent(spawnCtx, SubagentConfig{
 			Prompt:       prompt,
 			Model:        model,
 			SystemPrompt: systemPrompt,
 			Timeout:      timeout,
+			OnEvent:      onEvent,
 		})
+		m.cleanupSubagentListeners(toolCallID)
 		if result == nil {
 			return &core.SubagentSpawnResult{Error: err}, err
 		}

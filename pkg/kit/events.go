@@ -359,3 +359,78 @@ func (m *Kit) OnTurnEnd(handler func(TurnEndEvent)) func() {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Subagent event subscriptions
+// ---------------------------------------------------------------------------
+
+// subagentListenerSet holds per-tool-call listeners for subagent events.
+type subagentListenerSet struct {
+	mu        sync.RWMutex
+	listeners map[int]EventListener
+	nextID    int
+}
+
+func newSubagentListenerSet() *subagentListenerSet {
+	return &subagentListenerSet{listeners: make(map[int]EventListener)}
+}
+
+func (s *subagentListenerSet) add(listener EventListener) func() {
+	s.mu.Lock()
+	id := s.nextID
+	s.nextID++
+	s.listeners[id] = listener
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.listeners, id)
+		s.mu.Unlock()
+	}
+}
+
+func (s *subagentListenerSet) emit(event Event) {
+	s.mu.RLock()
+	snapshot := make([]EventListener, 0, len(s.listeners))
+	for _, l := range s.listeners {
+		snapshot = append(snapshot, l)
+	}
+	s.mu.RUnlock()
+	for _, l := range snapshot {
+		l(event)
+	}
+}
+
+// SubscribeSubagent registers a listener for real-time events from a subagent
+// identified by its tool call ID. Returns an unsubscribe function.
+//
+// The listener receives the same event types as Subscribe() (ToolCallEvent,
+// MessageUpdateEvent, etc.) but scoped to the child agent's activity. If the
+// tool call ID doesn't correspond to an active or future spawn_subagent call,
+// the listener simply never fires.
+//
+// Typical usage — register inside an OnToolCall handler:
+//
+//	kit.OnToolCall(func(e kit.ToolCallEvent) {
+//	    if e.ToolName == "spawn_subagent" {
+//	        kit.SubscribeSubagent(e.ToolCallID, func(child kit.Event) {
+//	            // real-time subagent events
+//	        })
+//	    }
+//	})
+func (m *Kit) SubscribeSubagent(toolCallID string, listener EventListener) func() {
+	actual, _ := m.subagentListeners.LoadOrStore(toolCallID, newSubagentListenerSet())
+	return actual.(*subagentListenerSet).add(listener)
+}
+
+// getSubagentListenerSet returns the listener set for a tool call, or nil.
+func (m *Kit) getSubagentListenerSet(toolCallID string) *subagentListenerSet {
+	if v, ok := m.subagentListeners.Load(toolCallID); ok {
+		return v.(*subagentListenerSet)
+	}
+	return nil
+}
+
+// cleanupSubagentListeners removes the listener set for a completed tool call.
+func (m *Kit) cleanupSubagentListeners(toolCallID string) {
+	m.subagentListeners.Delete(toolCallID)
+}

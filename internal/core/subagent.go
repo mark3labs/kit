@@ -28,7 +28,9 @@ type SubagentSpawnResult struct {
 // SubagentSpawnFunc is a callback that spawns an in-process subagent. The
 // parent Kit instance injects this into the context so the core tool can
 // call back without importing pkg/kit (which would create a cycle).
-type SubagentSpawnFunc func(ctx context.Context, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error)
+// The toolCallID parameter is the LLM-assigned ID of the spawn_subagent
+// tool call, enabling the parent to correlate subagent events.
+type SubagentSpawnFunc func(ctx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error)
 
 type subagentCtxKey struct{}
 
@@ -129,7 +131,7 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	}
 
 	// Spawn in-process subagent.
-	result, err := spawner(ctx, args.Task, args.Model, args.SystemPrompt, timeout)
+	result, err := spawner(ctx, call.ID, args.Task, args.Model, args.SystemPrompt, timeout)
 	if err != nil || result.Error != nil {
 		spawnErr := err
 		if spawnErr == nil {
