@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -90,11 +91,19 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		cmd.Dir = workDir
 	}
 
+	// Ensure SHELL is set to bash so child processes (e.g. tmux) use bash
+	// rather than the user's login shell (which may be nushell, fish, etc.).
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		bashPath = "/bin/bash"
+	}
+	cmd.Env = append(os.Environ(), "SHELL="+bashPath)
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	exitCode := 0
 	if err != nil {

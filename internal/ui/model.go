@@ -3072,6 +3072,14 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 			cmd.Dir = cwd
 		}
 
+		// Ensure SHELL is set to bash so child processes (e.g. tmux) use bash
+		// rather than the user's login shell (which may be nushell, fish, etc.).
+		bashPath, _ := exec.LookPath("bash")
+		if bashPath == "" {
+			bashPath = "/bin/bash"
+		}
+		cmd.Env = append(os.Environ(), "SHELL="+bashPath)
+
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
