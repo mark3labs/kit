@@ -15,6 +15,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/core"
+	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 )
@@ -903,6 +904,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := m.switchSession(msg.Path); err != nil {
 				m.printSystemMessage(fmt.Sprintf("Failed to switch session: %v", err))
 			} else {
+				m.renderSessionHistory()
 				m.printSystemMessage("Session loaded. Continue where you left off.")
 			}
 		} else {
@@ -2821,6 +2823,7 @@ func (m *AppModel) handleImportCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	m.renderSessionHistory()
 	m.printSystemMessage(fmt.Sprintf("Session imported from: %s", args))
 	return nil
 }
@@ -2835,6 +2838,91 @@ func (m *AppModel) handleResumeCommand() tea.Cmd {
 	m.sessionSelector = NewSessionSelector(m.cwd, m.width, m.height)
 	m.state = stateSessionSelector
 	return nil
+}
+
+// renderSessionHistory walks the current session branch and renders all
+// messages (user, assistant, tool calls/results) into the scrollback buffer.
+// This gives the user visual context of the conversation when resuming or
+// importing a session. Call this after switchSession succeeds.
+func (m *AppModel) renderSessionHistory() {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		return
+	}
+
+	branch := ts.GetBranch("")
+	if len(branch) == 0 {
+		return
+	}
+
+	// First pass: build a map of tool call ID → {name, args} from assistant
+	// messages so we can pair them with tool results.
+	type toolCallInfo struct {
+		Name string
+		Args string
+	}
+	toolCallMap := make(map[string]toolCallInfo)
+	for _, entry := range branch {
+		me, ok := entry.(*session.MessageEntry)
+		if !ok {
+			continue
+		}
+		if me.Role != "assistant" {
+			continue
+		}
+		msg, err := me.ToMessage()
+		if err != nil {
+			continue
+		}
+		for _, tc := range msg.ToolCalls() {
+			toolCallMap[tc.ID] = toolCallInfo{Name: tc.Name, Args: tc.Input}
+		}
+	}
+
+	// Second pass: render each message in order.
+	for _, entry := range branch {
+		me, ok := entry.(*session.MessageEntry)
+		if !ok {
+			continue
+		}
+		msg, err := me.ToMessage()
+		if err != nil {
+			continue
+		}
+
+		switch msg.Role {
+		case message.RoleUser:
+			text := msg.Content()
+			if text != "" {
+				m.appendScrollback(m.renderer.RenderUserMessage(text, msg.CreatedAt).Content)
+			}
+
+		case message.RoleAssistant:
+			text := msg.Content()
+			if text != "" {
+				modelName := m.modelName
+				if msg.Model != "" {
+					modelName = msg.Model
+				}
+				m.appendScrollback(m.renderer.RenderAssistantMessage(text, msg.CreatedAt, modelName).Content)
+			}
+			// Tool calls from assistant messages are rendered when we
+			// encounter their corresponding tool results below.
+
+		case message.RoleTool:
+			for _, tr := range msg.ToolResults() {
+				toolName := tr.Name
+				toolArgs := ""
+				if info, ok := toolCallMap[tr.ToolCallID]; ok {
+					if toolName == "" {
+						toolName = info.Name
+					}
+					toolArgs = info.Args
+				}
+				m.appendScrollback(m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError).Content)
+			}
+		}
+	}
 }
 
 // handleSessionInfoCommand shows session statistics.
