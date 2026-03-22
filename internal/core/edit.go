@@ -6,8 +6,11 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"charm.land/fantasy"
+
+	udiff "github.com/aymanbagabas/go-udiff"
 )
 
 type editArgs struct {
@@ -82,7 +85,7 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 			if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 			}
-			diff := generateDiff(absPath, normalized, newContent, idx)
+			diff := generateDiff(absPath, normalized, newContent)
 			resp := fantasy.NewTextResponse(fmt.Sprintf("Applied edit (fuzzy match) to %s\n%s", args.Path, diff))
 			return fantasy.WithResponseMetadata(resp, editDiffMeta(absPath, matchedText, args.NewText)), nil
 		}
@@ -100,8 +103,7 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 
-	idx := strings.Index(normalized, normalizedOld)
-	diff := generateDiff(absPath, normalized, newContent, idx)
+	diff := generateDiff(absPath, normalized, newContent)
 	resp := fantasy.NewTextResponse(fmt.Sprintf("Applied edit to %s\n%s", args.Path, diff))
 	return fantasy.WithResponseMetadata(resp, editDiffMeta(absPath, normalizedOld, args.NewText)), nil
 }
@@ -122,102 +124,108 @@ func editDiffMeta(path, oldText, newText string) map[string]any {
 }
 
 // fuzzyMatch tries to find old_text with relaxed matching:
-// - Strips trailing whitespace per line
-// - Normalizes unicode quotes to ASCII
-// - Normalizes unicode dashes/spaces
-// Returns (index, matchLength) or (-1, 0) if not found.
+//   - Strips trailing whitespace per line
+//   - Normalizes unicode quotes to ASCII
+//   - Normalizes unicode dashes/spaces
+//
+// Returns (index, matchLength) in the original content, or (-1, 0) if not
+// found or ambiguous (multiple matches).
 func fuzzyMatch(content, search string) (int, int) {
-	normalizedContent := normalizeForFuzzy(content)
-	normalizedSearch := normalizeForFuzzy(search)
+	normContent, contentMap := normalizeWithMap(content)
+	normSearch := normalizeForFuzzy(search)
 
-	idx := strings.Index(normalizedContent, normalizedSearch)
+	if normSearch == "" {
+		return -1, 0
+	}
+
+	idx := strings.Index(normContent, normSearch)
 	if idx < 0 {
 		return -1, 0
 	}
 
-	// Map back to original content position
-	// Since normalization can change lengths, we need to find the
-	// corresponding region in the original content
-	origIdx := mapFuzzyIndex(content, normalizedContent, idx)
-	origEnd := mapFuzzyIndex(content, normalizedContent, idx+len(normalizedSearch))
+	// Reject ambiguous matches — if there are multiple fuzzy matches
+	// we can't safely pick one.
+	if strings.Count(normContent, normSearch) > 1 {
+		return -1, 0
+	}
 
-	return origIdx, origEnd - origIdx
+	// Map normalized byte positions back to original byte positions.
+	origStart := contentMap[idx]
+	endNorm := idx + len(normSearch)
+	var origEnd int
+	if endNorm >= len(normContent) {
+		origEnd = len(content)
+	} else {
+		origEnd = contentMap[endNorm]
+	}
+
+	return origStart, origEnd - origStart
 }
 
-func normalizeForFuzzy(s string) string {
-	// Strip trailing whitespace per line
+// normalizeWithMap normalizes s for fuzzy matching and returns both the
+// normalized string and a byte-position mapping where mapping[i] is the
+// original byte position corresponding to normalized byte position i.
+//
+// Normalization: trim trailing whitespace per line, replace unicode
+// quotes/dashes/spaces with their ASCII equivalents.
+func normalizeWithMap(s string) (string, []int) {
+	var result []byte
+	var mapping []int // mapping[i] = original byte position for result byte i
+
 	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRightFunc(line, unicode.IsSpace)
-	}
-	result := strings.Join(lines, "\n")
-
-	// Normalize smart quotes
-	replacer := strings.NewReplacer(
-		"\u201c", "\"", // left double quote
-		"\u201d", "\"", // right double quote
-		"\u2018", "'", // left single quote
-		"\u2019", "'", // right single quote
-		"\u2013", "-", // en dash
-		"\u2014", "-", // em dash
-		"\u00a0", " ", // non-breaking space
-	)
-	return replacer.Replace(result)
-}
-
-func mapFuzzyIndex(original, normalized string, normIdx int) int {
-	// Simple approach: count runes up to normIdx in normalized,
-	// then advance that many runes in original.
-	// This works because our normalization only replaces runes 1:1.
-	origRunes := []rune(original)
-	normRunes := []rune(normalized)
-
-	if normIdx >= len(normRunes) {
-		return len(original)
-	}
-
-	// Count bytes for the first normIdx runes in original
-	byteCount := 0
-	for i := 0; i < normIdx && i < len(origRunes); i++ {
-		byteCount += len(string(origRunes[i]))
-	}
-	return byteCount
-}
-
-// generateDiff creates a simple unified diff showing the change.
-func generateDiff(path, old, new string, changeIdx int) string {
-	oldLines := strings.Split(old, "\n")
-	newLines := strings.Split(new, "\n")
-
-	// Find the line number where the change starts
-	lineNum := strings.Count(old[:changeIdx], "\n") + 1
-
-	// Show context around the change
-	contextLines := 3
-	start := max(lineNum-contextLines-1, 0)
-
-	var diff strings.Builder
-	fmt.Fprintf(&diff, "--- %s\n+++ %s\n", path, path)
-
-	// Find changed region
-	endOld := min(lineNum+contextLines+countNewlines(old[changeIdx:])+1, len(oldLines))
-	endNew := min(lineNum+contextLines+countNewlines(new[changeIdx:])+1, len(newLines))
-
-	fmt.Fprintf(&diff, "@@ -%d,%d +%d,%d @@\n", start+1, endOld-start, start+1, endNew-start)
-
-	// Very simplified diff: show old lines as removed, new lines as added
-	// around the change region
-	for i := start; i < endOld && i < len(oldLines); i++ {
-		prefix := " "
-		if i >= lineNum-1 && i < lineNum-1+countNewlines(old[changeIdx:])+1 {
-			prefix = "-"
+	origPos := 0
+	for li, line := range lines {
+		if li > 0 {
+			result = append(result, '\n')
+			mapping = append(mapping, origPos)
+			origPos++ // skip \n in original
 		}
-		fmt.Fprintf(&diff, "%s %s\n", prefix, oldLines[i])
+
+		trimmed := strings.TrimRightFunc(line, unicode.IsSpace)
+
+		for j := 0; j < len(trimmed); {
+			r, size := utf8.DecodeRuneInString(trimmed[j:])
+			repl := normalizeRune(r)
+			for k := 0; k < len(repl); k++ {
+				mapping = append(mapping, origPos+j)
+			}
+			result = append(result, repl...)
+			j += size
+		}
+
+		origPos += len(line) // advance past full original line including trailing ws
 	}
 
-	return diff.String()
+	return string(result), mapping
 }
 
-func countNewlines(s string) int {
-	return strings.Count(s, "\n")
+// normalizeRune maps unicode quotes, dashes, and non-breaking spaces to
+// their ASCII equivalents. Returns the original rune as a string for all
+// other characters.
+func normalizeRune(r rune) string {
+	switch r {
+	case '\u201c', '\u201d': // left/right double quote
+		return "\""
+	case '\u2018', '\u2019': // left/right single quote
+		return "'"
+	case '\u2013', '\u2014': // en dash, em dash
+		return "-"
+	case '\u00a0': // non-breaking space
+		return " "
+	default:
+		return string(r)
+	}
+}
+
+// normalizeForFuzzy normalizes s for fuzzy matching (without position mapping).
+// Used for the search string where position mapping is not needed.
+func normalizeForFuzzy(s string) string {
+	norm, _ := normalizeWithMap(s)
+	return norm
+}
+
+// generateDiff creates a unified diff showing the change between old and new
+// file contents. Uses the go-udiff library for correct diff computation.
+func generateDiff(path, old, new string) string {
+	return udiff.Unified(path, path, old, new)
 }
