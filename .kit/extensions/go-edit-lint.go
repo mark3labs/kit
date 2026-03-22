@@ -107,13 +107,8 @@ func resolveGoFilePath(inputJSON, cwd string) (string, bool) {
 }
 
 func runGoDiagnostics(cwd, absPath string) string {
-	target := absPath
-	if rel, err := filepath.Rel(cwd, absPath); err == nil && !strings.HasPrefix(rel, "..") {
-		target = rel
-	}
-
 	gopls := runGopls(cwd, absPath)
-	lint := runGolangCILint(cwd, target)
+	lint := runGolangCILint(cwd, "./...")
 
 	return fmt.Sprintf(
 		"<go_diagnostics file=%q>\n[gopls]\n%s\n\n[golangci-lint]\n%s\n</go_diagnostics>",
