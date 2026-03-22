@@ -159,8 +159,8 @@ func SubstituteArgs(content string, args []string) string {
 				}
 
 				// Check if there's a second colon for length ${N:M:L}
-				if secondColonIdx := strings.Index(rest, ":"); secondColonIdx >= 0 {
-					lengthStr := rest[secondColonIdx+1:]
+				lengthStr, _, ok := strings.Cut(rest, ":")
+				if ok {
 					length, err := strconv.Atoi(lengthStr)
 					if err != nil || length < 0 {
 						return match
@@ -228,15 +228,7 @@ func expandAtArgs(inner string, args []string) string {
 	rest = rest[1:]
 
 	// Parse start index
-	colonIdx := strings.Index(rest, ":")
-	var startStr, lengthStr string
-
-	if colonIdx >= 0 {
-		startStr = rest[:colonIdx]
-		lengthStr = rest[colonIdx+1:]
-	} else {
-		startStr = rest
-	}
+	startStr, lengthStr, hasLength := strings.Cut(rest, ":")
 
 	start, err := strconv.Atoi(startStr)
 	if err != nil || start < 0 {
@@ -249,7 +241,7 @@ func expandAtArgs(inner string, args []string) string {
 		start--
 	}
 
-	if lengthStr != "" {
+	if hasLength {
 		length, err := strconv.Atoi(lengthStr)
 		if err != nil || length < 0 {
 			return "${" + inner + "}"
@@ -270,9 +262,7 @@ func joinArgsRange(args []string, start, length int) string {
 		return ""
 	}
 	end := start + length
-	if end > len(args) {
-		end = len(args)
-	}
+	end = min(end, len(args))
 	return strings.Join(args[start:end], " ")
 }
 

@@ -41,11 +41,11 @@ type Diagnostic struct {
 // to highest), with later templates overriding earlier ones of the same name.
 //
 // Discovery paths searched in order:
-//   1. Default templates (if IncludeDefaults)
-//   2. ~/.kit/prompts/ (global user templates)
-//   3. .kit/prompts/ (project-local templates)
-//   4. ConfigPaths (from configuration)
-//   5. ExtraPaths (explicit paths, highest precedence)
+//  1. Default templates (if IncludeDefaults)
+//  2. ~/.kit/prompts/ (global user templates)
+//  3. .kit/prompts/ (project-local templates)
+//  4. ConfigPaths (from configuration)
+//  5. ExtraPaths (explicit paths, highest precedence)
 func LoadAll(opts LoadOptions) ([]*PromptTemplate, []Diagnostic, error) {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
