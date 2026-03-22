@@ -6,14 +6,17 @@ import (
 )
 
 const (
-	defaultMaxLines = 2000
-	defaultMaxBytes = 50 * 1024 // 50KB
-	grepMaxLineLen  = 500
+	defaultMaxLines   = 2000
+	defaultMaxBytes   = 50 * 1024 // 50KB
+	defaultMaxLineLen = 2000      // max characters per line before truncation
+	grepMaxLineLen    = 500
 
 	// DefaultMaxLines is the exported default line limit for truncation.
 	DefaultMaxLines = defaultMaxLines
 	// DefaultMaxBytes is the exported default byte limit for truncation.
 	DefaultMaxBytes = defaultMaxBytes
+	// DefaultMaxLineLen is the exported default per-line character limit.
+	DefaultMaxLineLen = defaultMaxLineLen
 )
 
 // TruncationResult describes how output was truncated.
@@ -26,6 +29,8 @@ type TruncationResult struct {
 }
 
 // TruncateTail keeps the last maxLines lines and at most maxBytes bytes.
+// Individual lines longer than defaultMaxLineLen are truncated to prevent
+// extremely long single lines from blowing up the TUI when wrapped.
 // Used for bash output where the tail is most relevant.
 func TruncateTail(content string, maxLines, maxBytes int) TruncationResult {
 	if maxLines <= 0 {
@@ -38,11 +43,11 @@ func TruncateTail(content string, maxLines, maxBytes int) TruncationResult {
 	lines := strings.Split(content, "\n")
 	total := len(lines)
 
-	if len(content) <= maxBytes && total <= maxLines {
-		return TruncationResult{Content: content, Total: total, Kept: total}
-	}
+	// Truncate individual long lines first to prevent single lines from
+	// wrapping into hundreds of visual lines in the TUI.
+	lines = truncateLongLines(lines, defaultMaxLineLen)
 
-	// Truncate by lines first (keep tail)
+	// Truncate by lines (keep tail)
 	truncBy := ""
 	if total > maxLines {
 		lines = lines[total-maxLines:]
@@ -78,6 +83,7 @@ func TruncateTail(content string, maxLines, maxBytes int) TruncationResult {
 }
 
 // truncateHead keeps the first maxLines lines and at most maxBytes bytes.
+// Individual lines longer than defaultMaxLineLen are truncated.
 // Used for read, grep, find, ls output where the head is most relevant.
 func truncateHead(content string, maxLines, maxBytes int) TruncationResult {
 	if maxLines <= 0 {
@@ -90,9 +96,8 @@ func truncateHead(content string, maxLines, maxBytes int) TruncationResult {
 	lines := strings.Split(content, "\n")
 	total := len(lines)
 
-	if len(content) <= maxBytes && total <= maxLines {
-		return TruncationResult{Content: content, Total: total, Kept: total}
-	}
+	// Truncate individual long lines first.
+	lines = truncateLongLines(lines, defaultMaxLineLen)
 
 	truncBy := ""
 	if total > maxLines {
@@ -123,6 +128,19 @@ func truncateHead(content string, maxLines, maxBytes int) TruncationResult {
 		Total:     total,
 		Kept:      kept,
 	}
+}
+
+// truncateLongLines caps each line to maxLen characters, appending a
+// "[...N chars truncated]" marker to any line that exceeds the limit.
+// This prevents a single very long line (e.g. minified JSON/JS) from
+// wrapping into hundreds of visual rows and blowing up the TUI.
+func truncateLongLines(lines []string, maxLen int) []string {
+	for i, line := range lines {
+		if len(line) > maxLen {
+			lines[i] = line[:maxLen] + fmt.Sprintf("... [%d chars truncated]", len(line)-maxLen)
+		}
+	}
+	return lines
 }
 
 // truncateLine truncates a single line to maxChars, appending "..." if cut.

@@ -3343,9 +3343,22 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	var displayHiddenCount int
 	if displayOutput != "" {
 		lines := strings.Split(displayOutput, "\n")
+		// Cap individual line length to prevent long lines from wrapping
+		// into excessive visual rows.
+		maxLineChars := m.width * 3
+		if maxLineChars < 200 {
+			maxLineChars = 200
+		}
+		for i, line := range lines {
+			if len(line) > maxLineChars {
+				lines[i] = line[:maxLineChars] + "…"
+			}
+		}
 		if len(lines) > maxShellDisplayLines {
 			displayHiddenCount = len(lines) - maxShellDisplayLines
 			displayOutput = strings.Join(lines[:maxShellDisplayLines], "\n")
+		} else {
+			displayOutput = strings.Join(lines, "\n")
 		}
 	}
 

@@ -578,9 +578,17 @@ func renderBashBody(toolResult string, width int) string {
 	}
 
 	const lineIndent = "  "
+	// Cap individual line length to prevent long lines (e.g. minified
+	// JSON) from wrapping into hundreds of visual rows.
+	maxLineChars := (width - len(lineIndent)) * 3 // allow some wrapping but not unbounded
+	if maxLineChars < 200 {
+		maxLineChars = 200
+	}
+
 	var rendered []string
 	inStderr := false
 	for _, line := range lines {
+		line = truncateLine(line, maxLineChars)
 		// Detect the STDERR: label that Kit's bash tool emits
 		if strings.TrimSpace(line) == "STDERR:" {
 			inStderr = true
