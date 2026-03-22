@@ -229,7 +229,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 	gutterMissing := lipgloss.NewStyle().Background(theme.DiffMissingBg)
 
 	contentInsert := lipgloss.NewStyle().Background(theme.DiffInsertBg)
-	contentDelete := lipgloss.NewStyle().Background(theme.DiffDeleteBg).Strikethrough(true)
+	contentDelete := lipgloss.NewStyle().Background(theme.DiffDeleteBg)
 	contentEqual := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.DiffEqualBg)
 	contentMissing := lipgloss.NewStyle().Background(theme.DiffMissingBg)
 
