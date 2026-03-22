@@ -348,11 +348,65 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/session` | Show session info |
 | `/export [path]` | Export session as JSONL (default: auto-generated path) |
 | `/import <path>` | Import a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/quit` | Exit Kit |
 
 ### Prompt history
 
 Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
+
+### Cancelling operations
+
+Press **ESC twice** to cancel the current operation:
+- During a tool call: rolls back the entire turn to maintain API message pairing
+- During streaming: stops the response generation
+
+This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
+
+## Prompt templates
+
+Create reusable prompt templates with shell-style argument substitution. Templates are loaded from `~/.kit/prompts/*.md` and `.kit/prompts/*.md`.
+
+### Creating templates
+
+Templates use YAML frontmatter for metadata and support argument placeholders:
+
+```markdown
+---
+description: Review code for issues
+---
+Review the following code for bugs and security issues.
+Focus on $1 specifically.
+```
+
+Save to `~/.kit/prompts/review.md` or `.kit/prompts/review.md`.
+
+### Using templates
+
+Templates appear as slash commands:
+
+```
+/review error handling
+```
+
+### Argument placeholders
+
+| Placeholder | Description |
+|-------------|-------------|
+| `$1`, `$2`, etc. | Individual arguments by position |
+| `$@`, `$ARGUMENTS` | All arguments joined with spaces |
+| `${@:N}` | Arguments from position N onwards |
+| `${@:N:L}` | L arguments starting at position N |
+
+### CLI flags
+
+```bash
+# Load a specific template by name
+kit --prompt-template review
+
+# Disable template loading
+kit --no-prompt-templates
+```
 
 ## ACP server
 
@@ -409,6 +463,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 |------|-------|---------|-------------|
 | `--extension` | `-e` | — | Load additional extension file(s) (repeatable) |
 | `--no-extensions` | — | `false` | Disable all extensions |
+| `--prompt-template` | — | — | Load a specific prompt template by name |
+| `--no-prompt-templates` | — | `false` | Disable prompt template loading |
 
 ## Generation parameters
 
@@ -473,6 +529,8 @@ stream: true
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `stop-sequences` | list | — | Custom stop sequences |
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
+| `prompt-templates` | bool | `true` | Enable prompt template loading |
+| `prompt-template` | string | — | Specific template to load by name |
 
 ## Environment variables
 
@@ -544,6 +602,20 @@ theme: "./themes/my-custom-theme.yml"
 ```
 
 See [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.
+
+## Preferences persistence
+
+Kit automatically saves your UI preferences across sessions to `~/.config/kit/preferences.yml`:
+
+- **Theme** — Set via `/theme <name>` or `ctx.SetTheme()`
+- **Model** — Set via `/model <name>` or the model selector
+- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling
+
+These preferences are restored on next launch. Precedence (highest to lowest):
+1. CLI flags (`--model`, `--thinking-level`)
+2. Config file (`model:`, `thinking-level:`)
+3. Saved preferences (`~/.config/kit/preferences.yml`)
+4. Default values
 
 ---
 
@@ -2381,6 +2453,17 @@ Path separators in the working directory are replaced with `--`. For example, `/
 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
 
+## Compaction
+
+When conversations grow long, Kit can compact them to free up context window space. The compaction system:
+
+- **Non-destructive**: Old messages remain on disk for history; only the LLM context is summarized
+- **File tracking**: Tracks which files were read and modified across compactions
+- **Split-turn handling**: Can summarize large single turns by splitting them
+- **Tool result truncation**: Caps tool output during serialization to stay within token budgets
+
+Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
+
 ## Resuming sessions
 
 ### Continue most recent
@@ -2421,6 +2504,7 @@ These slash commands are available during an interactive session:
 | `/resume` | Open the session picker to switch sessions |
 | `/export [path]` | Export session as JSONL (auto-generates path if omitted) |
 | `/import <path>` | Import and switch to a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
 | `/fork` | Branch from an earlier message |
 | `/new` | Start a fresh session |
@@ -2434,6 +2518,28 @@ kit --no-session
 ```
 
 This is useful for one-off prompts, scripting, and subagent patterns where persistence isn't needed.
+
+## Sharing sessions
+
+The `/share` command uploads your session JSONL to GitHub Gist (via the `gh` CLI) and prints a shareable viewer URL:
+
+```
+/share
+```
+
+The viewer is available at `https://go-kit.dev/session/#GIST_ID` and supports all message types including text, reasoning blocks, tool calls, images, and model changes.
+
+You can also load any JSONL session via URL parameter: `https://go-kit.dev/session/?url=https://example.com/session.jsonl`
+
+## Preferences persistence
+
+Kit automatically saves your preferences across sessions to `~/.config/kit/preferences.yml`:
+
+- **Theme** — Set via `/theme <name>`
+- **Model** — Set via `/model <name>` or the model selector
+- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling
+
+These preferences are restored on next launch. Precedence: CLI flag > config file > saved preference > default.
 
 ---
 
@@ -2455,7 +2561,7 @@ Switch themes at runtime with the `/theme` command:
 
 Run `/theme` with no arguments to list all available themes.
 
-**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks.
+**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks. This persistence also applies to **model** and **thinking level** selections.
 
 ## Built-in themes
 

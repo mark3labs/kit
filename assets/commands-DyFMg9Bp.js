@@ -115,6 +115,10 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 <td>Import a session from a JSONL file</td>
 </tr>
 <tr>
+<td><code>/share</code></td>
+<td>Upload session to GitHub Gist and get a shareable viewer URL</td>
+</tr>
+<tr>
 <td><code>/quit</code></td>
 <td>Exit Kit</td>
 </tr>
@@ -122,10 +126,64 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 </table>
 <h3 id="prompt-history"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-history"><span class="icon icon-link"></span></a>Prompt history</h3>
 <p>Use <strong>↑</strong> and <strong>↓</strong> arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.</p>
+<h3 id="cancelling-operations"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#cancelling-operations"><span class="icon icon-link"></span></a>Cancelling operations</h3>
+<p>Press <strong>ESC twice</strong> to cancel the current operation:</p>
+<ul>
+<li>During a tool call: rolls back the entire turn to maintain API message pairing</li>
+<li>During streaming: stops the response generation</li>
+</ul>
+<p>This ensures that <code>tool_use</code> and <code>tool_result</code> messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.</p>
+<h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
+<p>Create reusable prompt templates with shell-style argument substitution. Templates are loaded from <code>~/.kit/prompts/*.md</code> and <code>.kit/prompts/*.md</code>.</p>
+<h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
+<p>Templates use YAML frontmatter for metadata and support argument placeholders:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">---</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">description</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">Review code for issues</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">---</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">Review the following code for bugs and security issues.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">Focus on $1 specifically.</span></span></code></pre>
+<p>Save to <code>~/.kit/prompts/review.md</code> or <code>.kit/prompts/review.md</code>.</p>
+<h3 id="using-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#using-templates"><span class="icon icon-link"></span></a>Using templates</h3>
+<p>Templates appear as slash commands:</p>
+<pre><code>/review error handling
+</code></pre>
+<h3 id="argument-placeholders"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#argument-placeholders"><span class="icon icon-link"></span></a>Argument placeholders</h3>
+<table>
+<thead>
+<tr>
+<th>Placeholder</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$1</code>, <code>$2</code>, etc.</td>
+<td>Individual arguments by position</td>
+</tr>
+<tr>
+<td><code>$@</code>, <code>$ARGUMENTS</code></td>
+<td>All arguments joined with spaces</td>
+</tr>
+<tr>
+<td><code>\${@:N}</code></td>
+<td>Arguments from position N onwards</td>
+</tr>
+<tr>
+<td><code>\${@:N:L}</code></td>
+<td>L arguments starting at position N</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cli-flags"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#cli-flags"><span class="icon icon-link"></span></a>CLI flags</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load a specific template by name</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --prompt-template</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> review</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Disable template loading</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-prompt-templates</span></span></code></pre>
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -203,11 +261,65 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/session\` | Show session info |
 | \`/export [path]\` | Export session as JSONL (default: auto-generated path) |
 | \`/import <path>\` | Import a session from a JSONL file |
+| \`/share\` | Upload session to GitHub Gist and get a shareable viewer URL |
 | \`/quit\` | Exit Kit |
 
 ### Prompt history
 
 Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
+
+### Cancelling operations
+
+Press **ESC twice** to cancel the current operation:
+- During a tool call: rolls back the entire turn to maintain API message pairing
+- During streaming: stops the response generation
+
+This ensures that \`tool_use\` and \`tool_result\` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
+
+## Prompt templates
+
+Create reusable prompt templates with shell-style argument substitution. Templates are loaded from \`~/.kit/prompts/*.md\` and \`.kit/prompts/*.md\`.
+
+### Creating templates
+
+Templates use YAML frontmatter for metadata and support argument placeholders:
+
+\`\`\`markdown
+---
+description: Review code for issues
+---
+Review the following code for bugs and security issues.
+Focus on $1 specifically.
+\`\`\`
+
+Save to \`~/.kit/prompts/review.md\` or \`.kit/prompts/review.md\`.
+
+### Using templates
+
+Templates appear as slash commands:
+
+\`\`\`
+/review error handling
+\`\`\`
+
+### Argument placeholders
+
+| Placeholder | Description |
+|-------------|-------------|
+| \`$1\`, \`$2\`, etc. | Individual arguments by position |
+| \`$@\`, \`$ARGUMENTS\` | All arguments joined with spaces |
+| \`\${@:N}\` | Arguments from position N onwards |
+| \`\${@:N:L}\` | L arguments starting at position N |
+
+### CLI flags
+
+\`\`\`bash
+# Load a specific template by name
+kit --prompt-template review
+
+# Disable template loading
+kit --no-prompt-templates
+\`\`\`
 
 ## ACP server
 

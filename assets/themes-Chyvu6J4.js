@@ -7,7 +7,7 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 /theme kitt
 </code></pre>
 <p>Run <code>/theme</code> with no arguments to list all available themes.</p>
-<p><strong>Theme selections are automatically saved</strong> to <code>~/.config/kit/preferences.yml</code> and restored on next launch. You don't need to add anything to your config file — just <code>/theme &lt;name&gt;</code> and it sticks.</p>
+<p><strong>Theme selections are automatically saved</strong> to <code>~/.config/kit/preferences.yml</code> and restored on next launch. You don't need to add anything to your config file — just <code>/theme &lt;name&gt;</code> and it sticks. This persistence also applies to <strong>model</strong> and <strong>thinking level</strong> selections.</p>
 <h2 id="built-in-themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#built-in-themes"><span class="icon icon-link"></span></a>Built-in themes</h2>
 <table>
 <thead>
@@ -412,7 +412,7 @@ Switch themes at runtime with the \`/theme\` command:
 
 Run \`/theme\` with no arguments to list all available themes.
 
-**Theme selections are automatically saved** to \`~/.config/kit/preferences.yml\` and restored on next launch. You don't need to add anything to your config file — just \`/theme <name>\` and it sticks.
+**Theme selections are automatically saved** to \`~/.config/kit/preferences.yml\` and restored on next launch. You don't need to add anything to your config file — just \`/theme <name>\` and it sticks. This persistence also applies to **model** and **thinking level** selections.
 
 ## Built-in themes
 

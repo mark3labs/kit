@@ -64,10 +64,16 @@
         "Skills",
         "Interactive slash commands",
         "Prompt history",
+        "Cancelling operations",
+        "Prompt templates",
+        "Creating templates",
+        "Using templates",
+        "Argument placeholders",
+        "CLI flags",
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 486
+      "wordCount": 696
     },
     {
       "id": "cli/flags",
@@ -83,7 +89,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 434
+      "wordCount": 461
     },
     {
       "id": "configuration",
@@ -96,10 +102,11 @@
         "Environment variables",
         "MCP server configuration",
         "MCP server fields",
-        "Theme configuration"
+        "Theme configuration",
+        "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 496
+      "wordCount": 594
     },
     {
       "id": "development",
@@ -368,15 +375,18 @@
       "description": "How Kit persists and manages conversation sessions.",
       "headings": [
         "Session storage",
+        "Compaction",
         "Resuming sessions",
         "Continue most recent",
         "Interactive picker",
         "Open a specific session",
         "Session commands",
-        "Ephemeral mode"
+        "Ephemeral mode",
+        "Sharing sessions",
+        "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 285
+      "wordCount": 504
     },
     {
       "id": "themes",
@@ -400,7 +410,7 @@
         "Startup theme resolution"
       ],
       "tags": [],
-      "wordCount": 1021
+      "wordCount": 1031
     }
   ]
 }
