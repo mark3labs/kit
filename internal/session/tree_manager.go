@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,10 +129,34 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		filePath:   path,
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	reader := bufio.NewReader(strings.NewReader(string(data)))
 	lineNum := 0
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				// Process the last line if it's not empty
+				if strings.TrimSpace(line) != "" {
+					lineNum++
+					entry, err := UnmarshalEntry([]byte(line))
+					if err != nil {
+						return nil, fmt.Errorf("line %d: %w", lineNum, err)
+					}
+					if lineNum == 1 {
+						h, ok := entry.(*SessionHeader)
+						if !ok {
+							return nil, fmt.Errorf("first line must be a session header, got %T", entry)
+						}
+						tm.header = *h
+					} else {
+						tm.addEntryToIndex(entry)
+					}
+				}
+				break
+			}
+			return nil, fmt.Errorf("failed to read session file: %w", err)
+		}
+
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -152,9 +177,6 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		}
 
 		tm.addEntryToIndex(entry)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan session file: %w", err)
 	}
 
 	// Set leaf to the last entry.
