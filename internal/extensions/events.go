@@ -19,6 +19,9 @@ const (
 	// ToolExecutionEnd fires when a tool finishes executing.
 	ToolExecutionEnd EventType = "tool_execution_end"
 
+	// ToolOutput fires when a tool produces streaming output chunks.
+	ToolOutput EventType = "tool_output"
+
 	// ToolResult fires after a tool executes. Handlers can modify the result.
 	ToolResult EventType = "tool_result"
 

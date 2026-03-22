@@ -335,6 +335,16 @@ func (m *Kit) OnToolResult(handler func(ToolResultEvent)) func() {
 	})
 }
 
+// OnToolOutput registers a handler that fires only for ToolOutputEvent
+// (streaming tool output chunks, e.g., from bash). Returns an unsubscribe function.
+func (m *Kit) OnToolOutput(handler func(ToolOutputEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if to, ok := e.(ToolOutputEvent); ok {
+			handler(to)
+		}
+	})
+}
+
 // OnStreaming registers a handler that fires only for MessageUpdateEvent
 // (streaming text chunks). Returns an unsubscribe function.
 func (m *Kit) OnStreaming(handler func(MessageUpdateEvent)) func() {

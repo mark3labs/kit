@@ -439,6 +439,12 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return nil
 			})
 		},
+		onToolOutput: func(h func(ToolOutputEvent, Context)) {
+			reg(ToolOutput, func(e Event, c Context) Result {
+				h(e.(ToolOutputEvent), c)
+				return nil
+			})
+		},
 		onToolResult: func(h func(ToolResultEvent, Context) *ToolResultResult) {
 			reg(ToolResult, func(e Event, c Context) Result {
 				r := h(e.(ToolResultEvent), c)

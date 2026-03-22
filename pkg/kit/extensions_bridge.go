@@ -86,6 +86,20 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		})
 	}
 
+	// Tool output streaming events (observation only).
+	if runner.HasHandlers(extensions.ToolOutput) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ToolOutputEvent); ok {
+				_, _ = runner.Emit(extensions.ToolOutputEvent{
+					ToolCallID: ev.ToolCallID,
+					ToolName:   ev.ToolName,
+					Chunk:      ev.Chunk,
+					IsStderr:   ev.IsStderr,
+				})
+			}
+		})
+	}
+
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
 			if ev, ok := e.(TurnEndEvent); ok {

@@ -727,6 +727,7 @@ type API struct {
 	onToolCall                func(func(ToolCallEvent, Context) *ToolCallResult)
 	onToolExecStart           func(func(ToolExecutionStartEvent, Context))
 	onToolExecEnd             func(func(ToolExecutionEndEvent, Context))
+	onToolOutput              func(func(ToolOutputEvent, Context))
 	onToolResult              func(func(ToolResultEvent, Context) *ToolResultResult)
 	onInput                   func(func(InputEvent, Context) *InputResult)
 	onBeforeAgentStart        func(func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult)
@@ -765,6 +766,13 @@ func (a *API) OnToolExecutionStart(handler func(ToolExecutionStartEvent, Context
 // OnToolExecutionEnd registers a handler for tool execution end.
 func (a *API) OnToolExecutionEnd(handler func(ToolExecutionEndEvent, Context)) {
 	a.onToolExecEnd(handler)
+}
+
+// OnToolOutput registers a handler for streaming tool output chunks.
+// This fires for each output line as it arrives from tools like bash,
+// allowing extensions to observe or process output in real-time.
+func (a *API) OnToolOutput(handler func(ToolOutputEvent, Context)) {
+	a.onToolOutput(handler)
 }
 
 // OnToolResult registers a handler that fires after tool execution.
@@ -1537,6 +1545,19 @@ type ToolExecutionEndEvent struct {
 }
 
 func (e ToolExecutionEndEvent) Type() EventType { return ToolExecutionEnd }
+
+// ToolOutputEvent fires when a tool produces streaming output chunks.
+// This is primarily used for long-running tools like bash to show output
+// in real-time as it arrives, before the tool completes.
+type ToolOutputEvent struct {
+	ToolCallID string
+	ToolName   string
+	ToolKind   string
+	Chunk      string // Output text chunk
+	IsStderr   bool   // Whether this chunk came from stderr
+}
+
+func (e ToolOutputEvent) Type() EventType { return ToolOutput }
 
 // ToolResultEvent fires after tool execution with the output.
 type ToolResultEvent struct {
