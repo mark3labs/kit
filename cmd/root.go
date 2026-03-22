@@ -65,6 +65,11 @@ var (
 
 	// TLS configuration
 	tlsSkipVerify bool
+
+	// Preference restoration flags — set in RunE after cobra parses, used
+	// in runNormalMode to decide whether to apply saved preferences.
+	modelFlagChanged    bool
+	thinkingFlagChanged bool
 )
 
 // kitUIAdapter adapts *kit.Kit to ui.AgentInterface so the CLI setup layer
@@ -112,6 +117,17 @@ var rootCmd = &cobra.Command{
 		// remaining args form the prompt (like Pi: kit @code.ts "Review this").
 		if len(args) > 0 {
 			processPositionalArgs(args)
+		}
+		// Record whether --model / --thinking-level were explicitly set by the
+		// user so that runNormalMode can fall back to saved preferences when
+		// they weren't. Must be captured here (after cobra parses) and before
+		// runKit because rootCmd can't be referenced inside runNormalMode
+		// without creating an initialization cycle.
+		if f := cmd.PersistentFlags().Lookup("model"); f != nil {
+			modelFlagChanged = f.Changed
+		}
+		if f := cmd.PersistentFlags().Lookup("thinking-level"); f != nil {
+			thinkingFlagChanged = f.Changed
 		}
 		return runKit(context.Background())
 	},
@@ -644,6 +660,22 @@ func runNormalMode(ctx context.Context) error {
 	if viper.GetBool("debug") && !debugMode {
 		debugMode = viper.GetBool("debug")
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+
+	// Restore persisted model preference when no explicit --model flag or
+	// config file model is set. Precedence: CLI flag > config file > saved
+	// preference > built-in default. This mirrors how themes are persisted.
+	if !modelFlagChanged && !viper.InConfig("model") {
+		if pref := ui.LoadModelPreference(); pref != "" {
+			viper.Set("model", pref)
+		}
+	}
+
+	// Restore persisted thinking level preference (same precedence chain).
+	if !thinkingFlagChanged && !viper.InConfig("thinking-level") {
+		if pref := ui.LoadThinkingLevelPreference(); pref != "" {
+			viper.Set("thinking-level", pref)
+		}
 	}
 
 	// Load MCP configuration.

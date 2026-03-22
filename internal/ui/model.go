@@ -880,6 +880,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.modelName = parts[1]
 				}
 				m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString))
+				// Persist model selection for next launch.
+				go func() { _ = SaveModelPreference(msg.ModelString) }()
 				if m.emitModelChange != nil {
 					emit := m.emitModelChange
 					newModel := msg.ModelString
@@ -1773,6 +1775,9 @@ func (m *AppModel) cycleThinkingLevel() {
 			_ = m.setThinkingLevel(next)
 		}()
 	}
+
+	// Persist thinking level for next launch.
+	go func() { _ = SaveThinkingLevelPreference(next) }()
 }
 
 // renderSeparator renders the separator line with an optional queue count badge.
@@ -2522,6 +2527,9 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 		go emit(newModel, prev, "user")
 	}
 
+	// Persist model selection for next launch.
+	go func() { _ = SaveModelPreference(args) }()
+
 	m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
 	return nil
 }
@@ -2611,6 +2619,8 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 			_ = m.setThinkingLevel(string(level))
 		}()
 	}
+	// Persist thinking level for next launch.
+	go func() { _ = SaveThinkingLevelPreference(string(level)) }()
 	m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
 	return nil
 }

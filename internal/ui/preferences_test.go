@@ -88,3 +88,93 @@ func TestSaveThemePreference_PreservesOtherFields(t *testing.T) {
 		t.Fatalf("expected %q, got %q", "catppuccin", got)
 	}
 }
+
+func TestSaveAndLoadModelPreference(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	// Initially empty.
+	if got := LoadModelPreference(); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+
+	// Save a model.
+	if err := SaveModelPreference("anthropic/claude-sonnet-4-5-20250929"); err != nil {
+		t.Fatalf("SaveModelPreference: %v", err)
+	}
+	if got := LoadModelPreference(); got != "anthropic/claude-sonnet-4-5-20250929" {
+		t.Fatalf("expected %q, got %q", "anthropic/claude-sonnet-4-5-20250929", got)
+	}
+
+	// Overwrite.
+	if err := SaveModelPreference("openai/gpt-4o"); err != nil {
+		t.Fatalf("SaveModelPreference: %v", err)
+	}
+	if got := LoadModelPreference(); got != "openai/gpt-4o" {
+		t.Fatalf("expected %q, got %q", "openai/gpt-4o", got)
+	}
+}
+
+func TestSaveAndLoadThinkingLevelPreference(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	// Initially empty.
+	if got := LoadThinkingLevelPreference(); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+
+	// Save a level.
+	if err := SaveThinkingLevelPreference("medium"); err != nil {
+		t.Fatalf("SaveThinkingLevelPreference: %v", err)
+	}
+	if got := LoadThinkingLevelPreference(); got != "medium" {
+		t.Fatalf("expected %q, got %q", "medium", got)
+	}
+
+	// Overwrite.
+	if err := SaveThinkingLevelPreference("high"); err != nil {
+		t.Fatalf("SaveThinkingLevelPreference: %v", err)
+	}
+	if got := LoadThinkingLevelPreference(); got != "high" {
+		t.Fatalf("expected %q, got %q", "high", got)
+	}
+}
+
+func TestPreferencesPreserveEachOther(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+
+	// Save all three preferences.
+	if err := SaveThemePreference("dracula"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveModelPreference("anthropic/claude-haiku-3-5-20241022"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveThinkingLevelPreference("high"); err != nil {
+		t.Fatal(err)
+	}
+
+	// All three should be preserved.
+	if got := LoadThemePreference(); got != "dracula" {
+		t.Fatalf("theme: expected %q, got %q", "dracula", got)
+	}
+	if got := LoadModelPreference(); got != "anthropic/claude-haiku-3-5-20241022" {
+		t.Fatalf("model: expected %q, got %q", "anthropic/claude-haiku-3-5-20241022", got)
+	}
+	if got := LoadThinkingLevelPreference(); got != "high" {
+		t.Fatalf("thinking_level: expected %q, got %q", "high", got)
+	}
+
+	// Updating one should not affect the others.
+	if err := SaveModelPreference("openai/gpt-4o"); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadThemePreference(); got != "dracula" {
+		t.Fatalf("theme after model update: expected %q, got %q", "dracula", got)
+	}
+	if got := LoadThinkingLevelPreference(); got != "high" {
+		t.Fatalf("thinking_level after model update: expected %q, got %q", "high", got)
+	}
+}
