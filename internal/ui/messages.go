@@ -213,22 +213,21 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 
 // RenderAssistantMessage renders an AI assistant's response with left-aligned formatting,
 // including the model name, timestamp, and markdown-rendered content. Empty responses
-// are displayed with a special "Finished without output" message. The message features
-// a colored left border for visual distinction.
+// are ignored and return an empty message. The message features a colored left border
+// for visual distinction.
 func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage {
-	theme := getTheme()
-
-	var messageContent string
+	// Ignore empty responses - don't render anything
 	if strings.TrimSpace(content) == "" {
-		messageContent = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(theme.Muted).
-			Align(lipgloss.Center).
-			Render("Finished without output")
-	} else {
-		messageContent = r.renderMarkdown(content, r.width-8)
+		return UIMessage{
+			Type:      AssistantMessage,
+			Content:   "",
+			Height:    0,
+			Timestamp: timestamp,
+		}
 	}
 
+	theme := getTheme()
+	messageContent := r.renderMarkdown(content, r.width-8)
 	fullContent := strings.TrimSuffix(messageContent, "\n")
 
 	// Left border with Primary (Mauve) color for assistant messages.

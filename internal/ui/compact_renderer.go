@@ -82,9 +82,20 @@ func (r *CompactRenderer) RenderUserMessage(content string, timestamp time.Time)
 }
 
 // RenderAssistantMessage renders an AI assistant's response in compact format with
-// a distinctive symbol (<) and the model name as label. Empty content is displayed
-// as "(no output)". Returns a UIMessage with formatted content and metadata.
+// a distinctive symbol (<) and the model name as label. Empty content is ignored
+// and returns an empty message. Returns a UIMessage with formatted content and metadata.
 func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage {
+	// Ignore empty responses - don't render anything
+	compactContent := r.formatUserAssistantContent(content)
+	if compactContent == "" {
+		return UIMessage{
+			Type:      AssistantMessage,
+			Content:   "",
+			Height:    0,
+			Timestamp: timestamp,
+		}
+	}
+
 	theme := getTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Primary).Render("<")
 
@@ -93,12 +104,6 @@ func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.
 		modelName = "Assistant"
 	}
 	label := lipgloss.NewStyle().Foreground(theme.Primary).Bold(true).Render(modelName)
-
-	// Format content for assistant messages (preserve formatting, no truncation)
-	compactContent := r.formatUserAssistantContent(content)
-	if compactContent == "" {
-		compactContent = lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render("(no output)")
-	}
 
 	// Handle multi-line content
 	lines := strings.Split(compactContent, "\n")
