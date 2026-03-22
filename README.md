@@ -287,7 +287,7 @@ kit -e examples/extensions/minimal.go
 
 ### Extension Capabilities
 
-**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnToolCall, OnToolExecutionStart, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact
+**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnToolCall, OnToolExecutionStart, OnToolOutput, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact, OnCustomEvent
 
 **Custom Components**:
 - **Tools**: Add new tools the LLM can invoke
@@ -336,11 +336,12 @@ See the `examples/extensions/` directory:
 - `subagent-widget.go` - Multi-agent orchestration with status widget
 - `subagent-test.go` - Subagent testing utilities
 - `summarize.go` - Conversation summarization
-- `go-edit-lint.go` - LSP diagnostic integration with TUI visibility
 - `tool-logger.go` - Log all tool calls
 - `neon-theme.go` - Custom theme registration and switching
 - `tool-renderer-demo.go` - Custom tool call rendering
 - `widget-status.go` - Persistent status widgets
+
+Also see `.kit/extensions/go-edit-lint.go` (in this repo) for a project-local extension example that runs gopls and golangci-lint on Go file edits.
 
 ### Loading Extensions
 

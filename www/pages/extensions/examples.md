@@ -51,6 +51,12 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`summarize.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/summarize.go) | Conversation summarization |
 | [`lsp-diagnostics.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/lsp-diagnostics.go) | LSP diagnostic integration |
 
+## Themes
+
+| Extension | Description |
+|-----------|-------------|
+| [`neon-theme.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/neon-theme.go) | Custom theme registration and switching |
+
 ## Multi-agent
 
 | Extension | Description |
@@ -74,3 +80,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`kit-kit-agents/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-kit-agents) | Multi-agent orchestration example |
 | [`kit-telegram/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-telegram) | Telegram bot integration |
 | [`status-tools/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/status-tools) | Status bar tool examples |
+
+## Project-local example
+
+The Kit repository also includes a project-local extension at `.kit/extensions/go-edit-lint.go` that demonstrates running `gopls` and `golangci-lint` on Go file edits. This serves as an example of how to create extensions specific to a project by placing them in the `.kit/extensions/` directory.

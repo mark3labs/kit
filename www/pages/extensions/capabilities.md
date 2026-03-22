@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 18 lifecycle events:
+Extensions can hook into 20 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -18,6 +18,7 @@ Extensions can hook into 18 lifecycle events:
 | `OnAgentEnd` | Agent loop completed |
 | `OnToolCall` | Tool call requested by the model |
 | `OnToolExecutionStart` | Tool execution beginning |
+| `OnToolOutput` | Streaming tool output chunk (for long-running tools) |
 | `OnToolExecutionEnd` | Tool execution completed |
 | `OnToolResult` | Tool result returned |
 | `OnInput` | User input received |
@@ -29,6 +30,7 @@ Extensions can hook into 18 lifecycle events:
 | `OnBeforeFork` | Before forking a conversation branch |
 | `OnBeforeSessionSwitch` | Before switching sessions |
 | `OnBeforeCompact` | Before conversation compaction |
+| `OnCustomEvent` | Custom inter-extension event received |
 
 ### Example
 
