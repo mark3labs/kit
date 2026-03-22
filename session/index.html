@@ -1,0 +1,2091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kit Session Viewer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<style>
+/* ============================================================
+   CSS Reset & Base
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #08080a;
+  --surface: #0e0e12;
+  --surface-raised: #141418;
+  --surface-overlay: #1a1a20;
+  --border: #222228;
+  --border-subtle: #1a1a20;
+  --text: #e8e0e0;
+  --text-secondary: #b0a8a8;
+  --text-muted: #8a8090;
+  --text-faint: #5a5464;
+  --accent: #e03030;
+  --accent-dim: #a02020;
+  --accent-glow: rgba(224, 48, 48, 0.12);
+  --user-accent: #3070e0;
+  --user-accent-dim: #2050a0;
+  --user-glow: rgba(48, 112, 224, 0.10);
+  --green: #30c050;
+  --green-dim: rgba(48, 192, 80, 0.12);
+  --red: #e04040;
+  --red-dim: rgba(224, 64, 64, 0.12);
+  --yellow: #d0a030;
+  --yellow-dim: rgba(208, 160, 48, 0.10);
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, 'Liberation Mono', monospace;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-lg: 0 4px 24px rgba(0,0,0,0.4);
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --max-width: 860px;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* ============================================================
+   Header Bar
+   ============================================================ */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.header-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.header-logo:hover { text-decoration: none; }
+
+.header-logo svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.header-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.header-session-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.header-session-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.header-badge svg {
+  width: 13px;
+  height: 13px;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   Main Content
+   ============================================================ */
+.main {
+  flex: 1;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 24px 24px 80px;
+  width: 100%;
+}
+
+/* ============================================================
+   Loading State
+   ============================================================ */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  gap: 20px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Error State
+   ============================================================ */
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.error-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--red);
+  opacity: 0.7;
+}
+
+.error-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.error-message {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+.error-retry {
+  margin-top: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.error-retry:hover {
+  background: var(--surface-overlay);
+  border-color: var(--text-faint);
+}
+
+/* ============================================================
+   Landing Page
+   ============================================================ */
+.landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 24px;
+  text-align: center;
+  padding: 24px;
+}
+
+.landing-icon {
+  width: 64px;
+  height: 64px;
+  color: var(--accent);
+  opacity: 0.6;
+}
+
+.landing h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.landing p {
+  font-size: 15px;
+  color: var(--text-muted);
+  max-width: 460px;
+  line-height: 1.65;
+}
+
+.landing-usage {
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  text-align: left;
+  max-width: 520px;
+  width: 100%;
+}
+
+.landing-usage h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 14px;
+}
+
+.landing-usage code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 0;
+  word-break: break-all;
+}
+
+.landing-usage code span {
+  color: var(--text-secondary);
+}
+
+.landing-footer {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.landing-footer a {
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Conversation Thread
+   ============================================================ */
+.conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ============================================================
+   Message Cards
+   ============================================================ */
+.message {
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  position: relative;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message + .message { margin-top: 2px; }
+
+/* User Message */
+.message-user {
+  background: var(--surface);
+  border-left: 3px solid var(--user-accent);
+}
+
+/* Assistant Message */
+.message-assistant {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+}
+
+/* Tool Message (tool results rendered inline, this is the wrapper) */
+.message-tool {
+  background: transparent;
+  padding: 0 0 0 22px;
+}
+
+.message-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.message-user .message-role { color: var(--user-accent); }
+.message-assistant .message-role { color: var(--accent); }
+
+.message-role-model {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.message-timestamp {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ============================================================
+   Markdown Content
+   ============================================================ */
+.md-content {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.md-content > *:first-child { margin-top: 0; }
+.md-content > *:last-child { margin-bottom: 0; }
+
+.md-content h1, .md-content h2, .md-content h3,
+.md-content h4, .md-content h5, .md-content h6 {
+  color: var(--text);
+  font-weight: 600;
+  margin: 20px 0 8px;
+  line-height: 1.3;
+}
+
+.md-content h1 { font-size: 1.5em; }
+.md-content h2 { font-size: 1.3em; }
+.md-content h3 { font-size: 1.15em; }
+.md-content h4 { font-size: 1.05em; }
+
+.md-content p { margin: 8px 0; }
+
+.md-content ul, .md-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.md-content li { margin: 3px 0; }
+.md-content li > p { margin: 4px 0; }
+
+.md-content blockquote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.md-content code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.md-content pre {
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.md-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.md-content table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  width: 100%;
+  font-size: 13.5px;
+}
+
+.md-content th, .md-content td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md-content th {
+  background: var(--surface-raised);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.md-content img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+.md-content a {
+  color: var(--user-accent);
+}
+
+.md-content strong { color: var(--text); }
+
+/* ============================================================
+   Thinking Block
+   ============================================================ */
+.thinking-block {
+  margin: 8px 0;
+}
+
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-faint);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all var(--transition);
+  user-select: none;
+}
+
+.thinking-toggle:hover {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--surface-overlay);
+}
+
+.thinking-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--transition);
+}
+
+.thinking-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
+.thinking-content {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s ease,
+              margin 0.3s ease;
+  margin-top: 0;
+}
+
+.thinking-content.expanded {
+  max-height: 5000px;
+  opacity: 1;
+  margin-top: 10px;
+}
+
+.thinking-content-inner {
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================================
+   Tool Call Cards
+   ============================================================ */
+.tool-calls-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.tool-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.tool-card:hover {
+  border-color: var(--border);
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.tool-card-header:hover {
+  background: var(--surface-overlay);
+}
+
+.tool-card-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+}
+
+.tool-card-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-card-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+
+.tool-card.expanded .tool-card-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.tool-card-status.success {
+  color: var(--green);
+  background: var(--green-dim);
+}
+
+.tool-card-status.error {
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.tool-card-status.pending {
+  color: var(--yellow);
+  background: var(--yellow-dim);
+}
+
+.tool-card-body {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s ease;
+}
+
+.tool-card.expanded .tool-card-body {
+  max-height: 8000px;
+  opacity: 1;
+}
+
+.tool-card-body-inner {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Tool input display */
+.tool-input {
+  margin-top: 10px;
+}
+
+.tool-input-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.tool-command {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.tool-command .prompt {
+  color: var(--green);
+  user-select: none;
+}
+
+/* Tool output display */
+.tool-output {
+  margin-top: 10px;
+}
+
+.tool-output-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-output-lines {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tool-output-content {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--bg);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.tool-output-content.error-output {
+  color: var(--red);
+  border-left: 3px solid var(--red);
+}
+
+/* Collapsible output within tool card */
+.tool-output-collapsible {
+  position: relative;
+}
+
+.tool-output-collapsible.collapsed .tool-output-content {
+  max-height: none;
+  overflow: hidden;
+}
+
+.tool-output-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--transition);
+  user-select: none;
+}
+
+.tool-output-expand:hover {
+  color: var(--text-muted);
+}
+
+/* Diff display for edit tool */
+.diff-display {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  line-height: 1.55;
+  margin-top: 8px;
+}
+
+.diff-line {
+  padding: 1px 14px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diff-line.removed {
+  background: rgba(224, 64, 64, 0.10);
+  color: var(--red);
+}
+
+.diff-line.added {
+  background: rgba(48, 192, 80, 0.10);
+  color: var(--green);
+}
+
+.diff-line.context {
+  color: var(--text-faint);
+}
+
+.diff-separator {
+  padding: 2px 14px;
+  color: var(--text-faint);
+  font-size: 11px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  margin: 2px 0;
+}
+
+/* ============================================================
+   Inline Image
+   ============================================================ */
+.inline-image {
+  margin: 10px 0;
+}
+
+.inline-image img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* ============================================================
+   System Notices (model change, branch summary, label, etc.)
+   ============================================================ */
+.system-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 16px;
+  margin: 4px 0;
+  animation: fadeIn 0.3s ease;
+}
+
+.system-notice-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.system-notice-content {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.system-notice-content svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.5;
+}
+
+.system-notice-label {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Stats Bar
+   ============================================================ */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  margin-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  font-size: 12px;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.stat-item strong {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 640px) {
+  .header-inner {
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .header-divider { display: none; }
+
+  .header-meta { display: none; }
+
+  .header-session-name {
+    font-size: 13px;
+  }
+
+  .main {
+    padding: 16px 14px 60px;
+  }
+
+  .message {
+    padding: 14px 16px;
+  }
+
+  .md-content {
+    font-size: 14px;
+  }
+
+  .tool-card-name {
+    font-size: 12px;
+  }
+
+  .landing h1 {
+    font-size: 22px;
+  }
+
+  .landing-usage {
+    padding: 18px 20px;
+  }
+
+  .landing-usage code {
+    font-size: 11.5px;
+  }
+}
+
+/* ============================================================
+   Highlight.js overrides
+   ============================================================ */
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* ============================================================
+   Utility
+   ============================================================ */
+.hidden { display: none !important; }
+
+.fade-in {
+  animation: fadeIn 0.35s ease;
+}
+
+/* ============================================================
+   Syntax-highlighted code in tool output
+   ============================================================ */
+.tool-output-content pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.tool-output-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     Header
+     ============================================================ -->
+<header class="header">
+  <div class="header-inner">
+    <a href="https://go-kit.dev" class="header-logo" title="Kit">
+      <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="28" height="28" rx="6" fill="#e03030"/>
+        <text x="14" y="20" text-anchor="middle" fill="white" font-family="system-ui,sans-serif" font-size="16" font-weight="700">K</text>
+      </svg>
+      Kit
+    </a>
+    <div class="header-divider"></div>
+    <div class="header-session-info">
+      <span id="header-session-name" class="header-session-name"></span>
+    </div>
+    <div class="header-meta" id="header-meta">
+      <span id="header-date" class="header-badge hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.75a.75.75 0 0 1 1.5 0V3h5V1.75a.75.75 0 0 1 1.5 0V3h1.25A1.75 1.75 0 0 1 15 4.75v8.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25v-8.5A1.75 1.75 0 0 1 2.75 3H4V1.75ZM2.5 7.5v5.75c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V7.5Z"/></svg>
+        <span id="header-date-text"></span>
+      </span>
+      <span id="header-model" class="header-badge hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11Zm-.75-8.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM8 7a.75.75 0 0 0-.75.75v3.5a.75.75 0 0 0 1.5 0v-3.5A.75.75 0 0 0 8 7Z"/></svg>
+        <span id="header-model-text"></span>
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================
+     Main Content Area
+     ============================================================ -->
+<main class="main" id="main">
+
+  <!-- Landing (no session ID) -->
+  <div id="landing" class="landing hidden">
+    <svg class="landing-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+      <polyline points="14,2 14,8 20,8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+      <line x1="10" y1="9" x2="8" y2="9"/>
+    </svg>
+    <h1>Kit Session Viewer</h1>
+    <p>
+      View shared Kit coding sessions in the browser.
+      Provide a GitHub Gist ID in the URL hash or a direct URL to a <code>.jsonl</code> session file.
+    </p>
+    <div class="landing-usage">
+      <h3>Usage</h3>
+      <code>go-kit.dev/session/<span>#GIST_ID</span></code>
+      <code>go-kit.dev/session/<span>?url=https://…/session.jsonl</span></code>
+    </div>
+    <p class="landing-footer">
+      <a href="https://go-kit.dev">go-kit.dev</a> · Share sessions with <code>kit share</code>
+    </p>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading" class="loading-container hidden">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading session…</div>
+  </div>
+
+  <!-- Error State -->
+  <div id="error" class="error-container hidden">
+    <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="15" y1="9" x2="9" y2="15"/>
+      <line x1="9" y1="9" x2="15" y2="15"/>
+    </svg>
+    <div class="error-title" id="error-title">Error</div>
+    <div class="error-message" id="error-message"></div>
+    <button class="error-retry" onclick="location.reload()">Try Again</button>
+  </div>
+
+  <!-- Conversation -->
+  <div id="conversation" class="conversation hidden"></div>
+
+</main>
+
+<!-- ============================================================
+     Scripts
+     ============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // ============================================================
+  //  DOM Refs
+  // ============================================================
+  const $landing = document.getElementById('landing');
+  const $loading = document.getElementById('loading');
+  const $error = document.getElementById('error');
+  const $errorTitle = document.getElementById('error-title');
+  const $errorMessage = document.getElementById('error-message');
+  const $conversation = document.getElementById('conversation');
+  const $headerSessionName = document.getElementById('header-session-name');
+  const $headerDate = document.getElementById('header-date');
+  const $headerDateText = document.getElementById('header-date-text');
+  const $headerModel = document.getElementById('header-model');
+  const $headerModelText = document.getElementById('header-model-text');
+
+  // ============================================================
+  //  Configure marked
+  // ============================================================
+  marked.setOptions({
+    gfm: true,
+    breaks: true,
+    highlight: function(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(code, { language: lang }).value; }
+        catch (_) { /* fall through */ }
+      }
+      try { return hljs.highlightAuto(code).value; }
+      catch (_) { return code; }
+    }
+  });
+
+  // ============================================================
+  //  Utility
+  // ============================================================
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatTimestamp(ts) {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch { return ts; }
+  }
+
+  function formatDate(ts) {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      return d.toLocaleDateString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric'
+      });
+    } catch { return ''; }
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString(undefined, {
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch { return ''; }
+  }
+
+  function lineCount(str) {
+    if (!str) return 0;
+    return str.split('\n').length;
+  }
+
+  function truncateStr(str, maxLen) {
+    if (!str) return '';
+    if (str.length <= maxLen) return str;
+    return str.slice(0, maxLen) + '…';
+  }
+
+  function tryParseJSON(str) {
+    if (!str) return null;
+    try { return JSON.parse(str); } catch { return null; }
+  }
+
+  // Guess a file extension for syntax highlighting
+  function extToLang(filePath) {
+    if (!filePath) return '';
+    const ext = filePath.split('.').pop().toLowerCase();
+    const map = {
+      'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+      'py': 'python', 'rb': 'ruby', 'go': 'go', 'rs': 'rust', 'java': 'java',
+      'c': 'c', 'h': 'c', 'cpp': 'cpp', 'hpp': 'cpp', 'cs': 'csharp',
+      'sh': 'bash', 'bash': 'bash', 'zsh': 'bash', 'fish': 'bash',
+      'json': 'json', 'yaml': 'yaml', 'yml': 'yaml', 'toml': 'toml',
+      'xml': 'xml', 'html': 'html', 'htm': 'html', 'css': 'css', 'scss': 'scss',
+      'sql': 'sql', 'md': 'markdown', 'dockerfile': 'dockerfile',
+      'tf': 'hcl', 'hcl': 'hcl', 'lua': 'lua', 'r': 'r',
+      'swift': 'swift', 'kt': 'kotlin', 'kts': 'kotlin', 'scala': 'scala',
+      'php': 'php', 'pl': 'perl', 'pm': 'perl', 'ex': 'elixir', 'exs': 'elixir',
+      'erl': 'erlang', 'hs': 'haskell', 'clj': 'clojure', 'vim': 'vim',
+      'proto': 'protobuf', 'graphql': 'graphql', 'gql': 'graphql',
+      'makefile': 'makefile', 'cmake': 'cmake', 'zig': 'zig', 'nim': 'nim',
+      'dart': 'dart', 'vue': 'xml', 'svelte': 'xml'
+    };
+    return map[ext] || '';
+  }
+
+  function highlightCode(code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try { return hljs.highlight(code, { language: lang }).value; }
+      catch (_) { /* fall through */ }
+    }
+    return escapeHtml(code);
+  }
+
+  // ============================================================
+  //  UI State
+  // ============================================================
+  function showView(view) {
+    $landing.classList.add('hidden');
+    $loading.classList.add('hidden');
+    $error.classList.add('hidden');
+    $conversation.classList.add('hidden');
+    view.classList.remove('hidden');
+  }
+
+  function showError(title, message) {
+    $errorTitle.textContent = title;
+    $errorMessage.textContent = message;
+    showView($error);
+  }
+
+  // ============================================================
+  //  JSONL Parsing
+  // ============================================================
+  function parseJSONL(text) {
+    const lines = text.trim().split('\n');
+    const entries = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        entries.push(JSON.parse(trimmed));
+      } catch (e) {
+        console.warn('Skipping invalid JSONL line:', trimmed.slice(0, 100), e);
+      }
+    }
+    return entries;
+  }
+
+  // ============================================================
+  //  Tree Building — extract active path from root to latest leaf
+  // ============================================================
+  function buildActivePath(entries) {
+    if (entries.length === 0) return { header: null, path: [] };
+
+    let header = null;
+    const nodeMap = new Map(); // id -> entry
+    const childrenMap = new Map(); // parentId -> [entry, ...]
+
+    for (const entry of entries) {
+      if (entry.type === 'session') {
+        header = entry;
+        continue;
+      }
+      if (entry.id) {
+        nodeMap.set(entry.id, entry);
+      }
+      const pid = entry.parent_id || '';
+      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+      childrenMap.get(pid).push(entry);
+    }
+
+    // Find the latest leaf: walk from roots, always taking the last child
+    // to build the "active path"
+    function findActivePath() {
+      let currentParent = '';
+      const path = [];
+
+      while (true) {
+        const children = childrenMap.get(currentParent);
+        if (!children || children.length === 0) break;
+        // Pick the last child (most recent in JSONL order)
+        const next = children[children.length - 1];
+        path.push(next);
+        currentParent = next.id || '';
+      }
+
+      return path;
+    }
+
+    return { header, path: findActivePath() };
+  }
+
+  // ============================================================
+  //  Rendering — Main entry point
+  // ============================================================
+  function renderSession(entries) {
+    const { header, path } = buildActivePath(entries);
+    $conversation.innerHTML = '';
+
+    // Update header
+    if (header) {
+      document.title = 'Kit Session' + (header.id ? ` · ${header.id.slice(0, 8)}` : '');
+      if (header.timestamp) {
+        $headerDate.classList.remove('hidden');
+        $headerDateText.textContent = formatDate(header.timestamp);
+      }
+    }
+
+    // Collect session_info entries for session name
+    const sessionInfo = path.find(e => e.type === 'session_info');
+    if (sessionInfo && sessionInfo.name) {
+      $headerSessionName.textContent = sessionInfo.name;
+      document.title = sessionInfo.name + ' — Kit Session';
+    } else if (header && header.id) {
+      $headerSessionName.textContent = 'Session ' + header.id.slice(0, 8);
+    } else {
+      $headerSessionName.textContent = 'Session';
+    }
+
+    // Track the current model for assistant messages
+    let currentModel = '';
+    let currentProvider = '';
+
+    // Find first model from assistant messages
+    for (const entry of path) {
+      if (entry.type === 'message' && entry.role === 'assistant' && entry.model) {
+        currentModel = entry.model;
+        currentProvider = entry.provider || '';
+        break;
+      }
+    }
+
+    if (currentModel) {
+      $headerModel.classList.remove('hidden');
+      $headerModelText.textContent = currentModel;
+    }
+
+    // Build a map of tool_call_id -> tool_result for matching
+    const toolResultMap = new Map();
+    for (const entry of path) {
+      if (entry.type === 'message' && entry.role === 'tool' && entry.parts) {
+        for (const part of entry.parts) {
+          if (part.type === 'tool_result' && part.data && part.data.tool_call_id) {
+            toolResultMap.set(part.data.tool_call_id, part.data);
+          }
+        }
+      }
+    }
+
+    // Stats
+    let userMsgCount = 0;
+    let assistantMsgCount = 0;
+    let toolCallCount = 0;
+
+    // Render each entry
+    for (const entry of path) {
+      if (entry.type === 'message') {
+        if (entry.role === 'user') {
+          userMsgCount++;
+          renderUserMessage(entry);
+        } else if (entry.role === 'assistant') {
+          assistantMsgCount++;
+          if (entry.model) {
+            currentModel = entry.model;
+            currentProvider = entry.provider || '';
+          }
+          const tc = renderAssistantMessage(entry, toolResultMap, currentModel, currentProvider);
+          toolCallCount += tc;
+        }
+        // tool-role messages are handled inline with assistant messages
+      } else if (entry.type === 'model_change') {
+        currentModel = entry.model_id || entry.model || '';
+        currentProvider = entry.provider || '';
+        if (currentModel) {
+          $headerModel.classList.remove('hidden');
+          $headerModelText.textContent = currentModel;
+        }
+        renderSystemNotice('Model changed to', `${currentProvider ? currentProvider + '/' : ''}${currentModel}`, 'model');
+      } else if (entry.type === 'branch_summary') {
+        renderSystemNotice('Branch', entry.summary ? truncateStr(entry.summary, 80) : 'branched', 'branch');
+      } else if (entry.type === 'label') {
+        renderSystemNotice('Label', entry.label || '', 'label');
+      } else if (entry.type === 'session_info') {
+        // Already handled above for header
+      }
+    }
+
+    // Stats bar at bottom
+    if (userMsgCount > 0 || assistantMsgCount > 0) {
+      const statsHtml = `
+        <div class="stats-bar fade-in">
+          <div class="stat-item"><strong>${userMsgCount}</strong> user message${userMsgCount !== 1 ? 's' : ''}</div>
+          <div class="stat-item"><strong>${assistantMsgCount}</strong> assistant message${assistantMsgCount !== 1 ? 's' : ''}</div>
+          ${toolCallCount > 0 ? `<div class="stat-item"><strong>${toolCallCount}</strong> tool call${toolCallCount !== 1 ? 's' : ''}</div>` : ''}
+          ${header && header.cwd ? `<div class="stat-item">📁 ${escapeHtml(header.cwd)}</div>` : ''}
+        </div>`;
+      $conversation.insertAdjacentHTML('beforeend', statsHtml);
+    }
+
+    showView($conversation);
+  }
+
+  // ============================================================
+  //  Render User Message
+  // ============================================================
+  function renderUserMessage(entry) {
+    const el = document.createElement('div');
+    el.className = 'message message-user fade-in';
+
+    let html = `<div class="message-role">
+      <span>User</span>
+      <span class="message-timestamp">${formatTime(entry.timestamp)}</span>
+    </div>`;
+
+    if (entry.parts) {
+      for (const part of entry.parts) {
+        if (part.type === 'text' && part.data && part.data.text) {
+          html += `<div class="md-content">${renderMarkdown(part.data.text)}</div>`;
+        } else if (part.type === 'image' && part.data) {
+          html += renderInlineImage(part.data);
+        }
+      }
+    }
+
+    el.innerHTML = html;
+    $conversation.appendChild(el);
+  }
+
+  // ============================================================
+  //  Render Assistant Message — returns number of tool calls
+  // ============================================================
+  function renderAssistantMessage(entry, toolResultMap, model, provider) {
+    const el = document.createElement('div');
+    el.className = 'message message-assistant fade-in';
+    let toolCallCount = 0;
+
+    const modelLabel = model ? model : '';
+
+    let html = `<div class="message-role">
+      <span>Assistant</span>
+      ${modelLabel ? `<span class="message-role-model">${escapeHtml(modelLabel)}</span>` : ''}
+      <span class="message-timestamp">${formatTime(entry.timestamp)}</span>
+    </div>`;
+
+    if (entry.parts) {
+      // Collect text parts and tool calls separately for better grouping
+      let pendingToolCalls = [];
+
+      for (const part of entry.parts) {
+        if (part.type === 'text' && part.data && part.data.text) {
+          // Flush any pending tool calls first
+          if (pendingToolCalls.length > 0) {
+            html += renderToolCallsGroup(pendingToolCalls, toolResultMap);
+            toolCallCount += pendingToolCalls.length;
+            pendingToolCalls = [];
+          }
+          html += `<div class="md-content">${renderMarkdown(part.data.text)}</div>`;
+        } else if (part.type === 'reasoning' && part.data && part.data.thinking) {
+          // Flush any pending tool calls first
+          if (pendingToolCalls.length > 0) {
+            html += renderToolCallsGroup(pendingToolCalls, toolResultMap);
+            toolCallCount += pendingToolCalls.length;
+            pendingToolCalls = [];
+          }
+          html += renderThinkingBlock(part.data.thinking);
+        } else if (part.type === 'tool_call' && part.data) {
+          pendingToolCalls.push(part.data);
+        } else if (part.type === 'image' && part.data) {
+          if (pendingToolCalls.length > 0) {
+            html += renderToolCallsGroup(pendingToolCalls, toolResultMap);
+            toolCallCount += pendingToolCalls.length;
+            pendingToolCalls = [];
+          }
+          html += renderInlineImage(part.data);
+        }
+        // finish parts are silently ignored
+      }
+
+      // Flush remaining tool calls
+      if (pendingToolCalls.length > 0) {
+        html += renderToolCallsGroup(pendingToolCalls, toolResultMap);
+        toolCallCount += pendingToolCalls.length;
+      }
+    }
+
+    el.innerHTML = html;
+    $conversation.appendChild(el);
+
+    // Wire up interactive elements
+    wireCollapsibles(el);
+
+    return toolCallCount;
+  }
+
+  // ============================================================
+  //  Render Markdown
+  // ============================================================
+  function renderMarkdown(text) {
+    if (!text) return '';
+    try {
+      return marked.parse(text);
+    } catch (e) {
+      return `<p>${escapeHtml(text)}</p>`;
+    }
+  }
+
+  // ============================================================
+  //  Render Thinking Block
+  // ============================================================
+  function renderThinkingBlock(thinking) {
+    const id = 'thinking-' + Math.random().toString(36).slice(2, 10);
+    return `
+      <div class="thinking-block">
+        <div class="thinking-toggle" data-target="${id}" onclick="toggleThinking(this)">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>
+          Thinking…
+        </div>
+        <div class="thinking-content" id="${id}">
+          <div class="thinking-content-inner">${escapeHtml(thinking)}</div>
+        </div>
+      </div>`;
+  }
+
+  // ============================================================
+  //  Render Inline Image
+  // ============================================================
+  function renderInlineImage(data) {
+    if (!data.data) return '';
+    const mediaType = data.media_type || 'image/png';
+    return `<div class="inline-image"><img src="data:${escapeHtml(mediaType)};base64,${data.data}" alt="Attached image"></div>`;
+  }
+
+  // ============================================================
+  //  Render Tool Calls Group
+  // ============================================================
+  function renderToolCallsGroup(toolCalls, toolResultMap) {
+    let html = '<div class="tool-calls-group">';
+    for (const tc of toolCalls) {
+      const result = toolResultMap.get(tc.id);
+      html += renderToolCard(tc, result);
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // ============================================================
+  //  Tool Card Rendering
+  // ============================================================
+  const toolIcons = {
+    'bash': '⚡',
+    'read': '📄',
+    'write': '✏️',
+    'edit': '🔧',
+    'grep': '🔍',
+    'find': '📁',
+    'ls': '📂',
+    'spawn_subagent': '🤖',
+    'fetch': '🌐',
+    'todo': '✅'
+  };
+
+  function renderToolCard(tc, result) {
+    const name = tc.name || 'tool';
+    const icon = toolIcons[name] || '🔧';
+    const input = tryParseJSON(tc.input) || {};
+    const isError = result && result.is_error;
+    const hasResult = !!result;
+    const isFinished = tc.finished !== false;
+
+    // Determine header label
+    let headerLabel = '';
+    let bodyHtml = '';
+
+    switch (name) {
+      case 'bash':
+        headerLabel = formatBashHeader(input);
+        bodyHtml = renderBashBody(input, result);
+        break;
+      case 'read':
+        headerLabel = formatReadHeader(input);
+        bodyHtml = renderReadBody(input, result);
+        break;
+      case 'write':
+        headerLabel = formatWriteHeader(input);
+        bodyHtml = renderWriteBody(input, result);
+        break;
+      case 'edit':
+        headerLabel = formatEditHeader(input);
+        bodyHtml = renderEditBody(input, result);
+        break;
+      case 'grep':
+        headerLabel = formatGrepHeader(input);
+        bodyHtml = renderGenericBody(input, result);
+        break;
+      case 'find':
+        headerLabel = formatFindHeader(input);
+        bodyHtml = renderGenericBody(input, result);
+        break;
+      case 'ls':
+        headerLabel = formatLsHeader(input);
+        bodyHtml = renderGenericBody(input, result);
+        break;
+      case 'spawn_subagent':
+        headerLabel = formatSubagentHeader(input);
+        bodyHtml = renderSubagentBody(input, result);
+        break;
+      default:
+        headerLabel = name;
+        bodyHtml = renderGenericBody(input, result);
+    }
+
+    // Status badge
+    let statusHtml = '';
+    if (isError) {
+      statusHtml = '<span class="tool-card-status error">error</span>';
+    } else if (!isFinished) {
+      statusHtml = '<span class="tool-card-status pending">running</span>';
+    } else if (hasResult) {
+      statusHtml = '<span class="tool-card-status success">done</span>';
+    }
+
+    // Should expand by default? Expand if short output or error
+    const resultContent = result ? (result.content || '') : '';
+    const resultLines = lineCount(resultContent);
+    const defaultExpanded = isError || resultLines <= 5;
+
+    const chevronSvg = '<svg class="tool-card-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>';
+
+    return `
+      <div class="tool-card${defaultExpanded ? ' expanded' : ''}" data-tool-collapsible>
+        <div class="tool-card-header" onclick="toggleToolCard(this)">
+          <span class="tool-card-icon">${icon}</span>
+          <span class="tool-card-name">${escapeHtml(headerLabel)}</span>
+          ${statusHtml}
+          ${chevronSvg}
+        </div>
+        <div class="tool-card-body">
+          <div class="tool-card-body-inner">
+            ${bodyHtml}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // -------- Bash --------
+  function formatBashHeader(input) {
+    const cmd = input.command || '';
+    return '$ ' + truncateStr(cmd.split('\n')[0], 80);
+  }
+
+  function renderBashBody(input, result) {
+    let html = '';
+    const cmd = input.command || '';
+
+    // Command
+    html += `<div class="tool-input">
+      <div class="tool-command"><span class="prompt">$ </span>${escapeHtml(cmd)}</div>
+    </div>`;
+
+    // Output
+    if (result) {
+      html += renderToolOutput(result.content, result.is_error);
+    }
+
+    return html;
+  }
+
+  // -------- Read --------
+  function formatReadHeader(input) {
+    const path = input.path || 'file';
+    let label = path;
+    if (input.offset || input.limit) {
+      const parts = [];
+      if (input.offset) parts.push(`offset:${input.offset}`);
+      if (input.limit) parts.push(`limit:${input.limit}`);
+      label += ` (${parts.join(', ')})`;
+    }
+    return label;
+  }
+
+  function renderReadBody(input, result) {
+    let html = '';
+    const filePath = input.path || '';
+
+    if (result && result.content) {
+      const lang = extToLang(filePath);
+      const lines = lineCount(result.content);
+      const shouldCollapse = lines > 15;
+
+      html += `<div class="tool-output">
+        <div class="tool-output-label">
+          Content
+          <span class="tool-output-lines">${lines} line${lines !== 1 ? 's' : ''}</span>
+        </div>
+        ${renderCodeOutput(result.content, lang, result.is_error, shouldCollapse, 15)}
+      </div>`;
+    } else if (result && result.is_error) {
+      html += renderToolOutput(result.content, true);
+    }
+
+    return html;
+  }
+
+  // -------- Write --------
+  function formatWriteHeader(input) {
+    const path = input.path || 'file';
+    return path;
+  }
+
+  function renderWriteBody(input, result) {
+    let html = '';
+    const content = input.content || '';
+    const filePath = input.path || '';
+    const lang = extToLang(filePath);
+    const lines = lineCount(content);
+    const shouldCollapse = lines > 15;
+
+    html += `<div class="tool-input">
+      <div class="tool-input-label">Content written</div>
+      ${renderCodeOutput(content, lang, false, shouldCollapse, 15)}
+    </div>`;
+
+    if (result && result.is_error) {
+      html += renderToolOutput(result.content, true);
+    }
+
+    return html;
+  }
+
+  // -------- Edit --------
+  function formatEditHeader(input) {
+    return input.path || 'file';
+  }
+
+  function renderEditBody(input, result) {
+    let html = '';
+    const oldText = input.old_text || '';
+    const newText = input.new_text || '';
+
+    html += '<div class="tool-input">';
+    html += '<div class="tool-input-label">Changes</div>';
+    html += '<div class="diff-display">';
+
+    // Render old text lines as removed
+    if (oldText) {
+      const oldLines = oldText.split('\n');
+      for (const line of oldLines) {
+        html += `<div class="diff-line removed">- ${escapeHtml(line)}</div>`;
+      }
+    }
+
+    // Separator
+    if (oldText && newText) {
+      html += '<div class="diff-separator">───</div>';
+    }
+
+    // Render new text lines as added
+    if (newText) {
+      const newLines = newText.split('\n');
+      for (const line of newLines) {
+        html += `<div class="diff-line added">+ ${escapeHtml(line)}</div>`;
+      }
+    }
+
+    html += '</div></div>';
+
+    if (result && result.is_error) {
+      html += renderToolOutput(result.content, true);
+    }
+
+    return html;
+  }
+
+  // -------- Grep --------
+  function formatGrepHeader(input) {
+    let label = input.pattern || '';
+    if (input.glob) label += ` (${input.glob})`;
+    if (input.path && input.path !== '.') label += ` in ${input.path}`;
+    return label;
+  }
+
+  // -------- Find --------
+  function formatFindHeader(input) {
+    let label = input.pattern || '';
+    if (input.path && input.path !== '.') label += ` in ${input.path}`;
+    return label;
+  }
+
+  // -------- Ls --------
+  function formatLsHeader(input) {
+    return input.path || '.';
+  }
+
+  // -------- Subagent --------
+  function formatSubagentHeader(input) {
+    const task = input.task || '';
+    return truncateStr(task, 80);
+  }
+
+  function renderSubagentBody(input, result) {
+    let html = '';
+    const task = input.task || '';
+
+    html += `<div class="tool-input">
+      <div class="tool-input-label">Task</div>
+      <div class="md-content">${renderMarkdown(task)}</div>
+    </div>`;
+
+    if (result) {
+      html += renderToolOutput(result.content, result.is_error);
+    }
+
+    return html;
+  }
+
+  // -------- Generic --------
+  function renderGenericBody(input, result) {
+    let html = '';
+
+    // Show input as formatted JSON if there's no specific handler
+    if (Object.keys(input).length > 0) {
+      html += `<div class="tool-input">
+        <div class="tool-input-label">Input</div>
+        <div class="tool-command">${escapeHtml(JSON.stringify(input, null, 2))}</div>
+      </div>`;
+    }
+
+    if (result) {
+      html += renderToolOutput(result.content, result.is_error);
+    }
+
+    return html;
+  }
+
+  // -------- Output Helpers --------
+  function renderToolOutput(content, isError, collapseThreshold) {
+    if (!content && !isError) return '';
+    const text = content || '(no output)';
+    const lines = lineCount(text);
+    const threshold = collapseThreshold || 10;
+    const shouldCollapse = lines > threshold;
+
+    return `<div class="tool-output">
+      <div class="tool-output-label">
+        Output
+        <span class="tool-output-lines">${lines} line${lines !== 1 ? 's' : ''}</span>
+      </div>
+      ${shouldCollapse ? renderCollapsibleOutput(text, isError, threshold) : `<div class="tool-output-content${isError ? ' error-output' : ''}">${escapeHtml(text)}</div>`}
+    </div>`;
+  }
+
+  function renderCollapsibleOutput(content, isError, visibleLines) {
+    const lines = content.split('\n');
+    const preview = lines.slice(0, visibleLines).join('\n');
+    const id = 'out-' + Math.random().toString(36).slice(2, 10);
+
+    return `<div class="tool-output-collapsible collapsed" id="${id}">
+      <div class="tool-output-content${isError ? ' error-output' : ''}" data-full="${escapeAttr(content)}" data-preview="${escapeAttr(preview)}">${escapeHtml(preview)}</div>
+      <div class="tool-output-expand" onclick="toggleOutput(this, '${id}')">
+        ▼ Show all ${lines.length} lines
+      </div>
+    </div>`;
+  }
+
+  function renderCodeOutput(content, lang, isError, shouldCollapse, visibleLines) {
+    if (shouldCollapse) {
+      const lines = content.split('\n');
+      const preview = lines.slice(0, visibleLines).join('\n');
+      const id = 'code-' + Math.random().toString(36).slice(2, 10);
+
+      return `<div class="tool-output-collapsible collapsed" id="${id}">
+        <div class="tool-output-content${isError ? ' error-output' : ''}" data-full-lang="${escapeHtml(lang)}" data-full="${escapeAttr(content)}" data-preview="${escapeAttr(preview)}">${lang ? highlightCode(preview, lang) : escapeHtml(preview)}</div>
+        <div class="tool-output-expand" onclick="toggleOutput(this, '${id}')">
+          ▼ Show all ${lines.length} lines
+        </div>
+      </div>`;
+    }
+
+    const highlighted = lang ? highlightCode(content, lang) : escapeHtml(content);
+    return `<div class="tool-output-content${isError ? ' error-output' : ''}">${highlighted}</div>`;
+  }
+
+  function escapeAttr(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '&#10;')
+      .replace(/\r/g, '&#13;');
+  }
+
+  // ============================================================
+  //  System Notices
+  // ============================================================
+  function renderSystemNotice(label, value, type) {
+    let iconSvg = '';
+    switch (type) {
+      case 'model':
+        iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11Z"/></svg>';
+        break;
+      case 'branch':
+        iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"/></svg>';
+        break;
+      case 'label':
+        iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg>';
+        break;
+    }
+
+    const el = document.createElement('div');
+    el.className = 'system-notice fade-in';
+    el.innerHTML = `
+      <div class="system-notice-line"></div>
+      <div class="system-notice-content">
+        ${iconSvg}
+        <span class="system-notice-label">${escapeHtml(label)}</span>
+        ${escapeHtml(value)}
+      </div>
+      <div class="system-notice-line"></div>`;
+    $conversation.appendChild(el);
+  }
+
+  // ============================================================
+  //  Interactive Handlers (global scope)
+  // ============================================================
+  window.toggleThinking = function(el) {
+    const targetId = el.getAttribute('data-target');
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const isExpanded = target.classList.contains('expanded');
+    target.classList.toggle('expanded');
+    el.classList.toggle('expanded');
+  };
+
+  window.toggleToolCard = function(headerEl) {
+    const card = headerEl.closest('.tool-card');
+    if (!card) return;
+    card.classList.toggle('expanded');
+  };
+
+  window.toggleOutput = function(expandEl, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const contentEl = container.querySelector('.tool-output-content');
+    if (!contentEl) return;
+
+    const isCollapsed = container.classList.contains('collapsed');
+
+    if (isCollapsed) {
+      // Expand
+      const fullContent = contentEl.getAttribute('data-full')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#10;/g, '\n')
+        .replace(/&#13;/g, '\r');
+      const lang = contentEl.getAttribute('data-full-lang');
+      contentEl.innerHTML = lang ? highlightCode(fullContent, lang) : escapeHtml(fullContent);
+      container.classList.remove('collapsed');
+      expandEl.innerHTML = '▲ Collapse';
+    } else {
+      // Collapse
+      const previewContent = contentEl.getAttribute('data-preview')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#10;/g, '\n')
+        .replace(/&#13;/g, '\r');
+      const lang = contentEl.getAttribute('data-full-lang');
+      contentEl.innerHTML = lang ? highlightCode(previewContent, lang) : escapeHtml(previewContent);
+      container.classList.add('collapsed');
+      const fullContent = contentEl.getAttribute('data-full')
+        .replace(/&#10;/g, '\n');
+      const totalLines = fullContent.split('\n').length;
+      expandEl.innerHTML = `▼ Show all ${totalLines} lines`;
+    }
+  };
+
+  // Wire up collapsible elements after insertion
+  function wireCollapsibles(el) {
+    // Highlight any code blocks in markdown
+    el.querySelectorAll('.md-content pre code').forEach(block => {
+      hljs.highlightElement(block);
+    });
+  }
+
+  // ============================================================
+  //  Fetching Logic
+  // ============================================================
+  async function fetchFromGist(gistId) {
+    const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        throw new Error(`Gist not found. Make sure the gist ID is correct and the gist is public.`);
+      }
+      if (resp.status === 403) {
+        throw new Error(`GitHub API rate limit exceeded. Try again in a few minutes or use a direct URL.`);
+      }
+      throw new Error(`GitHub API error: ${resp.status} ${resp.statusText}`);
+    }
+
+    const gist = await resp.json();
+    const file = Object.values(gist.files).find(f => f.filename.endsWith('.jsonl'));
+    if (!file) {
+      throw new Error(`No .jsonl file found in this gist. Make sure the gist contains a Kit session file.`);
+    }
+
+    // If the file is truncated, fetch the raw URL
+    if (file.truncated) {
+      const rawResp = await fetch(file.raw_url);
+      if (!rawResp.ok) throw new Error(`Failed to fetch full gist content: ${rawResp.status}`);
+      return await rawResp.text();
+    }
+
+    return file.content;
+  }
+
+  async function fetchFromURL(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      throw new Error(`Failed to fetch session from URL: ${resp.status} ${resp.statusText}`);
+    }
+    return await resp.text();
+  }
+
+  // ============================================================
+  //  Main Init
+  // ============================================================
+  async function init() {
+    const hash = window.location.hash.slice(1).trim();
+    const params = new URLSearchParams(window.location.search);
+    const urlParam = params.get('url');
+
+    if (!hash && !urlParam) {
+      showView($landing);
+      return;
+    }
+
+    showView($loading);
+
+    try {
+      let content;
+
+      if (hash) {
+        content = await fetchFromGist(hash);
+      } else if (urlParam) {
+        content = await fetchFromURL(urlParam);
+      }
+
+      if (!content || !content.trim()) {
+        throw new Error('The session file is empty.');
+      }
+
+      const entries = parseJSONL(content);
+      if (entries.length === 0) {
+        throw new Error('No valid JSONL entries found in the session file.');
+      }
+
+      renderSession(entries);
+    } catch (err) {
+      console.error('Session load error:', err);
+      showError('Failed to load session', err.message || 'An unknown error occurred.');
+    }
+  }
+
+  // Re-init on hash change
+  window.addEventListener('hashchange', () => {
+    init();
+  });
+
+  // Start
+  init();
+})();
+</script>
+</body>
+</html>
