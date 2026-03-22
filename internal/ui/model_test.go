@@ -112,15 +112,16 @@ func newTestAppModel(ctrl AppController) (*AppModel, *stubStreamComponent, *stub
 	stream := &stubStreamComponent{}
 	input := &stubInputComponent{}
 	m := &AppModel{
-		state:       stateInput,
-		appCtrl:     ctrl,
-		stream:      stream,
-		input:       input,
-		renderer:    newMessageRenderer(80, false),
-		compactMode: false,
-		modelName:   "test-model",
-		width:       80,
-		height:      24,
+		state:                 stateInput,
+		appCtrl:               ctrl,
+		stream:                stream,
+		input:                 input,
+		renderer:              newMessageRenderer(80, false),
+		compactMode:           false,
+		modelName:             "test-model",
+		width:                 80,
+		height:                24,
+		streamingBashMaxLines: 50, // Initialize buffer cap like NewAppModel does
 	}
 	return m, stream, input
 }
@@ -599,6 +600,82 @@ func TestToolResult_printsAndStartsSpinner(t *testing.T) {
 	}
 	if se, ok := stream.lastMsg.(app.SpinnerEvent); !ok || !se.Show {
 		t.Fatalf("expected SpinnerEvent{Show:true}, got %T", stream.lastMsg)
+	}
+}
+
+// TestToolOutputEvent_accumulatesBashOutput verifies that ToolOutputEvent
+// accumulates stdout and stderr lines into the streaming bash output buffers.
+func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	// Send stdout chunk.
+	m = sendMsg(m, app.ToolOutputEvent{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Chunk:      "line one\n",
+		IsStderr:   false,
+	})
+
+	if len(m.streamingBashOutput) != 1 || m.streamingBashOutput[0] != "line one\n" {
+		t.Fatalf("expected streamingBashOutput=['line one\\n'], got %v", m.streamingBashOutput)
+	}
+	if len(m.streamingBashStderr) != 0 {
+		t.Fatalf("expected empty streamingBashStderr, got %v", m.streamingBashStderr)
+	}
+
+	// Send another stdout chunk.
+	m = sendMsg(m, app.ToolOutputEvent{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Chunk:      "line two\n",
+		IsStderr:   false,
+	})
+
+	if len(m.streamingBashOutput) != 2 {
+		t.Fatalf("expected 2 stdout lines, got %d", len(m.streamingBashOutput))
+	}
+
+	// Send stderr chunk.
+	m = sendMsg(m, app.ToolOutputEvent{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Chunk:      "error: something failed\n",
+		IsStderr:   true,
+	})
+
+	if len(m.streamingBashStderr) != 1 {
+		t.Fatalf("expected 1 stderr line, got %d", len(m.streamingBashStderr))
+	}
+	if m.streamingBashStderr[0] != "error: something failed\n" {
+		t.Fatalf("expected stderr 'error: something failed\\n', got %q", m.streamingBashStderr[0])
+	}
+}
+
+// TestToolResult_clearsStreamingBashOutput verifies that ToolResultEvent clears
+// the streaming bash output buffers since the final result will be printed.
+func TestToolResult_clearsStreamingBashOutput(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	// Accumulate some bash output.
+	m.streamingBashOutput = []string{"output line"}
+	m.streamingBashStderr = []string{"error line"}
+
+	_, _ = m.Update(app.ToolResultEvent{
+		ToolName: "bash",
+		ToolArgs: `{"cmd":"ls"}`,
+		Result:   "output line\nerror line\n",
+		IsError:  false,
+	})
+
+	if len(m.streamingBashOutput) != 0 {
+		t.Fatalf("expected streamingBashOutput cleared, got %v", m.streamingBashOutput)
+	}
+	if len(m.streamingBashStderr) != 0 {
+		t.Fatalf("expected streamingBashStderr cleared, got %v", m.streamingBashStderr)
 	}
 }
 

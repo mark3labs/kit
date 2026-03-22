@@ -39,6 +39,8 @@ const (
 	EventCompaction EventType = "compaction"
 	// EventReasoningDelta fires for each streaming reasoning/thinking chunk.
 	EventReasoningDelta EventType = "reasoning_delta"
+	// EventToolOutput fires when a tool produces streaming output chunks.
+	EventToolOutput EventType = "tool_output"
 )
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,17 @@ type ReasoningDeltaEvent struct {
 
 // EventType implements Event.
 func (e ReasoningDeltaEvent) EventType() EventType { return EventReasoningDelta }
+
+// ToolOutputEvent fires when a tool produces streaming output chunks (e.g., bash output).
+type ToolOutputEvent struct {
+	ToolCallID string
+	ToolName   string
+	Chunk      string
+	IsStderr   bool
+}
+
+// EventType implements Event.
+func (e ToolOutputEvent) EventType() EventType { return EventToolOutput }
 
 // MessageEndEvent fires when the assistant message is complete.
 type MessageEndEvent struct {

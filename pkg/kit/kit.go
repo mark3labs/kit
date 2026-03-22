@@ -1478,6 +1478,15 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(delta string) {
 			m.events.emit(ReasoningDeltaEvent{Delta: delta})
 		},
+		func(toolCallID, toolName, chunk string, isStderr bool) {
+			// Emit tool output chunk event for streaming bash output
+			m.events.emit(ToolOutputEvent{
+				ToolCallID: toolCallID,
+				ToolName:   toolName,
+				Chunk:      chunk,
+				IsStderr:   isStderr,
+			})
+		},
 	)
 }
 

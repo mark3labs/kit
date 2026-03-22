@@ -54,6 +54,19 @@ type ToolResultEvent struct {
 	IsError bool
 }
 
+// ToolOutputEvent is sent when a tool produces streaming output chunks (e.g., bash output).
+// This allows the TUI to display tool output as it arrives, before the tool completes.
+type ToolOutputEvent struct {
+	// ToolCallID is the stable identifier for the tool call producing output.
+	ToolCallID string
+	// ToolName is the name of the tool producing output.
+	ToolName string
+	// Chunk is a piece of the tool's output text.
+	Chunk string
+	// IsStderr indicates whether this chunk came from stderr.
+	IsStderr bool
+}
+
 // ToolCallContentEvent is sent when a step includes text content alongside tool calls.
 // This allows the TUI to display assistant commentary that accompanies tool usage.
 type ToolCallContentEvent struct {

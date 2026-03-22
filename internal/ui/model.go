@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -560,6 +561,16 @@ type AppModel struct {
 	// width and height track the terminal dimensions.
 	width  int
 	height int
+
+	// streamingBashOutput holds the current streaming bash output lines.
+	// Lines are accumulated as they arrive and displayed in the stream region.
+	streamingBashOutput []string
+	// streamingBashStderr holds stderr lines separately (rendered differently).
+	streamingBashStderr []string
+	// streamingBashMaxLines caps how many lines to accumulate to prevent memory issues.
+	streamingBashMaxLines int
+	// streamingMu protects the streaming bash output fields from concurrent access.
+	streamingMu sync.RWMutex
 }
 
 // --------------------------------------------------------------------------
@@ -669,6 +680,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.skillItems = opts.SkillItems
 	m.mcpToolCount = opts.MCPToolCount
 	m.extensionToolCount = opts.ExtensionToolCount
+
+	// Initialize streaming bash output buffer.
+	m.streamingBashMaxLines = 50 // cap to prevent memory issues
 
 	// Wire up child components now that we have the concrete implementations.
 	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
@@ -1312,11 +1326,34 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.ToolResultEvent:
 		// Buffer tool result for scrollback.
 		m.printToolResult(msg)
+		// Clear streaming bash output since tool completed.
+		m.streamingMu.Lock()
+		m.streamingBashOutput = nil
+		m.streamingBashStderr = nil
+		m.streamingMu.Unlock()
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
 			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
 			cmds = append(cmds, cmd)
 		}
+
+	case app.ToolOutputEvent:
+		// Accumulate streaming bash output for display.
+		m.streamingMu.Lock()
+		if msg.IsStderr {
+			m.streamingBashStderr = append(m.streamingBashStderr, msg.Chunk)
+			// Cap stderr lines to prevent memory issues.
+			if len(m.streamingBashStderr) > m.streamingBashMaxLines {
+				m.streamingBashStderr = m.streamingBashStderr[len(m.streamingBashStderr)-m.streamingBashMaxLines:]
+			}
+		} else {
+			m.streamingBashOutput = append(m.streamingBashOutput, msg.Chunk)
+			// Cap stdout lines to prevent memory issues.
+			if len(m.streamingBashOutput) > m.streamingBashMaxLines {
+				m.streamingBashOutput = m.streamingBashOutput[len(m.streamingBashOutput)-m.streamingBashMaxLines:]
+			}
+		}
+		m.streamingMu.Unlock()
 
 	case app.ToolCallContentEvent:
 		// In streaming mode this text was already delivered via StreamChunkEvents
@@ -1670,24 +1707,80 @@ func (m *AppModel) View() tea.View {
 
 // renderStream returns the stream region content.
 func (m *AppModel) renderStream() string {
-	if m.stream == nil {
+	theme := GetTheme()
+
+	var parts []string
+
+	// Stream component content (LLM streaming text, reasoning, spinner placeholder).
+	if m.stream != nil {
+		if content := m.stream.View().Content; content != "" {
+			parts = append(parts, content)
+		}
+	}
+
+	// Streaming bash output section (if any).
+	bashView := m.renderStreamingBashOutput(theme)
+	if bashView != "" {
+		parts = append(parts, bashView)
+	}
+
+	if len(parts) == 0 {
 		return ""
 	}
 
 	// Show canceling warning if set.
 	if m.canceling {
-		theme := GetTheme()
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
 			Bold(true).
 			Render("  ⚠ Press ESC again to cancel")
-		return lipgloss.JoinVertical(lipgloss.Left,
-			m.stream.View().Content,
-			warning,
-		)
+		parts = append(parts, warning)
 	}
 
-	return m.stream.View().Content
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderStreamingBashOutput renders accumulated streaming bash output (stdout + stderr)
+// below the LLM streaming text. Returns empty string if no bash output is present.
+func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
+	m.streamingMu.RLock()
+	stdoutLines := make([]string, len(m.streamingBashOutput))
+	copy(stdoutLines, m.streamingBashOutput)
+	stderrLines := make([]string, len(m.streamingBashStderr))
+	copy(stderrLines, m.streamingBashStderr)
+	m.streamingMu.RUnlock()
+
+	if len(stdoutLines) == 0 && len(stderrLines) == 0 {
+		return ""
+	}
+
+	const lineIndent = "  "
+	width := m.width - 2 // Account for indent and padding
+
+	outputStyle := lipgloss.NewStyle().
+		Background(theme.CodeBg).
+		PaddingLeft(1)
+
+	stderrStyle := lipgloss.NewStyle().
+		Foreground(theme.Error).
+		Background(theme.CodeBg).
+		PaddingLeft(1)
+
+	var lines []string
+
+	// Render stdout lines.
+	for _, line := range stdoutLines {
+		styled := outputStyle.Width(width - len(lineIndent)).Render(line)
+		lines = append(lines, lineIndent+styled)
+	}
+
+	// Render stderr lines with error styling.
+	for _, line := range stderrLines {
+		styled := stderrStyle.Width(width - len(lineIndent)).Render(line)
+		lines = append(lines, lineIndent+styled)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // renderStatusBar renders a persistent single-line status bar below the input.

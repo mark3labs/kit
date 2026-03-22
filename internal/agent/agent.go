@@ -63,6 +63,13 @@ type ToolCallContentHandler func(content string)
 // ReasoningDeltaHandler is a function type for handling streaming reasoning/thinking deltas.
 type ReasoningDeltaHandler func(delta string)
 
+// ToolOutputHandler is a function type for handling streaming tool output chunks.
+// Used by tools like bash to stream output as it arrives rather than waiting
+// for the command to complete. The isStderr flag indicates if the chunk
+// contains stderr output.
+// Note: This is an alias for core.ToolOutputCallback to avoid import cycles.
+type ToolOutputHandler = core.ToolOutputCallback
+
 // Agent represents an AI agent with core tool integration using the fantasy library.
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
 // fantasy.AgentTool implementations — no MCP layer, no serialization overhead.
@@ -218,7 +225,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
@@ -229,7 +236,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 	onStreamingResponse StreamingResponseHandler,
 	onReasoningDelta ReasoningDeltaHandler,
+	onToolOutput ToolOutputHandler,
 ) (*GenerateWithLoopResult, error) {
+
+	// Inject tool output handler into context for use by core tools (e.g., bash).
+	if onToolOutput != nil {
+		ctx = core.ContextWithToolOutputCallback(ctx, onToolOutput)
+	}
 
 	// Fantasy requires the current user input as Prompt, with prior messages as history.
 	// Extract the last user message text and files as the prompt, and pass everything

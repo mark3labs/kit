@@ -1,16 +1,40 @@
 package core
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
 )
+
+// ToolOutputCallback is the signature for streaming tool output.
+// It receives tool call ID, tool name, output chunk, and whether it's stderr.
+type ToolOutputCallback func(toolCallID, toolName, chunk string, isStderr bool)
+
+// contextKey is a custom type for context keys to avoid collisions.
+type contextKey string
+
+const toolOutputCallbackKey contextKey = "toolOutputCallback"
+
+// ContextWithToolOutputCallback returns a new context with the tool output callback set.
+func ContextWithToolOutputCallback(ctx context.Context, callback ToolOutputCallback) context.Context {
+	return context.WithValue(ctx, toolOutputCallbackKey, callback)
+}
+
+// toolOutputCallbackFromContext retrieves the tool output callback from context.
+func toolOutputCallbackFromContext(ctx context.Context) ToolOutputCallback {
+	if cb, ok := ctx.Value(toolOutputCallbackKey).(ToolOutputCallback); ok {
+		return cb
+	}
+	return nil
+}
 
 const defaultBashTimeout = 120 * time.Second
 const maxBashTimeout = 600 * time.Second
@@ -99,32 +123,118 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 	cmd.Env = append(os.Environ(), "SHELL="+bashPath)
 
-	var stdout, stderr bytes.Buffer
+	// Get the output callback if present (for streaming support)
+	outputCallback := toolOutputCallbackFromContext(ctx)
+
+	if outputCallback != nil {
+		// Streaming mode: use pipes to capture output as it arrives
+		return executeBashStreaming(cmdCtx, call, cmd, outputCallback)
+	}
+
+	// Non-streaming mode: collect all output at once (original behavior)
+	return executeBashBuffered(cmdCtx, call, cmd)
+}
+
+// executeBashBuffered collects all output before returning (original behavior).
+func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd) (fantasy.ToolResponse, error) {
+	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if cmdCtx.Err() == context.DeadlineExceeded {
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("command timed out after %v", timeout)), nil
+			return fantasy.NewTextErrorResponse("command timed out"), nil
 		}
 	}
 
-	// Build result
-	var result strings.Builder
-	if stdout.Len() > 0 {
-		result.WriteString(stdout.String())
+	return buildBashResponse(stdout.String(), stderr.String(), exitCode)
+}
+
+// executeBashStreaming streams output as it arrives via the callback.
+func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd, outputCallback ToolOutputCallback) (fantasy.ToolResponse, error) {
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fantasy.NewTextErrorResponse("failed to create stdout pipe"), nil
 	}
-	if stderr.Len() > 0 {
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fantasy.NewTextErrorResponse("failed to create stderr pipe"), nil
+	}
+
+	// Start command execution
+	if err := cmd.Start(); err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err)), nil
+	}
+
+	// Stream stdout and stderr concurrently
+	var wg sync.WaitGroup
+	var stdoutChunks, stderrChunks []string
+
+	streamOutput := func(reader io.Reader, isStderr bool) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(reader)
+		// Use larger buffer for long lines
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 1024*1024)
+
+		for scanner.Scan() {
+			chunk := scanner.Text()
+			// Send chunk to UI
+			outputCallback(call.ID, "bash", chunk, isStderr)
+			// Collect for final result
+			if isStderr {
+				stderrChunks = append(stderrChunks, chunk)
+			} else {
+				stdoutChunks = append(stdoutChunks, chunk)
+			}
+			// Check if context was cancelled
+			select {
+			case <-cmdCtx.Done():
+				return
+			default:
+			}
+		}
+	}
+
+	wg.Add(2)
+	go streamOutput(stdoutPipe, false)
+	go streamOutput(stderrPipe, true)
+
+	// Wait for both streams to complete
+	wg.Wait()
+
+	// Wait for command to finish
+	err = cmd.Wait()
+
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else if cmdCtx.Err() == context.DeadlineExceeded {
+			return fantasy.NewTextErrorResponse("command timed out"), nil
+		}
+	}
+
+	return buildBashResponse(strings.Join(stdoutChunks, "\n"), strings.Join(stderrChunks, "\n"), exitCode)
+}
+
+// buildBashResponse constructs the final tool response from stdout/stderr.
+func buildBashResponse(stdout, stderr string, exitCode int) (fantasy.ToolResponse, error) {
+	var result strings.Builder
+	if stdout != "" {
+		result.WriteString(stdout)
+	}
+	if stderr != "" {
 		if result.Len() > 0 {
 			result.WriteString("\n")
 		}
 		result.WriteString("STDERR:\n")
-		result.WriteString(stderr.String())
+		result.WriteString(stderr)
 	}
 	if exitCode != 0 {
 		if result.Len() > 0 {

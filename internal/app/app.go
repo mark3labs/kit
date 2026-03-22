@@ -672,6 +672,13 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 			sendFn(StreamChunkEvent{Content: ev.Chunk})
 		case kit.ReasoningDeltaEvent:
 			sendFn(ReasoningChunkEvent{Delta: ev.Delta})
+		case kit.ToolOutputEvent:
+			sendFn(ToolOutputEvent{
+				ToolCallID: ev.ToolCallID,
+				ToolName:   ev.ToolName,
+				Chunk:      ev.Chunk,
+				IsStderr:   ev.IsStderr,
+			})
 		}
 	}))
 
