@@ -183,6 +183,10 @@ type Config struct {
 
 	// TLS configuration
 	TLSSkipVerify bool `json:"tls-skip-verify,omitempty" yaml:"tls-skip-verify,omitempty"`
+
+	// Prompt templates configuration
+	Prompts           []string `json:"prompts,omitempty" yaml:"prompts,omitempty"`
+	NoPromptTemplates bool     `json:"no-prompt-templates,omitempty" yaml:"no-prompt-templates,omitempty"`
 }
 
 // GetTransportType returns the transport type for the server config, mapping

@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -249,6 +250,11 @@ type AppModelOptions struct {
 	// appear in autocomplete, /help, and are dispatched when submitted.
 	ExtensionCommands []ExtensionCommand
 
+	// PromptTemplates are user-defined prompt templates loaded from ~/.kit/prompts/,
+	// .kit/prompts/, or explicit --prompt-template paths. They appear in autocomplete
+	// and are expanded when submitted (e.g., /review → full prompt text).
+	PromptTemplates []*prompts.PromptTemplate
+
 	// ContextPaths lists absolute paths of loaded context files (e.g.
 	// AGENTS.md). Displayed in the [Context] startup section.
 	ContextPaths []string
@@ -444,6 +450,10 @@ type AppModel struct {
 	// handleExtensionCommand when submitted.
 	extensionCommands []ExtensionCommand
 
+	// promptTemplates are user-defined prompt templates for expansion.
+	// They appear in autocomplete and are expanded when submitted.
+	promptTemplates []*prompts.PromptTemplate
+
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
 
@@ -635,6 +645,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
+	m.promptTemplates = opts.PromptTemplates
 	m.getWidgets = opts.GetWidgets
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
@@ -675,6 +686,17 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 				Description: ec.Description,
 				Category:    "Extensions",
 				Complete:    ec.Complete,
+			})
+		}
+	}
+
+	// Merge prompt templates into the InputComponent's autocomplete source.
+	if ic, ok := m.input.(*InputComponent); ok && len(opts.PromptTemplates) > 0 {
+		for _, tpl := range opts.PromptTemplates {
+			ic.commands = append(ic.commands, SlashCommand{
+				Name:        "/" + tpl.Name,
+				Description: tpl.Description,
+				Category:    "Prompts",
 			})
 		}
 	}
@@ -1158,6 +1180,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handleExtensionCommand(msg.Text); cmd != nil {
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
+		}
+
+		// Expand prompt templates. If the input matches a template name,
+		// substitute arguments and use the expanded content as the prompt.
+		if expanded, ok := m.expandPromptTemplate(msg.Text); ok {
+			msg.Text = expanded
 		}
 
 		// Regular prompt — forward to the app layer.
@@ -2084,6 +2112,33 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 	// and doesn't fall through to the regular prompt path. The Cmd itself
 	// is a no-op.
 	return func() tea.Msg { return nil }
+}
+
+// expandPromptTemplate checks if the submitted text matches a prompt template
+// and returns the expanded content with arguments substituted.
+// Returns (expanded, true) if a template was found and expanded, (text, false) otherwise.
+func (m *AppModel) expandPromptTemplate(text string) (string, bool) {
+	if len(m.promptTemplates) == 0 {
+		return text, false
+	}
+
+	// Only consider inputs that look like slash commands.
+	if !strings.HasPrefix(text, "/") {
+		return text, false
+	}
+
+	// Split: "/templatename arg1 arg2" → name="/templatename", args="arg1 arg2"
+	name, args, _ := strings.Cut(text, " ")
+	name = strings.TrimPrefix(name, "/")
+
+	// Find matching template
+	for _, tpl := range m.promptTemplates {
+		if tpl.Name == name {
+			return tpl.Expand(args), true
+		}
+	}
+
+	return text, false
 }
 
 // printHelpMessage renders the help text listing all available slash commands.
