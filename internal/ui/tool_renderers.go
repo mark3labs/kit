@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	udiff "github.com/aymanbagabas/go-udiff"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 // Maximum visible lines per tool type before truncation.
@@ -322,6 +323,8 @@ func renderLsBody(toolResult string, width int) string {
 
 	var result []string
 	for _, line := range lines {
+		// Truncate before styling to prevent wrapping.
+		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
 		styled := codeStyle.Width(codeWidth).Render(line)
 		result = append(result, indent+styled)
 	}
@@ -431,7 +434,8 @@ func renderCodeBlock(content, fileName string, width int) string {
 		// If this line has no line number, it's a metadata/footer line (e.g. truncation notice).
 		if p.lineNum == "" {
 			// Render footer lines with code background but no gutter
-			footer := codeStyle.Width(codeWidth).Render(p.code)
+			truncatedFooter := truncateLine(p.code, codeWidth-1) // account for PaddingLeft(1)
+			footer := codeStyle.Width(codeWidth).Render(truncatedFooter)
 			emptyGutter := gutterStyle.Width(gutterWidth).Render("")
 			result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footer))
 			continue
@@ -445,6 +449,9 @@ func renderCodeBlock(content, fileName string, width int) string {
 		} else {
 			codePart = p.code
 		}
+		// Truncate the (possibly ANSI-highlighted) line to fit within
+		// the code column, preventing lipgloss from wrapping it.
+		codePart = truncateLine(codePart, codeWidth-1) // account for PaddingLeft(1)
 		styledCode := codeStyle.Width(codeWidth).Render(codePart)
 
 		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
@@ -528,6 +535,9 @@ func renderWriteBlock(content, fileName string, width int) string {
 		} else {
 			codePart = line
 		}
+		// Truncate the (possibly ANSI-highlighted) line to fit within
+		// the code column, preventing lipgloss from wrapping it.
+		codePart = truncateLine(codePart, codeWidth-1) // account for PaddingLeft(1)
 		styledCode := writeStyle.Width(codeWidth).Render(codePart)
 
 		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
@@ -578,12 +588,11 @@ func renderBashBody(toolResult string, width int) string {
 	}
 
 	const lineIndent = "  "
-	// Cap individual line length to prevent long lines (e.g. minified
-	// JSON) from wrapping into hundreds of visual rows.
-	maxLineChars := (width - len(lineIndent)) * 3 // allow some wrapping but not unbounded
-	if maxLineChars < 200 {
-		maxLineChars = 200
-	}
+	// Truncate individual lines to the available width so they never wrap.
+	// This mirrors Crush's approach: truncate, don't wrap.
+	lineWidth := max(width-len(lineIndent), 20)
+	// Account for PaddingLeft(1) on the output/stderr styles
+	maxLineChars := lineWidth - 1
 
 	var rendered []string
 	inStderr := false
@@ -690,23 +699,28 @@ func syntaxHighlight(source, fileName string) string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// padRight pads s with spaces to exactly width characters.
+// padRight pads s with spaces to exactly width visual characters.
+// This is ANSI-aware: it measures the visual width of s (ignoring escape
+// codes and accounting for wide characters) before padding or truncating.
 func padRight(s string, width int) string {
-	if len(s) >= width {
-		return s[:width]
+	w := xansi.StringWidth(s)
+	if w >= width {
+		return xansi.Truncate(s, width, "")
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-w)
 }
 
-// truncateLine truncates a line to maxWidth, adding "…" if truncated.
+// truncateLine truncates a line to maxWidth visual characters, adding "…"
+// if truncated. This is ANSI-aware: escape codes are preserved and wide
+// characters are measured correctly.
 func truncateLine(s string, maxWidth int) string {
-	if len(s) <= maxWidth {
+	if xansi.StringWidth(s) <= maxWidth {
 		return s
 	}
 	if maxWidth < 2 {
-		return s[:maxWidth]
+		return xansi.Truncate(s, maxWidth, "")
 	}
-	return s[:maxWidth-1] + "…"
+	return xansi.Truncate(s, maxWidth, "…")
 }
 
 // ---------------------------------------------------------------------------
@@ -866,12 +880,10 @@ func renderBashCompact(toolResult string, width int) string {
 		display = display[:maxLines]
 	}
 
-	// Truncate each line to available width
+	// Truncate each line to available width (ANSI-aware)
 	lineMax := max(width-4, 20)
 	for i, line := range display {
-		if len(line) > lineMax {
-			display[i] = line[:lineMax-3] + "..."
-		}
+		display[i] = truncateLine(line, lineMax)
 	}
 
 	summary := strings.Join(display, "\n")
@@ -948,10 +960,8 @@ func extractSubagentPreview(content string, maxLines, maxWidth int) string {
 			continue
 		}
 
-		// Truncate long lines
-		if len(trimmed) > maxWidth {
-			trimmed = trimmed[:maxWidth-3] + "..."
-		}
+		// Truncate long lines (ANSI-aware)
+		trimmed = truncateLine(trimmed, maxWidth)
 		preview = append(preview, trimmed)
 
 		if len(preview) >= maxLines {
