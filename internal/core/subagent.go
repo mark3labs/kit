@@ -130,8 +130,16 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		), fmt.Errorf("no subagent spawner in context")
 	}
 
+	// Detach from the parent's deadline so the subagent gets its own
+	// independent timeout (applied downstream in Kit.Subagent). The parent
+	// context may carry a tight deadline from the LLM generation loop or
+	// other tool timeouts that would prematurely kill the subagent.
+	// We preserve context values (spawner, etc.) and propagate parent
+	// cancellation (e.g. user hits Ctrl-C) without inheriting the deadline.
+	spawnCtx := detachedWithCancel(ctx)
+
 	// Spawn in-process subagent.
-	result, err := spawner(ctx, call.ID, args.Task, args.Model, args.SystemPrompt, timeout)
+	result, err := spawner(spawnCtx, call.ID, args.Task, args.Model, args.SystemPrompt, timeout)
 	if err != nil || result.Error != nil {
 		spawnErr := err
 		if spawnErr == nil {
@@ -162,6 +170,39 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	}
 
 	return resp, nil
+}
+
+// ---------------------------------------------------------------------------
+// Context detachment
+// ---------------------------------------------------------------------------
+
+// detachedContext wraps a parent context, preserving its values but removing
+// its deadline and cancellation. This allows the subagent to have its own
+// independent timeout while still accessing context-stored values (e.g. the
+// subagent spawner function).
+type detachedContext struct {
+	parent context.Context
+}
+
+func (d detachedContext) Deadline() (time.Time, bool)       { return time.Time{}, false }
+func (d detachedContext) Done() <-chan struct{}              { return nil }
+func (d detachedContext) Err() error                        { return nil }
+func (d detachedContext) Value(key any) any                 { return d.parent.Value(key) }
+
+// detachedWithCancel creates a new context that inherits values from the
+// parent but has no deadline. Cancellation of the parent is propagated: when
+// the parent is cancelled the returned context is also cancelled, but the
+// parent's deadline does not apply to the child.
+func detachedWithCancel(parent context.Context) context.Context {
+	child, cancel := context.WithCancel(detachedContext{parent: parent})
+	go func() {
+		select {
+		case <-parent.Done():
+			cancel()
+		case <-child.Done():
+		}
+	}()
+	return child
 }
 
 // truncateResponse limits the response length to avoid overwhelming context windows.
