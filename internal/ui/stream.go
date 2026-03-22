@@ -484,6 +484,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 
 	contentStyle := lipgloss.NewStyle().
 		Foreground(theme.Muted).
+		Background(theme.MutedBorder).
 		Italic(true)
 
 	var parts []string
@@ -495,6 +496,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		hidden := len(lines) - maxCollapsedLines
 		hintStyle := lipgloss.NewStyle().
 			Foreground(theme.VeryMuted).
+			Background(theme.MutedBorder).
 			Italic(true)
 		parts = append(parts, hintStyle.Render(fmt.Sprintf("... (%d lines hidden)", hidden)))
 		lines = lines[len(lines)-maxCollapsedLines:]
@@ -517,8 +519,8 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ") +
-			lipgloss.NewStyle().Foreground(theme.Info).Render(durationStr)
+		footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Background(theme.MutedBorder).Render("Thought for ") +
+			lipgloss.NewStyle().Foreground(theme.Info).Background(theme.MutedBorder).Render(durationStr)
 		parts = append(parts, footer)
 	}
 
