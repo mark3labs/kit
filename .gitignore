@@ -1,7 +1,8 @@
 .aider*
 .task/
 .env
-.kit/
+.kit/*
+!.kit/extensions/
 aidocs/
 *.log
 /kit
