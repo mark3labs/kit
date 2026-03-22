@@ -19,6 +19,17 @@ Path separators in the working directory are replaced with `--`. For example, `/
 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
 
+## Compaction
+
+When conversations grow long, Kit can compact them to free up context window space. The compaction system:
+
+- **Non-destructive**: Old messages remain on disk for history; only the LLM context is summarized
+- **File tracking**: Tracks which files were read and modified across compactions
+- **Split-turn handling**: Can summarize large single turns by splitting them
+- **Tool result truncation**: Caps tool output during serialization to stay within token budgets
+
+Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
+
 ## Resuming sessions
 
 ### Continue most recent
@@ -59,6 +70,7 @@ These slash commands are available during an interactive session:
 | `/resume` | Open the session picker to switch sessions |
 | `/export [path]` | Export session as JSONL (auto-generates path if omitted) |
 | `/import <path>` | Import and switch to a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
 | `/fork` | Branch from an earlier message |
 | `/new` | Start a fresh session |
@@ -72,3 +84,25 @@ kit --no-session
 ```
 
 This is useful for one-off prompts, scripting, and subagent patterns where persistence isn't needed.
+
+## Sharing sessions
+
+The `/share` command uploads your session JSONL to GitHub Gist (via the `gh` CLI) and prints a shareable viewer URL:
+
+```
+/share
+```
+
+The viewer is available at `https://go-kit.dev/session/#GIST_ID` and supports all message types including text, reasoning blocks, tool calls, images, and model changes.
+
+You can also load any JSONL session via URL parameter: `https://go-kit.dev/session/?url=https://example.com/session.jsonl`
+
+## Preferences persistence
+
+Kit automatically saves your preferences across sessions to `~/.config/kit/preferences.yml`:
+
+- **Theme** — Set via `/theme <name>`
+- **Model** — Set via `/model <name>` or the model selector
+- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling
+
+These preferences are restored on next launch. Precedence: CLI flag > config file > saved preference > default.

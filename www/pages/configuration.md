@@ -43,6 +43,8 @@ stream: true
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `stop-sequences` | list | — | Custom stop sequences |
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
+| `prompt-templates` | bool | `true` | Enable prompt template loading |
+| `prompt-template` | string | — | Specific template to load by name |
 
 ## Environment variables
 
@@ -114,3 +116,17 @@ theme: "./themes/my-custom-theme.yml"
 ```
 
 See [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.
+
+## Preferences persistence
+
+Kit automatically saves your UI preferences across sessions to `~/.config/kit/preferences.yml`:
+
+- **Theme** — Set via `/theme <name>` or `ctx.SetTheme()`
+- **Model** — Set via `/model <name>` or the model selector
+- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling
+
+These preferences are restored on next launch. Precedence (highest to lowest):
+1. CLI flags (`--model`, `--thinking-level`)
+2. Config file (`model:`, `thinking-level:`)
+3. Saved preferences (`~/.config/kit/preferences.yml`)
+4. Default values

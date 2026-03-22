@@ -19,7 +19,7 @@ Switch themes at runtime with the `/theme` command:
 
 Run `/theme` with no arguments to list all available themes.
 
-**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks.
+**Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks. This persistence also applies to **model** and **thinking level** selections.
 
 ## Built-in themes
 

@@ -21,7 +21,9 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, spawn_subagent - no MCP overhead
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
-- **Theming**: 22 built-in color themes (KITT, Catppuccin, Dracula, Nord, etc.) with runtime switching and custom theme files
+- **Theming**: 22 built-in color themes (KITT, Catppuccin, Dracula, Nord, etc.) with runtime switching, persistence, and custom theme files
+- **Model Persistence**: Model and thinking level selections are automatically saved and restored across sessions
+- **Prompt Templates**: Create reusable prompt templates with shell-style argument substitution
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management**: Tree-based conversation history with branching support
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
@@ -70,6 +72,9 @@ kit @main.go @test.go "Review these files"
 
 # Continue the most recent session
 kit --continue
+
+# Model and thinking level selections are automatically persisted
+# across sessions and restored on next launch
 
 # Use specific model
 kit --model anthropic/claude-sonnet-latest
@@ -177,6 +182,8 @@ mcpServers:
 # Extensions
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
+--prompt-template        Load a specific prompt template by name
+--no-prompt-templates    Disable prompt template loading
 
 # Generation parameters
 --max-tokens             Maximum tokens in response (default: 4096)
@@ -232,7 +239,7 @@ Kit ships with 22 built-in color themes that control all UI elements. Switch at 
 /theme tokyonight
 ```
 
-Theme selections are automatically saved and restored on next launch (stored in `~/.config/kit/preferences.yml`).
+Theme selections are automatically saved and restored on next launch (stored in `~/.config/kit/preferences.yml`). This persistence also applies to **model** and **thinking level** selections — all are saved together and restored on startup.
 
 ### Custom themes
 
@@ -329,6 +336,7 @@ See the `examples/extensions/` directory:
 - `subagent-widget.go` - Multi-agent orchestration with status widget
 - `subagent-test.go` - Subagent testing utilities
 - `summarize.go` - Conversation summarization
+- `go-edit-lint.go` - LSP diagnostic integration with TUI visibility
 - `tool-logger.go` - Log all tool calls
 - `neon-theme.go` - Custom theme registration and switching
 - `tool-renderer-demo.go` - Custom tool call rendering
@@ -391,6 +399,32 @@ func TestMyExtension(t *testing.T) {
 
 See `examples/extensions/tool-logger_test.go` for a complete example with 14 test cases covering tool calls, input handling, and session lifecycle.
 
+### Prompt Templates
+
+Create reusable prompt templates with shell-style argument substitution. Templates are loaded from `~/.kit/prompts/*.md` and `.kit/prompts/*.md`.
+
+**Example template** (`~/.kit/prompts/review.md`):
+```markdown
+---
+description: Review code for issues
+---
+Review the following code for bugs and security issues.
+Focus on $1 specifically.
+```
+
+**Usage:**
+```
+/review error handling
+```
+
+**Argument placeholders:**
+- `$1`, `$2`, etc. — Individual arguments
+- `$@` or `$ARGUMENTS` — All arguments
+- `${@:2}` — Arguments from position 2 onwards
+- `${@:1:3}` — 3 arguments starting at position 1
+
+Disable templates with `--no-prompt-templates` or load a specific template with `--prompt-template <name>`.
+
 ## Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.
@@ -420,6 +454,22 @@ kit -s path/to/session.jsonl
 # Ephemeral mode (no file persistence)
 kit --no-session
 ```
+
+### Interactive Session Commands
+
+During an interactive session, use these slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/name [name]` | Set or display the session's display name |
+| `/session` | Show session info (path, ID, message count) |
+| `/resume` | Open the session picker to switch sessions |
+| `/export [path]` | Export session as JSONL (auto-generates path if omitted) |
+| `/import <path>` | Import and switch to a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
+| `/tree` | Navigate the session tree |
+| `/fork` | Branch from an earlier message |
+| `/new` | Start a fresh session |
 
 ## Go SDK
 

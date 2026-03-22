@@ -45,6 +45,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 |------|-------|---------|-------------|
 | `--extension` | `-e` | — | Load additional extension file(s) (repeatable) |
 | `--no-extensions` | — | `false` | Disable all extensions |
+| `--prompt-template` | — | — | Load a specific prompt template by name |
+| `--no-prompt-templates` | — | `false` | Disable prompt template loading |
 
 ## Generation parameters
 

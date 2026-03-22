@@ -80,11 +80,65 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/session` | Show session info |
 | `/export [path]` | Export session as JSONL (default: auto-generated path) |
 | `/import <path>` | Import a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/quit` | Exit Kit |
 
 ### Prompt history
 
 Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
+
+### Cancelling operations
+
+Press **ESC twice** to cancel the current operation:
+- During a tool call: rolls back the entire turn to maintain API message pairing
+- During streaming: stops the response generation
+
+This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
+
+## Prompt templates
+
+Create reusable prompt templates with shell-style argument substitution. Templates are loaded from `~/.kit/prompts/*.md` and `.kit/prompts/*.md`.
+
+### Creating templates
+
+Templates use YAML frontmatter for metadata and support argument placeholders:
+
+```markdown
+---
+description: Review code for issues
+---
+Review the following code for bugs and security issues.
+Focus on $1 specifically.
+```
+
+Save to `~/.kit/prompts/review.md` or `.kit/prompts/review.md`.
+
+### Using templates
+
+Templates appear as slash commands:
+
+```
+/review error handling
+```
+
+### Argument placeholders
+
+| Placeholder | Description |
+|-------------|-------------|
+| `$1`, `$2`, etc. | Individual arguments by position |
+| `$@`, `$ARGUMENTS` | All arguments joined with spaces |
+| `${@:N}` | Arguments from position N onwards |
+| `${@:N:L}` | L arguments starting at position N |
+
+### CLI flags
+
+```bash
+# Load a specific template by name
+kit --prompt-template review
+
+# Disable template loading
+kit --no-prompt-templates
+```
 
 ## ACP server
 
