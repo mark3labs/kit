@@ -3355,10 +3355,7 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 		lines := strings.Split(displayOutput, "\n")
 		// Cap individual line length to prevent long lines from wrapping
 		// into excessive visual rows.
-		maxLineChars := m.width * 3
-		if maxLineChars < 200 {
-			maxLineChars = 200
-		}
+		maxLineChars := max(m.width*3, 200)
 		for i, line := range lines {
 			if len(line) > maxLineChars {
 				lines[i] = line[:maxLineChars] + "…"
