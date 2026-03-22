@@ -1302,7 +1302,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// print or reset — flushStreamContent() handles it on the next step.
 		// In non-streaming mode (no stream content accumulated), print the text.
 		hasStreamContent := m.stream != nil && m.stream.GetRenderedContent() != ""
-		if !hasStreamContent && msg.Content != "" {
+		if !hasStreamContent && strings.TrimSpace(msg.Content) != "" {
 			m.printAssistantMessage(msg.Content)
 			if m.stream != nil {
 				m.stream.Reset()
@@ -1923,7 +1923,7 @@ func (m *AppModel) printUserMessage(text string) {
 
 // printAssistantMessage renders an assistant message into the scrollback buffer.
 func (m *AppModel) printAssistantMessage(text string) {
-	if text != "" {
+	if strings.TrimSpace(text) != "" {
 		m.appendScrollback(m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName).Content)
 	}
 }
