@@ -140,6 +140,21 @@ const t={frontmatter:{title:"Examples",description:"Catalog of example extension
 </tr>
 </tbody>
 </table>
+<h2 id="themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themes"><span class="icon icon-link"></span></a>Themes</h2>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/neon-theme.go"><code>neon-theme.go</code></a></td>
+<td>Custom theme registration and switching</td>
+</tr>
+</tbody>
+</table>
 <h2 id="multi-agent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#multi-agent"><span class="icon icon-link"></span></a>Multi-agent</h2>
 <table>
 <thead>
@@ -208,7 +223,9 @@ const t={frontmatter:{title:"Examples",description:"Catalog of example extension
 <td>Status bar tool examples</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:"UI and display",id:"ui-and-display"},{depth:2,text:"Workflow and automation",id:"workflow-and-automation"},{depth:2,text:"Interactive features",id:"interactive-features"},{depth:2,text:"Agent and context",id:"agent-and-context"},{depth:2,text:"Multi-agent",id:"multi-agent"},{depth:2,text:"Development",id:"development"},{depth:2,text:"Subdirectory extensions",id:"subdirectory-extensions"}],raw:`
+</table>
+<h2 id="project-local-example"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#project-local-example"><span class="icon icon-link"></span></a>Project-local example</h2>
+<p>The Kit repository also includes a project-local extension at <code>.kit/extensions/go-edit-lint.go</code> that demonstrates running <code>gopls</code> and <code>golangci-lint</code> on Go file edits. This serves as an example of how to create extensions specific to a project by placing them in the <code>.kit/extensions/</code> directory.</p>`,headings:[{depth:2,text:"UI and display",id:"ui-and-display"},{depth:2,text:"Workflow and automation",id:"workflow-and-automation"},{depth:2,text:"Interactive features",id:"interactive-features"},{depth:2,text:"Agent and context",id:"agent-and-context"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Multi-agent",id:"multi-agent"},{depth:2,text:"Development",id:"development"},{depth:2,text:"Subdirectory extensions",id:"subdirectory-extensions"},{depth:2,text:"Project-local example",id:"project-local-example"}],raw:`
 # Extension Examples
 
 Kit ships with a rich set of example extensions in the \`examples/extensions/\` directory. These serve as both documentation and starting points for your own extensions.
@@ -257,6 +274,12 @@ Kit ships with a rich set of example extensions in the \`examples/extensions/\` 
 | [\`summarize.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/summarize.go) | Conversation summarization |
 | [\`lsp-diagnostics.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/lsp-diagnostics.go) | LSP diagnostic integration |
 
+## Themes
+
+| Extension | Description |
+|-----------|-------------|
+| [\`neon-theme.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/neon-theme.go) | Custom theme registration and switching |
+
 ## Multi-agent
 
 | Extension | Description |
@@ -280,4 +303,8 @@ Kit ships with a rich set of example extensions in the \`examples/extensions/\` 
 | [\`kit-kit-agents/\`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-kit-agents) | Multi-agent orchestration example |
 | [\`kit-telegram/\`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-telegram) | Telegram bot integration |
 | [\`status-tools/\`](https://github.com/mark3labs/kit/tree/master/examples/extensions/status-tools) | Status bar tool examples |
+
+## Project-local example
+
+The Kit repository also includes a project-local extension at \`.kit/extensions/go-edit-lint.go\` that demonstrates running \`gopls\` and \`golangci-lint\` on Go file edits. This serves as an example of how to create extensions specific to a project by placing them in the \`.kit/extensions/\` directory.
 `};export{t as default};

@@ -709,7 +709,7 @@ Contributions are welcome! Please see the [contribution guide](https://github.co
 
 ## Lifecycle events
 
-Extensions can hook into 18 lifecycle events:
+Extensions can hook into 20 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -720,6 +720,7 @@ Extensions can hook into 18 lifecycle events:
 | `OnAgentEnd` | Agent loop completed |
 | `OnToolCall` | Tool call requested by the model |
 | `OnToolExecutionStart` | Tool execution beginning |
+| `OnToolOutput` | Streaming tool output chunk (for long-running tools) |
 | `OnToolExecutionEnd` | Tool execution completed |
 | `OnToolResult` | Tool result returned |
 | `OnInput` | User input received |
@@ -731,6 +732,7 @@ Extensions can hook into 18 lifecycle events:
 | `OnBeforeFork` | Before forking a conversation branch |
 | `OnBeforeSessionSwitch` | Before switching sessions |
 | `OnBeforeCompact` | Before conversation compaction |
+| `OnCustomEvent` | Custom inter-extension event received |
 
 ### Example
 
@@ -1036,6 +1038,12 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`summarize.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/summarize.go) | Conversation summarization |
 | [`lsp-diagnostics.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/lsp-diagnostics.go) | LSP diagnostic integration |
 
+## Themes
+
+| Extension | Description |
+|-----------|-------------|
+| [`neon-theme.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/neon-theme.go) | Custom theme registration and switching |
+
 ## Multi-agent
 
 | Extension | Description |
@@ -1059,6 +1067,10 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`kit-kit-agents/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-kit-agents) | Multi-agent orchestration example |
 | [`kit-telegram/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-telegram) | Telegram bot integration |
 | [`status-tools/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/status-tools) | Status bar tool examples |
+
+## Project-local example
+
+The Kit repository also includes a project-local extension at `.kit/extensions/go-edit-lint.go` that demonstrates running `gopls` and `golangci-lint` on Go file edits. This serves as an example of how to create extensions specific to a project by placing them in the `.kit/extensions/` directory.
 
 ---
 

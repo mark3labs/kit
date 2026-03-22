@@ -1,6 +1,6 @@
 const s={frontmatter:{title:"Capabilities",description:"All extension capabilities — lifecycle events, tools, commands, widgets, and more.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 18 lifecycle events:</p>
+<p>Extensions can hook into 20 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -36,6 +36,10 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <tr>
 <td><code>OnToolExecutionStart</code></td>
 <td>Tool execution beginning</td>
+</tr>
+<tr>
+<td><code>OnToolOutput</code></td>
+<td>Streaming tool output chunk (for long-running tools)</td>
 </tr>
 <tr>
 <td><code>OnToolExecutionEnd</code></td>
@@ -80,6 +84,10 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <tr>
 <td><code>OnBeforeCompact</code></td>
 <td>Before conversation compaction</td>
+</tr>
+<tr>
+<td><code>OnCustomEvent</code></td>
+<td>Custom inter-extension event received</td>
 </tr>
 </tbody>
 </table>
@@ -254,7 +262,7 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 
 ## Lifecycle events
 
-Extensions can hook into 18 lifecycle events:
+Extensions can hook into 20 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -265,6 +273,7 @@ Extensions can hook into 18 lifecycle events:
 | \`OnAgentEnd\` | Agent loop completed |
 | \`OnToolCall\` | Tool call requested by the model |
 | \`OnToolExecutionStart\` | Tool execution beginning |
+| \`OnToolOutput\` | Streaming tool output chunk (for long-running tools) |
 | \`OnToolExecutionEnd\` | Tool execution completed |
 | \`OnToolResult\` | Tool result returned |
 | \`OnInput\` | User input received |
@@ -276,6 +285,7 @@ Extensions can hook into 18 lifecycle events:
 | \`OnBeforeFork\` | Before forking a conversation branch |
 | \`OnBeforeSessionSwitch\` | Before switching sessions |
 | \`OnBeforeCompact\` | Before conversation compaction |
+| \`OnCustomEvent\` | Custom inter-extension event received |
 
 ### Example
 

@@ -154,7 +154,7 @@
         "Custom events"
       ],
       "tags": [],
-      "wordCount": 723
+      "wordCount": 742
     },
     {
       "id": "extensions/examples",
@@ -166,12 +166,14 @@
         "Workflow and automation",
         "Interactive features",
         "Agent and context",
+        "Themes",
         "Multi-agent",
         "Development",
-        "Subdirectory extensions"
+        "Subdirectory extensions",
+        "Project-local example"
       ],
       "tags": [],
-      "wordCount": 337
+      "wordCount": 398
     },
     {
       "id": "extensions/loading",
