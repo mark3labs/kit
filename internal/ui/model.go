@@ -1503,6 +1503,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.performFork(msg.targetID, msg.isUser, msg.userText))
 		}
 
+	case shareResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Share failed: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
+		}
+		return m, m.drainScrollback()
+
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
 		switch msg.Level {
@@ -1980,6 +1988,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		return m.handleResumeCommand()
 	case "/export":
 		return m.handleExportCommand("")
+	case "/share":
+		return m.handleShareCommand()
 	case "/import":
 		return m.handleImportCommand("")
 	case "/session":
@@ -2799,6 +2809,93 @@ func (m *AppModel) handleExportCommand(args string) tea.Cmd {
 	return nil
 }
 
+// handleShareCommand uploads the current session as a GitHub Gist and prints
+// a shareable viewer URL. Requires the GitHub CLI (gh) to be installed and
+// authenticated.
+func (m *AppModel) handleShareCommand() tea.Cmd {
+	ts := m.appCtrl.GetTreeSession()
+	if ts == nil {
+		m.printSystemMessage("No tree session active.")
+		return nil
+	}
+
+	srcPath := ts.GetFilePath()
+	if srcPath == "" {
+		m.printSystemMessage("Session is in-memory (not persisted). Nothing to share.")
+		return nil
+	}
+
+	// Check that gh CLI is available.
+	if _, err := exec.LookPath("gh"); err != nil {
+		m.printSystemMessage("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/")
+		return nil
+	}
+
+	// Check that gh is authenticated.
+	authCheck := exec.Command("gh", "auth", "status")
+	if err := authCheck.Run(); err != nil {
+		m.printSystemMessage("GitHub CLI is not logged in. Run 'gh auth login' first.")
+		return nil
+	}
+
+	// Copy session to a temp file with a clean name.
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to read session file: %v", err))
+		return nil
+	}
+
+	name := ts.GetSessionName()
+	if name == "" {
+		name = "session"
+	}
+	// Sanitize for filename.
+	name = strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == ' ' {
+			return '_'
+		}
+		return r
+	}, name)
+
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to create temp file: %v", err))
+		return nil
+	}
+	tmpPath := tmpFile.Name()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
+		return nil
+	}
+	_ = tmpFile.Close()
+
+	m.printSystemMessage("Uploading session to GitHub Gist...")
+
+	// Run gh gist create in background to avoid blocking the UI.
+	return func() tea.Msg {
+		defer func() { _ = os.Remove(tmpPath) }()
+
+		cmd := exec.Command("gh", "gist", "create", tmpPath, "--desc", "Kit session shared via /share")
+		output, err := cmd.Output()
+		if err != nil {
+			return shareResultMsg{err: fmt.Errorf("failed to create gist: %w", err)}
+		}
+
+		// gh outputs the gist URL like: https://gist.github.com/username/abc123def456
+		gistURL := strings.TrimSpace(string(output))
+
+		// Extract gist ID (last path segment).
+		parts := strings.Split(gistURL, "/")
+		gistID := parts[len(parts)-1]
+
+		viewerURL := fmt.Sprintf("https://go-kit.dev/session/#%s", gistID)
+		return shareResultMsg{gistURL: gistURL, viewerURL: viewerURL}
+	}
+}
+
 // handleImportCommand imports a session from a JSONL file.
 // Usage: /import path.jsonl
 func (m *AppModel) handleImportCommand(args string) tea.Cmd {
@@ -2974,6 +3071,13 @@ func cancelTimerCmd() tea.Cmd {
 // --------------------------------------------------------------------------
 // Interactive prompt support
 // --------------------------------------------------------------------------
+
+// shareResultMsg carries the result of an async gist upload.
+type shareResultMsg struct {
+	err       error
+	gistURL   string
+	viewerURL string
+}
 
 // extensionCmdResultMsg carries the result of an asynchronously executed
 // extension slash command. Extension commands run async (via tea.Cmd) so they

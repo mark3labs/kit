@@ -153,6 +153,11 @@ var SlashCommands = []SlashCommand{
 		Category:    "System",
 	},
 	{
+		Name:        "/share",
+		Description: "Share session via GitHub Gist (requires gh CLI)",
+		Category:    "System",
+	},
+	{
 		Name:        "/import",
 		Description: "Import a session from a JSONL file (/import path.jsonl)",
 		Category:    "System",
