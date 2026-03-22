@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"charm.land/fantasy"
+
 	"github.com/mark3labs/kit/internal/compaction"
 )
 
@@ -83,8 +85,10 @@ func (m *Kit) GetContextStats() ContextStats {
 // customInstructions is optional text appended to the summary prompt (e.g.
 // "Focus on the API design decisions"). Pass "" for the default prompt.
 //
-// After compaction, the tree session is cleared and replaced with the
-// compacted messages (summary + preserved recent messages).
+// Compaction is non-destructive: a CompactionEntry is appended to the session
+// tree recording the summary and the first kept entry ID. Old messages remain
+// on disk but are skipped when building the LLM context — the summary is
+// injected in their place.
 func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions, customInstructions string) (*CompactionResult, error) {
 	return m.compactInternal(ctx, opts, customInstructions, false)
 }
@@ -112,7 +116,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 		return nil, fmt.Errorf("cannot compact: need at least 2 messages")
 	}
 
-	// Run before-compact hook — extensions can cancel compaction.
+	// Run before-compact hook — extensions can cancel or provide a custom summary.
 	if m.beforeCompact.hasHooks() {
 		stats := m.GetContextStats()
 		if hookResult := m.beforeCompact.run(BeforeCompactHook{
@@ -121,17 +125,32 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 			UsagePercent:    stats.UsagePercent,
 			MessageCount:    stats.MessageCount,
 			IsAutomatic:     isAutomatic,
-		}); hookResult != nil && hookResult.Cancel {
-			reason := hookResult.Reason
-			if reason == "" {
-				reason = "compaction cancelled by extension"
+		}); hookResult != nil {
+			if hookResult.Cancel {
+				reason := hookResult.Reason
+				if reason == "" {
+					reason = "compaction cancelled by extension"
+				}
+				return nil, fmt.Errorf("%s", reason)
 			}
-			return nil, fmt.Errorf("%s", reason)
+			// Extension provided a custom summary — use it directly.
+			if hookResult.Summary != "" {
+				return m.applyCustomCompaction(hookResult.Summary, messages, opts)
+			}
+		}
+	}
+
+	// Carry forward file tracking from previous compaction.
+	var prev *compaction.PreviousCompaction
+	if lastCompaction := m.treeSession.GetLastCompaction(); lastCompaction != nil {
+		prev = &compaction.PreviousCompaction{
+			ReadFiles:     lastCompaction.ReadFiles,
+			ModifiedFiles: lastCompaction.ModifiedFiles,
 		}
 	}
 
 	model := m.agent.GetModel()
-	result, newMessages, err := compaction.Compact(ctx, model, messages, *opts, customInstructions)
+	result, _, err := compaction.Compact(ctx, model, messages, *opts, customInstructions, prev)
 	if err != nil {
 		return nil, err
 	}
@@ -139,11 +158,82 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 		return nil, nil
 	}
 
-	// Replace the session contents with the compacted messages.
-	// Reset the tree leaf and re-add the compacted messages.
-	m.treeSession.ResetLeaf()
-	if err := m.treeSession.AddFantasyMessages(newMessages); err != nil {
-		return nil, fmt.Errorf("failed to persist compacted messages: %w", err)
+	// Non-destructive: append a CompactionEntry to the session tree instead
+	// of clearing and rewriting messages.
+	entryIDs := m.treeSession.GetContextEntryIDs()
+	firstKeptEntryID := ""
+	if result.CutPoint >= 0 && result.CutPoint < len(entryIDs) {
+		firstKeptEntryID = entryIDs[result.CutPoint]
+	}
+
+	if _, err := m.treeSession.AppendCompaction(
+		result.Summary,
+		firstKeptEntryID,
+		result.OriginalTokens,
+		result.CompactedTokens,
+		result.MessagesRemoved,
+		result.ReadFiles,
+		result.ModifiedFiles,
+	); err != nil {
+		return nil, fmt.Errorf("failed to persist compaction entry: %w", err)
+	}
+
+	m.events.emit(CompactionEvent{
+		Summary:         result.Summary,
+		OriginalTokens:  result.OriginalTokens,
+		CompactedTokens: result.CompactedTokens,
+		MessagesRemoved: result.MessagesRemoved,
+		ReadFiles:       result.ReadFiles,
+		ModifiedFiles:   result.ModifiedFiles,
+	})
+
+	return result, nil
+}
+
+// applyCustomCompaction handles compaction when an extension provides a
+// custom summary. It still determines the cut point and persists a
+// CompactionEntry.
+func (m *Kit) applyCustomCompaction(summary string, messages []fantasy.Message, opts *CompactionOptions) (*CompactionResult, error) {
+	originalTokens := compaction.EstimateMessageTokens(messages)
+
+	cutPoint := compaction.FindCutPoint(messages, opts.KeepRecentTokens)
+	if cutPoint == 0 {
+		cutPoint = len(messages) - 1
+		if cutPoint < 1 {
+			return nil, nil
+		}
+	}
+
+	entryIDs := m.treeSession.GetContextEntryIDs()
+	firstKeptEntryID := ""
+	if cutPoint >= 0 && cutPoint < len(entryIDs) {
+		firstKeptEntryID = entryIDs[cutPoint]
+	}
+
+	// Estimate new token count.
+	summaryTokens := compaction.EstimateMessageTokens([]fantasy.Message{{
+		Role:    "system",
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: summary}},
+	}})
+	recentTokens := compaction.EstimateMessageTokens(messages[cutPoint:])
+	compactedTokens := summaryTokens + recentTokens
+
+	if _, err := m.treeSession.AppendCompaction(
+		summary,
+		firstKeptEntryID,
+		originalTokens,
+		compactedTokens,
+		cutPoint,
+		nil, nil, // no file tracking for custom summaries
+	); err != nil {
+		return nil, fmt.Errorf("failed to persist compaction entry: %w", err)
+	}
+
+	result := &CompactionResult{
+		Summary:         summary,
+		OriginalTokens:  originalTokens,
+		CompactedTokens: compactedTokens,
+		MessagesRemoved: cutPoint,
 	}
 
 	m.events.emit(CompactionEvent{

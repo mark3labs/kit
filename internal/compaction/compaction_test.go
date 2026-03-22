@@ -243,7 +243,7 @@ func TestCompact_TooFewMessages(t *testing.T) {
 		makeTextMessageN(fantasy.MessageRoleUser, 400),
 	}
 
-	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "")
+	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestCompact_WithinBudget(t *testing.T) {
 		makeTextMessageN(fantasy.MessageRoleAssistant, 400),
 	}
 
-	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "")
+	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,5 +271,171 @@ func TestCompact_WithinBudget(t *testing.T) {
 	}
 	if len(newMsgs) != len(msgs) {
 		t.Errorf("messages changed: got %d, want %d", len(newMsgs), len(msgs))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tool result truncation
+// ---------------------------------------------------------------------------
+
+func TestTruncateToolResult(t *testing.T) {
+	// Short text — no truncation.
+	short := strings.Repeat("x", 100)
+	if got := truncateToolResult(short); got != short {
+		t.Errorf("truncated short text unexpectedly")
+	}
+
+	// Exactly at limit.
+	exact := strings.Repeat("x", maxToolResultChars)
+	if got := truncateToolResult(exact); got != exact {
+		t.Errorf("truncated text at exact limit")
+	}
+
+	// Over limit.
+	over := strings.Repeat("x", maxToolResultChars+500)
+	got := truncateToolResult(over)
+	if len(got) > maxToolResultChars+50 { // allow room for marker
+		t.Errorf("truncated text too long: %d chars", len(got))
+	}
+	if !strings.Contains(got, "500 chars truncated") {
+		t.Errorf("truncation marker missing, got: %s", got[maxToolResultChars:])
+	}
+}
+
+func TestSerializeMessages_TruncatesToolResults(t *testing.T) {
+	longResult := strings.Repeat("R", maxToolResultChars+1000)
+	msgs := []fantasy.Message{
+		makeTextMessage(fantasy.MessageRoleUser, "question"),
+		{
+			Role:    fantasy.MessageRoleTool,
+			Content: []fantasy.MessagePart{fantasy.TextPart{Text: longResult}},
+		},
+	}
+
+	serialized := serializeMessages(msgs)
+	if strings.Contains(serialized, longResult) {
+		t.Error("tool result was not truncated during serialisation")
+	}
+	if !strings.Contains(serialized, "chars truncated") {
+		t.Error("truncation marker missing in serialised output")
+	}
+}
+
+func TestSerializeMessages_PreservesNonToolText(t *testing.T) {
+	longText := strings.Repeat("T", maxToolResultChars+1000)
+	msgs := []fantasy.Message{
+		makeTextMessage(fantasy.MessageRoleUser, longText),
+	}
+
+	serialized := serializeMessages(msgs)
+	if !strings.Contains(serialized, longText) {
+		t.Error("non-tool text was unexpectedly truncated")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Split turn detection
+// ---------------------------------------------------------------------------
+
+func TestIsSplitTurn(t *testing.T) {
+	msgs := []fantasy.Message{
+		makeTextMessageN(fantasy.MessageRoleUser, 400),      // 0: turn 1 user
+		makeTextMessageN(fantasy.MessageRoleAssistant, 400), // 1: turn 1 assistant
+		makeTextMessageN(fantasy.MessageRoleUser, 400),      // 2: turn 2 user
+		makeTextMessageN(fantasy.MessageRoleAssistant, 400), // 3: turn 2 assistant
+		makeTextMessageN(fantasy.MessageRoleTool, 400),      // 4: turn 2 tool result
+		makeTextMessageN(fantasy.MessageRoleAssistant, 400), // 5: turn 2 assistant
+	}
+
+	tests := []struct {
+		name     string
+		cutPoint int
+		want     bool
+	}{
+		{"at user message (turn boundary)", 2, false},
+		{"at assistant mid-turn", 3, true},
+		{"at assistant after tool (mid-turn)", 5, true},
+		{"at 0 (no cut)", 0, false},
+		{"beyond range", 10, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsSplitTurn(msgs, tt.cutPoint)
+			if got != tt.want {
+				t.Errorf("IsSplitTurn(msgs, %d) = %v, want %v", tt.cutPoint, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// File operations extraction
+// ---------------------------------------------------------------------------
+
+func TestExtractFileOps(t *testing.T) {
+	// Create messages with tool calls.
+	msgs := []fantasy.Message{
+		{
+			Role: fantasy.MessageRoleAssistant,
+			Content: []fantasy.MessagePart{
+				fantasy.ToolCallPart{ToolCallID: "1", ToolName: "read", Input: `{"path":"src/main.go"}`},
+				fantasy.ToolCallPart{ToolCallID: "2", ToolName: "write", Input: `{"path":"src/out.go"}`},
+				fantasy.ToolCallPart{ToolCallID: "3", ToolName: "edit", Input: `{"path":"src/edit.go"}`},
+				fantasy.ToolCallPart{ToolCallID: "4", ToolName: "grep", Input: `{"path":"src/search"}`},
+			},
+		},
+	}
+
+	ops := extractFileOps(msgs)
+	if !ops.ReadFiles["src/main.go"] {
+		t.Error("read file not tracked: src/main.go")
+	}
+	if !ops.ReadFiles["src/search"] {
+		t.Error("grep path not tracked as read: src/search")
+	}
+	if !ops.ModifiedFiles["src/out.go"] {
+		t.Error("write file not tracked: src/out.go")
+	}
+	if !ops.ModifiedFiles["src/edit.go"] {
+		t.Error("edit file not tracked: src/edit.go")
+	}
+}
+
+func TestFileOps_MergeSlices(t *testing.T) {
+	ops := newFileOps()
+	ops.ReadFiles["a.go"] = true
+	ops.ModifiedFiles["b.go"] = true
+
+	ops.mergeSlices(
+		[]string{"c.go", "a.go"},
+		[]string{"d.go"},
+	)
+
+	if len(ops.ReadFiles) != 2 { // a.go, c.go
+		t.Errorf("ReadFiles len = %d, want 2", len(ops.ReadFiles))
+	}
+	if len(ops.ModifiedFiles) != 2 { // b.go, d.go
+		t.Errorf("ModifiedFiles len = %d, want 2", len(ops.ModifiedFiles))
+	}
+}
+
+func TestSortedKeys(t *testing.T) {
+	m := map[string]bool{"c": true, "a": true, "b": true}
+	got := sortedKeys(m)
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("sortedKeys len = %d, want %d", len(got), len(want))
+	}
+	for i, v := range got {
+		if v != want[i] {
+			t.Errorf("sortedKeys[%d] = %q, want %q", i, v, want[i])
+		}
+	}
+}
+
+func TestSortedKeys_Empty(t *testing.T) {
+	got := sortedKeys(nil)
+	if got != nil {
+		t.Errorf("sortedKeys(nil) = %v, want nil", got)
 	}
 }

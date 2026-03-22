@@ -23,6 +23,7 @@ const (
 	EntryTypeLabel         EntryType = "label"
 	EntryTypeSessionInfo   EntryType = "session_info"
 	EntryTypeExtensionData EntryType = "extension_data"
+	EntryTypeCompaction    EntryType = "compaction"
 )
 
 // CurrentVersion is the session format version for JSONL tree sessions.
@@ -100,6 +101,20 @@ type ExtensionDataEntry struct {
 	Entry
 	ExtType string `json:"ext_type"` // Extension-defined type string (e.g. "plan-mode:state")
 	Data    string `json:"data"`     // Extension-defined data (JSON or plain text)
+}
+
+// CompactionEntry records an LLM-generated summary of older messages.
+// Instead of deleting old messages, the tree manager skips entries before
+// FirstKeptEntryID when building the LLM context, preserving full history.
+type CompactionEntry struct {
+	Entry
+	Summary          string   `json:"summary"`
+	FirstKeptEntryID string   `json:"first_kept_entry_id"`
+	TokensBefore     int      `json:"tokens_before"`
+	TokensAfter      int      `json:"tokens_after"`
+	MessagesRemoved  int      `json:"messages_removed"`
+	ReadFiles        []string `json:"read_files,omitempty"`
+	ModifiedFiles    []string `json:"modified_files,omitempty"`
 }
 
 // GenerateEntryID creates a unique entry identifier (16 hex chars).
@@ -188,6 +203,20 @@ func NewExtensionDataEntry(parentID, extType, data string) *ExtensionDataEntry {
 	}
 }
 
+// NewCompactionEntry creates a CompactionEntry.
+func NewCompactionEntry(parentID, summary, firstKeptEntryID string, tokensBefore, tokensAfter, messagesRemoved int, readFiles, modifiedFiles []string) *CompactionEntry {
+	return &CompactionEntry{
+		Entry:            NewEntry(EntryTypeCompaction, parentID),
+		Summary:          summary,
+		FirstKeptEntryID: firstKeptEntryID,
+		TokensBefore:     tokensBefore,
+		TokensAfter:      tokensAfter,
+		MessagesRemoved:  messagesRemoved,
+		ReadFiles:        readFiles,
+		ModifiedFiles:    modifiedFiles,
+	}
+}
+
 // --- JSONL marshaling helpers ---
 
 // MarshalEntry serializes any entry to a JSON line (no trailing newline).
@@ -256,6 +285,13 @@ func UnmarshalEntry(data []byte) (any, error) {
 		var e ExtensionDataEntry
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal extension_data entry: %w", err)
+		}
+		return &e, nil
+
+	case EntryTypeCompaction:
+		var e CompactionEntry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal compaction entry: %w", err)
 		}
 		return &e, nil
 

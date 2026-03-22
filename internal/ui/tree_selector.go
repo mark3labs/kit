@@ -430,6 +430,8 @@ func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool
 		}
 	case *session.BranchSummaryEntry:
 		style = lipgloss.NewStyle().Foreground(theme.Warning).Italic(true)
+	case *session.CompactionEntry:
+		style = lipgloss.NewStyle().Foreground(theme.Info).Italic(true)
 	default:
 		style = lipgloss.NewStyle().Foreground(theme.Muted)
 	}
@@ -482,6 +484,13 @@ func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
 			summary = summary[:60] + "..."
 		}
 		return fmt.Sprintf("branch summary: %s", summary)
+
+	case *session.CompactionEntry:
+		summary := e.Summary
+		if len(summary) > 60 {
+			summary = summary[:60] + "..."
+		}
+		return fmt.Sprintf("compaction: %s", summary)
 
 	case *session.LabelEntry:
 		return fmt.Sprintf("label: %s", e.Label)

@@ -298,6 +298,22 @@ func (tm *TreeManager) AppendExtensionData(extType, data string) (string, error)
 	return entry.ID, nil
 }
 
+// AppendCompaction adds a compaction entry to the tree. The entry records
+// the summary and the ID of the first entry that should be preserved in the
+// LLM context. Messages before that entry are replaced by the summary.
+func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokensBefore, tokensAfter, messagesRemoved int, readFiles, modifiedFiles []string) (string, error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	entry := NewCompactionEntry(tm.leafID, summary, firstKeptEntryID, tokensBefore, tokensAfter, messagesRemoved, readFiles, modifiedFiles)
+	if err := tm.appendAndPersist(entry); err != nil {
+		return "", err
+	}
+
+	tm.leafID = entry.ID
+	return entry.ID, nil
+}
+
 // GetExtensionData returns all extension data entries matching the given type,
 // walking the current branch from root to leaf. If extType is empty, all
 // extension data entries on the branch are returned.
@@ -441,8 +457,9 @@ func (tm *TreeManager) GetTree() []*TreeNode {
 // --- Context building ---
 
 // BuildContext walks from the current leaf to the root and returns the
-// conversation messages suitable for sending to the LLM. Branch summaries
-// are converted to user messages to provide context from abandoned branches.
+// conversation messages suitable for sending to the LLM. Compaction entries
+// cause older messages to be replaced by the summary. Branch summaries are
+// converted to user messages to provide context from abandoned branches.
 // Also returns the latest model/provider settings encountered on the path.
 func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider string, modelID string) {
 	tm.mu.RLock()
@@ -455,7 +472,41 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 	// Walk from leaf to root collecting entries.
 	branch := tm.getBranchLocked(tm.leafID)
 
+	// Find the last compaction entry on this branch — it determines
+	// which older messages are replaced by the summary.
+	var lastCompaction *CompactionEntry
+	for i := len(branch) - 1; i >= 0; i-- {
+		if c, ok := branch[i].(*CompactionEntry); ok {
+			lastCompaction = c
+			break
+		}
+	}
+
+	// If there is a compaction, inject the summary first.
+	if lastCompaction != nil {
+		messages = append(messages, fantasy.Message{
+			Role: fantasy.MessageRoleSystem,
+			Content: []fantasy.MessagePart{
+				fantasy.TextPart{
+					Text: fmt.Sprintf("[Conversation summary — earlier messages were compacted]\n\n%s", lastCompaction.Summary),
+				},
+			},
+		})
+	}
+
+	// Determine whether to skip entries (everything before firstKeptEntryID).
+	skipping := lastCompaction != nil
 	for _, entry := range branch {
+		// Once we reach the first kept entry, stop skipping.
+		if skipping {
+			entryID := tm.entryID(entry)
+			if entryID == lastCompaction.FirstKeptEntryID {
+				skipping = false
+			} else {
+				continue
+			}
+		}
+
 		switch e := entry.(type) {
 		case *MessageEntry:
 			msg, err := e.ToMessage()
@@ -481,6 +532,10 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 		case *ModelChangeEntry:
 			provider = e.Provider
 			modelID = e.ModelID
+
+		case *CompactionEntry:
+			// Already handled above (the last one on the branch).
+			continue
 		}
 	}
 
@@ -563,6 +618,96 @@ func (tm *TreeManager) Close() error {
 	return nil
 }
 
+// GetContextEntryIDs returns the entry IDs corresponding to the fantasy
+// messages returned by BuildContext, in the same order. Each entry ID maps
+// to the session entry that produced the fantasy message at the same index.
+// This is used by compaction to map a cut point index back to an entry ID.
+//
+// Note: A single MessageEntry produces at most one fantasy message. Branch
+// summary entries also produce one message each. The returned slice has the
+// same length as the messages slice from BuildContext (excluding the
+// compaction summary system message, which has no entry ID — it gets the
+// empty string "").
+func (tm *TreeManager) GetContextEntryIDs() []string {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	if tm.leafID == "" {
+		return nil
+	}
+
+	branch := tm.getBranchLocked(tm.leafID)
+
+	// Find the last compaction entry for skip logic.
+	var lastCompaction *CompactionEntry
+	for i := len(branch) - 1; i >= 0; i-- {
+		if c, ok := branch[i].(*CompactionEntry); ok {
+			lastCompaction = c
+			break
+		}
+	}
+
+	var ids []string
+
+	// If there's a compaction summary injected, it has no entry ID.
+	if lastCompaction != nil {
+		ids = append(ids, "") // placeholder for the summary system message
+	}
+
+	skipping := lastCompaction != nil
+	for _, entry := range branch {
+		if skipping {
+			entryID := tm.entryID(entry)
+			if entryID == lastCompaction.FirstKeptEntryID {
+				skipping = false
+			} else {
+				continue
+			}
+		}
+
+		switch e := entry.(type) {
+		case *MessageEntry:
+			msg, err := e.ToMessage()
+			if err != nil {
+				continue
+			}
+			msgs := msg.ToFantasyMessages()
+			for range msgs {
+				ids = append(ids, e.ID)
+			}
+
+		case *BranchSummaryEntry:
+			if e.Summary != "" {
+				ids = append(ids, e.ID)
+			}
+
+		case *CompactionEntry:
+			continue
+		}
+	}
+
+	return ids
+}
+
+// GetLastCompaction returns the most recent CompactionEntry on the current
+// branch, or nil if none exists. Used to carry forward file tracking.
+func (tm *TreeManager) GetLastCompaction() *CompactionEntry {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	if tm.leafID == "" {
+		return nil
+	}
+
+	branch := tm.getBranchLocked(tm.leafID)
+	for i := len(branch) - 1; i >= 0; i-- {
+		if c, ok := branch[i].(*CompactionEntry); ok {
+			return c
+		}
+	}
+	return nil
+}
+
 // --- Legacy bridge ---
 
 // AddFantasyMessages appends multiple fantasy messages as entries. This is
@@ -641,6 +786,8 @@ func (tm *TreeManager) entryID(entry any) string {
 		return e.ID
 	case *ExtensionDataEntry:
 		return e.ID
+	case *CompactionEntry:
+		return e.ID
 	default:
 		return ""
 	}
@@ -660,6 +807,8 @@ func (tm *TreeManager) entryParentID(entry any) string {
 	case *SessionInfoEntry:
 		return e.ParentID
 	case *ExtensionDataEntry:
+		return e.ParentID
+	case *CompactionEntry:
 		return e.ParentID
 	default:
 		return ""

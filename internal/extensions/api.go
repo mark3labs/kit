@@ -1743,13 +1743,18 @@ type BeforeCompactEvent struct {
 func (e BeforeCompactEvent) Type() EventType { return BeforeCompact }
 
 // BeforeCompactResult controls whether compaction proceeds. Return
-// Cancel=true with an optional Reason to block compaction.
+// Cancel=true with an optional Reason to block compaction, or provide
+// a custom Summary to replace the default LLM-generated one.
 type BeforeCompactResult struct {
 	// Cancel, when true, prevents compaction from proceeding.
 	Cancel bool
 	// Reason is a human-readable explanation shown to the user when
 	// Cancel is true. Empty string uses a default message.
 	Reason string
+	// Summary, when non-empty, replaces the default LLM-generated summary.
+	// The extension is responsible for generating a useful summary.
+	// Ignored when Cancel is true.
+	Summary string
 }
 
 func (BeforeCompactResult) isResult() {}

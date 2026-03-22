@@ -107,12 +107,18 @@ type BeforeCompactHook struct {
 	IsAutomatic bool
 }
 
-// BeforeCompactResult controls whether compaction proceeds.
+// BeforeCompactResult controls whether compaction proceeds. Extensions can
+// cancel compaction or provide a custom summary that replaces the default
+// LLM-generated one.
 type BeforeCompactResult struct {
 	// Cancel, when true, prevents compaction from proceeding.
 	Cancel bool
 	// Reason is a human-readable explanation when Cancel is true.
 	Reason string
+	// Summary, when non-empty, replaces the default LLM-generated summary.
+	// The extension is responsible for generating a useful summary.
+	// Ignored when Cancel is true.
+	Summary string
 }
 
 // ---------------------------------------------------------------------------

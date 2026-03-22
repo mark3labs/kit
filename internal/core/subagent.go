@@ -184,10 +184,10 @@ type detachedContext struct {
 	parent context.Context
 }
 
-func (d detachedContext) Deadline() (time.Time, bool)       { return time.Time{}, false }
-func (d detachedContext) Done() <-chan struct{}              { return nil }
-func (d detachedContext) Err() error                        { return nil }
-func (d detachedContext) Value(key any) any                 { return d.parent.Value(key) }
+func (d detachedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (d detachedContext) Done() <-chan struct{}       { return nil }
+func (d detachedContext) Err() error                  { return nil }
+func (d detachedContext) Value(key any) any           { return d.parent.Value(key) }
 
 // detachedWithCancel creates a new context that inherits values from the
 // parent but has no deadline. Cancellation of the parent is propagated: when

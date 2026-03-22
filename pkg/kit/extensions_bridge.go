@@ -173,10 +173,17 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 				MessageCount:    h.MessageCount,
 				IsAutomatic:     h.IsAutomatic,
 			})
-			if r, ok := result.(extensions.BeforeCompactResult); ok && r.Cancel {
-				return &BeforeCompactResult{
-					Cancel: true,
-					Reason: r.Reason,
+			if r, ok := result.(extensions.BeforeCompactResult); ok {
+				if r.Cancel {
+					return &BeforeCompactResult{
+						Cancel: true,
+						Reason: r.Reason,
+					}
+				}
+				if r.Summary != "" {
+					return &BeforeCompactResult{
+						Summary: r.Summary,
+					}
 				}
 			}
 			return nil

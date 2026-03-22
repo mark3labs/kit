@@ -242,6 +242,8 @@ type CompactionEvent struct {
 	OriginalTokens  int
 	CompactedTokens int
 	MessagesRemoved int
+	ReadFiles       []string
+	ModifiedFiles   []string
 }
 
 // EventType implements Event.
