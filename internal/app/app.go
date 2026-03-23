@@ -486,11 +486,10 @@ func (a *App) runQueueBatch(items []queueItem) {
 	result, err := a.executeBatch(stepCtx, items, eventFn)
 	if err != nil {
 		if stepCtx.Err() != nil {
-			// Step was cancelled by the user (double-ESC). The SDK's
-			// runTurn has rolled the tree session back to the pre-turn
-			// state, discarding the user message and any tool call/result
-			// pairs from the cancelled turn. Sync the in-memory store
-			// to match the rolled-back tree session.
+			// Step was cancelled by the user (double-ESC). The SDK
+			// preserves the user message and any completed tool
+			// call/result pairs; only the in-progress message or tool
+			// call is discarded. Sync the in-memory store to match.
 			if ts := a.opts.TreeSession; ts != nil {
 				a.store.Replace(ts.GetFantasyMessages())
 			}

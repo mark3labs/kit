@@ -1546,13 +1546,6 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		}
 	}
 
-	// Save the leaf position before appending anything so we can roll back
-	// to this point if the turn is cancelled (double-ESC). Rolling back
-	// discards the user message and any tool call / tool result pairs that
-	// were generated, which avoids leaving orphaned tool_use messages
-	// without matching tool_result (APIs require them in pairs).
-	preLeafID := m.treeSession.GetLeafID()
-
 	// Persist pre-generation messages to tree session.
 	for _, msg := range preMessages {
 		_, _ = m.treeSession.AppendFantasyMessage(msg)
@@ -1580,23 +1573,16 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	result, err := m.generate(ctx, messages)
 	if err != nil {
-		if ctx.Err() != nil {
-			// Context was cancelled (e.g. user pressed ESC twice). Roll
-			// the tree session back to the pre-turn leaf so that the
-			// user message, any tool_use messages, and any tool_result
-			// messages from this turn are all discarded. APIs require
-			// tool calls and tool results to appear in matched pairs;
-			// persisting a partial turn would leave orphaned entries
-			// that break subsequent requests.
-			_ = m.treeSession.Branch(preLeafID)
-		} else {
-			// Non-cancellation error (e.g. API failure). Persist any
-			// messages that were generated during this turn (completed
-			// tool call/result pairs) so partial progress is not lost.
-			if result != nil && len(result.ConversationMessages) > sentCount {
-				for _, msg := range result.ConversationMessages[sentCount:] {
-					_, _ = m.treeSession.AppendFantasyMessage(msg)
-				}
+		// Persist any messages from completed steps (tool call/result
+		// pairs) so partial progress is not lost. The agent layer only
+		// includes fully-paired tool_use + tool_result messages in
+		// completedStepMessages, so there are no orphaned entries that
+		// would break subsequent API requests. The user message and any
+		// completed work remain in the session; only the in-progress
+		// (pending) message or tool call is discarded.
+		if result != nil && len(result.ConversationMessages) > sentCount {
+			for _, msg := range result.ConversationMessages[sentCount:] {
+				_, _ = m.treeSession.AppendFantasyMessage(msg)
 			}
 		}
 		m.events.emit(TurnEndEvent{Error: err})
