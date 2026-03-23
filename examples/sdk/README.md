@@ -20,6 +20,17 @@ A minimal script-friendly wrapper that takes a prompt from the command line and 
 go run ./examples/sdk/scripting "Explain what this repo does"
 ```
 
+### [crypto-monitor](crypto-monitor/)
+
+A background agent that checks Bitcoin and Ethereum prices every 30 minutes and sends desktop notifications via `notify-send` (dbus). Demonstrates using the SDK for a long-running autonomous task with a single tool.
+
+```bash
+go run ./examples/sdk/crypto-monitor
+
+# Override the check interval:
+CRYPTO_INTERVAL=5m go run ./examples/sdk/crypto-monitor
+```
+
 ## Getting Started
 
 ```go
