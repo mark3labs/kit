@@ -8,19 +8,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// skillCmd installs the kit-extensions skill via the skills.sh CLI (npx skills).
-// This teaches AI agents how to create Kit extensions with full knowledge of
-// the extension API, lifecycle events, widgets, tools, commands, and Yaegi constraints.
+// skillCmd installs Kit skills via the skills.sh CLI (npx skills).
 var skillCmd = &cobra.Command{
 	Use:   "skill",
-	Short: "Install the Kit extensions skill via skills.sh",
-	Long: `Install the kit-extensions skill that teaches AI agents how to create
-Kit extensions. Uses the skills.sh CLI (npx skills) to install the skill
-from the Kit repository.
+	Short: "Install Kit skills via skills.sh",
+	Long: `Install Kit skills that teach AI agents how to build with Kit.
+Uses the skills.sh CLI (npx skills) to install all skills from the Kit repository.
 
-The skill provides comprehensive documentation of Kit's extension API including
-lifecycle events, custom tools, slash commands, widgets, editor interceptors,
-tool renderers, and critical Yaegi interpreter constraints.
+Two skills are provided:
+
+  1. Extensions — creating Kit extensions with full knowledge of the extension
+     API, lifecycle events, widgets, tools, commands, editor interceptors,
+     tool renderers, and Yaegi interpreter constraints.
+
+  2. SDK — building AI-powered applications with the Kit Go SDK, including
+     providers, agents, tools, and MCP integration.
 
 Example:
   kit skill`,
@@ -41,8 +43,6 @@ func runSkill(_ *cobra.Command, _ []string) error {
 		"skills",
 		"add",
 		"mark3labs/kit",
-		"--skill",
-		"kit-extensions",
 	}
 
 	cmd := exec.Command(npx, args...)
