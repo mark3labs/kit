@@ -704,7 +704,23 @@ npm/                 - NPM package wrapper for distribution
 - **Google Vertex** - Claude on Vertex AI
 - **OpenRouter** - Multi-provider router
 - **Vercel AI** - Vercel AI SDK models
+- **Custom** - Any OpenAI-compatible endpoint via `--provider-url`
 - **Auto-routed** - Any provider from models.dev database
+
+### Custom Provider
+
+Use `custom/custom` when pointing Kit at any OpenAI-compatible endpoint with `--provider-url`:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" "Hello"
+```
+
+This automatically defaults to `custom/custom` without needing to specify a model. The custom provider routes through fantasy's `openaicompat` provider and supports:
+
+- Zero cost tracking (input/output = 0)
+- 262K context window, 65K output limit
+- Reasoning and temperature support
+- Optional `CUSTOM_API_KEY` environment variable or `--provider-api-key` flag
 
 ### Model String Format
 

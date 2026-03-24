@@ -20,6 +20,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Google Vertex** | `google-vertex-anthropic/` | Claude on Vertex AI |
 | **OpenRouter** | `openrouter/` | Multi-provider router |
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
+| **Custom** | `custom/` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
 
 ## Model string format
@@ -131,6 +132,16 @@ For self-hosted or proxy endpoints:
 ```bash
 kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
 ```
+
+When `--provider-url` is provided without `--model`, Kit automatically defaults to `custom/custom`:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" "Hello"
+```
+
+The `custom/custom` model has zero cost, 262K context window, and supports reasoning. It routes through fantasy's `openaicompat` provider and accepts any OpenAI-compatible API endpoint.
+
+Optionally set `CUSTOM_API_KEY` environment variable or use `--provider-api-key` for endpoints requiring authentication.
 
 ## Model database
 
