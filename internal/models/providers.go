@@ -253,6 +253,8 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return createBedrockProvider(ctx, config, modelName)
 	case "vercel":
 		return createVercelProvider(ctx, config, modelName)
+	case "custom":
+		return createCustomProvider(ctx, config, modelName)
 	default:
 		return autoRouteProvider(ctx, config, provider, modelName, registry)
 	}
@@ -774,6 +776,42 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vercel model: %w", err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	if config.ProviderURL == "" {
+		return nil, fmt.Errorf("custom provider requires --provider-url")
+	}
+
+	apiKey := config.ProviderAPIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("CUSTOM_API_KEY")
+	}
+	if apiKey == "" {
+		// Many local/custom endpoints don't require a key; use a placeholder.
+		apiKey = "custom"
+	}
+
+	var opts []openaicompat.Option
+	opts = append(opts, openaicompat.WithBaseURL(config.ProviderURL))
+	opts = append(opts, openaicompat.WithAPIKey(apiKey))
+	opts = append(opts, openaicompat.WithName("custom"))
+
+	if config.TLSSkipVerify {
+		opts = append(opts, openaicompat.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	}
+
+	p, err := openaicompat.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create custom provider: %w", err)
+	}
+
+	model, err := p.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create custom model: %w", err)
 	}
 
 	return &ProviderResult{Model: model}, nil

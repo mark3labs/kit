@@ -116,6 +116,31 @@ func buildFromModelsDB() map[string]ProviderInfo {
 		}
 	}
 
+	// Register the "custom" provider stub for --provider-url without --model.
+	// This allows users to point kit at any OpenAI-compatible endpoint without
+	// needing to specify a model from the database.
+	providers["custom"] = ProviderInfo{
+		ID:   "custom",
+		Name: "Custom",
+		Models: map[string]ModelInfo{
+			"custom": {
+				ID:          "custom",
+				Name:        "Custom",
+				Attachment:  false,
+				Reasoning:   true,
+				Temperature: true,
+				Cost: Cost{
+					Input:  0,
+					Output: 0,
+				},
+				Limit: Limit{
+					Context: 262_144,
+					Output:  65_536,
+				},
+			},
+		},
+	}
+
 	return providers
 }
 

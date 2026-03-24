@@ -689,6 +689,16 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
+	// When --provider-url is set but no explicit --model was provided,
+	// default to "custom/custom" so the user doesn't need to remember a
+	// provider/model pair for custom OpenAI-compatible endpoints.
+	// This intentionally overrides saved preferences and config-file
+	// defaults — if you're pointing at a custom URL you almost certainly
+	// don't want the default Anthropic model.
+	if viper.GetString("provider-url") != "" && !modelFlagChanged {
+		viper.Set("model", "custom/custom")
+	}
+
 	// Load MCP configuration.
 	mcpConfig, err := config.LoadAndValidateConfig()
 	if err != nil {
