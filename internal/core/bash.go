@@ -136,16 +136,54 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 }
 
 // executeBashBuffered collects all output before returning (original behavior).
+// It uses explicit pipes (not cmd.Stdout) so that cmd.WaitDelay can forcibly
+// close them when grandchild processes hold pipe handles open after the
+// direct child exits.
 func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd) (fantasy.ToolResponse, error) {
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fantasy.NewTextErrorResponse("failed to create stdout pipe"), nil
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fantasy.NewTextErrorResponse("failed to create stderr pipe"), nil
+	}
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err)), nil
+	}
+
+	// Read pipes concurrently
+	var wg sync.WaitGroup
+	var stdout, stderr strings.Builder
+	var stdoutErr, stderrErr error
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, stdoutErr = io.Copy(&stdout, stdoutPipe)
+	}()
+	go func() {
+		defer wg.Done()
+		_, stderrErr = io.Copy(&stderr, stderrPipe)
+	}()
+
+	// Wait for the process to exit first. cmd.WaitDelay ensures that if
+	// pipes remain open (held by grandchild processes), they'll be forcibly
+	// closed after the grace period, which unblocks the io.Copy goroutines.
+	waitErr := cmd.Wait()
+
+	// Wait for pipe readers to finish draining.
+	wg.Wait()
+
+	// Ignore pipe read errors caused by WaitDelay force-closing —
+	// we still have whatever was read before the close.
+	_ = stdoutErr
+	_ = stderrErr
 
 	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if cmdCtx.Err() == context.DeadlineExceeded {
 			return fantasy.NewTextErrorResponse("command timed out"), nil
@@ -173,6 +211,7 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 
 	// Stream stdout and stderr concurrently
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	var stdoutChunks, stderrChunks []string
 
 	streamOutput := func(reader io.Reader, isStderr bool) {
@@ -187,17 +226,13 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 			// Send chunk to UI
 			outputCallback(call.ID, "bash", chunk, isStderr)
 			// Collect for final result
+			mu.Lock()
 			if isStderr {
 				stderrChunks = append(stderrChunks, chunk)
 			} else {
 				stdoutChunks = append(stdoutChunks, chunk)
 			}
-			// Check if context was cancelled
-			select {
-			case <-cmdCtx.Done():
-				return
-			default:
-			}
+			mu.Unlock()
 		}
 	}
 
@@ -205,11 +240,15 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 	go streamOutput(stdoutPipe, false)
 	go streamOutput(stderrPipe, true)
 
-	// Wait for both streams to complete
-	wg.Wait()
-
-	// Wait for command to finish
+	// Wait for the process to exit. cmd.WaitDelay ensures that if pipes
+	// remain open (held by grandchild processes), they'll be forcibly closed
+	// after the grace period, which unblocks the scanners above.
 	err = cmd.Wait()
+
+	// Wait for the pipe readers to finish draining. This will complete
+	// quickly since cmd.Wait() (with WaitDelay) has already ensured
+	// the pipes are closed.
+	wg.Wait()
 
 	exitCode := 0
 	if err != nil {
