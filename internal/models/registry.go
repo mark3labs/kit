@@ -141,6 +141,22 @@ func buildFromModelsDB() map[string]ProviderInfo {
 		},
 	}
 
+	// Load custom models from config file and merge into custom provider.
+	// Config file models take precedence - if a model ID exists in both
+	// models.dev and config, the config version wins.
+	if customModels := loadCustomModelsFromConfig(); customModels != nil {
+		for modelID, info := range customModels {
+			// Validate custom model config
+			if info.Limit.Context <= 0 {
+				fmt.Fprintf(os.Stderr, "Warning: custom model %q has invalid context limit: %d\n", modelID, info.Limit.Context)
+			}
+			if info.Limit.Output <= 0 {
+				fmt.Fprintf(os.Stderr, "Warning: custom model %q has invalid output limit: %d\n", modelID, info.Limit.Output)
+			}
+			providers["custom"].Models[modelID] = info
+		}
+	}
+
 	return providers
 }
 

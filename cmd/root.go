@@ -692,10 +692,10 @@ func runNormalMode(ctx context.Context) error {
 	// When --provider-url is set but no explicit --model was provided,
 	// default to "custom/custom" so the user doesn't need to remember a
 	// provider/model pair for custom OpenAI-compatible endpoints.
-	// This intentionally overrides saved preferences and config-file
-	// defaults — if you're pointing at a custom URL you almost certainly
-	// don't want the default Anthropic model.
-	if viper.GetString("provider-url") != "" && !modelFlagChanged {
+	// This intentionally overrides saved preferences but respects config-file
+	// models — if you specify a model in ~/.kit.yml, it will be used with
+	// custom/custom's provider routing.
+	if viper.GetString("provider-url") != "" && !modelFlagChanged && !viper.InConfig("model") {
 		viper.Set("model", "custom/custom")
 	}
 

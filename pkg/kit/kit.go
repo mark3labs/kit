@@ -917,8 +917,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	setSDKDefaults()
 
 	// Initialize config (loads config files and env vars).
-	if err := InitConfig(opts.ConfigFile, false); err != nil {
-		return nil, fmt.Errorf("failed to initialize config: %w", err)
+	// Only initialize if not already done (e.g., by CLI's cobra.OnInitialize).
+	// Check if model is already set, which indicates config was loaded.
+	if viper.GetString("model") == "" {
+		if err := InitConfig(opts.ConfigFile, false); err != nil {
+			return nil, fmt.Errorf("failed to initialize config: %w", err)
+		}
 	}
 
 	// Handle CLI debug mode.

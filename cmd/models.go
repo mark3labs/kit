@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/mark3labs/kit/internal/models"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
 )
@@ -47,6 +48,9 @@ func runModels(_ *cobra.Command, args []string) error {
 }
 
 func printAllProviders(showAll bool) error {
+	// Reload the registry to pick up any custom models from config
+	models.ReloadGlobalRegistry()
+
 	var providerIDs []string
 	if showAll {
 		providerIDs = kit.GetSupportedProviders()
@@ -98,6 +102,9 @@ func printAllProviders(showAll bool) error {
 }
 
 func printProvider(provider string) error {
+	// Reload the registry to pick up any custom models from config
+	models.ReloadGlobalRegistry()
+
 	m, err := kit.GetModelsForProvider(provider)
 	if err != nil {
 		return fmt.Errorf("unknown provider %q. Run 'kit models' to see all providers", provider)

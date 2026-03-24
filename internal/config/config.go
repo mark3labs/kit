@@ -157,6 +157,32 @@ type Theme struct {
 	Markdown MarkdownThemeConfig `json:"markdown,omitzero" yaml:"markdown,omitempty"`
 }
 
+// CustomModelConfig defines a custom model that can be used with custom/custom
+// or other custom/ prefixed models. These models are loaded from the config file
+// and merged into the custom provider in the model registry.
+type CustomModelConfig struct {
+	Name        string      `json:"name" yaml:"name"`
+	Family      string      `json:"family,omitempty" yaml:"family,omitempty"`
+	Attachment  bool        `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Reasoning   bool        `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	Temperature bool        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Knowledge   string      `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	Cost        CostConfig  `json:"cost" yaml:"cost"`
+	Limit       LimitConfig `json:"limit" yaml:"limit"`
+}
+
+// CostConfig defines the pricing for a custom model.
+type CostConfig struct {
+	Input  float64 `json:"input" yaml:"input"`
+	Output float64 `json:"output" yaml:"output"`
+}
+
+// LimitConfig defines context and output limits for a custom model.
+type LimitConfig struct {
+	Context int `json:"context" yaml:"context"`
+	Output  int `json:"output" yaml:"output"`
+}
+
 // Config represents the complete application configuration including MCP servers,
 // model settings, UI preferences, and API credentials. It supports both command-line
 // flags and configuration file settings.
@@ -187,6 +213,9 @@ type Config struct {
 	// Prompt templates configuration
 	Prompts           []string `json:"prompts,omitempty" yaml:"prompts,omitempty"`
 	NoPromptTemplates bool     `json:"no-prompt-templates,omitempty" yaml:"no-prompt-templates,omitempty"`
+
+	// Custom model definitions (under custom/ provider)
+	CustomModels map[string]CustomModelConfig `json:"customModels,omitempty" yaml:"customModels,omitempty"`
 }
 
 // GetTransportType returns the transport type for the server config, mapping

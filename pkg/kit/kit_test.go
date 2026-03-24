@@ -16,7 +16,10 @@ func TestNew(t *testing.T) {
 	ctx := context.Background()
 
 	// Test default initialization
-	host, err := kit.New(ctx, nil)
+	opts := &kit.Options{
+		Model: "anthropic/claude-sonnet-4-5-20250929",
+	}
+	host, err := kit.New(ctx, opts)
 	if err != nil {
 		t.Fatalf("Failed to create Kit with defaults: %v", err)
 	}
