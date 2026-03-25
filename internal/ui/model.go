@@ -1742,6 +1742,8 @@ func (m *AppModel) renderStream() string {
 
 // renderStreamingBashOutput renders accumulated streaming bash output (stdout + stderr)
 // below the LLM streaming text. Returns empty string if no bash output is present.
+// Lines are truncated to the terminal width and capped to maxBashLines to prevent
+// long-running commands from blowing up the TUI layout.
 func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 	m.streamingMu.RLock()
 	stdoutLines := make([]string, len(m.streamingBashOutput))
@@ -1755,7 +1757,9 @@ func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 	}
 
 	const lineIndent = "  "
-	width := m.width - 2 // Account for indent and padding
+	lineWidth := max(m.width-2-len(lineIndent), 20)
+	// Account for PaddingLeft(1) on the output/stderr styles.
+	maxLineChars := lineWidth - 1
 
 	outputStyle := lipgloss.NewStyle().
 		Background(theme.CodeBg).
@@ -1766,17 +1770,47 @@ func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 		Background(theme.CodeBg).
 		PaddingLeft(1)
 
+	// Cap displayed lines to maxBashLines (show the tail, since streaming
+	// output is most useful at the end). The buffer itself is larger to
+	// preserve context, but we only render the last N lines.
+	totalLines := len(stdoutLines) + len(stderrLines)
+	var hiddenCount int
+	if totalLines > maxBashLines {
+		hiddenCount = totalLines - maxBashLines
+		// Trim from stdout first (older output), then stderr.
+		remaining := maxBashLines
+		if len(stderrLines) >= remaining {
+			stdoutLines = nil
+			stderrLines = stderrLines[len(stderrLines)-remaining:]
+		} else {
+			remaining -= len(stderrLines)
+			if len(stdoutLines) > remaining {
+				stdoutLines = stdoutLines[len(stdoutLines)-remaining:]
+			}
+		}
+	}
+
 	var lines []string
+
+	// Truncation hint at the top.
+	if hiddenCount > 0 {
+		hint := fmt.Sprintf("...(%d more lines above)", hiddenCount)
+		hintContent := outputStyle.Width(lineWidth).
+			Foreground(theme.Muted).Italic(true).Render(hint)
+		lines = append(lines, lineIndent+hintContent)
+	}
 
 	// Render stdout lines.
 	for _, line := range stdoutLines {
-		styled := outputStyle.Width(width - len(lineIndent)).Render(line)
+		line = truncateLine(strings.TrimRight(line, "\n"), maxLineChars)
+		styled := outputStyle.Width(lineWidth).Render(line)
 		lines = append(lines, lineIndent+styled)
 	}
 
 	// Render stderr lines with error styling.
 	for _, line := range stderrLines {
-		styled := stderrStyle.Width(width - len(lineIndent)).Render(line)
+		line = truncateLine(strings.TrimRight(line, "\n"), maxLineChars)
+		styled := stderrStyle.Width(lineWidth).Render(line)
 		lines = append(lines, lineIndent+styled)
 	}
 
