@@ -41,6 +41,7 @@ const (
 	EventReasoningDelta EventType = "reasoning_delta"
 	// EventToolOutput fires when a tool produces streaming output chunks.
 	EventToolOutput EventType = "tool_output"
+	EventStepUsage  EventType = "step_usage"
 )
 
 // ---------------------------------------------------------------------------
@@ -248,6 +249,19 @@ type ResponseEvent struct {
 
 // EventType implements Event.
 func (e ResponseEvent) EventType() EventType { return EventResponse }
+
+// StepUsageEvent fires after each complete step in a multi-step agent turn,
+// carrying the token usage for that specific step. This enables real-time
+// cost tracking during long-running tool-calling conversations.
+type StepUsageEvent struct {
+	InputTokens      uint64
+	OutputTokens     uint64
+	CacheReadTokens  uint64
+	CacheWriteTokens uint64
+}
+
+// EventType implements Event.
+func (e StepUsageEvent) EventType() EventType { return EventStepUsage }
 
 // CompactionEvent fires after a successful compaction.
 type CompactionEvent struct {

@@ -678,6 +678,15 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 				Chunk:      ev.Chunk,
 				IsStderr:   ev.IsStderr,
 			})
+		case kit.StepUsageEvent:
+			if a.opts.UsageTracker != nil {
+				a.opts.UsageTracker.UpdateUsage(
+					int(ev.InputTokens),
+					int(ev.OutputTokens),
+					int(ev.CacheReadTokens),
+					int(ev.CacheWriteTokens),
+				)
+			}
 		}
 	}))
 

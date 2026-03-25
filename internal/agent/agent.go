@@ -70,6 +70,11 @@ type ReasoningDeltaHandler func(delta string)
 // Note: This is an alias for core.ToolOutputCallback to avoid import cycles.
 type ToolOutputHandler = core.ToolOutputCallback
 
+// StepUsageHandler is a function type for handling token usage after each
+// complete step in a multi-step agent turn. This enables real-time cost
+// tracking during long-running tool-calling conversations.
+type StepUsageHandler func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64)
+
 // Agent represents an AI agent with core tool integration using the fantasy library.
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
 // fantasy.AgentTool implementations — no MCP layer, no serialization overhead.
@@ -225,7 +230,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
@@ -237,6 +242,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onStreamingResponse StreamingResponseHandler,
 	onReasoningDelta ReasoningDeltaHandler,
 	onToolOutput ToolOutputHandler,
+	onStepUsage StepUsageHandler,
 ) (*GenerateWithLoopResult, error) {
 
 	// Inject tool output handler into context for use by core tools (e.g., bash).
@@ -350,6 +356,11 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				toolCalls := step.Content.ToolCalls()
 				if text != "" && len(toolCalls) > 0 && onToolCallContent != nil {
 					onToolCallContent(text)
+				}
+				// Emit step usage for real-time cost tracking
+				if onStepUsage != nil {
+					onStepUsage(step.Usage.InputTokens, step.Usage.OutputTokens,
+						step.Usage.CacheReadTokens, step.Usage.CacheCreationTokens)
 				}
 				return nil
 			},

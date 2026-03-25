@@ -1491,6 +1491,15 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				IsStderr:   isStderr,
 			})
 		},
+		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
+			// Emit step usage event for real-time cost tracking
+			m.events.emit(StepUsageEvent{
+				InputTokens:      uint64(inputTokens),
+				OutputTokens:     uint64(outputTokens),
+				CacheReadTokens:  uint64(cacheReadTokens),
+				CacheWriteTokens: uint64(cacheCreationTokens),
+			})
+		},
 	)
 }
 
