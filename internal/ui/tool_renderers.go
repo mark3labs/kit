@@ -23,6 +23,7 @@ const (
 	maxCodeLines  = 20 // lines for Read / code blocks
 	maxWriteLines = 10 // lines for Write blocks
 	maxBashLines  = 20 // lines for Bash output (matches Read)
+	maxLsLines    = 20 // lines for Ls directory listings
 )
 
 // renderToolBody dispatches to tool-specific body renderers based on tool name.
@@ -315,6 +316,13 @@ func renderLsBody(toolResult string, width int) string {
 
 	lines := strings.Split(content, "\n")
 
+	// Truncate to maxLsLines for display
+	var hiddenCount int
+	if len(lines) > maxLsLines {
+		hiddenCount = len(lines) - maxLsLines
+		lines = lines[:maxLsLines]
+	}
+
 	const indent = "  "
 	codeWidth := max(width-len(indent), 20)
 
@@ -327,6 +335,13 @@ func renderLsBody(toolResult string, width int) string {
 		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
 		styled := codeStyle.Width(codeWidth).Render(line)
 		result = append(result, indent+styled)
+	}
+
+	if hiddenCount > 0 {
+		hint := fmt.Sprintf("...(%d more entries)", hiddenCount)
+		hintContent := codeStyle.Width(codeWidth).
+			Foreground(theme.Muted).Italic(true).Render(hint)
+		result = append(result, indent+hintContent)
 	}
 
 	return strings.Join(result, "\n")
