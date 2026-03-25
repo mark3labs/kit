@@ -266,3 +266,14 @@ func (ut *UsageTracker) SetWidth(width int) {
 	defer ut.mu.Unlock()
 	ut.width = width
 }
+
+// UpdateModelInfo updates the model information and OAuth status when the model
+// is switched mid-session. This ensures token costs and context limits are
+// calculated correctly for the new model.
+func (ut *UsageTracker) UpdateModelInfo(modelInfo *models.ModelInfo, provider string, isOAuth bool) {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+	ut.modelInfo = modelInfo
+	ut.provider = provider
+	ut.isOAuth = isOAuth
+}
