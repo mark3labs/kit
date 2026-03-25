@@ -7,10 +7,85 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// ---------------------------------------------------------------------------
+// Color derivation helpers
+// ---------------------------------------------------------------------------
+
+// parseHexColor parses a "#RRGGBB" hex string into r, g, b components (0-255).
+func parseHexColor(hex string) (r, g, b int) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) == 6 {
+		if v, err := strconv.ParseUint(hex[0:2], 16, 8); err == nil {
+			r = int(v)
+		}
+		if v, err := strconv.ParseUint(hex[2:4], 16, 8); err == nil {
+			g = int(v)
+		}
+		if v, err := strconv.ParseUint(hex[4:6], 16, 8); err == nil {
+			b = int(v)
+		}
+	}
+	return
+}
+
+// blendHex linearly interpolates between two hex colors by amount (0.0–1.0).
+func blendHex(base, tint string, amount float64) string {
+	br, bg, bb := parseHexColor(base)
+	tr, tg, tb := parseHexColor(tint)
+	clamp := func(v int) int {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return v
+	}
+	r := clamp(int(float64(br)*(1-amount) + float64(tr)*amount))
+	g := clamp(int(float64(bg)*(1-amount) + float64(tg)*amount))
+	b := clamp(int(float64(bb)*(1-amount) + float64(tb)*amount))
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
+
+// deriveDiffBg computes diff / code background colors from the theme's
+// background, success, and error hex pairs. Returns an adaptive color for each
+// diff element. The tint amounts are tuned for subtle differentiation.
+func deriveDiffBg(bgPair, successPair, errorPair [2]string) (diffInsert, diffDelete, diffEqual, diffMissing, codeBg, gutterBg, writeBg color.Color) {
+	derive := func(idx int) (color.Color, color.Color, color.Color, color.Color) {
+		bg := bgPair[idx]
+		// Contrast target: darken for light mode (idx 0), lighten for dark (idx 1).
+		contrast := "#000000"
+		if idx == 1 {
+			contrast = "#ffffff"
+		}
+		ins := blendHex(bg, successPair[idx], 0.13)
+		del := blendHex(bg, errorPair[idx], 0.13)
+		eq := blendHex(bg, contrast, 0.05)
+		miss := blendHex(bg, contrast, 0.03)
+		return AdaptiveColor(ins, ins), AdaptiveColor(del, del), AdaptiveColor(eq, eq), AdaptiveColor(miss, miss)
+	}
+
+	// Pick the correct index based on detected background.
+	idx := 0
+	if isDarkBg {
+		idx = 1
+	}
+	insL, delL, eqL, missL := derive(idx)
+	diffInsert = insL
+	diffDelete = delL
+	diffEqual = eqL
+	diffMissing = missL
+	codeBg = eqL
+	gutterBg = missL
+	writeBg = insL
+	return
+}
 
 // ThemeEntry is a named, loadable theme — either built-in or discovered from disk.
 type ThemeEntry struct {
@@ -80,14 +155,9 @@ func makeTheme(p presetColors) Theme {
 		Accent:      acOr(p.accent, ac(p.primary)),
 		Highlight:   acOr(p.highlight, def.Highlight),
 	}
-	// Derive diff/code backgrounds from the base background.
-	t.DiffInsertBg = def.DiffInsertBg
-	t.DiffDeleteBg = def.DiffDeleteBg
-	t.DiffEqualBg = def.DiffEqualBg
-	t.DiffMissingBg = def.DiffMissingBg
-	t.CodeBg = def.CodeBg
-	t.GutterBg = def.GutterBg
-	t.WriteBg = def.WriteBg
+	// Derive diff/code backgrounds from the theme's own palette.
+	t.DiffInsertBg, t.DiffDeleteBg, t.DiffEqualBg, t.DiffMissingBg,
+		t.CodeBg, t.GutterBg, t.WriteBg = deriveDiffBg(p.background, p.success, p.error_)
 	// Markdown colors.
 	t.Markdown = MarkdownThemeColors{
 		Text:    t.Text,
@@ -609,6 +679,17 @@ func loadThemeFile(path string) (Theme, error) {
 
 func fileConfigToTheme(cfg themeFileConfig) Theme {
 	def := DefaultTheme()
+
+	// Resolve the base background/success/error hex pairs for diff derivation.
+	// We need the raw hex strings to feed deriveDiffBg.
+	bgPair := resolveHexPair(cfg.Background, [2]string{"#F0F0F0", "#0D0D0D"})
+	successPair := resolveHexPair(cfg.Success, [2]string{"#998800", "#CCAA00"})
+	errorPair := resolveHexPair(cfg.Error, [2]string{"#CC0000", "#FF3333"})
+
+	// Derive diff backgrounds from the theme's own palette.
+	derivedInsert, derivedDelete, derivedEqual, derivedMissing,
+		derivedCodeBg, derivedGutterBg, derivedWriteBg := deriveDiffBg(bgPair, successPair, errorPair)
+
 	return Theme{
 		Primary:     cfg.Primary.resolve(def.Primary),
 		Secondary:   cfg.Secondary.resolve(def.Secondary),
@@ -627,13 +708,13 @@ func fileConfigToTheme(cfg themeFileConfig) Theme {
 		Accent:      cfg.Accent.resolve(def.Accent),
 		Highlight:   cfg.Highlight.resolve(def.Highlight),
 
-		DiffInsertBg:  cfg.DiffInsertBg.resolve(def.DiffInsertBg),
-		DiffDeleteBg:  cfg.DiffDeleteBg.resolve(def.DiffDeleteBg),
-		DiffEqualBg:   cfg.DiffEqualBg.resolve(def.DiffEqualBg),
-		DiffMissingBg: cfg.DiffMissingBg.resolve(def.DiffMissingBg),
-		CodeBg:        cfg.CodeBg.resolve(def.CodeBg),
-		GutterBg:      cfg.GutterBg.resolve(def.GutterBg),
-		WriteBg:       cfg.WriteBg.resolve(def.WriteBg),
+		DiffInsertBg:  cfg.DiffInsertBg.resolve(derivedInsert),
+		DiffDeleteBg:  cfg.DiffDeleteBg.resolve(derivedDelete),
+		DiffEqualBg:   cfg.DiffEqualBg.resolve(derivedEqual),
+		DiffMissingBg: cfg.DiffMissingBg.resolve(derivedMissing),
+		CodeBg:        cfg.CodeBg.resolve(derivedCodeBg),
+		GutterBg:      cfg.GutterBg.resolve(derivedGutterBg),
+		WriteBg:       cfg.WriteBg.resolve(derivedWriteBg),
 
 		Markdown: MarkdownThemeColors{
 			Text:    cfg.Markdown.Text.resolve(def.Markdown.Text),
@@ -650,4 +731,18 @@ func fileConfigToTheme(cfg themeFileConfig) Theme {
 			Comment: cfg.Markdown.Comment.resolve(def.Markdown.Comment),
 		},
 	}
+}
+
+// resolveHexPair returns the hex pair from an adaptiveColorPair, falling back
+// to defaults when the pair is empty.
+func resolveHexPair(a adaptiveColorPair, fallback [2]string) [2]string {
+	light := a.Light
+	if light == "" {
+		light = fallback[0]
+	}
+	dark := a.Dark
+	if dark == "" {
+		dark = fallback[1]
+	}
+	return [2]string{light, dark}
 }

@@ -111,14 +111,25 @@ func formatToolParams(toolArgs string, maxWidth int) string {
 		result.WriteString(primaryVal)
 	}
 
-	// Collect remaining parameters (skip large values like file content)
+	// Collect remaining parameters, skipping body-content keys (already
+	// rendered in the tool body) and any values that are too large.
+	bodyKeys := map[string]bool{
+		"content":  true,
+		"old_text": true,
+		"new_text": true,
+		"oldText":  true,
+		"newText":  true,
+		"todos":    true,
+	}
 	var remaining []string
 	for key, val := range params {
 		if key == primaryKey {
 			continue
 		}
+		if bodyKeys[key] {
+			continue
+		}
 		valStr := fmt.Sprintf("%v", val)
-		// Skip very large values (e.g., oldString, newString, content, todos)
 		if len(valStr) > 100 {
 			continue
 		}
