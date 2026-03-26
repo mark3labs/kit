@@ -4,10 +4,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/fantasy"
 )
+
+// sanitizeToolCallID ensures the ID matches Anthropic's required pattern:
+// ^[a-zA-Z0-9_-]+$ (alphanumeric, underscores, and hyphens only).
+// Invalid characters are replaced with underscores.
+func sanitizeToolCallID(id string) string {
+	var sb strings.Builder
+	for _, r := range id {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			sb.WriteRune(r)
+		case r >= '0' && r <= '9':
+			sb.WriteRune(r)
+		case r == '_' || r == '-':
+			sb.WriteRune(r)
+		default:
+			// Replace invalid characters with underscore
+			sb.WriteByte('_')
+		}
+	}
+	result := sb.String()
+	// Ensure non-empty (Anthropic requires at least one character)
+	if result == "" {
+		return "tool_0"
+	}
+	return result
+}
 
 // ContentPart is the marker interface for all message content block types.
 // A message contains a heterogeneous slice of ContentPart values, enabling
@@ -312,7 +339,7 @@ func (m *Message) ToFantasyMessages() []fantasy.Message {
 		// Add tool calls
 		for _, tc := range m.ToolCalls() {
 			parts = append(parts, fantasy.ToolCallPart{
-				ToolCallID: tc.ID,
+				ToolCallID: sanitizeToolCallID(tc.ID),
 				ToolName:   tc.Name,
 				Input:      tc.Input,
 			})
@@ -340,7 +367,7 @@ func (m *Message) ToFantasyMessages() []fantasy.Message {
 				}
 			}
 			parts = append(parts, fantasy.ToolResultPart{
-				ToolCallID: result.ToolCallID,
+				ToolCallID: sanitizeToolCallID(result.ToolCallID),
 				Output:     output,
 			})
 		}
