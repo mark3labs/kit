@@ -701,9 +701,8 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
 // Uses the chatgpt.com/backend-api/codex endpoint with special headers.
 func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
-	// Check for spark models which may not be accessible via OAuth
-	modelFamily := detectCodexModelFamily(modelName)
-	if modelFamily == "gpt-codex-spark" {
+	// Check for spark models which are not accessible via OAuth
+	if detectCodexModelFamily(modelName) == "gpt-codex-spark" {
 		return nil, fmt.Errorf("gpt-codex-spark models are not accessible via ChatGPT OAuth. " +
 			"These models require special access or a different authentication method. " +
 			"Please use regular Codex models like 'openai/gpt-5.3-codex' instead")
@@ -718,21 +717,11 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	// Build custom HTTP client with required headers
 	httpClient := createCodexHTTPClient(token, accountID, config.TLSSkipVerify)
 
-	// Detect model family to determine API type
-	useResponsesAPI := modelFamily != "gpt-codex-spark"
-
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(token))
 	opts = append(opts, openai.WithBaseURL(baseURL))
-	if useResponsesAPI {
-		opts = append(opts, openai.WithUseResponsesAPI())
-	}
-
-	// Only use custom HTTP client for non-spark models
-	// Spark models may have different header requirements
-	if modelFamily != "gpt-codex-spark" {
-		opts = append(opts, openai.WithHTTPClient(httpClient))
-	}
+	opts = append(opts, openai.WithUseResponsesAPI())
+	opts = append(opts, openai.WithHTTPClient(httpClient))
 
 	provider, err := openai.New(opts...)
 	if err != nil {
@@ -744,53 +733,33 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 		return nil, fmt.Errorf("failed to create OpenAI Codex model: %w", err)
 	}
 
-	// Build provider options based on model family
 	providerOpts := buildCodexProviderOptions(config, modelName)
 
 	return &ProviderResult{
 		Model:               model,
 		ProviderOptions:     providerOpts,
-		SkipMaxOutputTokens: true, // Codex API doesn't support max_output_tokens
+		SkipMaxOutputTokens: true,
 	}, nil
 }
 
 // buildCodexProviderOptions returns fantasy.ProviderOptions configured for
 // OpenAI Codex API. The Codex API requires the system prompt to be passed
 // as 'instructions' rather than as a system message.
-// Different Codex model families use different API formats:
-// - gpt-codex-spark: uses standard ProviderOptions
-// - gpt-codex, gpt-codex-mini: uses ResponsesProviderOptions
 func buildCodexProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
-	// Detect model family from model name
-	modelFamily := detectCodexModelFamily(modelName)
-
-	switch modelFamily {
-	case "gpt-codex-spark":
-		// Spark models use standard ProviderOptions
-		opts := &openai.ProviderOptions{}
-		// Note: Spark API doesn't support instructions field via standard options
-		// The system prompt will need to be handled differently if needed
-		return fantasy.ProviderOptions{openai.Name: opts}
-
-	case "gpt-codex", "gpt-codex-mini", "":
-		// Regular Codex models use ResponsesProviderOptions
-		store := false
-		opts := &openai.ResponsesProviderOptions{
-			Store: &store,
-		}
-		if config.SystemPrompt != "" {
-			opts.Instructions = &config.SystemPrompt
-		}
-		if openai.IsResponsesReasoningModel(modelName) {
-			opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
-		}
-		return fantasy.ProviderOptions{openai.Name: opts}
-
-	default:
-		// Unknown family, default to standard ProviderOptions
-		opts := &openai.ProviderOptions{}
-		return fantasy.ProviderOptions{openai.Name: opts}
+	store := false
+	opts := &openai.ResponsesProviderOptions{
+		Store: &store,
 	}
+
+	if config.SystemPrompt != "" {
+		opts.Instructions = &config.SystemPrompt
+	}
+
+	if openai.IsResponsesReasoningModel(modelName) {
+		opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
+	}
+
+	return fantasy.ProviderOptions{openai.Name: opts}
 }
 
 // detectCodexModelFamily determines the model family from the model name
