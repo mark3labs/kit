@@ -696,10 +696,10 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 }
 
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
-// Uses the chatgpt.com/backend-api endpoint with special headers.
+// Uses the chatgpt.com/backend-api/codex endpoint with special headers.
 func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
-	// Use the ChatGPT backend API
-	baseURL := "https://chatgpt.com/backend-api"
+	// Use the ChatGPT backend API with /codex path
+	baseURL := "https://chatgpt.com/backend-api/codex"
 	if config.ProviderURL != "" {
 		baseURL = config.ProviderURL
 	}
@@ -763,13 +763,18 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	newReq := req.Clone(req.Context())
 
 	// Add required headers for ChatGPT/Codex API
+	// These headers mimic the official pi client to avoid Cloudflare blocking
 	newReq.Header.Set("Authorization", "Bearer "+t.token)
 	if t.accountID != "" {
 		newReq.Header.Set("chatgpt-account-id", t.accountID)
 	}
 	newReq.Header.Set("originator", "kit")
-	newReq.Header.Set("User-Agent", "kit (linux; amd64)")
+	newReq.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	newReq.Header.Set("OpenAI-Beta", "responses=experimental")
+	newReq.Header.Set("Accept", "text/event-stream")
+	newReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	newReq.Header.Set("Cache-Control", "no-cache")
+	newReq.Header.Set("Pragma", "no-cache")
 
 	return t.base.RoundTrip(newReq)
 }
