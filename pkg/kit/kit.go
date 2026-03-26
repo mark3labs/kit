@@ -536,8 +536,11 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	}
 
 	// Build a provider config from current settings, overriding the model.
+	// Load system prompt properly (handles both file paths and inline content).
+	systemPrompt, _ := config.LoadSystemPrompt(viper.GetString("system-prompt"))
 	config := &models.ProviderConfig{
 		ModelString:    modelString,
+		SystemPrompt:   systemPrompt,
 		ProviderAPIKey: viper.GetString("provider-api-key"),
 		ProviderURL:    viper.GetString("provider-url"),
 		MaxTokens:      viper.GetInt("max-tokens"),
