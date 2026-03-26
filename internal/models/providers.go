@@ -723,10 +723,43 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 		return nil, fmt.Errorf("failed to create OpenAI Codex model: %w", err)
 	}
 
-	// Build provider options for OpenAI Responses API reasoning models.
-	providerOpts := buildOpenAIProviderOptions(config, modelName)
+	// Build provider options for Codex API with system prompt as Instructions
+	providerOpts := buildCodexProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+}
+
+// buildCodexProviderOptions returns fantasy.ProviderOptions configured for
+// OpenAI Codex API. The Codex API requires the system prompt to be passed
+// as 'instructions' rather than as a system message.
+func buildCodexProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
+	store := false
+	opts := &openai.ResponsesProviderOptions{
+		Store: &store,
+	}
+
+	// Set system prompt as Instructions (required for Codex API)
+	if config.SystemPrompt != "" {
+		opts.Instructions = &config.SystemPrompt
+	}
+
+	// For reasoning models, add reasoning options
+	if openai.IsResponsesReasoningModel(modelName) {
+		reasoningSummary := "auto"
+		opts.ReasoningSummary = &reasoningSummary
+		opts.Include = []openai.IncludeType{
+			openai.IncludeReasoningEncryptedContent,
+		}
+
+		// Map ThinkingLevel to OpenAI ReasoningEffort
+		if effort := thinkingLevelToReasoningEffort(config.ThinkingLevel); effort != nil {
+			opts.ReasoningEffort = effort
+		}
+	}
+
+	return fantasy.ProviderOptions{
+		openai.Name: opts,
+	}
 }
 
 // createCodexHTTPClient creates an HTTP client with headers required for ChatGPT/Codex API
