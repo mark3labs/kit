@@ -684,6 +684,57 @@ func TestToolResult_clearsStreamingBashOutput(t *testing.T) {
 	}
 }
 
+// TestToolCallStarted_extractsBashCommand verifies that ToolCallStartedEvent
+// extracts the bash command from ToolArgs and stores it for the streaming output header.
+func TestToolCallStarted_extractsBashCommand(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	// Send ToolCallStartedEvent with bash command.
+	m = sendMsg(m, app.ToolCallStartedEvent{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		ToolArgs:   `{"command":"ls -la /home"}`,
+	})
+
+	if m.streamingBashCommand != "ls -la /home" {
+		t.Fatalf("expected streamingBashCommand='ls -la /home', got %q", m.streamingBashCommand)
+	}
+
+	// ToolResultEvent should clear the command.
+	m = sendMsg(m, app.ToolResultEvent{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		ToolArgs:   `{"command":"ls -la /home"}`,
+		Result:     "output",
+		IsError:    false,
+	})
+
+	if m.streamingBashCommand != "" {
+		t.Fatalf("expected streamingBashCommand cleared, got %q", m.streamingBashCommand)
+	}
+}
+
+// TestToolCallStarted_nonBashTool_doesNotSetCommand verifies that non-bash tools
+// do not set the streamingBashCommand field.
+func TestToolCallStarted_nonBashTool_doesNotSetCommand(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.state = stateWorking
+
+	// Send ToolCallStartedEvent with a non-bash tool.
+	m = sendMsg(m, app.ToolCallStartedEvent{
+		ToolCallID: "call-1",
+		ToolName:   "read",
+		ToolArgs:   `{"file":"/etc/passwd"}`,
+	})
+
+	if m.streamingBashCommand != "" {
+		t.Fatalf("expected streamingBashCommand to remain empty for non-bash tools, got %q", m.streamingBashCommand)
+	}
+}
+
 // TestStepError_printCmd verifies that StepErrorEvent with a non-nil error
 // produces a non-nil cmd (the tea.Println call for the error message).
 func TestStepError_printCmd(t *testing.T) {

@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -582,6 +583,8 @@ type AppModel struct {
 	streamingBashMaxLines int
 	// streamingMu protects the streaming bash output fields from concurrent access.
 	streamingMu sync.RWMutex
+	// streamingBashCommand holds the command being executed for display as a header.
+	streamingBashCommand string
 }
 
 // --------------------------------------------------------------------------
@@ -1366,6 +1369,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// rendered when the ToolResultEvent arrives.
 		m.flushStreamContent()
 
+		// For bash commands, extract and store the command for the streaming output header.
+		if msg.ToolName == "bash" {
+			var args struct {
+				Command string `json:"command"`
+			}
+			if err := json.Unmarshal([]byte(msg.ToolArgs), &args); err == nil && args.Command != "" {
+				m.streamingMu.Lock()
+				m.streamingBashCommand = args.Command
+				m.streamingMu.Unlock()
+			}
+		}
+
 	case app.ToolExecutionEvent:
 		// Pass to stream component for execution spinner display.
 		if m.stream != nil {
@@ -1380,6 +1395,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamingMu.Lock()
 		m.streamingBashOutput = nil
 		m.streamingBashStderr = nil
+		m.streamingBashCommand = ""
 		m.streamingMu.Unlock()
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
@@ -1833,6 +1849,7 @@ func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 	copy(stdoutLines, m.streamingBashOutput)
 	stderrLines := make([]string, len(m.streamingBashStderr))
 	copy(stderrLines, m.streamingBashStderr)
+	command := m.streamingBashCommand
 	m.streamingMu.RUnlock()
 
 	if len(stdoutLines) == 0 && len(stderrLines) == 0 {
@@ -1851,6 +1868,11 @@ func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 	stderrStyle := lipgloss.NewStyle().
 		Foreground(theme.Error).
 		Background(theme.CodeBg).
+		PaddingLeft(1)
+
+	// Header style for the command - muted text with a subtle indicator.
+	headerStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
 		PaddingLeft(1)
 
 	// Cap displayed lines to maxBashLines (show the tail, since streaming
@@ -1874,6 +1896,13 @@ func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
 	}
 
 	var lines []string
+
+	// Command header - show the bash command being executed.
+	if command != "" {
+		headerText := fmt.Sprintf("$ %s", command)
+		headerContent := headerStyle.Width(lineWidth).Render(truncateLine(headerText, maxLineChars))
+		lines = append(lines, lineIndent+headerContent)
+	}
 
 	// Truncation hint at the top.
 	if hiddenCount > 0 {
