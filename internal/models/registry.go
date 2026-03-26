@@ -225,6 +225,15 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 		}
 	}
 
+	// For openai, check stored credentials (OAuth / API key)
+	if provider == "openai" {
+		if cm, err := auth.NewCredentialManager(); err == nil {
+			if has, _ := cm.HasOpenAICredentials(); has {
+				return nil
+			}
+		}
+	}
+
 	envVars, err := r.getRequiredEnvVars(provider)
 	if err != nil {
 		// Unknown provider — nothing to validate

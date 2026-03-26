@@ -932,7 +932,8 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 	if result.TotalUsage != nil {
 		inputTokens := int(result.TotalUsage.InputTokens)
 		outputTokens := int(result.TotalUsage.OutputTokens)
-		if inputTokens > 0 && outputTokens > 0 {
+		// Use API-reported tokens if input tokens are available (output may be 0 in some cases)
+		if inputTokens > 0 {
 			cacheReadTokens := int(result.TotalUsage.CacheReadTokens)
 			cacheWriteTokens := int(result.TotalUsage.CacheCreationTokens)
 			a.opts.UsageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)

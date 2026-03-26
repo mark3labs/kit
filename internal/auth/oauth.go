@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,6 +31,7 @@ type OAuthClient struct {
 type AuthData struct {
 	URL      string
 	Verifier string
+	State    string // Optional state parameter for CSRF protection
 }
 
 // NewOAuthClient creates a new OAuth client configured for Anthropic's OAuth service.
@@ -197,6 +199,270 @@ func (c *OAuthClient) parseCodeAndState(code string) (parsedCode, parsedState st
 		parsedState = splits[1]
 	}
 	return
+}
+
+// OpenAIOAuthClient handles OAuth 2.0 authentication flow with OpenAI Codex (ChatGPT Plus/Pro).
+// This uses OpenAI's auth0-based OAuth service for ChatGPT account authentication.
+type OpenAIOAuthClient struct {
+	ClientID     string
+	AuthorizeURL string
+	TokenURL     string
+	RedirectURI  string
+	Scopes       string
+}
+
+// NewOpenAIOAuthClient creates a new OAuth client configured for OpenAI Codex OAuth.
+// This uses the public client ID for CLI applications with PKCE for security.
+func NewOpenAIOAuthClient() *OpenAIOAuthClient {
+	return &OpenAIOAuthClient{
+		// Public client ID for OpenAI Codex CLI OAuth
+		ClientID:     "app_EMoamEEZ73f0CkXaXp7hrann",
+		AuthorizeURL: "https://auth.openai.com/oauth/authorize",
+		TokenURL:     "https://auth.openai.com/oauth/token",
+		RedirectURI:  "http://localhost:1455/auth/callback",
+		Scopes:       "openid profile email offline_access",
+	}
+}
+
+// GetAuthorizationURL generates a complete authorization URL for the OAuth flow with
+// PKCE parameters. Returns an AuthData structure containing the URL for user
+// authentication and the PKCE verifier for the subsequent code exchange.
+func (c *OpenAIOAuthClient) GetAuthorizationURL() (*AuthData, error) {
+	verifier, challenge, err := generatePKCE()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate PKCE: %w", err)
+	}
+
+	// Generate random state
+	stateBytes := make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate state: %w", err)
+	}
+	state := fmt.Sprintf("%x", stateBytes)
+
+	params := url.Values{
+		"response_type":              {"code"},
+		"client_id":                  {c.ClientID},
+		"redirect_uri":               {c.RedirectURI},
+		"scope":                      {c.Scopes},
+		"code_challenge":             {challenge},
+		"code_challenge_method":      {"S256"},
+		"state":                      {state},
+		"id_token_add_organizations": {"true"},
+		"codex_cli_simplified_flow":  {"true"},
+		"originator":                 {"kit"},
+	}
+
+	authURL := fmt.Sprintf("%s?%s", c.AuthorizeURL, params.Encode())
+
+	return &AuthData{
+		URL:      authURL,
+		Verifier: verifier,
+		State:    state,
+	}, nil
+}
+
+// ExchangeCode exchanges an authorization code for access and refresh tokens.
+// The code parameter should be the authorization code received from the OAuth callback.
+// The verifier parameter must be the same PKCE verifier generated during GetAuthorizationURL.
+// Returns OpenAICredentials containing the tokens, expiration, and account ID.
+func (c *OpenAIOAuthClient) ExchangeCode(code, verifier string) (*OpenAICredentials, error) {
+	return c.exchangeAuthorizationCode(code, verifier, c.RedirectURI)
+}
+
+// exchangeAuthorizationCode performs the token exchange with the OAuth server
+func (c *OpenAIOAuthClient) exchangeAuthorizationCode(code, verifier, redirectUri string) (*OpenAICredentials, error) {
+	data := url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {c.ClientID},
+		"code":          {code},
+		"code_verifier": {verifier},
+		"redirect_uri":  {redirectUri},
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", c.TokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make token request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token exchange failed: %s", string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		IDToken      string `json:"id_token"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" || tokenResp.RefreshToken == "" {
+		return nil, fmt.Errorf("token response missing required fields")
+	}
+
+	// Extract account ID from JWT token
+	accountID := extractOpenAIAccountID(tokenResp.AccessToken)
+	if accountID == "" {
+		return nil, fmt.Errorf("failed to extract account ID from token")
+	}
+
+	return &OpenAICredentials{
+		Type:         "oauth",
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		ExpiresAt:    time.Now().Unix() + int64(tokenResp.ExpiresIn),
+		CreatedAt:    time.Now(),
+		AccountID:    accountID,
+	}, nil
+}
+
+// RefreshToken refreshes an expired or expiring access token using a refresh token.
+// Returns new OpenAICredentials with updated access token, refresh token (may be
+// rotated), and new expiration timestamp. Returns an error if the refresh fails or
+// the refresh token is invalid.
+func (c *OpenAIOAuthClient) RefreshToken(refreshToken string) (*OpenAICredentials, error) {
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {c.ClientID},
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", c.TokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make refresh request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token refresh failed: %s", string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to decode refresh response: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" || tokenResp.RefreshToken == "" {
+		return nil, fmt.Errorf("refresh response missing required fields")
+	}
+
+	// Extract account ID from JWT token
+	accountID := extractOpenAIAccountID(tokenResp.AccessToken)
+	if accountID == "" {
+		return nil, fmt.Errorf("failed to extract account ID from refreshed token")
+	}
+
+	return &OpenAICredentials{
+		Type:         "oauth",
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		ExpiresAt:    time.Now().Unix() + int64(tokenResp.ExpiresIn),
+		CreatedAt:    time.Now(),
+		AccountID:    accountID,
+	}, nil
+}
+
+// extractOpenAIAccountID extracts the ChatGPT account ID from a JWT access token.
+// The account ID is stored in the claim path https://api.openai.com/auth.chatgpt_account_id
+func extractOpenAIAccountID(token string) string {
+	// JWT tokens are base64-encoded JSON payloads
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+
+	// Decode payload (second part)
+	payload := parts[1]
+	// Add padding if needed
+	if len(payload)%4 != 0 {
+		payload += strings.Repeat("=", 4-len(payload)%4)
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return ""
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return ""
+	}
+
+	// Navigate to the claim path: https://api.openai.com/auth.chatgpt_account_id
+	authPath, ok := claims["https://api.openai.com/auth"].(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	accountID, ok := authPath["chatgpt_account_id"].(string)
+	if !ok {
+		return ""
+	}
+
+	return accountID
+}
+
+// ParseOpenAIAuthorizationInput parses various forms of authorization input:
+// - Full callback URL: http://localhost:1455/auth/callback?code=xxx&state=yyy
+// - Code#State format: abc123#state456
+// - Query string: code=abc123&state=state456
+// - Just the code: abc123
+func ParseOpenAIAuthorizationInput(input string) (code, state string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", ""
+	}
+
+	// Try parsing as URL
+	if strings.HasPrefix(input, "http") {
+		if u, err := url.Parse(input); err == nil {
+			return u.Query().Get("code"), u.Query().Get("state")
+		}
+	}
+
+	// Try code#state format
+	if strings.Contains(input, "#") {
+		parts := strings.SplitN(input, "#", 2)
+		return parts[0], parts[1]
+	}
+
+	// Try query string format
+	if strings.Contains(input, "code=") {
+		if values, err := url.ParseQuery(input); err == nil {
+			return values.Get("code"), values.Get("state")
+		}
+	}
+
+	// Assume it's just the code
+	return input, ""
 }
 
 // SetOAuthCredentials stores OAuth credentials in the credential manager's secure storage.

@@ -621,13 +621,52 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 
 func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	apiKey := config.ProviderAPIKey
+	source := "command-line flag"
+	var accountID string
+	var isCodexOAuth bool
+
 	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("OpenAI API key not provided. Use --provider-api-key flag or OPENAI_API_KEY environment variable")
+		// Check stored credentials first
+		cm, err := auth.NewCredentialManager()
+		if err == nil {
+			if creds, err := cm.GetOpenAICredentials(); err == nil && creds != nil {
+				if creds.Type == "oauth" && creds.AccessToken != "" {
+					// For OAuth, get a valid access token (may refresh if needed)
+					token, err := cm.GetValidOpenAIAccessToken()
+					if err == nil && token != "" {
+						apiKey = token
+						accountID = creds.AccountID
+						isCodexOAuth = true
+						source = "stored Codex OAuth credentials"
+					}
+				} else if creds.Type == "api_key" && creds.APIKey != "" {
+					apiKey = creds.APIKey
+					source = "stored API key"
+				}
+			}
+		}
 	}
 
+	// Fall back to environment variable
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+		source = "OPENAI_API_KEY environment variable"
+	}
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("OpenAI API key not provided. Use 'kit auth login openai', --provider-api-key flag, or OPENAI_API_KEY environment variable")
+	}
+
+	if os.Getenv("DEBUG") != "" || os.Getenv("KIT_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "Using OpenAI API key from: %s\n", source)
+	}
+
+	// For Codex OAuth, use the ChatGPT backend API with custom headers
+	if isCodexOAuth {
+		return createOpenAICodexProvider(ctx, config, modelName, apiKey, accountID)
+	}
+
+	// Regular OpenAI API key flow
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithUseResponsesAPI())
@@ -654,6 +693,85 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+}
+
+// createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
+// Uses the chatgpt.com/backend-api endpoint with special headers.
+func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
+	// Use the ChatGPT backend API
+	baseURL := "https://chatgpt.com/backend-api"
+	if config.ProviderURL != "" {
+		baseURL = config.ProviderURL
+	}
+
+	// Build custom HTTP client with required headers
+	httpClient := createCodexHTTPClient(token, accountID, config.TLSSkipVerify)
+
+	var opts []openai.Option
+	opts = append(opts, openai.WithAPIKey(token))
+	opts = append(opts, openai.WithBaseURL(baseURL))
+	opts = append(opts, openai.WithUseResponsesAPI())
+	opts = append(opts, openai.WithHTTPClient(httpClient))
+
+	provider, err := openai.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI Codex provider: %w", err)
+	}
+
+	model, err := provider.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI Codex model: %w", err)
+	}
+
+	// Build provider options for OpenAI Responses API reasoning models.
+	providerOpts := buildOpenAIProviderOptions(config, modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+}
+
+// createCodexHTTPClient creates an HTTP client with headers required for ChatGPT/Codex API
+func createCodexHTTPClient(token, accountID string, skipVerify bool) *http.Client {
+	var base http.RoundTripper
+	if skipVerify {
+		base = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	} else {
+		base = http.DefaultTransport
+	}
+
+	return &http.Client{
+		Transport: &codexTransport{
+			base:      base,
+			token:     token,
+			accountID: accountID,
+		},
+		Timeout: 120 * time.Second,
+	}
+}
+
+// codexTransport is a custom RoundTripper that adds ChatGPT/Codex specific headers
+type codexTransport struct {
+	base      http.RoundTripper
+	token     string
+	accountID string
+}
+
+func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	newReq := req.Clone(req.Context())
+
+	// Add required headers for ChatGPT/Codex API
+	newReq.Header.Set("Authorization", "Bearer "+t.token)
+	if t.accountID != "" {
+		newReq.Header.Set("chatgpt-account-id", t.accountID)
+	}
+	newReq.Header.Set("originator", "kit")
+	newReq.Header.Set("User-Agent", "kit (linux; amd64)")
+	newReq.Header.Set("OpenAI-Beta", "responses=experimental")
+
+	return t.base.RoundTrip(newReq)
 }
 
 func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {

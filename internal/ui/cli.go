@@ -192,7 +192,8 @@ func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText stri
 	outputTokens := int(usage.OutputTokens)
 
 	// Validate that the metadata seems reasonable
-	if inputTokens > 0 && outputTokens > 0 {
+	// Use API-reported tokens if input tokens are available (output may be 0 in some cases)
+	if inputTokens > 0 {
 		cacheReadTokens := int(usage.CacheReadTokens)
 		cacheWriteTokens := int(usage.CacheCreationTokens)
 		c.usageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)

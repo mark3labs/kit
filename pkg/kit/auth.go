@@ -9,6 +9,10 @@ type CredentialManager = auth.CredentialManager
 // and API key authentication methods.
 type AnthropicCredentials = auth.AnthropicCredentials
 
+// OpenAICredentials holds OpenAI API credentials supporting both OAuth
+// and API key authentication methods.
+type OpenAICredentials = auth.OpenAICredentials
+
 // CredentialStore holds all stored credentials for various providers.
 type CredentialStore = auth.CredentialStore
 
@@ -41,4 +45,35 @@ func GetAnthropicAPIKey() string {
 		return ""
 	}
 	return key
+}
+
+// HasOpenAICredentials checks if valid OpenAI credentials are stored
+// (either OAuth token or API key).
+func HasOpenAICredentials() bool {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return false
+	}
+	has, err := cm.HasOpenAICredentials()
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+// GetOpenAIAPIKey resolves the OpenAI API key using the standard
+// resolution order: stored credentials -> OPENAI_API_KEY env var.
+// Returns an empty string if no key is found.
+func GetOpenAIAPIKey() string {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return ""
+	}
+	// Try to get valid access token (handles OAuth refresh)
+	token, err := cm.GetValidOpenAIAccessToken()
+	if err == nil && token != "" {
+		return token
+	}
+	// Fall back to environment variable
+	return ""
 }
