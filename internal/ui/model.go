@@ -1440,12 +1440,36 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.distributeHeight()
 
 	case app.SteerConsumedEvent:
-		// Steering messages were consumed — either injected mid-turn
-		// via PrepareStep or drained into the queue after a turn.
-		// Move them to pendingUserPrints for scrollback rendering.
-		m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
-		m.steeringMessages = m.steeringMessages[:0]
-		m.distributeHeight()
+		// Steering messages were consumed — either injected mid-turn via
+		// PrepareStep, or drained into the queue after a text-only turn.
+		//
+		// Two cases:
+		//
+		//  1. Mid-turn (stateWorking, PrepareStep fired): no SpinnerEvent{Show:
+		//     true} will follow within this turn, so we cannot rely on
+		//     flushStreamAndPendingUserMessages() being called. Flush any live
+		//     stream content first (assistant text up to the steer point), then
+		//     render the steering user messages immediately to scrollback.
+		//
+		//  2. Post-turn (text-only response, drained after StepComplete): a
+		//     SpinnerEvent{Show: true} for the next turn is already in flight.
+		//     Defer to pendingUserPrints so the previous assistant response is
+		//     flushed first, preserving chronological order.
+		if m.state == stateWorking {
+			// Case 1: mid-turn — flush + print immediately.
+			m.flushStreamContent()
+			for _, text := range m.steeringMessages {
+				m.printUserMessage(text)
+			}
+			m.steeringMessages = m.steeringMessages[:0]
+			m.distributeHeight()
+			cmds = append(cmds, m.drainScrollback())
+		} else {
+			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
+			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
+			m.steeringMessages = m.steeringMessages[:0]
+			m.distributeHeight()
+		}
 
 	case app.StepCompleteEvent:
 		// Keep stream content visible in the view — don't flush to scrollback
