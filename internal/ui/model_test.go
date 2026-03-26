@@ -54,6 +54,10 @@ func (s *stubAppController) GetTreeSession() *session.TreeManager {
 	return nil
 }
 
+func (s *stubAppController) SwitchTreeSession(_ *session.TreeManager) {
+	// no-op in tests
+}
+
 func (s *stubAppController) SendEvent(_ tea.Msg) {
 	// no-op in tests
 }

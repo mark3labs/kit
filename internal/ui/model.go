@@ -84,6 +84,9 @@ type AppController interface {
 	// GetTreeSession returns the tree session manager, or nil if tree sessions
 	// are not enabled. Used by slash commands like /tree, /fork, /session.
 	GetTreeSession() *session.TreeManager
+	// SwitchTreeSession replaces the active tree session with a new one,
+	// closing the old session. Used by /new to create a completely fresh session.
+	SwitchTreeSession(ts *session.TreeManager)
 	// SendEvent sends a tea.Msg to the program asynchronously. Safe to call
 	// from any goroutine. Used by extension command goroutines to deliver
 	// results back to the TUI without going through tea.Cmd (which can stall
@@ -2423,7 +2426,7 @@ func (m *AppModel) printHelpMessage() {
 		"**Navigation:**\n" +
 		"- `/tree`: Navigate session tree (switch branches)\n" +
 		"- `/fork`: Branch from an earlier message\n" +
-		"- `/new`: Start a new branch (preserves history)\n" +
+		"- `/new`: Start a new session (discards context, saves old session)\n" +
 		"- `/resume`: Open session picker to switch sessions\n" +
 		"- `/name <name>`: Set a display name for this session\n\n" +
 		"**System:**\n" +
@@ -2991,7 +2994,8 @@ func (m *AppModel) handleForkCommand() tea.Cmd {
 	return nil
 }
 
-// handleNewCommand starts a fresh session by resetting the tree leaf.
+// handleNewCommand starts a completely new session (Pi-style /new behavior).
+// Creates a new session file, discarding all context from the previous conversation.
 func (m *AppModel) handleNewCommand() tea.Cmd {
 	// Emit before-session-switch event in a goroutine so that extension
 	// handlers can call blocking operations (e.g. ctx.PromptConfirm) without
@@ -3014,6 +3018,8 @@ func (m *AppModel) handleNewCommand() tea.Cmd {
 
 // performNewSession performs the actual session reset. Called either directly
 // (when no before-hook exists) or after the async hook completes.
+// Matches Pi behavior: creates a completely new session file, discarding all
+// context from the previous conversation.
 func (m *AppModel) performNewSession() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
@@ -3025,11 +3031,16 @@ func (m *AppModel) performNewSession() tea.Cmd {
 		return nil
 	}
 
-	ts.ResetLeaf()
-	if m.appCtrl != nil {
-		m.appCtrl.ClearMessages()
+	// Create a brand new session file (Pi-style /new behavior)
+	newTs, err := session.CreateTreeSession(m.cwd)
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to create new session: %v", err))
+		return nil
 	}
-	m.printSystemMessage("New branch started. Previous conversation is preserved in the tree.")
+
+	// Switch to the new session, closing the old one
+	m.appCtrl.SwitchTreeSession(newTs)
+	m.printSystemMessage("New session started. Previous conversation saved.")
 	return nil
 }
 

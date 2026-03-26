@@ -272,6 +272,10 @@ func (a *App) SwitchTreeSession(ts *session.TreeManager) {
 		_ = old.Close()
 	}
 	a.opts.TreeSession = ts
+	// Also update the kit SDK's tree session so messages are persisted correctly.
+	if a.opts.Kit != nil {
+		a.opts.Kit.SetTreeSession(ts)
+	}
 	// Reload messages from new session.
 	a.store.Clear()
 	if ts != nil {
