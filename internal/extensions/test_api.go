@@ -171,5 +171,23 @@ func NewTestAPI(ext *LoadedExtension) API {
 		registerMessageRendererFn: func(config MessageRendererConfig) {
 			ext.MessageRenderers = append(ext.MessageRenderers, config)
 		},
+		onSubagentStart: func(h func(SubagentStartEvent, Context)) {
+			reg(SubagentStart, func(e Event, c Context) Result {
+				h(e.(SubagentStartEvent), c)
+				return nil
+			})
+		},
+		onSubagentChunk: func(h func(SubagentChunkEvent, Context)) {
+			reg(SubagentChunk, func(e Event, c Context) Result {
+				h(e.(SubagentChunkEvent), c)
+				return nil
+			})
+		},
+		onSubagentEnd: func(h func(SubagentEndEvent, Context)) {
+			reg(SubagentEnd, func(e Event, c Context) Result {
+				h(e.(SubagentEndEvent), c)
+				return nil
+			})
+		},
 	}
 }

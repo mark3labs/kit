@@ -2,6 +2,7 @@ package kit
 
 import (
 	"strings"
+	"sync"
 
 	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/extensions"
@@ -119,6 +120,125 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		})
 	}
 
+	// --- Subagent lifecycle events ---
+	// When an extension registers OnSubagentStart/Chunk/End handlers, bridge
+	// the SDK's per-subagent event stream (SubscribeSubagent) into the
+	// extension runner.
+	//
+	// Flow:
+	//   ToolExecutionStartEvent(spawn_subagent) → emit SubagentStartEvent
+	//                                           → SubscribeSubagent → emit SubagentChunkEvents
+	//   ToolResultEvent(spawn_subagent)         → emit SubagentEndEvent
+	//
+	// We use ToolExecutionStart (not ToolCall) for SubagentStart because that
+	// is when the subagent actually begins running. We use ToolResult for
+	// SubagentEnd because that carries the final response text.
+	wantsSubagent := runner.HasHandlers(extensions.SubagentStart) ||
+		runner.HasHandlers(extensions.SubagentChunk) ||
+		runner.HasHandlers(extensions.SubagentEnd)
+
+	if wantsSubagent {
+		// taskByCallID tracks the task description extracted from ToolCall input,
+		// keyed by toolCallID. Populated on ToolCall, consumed on ToolResult.
+		taskByCallID := make(map[string]string)
+		var taskMu = &taskMutex{}
+
+		// Intercept ToolCall to capture the task and subscribe to child events.
+		m.Subscribe(func(e Event) {
+			ev, ok := e.(ToolCallEvent)
+			if !ok || ev.ToolName != "spawn_subagent" {
+				return
+			}
+
+			// Extract task from parsed args.
+			task := ""
+			if ev.ParsedArgs != nil {
+				if t, ok := ev.ParsedArgs["task"].(string); ok {
+					task = t
+				}
+			}
+			taskMu.set(taskByCallID, ev.ToolCallID, task)
+
+			// Subscribe to child events so we can forward them as SubagentChunkEvents.
+			if runner.HasHandlers(extensions.SubagentChunk) {
+				m.SubscribeSubagent(ev.ToolCallID, func(childEvent Event) {
+					chunk := extensions.SubagentChunkEvent{
+						ToolCallID: ev.ToolCallID,
+						Task:       task,
+					}
+					switch ce := childEvent.(type) {
+					case MessageUpdateEvent:
+						chunk.ChunkType = "text"
+						chunk.Content = ce.Chunk
+					case TurnStartEvent:
+						chunk.ChunkType = "turn_start"
+					case TurnEndEvent:
+						chunk.ChunkType = "turn_end"
+					case ToolCallEvent:
+						chunk.ChunkType = "tool_call"
+						chunk.ToolName = ce.ToolName
+						chunk.ToolArgs = ce.ToolArgs
+					case ToolExecutionStartEvent:
+						chunk.ChunkType = "tool_execution_start"
+						chunk.ToolName = ce.ToolName
+					case ToolExecutionEndEvent:
+						chunk.ChunkType = "tool_execution_end"
+						chunk.ToolName = ce.ToolName
+					case ToolResultEvent:
+						chunk.ChunkType = "tool_result"
+						chunk.ToolName = ce.ToolName
+						chunk.ToolResult = ce.Result
+						chunk.IsError = ce.IsError
+					default:
+						return // skip unknown event types
+					}
+					_, _ = runner.Emit(chunk)
+				})
+			}
+		})
+
+		// Emit SubagentStartEvent when execution begins.
+		if runner.HasHandlers(extensions.SubagentStart) {
+			m.Subscribe(func(e Event) {
+				ev, ok := e.(ToolExecutionStartEvent)
+				if !ok || ev.ToolName != "spawn_subagent" {
+					return
+				}
+				task := taskMu.get(taskByCallID, ev.ToolCallID)
+				_, _ = runner.Emit(extensions.SubagentStartEvent{
+					ToolCallID: ev.ToolCallID,
+					Task:       task,
+				})
+			})
+		}
+
+		// Emit SubagentEndEvent when the tool result arrives.
+		if runner.HasHandlers(extensions.SubagentEnd) {
+			m.Subscribe(func(e Event) {
+				ev, ok := e.(ToolResultEvent)
+				if !ok || ev.ToolName != "spawn_subagent" {
+					return
+				}
+				task := taskMu.get(taskByCallID, ev.ToolCallID)
+				taskMu.del(taskByCallID, ev.ToolCallID)
+				errMsg := ""
+				if ev.IsError {
+					errMsg = ev.Result
+				}
+				response := ""
+				if !ev.IsError {
+					response = ev.Result
+				}
+				_, _ = runner.Emit(extensions.SubagentEndEvent{
+					ToolCallID: ev.ToolCallID,
+					Task:       task,
+					Response:   response,
+					ErrorMsg:   errMsg,
+				})
+			})
+		}
+	}
+
 	// --- Context filtering hook ---
 	// Extension ContextPrepare → SDK ContextPrepare hook.
 	if runner.HasHandlers(extensions.ContextPrepare) {
@@ -203,4 +323,28 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			return nil
 		})
 	}
+}
+
+// taskMutex is a simple mutex-protected map helper used by bridgeExtensions.
+// It lives in this file to avoid polluting the kit package with unexported types.
+type taskMutex struct {
+	mu sync.Mutex
+}
+
+func (t *taskMutex) set(m map[string]string, key, val string) {
+	t.mu.Lock()
+	m[key] = val
+	t.mu.Unlock()
+}
+
+func (t *taskMutex) get(m map[string]string, key string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return m[key]
+}
+
+func (t *taskMutex) del(m map[string]string, key string) {
+	t.mu.Lock()
+	delete(m, key)
+	t.mu.Unlock()
 }

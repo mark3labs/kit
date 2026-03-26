@@ -750,6 +750,9 @@ type API struct {
 	registerOption            func(OptionDef)
 	registerShortcutFn        func(ShortcutDef, func(Context))
 	registerMessageRendererFn func(MessageRendererConfig)
+	onSubagentStart           func(func(SubagentStartEvent, Context))
+	onSubagentChunk           func(func(SubagentChunkEvent, Context))
+	onSubagentEnd             func(func(SubagentEndEvent, Context))
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -779,6 +782,27 @@ func (a *API) OnToolOutput(handler func(ToolOutputEvent, Context)) {
 // Return a non-nil ToolResultResult to modify the output.
 func (a *API) OnToolResult(handler func(ToolResultEvent, Context) *ToolResultResult) {
 	a.onToolResult(handler)
+}
+
+// OnSubagentStart registers a handler that fires when a spawn_subagent tool
+// call begins executing. Use the ToolCallID to correlate with subsequent
+// OnSubagentChunk and OnSubagentEnd events for the same subagent.
+func (a *API) OnSubagentStart(handler func(SubagentStartEvent, Context)) {
+	a.onSubagentStart(handler)
+}
+
+// OnSubagentChunk registers a handler for real-time events from a running
+// subagent. ChunkType identifies the kind of event ("text", "tool_call",
+// "tool_result", "tool_execution_start", "tool_execution_end", etc.).
+// Correlate with OnSubagentStart via the ToolCallID field.
+func (a *API) OnSubagentChunk(handler func(SubagentChunkEvent, Context)) {
+	a.onSubagentChunk(handler)
+}
+
+// OnSubagentEnd registers a handler that fires when a spawn_subagent call
+// completes. ErrorMsg is non-empty when the subagent failed.
+func (a *API) OnSubagentEnd(handler func(SubagentEndEvent, Context)) {
+	a.onSubagentEnd(handler)
 }
 
 // OnInput registers a handler that fires when user input is received.
@@ -1781,8 +1805,64 @@ type BeforeCompactResult struct {
 func (BeforeCompactResult) isResult() {}
 
 // ---------------------------------------------------------------------------
-// Theme types (exposed to Yaegi — concrete structs, string hex colors)
+// Subagent lifecycle events (exposed to Yaegi — concrete structs)
 // ---------------------------------------------------------------------------
+
+// SubagentStartEvent fires when a spawn_subagent tool call begins executing.
+type SubagentStartEvent struct {
+	// ToolCallID is the LLM-assigned ID of the spawn_subagent tool call.
+	// Use this to correlate SubagentChunkEvent and SubagentEndEvent.
+	ToolCallID string
+	// Task is the task description passed to the subagent.
+	Task string
+}
+
+func (e SubagentStartEvent) Type() EventType { return SubagentStart }
+
+// SubagentChunkEvent fires for each real-time event from a running subagent.
+// Type field indicates the kind of event; read the relevant fields accordingly.
+type SubagentChunkEvent struct {
+	// ToolCallID matches the SubagentStartEvent.ToolCallID for this subagent.
+	ToolCallID string
+	// Task is the task description (repeated for convenience).
+	Task string
+	// ChunkType identifies the event kind:
+	//   "text"                 — LLM text chunk (read Content)
+	//   "reasoning"            — reasoning/thinking delta (read Content)
+	//   "tool_call"            — subagent called a tool (read ToolName, ToolArgs)
+	//   "tool_result"          — tool returned a result (read ToolName, ToolResult, IsError)
+	//   "tool_execution_start" — tool began executing (read ToolName)
+	//   "tool_execution_end"   — tool finished executing (read ToolName)
+	//   "turn_start"           — subagent turn began
+	//   "turn_end"             — subagent turn ended
+	ChunkType string
+	// Content carries text for "text" and "reasoning" chunk types.
+	Content string
+	// ToolName is set on tool-related chunk types.
+	ToolName string
+	// ToolArgs is the JSON-encoded tool arguments for "tool_call" chunks.
+	ToolArgs string
+	// ToolResult is the tool output for "tool_result" chunks.
+	ToolResult string
+	// IsError is true when a "tool_result" chunk represents an error.
+	IsError bool
+}
+
+func (e SubagentChunkEvent) Type() EventType { return SubagentChunk }
+
+// SubagentEndEvent fires when a spawn_subagent tool call completes.
+type SubagentEndEvent struct {
+	// ToolCallID matches the SubagentStartEvent.ToolCallID for this subagent.
+	ToolCallID string
+	// Task is the task description.
+	Task string
+	// Response is the subagent's final text response (empty on error).
+	Response string
+	// ErrorMsg is non-empty when the subagent failed.
+	ErrorMsg string
+}
+
+func (e SubagentEndEvent) Type() EventType { return SubagentEnd }
 
 // ThemeColor is an adaptive color pair with light and dark hex values.
 // Either field may be empty to inherit from the default theme.

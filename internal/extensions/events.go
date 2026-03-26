@@ -71,6 +71,18 @@ const (
 	// BeforeCompact fires before context compaction runs. Handlers can
 	// cancel compaction by returning Cancel=true.
 	BeforeCompact EventType = "before_compact"
+
+	// SubagentStart fires when a spawn_subagent tool call begins executing.
+	// Carries the tool call ID and the task description.
+	SubagentStart EventType = "subagent_start"
+
+	// SubagentChunk fires for each real-time event emitted by a running
+	// subagent: text chunks, tool calls, tool results, etc.
+	SubagentChunk EventType = "subagent_chunk"
+
+	// SubagentEnd fires when a spawn_subagent tool call completes (success
+	// or error). Carries the final response and any error message.
+	SubagentEnd EventType = "subagent_end"
 )
 
 // AllEventTypes returns every supported event type.
@@ -82,6 +94,7 @@ func AllEventTypes() []EventType {
 		SessionStart, SessionShutdown,
 		ModelChange, ContextPrepare,
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
+		SubagentStart, SubagentChunk, SubagentEnd,
 	}
 }
 

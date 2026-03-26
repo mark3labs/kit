@@ -119,6 +119,11 @@ func Symbols() interp.Exports {
 			"SubagentHandle": reflect.ValueOf((*SubagentHandle)(nil)),
 			"SubagentEvent":  reflect.ValueOf((*SubagentEvent)(nil)),
 
+			// Subagent lifecycle events
+			"SubagentStartEvent": reflect.ValueOf((*SubagentStartEvent)(nil)),
+			"SubagentChunkEvent": reflect.ValueOf((*SubagentChunkEvent)(nil)),
+			"SubagentEndEvent":   reflect.ValueOf((*SubagentEndEvent)(nil)),
+
 			// Theme types
 			"ThemeColor":       reflect.ValueOf((*ThemeColor)(nil)),
 			"ThemeColorConfig": reflect.ValueOf((*ThemeColorConfig)(nil)),

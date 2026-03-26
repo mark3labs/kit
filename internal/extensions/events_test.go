@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllEventTypes_Count(t *testing.T) {
 	all := AllEventTypes()
-	if len(all) != 18 {
-		t.Fatalf("expected 18 event types, got %d", len(all))
+	if len(all) != 21 {
+		t.Fatalf("expected 21 event types, got %d", len(all))
 	}
 }
 
@@ -55,6 +55,9 @@ func TestEventType_TypeMethod(t *testing.T) {
 		{BeforeForkEvent{TargetID: "abc"}, BeforeFork},
 		{BeforeSessionSwitchEvent{Reason: "new"}, BeforeSessionSwitch},
 		{BeforeCompactEvent{EstimatedTokens: 1000}, BeforeCompact},
+		{SubagentStartEvent{ToolCallID: "x", Task: "t"}, SubagentStart},
+		{SubagentChunkEvent{ToolCallID: "x", ChunkType: "text"}, SubagentChunk},
+		{SubagentEndEvent{ToolCallID: "x"}, SubagentEnd},
 	}
 
 	for _, tt := range tests {
