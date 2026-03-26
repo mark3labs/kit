@@ -96,6 +96,7 @@ func ListAllSessions() ([]SessionInfo, error) {
 }
 
 // listSessionsInDir reads all .jsonl files in a directory and extracts session info.
+// Empty sessions (no messages) are automatically cleaned up and not returned.
 func listSessionsInDir(dir string) ([]SessionInfo, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, nil
@@ -116,6 +117,11 @@ func listSessionsInDir(dir string) ([]SessionInfo, error) {
 		info, err := extractSessionInfo(path)
 		if err != nil {
 			continue // skip malformed session files
+		}
+		// Clean up and skip empty sessions (no messages)
+		if info.MessageCount == 0 {
+			_ = os.Remove(path)
+			continue
 		}
 		sessions = append(sessions, *info)
 	}

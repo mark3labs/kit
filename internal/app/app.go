@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -451,6 +452,13 @@ func (a *App) Close() {
 
 	// Wait for background goroutines.
 	a.wg.Wait()
+
+	// Clean up empty session file on shutdown.
+	if ts := a.opts.TreeSession; ts != nil && ts.IsEmpty() {
+		if path := ts.GetFilePath(); path != "" {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 // --------------------------------------------------------------------------

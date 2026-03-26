@@ -628,6 +628,11 @@ func (tm *TreeManager) MessageCount() int {
 	return count
 }
 
+// IsEmpty returns true if the session has no messages (only header).
+func (tm *TreeManager) IsEmpty() bool {
+	return tm.MessageCount() == 0
+}
+
 // Close closes the underlying file handle.
 func (tm *TreeManager) Close() error {
 	tm.mu.Lock()
