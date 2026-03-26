@@ -754,15 +754,6 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 				Chunk:      ev.Chunk,
 				IsStderr:   ev.IsStderr,
 			})
-		case kit.StepUsageEvent:
-			if a.opts.UsageTracker != nil {
-				a.opts.UsageTracker.UpdateUsage(
-					int(ev.InputTokens),
-					int(ev.OutputTokens),
-					int(ev.CacheReadTokens),
-					int(ev.CacheWriteTokens),
-				)
-			}
 		case kit.SteerConsumedEvent:
 			sendFn(SteerConsumedEvent{})
 		}
@@ -935,29 +926,39 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 }
 
 // updateUsageFromTurnResult records token usage from an SDK TurnResult into the
-// configured UsageTracker. This is the SDK-path equivalent of updateUsage.
+// configured UsageTracker. Called once per turn after the turn completes.
+//
+// Cost/token accumulation uses TotalUsage (sum across all tool-calling steps in
+// the turn). Context-window fill uses FinalUsage.InputTokens only — that is the
+// number of tokens sent to the model on the last API call, which equals the
+// actual context window occupation (all accumulated messages + tool results).
+// OutputTokens are not added here because they are the response length, not
+// context fill.
 func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt string) {
 	if a.opts.UsageTracker == nil || result == nil {
 		return
 	}
 
-	if result.TotalUsage != nil {
-		inputTokens := int(result.TotalUsage.InputTokens)
-		outputTokens := int(result.TotalUsage.OutputTokens)
-		// Use API-reported tokens if input tokens are available (output may be 0 in some cases)
-		if inputTokens > 0 {
-			cacheReadTokens := int(result.TotalUsage.CacheReadTokens)
-			cacheWriteTokens := int(result.TotalUsage.CacheCreationTokens)
-			a.opts.UsageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
-		} else {
-			a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
-			return
-		}
+	// --- Accumulate cost/token totals for the session ---
+	if result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
+		a.opts.UsageTracker.UpdateUsage(
+			int(result.TotalUsage.InputTokens),
+			int(result.TotalUsage.OutputTokens),
+			int(result.TotalUsage.CacheReadTokens),
+			int(result.TotalUsage.CacheCreationTokens),
+		)
+	} else {
+		// Provider didn't report token counts — fall back to character-based
+		// estimates so the footer shows something rather than nothing.
+		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
 	}
 
-	if result.FinalUsage != nil {
-		if ct := int(result.FinalUsage.InputTokens) + int(result.FinalUsage.OutputTokens); ct > 0 {
-			a.opts.UsageTracker.SetContextTokens(ct)
-		}
+	// --- Context window fill (drives the % bar) ---
+	// Use FinalUsage.InputTokens: the input token count of the last API call
+	// equals the number of tokens currently occupying the context window.
+	// Adding OutputTokens would overstate fill since the response is not part
+	// of the context that was *sent* to the model.
+	if result.FinalUsage != nil && result.FinalUsage.InputTokens > 0 {
+		a.opts.UsageTracker.SetContextTokens(int(result.FinalUsage.InputTokens))
 	}
 }
