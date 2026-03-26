@@ -155,6 +155,79 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 })
 ```
 
+### Monitoring subagents from extensions
+
+When the LLM (not the extension itself) spawns a subagent using the `spawn_subagent` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
+
+```go
+// Track active subagents and display their output
+var subagentWidgets map[string]*SubagentWidget
+
+func Init(api ext.API) {
+    // Subagent started by the main agent
+    api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+        // e.ToolCallID — unique ID for this subagent invocation
+        // e.Task — the task/prompt sent to the subagent
+        widget := NewWidget(e.ToolCallID, e.Task)
+        subagentWidgets[e.ToolCallID] = widget
+        ctx.SetWidget(widget.Config())
+    })
+
+    // Real-time streaming from subagent
+    api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+        // e.ToolCallID — matches the start event
+        // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+        // e.Content — text content
+        // e.ToolName — tool name (for tool chunks)
+        // e.IsError — true if tool result failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.AddOutput(e)
+            ctx.SetWidget(widget.Config())
+        }
+    })
+
+    // Subagent completed
+    api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+        // e.Response — final response from subagent
+        // e.ErrorMsg — error message if subagent failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.MarkComplete(e.Response, e.ErrorMsg)
+            ctx.SetWidget(widget.Config())
+            delete(subagentWidgets, e.ToolCallID)
+        }
+    })
+}
+```
+
+**Event structs:**
+
+```go
+type SubagentStartEvent struct {
+    ToolCallID string  // Unique ID for this subagent invocation
+    Task       string  // The task/prompt sent to subagent
+}
+
+type SubagentChunkEvent struct {
+    ToolCallID string  // Matches SubagentStartEvent.ToolCallID
+    Task       string  // Task description
+    ChunkType  string  // "text", "tool_call", "tool_execution_start", "tool_result"
+    Content    string  // For text chunks
+    ToolName   string  // For tool-related chunks
+    IsError    bool    // For tool_result chunks
+}
+
+type SubagentEndEvent struct {
+    ToolCallID string  // Matches start event
+    Task       string  // Task description
+    Response   string  // Final response from subagent
+    ErrorMsg   string  // Error message if failed
+}
+```
+
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the `subagent-monitor.go` example for a complete implementation with horizontal widget layouts and scrolling output.
+
 ## Go SDK subagents
 
 The SDK provides in-process subagent spawning:
@@ -709,7 +782,7 @@ Contributions are welcome! Please see the [contribution guide](https://github.co
 
 ## Lifecycle events
 
-Extensions can hook into 20 lifecycle events:
+Extensions can hook into 23 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -733,6 +806,9 @@ Extensions can hook into 20 lifecycle events:
 | `OnBeforeSessionSwitch` | Before switching sessions |
 | `OnBeforeCompact` | Before conversation compaction |
 | `OnCustomEvent` | Custom inter-extension event received |
+| `OnSubagentStart` | Subagent spawned by the main agent |
+| `OnSubagentChunk` | Real-time output from subagent (text, tool calls, results) |
+| `OnSubagentEnd` | Subagent completed with final response/error |
 
 ### Example
 
@@ -936,6 +1012,54 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 })
 ```
 
+### Monitoring subagents spawned by the main agent
+
+When the LLM uses the built-in `spawn_subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+
+```go
+// Subagent started
+api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+    // e.ToolCallID — unique ID for this subagent invocation
+    // e.Task — the task/prompt sent to the subagent
+    ctx.PrintInfo(fmt.Sprintf("Subagent started: %s", e.Task))
+})
+
+// Real-time streaming output from subagent
+api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+    // e.ToolCallID — matches the start event
+    // e.Task — task description
+    // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+    // e.Content — text content (for text chunks)
+    // e.ToolName — tool name (for tool-related chunks)
+    // e.IsError — true if tool result is an error
+    switch e.ChunkType {
+    case "text":
+        // Streaming text output
+    case "tool_call":
+        // Subagent is calling a tool
+    case "tool_execution_start":
+        // Tool execution started
+    case "tool_result":
+        // Tool execution completed (check e.IsError)
+    }
+})
+
+// Subagent completed
+api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+    // e.ToolCallID — matches start event
+    // e.Task — task description
+    // e.Response — final response from subagent
+    // e.ErrorMsg — error message if subagent failed
+    if e.ErrorMsg != "" {
+        ctx.PrintError(fmt.Sprintf("Subagent failed: %s", e.ErrorMsg))
+    } else {
+        ctx.PrintInfo(fmt.Sprintf("Subagent completed: %s", e.Response))
+    }
+})
+```
+
+This enables building widgets that display real-time subagent activity. See the `subagent-monitor.go` example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.
+
 ## LLM completion
 
 Make direct model calls without going through the agent loop:
@@ -1051,6 +1175,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`kit-kit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/kit-kit.go) | Kit-in-Kit sub-agent spawning |
 | [`subagent-widget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [`subagent-test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
+| [`subagent-monitor.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor.go) | Real-time monitoring widget for spawned subagents |
 
 ## Development
 
@@ -1058,6 +1183,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 |-----------|-------------|
 | [`dev-reload.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go) | Development live-reload |
 | [`tool-logger_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) | Example extension tests (see [Testing](/extensions/testing)) |
+| [`subagent-monitor_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor_test.go) | Subagent lifecycle event tests |
 | [`extension_test_template.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go) | Copy-and-paste test template for your extensions |
 
 ## Subdirectory extensions

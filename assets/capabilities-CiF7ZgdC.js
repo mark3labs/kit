@@ -1,6 +1,6 @@
 const s={frontmatter:{title:"Capabilities",description:"All extension capabilities — lifecycle events, tools, commands, widgets, and more.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 20 lifecycle events:</p>
+<p>Extensions can hook into 23 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -88,6 +88,18 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <tr>
 <td><code>OnCustomEvent</code></td>
 <td>Custom inter-extension event received</td>
+</tr>
+<tr>
+<td><code>OnSubagentStart</code></td>
+<td>Subagent spawned by the main agent</td>
+</tr>
+<tr>
+<td><code>OnSubagentChunk</code></td>
+<td>Real-time output from subagent (text, tool calls, results)</td>
+</tr>
+<tr>
+<td><code>OnSubagentEnd</code></td>
+<td>Subagent completed with final response/error</td>
 </tr>
 </tbody>
 </table>
@@ -224,6 +236,48 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-latest"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a test analysis expert."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h3 id="monitoring-subagents-spawned-by-the-main-agent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-spawned-by-the-main-agent"><span class="icon icon-link"></span></a>Monitoring subagents spawned by the main agent</h3>
+<p>When the LLM uses the built-in <code>spawn_subagent</code> tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Subagent started</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnSubagentStart</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentStartEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ToolCallID — unique ID for this subagent invocation</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Task — the task/prompt sent to the subagent</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Subagent started: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, e.Task))</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Real-time streaming output from subagent</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnSubagentChunk</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentChunkEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ToolCallID — matches the start event</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Task — task description</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Content — text content (for text chunks)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ToolName — tool name (for tool-related chunks)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.IsError — true if tool result is an error</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> e.ChunkType {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "text"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Streaming text output</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "tool_call"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Subagent is calling a tool</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "tool_execution_start"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Tool execution started</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "tool_result"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Tool execution completed (check e.IsError)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Subagent completed</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnSubagentEnd</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentEndEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ToolCallID — matches start event</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Task — task description</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Response — final response from subagent</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.ErrorMsg — error message if subagent failed</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> e.ErrorMsg </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintError</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Subagent failed: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, e.ErrorMsg))</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    } </span><span style="color:#D73A49;--shiki-dark:#F97583">else</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Subagent completed: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, e.Response))</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>This enables building widgets that display real-time subagent activity. See the <code>subagent-monitor.go</code> example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.</p>
 <h2 id="llm-completion"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#llm-completion"><span class="icon icon-link"></span></a>LLM completion</h2>
 <p>Make direct model calls without going through the agent loop:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">response </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Complete</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CompleteRequest</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -257,12 +311,12 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Listen</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnCustomEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-extension:data-ready"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">data</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // handle event</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
 
-Extensions can hook into 20 lifecycle events:
+Extensions can hook into 23 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -286,6 +340,9 @@ Extensions can hook into 20 lifecycle events:
 | \`OnBeforeSessionSwitch\` | Before switching sessions |
 | \`OnBeforeCompact\` | Before conversation compaction |
 | \`OnCustomEvent\` | Custom inter-extension event received |
+| \`OnSubagentStart\` | Subagent spawned by the main agent |
+| \`OnSubagentChunk\` | Real-time output from subagent (text, tool calls, results) |
+| \`OnSubagentEnd\` | Subagent completed with final response/error |
 
 ### Example
 
@@ -488,6 +545,54 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
     SystemPrompt: "You are a test analysis expert.",
 })
 \`\`\`
+
+### Monitoring subagents spawned by the main agent
+
+When the LLM uses the built-in \`spawn_subagent\` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+
+\`\`\`go
+// Subagent started
+api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+    // e.ToolCallID — unique ID for this subagent invocation
+    // e.Task — the task/prompt sent to the subagent
+    ctx.PrintInfo(fmt.Sprintf("Subagent started: %s", e.Task))
+})
+
+// Real-time streaming output from subagent
+api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+    // e.ToolCallID — matches the start event
+    // e.Task — task description
+    // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+    // e.Content — text content (for text chunks)
+    // e.ToolName — tool name (for tool-related chunks)
+    // e.IsError — true if tool result is an error
+    switch e.ChunkType {
+    case "text":
+        // Streaming text output
+    case "tool_call":
+        // Subagent is calling a tool
+    case "tool_execution_start":
+        // Tool execution started
+    case "tool_result":
+        // Tool execution completed (check e.IsError)
+    }
+})
+
+// Subagent completed
+api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+    // e.ToolCallID — matches start event
+    // e.Task — task description
+    // e.Response — final response from subagent
+    // e.ErrorMsg — error message if subagent failed
+    if e.ErrorMsg != "" {
+        ctx.PrintError(fmt.Sprintf("Subagent failed: %s", e.ErrorMsg))
+    } else {
+        ctx.PrintInfo(fmt.Sprintf("Subagent completed: %s", e.Response))
+    }
+})
+\`\`\`
+
+This enables building widgets that display real-time subagent activity. See the \`subagent-monitor.go\` example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.
 
 ## LLM completion
 

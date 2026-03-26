@@ -7,7 +7,7 @@
 <meta name="description" content="Multi-agent orchestration with Kit subagents.">
 <link rel="canonical" href="/advanced/subagents">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CtpPWMeh.js"></script>
+<script type="module" src="/assets/index-BHE6cpcD.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Subagents","description":"Multi-agent orchestration with Kit subagents.","url":"https://go-kit.dev/advanced/subagents","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -68,6 +68,79 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
     SystemPrompt: "You are a security auditor.",
 })
 ```
+
+### Monitoring subagents from extensions
+
+When the LLM (not the extension itself) spawns a subagent using the `spawn_subagent` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
+
+```go
+// Track active subagents and display their output
+var subagentWidgets map[string]*SubagentWidget
+
+func Init(api ext.API) {
+    // Subagent started by the main agent
+    api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+        // e.ToolCallID — unique ID for this subagent invocation
+        // e.Task — the task/prompt sent to the subagent
+        widget := NewWidget(e.ToolCallID, e.Task)
+        subagentWidgets[e.ToolCallID] = widget
+        ctx.SetWidget(widget.Config())
+    })
+
+    // Real-time streaming from subagent
+    api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+        // e.ToolCallID — matches the start event
+        // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+        // e.Content — text content
+        // e.ToolName — tool name (for tool chunks)
+        // e.IsError — true if tool result failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.AddOutput(e)
+            ctx.SetWidget(widget.Config())
+        }
+    })
+
+    // Subagent completed
+    api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+        // e.Response — final response from subagent
+        // e.ErrorMsg — error message if subagent failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.MarkComplete(e.Response, e.ErrorMsg)
+            ctx.SetWidget(widget.Config())
+            delete(subagentWidgets, e.ToolCallID)
+        }
+    })
+}
+```
+
+**Event structs:**
+
+```go
+type SubagentStartEvent struct {
+    ToolCallID string  // Unique ID for this subagent invocation
+    Task       string  // The task/prompt sent to subagent
+}
+
+type SubagentChunkEvent struct {
+    ToolCallID string  // Matches SubagentStartEvent.ToolCallID
+    Task       string  // Task description
+    ChunkType  string  // "text", "tool_call", "tool_execution_start", "tool_result"
+    Content    string  // For text chunks
+    ToolName   string  // For tool-related chunks
+    IsError    bool    // For tool_result chunks
+}
+
+type SubagentEndEvent struct {
+    ToolCallID string  // Matches start event
+    Task       string  // Task description
+    Response   string  // Final response from subagent
+    ErrorMsg   string  // Error message if failed
+}
+```
+
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the `subagent-monitor.go` example for a complete implementation with horizontal widget layouts and scrolling output.
 
 ## Go SDK subagents
 

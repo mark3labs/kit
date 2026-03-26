@@ -32,11 +32,12 @@
         "Subprocess pattern",
         "Built-in spawn_subagent tool",
         "Extension subagents",
+        "Monitoring subagents from extensions",
         "Go SDK subagents",
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 365
+      "wordCount": 676
     },
     {
       "id": "advanced/testing",
@@ -149,12 +150,13 @@
         "Interactive prompts",
         "Options",
         "Subagents",
+        "Monitoring subagents spawned by the main agent",
         "LLM completion",
         "Themes",
         "Custom events"
       ],
       "tags": [],
-      "wordCount": 742
+      "wordCount": 1003
     },
     {
       "id": "extensions/examples",
@@ -173,7 +175,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 398
+      "wordCount": 416
     },
     {
       "id": "extensions/loading",
