@@ -30,11 +30,19 @@ When conversations grow long, Kit can compact them to free up context window spa
 
 Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
 
+## Auto-cleanup
+
+Kit automatically cleans up empty sessions on shutdown and when using `/resume`. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.
+
+To start fresh without creating a session file at all, use ephemeral mode:
+
+```bash
+kit --no-session
+```
+
 ## Resuming sessions
 
 ### Continue most recent
-
-Resume the most recent session for the current directory:
 
 ```bash
 kit --continue
@@ -73,7 +81,7 @@ These slash commands are available during an interactive session:
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
 | `/fork` | Branch from an earlier message |
-| `/new` | Start a fresh session |
+| `/new` | Start a new session (creates new session file) |
 
 ## Ephemeral mode
 

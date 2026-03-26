@@ -74,7 +74,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/reset-usage` | Reset usage statistics |
 | `/tree` | Navigate session tree |
 | `/fork` | Branch from an earlier message |
-| `/new` | Start a new session |
+| `/new` | Start a new session (creates new session file) |
 | `/name [name]` | Set or show session display name |
 | `/resume` | Open session picker to switch sessions (alias: `/r`) |
 | `/session` | Show session info |
@@ -95,9 +95,17 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
-## Prompt templates
+### Mid-turn steering
 
-Create reusable prompt templates with shell-style argument substitution. Templates are loaded from `~/.kit/prompts/*.md` and `.kit/prompts/*.md`.
+Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+
+- Works during streaming output
+- Sends a steering instruction as a system message
+- Model continues from the interruption point with the new guidance
+
+Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+
+## Prompt templates
 
 ### Creating templates
 

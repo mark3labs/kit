@@ -96,9 +96,45 @@ mcpServers:
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
 
-## Theme configuration
+## Custom models
 
-Set theme colors inline or reference an external file:
+Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database:
+
+```yaml
+customModels:
+  my-model:
+    name: "My Custom Model"
+    reasoning: true
+    temperature: true
+    cost:
+      input: 0.002
+      output: 0.004
+    limit:
+      context: 128000
+      output: 32000
+```
+
+### Custom model fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name for the model |
+| `reasoning` | bool | No | Whether the model supports reasoning/thinking |
+| `temperature` | bool | No | Whether the model supports temperature adjustment |
+| `cost.input` | float | No | Cost per 1K input tokens |
+| `cost.output` | float | No | Cost per 1K output tokens |
+| `limit.context` | int | Yes | Maximum context window in tokens |
+| `limit.output` | int | No | Maximum output tokens |
+
+Use with a custom provider URL:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"
+```
+
+When `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.
+
+## Theme configuration
 
 ```yaml
 # Inline partial overrides (unspecified fields inherit from default)

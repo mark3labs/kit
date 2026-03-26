@@ -130,7 +130,7 @@ type SubagentEndEvent struct {
 }
 ```
 
-This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the `subagent-monitor.go` example for a complete implementation with horizontal widget layouts and scrolling output.
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent.
 
 ## Go SDK subagents
 

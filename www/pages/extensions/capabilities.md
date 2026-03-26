@@ -283,7 +283,7 @@ api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
 })
 ```
 
-This enables building widgets that display real-time subagent activity. See the `subagent-monitor.go` example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.
+This enables building widgets that display real-time subagent activity.
 
 ## LLM completion
 
