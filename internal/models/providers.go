@@ -701,6 +701,14 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
 // Uses the chatgpt.com/backend-api/codex endpoint with special headers.
 func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
+	// Check for spark models which may not be accessible via OAuth
+	modelFamily := detectCodexModelFamily(modelName)
+	if modelFamily == "gpt-codex-spark" {
+		return nil, fmt.Errorf("gpt-codex-spark models are not accessible via ChatGPT OAuth. " +
+			"These models require special access or a different authentication method. " +
+			"Please use regular Codex models like 'openai/gpt-5.3-codex' instead")
+	}
+
 	// Use the ChatGPT backend API with /codex path
 	baseURL := "https://chatgpt.com/backend-api/codex"
 	if config.ProviderURL != "" {
@@ -711,8 +719,7 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	httpClient := createCodexHTTPClient(token, accountID, config.TLSSkipVerify)
 
 	// Detect model family to determine API type
-	modelFamily := detectCodexModelFamily(modelName)
-	useResponsesAPI := modelFamily != "gpt-codex-spark" // Spark uses old API
+	useResponsesAPI := modelFamily != "gpt-codex-spark"
 
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(token))
@@ -720,7 +727,12 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	if useResponsesAPI {
 		opts = append(opts, openai.WithUseResponsesAPI())
 	}
-	opts = append(opts, openai.WithHTTPClient(httpClient))
+
+	// Only use custom HTTP client for non-spark models
+	// Spark models may have different header requirements
+	if modelFamily != "gpt-codex-spark" {
+		opts = append(opts, openai.WithHTTPClient(httpClient))
+	}
 
 	provider, err := openai.New(opts...)
 	if err != nil {
