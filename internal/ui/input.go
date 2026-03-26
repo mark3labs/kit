@@ -65,6 +65,10 @@ type InputComponent struct {
 	// hideHint suppresses the "enter submit · ctrl+j..." hint text.
 	hideHint bool
 
+	// agentBusy indicates the agent is currently working. When true, the
+	// hint text shows steering shortcut (Ctrl+S) instead of submit.
+	agentBusy bool
+
 	// pendingImages holds clipboard images attached to the next submission.
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []ImageAttachment
@@ -514,7 +518,16 @@ func (s *InputComponent) View() tea.View {
 		// Adapt hint text to available width (accounting for left padding of 3).
 		var hint string
 		availableHintWidth := s.width - 3
-		if availableHintWidth >= 67 {
+		if s.agentBusy {
+			// When the agent is working, show steering shortcut.
+			if availableHintWidth >= 55 {
+				hint = "enter queue • ctrl+s steer • esc esc cancel"
+			} else if availableHintWidth >= 35 {
+				hint = "↵ queue • ^S steer • esc×2 cancel"
+			} else {
+				hint = "^S steer"
+			}
+		} else if availableHintWidth >= 67 {
 			hint = "enter submit • ctrl+j / shift+enter new line • ctrl+v paste image"
 		} else if availableHintWidth >= 40 {
 			hint = "↵ submit • ctrl+j newline • ctrl+v image"

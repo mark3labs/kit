@@ -66,6 +66,13 @@ type Kit struct {
 	// subagentListeners holds per-tool-call event listeners registered via
 	// SubscribeSubagent(). Keyed by toolCallID → *subagentListenerSet.
 	subagentListeners sync.Map
+
+	// steerCh is a buffered channel used to inject steering messages into
+	// the running agent turn via Fantasy's PrepareStep. Created fresh for
+	// each generate() call and set to nil when idle. Protected by steerMu.
+	steerMu       sync.Mutex
+	steerCh       chan string
+	leftoverSteer []string // unconsumed steer messages from the last turn
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -1405,6 +1412,35 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 // All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
+	// Create a per-turn steer channel and attach it to the context so the
+	// agent's PrepareStep can inject steering messages between steps.
+	steerCh := make(chan string, 16)
+	m.steerMu.Lock()
+	m.steerCh = steerCh
+	m.steerMu.Unlock()
+	defer func() {
+		// Drain any unconsumed steer messages before nilling the channel.
+		// These are stored in leftoverSteer so DrainSteer() can return them.
+		var leftover []string
+		for {
+			select {
+			case msg := <-steerCh:
+				leftover = append(leftover, msg)
+			default:
+				goto drained
+			}
+		}
+	drained:
+		m.steerMu.Lock()
+		m.steerCh = nil
+		m.leftoverSteer = leftover
+		m.steerMu.Unlock()
+	}()
+	ctx = agent.ContextWithSteerCh(ctx, steerCh)
+	ctx = agent.ContextWithSteerConsumed(ctx, func(count int) {
+		m.events.emit(SteerConsumedEvent{Count: count})
+	})
+
 	// Inject the in-process subagent spawner into the context so the
 	// spawn_subagent core tool can create child Kit instances without
 	// importing pkg/kit (which would create an import cycle).
@@ -1712,6 +1748,71 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 		return "", err
 	}
 	return result.Response, nil
+}
+
+// InjectSteer sends a steering message into the currently active agent turn.
+// The message will be injected as a user message between steps (after the
+// current tool execution finishes, before the next LLM call). If no turn is
+// active the message is silently dropped — callers should check IsGenerating()
+// or use Prompt()/Steer() for idle-state messaging.
+//
+// InjectSteer is safe to call from any goroutine. Multiple calls queue
+// messages in order; all pending steer messages are drained and injected
+// together at the next step boundary.
+//
+// This is the preferred way to redirect an agent mid-turn without cancelling
+// in-progress tool execution.
+func (m *Kit) InjectSteer(message string) {
+	m.steerMu.Lock()
+	ch := m.steerCh
+	m.steerMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- message:
+	default:
+		// Channel full — extremely unlikely with buffer of 16, but don't block.
+	}
+}
+
+// IsGenerating returns true if an agent turn is currently in progress.
+// Use this to decide between InjectSteer (mid-turn) and Prompt (new turn).
+func (m *Kit) IsGenerating() bool {
+	m.steerMu.Lock()
+	defer m.steerMu.Unlock()
+	return m.steerCh != nil
+}
+
+// DrainSteer removes and returns all unconsumed steer messages. Called after
+// a turn completes so the app layer can process any steer messages that
+// arrived after the last PrepareStep fired (e.g. during a text-only response
+// with no tool calls, or after the agent finished its last step).
+func (m *Kit) DrainSteer() []string {
+	m.steerMu.Lock()
+	defer m.steerMu.Unlock()
+
+	// First check leftover messages saved when generate() returned.
+	if len(m.leftoverSteer) > 0 {
+		msgs := m.leftoverSteer
+		m.leftoverSteer = nil
+		return msgs
+	}
+
+	// If a turn is still active, drain from the live channel.
+	if m.steerCh != nil {
+		var msgs []string
+		for {
+			select {
+			case msg := <-m.steerCh:
+				msgs = append(msgs, msg)
+			default:
+				return msgs
+			}
+		}
+	}
+
+	return nil
 }
 
 // PromptOptions configures a single PromptWithOptions call.

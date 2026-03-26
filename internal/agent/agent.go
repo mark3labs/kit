@@ -275,7 +275,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		var completedStepMessages []fantasy.Message
 
 		// Use fantasy's streaming agent
-		result, err := a.fantasyAgent.Stream(ctx, fantasy.AgentStreamCall{
+		streamCall := fantasy.AgentStreamCall{
 			Prompt:   prompt,
 			Files:    files,
 			Messages: history,
@@ -364,7 +364,51 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				}
 				return nil
 			},
-		})
+		}
+
+		// If a steer channel is attached to the context, wire up a
+		// PrepareStep function that drains the channel between steps
+		// and injects pending steer messages as user messages before
+		// the next LLM call. This enables graceful mid-turn steering
+		// without cancelling in-progress tool execution.
+		if steerCh := steerChFromContext(ctx); steerCh != nil {
+			onConsumed := steerConsumedFromContext(ctx)
+			streamCall.PrepareStep = func(
+				stepCtx context.Context,
+				opts fantasy.PrepareStepFunctionOptions,
+			) (context.Context, fantasy.PrepareStepResult, error) {
+				// Drain all pending steer messages (non-blocking).
+				var steered []string
+				for {
+					select {
+					case msg := <-steerCh:
+						steered = append(steered, msg)
+					default:
+						goto done
+					}
+				}
+			done:
+				result := fantasy.PrepareStepResult{
+					Model:    opts.Model,
+					Messages: opts.Messages,
+				}
+				if len(steered) > 0 {
+					// Inject each steer message as a user message so the
+					// LLM sees the redirection on the next step.
+					for _, text := range steered {
+						result.Messages = append(result.Messages,
+							fantasy.NewUserMessage(text))
+					}
+					// Notify that steer messages were consumed.
+					if onConsumed != nil {
+						onConsumed(len(steered))
+					}
+				}
+				return stepCtx, result, nil
+			}
+		}
+
+		result, err := a.fantasyAgent.Stream(ctx, streamCall)
 		if err != nil {
 			// On cancellation (or any error), return a partial result
 			// containing messages from completed steps so the caller can

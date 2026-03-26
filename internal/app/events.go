@@ -141,6 +141,12 @@ type CompactErrorEvent struct {
 	Err error
 }
 
+// SteerConsumedEvent is sent when one or more steering messages have been
+// consumed — either injected mid-turn via PrepareStep, or drained into the
+// queue after a turn completes. The TUI uses this to clear the steering
+// badge from the display.
+type SteerConsumedEvent struct{}
+
 // ModelChangedEvent is sent when an extension changes the active model via
 // ctx.SetModel. The TUI updates the model name shown in the status bar and
 // message attribution.

@@ -159,11 +159,57 @@ func (a *App) QueueLength() int {
 	return len(a.queue)
 }
 
-// Steer cancels the current agent step (if running), clears the queue, and
-// sends a new message that will execute as soon as the current step finishes
-// cancelling. If the agent is idle, the message executes immediately.
-// This is the "steer" delivery mode for SendMessage.
-func (a *App) Steer(prompt string) {
+// Steer injects a steering message into the currently running agent turn.
+// If the agent is in a multi-step tool loop, the message is delivered after
+// the current tool execution finishes but before the next LLM call (graceful
+// mid-turn injection via Fantasy's PrepareStep). If the agent is streaming
+// a text-only response (no pending tool calls), the message waits until the
+// response completes and then executes as the next turn.
+//
+// If the agent is idle, the message starts executing immediately (same as Run).
+//
+// Returns the number of pending steer/queue items (0 = started immediately,
+// >0 = injected/queued). The caller must update UI state based on the return
+// value — Steer does NOT send events to the program to avoid deadlocking
+// when called from within Update().
+//
+// Satisfies ui.AppController.
+func (a *App) Steer(prompt string) int {
+	a.mu.Lock()
+
+	if a.closed {
+		a.mu.Unlock()
+		return 0
+	}
+
+	if !a.busy {
+		// Not busy — start immediately, same as Run().
+		item := queueItem{Prompt: prompt}
+		a.busy = true
+		a.wg.Add(1)
+		a.mu.Unlock()
+		go a.drainQueue(item)
+		return 0
+	}
+
+	a.mu.Unlock()
+
+	// Agent is busy — inject via the SDK's steer channel. The message
+	// will be picked up by PrepareStep between agent steps (after tool
+	// execution, before next LLM call). If PrepareStep doesn't fire
+	// (text-only response), drainQueue will pick it up after the turn.
+	if a.opts.Kit != nil {
+		a.opts.Kit.InjectSteer(prompt)
+	}
+	return 1
+}
+
+// InterruptAndSend cancels the current agent step (if running), clears the
+// queue, and sends a new message that will execute as soon as the current
+// step finishes cancelling. If the agent is idle, the message executes
+// immediately. This is the hard-cancel delivery mode used by extensions'
+// CancelAndSend.
+func (a *App) InterruptAndSend(prompt string) {
 	a.mu.Lock()
 
 	if a.closed {
@@ -434,6 +480,24 @@ func (a *App) drainQueue(first queueItem) {
 		// Process all collected items as a single batch
 		a.runQueueBatch(items)
 
+		// Drain any unconsumed steer messages from the SDK channel.
+		// These arrive when the user steered during a text-only response
+		// (no tool calls, so PrepareStep didn't fire for a second step).
+		// They go to the front of the queue so they run next.
+		if a.opts.Kit != nil {
+			if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
+				a.mu.Lock()
+				steerItems := make([]queueItem, len(leftover))
+				for i, text := range leftover {
+					steerItems[i] = queueItem{Prompt: text}
+				}
+				a.queue = append(steerItems, a.queue...)
+				a.mu.Unlock()
+				// Notify UI about the consumed steer messages.
+				a.sendEvent(SteerConsumedEvent{})
+			}
+		}
+
 		// Check if more items were queued while we were processing
 		a.mu.Lock()
 		hasMore := len(a.queue) > 0
@@ -687,6 +751,8 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 					int(ev.CacheWriteTokens),
 				)
 			}
+		case kit.SteerConsumedEvent:
+			sendFn(SteerConsumedEvent{})
 		}
 	}))
 

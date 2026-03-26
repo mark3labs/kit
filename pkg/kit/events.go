@@ -42,6 +42,9 @@ const (
 	// EventToolOutput fires when a tool produces streaming output chunks.
 	EventToolOutput EventType = "tool_output"
 	EventStepUsage  EventType = "step_usage"
+	// EventSteerConsumed fires when one or more steering messages have been
+	// injected into the agent turn via PrepareStep.
+	EventSteerConsumed EventType = "steer_consumed"
 )
 
 // ---------------------------------------------------------------------------
@@ -275,6 +278,16 @@ type CompactionEvent struct {
 
 // EventType implements Event.
 func (e CompactionEvent) EventType() EventType { return EventCompaction }
+
+// SteerConsumedEvent fires when one or more steering messages have been
+// injected into the agent turn via PrepareStep. The Count indicates how
+// many messages were consumed in this batch.
+type SteerConsumedEvent struct {
+	Count int
+}
+
+// EventType implements Event.
+func (e SteerConsumedEvent) EventType() EventType { return EventSteerConsumed }
 
 // ---------------------------------------------------------------------------
 // EventBus

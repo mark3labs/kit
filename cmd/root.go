@@ -811,7 +811,7 @@ func runNormalMode(ctx context.Context) error {
 			PrintError:    func(text string) { appInstance.PrintFromExtension("error", text) },
 			PrintBlock:    appInstance.PrintBlockFromExtension,
 			SendMessage:   func(text string) { appInstance.Run(text) },
-			CancelAndSend: func(text string) { appInstance.Steer(text) },
+			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
 			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.SetExtensionWidget(config)

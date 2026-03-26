@@ -98,6 +98,12 @@ type AppController interface {
 	// alongside the text. Returns the current queue depth (0 = started
 	// immediately, >0 = queued).
 	RunWithFiles(prompt string, files []fantasy.FilePart) int
+	// Steer injects a steering message into the currently running agent
+	// turn. If the agent is busy, the message is delivered between steps
+	// (after current tool finishes, before next LLM call). If idle, the
+	// message starts executing immediately. Returns 0 if started
+	// immediately, >0 if injected/pending.
+	Steer(prompt string) int
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -414,6 +420,11 @@ type AppModel struct {
 	// submitted to the agent). They are rendered with a "queued" badge above
 	// the input and move to scrollback when the agent picks them up.
 	queuedMessages []string
+
+	// steeringMessages stores the text of prompts that were sent as steer
+	// messages (injected mid-turn via Ctrl+S). Rendered with a "STEERING"
+	// badge above the input. Cleared when the steer is consumed.
+	steeringMessages []string
 
 	// pendingUserPrints holds user messages that have been consumed from the
 	// queue but not yet printed to scrollback. They are deferred until
@@ -1070,6 +1081,45 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 			// In other states pass ESC through to children below.
+
+		case "ctrl+s":
+			// Steer: inject the current input as a steering message into the
+			// running agent turn. Only active during stateWorking — in input
+			// state, Ctrl+S is passed through to children (no-op by default).
+			if m.state == stateWorking && m.appCtrl != nil {
+				var text string
+				if ic, ok := m.input.(*InputComponent); ok {
+					text = strings.TrimSpace(ic.textarea.Value())
+				}
+				if text != "" {
+					// Clear the input and push to history.
+					if ic, ok := m.input.(*InputComponent); ok {
+						ic.pushHistory(text)
+						ic.textarea.SetValue("")
+					}
+
+					// Preprocess @file references.
+					processedText := text
+					if m.cwd != "" {
+						processedText = ProcessFileAttachments(text, m.cwd)
+					}
+
+					// Inject the steer message.
+					sLen := m.appCtrl.Steer(processedText)
+					if sLen > 0 {
+						m.steeringMessages = append(m.steeringMessages, text)
+						m.distributeHeight()
+					} else {
+						// Started immediately (agent was idle).
+						m.pendingUserPrints = append(m.pendingUserPrints, text)
+						m.flushStreamAndPendingUserMessages()
+						if m.state != stateWorking {
+							m.state = stateWorking
+						}
+					}
+				}
+				return m, tea.Batch(cmds...)
+			}
 		}
 
 		// Route key events to the focused child. Check for editor
@@ -1389,6 +1439,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.distributeHeight()
 
+	case app.SteerConsumedEvent:
+		// Steering messages were consumed — either injected mid-turn
+		// via PrepareStep or drained into the queue after a turn.
+		// Move them to pendingUserPrints for scrollback rendering.
+		m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
+		m.steeringMessages = m.steeringMessages[:0]
+		m.distributeHeight()
+
 	case app.StepCompleteEvent:
 		// Keep stream content visible in the view — don't flush to scrollback
 		// yet. Flushing + resetting in the same frame would shrink the view
@@ -1641,6 +1699,7 @@ func (m *AppModel) View() tea.View {
 	// Propagate hint visibility to the input component before rendering.
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.hideHint = vis.HideInputHint
+		ic.agentBusy = m.state == stateWorking
 	}
 
 	// When a prompt is active, it replaces the input area for consistency
@@ -1935,16 +1994,26 @@ func (m *AppModel) cycleThinkingLevel() {
 	go func() { _ = SaveThinkingLevelPreference(next) }()
 }
 
-// renderSeparator renders the separator line with an optional queue count badge.
+// renderSeparator renders the separator line with an optional queue/steer count badge.
 func (m *AppModel) renderSeparator() string {
 	theme := GetTheme()
 	lineStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	queueLen := len(m.queuedMessages)
+	steerLen := len(m.steeringMessages)
 
-	if queueLen > 0 {
-		badge := lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Render(fmt.Sprintf("%d queued", queueLen))
+	if steerLen > 0 || queueLen > 0 {
+		var parts []string
+		if steerLen > 0 {
+			parts = append(parts, lipgloss.NewStyle().
+				Foreground(theme.Warning).
+				Render(fmt.Sprintf("%d steering", steerLen)))
+		}
+		if queueLen > 0 {
+			parts = append(parts, lipgloss.NewStyle().
+				Foreground(theme.Secondary).
+				Render(fmt.Sprintf("%d queued", queueLen)))
+		}
+		badge := strings.Join(parts, " ")
 
 		// Fill the separator with dashes up to the badge.
 		dashWidth := max(m.width-lipgloss.Width(badge)-1, 0)
@@ -2043,27 +2112,47 @@ func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
 	return renderContentBlock(data.Text, m.width, opts...)
 }
 
-// renderQueuedMessages renders queued prompts as styled content blocks with a
-// "QUEUED" badge, anchored between the separator and input. Each message is
-// displayed in a bordered block matching the overall message styling.
+// renderQueuedMessages renders queued and steering prompts as styled content
+// blocks with badges, anchored between the separator and input. Steering
+// messages use a distinct "STEERING" badge to differentiate from queued ones.
 func (m *AppModel) renderQueuedMessages() string {
-	if len(m.queuedMessages) == 0 {
+	if len(m.queuedMessages) == 0 && len(m.steeringMessages) == 0 {
 		return ""
 	}
 	theme := GetTheme()
-	badge := CreateBadge("QUEUED", theme.Accent)
 
 	var blocks []string
-	for _, msg := range m.queuedMessages {
-		content := msg + "\n" + badge
-		rendered := renderContentBlock(
-			content,
-			m.width,
-			WithAlign(lipgloss.Left),
-			WithBorderColor(theme.Muted),
-		)
-		blocks = append(blocks, rendered)
+
+	// Render steering messages first (higher priority).
+	if len(m.steeringMessages) > 0 {
+		badge := CreateBadge("STEERING", theme.Warning)
+		for _, msg := range m.steeringMessages {
+			content := msg + "\n" + badge
+			rendered := renderContentBlock(
+				content,
+				m.width,
+				WithAlign(lipgloss.Left),
+				WithBorderColor(theme.Warning),
+			)
+			blocks = append(blocks, rendered)
+		}
 	}
+
+	// Render queued messages.
+	if len(m.queuedMessages) > 0 {
+		badge := CreateBadge("QUEUED", theme.Accent)
+		for _, msg := range m.queuedMessages {
+			content := msg + "\n" + badge
+			rendered := renderContentBlock(
+				content,
+				m.width,
+				WithAlign(lipgloss.Left),
+				WithBorderColor(theme.Muted),
+			)
+			blocks = append(blocks, rendered)
+		}
+	}
+
 	return strings.Join(blocks, "\n")
 }
 
@@ -2134,6 +2223,7 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 			m.appCtrl.ClearQueue()
 		}
 		m.queuedMessages = m.queuedMessages[:0]
+		m.steeringMessages = m.steeringMessages[:0]
 		m.distributeHeight()
 
 	case "/tree":
@@ -2321,7 +2411,9 @@ func (m *AppModel) printHelpMessage() {
 		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
 		"**Keys:**\n" +
 		"- `Ctrl+C`: Exit at any time\n" +
-		"- `ESC` (x2): Cancel ongoing LLM generation\n\n" +
+		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
+		"- `Ctrl+S`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
+		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
 		"You can also just type your message to chat with the AI assistant."
 	m.printSystemMessage(help)
 }

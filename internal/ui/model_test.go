@@ -67,6 +67,11 @@ func (s *stubAppController) RunWithFiles(prompt string, _ []fantasy.FilePart) in
 	return s.queueLen
 }
 
+func (s *stubAppController) Steer(prompt string) int {
+	s.runCalls = append(s.runCalls, prompt)
+	return s.queueLen
+}
+
 // --------------------------------------------------------------------------
 // Stub child components
 // --------------------------------------------------------------------------
