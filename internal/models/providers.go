@@ -169,6 +169,9 @@ type ProviderResult struct {
 	// ProviderOptions contains provider-specific options to be passed to the
 	// fantasy agent (e.g. OpenAI Responses API reasoning options).
 	ProviderOptions fantasy.ProviderOptions
+	// SkipMaxOutputTokens indicates that this provider doesn't support the
+	// max_output_tokens parameter (e.g., OpenAI Codex OAuth API).
+	SkipMaxOutputTokens bool
 }
 
 // ParseModelString parses a model string in "provider/model" format (e.g. "anthropic/claude-sonnet-4-5").
@@ -726,7 +729,11 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	// Build provider options for Codex API with system prompt as Instructions
 	providerOpts := buildCodexProviderOptions(config, modelName)
 
-	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+	return &ProviderResult{
+		Model:               model,
+		ProviderOptions:     providerOpts,
+		SkipMaxOutputTokens: true, // Codex API doesn't support max_output_tokens
+	}, nil
 }
 
 // buildCodexProviderOptions returns fantasy.ProviderOptions configured for

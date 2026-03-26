@@ -183,7 +183,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 
 	// Pass generation parameters when available.
 	if agentConfig.ModelConfig != nil {
-		if agentConfig.ModelConfig.MaxTokens > 0 {
+		// Skip max_output_tokens for providers that don't support it (e.g., Codex OAuth)
+		if agentConfig.ModelConfig.MaxTokens > 0 && !providerResult.SkipMaxOutputTokens {
 			agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(agentConfig.ModelConfig.MaxTokens)))
 		}
 		if agentConfig.ModelConfig.Temperature != nil {
@@ -672,7 +673,8 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	}
 
 	// Pass generation parameters when available.
-	if config.MaxTokens > 0 {
+	// Skip max_output_tokens for providers that don't support it (e.g., Codex OAuth)
+	if config.MaxTokens > 0 && !providerResult.SkipMaxOutputTokens {
 		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(config.MaxTokens)))
 	}
 	if config.Temperature != nil {
