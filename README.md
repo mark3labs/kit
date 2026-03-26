@@ -287,7 +287,7 @@ kit -e examples/extensions/minimal.go
 
 ### Extension Capabilities
 
-**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnToolCall, OnToolExecutionStart, OnToolOutput, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact, OnCustomEvent
+**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnToolCall, OnToolExecutionStart, OnToolOutput, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact, OnCustomEvent, OnSubagentStart, OnSubagentChunk, OnSubagentEnd
 
 **Custom Components**:
 - **Tools**: Add new tools the LLM can invoke
@@ -335,6 +335,7 @@ See the `examples/extensions/` directory:
 - `protected-paths.go` - Path protection for sensitive files
 - `subagent-widget.go` - Multi-agent orchestration with status widget
 - `subagent-test.go` - Subagent testing utilities
+- `subagent-monitor.go` - Real-time monitoring widget for spawned subagents
 - `summarize.go` - Conversation summarization
 - `tool-logger.go` - Log all tool calls
 - `neon-theme.go` - Custom theme registration and switching

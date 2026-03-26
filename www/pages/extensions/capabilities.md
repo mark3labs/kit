@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 20 lifecycle events:
+Extensions can hook into 23 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -31,6 +31,9 @@ Extensions can hook into 20 lifecycle events:
 | `OnBeforeSessionSwitch` | Before switching sessions |
 | `OnBeforeCompact` | Before conversation compaction |
 | `OnCustomEvent` | Custom inter-extension event received |
+| `OnSubagentStart` | Subagent spawned by the main agent |
+| `OnSubagentChunk` | Real-time output from subagent (text, tool calls, results) |
+| `OnSubagentEnd` | Subagent completed with final response/error |
 
 ### Example
 
@@ -233,6 +236,54 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
     SystemPrompt: "You are a test analysis expert.",
 })
 ```
+
+### Monitoring subagents spawned by the main agent
+
+When the LLM uses the built-in `spawn_subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+
+```go
+// Subagent started
+api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+    // e.ToolCallID — unique ID for this subagent invocation
+    // e.Task — the task/prompt sent to the subagent
+    ctx.PrintInfo(fmt.Sprintf("Subagent started: %s", e.Task))
+})
+
+// Real-time streaming output from subagent
+api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+    // e.ToolCallID — matches the start event
+    // e.Task — task description
+    // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+    // e.Content — text content (for text chunks)
+    // e.ToolName — tool name (for tool-related chunks)
+    // e.IsError — true if tool result is an error
+    switch e.ChunkType {
+    case "text":
+        // Streaming text output
+    case "tool_call":
+        // Subagent is calling a tool
+    case "tool_execution_start":
+        // Tool execution started
+    case "tool_result":
+        // Tool execution completed (check e.IsError)
+    }
+})
+
+// Subagent completed
+api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+    // e.ToolCallID — matches start event
+    // e.Task — task description
+    // e.Response — final response from subagent
+    // e.ErrorMsg — error message if subagent failed
+    if e.ErrorMsg != "" {
+        ctx.PrintError(fmt.Sprintf("Subagent failed: %s", e.ErrorMsg))
+    } else {
+        ctx.PrintInfo(fmt.Sprintf("Subagent completed: %s", e.Response))
+    }
+})
+```
+
+This enables building widgets that display real-time subagent activity. See the `subagent-monitor.go` example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.
 
 ## LLM completion
 
