@@ -226,7 +226,7 @@ type SubagentEndEvent struct {
 }
 ```
 
-This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the `subagent-monitor.go` example for a complete implementation with horizontal widget layouts and scrolling output.
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent.
 
 ## Go SDK subagents
 
@@ -415,7 +415,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/reset-usage` | Reset usage statistics |
 | `/tree` | Navigate session tree |
 | `/fork` | Branch from an earlier message |
-| `/new` | Start a new session |
+| `/new` | Start a new session (creates new session file) |
 | `/name [name]` | Set or show session display name |
 | `/resume` | Open session picker to switch sessions (alias: `/r`) |
 | `/session` | Show session info |
@@ -436,9 +436,17 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
-## Prompt templates
+### Mid-turn steering
 
-Create reusable prompt templates with shell-style argument substitution. Templates are loaded from `~/.kit/prompts/*.md` and `.kit/prompts/*.md`.
+Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+
+- Works during streaming output
+- Sends a steering instruction as a system message
+- Model continues from the interruption point with the new guidance
+
+Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+
+## Prompt templates
 
 ### Creating templates
 
@@ -655,9 +663,45 @@ mcpServers:
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
 
-## Theme configuration
+## Custom models
 
-Set theme colors inline or reference an external file:
+Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database:
+
+```yaml
+customModels:
+  my-model:
+    name: "My Custom Model"
+    reasoning: true
+    temperature: true
+    cost:
+      input: 0.002
+      output: 0.004
+    limit:
+      context: 128000
+      output: 32000
+```
+
+### Custom model fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name for the model |
+| `reasoning` | bool | No | Whether the model supports reasoning/thinking |
+| `temperature` | bool | No | Whether the model supports temperature adjustment |
+| `cost.input` | float | No | Cost per 1K input tokens |
+| `cost.output` | float | No | Cost per 1K output tokens |
+| `limit.context` | int | Yes | Maximum context window in tokens |
+| `limit.output` | int | No | Maximum output tokens |
+
+Use with a custom provider URL:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"
+```
+
+When `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.
+
+## Theme configuration
 
 ```yaml
 # Inline partial overrides (unspecified fields inherit from default)
@@ -1058,7 +1102,7 @@ api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
 })
 ```
 
-This enables building widgets that display real-time subagent activity. See the `subagent-monitor.go` example for a complete implementation showing horizontal widget layouts with scrolling output from multiple parallel subagents.
+This enables building widgets that display real-time subagent activity.
 
 ## LLM completion
 
@@ -1175,7 +1219,6 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`kit-kit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/kit-kit.go) | Kit-in-Kit sub-agent spawning |
 | [`subagent-widget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [`subagent-test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
-| [`subagent-monitor.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor.go) | Real-time monitoring widget for spawned subagents |
 
 ## Development
 
@@ -1183,7 +1226,6 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 |-----------|-------------|
 | [`dev-reload.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go) | Development live-reload |
 | [`tool-logger_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) | Example extension tests (see [Testing](/extensions/testing)) |
-| [`subagent-monitor_test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor_test.go) | Subagent lifecycle event tests |
 | [`extension_test_template.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go) | Copy-and-paste test template for your extensions |
 
 ## Subdirectory extensions
@@ -2613,11 +2655,19 @@ When conversations grow long, Kit can compact them to free up context window spa
 
 Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
 
+## Auto-cleanup
+
+Kit automatically cleans up empty sessions on shutdown and when using `/resume`. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.
+
+To start fresh without creating a session file at all, use ephemeral mode:
+
+```bash
+kit --no-session
+```
+
 ## Resuming sessions
 
 ### Continue most recent
-
-Resume the most recent session for the current directory:
 
 ```bash
 kit --continue
@@ -2656,7 +2706,7 @@ These slash commands are available during an interactive session:
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
 | `/fork` | Branch from an earlier message |
-| `/new` | Start a fresh session |
+| `/new` | Start a new session (creates new session file) |
 
 ## Ephemeral mode
 

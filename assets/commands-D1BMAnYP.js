@@ -1,4 +1,4 @@
-const s={frontmatter:{title:"Commands",description:"Complete reference for all Kit CLI subcommands.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#commands"><span class="icon icon-link"></span></a>Commands</h1>
+const e={frontmatter:{title:"Commands",description:"Complete reference for all Kit CLI subcommands.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#commands"><span class="icon icon-link"></span></a>Commands</h1>
 <h2 id="authentication"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#authentication"><span class="icon icon-link"></span></a>Authentication</h2>
 <p>For OAuth-enabled providers like Anthropic.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]    </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Start OAuth flow (e.g., anthropic)</span></span>
@@ -92,7 +92,7 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 <tr>
 <td><code>/new</code></td>
-<td>Start a new session</td>
+<td>Start a new session (creates new session file)</td>
 </tr>
 <tr>
 <td><code>/name [name]</code></td>
@@ -133,8 +133,15 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 <li>During streaming: stops the response generation</li>
 </ul>
 <p>This ensures that <code>tool_use</code> and <code>tool_result</code> messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.</p>
+<h3 id="mid-turn-steering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mid-turn-steering"><span class="icon icon-link"></span></a>Mid-turn steering</h3>
+<p>Press <strong>Ctrl+S</strong> during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:</p>
+<ul>
+<li>Works during streaming output</li>
+<li>Sends a steering instruction as a system message</li>
+<li>Model continues from the interruption point with the new guidance</li>
+</ul>
+<p>Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.</p>
 <h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
-<p>Create reusable prompt templates with shell-style argument substitution. Templates are loaded from <code>~/.kit/prompts/*.md</code> and <code>.kit/prompts/*.md</code>.</p>
 <h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
 <p>Templates use YAML frontmatter for metadata and support argument placeholders:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">---</span></span>
@@ -183,7 +190,7 @@ const s={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -255,7 +262,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/reset-usage\` | Reset usage statistics |
 | \`/tree\` | Navigate session tree |
 | \`/fork\` | Branch from an earlier message |
-| \`/new\` | Start a new session |
+| \`/new\` | Start a new session (creates new session file) |
 | \`/name [name]\` | Set or show session display name |
 | \`/resume\` | Open session picker to switch sessions (alias: \`/r\`) |
 | \`/session\` | Show session info |
@@ -276,9 +283,17 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that \`tool_use\` and \`tool_result\` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
-## Prompt templates
+### Mid-turn steering
 
-Create reusable prompt templates with shell-style argument substitution. Templates are loaded from \`~/.kit/prompts/*.md\` and \`.kit/prompts/*.md\`.
+Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+
+- Works during streaming output
+- Sends a steering instruction as a system message
+- Model continues from the interruption point with the new guidance
+
+Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+
+## Prompt templates
 
 ### Creating templates
 
@@ -329,4 +344,4 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 \`\`\`
-`};export{s as default};
+`};export{e as default};

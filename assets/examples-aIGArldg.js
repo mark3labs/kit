@@ -176,10 +176,6 @@ const t={frontmatter:{title:"Examples",description:"Catalog of example extension
 <td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go"><code>subagent-test.go</code></a></td>
 <td>Subagent testing utilities</td>
 </tr>
-<tr>
-<td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor.go"><code>subagent-monitor.go</code></a></td>
-<td>Real-time monitoring widget for spawned subagents</td>
-</tr>
 </tbody>
 </table>
 <h2 id="development"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#development"><span class="icon icon-link"></span></a>Development</h2>
@@ -198,10 +194,6 @@ const t={frontmatter:{title:"Examples",description:"Catalog of example extension
 <tr>
 <td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go"><code>tool-logger_test.go</code></a></td>
 <td>Example extension tests (see <a href="/extensions/testing">Testing</a>)</td>
-</tr>
-<tr>
-<td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor_test.go"><code>subagent-monitor_test.go</code></a></td>
-<td>Subagent lifecycle event tests</td>
 </tr>
 <tr>
 <td><a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go"><code>extension_test_template.go</code></a></td>
@@ -295,7 +287,6 @@ Kit ships with a rich set of example extensions in the \`examples/extensions/\` 
 | [\`kit-kit.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/kit-kit.go) | Kit-in-Kit sub-agent spawning |
 | [\`subagent-widget.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [\`subagent-test.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
-| [\`subagent-monitor.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor.go) | Real-time monitoring widget for spawned subagents |
 
 ## Development
 
@@ -303,7 +294,6 @@ Kit ships with a rich set of example extensions in the \`examples/extensions/\` 
 |-----------|-------------|
 | [\`dev-reload.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/dev-reload.go) | Development live-reload |
 | [\`tool-logger_test.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-logger_test.go) | Example extension tests (see [Testing](/extensions/testing)) |
-| [\`subagent-monitor_test.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor_test.go) | Subagent lifecycle event tests |
 | [\`extension_test_template.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/extension_test_template.go) | Copy-and-paste test template for your extensions |
 
 ## Subdirectory extensions

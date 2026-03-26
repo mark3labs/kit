@@ -15,9 +15,12 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 <li><strong>Tool result truncation</strong>: Caps tool output during serialization to stay within token budgets</li>
 </ul>
 <p>Use <code>/compact [focus]</code> to manually compact, or enable <code>--auto-compact</code> to compact automatically near the context limit.</p>
+<h2 id="auto-cleanup"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#auto-cleanup"><span class="icon icon-link"></span></a>Auto-cleanup</h2>
+<p>Kit automatically cleans up empty sessions on shutdown and when using <code>/resume</code>. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.</p>
+<p>To start fresh without creating a session file at all, use ephemeral mode:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-session</span></span></code></pre>
 <h2 id="resuming-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#resuming-sessions"><span class="icon icon-link"></span></a>Resuming sessions</h2>
 <h3 id="continue-most-recent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#continue-most-recent"><span class="icon icon-link"></span></a>Continue most recent</h3>
-<p>Resume the most recent session for the current directory:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --continue</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -c</span></span></code></pre>
 <h3 id="interactive-picker"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-picker"><span class="icon icon-link"></span></a>Interactive picker</h3>
@@ -72,7 +75,7 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 </tr>
 <tr>
 <td><code>/new</code></td>
-<td>Start a fresh session</td>
+<td>Start a new session (creates new session file)</td>
 </tr>
 </tbody>
 </table>
@@ -93,7 +96,7 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 <li><strong>Model</strong> — Set via <code>/model &lt;name&gt;</code> or the model selector</li>
 <li><strong>Thinking level</strong> — Set via <code>/thinking &lt;level&gt;</code> or Shift+Tab cycling</li>
 </ul>
-<p>These preferences are restored on next launch. Precedence: CLI flag &gt; config file &gt; saved preference &gt; default.</p>`,headings:[{depth:2,text:"Session storage",id:"session-storage"},{depth:2,text:"Compaction",id:"compaction"},{depth:2,text:"Resuming sessions",id:"resuming-sessions"},{depth:3,text:"Continue most recent",id:"continue-most-recent"},{depth:3,text:"Interactive picker",id:"interactive-picker"},{depth:3,text:"Open a specific session",id:"open-a-specific-session"},{depth:2,text:"Session commands",id:"session-commands"},{depth:2,text:"Ephemeral mode",id:"ephemeral-mode"},{depth:2,text:"Sharing sessions",id:"sharing-sessions"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:`
+<p>These preferences are restored on next launch. Precedence: CLI flag &gt; config file &gt; saved preference &gt; default.</p>`,headings:[{depth:2,text:"Session storage",id:"session-storage"},{depth:2,text:"Compaction",id:"compaction"},{depth:2,text:"Auto-cleanup",id:"auto-cleanup"},{depth:2,text:"Resuming sessions",id:"resuming-sessions"},{depth:3,text:"Continue most recent",id:"continue-most-recent"},{depth:3,text:"Interactive picker",id:"interactive-picker"},{depth:3,text:"Open a specific session",id:"open-a-specific-session"},{depth:2,text:"Session commands",id:"session-commands"},{depth:2,text:"Ephemeral mode",id:"ephemeral-mode"},{depth:2,text:"Sharing sessions",id:"sharing-sessions"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:`
 # Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.
@@ -121,11 +124,19 @@ When conversations grow long, Kit can compact them to free up context window spa
 
 Use \`/compact [focus]\` to manually compact, or enable \`--auto-compact\` to compact automatically near the context limit.
 
+## Auto-cleanup
+
+Kit automatically cleans up empty sessions on shutdown and when using \`/resume\`. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.
+
+To start fresh without creating a session file at all, use ephemeral mode:
+
+\`\`\`bash
+kit --no-session
+\`\`\`
+
 ## Resuming sessions
 
 ### Continue most recent
-
-Resume the most recent session for the current directory:
 
 \`\`\`bash
 kit --continue
@@ -164,7 +175,7 @@ These slash commands are available during an interactive session:
 | \`/share\` | Upload session to GitHub Gist and get a shareable viewer URL |
 | \`/tree\` | Navigate the session tree |
 | \`/fork\` | Branch from an earlier message |
-| \`/new\` | Start a fresh session |
+| \`/new\` | Start a new session (creates new session file) |
 
 ## Ephemeral mode
 

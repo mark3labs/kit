@@ -37,7 +37,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 676
+      "wordCount": 661
     },
     {
       "id": "advanced/testing",
@@ -66,6 +66,7 @@
         "Interactive slash commands",
         "Prompt history",
         "Cancelling operations",
+        "Mid-turn steering",
         "Prompt templates",
         "Creating templates",
         "Using templates",
@@ -74,7 +75,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 696
+      "wordCount": 757
     },
     {
       "id": "cli/flags",
@@ -103,11 +104,13 @@
         "Environment variables",
         "MCP server configuration",
         "MCP server fields",
+        "Custom models",
+        "Custom model fields",
         "Theme configuration",
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 594
+      "wordCount": 774
     },
     {
       "id": "development",
@@ -156,7 +159,7 @@
         "Custom events"
       ],
       "tags": [],
-      "wordCount": 1003
+      "wordCount": 984
     },
     {
       "id": "extensions/examples",
@@ -175,7 +178,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 416
+      "wordCount": 398
     },
     {
       "id": "extensions/loading",
@@ -380,6 +383,7 @@
       "headings": [
         "Session storage",
         "Compaction",
+        "Auto-cleanup",
         "Resuming sessions",
         "Continue most recent",
         "Interactive picker",
@@ -390,7 +394,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 504
+      "wordCount": 554
     },
     {
       "id": "themes",

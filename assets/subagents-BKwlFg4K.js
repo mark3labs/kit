@@ -119,7 +119,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Response   </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#6A737D;--shiki-dark:#6A737D">  // Final response from subagent</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ErrorMsg   </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#6A737D;--shiki-dark:#6A737D">  // Error message if failed</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
-<p>This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the <code>subagent-monitor.go</code> example for a complete implementation with horizontal widget layouts and scrolling output.</p>
+<p>This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent.</p>
 <h2 id="go-sdk-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#go-sdk-subagents"><span class="icon icon-link"></span></a>Go SDK subagents</h2>
 <p>The SDK provides in-process subagent spawning:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -273,7 +273,7 @@ type SubagentEndEvent struct {
 }
 \`\`\`
 
-This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent. See the \`subagent-monitor.go\` example for a complete implementation with horizontal widget layouts and scrolling output.
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent.
 
 ## Go SDK subagents
 

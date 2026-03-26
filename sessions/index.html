@@ -7,7 +7,7 @@
 <meta name="description" content="How Kit persists and manages conversation sessions.">
 <link rel="canonical" href="/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CDN-QFwV.js"></script>
+<script type="module" src="/assets/index-D9qTsoU9.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Session Management","description":"How Kit persists and manages conversation sessions.","url":"https://go-kit.dev/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -40,11 +40,19 @@ When conversations grow long, Kit can compact them to free up context window spa
 
 Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
 
+## Auto-cleanup
+
+Kit automatically cleans up empty sessions on shutdown and when using `/resume`. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.
+
+To start fresh without creating a session file at all, use ephemeral mode:
+
+```bash
+kit --no-session
+```
+
 ## Resuming sessions
 
 ### Continue most recent
-
-Resume the most recent session for the current directory:
 
 ```bash
 kit --continue
@@ -83,7 +91,7 @@ These slash commands are available during an interactive session:
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
 | `/fork` | Branch from an earlier message |
-| `/new` | Start a fresh session |
+| `/new` | Start a new session (creates new session file) |
 
 ## Ephemeral mode
 

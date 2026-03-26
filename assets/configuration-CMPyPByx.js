@@ -199,8 +199,78 @@ const e={frontmatter:{title:"Configuration",description:"Configure Kit using con
 </tbody>
 </table>
 <p>A legacy format with <code>transport</code>, <code>args</code>, <code>env</code>, and <code>headers</code> fields is also supported.</p>
+<h2 id="custom-models"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-models"><span class="icon icon-link"></span></a>Custom models</h2>
+<p>Define custom models in your <code>.kit.yml</code> for use with the <code>custom</code> provider. This is useful for self-hosted models or API endpoints not in the built-in database:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">customModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  my-model</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"My Custom Model"</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    reasoning</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    temperature</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    cost</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">      input</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">0.002</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">      output</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">0.004</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    limit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">      context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">128000</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">      output</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">32000</span></span></code></pre>
+<h3 id="custom-model-fields"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-model-fields"><span class="icon icon-link"></span></a>Custom model fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>Display name for the model</td>
+</tr>
+<tr>
+<td><code>reasoning</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Whether the model supports reasoning/thinking</td>
+</tr>
+<tr>
+<td><code>temperature</code></td>
+<td>bool</td>
+<td>No</td>
+<td>Whether the model supports temperature adjustment</td>
+</tr>
+<tr>
+<td><code>cost.input</code></td>
+<td>float</td>
+<td>No</td>
+<td>Cost per 1K input tokens</td>
+</tr>
+<tr>
+<td><code>cost.output</code></td>
+<td>float</td>
+<td>No</td>
+<td>Cost per 1K output tokens</td>
+</tr>
+<tr>
+<td><code>limit.context</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Maximum context window in tokens</td>
+</tr>
+<tr>
+<td><code>limit.output</code></td>
+<td>int</td>
+<td>No</td>
+<td>Maximum output tokens</td>
+</tr>
+</tbody>
+</table>
+<p>Use with a custom provider URL:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "http://localhost:8080/v1"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> custom/my-model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
+<p>When <code>--provider-url</code> is specified without <code>--model</code>, Kit defaults to <code>custom/custom</code> which has zero cost tracking and a 262K context window.</p>
 <h2 id="theme-configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#theme-configuration"><span class="icon icon-link"></span></a>Theme configuration</h2>
-<p>Set theme colors inline or reference an external file:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Inline partial overrides (unspecified fields inherit from default)</span></span>
 <span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">theme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
 <span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  primary</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
@@ -224,4 +294,4 @@ const e={frontmatter:{title:"Configuration",description:"Configure Kit using con
 <li>Config file (<code>model:</code>, <code>thinking-level:</code>)</li>
 <li>Saved preferences (<code>~/.config/kit/preferences.yml</code>)</li>
 <li>Default values</li>
-</ol>`,headings:[{depth:2,text:"Basic configuration",id:"basic-configuration"},{depth:2,text:"All configuration keys",id:"all-configuration-keys"},{depth:2,text:"Environment variables",id:"environment-variables"},{depth:2,text:"MCP server configuration",id:"mcp-server-configuration"},{depth:3,text:"MCP server fields",id:"mcp-server-fields"},{depth:2,text:"Theme configuration",id:"theme-configuration"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:'\n# Configuration\n\nKit looks for configuration in the following locations, in order of priority:\n\n1. CLI flags\n2. Environment variables (with `KIT_` prefix)\n3. `./.kit.yml` / `./.kit.yaml` / `./.kit.json` (project-local)\n4. `~/.kit.yml` / `~/.kit.yaml` / `~/.kit.json` (global)\n\n## Basic configuration\n\nCreate `~/.kit.yml`:\n\n```yaml\nmodel: anthropic/claude-sonnet-latest\nmax-tokens: 4096\ntemperature: 0.7\nstream: true\n```\n\n## All configuration keys\n\n| Key | Type | Default | Description |\n|-----|------|---------|-------------|\n| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |\n| `max-tokens` | int | `4096` | Maximum tokens in response |\n| `temperature` | float | `0.7` | Randomness 0.0–1.0 |\n| `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |\n| `top-k` | int | `40` | Limit top K tokens |\n| `stream` | bool | `true` | Enable streaming output |\n| `debug` | bool | `false` | Enable debug logging |\n| `compact` | bool | `false` | Enable compact output mode |\n| `system-prompt` | string | — | System prompt text or file path |\n| `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |\n| `thinking-level` | string | `off` | Extended thinking: off, minimal, low, medium, high |\n| `provider-api-key` | string | — | API key for the provider |\n| `provider-url` | string | — | Base URL for provider API |\n| `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |\n| `stop-sequences` | list | — | Custom stop sequences |\n| `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |\n| `prompt-templates` | bool | `true` | Enable prompt template loading |\n| `prompt-template` | string | — | Specific template to load by name |\n\n## Environment variables\n\nAny configuration key can be set via environment variable with the `KIT_` prefix. Hyphens become underscores:\n\n```bash\nexport KIT_MODEL="openai/gpt-4o"\nexport KIT_MAX_TOKENS="8192"\nexport KIT_TEMPERATURE="0.5"\n```\n\nProvider API keys use their own environment variables:\n\n```bash\nexport ANTHROPIC_API_KEY="sk-..."\nexport OPENAI_API_KEY="sk-..."\nexport GOOGLE_API_KEY="..."\n```\n\n## MCP server configuration\n\nAdd external MCP servers to your `.kit.yml`:\n\n```yaml\nmcpServers:\n  filesystem:\n    type: local\n    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]\n    environment:\n      LOG_LEVEL: "info"\n    allowedTools: ["read_file", "write_file"]\n    excludedTools: ["delete_file"]\n\n  search:\n    type: remote\n    url: "https://mcp.example.com/search"\n```\n\n### MCP server fields\n\n| Field | Type | Description |\n|-------|------|-------------|\n| `type` | string | `local` (stdio) or `remote` (streamable HTTP) |\n| `command` | list | Command and args for local servers |\n| `environment` | map | Environment variables for the server process |\n| `url` | string | URL for remote servers |\n| `allowedTools` | list | Whitelist of tool names to expose |\n| `excludedTools` | list | Blacklist of tool names to hide |\n\nA legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.\n\n## Theme configuration\n\nSet theme colors inline or reference an external file:\n\n```yaml\n# Inline partial overrides (unspecified fields inherit from default)\ntheme:\n  primary:\n    light: "#8839ef"\n    dark: "#cba6f7"\n  error:\n    dark: "#FF0000"\n```\n\n```yaml\n# Reference external theme file\ntheme: "./themes/my-custom-theme.yml"\n```\n\nSee [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.\n\n## Preferences persistence\n\nKit automatically saves your UI preferences across sessions to `~/.config/kit/preferences.yml`:\n\n- **Theme** — Set via `/theme <name>` or `ctx.SetTheme()`\n- **Model** — Set via `/model <name>` or the model selector\n- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling\n\nThese preferences are restored on next launch. Precedence (highest to lowest):\n1. CLI flags (`--model`, `--thinking-level`)\n2. Config file (`model:`, `thinking-level:`)\n3. Saved preferences (`~/.config/kit/preferences.yml`)\n4. Default values\n'};export{e as default};
+</ol>`,headings:[{depth:2,text:"Basic configuration",id:"basic-configuration"},{depth:2,text:"All configuration keys",id:"all-configuration-keys"},{depth:2,text:"Environment variables",id:"environment-variables"},{depth:2,text:"MCP server configuration",id:"mcp-server-configuration"},{depth:3,text:"MCP server fields",id:"mcp-server-fields"},{depth:2,text:"Custom models",id:"custom-models"},{depth:3,text:"Custom model fields",id:"custom-model-fields"},{depth:2,text:"Theme configuration",id:"theme-configuration"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:'\n# Configuration\n\nKit looks for configuration in the following locations, in order of priority:\n\n1. CLI flags\n2. Environment variables (with `KIT_` prefix)\n3. `./.kit.yml` / `./.kit.yaml` / `./.kit.json` (project-local)\n4. `~/.kit.yml` / `~/.kit.yaml` / `~/.kit.json` (global)\n\n## Basic configuration\n\nCreate `~/.kit.yml`:\n\n```yaml\nmodel: anthropic/claude-sonnet-latest\nmax-tokens: 4096\ntemperature: 0.7\nstream: true\n```\n\n## All configuration keys\n\n| Key | Type | Default | Description |\n|-----|------|---------|-------------|\n| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |\n| `max-tokens` | int | `4096` | Maximum tokens in response |\n| `temperature` | float | `0.7` | Randomness 0.0–1.0 |\n| `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |\n| `top-k` | int | `40` | Limit top K tokens |\n| `stream` | bool | `true` | Enable streaming output |\n| `debug` | bool | `false` | Enable debug logging |\n| `compact` | bool | `false` | Enable compact output mode |\n| `system-prompt` | string | — | System prompt text or file path |\n| `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |\n| `thinking-level` | string | `off` | Extended thinking: off, minimal, low, medium, high |\n| `provider-api-key` | string | — | API key for the provider |\n| `provider-url` | string | — | Base URL for provider API |\n| `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |\n| `stop-sequences` | list | — | Custom stop sequences |\n| `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |\n| `prompt-templates` | bool | `true` | Enable prompt template loading |\n| `prompt-template` | string | — | Specific template to load by name |\n\n## Environment variables\n\nAny configuration key can be set via environment variable with the `KIT_` prefix. Hyphens become underscores:\n\n```bash\nexport KIT_MODEL="openai/gpt-4o"\nexport KIT_MAX_TOKENS="8192"\nexport KIT_TEMPERATURE="0.5"\n```\n\nProvider API keys use their own environment variables:\n\n```bash\nexport ANTHROPIC_API_KEY="sk-..."\nexport OPENAI_API_KEY="sk-..."\nexport GOOGLE_API_KEY="..."\n```\n\n## MCP server configuration\n\nAdd external MCP servers to your `.kit.yml`:\n\n```yaml\nmcpServers:\n  filesystem:\n    type: local\n    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]\n    environment:\n      LOG_LEVEL: "info"\n    allowedTools: ["read_file", "write_file"]\n    excludedTools: ["delete_file"]\n\n  search:\n    type: remote\n    url: "https://mcp.example.com/search"\n```\n\n### MCP server fields\n\n| Field | Type | Description |\n|-------|------|-------------|\n| `type` | string | `local` (stdio) or `remote` (streamable HTTP) |\n| `command` | list | Command and args for local servers |\n| `environment` | map | Environment variables for the server process |\n| `url` | string | URL for remote servers |\n| `allowedTools` | list | Whitelist of tool names to expose |\n| `excludedTools` | list | Blacklist of tool names to hide |\n\nA legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.\n\n## Custom models\n\nDefine custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database:\n\n```yaml\ncustomModels:\n  my-model:\n    name: "My Custom Model"\n    reasoning: true\n    temperature: true\n    cost:\n      input: 0.002\n      output: 0.004\n    limit:\n      context: 128000\n      output: 32000\n```\n\n### Custom model fields\n\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `name` | string | Yes | Display name for the model |\n| `reasoning` | bool | No | Whether the model supports reasoning/thinking |\n| `temperature` | bool | No | Whether the model supports temperature adjustment |\n| `cost.input` | float | No | Cost per 1K input tokens |\n| `cost.output` | float | No | Cost per 1K output tokens |\n| `limit.context` | int | Yes | Maximum context window in tokens |\n| `limit.output` | int | No | Maximum output tokens |\n\nUse with a custom provider URL:\n\n```bash\nkit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"\n```\n\nWhen `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.\n\n## Theme configuration\n\n```yaml\n# Inline partial overrides (unspecified fields inherit from default)\ntheme:\n  primary:\n    light: "#8839ef"\n    dark: "#cba6f7"\n  error:\n    dark: "#FF0000"\n```\n\n```yaml\n# Reference external theme file\ntheme: "./themes/my-custom-theme.yml"\n```\n\nSee [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.\n\n## Preferences persistence\n\nKit automatically saves your UI preferences across sessions to `~/.config/kit/preferences.yml`:\n\n- **Theme** — Set via `/theme <name>` or `ctx.SetTheme()`\n- **Model** — Set via `/model <name>` or the model selector\n- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling\n\nThese preferences are restored on next launch. Precedence (highest to lowest):\n1. CLI flags (`--model`, `--thinking-level`)\n2. Config file (`model:`, `thinking-level:`)\n3. Saved preferences (`~/.config/kit/preferences.yml`)\n4. Default values\n'};export{e as default};
