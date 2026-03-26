@@ -22,6 +22,7 @@ type ModelInfo struct {
 	Temperature bool
 	Cost        Cost
 	Limit       Limit
+	ProviderNPM string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
 }
 
 // Cost represents the pricing information for a model.
@@ -78,6 +79,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 	for providerID, dp := range dbProviders {
 		modelsMap := make(map[string]ModelInfo, len(dp.Models))
 		for modelID, dm := range dp.Models {
+			providerNPM := ""
+			if dm.Provider != nil {
+				providerNPM = dm.Provider.NPM
+			}
 			modelsMap[modelID] = ModelInfo{
 				ID:          dm.ID,
 				Name:        dm.Name,
@@ -94,6 +99,7 @@ func buildFromModelsDB() map[string]ProviderInfo {
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
 				},
+				ProviderNPM: providerNPM,
 			}
 		}
 

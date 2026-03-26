@@ -263,14 +263,22 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 // autoRouteProvider attempts to create a provider by looking up its npm package
 // in the models.dev database and routing through the appropriate fantasy provider.
 // For openai-compatible providers, it uses the api URL from models.dev.
+// Models may have a provider override that specifies a different npm package than
+// the provider's default (e.g., opencode's claude-opus-4-6 uses @ai-sdk/anthropic).
 func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, modelName string, registry *ModelsRegistry) (*ProviderResult, error) {
 	providerInfo := registry.GetProviderInfo(provider)
 	if providerInfo == nil {
 		return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", provider)
 	}
 
+	// Check for model-specific provider override
+	npmPackage := providerInfo.NPM
+	if modelInfo := registry.LookupModel(provider, modelName); modelInfo != nil && modelInfo.ProviderNPM != "" {
+		npmPackage = modelInfo.ProviderNPM
+	}
+
 	// Determine the fantasy provider for this npm package
-	fantasyProvider := npmToFantasyProvider[providerInfo.NPM]
+	fantasyProvider := npmToFantasyProvider[npmPackage]
 	if fantasyProvider == "" && providerInfo.API != "" {
 		// Unknown npm but has API URL → route through openaicompat
 		fantasyProvider = "openaicompat"
@@ -290,7 +298,7 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		}
 		return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no fantasy mapping)", provider, providerInfo.NPM)
+		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no fantasy mapping)", provider, npmPackage)
 	}
 }
 
@@ -348,7 +356,10 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 	opts = append(opts, anthropic.WithAPIKey(apiKey))
 
 	if config.ProviderURL != "" {
-		opts = append(opts, anthropic.WithBaseURL(config.ProviderURL))
+		// The anthropic client appends "/v1/messages" to the base URL.
+		// If the provider URL ends with "/v1", strip it to avoid double "/v1/v1" paths.
+		baseURL := strings.TrimSuffix(config.ProviderURL, "/v1")
+		opts = append(opts, anthropic.WithBaseURL(baseURL))
 	}
 
 	if config.TLSSkipVerify {

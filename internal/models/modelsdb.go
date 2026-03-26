@@ -17,15 +17,21 @@ type modelsDBProvider struct {
 
 // modelsDBModel represents a model entry from models.dev/api.json.
 type modelsDBModel struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Family      string        `json:"family,omitempty"`
-	Attachment  bool          `json:"attachment"`
-	Reasoning   bool          `json:"reasoning"`
-	ToolCall    bool          `json:"tool_call"`
-	Temperature bool          `json:"temperature"`
-	Cost        modelsDBCost  `json:"cost"`
-	Limit       modelsDBLimit `json:"limit"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Family      string                 `json:"family,omitempty"`
+	Attachment  bool                   `json:"attachment"`
+	Reasoning   bool                   `json:"reasoning"`
+	ToolCall    bool                   `json:"tool_call"`
+	Temperature bool                   `json:"temperature"`
+	Cost        modelsDBCost           `json:"cost"`
+	Limit       modelsDBLimit          `json:"limit"`
+	Provider    *modelsDBModelProvider `json:"provider,omitempty"` // Model-specific provider override
+}
+
+// modelsDBModelProvider represents a provider reference within a model.
+type modelsDBModelProvider struct {
+	NPM string `json:"npm"`
 }
 
 // modelsDBCost represents model pricing from models.dev.
