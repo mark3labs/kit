@@ -537,7 +537,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	content := strings.Join(lines, "\n")
 	parts = append(parts, s.ty.Blockquote(content))
 
-	// Duration footer with indentation.
+	// Duration footer without indentation.
 	var duration time.Duration
 	if s.reasoningDuration > 0 {
 		duration = s.reasoningDuration
@@ -551,7 +551,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		footer := lipgloss.NewStyle().PaddingLeft(2).Render(s.ty.Small(fmt.Sprintf("Thought for %s", durationStr)))
+		footer := s.ty.Small(fmt.Sprintf("Thought for %s", durationStr))
 		parts = append(parts, footer)
 	}
 
