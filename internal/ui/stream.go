@@ -154,7 +154,7 @@ type StreamComponent struct {
 	// spinnerFrame is the current frame index.
 	spinnerFrame int
 
-	// activeTools tracks currently running tools keyed by ToolCallID.
+	// activeTools maps ToolCallID -> display label for currently running tools.
 	activeTools map[string]string
 
 	// activeToolOrder preserves deterministic display order for active tools.
@@ -412,6 +412,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.ToolExecutionEvent:
 		toolID := msg.ToolCallID
 		if toolID == "" {
+			// Defensive fallback for older/third-party emitters that may omit
+			// ToolCallID. Best-effort only: same-name+args concurrent calls can
+			// still collide without a stable ID.
 			toolID = fmt.Sprintf("%s|%s", msg.ToolName, msg.ToolArgs)
 		}
 		if msg.IsStarting {
@@ -651,7 +654,7 @@ func removeToolID(ids []string, id string) []string {
 }
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-// For spawn_subagent, it shows simply as "Subagent" with optional task preview.
+// For spawn_subagent, it shows simply as "Subagent".
 func formatToolExecutionMessage(toolName, toolArgs string) string {
 	if toolName == "spawn_subagent" {
 		return "Subagent"

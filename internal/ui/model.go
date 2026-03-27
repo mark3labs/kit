@@ -583,6 +583,8 @@ type AppModel struct {
 	streamingBashStderr []string
 	// streamingBashMaxLines caps how many lines to accumulate to prevent memory issues.
 	streamingBashMaxLines int
+	// streaming bash fields are only mutated/read from the Bubble Tea event loop
+	// (Update/View), so no mutex is required here.
 	// streamingBashCommand holds the command being executed for display as a header.
 	streamingBashCommand string
 }
