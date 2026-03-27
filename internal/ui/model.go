@@ -444,18 +444,7 @@ type AppModel struct {
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
 
-	// scrollbackBuf collects rendered content during a single Update() call.
-	// All print helpers append here instead of returning tea.Println directly.
-	// The buffer is drained into a single atomic tea.Println at the end of
-	// each Update call via drainScrollback(). If the stream component has
-	// unflushed content, it is automatically prepended so that new messages
-	// always appear below the previous assistant response.
-	//
-	// Deprecated: This is being replaced by historyEntries for alt-screen mode.
-	scrollbackBuf []string
-
 	// History timeline fields (alt-screen mode)
-	// These replace scrollbackBuf for in-app scrollback rendering.
 
 	// historyEntries is the timeline of completed conversation blocks.
 	// Each entry represents a user message, assistant response, tool result,
@@ -2949,16 +2938,13 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 	m.pendingUserPrints = nil
 }
 
-// appendScrollback adds rendered content to the scrollback buffer. The content
-// will be emitted via tea.Println when drainScrollback is called at the end of
-// the current Update cycle.
+// appendScrollback is a no-op stub maintained during migration.
+// All callers should migrate to appendHistoryEntry.
 //
-// Deprecated: This is being replaced by appendHistoryEntry for alt-screen mode.
-// During the migration, both are called to maintain backward compatibility.
+// Deprecated: Use appendHistoryEntry instead.
 func (m *AppModel) appendScrollback(content string) {
-	if content != "" {
-		m.scrollbackBuf = append(m.scrollbackBuf, content)
-	}
+	// No-op: scrollbackBuf has been removed in favor of historyEntries.
+	// This stub exists to avoid breaking callers during migration.
 }
 
 // appendHistoryEntry adds a new entry to the history timeline. This is the
@@ -2978,40 +2964,14 @@ func (m *AppModel) appendHistoryEntry(kind, content string) {
 	// The actual scroll adjustment happens in View() or a dedicated helper.
 }
 
-// drainScrollback flushes the scrollback buffer into a single tea.Println. If
-// the stream component has unflushed content, it is automatically prepended so
-// that new messages always appear below the previous assistant response. When
-// stream content is flushed a ClearScreen follows to clean up orphaned terminal
-// rows left after the view height shrinks. Returns nil if there is nothing to
-// print.
+// drainScrollback is a no-op stub maintained during migration.
+// All callers should be removed as part of the alt-screen refactor.
+//
+// Deprecated: This function will be removed once all callers are migrated.
 func (m *AppModel) drainScrollback() tea.Cmd {
-	if len(m.scrollbackBuf) == 0 {
-		return nil
-	}
-
-	var parts []string
-	needsClear := false
-
-	// Auto-flush any stream content so it appears before new messages.
-	if m.stream != nil {
-		if content := m.stream.GetRenderedContent(); content != "" {
-			m.stream.Reset()
-			parts = append(parts, content)
-			needsClear = true
-		}
-	}
-
-	parts = append(parts, m.scrollbackBuf...)
-	m.scrollbackBuf = m.scrollbackBuf[:0]
-
-	printCmd := tea.Println(strings.Join(parts, "\n"))
-	if needsClear {
-		return tea.Sequence(
-			printCmd,
-			func() tea.Msg { return tea.ClearScreen() },
-		)
-	}
-	return printCmd
+	// No-op: scrollbackBuf has been removed. The history timeline is rendered
+	// directly in View() instead of being flushed via tea.Println.
+	return nil
 }
 
 // distributeHeight recalculates child component heights after a window resize,
