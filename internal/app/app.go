@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
@@ -598,9 +599,10 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 		}
 	}
 
-	// Subscribe to SDK events for TUI rendering. The subscription is
-	// temporary — it lives only for the duration of this step.
-	unsub := a.subscribeSDKEvents(sendFn)
+	// Subscribe to SDK events for TUI rendering and per-step usage updates.
+	// The subscription is temporary — it lives only for the duration of this step.
+	var sawStepUsage atomic.Bool
+	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage)
 	defer unsub()
 
 	// Show spinner while the agent works.
@@ -620,8 +622,9 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	// Sync in-memory store with the SDK's authoritative conversation.
 	a.store.Replace(result.Messages)
 
-	// Update usage tracker.
-	a.updateUsageFromTurnResult(result, prompt)
+	// Update usage tracker. If per-step usage was already recorded from
+	// StepUsageEvent callbacks, avoid double-counting totals.
+	a.updateUsageFromTurnResult(result, prompt, sawStepUsage.Load())
 
 	return result, nil
 }
@@ -645,9 +648,10 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 		}
 	}
 
-	// Subscribe to SDK events for TUI rendering. The subscription is
-	// temporary — it lives only for the duration of this step.
-	unsub := a.subscribeSDKEvents(sendFn)
+	// Subscribe to SDK events for TUI rendering and per-step usage updates.
+	// The subscription is temporary — it lives only for the duration of this step.
+	var sawStepUsage atomic.Bool
+	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage)
 	defer unsub()
 
 	// Show spinner while the agent works.
@@ -702,8 +706,10 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 	// Sync in-memory store with the SDK's authoritative conversation.
 	a.store.Replace(result.Messages)
 
-	// Update usage tracker (using last item's prompt for tracking).
-	a.updateUsageFromTurnResult(result, items[len(items)-1].Prompt)
+	// Update usage tracker (using last item's prompt for fallback estimation).
+	// If per-step usage was already recorded from StepUsageEvent callbacks,
+	// avoid double-counting totals.
+	a.updateUsageFromTurnResult(result, items[len(items)-1].Prompt, sawStepUsage.Load())
 
 	return result, nil
 }
@@ -720,9 +726,10 @@ func (a *App) sendEvent(msg tea.Msg) {
 }
 
 // subscribeSDKEvents registers temporary SDK event subscribers that convert
-// SDK events to tea.Msg events and dispatch them via sendFn. Returns an
-// unsubscribe function that removes all listeners.
-func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
+// SDK events to tea.Msg events and dispatch them via sendFn. When stepUsageSeen
+// is provided, it is set to true after any non-zero StepUsageEvent is observed.
+// Returns an unsubscribe function that removes all listeners.
+func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Bool) func() {
 	k := a.opts.Kit
 	var unsubs []func()
 
@@ -756,6 +763,8 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg)) func() {
 			})
 		case kit.SteerConsumedEvent:
 			sendFn(SteerConsumedEvent{})
+		case kit.StepUsageEvent:
+			a.recordStepUsage(ev, stepUsageSeen)
 		}
 	}))
 
@@ -925,32 +934,56 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 	}
 }
 
+// recordStepUsage applies token/cost usage reported for a completed step.
+// Step usage events arrive even when a turn is later cancelled, so this keeps
+// the usage widget accurate on all stop paths.
+func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool) {
+	hasUsage := ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CacheReadTokens > 0 || ev.CacheWriteTokens > 0
+	if !hasUsage {
+		return
+	}
+	if stepUsageSeen != nil {
+		stepUsageSeen.Store(true)
+	}
+	if a.opts.UsageTracker == nil {
+		return
+	}
+	a.opts.UsageTracker.UpdateUsage(
+		int(ev.InputTokens),
+		int(ev.OutputTokens),
+		int(ev.CacheReadTokens),
+		int(ev.CacheWriteTokens),
+	)
+	// Keep context fill reasonably fresh during long/partial turns.
+	a.opts.UsageTracker.SetContextTokens(int(ev.InputTokens + ev.OutputTokens))
+}
+
 // updateUsageFromTurnResult records token usage from an SDK TurnResult into the
 // configured UsageTracker. Called once per turn after the turn completes.
 //
-// Cost/token accumulation uses TotalUsage (sum across all tool-calling steps in
-// the turn). Context-window fill uses FinalUsage.InputTokens only — that is the
-// number of tokens sent to the model on the last API call, which equals the
-// actual context window occupation (all accumulated messages + tool results).
-// OutputTokens are not added here because they are the response length, not
-// context fill.
-func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt string) {
+// When sawStepUsage is true, totals were already accumulated incrementally via
+// StepUsageEvent callbacks; in that case this method only updates context fill.
+// Otherwise it falls back to TotalUsage (or estimation) to keep costs/tokens
+// visible for providers/modes that don't emit per-step usage.
+func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt string, sawStepUsage bool) {
 	if a.opts.UsageTracker == nil || result == nil {
 		return
 	}
 
 	// --- Accumulate cost/token totals for the session ---
-	if result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
-		a.opts.UsageTracker.UpdateUsage(
-			int(result.TotalUsage.InputTokens),
-			int(result.TotalUsage.OutputTokens),
-			int(result.TotalUsage.CacheReadTokens),
-			int(result.TotalUsage.CacheCreationTokens),
-		)
-	} else {
-		// Provider didn't report token counts — fall back to character-based
-		// estimates so the footer shows something rather than nothing.
-		a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
+	if !sawStepUsage {
+		if result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
+			a.opts.UsageTracker.UpdateUsage(
+				int(result.TotalUsage.InputTokens),
+				int(result.TotalUsage.OutputTokens),
+				int(result.TotalUsage.CacheReadTokens),
+				int(result.TotalUsage.CacheCreationTokens),
+			)
+		} else {
+			// Provider didn't report token counts — fall back to character-based
+			// estimates so the footer shows something rather than nothing.
+			a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
+		}
 	}
 
 	// --- Context window fill (drives the % bar) ---

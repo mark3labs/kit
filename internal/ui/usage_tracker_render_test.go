@@ -67,3 +67,62 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 		t.Errorf("Expected regular rendered output to show actual cost, got: %s", regularRendered)
 	}
 }
+
+func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
+	// Create a mock model info with costs and context limit
+	modelInfo := &models.ModelInfo{
+		ID:   "claude-3-5-sonnet-20241022",
+		Name: "Claude 3.5 Sonnet v2",
+		Cost: models.Cost{
+			Input:  3.0,
+			Output: 15.0,
+		},
+		Limit: models.Limit{
+			Context: 200000,
+			Output:  8192,
+		},
+	}
+
+	// Test startup state (no requests made yet) - Regular API key
+	regularTracker := NewUsageTracker(modelInfo, "anthropic", 80, false)
+	rendered := stripAnsi(regularTracker.RenderUsageInfo())
+
+	// Should NOT return empty string on startup
+	if rendered == "" {
+		t.Errorf("Expected non-empty output on startup, got empty string")
+	}
+
+	// Should show 0 tokens
+	if !strings.Contains(rendered, "Tokens: 0") {
+		t.Errorf("Expected 'Tokens: 0' on startup, got: %s", rendered)
+	}
+
+	// Should NOT show percentage when tokens are 0
+	if strings.Contains(rendered, "(%") {
+		t.Errorf("Expected no percentage on startup with 0 tokens, got: %s", rendered)
+	}
+
+	// Should show $0.0000 cost for regular API key
+	if !strings.Contains(rendered, "Cost: $0.0000") {
+		t.Errorf("Expected 'Cost: $0.0000' on startup, got: %s", rendered)
+	}
+
+	// Test startup state (no requests made yet) - OAuth
+	oauthTracker := NewUsageTracker(modelInfo, "anthropic", 80, true)
+	oauthRendered := stripAnsi(oauthTracker.RenderUsageInfo())
+
+	// Should NOT return empty string on startup
+	if oauthRendered == "" {
+		t.Errorf("Expected non-empty output on startup for OAuth, got empty string")
+	}
+
+	// Should show 0 tokens for OAuth
+	if !strings.Contains(oauthRendered, "Tokens: 0") {
+		t.Errorf("Expected 'Tokens: 0' on startup for OAuth, got: %s", oauthRendered)
+	}
+
+	// Should show $0.00 cost for OAuth
+	if !strings.Contains(oauthRendered, "Cost: $0.00") {
+		t.Errorf("Expected 'Cost: $0.00' on startup for OAuth, got: %s", oauthRendered)
+	}
+}

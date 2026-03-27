@@ -7,12 +7,55 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
+
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
+
+type usageUpdaterStub struct {
+	mu sync.Mutex
+
+	updateCalls   int
+	estimateCalls int
+	contextCalls  int
+
+	lastUpdateInput      int
+	lastUpdateOutput     int
+	lastUpdateCacheRead  int
+	lastUpdateCacheWrite int
+	lastContextTokens    int
+	lastEstimateInput    string
+	lastEstimateOutput   string
+}
+
+func (s *usageUpdaterStub) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateCalls++
+	s.lastUpdateInput = inputTokens
+	s.lastUpdateOutput = outputTokens
+	s.lastUpdateCacheRead = cacheReadTokens
+	s.lastUpdateCacheWrite = cacheWriteTokens
+}
+
+func (s *usageUpdaterStub) EstimateAndUpdateUsage(inputText, outputText string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.estimateCalls++
+	s.lastEstimateInput = inputText
+	s.lastEstimateOutput = outputText
+}
+
+func (s *usageUpdaterStub) SetContextTokens(tokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contextCalls++
+	s.lastContextTokens = tokens
+}
 
 // turnResult builds a minimal TurnResult with response text t.
 func turnResult(t string) *kit.TurnResult {
@@ -487,5 +530,69 @@ func TestQueueLength_reflects(t *testing.T) {
 
 	if got := app.QueueLength(); got != 3 {
 		t.Fatalf("expected 3, got %d", got)
+	}
+}
+
+// TestRecordStepUsage_updatesTracker verifies that per-step usage updates are
+// recorded immediately (including context tokens) for stop-path correctness.
+func TestRecordStepUsage_updatesTracker(t *testing.T) {
+	usage := &usageUpdaterStub{}
+	app := New(Options{UsageTracker: usage}, nil)
+	defer app.Close()
+
+	app.recordStepUsage(kit.StepUsageEvent{
+		InputTokens:      120,
+		OutputTokens:     45,
+		CacheReadTokens:  5,
+		CacheWriteTokens: 2,
+	}, nil)
+
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+
+	if usage.updateCalls != 1 {
+		t.Fatalf("expected 1 update call, got %d", usage.updateCalls)
+	}
+	if usage.lastUpdateInput != 120 || usage.lastUpdateOutput != 45 || usage.lastUpdateCacheRead != 5 || usage.lastUpdateCacheWrite != 2 {
+		t.Fatalf("unexpected usage update payload: in=%d out=%d cache_read=%d cache_write=%d",
+			usage.lastUpdateInput, usage.lastUpdateOutput, usage.lastUpdateCacheRead, usage.lastUpdateCacheWrite)
+	}
+	if usage.contextCalls != 1 {
+		t.Fatalf("expected 1 context token update, got %d", usage.contextCalls)
+	}
+	if usage.lastContextTokens != 165 {
+		t.Fatalf("expected context tokens 165, got %d", usage.lastContextTokens)
+	}
+}
+
+// TestUpdateUsageFromTurnResult_skipsTotalsWhenStepUsageSeen ensures we avoid
+// double-counting totals once StepUsageEvent-based updates were already applied.
+func TestUpdateUsageFromTurnResult_skipsTotalsWhenStepUsageSeen(t *testing.T) {
+	usage := &usageUpdaterStub{}
+	app := New(Options{UsageTracker: usage}, nil)
+	defer app.Close()
+
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response: "ok",
+		TotalUsage: &fantasy.Usage{
+			InputTokens:         999,
+			OutputTokens:        111,
+			CacheReadTokens:     7,
+			CacheCreationTokens: 3,
+		},
+		FinalUsage: &fantasy.Usage{InputTokens: 456},
+	}, "prompt", true)
+
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+
+	if usage.updateCalls != 0 {
+		t.Fatalf("expected no total usage update when sawStepUsage=true, got %d", usage.updateCalls)
+	}
+	if usage.estimateCalls != 0 {
+		t.Fatalf("expected no estimate update when sawStepUsage=true, got %d", usage.estimateCalls)
+	}
+	if usage.contextCalls != 1 || usage.lastContextTokens != 456 {
+		t.Fatalf("expected final context tokens=456, got calls=%d tokens=%d", usage.contextCalls, usage.lastContextTokens)
 	}
 }

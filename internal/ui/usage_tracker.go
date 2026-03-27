@@ -151,10 +151,6 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 	ut.mu.RLock()
 	defer ut.mu.RUnlock()
 
-	if ut.sessionStats.RequestCount == 0 {
-		return ""
-	}
-
 	baseStyle := lipgloss.NewStyle()
 
 	// Display the current context window token count (from the last API call),
