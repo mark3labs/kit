@@ -1784,8 +1784,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "block":
 			m.printExtensionBlock(msg)
 		default:
-			// Raw extension output (no level specified) — write to both paths.
-			m.appendScrollback(msg.Text)
+			// Raw extension output (no level specified).
 			m.appendHistoryEntry("extension", msg.Text)
 		}
 
@@ -2510,42 +2509,36 @@ func (m *AppModel) renderQueuedMessages() string {
 }
 
 // --------------------------------------------------------------------------
-// Print helpers — emit content to scrollback and history timeline
+// Print helpers — emit content to history timeline
 // --------------------------------------------------------------------------
 //
-// These helpers write to both scrollbackBuf (for legacy tea.Println output)
-// and historyEntries (for alt-screen in-app rendering). During the migration
-// to alt-screen mode, both paths are maintained for backward compatibility.
-// Once alt-screen is fully implemented, the scrollback path will be removed.
+// These helpers render content and append it to historyEntries for alt-screen
+// in-app rendering. The history timeline is rendered in View().
 
-// printUserMessage renders a user message into the scrollback buffer and history.
+// printUserMessage renders a user message into the history timeline.
 func (m *AppModel) printUserMessage(text string) {
 	content := m.renderer.RenderUserMessage(text, time.Now()).Content
-	m.appendScrollback(content)
 	m.appendHistoryEntry("user", content)
 }
 
-// printAssistantMessage renders an assistant message into the scrollback buffer and history.
+// printAssistantMessage renders an assistant message into the history timeline.
 func (m *AppModel) printAssistantMessage(text string) {
 	if strings.TrimSpace(text) != "" {
 		content := m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName).Content
-		m.appendScrollback(content)
 		m.appendHistoryEntry("assistant", content)
 	}
 }
 
-// printToolResult renders a tool result message into the scrollback buffer and history.
+// printToolResult renders a tool result message into the history timeline.
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	content := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content
-	m.appendScrollback(content)
 	m.appendHistoryEntry("tool", content)
 }
 
-// printErrorResponse renders an error message into the scrollback buffer and history.
+// printErrorResponse renders an error message into the history timeline.
 func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 	if evt.Err != nil {
 		content := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now()).Content
-		m.appendScrollback(content)
 		m.appendHistoryEntry("error", content)
 	}
 }
@@ -2617,15 +2610,14 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 	return nil
 }
 
-// printSystemMessage renders a system-level message into the scrollback buffer and history.
+// printSystemMessage renders a system-level message into the history timeline.
 func (m *AppModel) printSystemMessage(text string) {
 	content := m.renderer.RenderSystemMessage(text, time.Now()).Content
-	m.appendScrollback(content)
 	m.appendHistoryEntry("system", content)
 }
 
 // printExtensionBlock renders a custom styled block from an extension with
-// caller-chosen border color and optional subtitle into the scrollback buffer and history.
+// caller-chosen border color and optional subtitle into the history timeline.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 	theme := GetTheme()
 
@@ -2649,7 +2641,6 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 		WithBorderColor(borderClr),
 		WithMarginBottom(1),
 	)
-	m.appendScrollback(rendered)
 	m.appendHistoryEntry("extension", rendered)
 }
 
@@ -2871,7 +2862,7 @@ func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 }
 
 // printCompactResult renders the compaction summary in a styled block with
-// a distinct border color and a stats subtitle into the scrollback buffer and history.
+// a distinct border color and a stats subtitle into the history timeline.
 func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) {
 	theme := GetTheme()
 
@@ -2894,14 +2885,12 @@ func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) {
 		WithBorderColor(theme.Secondary),
 		WithMarginBottom(1),
 	)
-	m.appendScrollback(rendered)
 	m.appendHistoryEntry("system", rendered)
 }
 
 // flushStreamContent moves rendered content from the stream component into the
-// scrollback buffer and history, then resets the stream. Called before tool calls
-// (streaming completes before tools fire). The actual tea.Println is deferred to
-// drainScrollback() at the end of the Update cycle.
+// history timeline, then resets the stream. Called before tool calls
+// (streaming completes before tools fire).
 func (m *AppModel) flushStreamContent() {
 	if m.stream == nil {
 		return
@@ -2911,20 +2900,18 @@ func (m *AppModel) flushStreamContent() {
 		return
 	}
 	m.stream.Reset()
-	m.appendScrollback(content)
 	m.appendHistoryEntry("assistant", content)
 }
 
 // flushStreamAndPendingUserMessages moves the previous assistant response and
-// any pending queued user messages into the scrollback buffer and history. Called
-// from SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
-// have been processed. The actual tea.Println is deferred to drainScrollback().
+// any pending queued user messages into the history timeline. Called from
+// SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
+// have been processed.
 func (m *AppModel) flushStreamAndPendingUserMessages() {
 	// 1. Flush previous stream content (assistant response).
 	if m.stream != nil {
 		if content := m.stream.GetRenderedContent(); content != "" {
 			m.stream.Reset()
-			m.appendScrollback(content)
 			m.appendHistoryEntry("assistant", content)
 		}
 	}
@@ -2932,24 +2919,13 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 	// 2. Render pending user messages from the queue.
 	for _, text := range m.pendingUserPrints {
 		rendered := m.renderer.RenderUserMessage(text, time.Now()).Content
-		m.appendScrollback(rendered)
 		m.appendHistoryEntry("user", rendered)
 	}
 	m.pendingUserPrints = nil
 }
 
-// appendScrollback is a no-op stub maintained during migration.
-// All callers should migrate to appendHistoryEntry.
-//
-// Deprecated: Use appendHistoryEntry instead.
-func (m *AppModel) appendScrollback(content string) {
-	// No-op: scrollbackBuf has been removed in favor of historyEntries.
-	// This stub exists to avoid breaking callers during migration.
-}
-
-// appendHistoryEntry adds a new entry to the history timeline. This is the
-// alt-screen replacement for appendScrollback. The entry will be rendered
-// in the history viewport during View().
+// appendHistoryEntry adds a new entry to the history timeline.
+// The entry will be rendered in the history viewport during View().
 func (m *AppModel) appendHistoryEntry(kind, content string) {
 	if content == "" {
 		return
@@ -3648,7 +3624,6 @@ func (m *AppModel) renderSessionHistory() {
 			text := msg.Content()
 			if text != "" {
 				content := m.renderer.RenderUserMessage(text, msg.CreatedAt).Content
-				m.appendScrollback(content)
 				m.appendHistoryEntry("user", content)
 			}
 
@@ -3660,7 +3635,6 @@ func (m *AppModel) renderSessionHistory() {
 					modelName = msg.Model
 				}
 				content := m.renderer.RenderAssistantMessage(text, msg.CreatedAt, modelName).Content
-				m.appendScrollback(content)
 				m.appendHistoryEntry("assistant", content)
 			}
 			// Tool calls from assistant messages are rendered when we
@@ -3677,7 +3651,6 @@ func (m *AppModel) renderSessionHistory() {
 					toolArgs = info.Args
 				}
 				content := m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError).Content
-				m.appendScrollback(content)
 				m.appendHistoryEntry("tool", content)
 			}
 		}
@@ -4051,7 +4024,6 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 		WithMarginBottom(1),
 	)
 
-	m.appendScrollback(rendered)
 	m.appendHistoryEntry("system", rendered)
 
 	// For ! (included in context): inject the command output into the
