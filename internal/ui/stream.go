@@ -533,9 +533,9 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		lines = lines[len(lines)-maxCollapsedLines:]
 	}
 
-	// Main content using H6 (subtitle) for visual distinction.
+	// Main content using Italic for subdued visual distinction.
 	content := strings.Join(lines, "\n")
-	parts = append(parts, s.ty.H6(content))
+	parts = append(parts, s.ty.Italic(content))
 
 	// Duration footer without indentation.
 	var duration time.Duration
