@@ -533,9 +533,11 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		lines = lines[len(lines)-maxCollapsedLines:]
 	}
 
-	// Main content using Italic for subdued visual distinction.
+	// Main content using Italic with subdued color for visual distinction.
 	content := strings.Join(lines, "\n")
-	parts = append(parts, s.ty.Italic(content))
+	theme := GetTheme()
+	subduedStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	parts = append(parts, subduedStyle.Render(s.ty.Italic(content)))
 
 	// Duration footer without indentation.
 	var duration time.Duration
