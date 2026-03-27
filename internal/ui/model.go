@@ -212,6 +212,14 @@ type StatusBarEntryData struct {
 	Priority int    // lower = further left; built-in entries use 100-110
 }
 
+// historyEntry represents a single entry in the conversation history timeline.
+// This replaces the scrollback buffer for alt-screen mode.
+type historyEntry struct {
+	Kind      string    // user|assistant|tool|system|error|extension|startup
+	Content   string    // pre-rendered block string
+	Timestamp time.Time // when the entry was created
+}
+
 // UIVisibility controls which built-in TUI chrome elements are visible.
 // The zero value shows everything (backward compatible).
 type UIVisibility struct {
@@ -442,7 +450,33 @@ type AppModel struct {
 	// each Update call via drainScrollback(). If the stream component has
 	// unflushed content, it is automatically prepended so that new messages
 	// always appear below the previous assistant response.
+	//
+	// Deprecated: This is being replaced by historyEntries for alt-screen mode.
 	scrollbackBuf []string
+
+	// History timeline fields (alt-screen mode)
+	// These replace scrollbackBuf for in-app scrollback rendering.
+
+	// historyEntries is the timeline of completed conversation blocks.
+	// Each entry represents a user message, assistant response, tool result,
+	// system message, error, or extension output.
+	historyEntries []historyEntry
+
+	// historyOffset is the line offset for the history viewport scroll position.
+	// 0 means showing from the top, higher values scroll down.
+	historyOffset int
+
+	// historyFollow is true when the viewport is pinned to the bottom.
+	// When true, new entries automatically scroll into view.
+	// When the user scrolls up, this becomes false.
+	historyFollow bool
+
+	// historyRenderCache holds the last rendered history content.
+	// Used to avoid redundant re-rendering when history hasn't changed.
+	historyRenderCache string
+
+	// historyDirty is true when history has changed and cache needs rebuilding.
+	historyDirty bool
 
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
