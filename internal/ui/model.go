@@ -1823,22 +1823,30 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *AppModel) View() tea.View {
 	// Tree selector overlay replaces the normal layout.
 	if m.state == stateTreeSelector && m.treeSelector != nil {
-		return m.treeSelector.View()
+		v := m.treeSelector.View()
+		v.AltScreen = true
+		return v
 	}
 
 	// Model selector overlay replaces the normal layout.
 	if m.state == stateModelSelector && m.modelSelector != nil {
-		return m.modelSelector.View()
+		v := m.modelSelector.View()
+		v.AltScreen = true
+		return v
 	}
 
 	// Session selector overlay replaces the normal layout.
 	if m.state == stateSessionSelector && m.sessionSelector != nil {
-		return m.sessionSelector.View()
+		v := m.sessionSelector.View()
+		v.AltScreen = true
+		return v
 	}
 
 	// Overlay dialog replaces the normal layout.
 	if m.state == stateOverlay && m.overlay != nil {
-		return tea.NewView(m.overlay.Render())
+		v := tea.NewView(m.overlay.Render())
+		v.AltScreen = true
+		return v
 	}
 
 	vis := m.uiVis()
@@ -1924,7 +1932,9 @@ func (m *AppModel) View() tea.View {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	return tea.NewView(content)
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 // calculateHistoryStreamHeight calculates the available height for the combined
