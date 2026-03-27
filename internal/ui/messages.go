@@ -469,6 +469,7 @@ func createTypography(theme Theme) *herald.Typography {
 		herald.WithCodeLineNumbers(true),
 		// Customize alert labels
 		herald.WithAlertLabel(herald.AlertNote, "Info"),
+		herald.WithAlertLabel(herald.AlertTip, "You"),
 		herald.WithAlertLabel(herald.AlertWarning, "Working"),
 		herald.WithAlertLabel(herald.AlertCaution, "Error"),
 	)
