@@ -703,6 +703,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		cwd:            opts.Cwd,
 		width:          width,
 		height:         height,
+		historyFollow:  true, // start in follow mode (pinned to bottom)
 	}
 
 	// Store extension commands for dispatch.
@@ -1747,7 +1748,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model. It renders the stacked layout:
-// stream region + separator + [queued messages] + input region + status bar.
+// history region + stream region + separator + [queued messages] + input region + status bar.
 // The status bar is always present (1 line) to avoid layout shifts.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
@@ -1798,6 +1799,24 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, headerView)
 	}
 
+	// Calculate available height for the combined history+stream region.
+	// This matches the calculation in distributeHeight().
+	historyStreamHeight := m.calculateHistoryStreamHeight(vis, inputView)
+
+	// Render history region (scrollable finalized content).
+	// Stream gets remaining height after history.
+	streamHeight := 0
+	if streamView != "" {
+		streamHeight = lipgloss.Height(streamView)
+	}
+	historyHeight := max(historyStreamHeight-streamHeight, 0)
+	historyView := m.renderHistoryRegion(historyHeight)
+
+	// Include history region if it has content.
+	if historyView != "" {
+		parts = append(parts, historyView)
+	}
+
 	// Only include the stream region when it has content. When idle the
 	// stream renders "" which JoinVertical would pad to a full-width blank
 	// line, inflating the view unnecessarily.
@@ -1839,6 +1858,47 @@ func (m *AppModel) View() tea.View {
 	return tea.NewView(content)
 }
 
+// calculateHistoryStreamHeight calculates the available height for the combined
+// history+stream region. This mirrors the calculation in distributeHeight().
+func (m *AppModel) calculateHistoryStreamHeight(vis UIVisibility, inputView string) int {
+	separatorLines := 1
+	if vis.HideSeparator {
+		separatorLines = 0
+	}
+	statusBarLines := 1
+	if vis.HideStatusBar {
+		statusBarLines = 0
+	}
+
+	var queuedLines int
+	if queuedView := m.renderQueuedMessages(); queuedView != "" {
+		queuedLines = lipgloss.Height(queuedView)
+	}
+
+	inputLines := 9 // fallback
+	if inputView != "" {
+		inputLines = lipgloss.Height(inputView)
+	}
+
+	var widgetLines int
+	if above := m.renderWidgetSlot("above"); above != "" {
+		widgetLines += lipgloss.Height(above)
+	}
+	if below := m.renderWidgetSlot("below"); below != "" {
+		widgetLines += lipgloss.Height(below)
+	}
+
+	var headerFooterLines int
+	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+		headerFooterLines += lipgloss.Height(headerView)
+	}
+	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
+		headerFooterLines += lipgloss.Height(footerView)
+	}
+
+	return max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-inputLines-statusBarLines, 0)
+}
+
 // --------------------------------------------------------------------------
 // Rendering helpers
 // --------------------------------------------------------------------------
@@ -1876,6 +1936,83 @@ func (m *AppModel) renderStream() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderHistoryRegion renders the scrollable history viewport containing finalized
+// conversation blocks. The history region shows completed user messages, assistant
+// responses, tool results, system messages, errors, and extension output.
+//
+// The viewport is controlled by historyOffset (line offset from top) and historyFollow
+// (whether to pin to bottom). When historyDirty is true, the render cache is rebuilt.
+//
+// Returns empty string if there are no history entries.
+func (m *AppModel) renderHistoryRegion(availableHeight int) string {
+	if len(m.historyEntries) == 0 {
+		return ""
+	}
+
+	// Rebuild cache if dirty.
+	if m.historyDirty {
+		m.rebuildHistoryCache()
+	}
+
+	if m.historyRenderCache == "" {
+		return ""
+	}
+
+	// Split cache into lines for viewport windowing.
+	lines := strings.Split(m.historyRenderCache, "\n")
+	totalLines := len(lines)
+
+	// Handle follow mode: pin to bottom when new content arrives.
+	if m.historyFollow {
+		// Calculate offset to show the last availableHeight lines.
+		m.historyOffset = max(totalLines-availableHeight, 0)
+	}
+
+	// Clamp offset to valid range.
+	maxOffset := max(totalLines-availableHeight, 0)
+	m.historyOffset = clamp(m.historyOffset, 0, maxOffset)
+
+	// Extract visible window.
+	startLine := m.historyOffset
+	endLine := min(startLine+availableHeight, totalLines)
+
+	if startLine >= totalLines {
+		return ""
+	}
+
+	visibleLines := lines[startLine:endLine]
+	return strings.Join(visibleLines, "\n")
+}
+
+// rebuildHistoryCache rebuilds the rendered history content from historyEntries.
+// This is called when historyDirty is true, typically after new entries are added.
+func (m *AppModel) rebuildHistoryCache() {
+	if len(m.historyEntries) == 0 {
+		m.historyRenderCache = ""
+		m.historyDirty = false
+		return
+	}
+
+	var parts []string
+	for _, entry := range m.historyEntries {
+		if entry.Content != "" {
+			parts = append(parts, entry.Content)
+		}
+	}
+
+	m.historyRenderCache = strings.Join(parts, "\n")
+	m.historyDirty = false
+}
+
+// historyTotalLines returns the total number of lines in the history cache.
+// Used for scroll calculations and follow-mode adjustments.
+func (m *AppModel) historyTotalLines() int {
+	if m.historyRenderCache == "" {
+		return 0
+	}
+	return strings.Count(m.historyRenderCache, "\n") + 1
 }
 
 // renderStreamingBashOutput renders accumulated streaming bash output (stdout + stderr)
