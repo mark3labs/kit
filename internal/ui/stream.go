@@ -282,7 +282,8 @@ func (s *StreamComponent) GetRenderedContent() string {
 
 	text := s.streamContent.String()
 	if text != "" {
-		sections = append(sections, s.renderStreamingText(text))
+		rendered := s.renderStreamingText(text)
+		sections = append(sections, rendered)
 	}
 
 	if len(sections) == 0 {
@@ -415,7 +416,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model. Renders the current stream region content.
 func (s *StreamComponent) View() tea.View {
-	return tea.NewView(s.render())
+	fullContent := s.render()
+	visibleContent := s.viewContent(fullContent)
+	return tea.NewView(visibleContent)
 }
 
 // --------------------------------------------------------------------------
@@ -458,19 +461,25 @@ func (s *StreamComponent) render() string {
 
 	content := strings.Join(sections, "\n")
 
-	// Clamp to height if constrained: keep the last h lines so the most
-	// recent output is always visible.
-	if s.height > 0 && content != "" {
-		lines := strings.Split(content, "\n")
-		if len(lines) > s.height {
-			lines = lines[len(lines)-s.height:]
-			content = strings.Join(lines, "\n")
-		}
-	}
-
+	// Cache FULL content without height clamping.
+	// Height clamping is applied in View() for display only.
 	s.renderCache = content
 	s.renderDirty = false
 	return content
+}
+
+// viewContent returns the visible portion of content based on height constraint.
+// This is called by View() to get the slice that fits in the terminal.
+func (s *StreamComponent) viewContent(fullContent string) string {
+	if s.height > 0 && fullContent != "" {
+		lines := strings.Split(fullContent, "\n")
+		if len(lines) > s.height {
+			// Keep only the last h lines so the most recent output is visible.
+			lines = lines[len(lines)-s.height:]
+			return strings.Join(lines, "\n")
+		}
+	}
+	return fullContent
 }
 
 // renderReasoningBlock renders the reasoning/thinking content in a surface-tinted
