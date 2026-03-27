@@ -349,7 +349,7 @@ func TestStreamComponent_SpinnerKeepsRunningDuringStreaming(t *testing.T) {
 	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "hello"})
 
 	// Flush pending chunks (simulates the 16ms tick firing).
-	c = sendStreamMsg(c, streamFlushTickMsg{})
+	c = sendStreamMsg(c, streamFlushTickMsg{generation: c.flushGeneration})
 
 	if !c.spinning {
 		t.Fatal("expected spinning=true after first chunk")
@@ -376,7 +376,7 @@ func TestStreamComponent_ChunkAccumulation(t *testing.T) {
 	}
 
 	// Flush pending chunks (simulates the 16ms tick firing).
-	c = sendStreamMsg(c, streamFlushTickMsg{})
+	c = sendStreamMsg(c, streamFlushTickMsg{generation: c.flushGeneration})
 
 	got := c.streamContent.String()
 	want := "Hello, world!"
@@ -396,6 +396,7 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	c := newTestStream()
 
 	_, cmd := c.Update(app.ToolExecutionEvent{
+		ToolCallID: "call-exec-1",
 		ToolName:   "exec_tool",
 		IsStarting: true,
 	})
@@ -403,8 +404,9 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	if !c.spinning {
 		t.Fatal("expected spinning=true during tool execution")
 	}
-	if len(c.activeTools) != 1 || !strings.Contains(c.activeTools[0], "exec_tool") {
-		t.Fatalf("expected activeTools to contain tool name, got %v", c.activeTools)
+	tools := c.activeToolDisplays()
+	if len(tools) != 1 || !strings.Contains(tools[0], "exec_tool") {
+		t.Fatalf("expected activeTools to contain tool name, got %v", tools)
 	}
 	if cmd == nil {
 		t.Fatal("expected tick cmd from ToolExecutionEvent{IsStarting:true}")
@@ -418,11 +420,13 @@ func TestStreamComponent_ToolExecution_NotStarting_KeepsSpinning(t *testing.T) {
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
 	// Simulate a tool starting
 	c = sendStreamMsg(c, app.ToolExecutionEvent{
+		ToolCallID: "call-some-1",
 		ToolName:   "some_tool",
 		IsStarting: true,
 	})
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{
+		ToolCallID: "call-some-1",
 		ToolName:   "some_tool",
 		IsStarting: false,
 	})
@@ -440,9 +444,9 @@ func TestStreamComponent_ParallelToolExecution(t *testing.T) {
 	c := newTestStream()
 
 	// Start three tools in parallel
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "read", IsStarting: true})
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "grep", IsStarting: true})
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "find", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read", ToolName: "read", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-grep", ToolName: "grep", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-find", ToolName: "find", IsStarting: true})
 
 	if len(c.activeTools) != 3 {
 		t.Fatalf("expected 3 active tools, got %d: %v", len(c.activeTools), c.activeTools)
@@ -455,16 +459,41 @@ func TestStreamComponent_ParallelToolExecution(t *testing.T) {
 	}
 
 	// Finish one tool
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "grep", IsStarting: false})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-grep", ToolName: "grep", IsStarting: false})
 	if len(c.activeTools) != 2 {
 		t.Fatalf("expected 2 active tools after one finished, got %d: %v", len(c.activeTools), c.activeTools)
 	}
 
 	// Finish remaining tools
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "read", IsStarting: false})
-	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolName: "find", IsStarting: false})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read", ToolName: "read", IsStarting: false})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-find", ToolName: "find", IsStarting: false})
 	if len(c.activeTools) != 0 {
 		t.Fatalf("expected 0 active tools after all finished, got %d: %v", len(c.activeTools), c.activeTools)
+	}
+}
+
+// TestStreamComponent_ParallelSameToolName_UsesToolCallID verifies finishing one
+// tool call does not remove another concurrent call with the same tool name.
+func TestStreamComponent_ParallelSameToolName_UsesToolCallID(t *testing.T) {
+	c := newTestStream()
+
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-1", ToolName: "read", IsStarting: true})
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-2", ToolName: "read", IsStarting: true})
+
+	tools := c.activeToolDisplays()
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 active read calls, got %d (%v)", len(tools), tools)
+	}
+
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-1", ToolName: "read", IsStarting: false})
+	tools = c.activeToolDisplays()
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 active read call after finishing one ID, got %d (%v)", len(tools), tools)
+	}
+
+	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-2", ToolName: "read", IsStarting: false})
+	if len(c.activeToolDisplays()) != 0 {
+		t.Fatalf("expected no active tools after finishing both IDs, got %v", c.activeToolDisplays())
 	}
 }
 
@@ -619,5 +648,45 @@ func TestStreamComponent_StaleTick_Discarded(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("current-gen tick should reschedule")
+	}
+}
+
+// TestStreamComponent_StaleFlushTick_Discarded verifies that flush ticks from a
+// previous generation (e.g. pre-Reset) are ignored.
+func TestStreamComponent_StaleFlushTick_Discarded(t *testing.T) {
+	c := newTestStream()
+
+	// Start a pending flush and capture its generation.
+	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "old"})
+	staleGen := c.flushGeneration
+	if !c.flushPending {
+		t.Fatal("precondition: expected flushPending=true after first chunk")
+	}
+
+	// Reset should invalidate in-flight flush ticks.
+	c.Reset()
+	if c.flushGeneration == staleGen {
+		t.Fatal("expected flushGeneration to change after Reset")
+	}
+
+	// New content in a new generation.
+	c = sendStreamMsg(c, app.StreamChunkEvent{Content: "new"})
+	if got := c.pendingStream.String(); got != "new" {
+		t.Fatalf("expected pendingStream='new', got %q", got)
+	}
+
+	// Stale flush tick should be ignored.
+	c = sendStreamMsg(c, streamFlushTickMsg{generation: staleGen})
+	if got := c.pendingStream.String(); got != "new" {
+		t.Fatalf("stale flush tick should not commit pending stream, got %q", got)
+	}
+
+	// Current generation flush should commit.
+	c = sendStreamMsg(c, streamFlushTickMsg{generation: c.flushGeneration})
+	if got := c.pendingStream.String(); got != "" {
+		t.Fatalf("expected pendingStream empty after current flush, got %q", got)
+	}
+	if got := c.streamContent.String(); got != "new" {
+		t.Fatalf("expected streamContent='new' after current flush, got %q", got)
 	}
 }

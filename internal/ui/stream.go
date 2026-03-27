@@ -79,7 +79,12 @@ func streamSpinnerTickCmd(generation uint64) tea.Cmd {
 // streamFlushTickMsg fires when it's time to commit pending chunks to the
 // main content builders and trigger a re-render. This coalesces rapid
 // streaming chunks into fewer expensive markdown re-renders.
-type streamFlushTickMsg struct{}
+//
+// generation ties the tick to the pending flush session that created it so
+// stale ticks from a prior Reset() are discarded.
+type streamFlushTickMsg struct {
+	generation uint64
+}
 
 // streamFlushInterval is the coalescing window for stream chunks. Chunks
 // arriving within this window are batched into a single render pass.
@@ -89,9 +94,9 @@ const streamFlushInterval = 16 * time.Millisecond
 
 // streamFlushTickCmd returns a tea.Cmd that fires streamFlushTickMsg after
 // the coalescing interval.
-func streamFlushTickCmd() tea.Cmd {
+func streamFlushTickCmd(generation uint64) tea.Cmd {
 	return tea.Tick(streamFlushInterval, func(_ time.Time) tea.Msg {
-		return streamFlushTickMsg{}
+		return streamFlushTickMsg{generation: generation}
 	})
 }
 
@@ -149,9 +154,11 @@ type StreamComponent struct {
 	// spinnerFrame is the current frame index.
 	spinnerFrame int
 
-	// activeTools tracks the names of tools currently executing in parallel.
-	// When multiple tools run concurrently, all are displayed in the spinner.
-	activeTools []string
+	// activeTools tracks currently running tools keyed by ToolCallID.
+	activeTools map[string]string
+
+	// activeToolOrder preserves deterministic display order for active tools.
+	activeToolOrder []string
 
 	// streamContent holds committed streaming text (flushed from pending).
 	streamContent strings.Builder
@@ -172,6 +179,10 @@ type StreamComponent struct {
 	// the same coalescing window.
 	flushPending bool
 
+	// flushGeneration is incremented when stream state resets so stale flush
+	// ticks from a previous step can be discarded.
+	flushGeneration uint64
+
 	// renderCache holds the last rendered output string. Reused by View()
 	// between flush ticks to avoid redundant markdown re-parsing.
 	renderCache string
@@ -190,14 +201,8 @@ type StreamComponent struct {
 	// reasoningDuration holds the total reasoning time, frozen when streaming text begins.
 	reasoningDuration time.Duration
 
-	// messageRenderer renders assistant messages in standard mode.
-	messageRenderer *MessageRenderer
-
-	// compactRenderer renders assistant messages in compact mode.
-	compactRenderer *CompactRenderer
-
-	// compactMode selects which renderer to use.
-	compactMode bool
+	// renderer renders streaming assistant text in either compact or standard mode.
+	renderer Renderer
 
 	// modelName is displayed in the streaming text header.
 	modelName string
@@ -218,13 +223,19 @@ func NewStreamComponent(compactMode bool, width int, modelName string) *StreamCo
 	if width == 0 {
 		width = 80
 	}
+
+	var renderer Renderer
+	if compactMode {
+		renderer = NewCompactRenderer(width, false)
+	} else {
+		renderer = newMessageRenderer(width, false)
+	}
+
 	return &StreamComponent{
-		spinnerFrames:   knightRiderFrames(),
-		compactMode:     compactMode,
-		modelName:       modelName,
-		messageRenderer: newMessageRenderer(width, false),
-		compactRenderer: NewCompactRenderer(width, false),
-		width:           width,
+		spinnerFrames: knightRiderFrames(),
+		modelName:     modelName,
+		renderer:      renderer,
+		width:         width,
 	}
 }
 
@@ -251,11 +262,13 @@ func (s *StreamComponent) Reset() {
 	s.spinnerGeneration++ // invalidate any in-flight tick commands
 	s.spinnerFrame = 0
 	s.activeTools = nil
+	s.activeToolOrder = nil
 	s.streamContent.Reset()
 	s.reasoningContent.Reset()
 	s.pendingStream.Reset()
 	s.pendingReasoning.Reset()
 	s.flushPending = false
+	s.flushGeneration++
 	s.renderCache = ""
 	s.renderDirty = false
 	s.timestamp = time.Time{}
@@ -323,8 +336,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
-		s.messageRenderer.SetWidth(s.width)
-		s.compactRenderer.SetWidth(s.width)
+		if s.renderer != nil {
+			s.renderer.SetWidth(s.width)
+		}
 		// Invalidate render cache — width change affects wrapping/styling.
 		s.renderCache = ""
 		s.renderDirty = true
@@ -360,6 +374,9 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case streamFlushTickMsg:
+		if msg.generation != s.flushGeneration {
+			break
+		}
 		s.flushPending = false
 		s.commitPending()
 
@@ -374,7 +391,7 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.pendingReasoning.WriteString(msg.Delta)
 		if !s.flushPending {
 			s.flushPending = true
-			return s, streamFlushTickCmd()
+			return s, streamFlushTickCmd(s.flushGeneration)
 		}
 
 	case app.StreamChunkEvent:
@@ -389,14 +406,22 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.pendingStream.WriteString(msg.Content)
 		if !s.flushPending {
 			s.flushPending = true
-			return s, streamFlushTickCmd()
+			return s, streamFlushTickCmd(s.flushGeneration)
 		}
 
 	case app.ToolExecutionEvent:
+		toolID := msg.ToolCallID
+		if toolID == "" {
+			toolID = fmt.Sprintf("%s|%s", msg.ToolName, msg.ToolArgs)
+		}
 		if msg.IsStarting {
-			// Add tool to active list for parallel execution display.
-			toolDisplay := formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
-			s.activeTools = append(s.activeTools, toolDisplay)
+			if s.activeTools == nil {
+				s.activeTools = make(map[string]string)
+			}
+			if _, exists := s.activeTools[toolID]; !exists {
+				s.activeToolOrder = append(s.activeToolOrder, toolID)
+			}
+			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -405,9 +430,10 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, streamSpinnerTickCmd(s.spinnerGeneration)
 			}
 		} else {
-			// Tool finished — remove from active list but keep spinning if others remain.
-			toolDisplay := formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
-			s.activeTools = removeFromSlice(s.activeTools, toolDisplay)
+			if s.activeTools != nil {
+				delete(s.activeTools, toolID)
+			}
+			s.activeToolOrder = removeToolID(s.activeToolOrder, toolID)
 		}
 	}
 
@@ -568,7 +594,8 @@ func (s *StreamComponent) SpinnerView() string {
 		return ""
 	}
 	frame := s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
-	if len(s.activeTools) == 0 {
+	tools := s.activeToolDisplays()
+	if len(tools) == 0 {
 		return "  " + frame
 	}
 	theme := GetTheme()
@@ -578,10 +605,10 @@ func (s *StreamComponent) SpinnerView() string {
 
 	// Format active tools list
 	var toolsMsg string
-	if len(s.activeTools) == 1 {
-		toolsMsg = s.activeTools[0]
+	if len(tools) == 1 {
+		toolsMsg = tools[0]
 	} else {
-		toolsMsg = "Running: " + strings.Join(s.activeTools, ", ")
+		toolsMsg = "Running: " + strings.Join(tools, ", ")
 	}
 	return "  " + frame + " " + msgStyle.Render(toolsMsg)
 }
@@ -593,23 +620,34 @@ func (s *StreamComponent) renderStreamingText(text string) string {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-
-	if s.compactMode {
-		msg := s.compactRenderer.RenderAssistantMessage(text, ts, s.modelName)
-		return msg.Content
+	if s.renderer == nil {
+		return text
 	}
-	msg := s.messageRenderer.RenderAssistantMessage(text, ts, s.modelName)
+	msg := s.renderer.RenderAssistantMessage(text, ts, s.modelName)
 	return msg.Content
 }
 
-// removeFromSlice removes the first occurrence of a string from a slice.
-func removeFromSlice(slice []string, s string) []string {
-	for i, v := range slice {
-		if v == s {
-			return append(slice[:i], slice[i+1:]...)
+func (s *StreamComponent) activeToolDisplays() []string {
+	if len(s.activeTools) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s.activeToolOrder))
+	for _, id := range s.activeToolOrder {
+		if display, ok := s.activeTools[id]; ok {
+			out = append(out, display)
 		}
 	}
-	return slice
+	return out
+}
+
+// removeToolID removes the first occurrence of a tool ID from a slice.
+func removeToolID(ids []string, id string) []string {
+	for i, v := range ids {
+		if v == id {
+			return append(ids[:i], ids[i+1:]...)
+		}
+	}
+	return ids
 }
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.

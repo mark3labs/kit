@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -584,8 +583,6 @@ type AppModel struct {
 	streamingBashStderr []string
 	// streamingBashMaxLines caps how many lines to accumulate to prevent memory issues.
 	streamingBashMaxLines int
-	// streamingMu protects the streaming bash output fields from concurrent access.
-	streamingMu sync.RWMutex
 	// streamingBashCommand holds the command being executed for display as a header.
 	streamingBashCommand string
 }
@@ -1378,9 +1375,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Command string `json:"command"`
 			}
 			if err := json.Unmarshal([]byte(msg.ToolArgs), &args); err == nil && args.Command != "" {
-				m.streamingMu.Lock()
 				m.streamingBashCommand = args.Command
-				m.streamingMu.Unlock()
 			}
 		}
 
@@ -1395,11 +1390,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Buffer tool result for scrollback.
 		m.printToolResult(msg)
 		// Clear streaming bash output since tool completed.
-		m.streamingMu.Lock()
 		m.streamingBashOutput = nil
 		m.streamingBashStderr = nil
 		m.streamingBashCommand = ""
-		m.streamingMu.Unlock()
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
 			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
@@ -1408,7 +1401,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.ToolOutputEvent:
 		// Accumulate streaming bash output for display.
-		m.streamingMu.Lock()
 		if msg.IsStderr {
 			m.streamingBashStderr = append(m.streamingBashStderr, msg.Chunk)
 			// Cap stderr lines to prevent memory issues.
@@ -1422,7 +1414,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamingBashOutput = m.streamingBashOutput[len(m.streamingBashOutput)-m.streamingBashMaxLines:]
 			}
 		}
-		m.streamingMu.Unlock()
 
 	case app.ToolCallContentEvent:
 		// In streaming mode this text was already delivered via StreamChunkEvents
@@ -1847,13 +1838,11 @@ func (m *AppModel) renderStream() string {
 // Lines are truncated to the terminal width and capped to maxBashLines to prevent
 // long-running commands from blowing up the TUI layout.
 func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
-	m.streamingMu.RLock()
 	stdoutLines := make([]string, len(m.streamingBashOutput))
 	copy(stdoutLines, m.streamingBashOutput)
 	stderrLines := make([]string, len(m.streamingBashStderr))
 	copy(stderrLines, m.streamingBashStderr)
 	command := m.streamingBashCommand
-	m.streamingMu.RUnlock()
 
 	if len(stdoutLines) == 0 && len(stderrLines) == 0 {
 		return ""
