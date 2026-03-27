@@ -534,7 +534,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	}
 
 	// Main content using Italic with Muted color for visual distinction.
-	content := strings.Join(lines, "\n")
+	content := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
 	theme := GetTheme()
 	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	parts = append(parts, mutedStyle.Render(s.ty.Italic(content)))
