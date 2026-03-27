@@ -119,6 +119,7 @@ func formatToolParams(toolArgs string, maxWidth int) string {
 		"new_text": true,
 		"oldText":  true,
 		"newText":  true,
+		"edits":    true,
 		"todos":    true,
 	}
 	var remaining []string

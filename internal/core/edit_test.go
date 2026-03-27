@@ -715,3 +715,315 @@ func TestExecuteEdit_MetadataContainsFileDiffs(t *testing.T) {
 		t.Fatal("file_diffs should be a non-empty array")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Multi-edit tests
+// ---------------------------------------------------------------------------
+
+func TestExecuteEdit_MultiEdit_Basic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "multi.txt")
+	writeFileOrFail(t, path, "line1\nline2\nline3\nline4\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "line1", NewText: "LINE1"},
+			{OldText: "line3", NewText: "LINE3"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("tool returned error: %s", resp.Content)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+
+	if !strings.Contains(gotStr, "LINE1") {
+		t.Error("first edit not applied: missing LINE1")
+	}
+	if !strings.Contains(gotStr, "LINE3") {
+		t.Error("second edit not applied: missing LINE3")
+	}
+	if !strings.Contains(gotStr, "line2") {
+		t.Error("line2 was modified but should be untouched")
+	}
+	if !strings.Contains(gotStr, "line4") {
+		t.Error("line4 was modified but should be untouched")
+	}
+
+	// Check response mentions multiple edits
+	if !strings.Contains(resp.Content, "2 edits") {
+		t.Errorf("response should mention '2 edits', got: %s", resp.Content)
+	}
+}
+
+func TestExecuteEdit_MultiEdit_NonIncrementalMatching(t *testing.T) {
+	// All edits are matched against the original content, not incrementally
+	dir := t.TempDir()
+	path := filepath.Join(dir, "noninc.txt")
+	writeFileOrFail(t, path, "aaa\nbbb\nccc\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "aaa", NewText: "AAA"},
+			{OldText: "bbb", NewText: "BBB"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("tool returned error: %s", resp.Content)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+
+	want := "AAA\nBBB\nccc\n"
+	if gotStr != want {
+		t.Errorf("got %q, want %q", gotStr, want)
+	}
+}
+
+func TestExecuteEdit_MultiEdit_OverlapDetection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "overlap.txt")
+	writeFileOrFail(t, path, "hello world\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "hello", NewText: "HELLO"},
+			{OldText: "hello world", NewText: "GOODBYE"}, // Overlaps with first edit
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("expected error for overlapping edits")
+	}
+	if !strings.Contains(resp.Content, "overlap") {
+		t.Errorf("expected 'overlap' in error, got: %s", resp.Content)
+	}
+
+	// File should be untouched
+	got, _ := os.ReadFile(path)
+	if string(got) != "hello world\n" {
+		t.Error("file was modified despite error")
+	}
+}
+
+func TestExecuteEdit_MultiEdit_DuplicateDetection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dup.txt")
+	writeFileOrFail(t, path, "hello\nworld\nhello\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "hello", NewText: "HELLO"},
+			{OldText: "world", NewText: "WORLD"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("expected error for ambiguous old_text (duplicate matches)")
+	}
+	if !strings.Contains(resp.Content, "unique") {
+		t.Errorf("expected 'unique' in error, got: %s", resp.Content)
+	}
+
+	// File should be untouched
+	got, _ := os.ReadFile(path)
+	if string(got) != "hello\nworld\nhello\n" {
+		t.Error("file was modified despite error")
+	}
+}
+
+func TestExecuteEdit_MultiEdit_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notfound.txt")
+	writeFileOrFail(t, path, "hello world\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "nonexistent", NewText: "REPLACEMENT"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("expected error for not found")
+	}
+	if !strings.Contains(resp.Content, "edits[0]") {
+		t.Errorf("expected 'edits[0]' in error, got: %s", resp.Content)
+	}
+
+	// File should be untouched
+	got, _ := os.ReadFile(path)
+	if string(got) != "hello world\n" {
+		t.Error("file was modified despite error")
+	}
+}
+
+func TestExecuteEdit_MultiEdit_EmptyArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.txt")
+	writeFileOrFail(t, path, "hello\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path:  path,
+		Edits: []Edit{},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("expected error for empty edits array")
+	}
+}
+
+func TestExecuteEdit_MultiEdit_MixedWithSingleMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mixed.txt")
+	writeFileOrFail(t, path, "hello\n")
+
+	input, _ := json.Marshal(map[string]any{
+		"path":     path,
+		"old_text": "hello",
+		"new_text": "HELLO",
+		"edits": []Edit{
+			{OldText: "hello", NewText: "HI"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("expected error when mixing single and multi-edit modes")
+	}
+	if !strings.Contains(resp.Content, "cannot use") {
+		t.Errorf("expected 'cannot use' in error, got: %s", resp.Content)
+	}
+}
+
+func TestExecuteEdit_MultiEdit_FuzzyMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fuzzy_multi.txt")
+	// File has trailing whitespace
+	original := "func foo() {   \n\treturn 1   \n}\nfunc bar() {   \n\treturn 2   \n}\n"
+	writeFileOrFail(t, path, original)
+
+	// Search without trailing whitespace (common LLM behavior)
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "func foo() {\n\treturn 1\n}", NewText: "func foo() {\n\treturn 10\n}"},
+			{OldText: "func bar() {\n\treturn 2\n}", NewText: "func bar() {\n\treturn 20\n}"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("executeEdit error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("tool returned error: %s", resp.Content)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+
+	if !strings.Contains(gotStr, "return 10") {
+		t.Error("first edit not applied")
+	}
+	if !strings.Contains(gotStr, "return 20") {
+		t.Error("second edit not applied")
+	}
+
+	// Response should mention fuzzy match
+	if !strings.Contains(resp.Content, "fuzzy") {
+		t.Errorf("response should mention 'fuzzy', got: %s", resp.Content)
+	}
+}
+
+func TestExecuteEdit_MultiEdit_Metadata(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "meta_multi.txt")
+	writeFileOrFail(t, path, "aaa\nbbb\nccc\n")
+
+	input, _ := json.Marshal(editArgs{
+		Path: path,
+		Edits: []Edit{
+			{OldText: "aaa", NewText: "AAA"},
+			{OldText: "bbb", NewText: "BBB"},
+		},
+	})
+
+	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("tool returned error: %s", resp.Content)
+	}
+
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(resp.Metadata), &meta); err != nil {
+		t.Fatalf("metadata is not valid JSON: %v", err)
+	}
+
+	diffs, ok := meta["file_diffs"].([]any)
+	if !ok || len(diffs) == 0 {
+		t.Fatal("metadata missing file_diffs")
+	}
+
+	firstDiff, ok := diffs[0].(map[string]any)
+	if !ok {
+		t.Fatal("first diff is not an object")
+	}
+
+	// Check that diff_blocks contains both edits
+	diffBlocks, ok := firstDiff["diff_blocks"].([]any)
+	if !ok || len(diffBlocks) != 2 {
+		t.Fatalf("expected 2 diff_blocks, got %d", len(diffBlocks))
+	}
+
+	// Verify each block has old_text and new_text
+	for i, block := range diffBlocks {
+		b, ok := block.(map[string]any)
+		if !ok {
+			t.Fatalf("diff_block[%d] is not an object", i)
+		}
+		if _, ok := b["old_text"]; !ok {
+			t.Fatalf("diff_block[%d] missing old_text", i)
+		}
+		if _, ok := b["new_text"]; !ok {
+			t.Fatalf("diff_block[%d] missing new_text", i)
+		}
+	}
+}

@@ -64,20 +64,43 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 // ---------------------------------------------------------------------------
 
 // renderEditBody renders a side-by-side diff from old_text/new_text in toolArgs.
+// Supports both single-edit mode and multi-edit mode (edits array).
 func renderEditBody(toolArgs, toolResult string, width int) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 		return ""
 	}
 
+	// Try to extract the starting line number from the unified diff in the result
+	startLine := extractDiffStartLine(toolResult)
+
+	// Check for multi-edit mode (edits array)
+	if editsArr, ok := args["edits"].([]any); ok && len(editsArr) > 0 {
+		var results []string
+		for _, edit := range editsArr {
+			if e, ok := edit.(map[string]any); ok {
+				oldText, _ := e["old_text"].(string)
+				newText, _ := e["new_text"].(string)
+				if oldText != "" || newText != "" {
+					diff := renderDiffBlock(oldText, newText, startLine, width)
+					if diff != "" {
+						results = append(results, diff)
+					}
+				}
+			}
+		}
+		if len(results) > 0 {
+			return strings.Join(results, "\n")
+		}
+		return ""
+	}
+
+	// Single-edit mode (legacy)
 	oldText, _ := args["old_text"].(string)
 	newText, _ := args["new_text"].(string)
 	if oldText == "" && newText == "" {
 		return ""
 	}
-
-	// Try to extract the starting line number from the unified diff in the result
-	startLine := extractDiffStartLine(toolResult)
 
 	return renderDiffBlock(oldText, newText, startLine, width)
 }
