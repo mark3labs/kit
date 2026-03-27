@@ -76,6 +76,12 @@
       "name": "opencode",
       "url": "https://github.com/anomalyco/opencode",
       "branch": "dev"
+    },
+    {
+      "type": "git",
+      "name": "herald",
+      "url": "https://github.com/indaco/herald",
+      "branch": "main"
     }
   ],
   "model": "claude-haiku-4-5",

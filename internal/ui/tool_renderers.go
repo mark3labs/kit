@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,7 +16,88 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	udiff "github.com/aymanbagabas/go-udiff"
 	xansi "github.com/charmbracelet/x/ansi"
+	"github.com/indaco/herald"
 )
+
+// detectLanguage extracts the language from a filename for syntax highlighting.
+func detectLanguage(fileName string) string {
+	ext := strings.ToLower(filepath.Ext(fileName))
+	ext = strings.TrimPrefix(ext, ".")
+
+	// Map common extensions to language names
+	langMap := map[string]string{
+		"go":         "go",
+		"py":         "python",
+		"js":         "javascript",
+		"ts":         "typescript",
+		"jsx":        "jsx",
+		"tsx":        "tsx",
+		"rs":         "rust",
+		"java":       "java",
+		"cpp":        "cpp",
+		"c":          "c",
+		"h":          "c",
+		"hpp":        "cpp",
+		"cs":         "csharp",
+		"rb":         "ruby",
+		"php":        "php",
+		"swift":      "swift",
+		"kt":         "kotlin",
+		"scala":      "scala",
+		"r":          "r",
+		"sql":        "sql",
+		"sh":         "bash",
+		"bash":       "bash",
+		"zsh":        "zsh",
+		"fish":       "fish",
+		"ps1":        "powershell",
+		"yaml":       "yaml",
+		"yml":        "yaml",
+		"json":       "json",
+		"toml":       "toml",
+		"xml":        "xml",
+		"html":       "html",
+		"htm":        "html",
+		"css":        "css",
+		"scss":       "scss",
+		"sass":       "sass",
+		"less":       "less",
+		"md":         "markdown",
+		"dockerfile": "dockerfile",
+		"makefile":   "makefile",
+		"vim":        "vim",
+		"lua":        "lua",
+		"perl":       "perl",
+		"pl":         "perl",
+		"haskell":    "haskell",
+		"hs":         "haskell",
+		"erlang":     "erlang",
+		"erl":        "erlang",
+		"elixir":     "elixir",
+		"ex":         "elixir",
+		"exs":        "elixir",
+		"clojure":    "clojure",
+		"clj":        "clojure",
+		"lisp":       "lisp",
+		"scheme":     "scheme",
+		"racket":     "racket",
+		"ocaml":      "ocaml",
+		"ml":         "ocaml",
+		"fsharp":     "fsharp",
+		"fs":         "fsharp",
+		"fsx":        "fsharp",
+		"dart":       "dart",
+		"flutter":    "dart",
+		"julia":      "julia",
+		"groovy":     "groovy",
+		"gradle":     "groovy",
+	}
+
+	if lang, ok := langMap[ext]; ok {
+		return lang
+	}
+	return ext
+}
 
 // Maximum visible lines per tool type before truncation.
 const (
@@ -374,8 +456,7 @@ func renderLsBody(toolResult string, width int) string {
 // Read tool — code block with line numbers + syntax highlighting
 // ---------------------------------------------------------------------------
 
-// renderReadBody renders Read tool output with styled line numbers and optional
-// syntax highlighting based on file extension.
+// renderReadBody renders Read tool output using herald's CodeBlock with line numbers.
 func renderReadBody(toolArgs, toolResult string, width int) string {
 	if strings.TrimSpace(toolResult) == "" {
 		return ""
@@ -390,121 +471,39 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 		}
 	}
 
-	return renderCodeBlock(toolResult, fileName, width)
-}
-
-// codeLine holds a parsed line with optional line number.
-type codeLine struct {
-	lineNum string
-	code    string
-}
-
-// renderCodeBlock renders content with a styled gutter (line numbers) and
-// optional syntax highlighting.
-func renderCodeBlock(content, fileName string, width int) string {
-	rawLines := strings.Split(content, "\n")
-
-	// Parse lines: detect "N: content" format from Read tool
-	var parsed []codeLine
-	maxNumWidth := 0
-	var codeOnly []string
-
-	for _, line := range rawLines {
+	// Parse lines and extract just the code content (removing "N: " prefix)
+	lines := strings.Split(toolResult, "\n")
+	var codeLines []string
+	for _, line := range lines {
 		if idx := strings.Index(line, ": "); idx > 0 && idx <= 7 {
 			numPart := line[:idx]
 			if _, err := strconv.Atoi(strings.TrimSpace(numPart)); err == nil {
-				parsed = append(parsed, codeLine{lineNum: numPart, code: line[idx+2:]})
-				if len(numPart) > maxNumWidth {
-					maxNumWidth = len(numPart)
-				}
-				codeOnly = append(codeOnly, line[idx+2:])
+				codeLines = append(codeLines, line[idx+2:])
 				continue
 			}
 		}
-		// No line number — treat as metadata/footer
-		parsed = append(parsed, codeLine{code: line})
-		codeOnly = append(codeOnly, line)
+		codeLines = append(codeLines, line)
 	}
 
-	if len(parsed) == 0 {
-		return ""
+	content := strings.Join(codeLines, "\n")
+
+	// Truncate if too long
+	if len(codeLines) > maxCodeLines {
+		content = strings.Join(codeLines[:maxCodeLines], "\n")
 	}
 
-	// Truncate to maxCodeLines visible lines (preserve footer/metadata lines)
-	var codeHiddenCount int
-	totalParsed := len(parsed)
-	if totalParsed > maxCodeLines {
-		// Check if last line is a footer (no line number) — keep it
-		var footerLines []codeLine
-		for totalParsed > 0 && parsed[totalParsed-1].lineNum == "" {
-			footerLines = append([]codeLine{parsed[totalParsed-1]}, footerLines...)
-			totalParsed--
-		}
-		if totalParsed > maxCodeLines {
-			codeHiddenCount = totalParsed - maxCodeLines
-			parsed = append(parsed[:maxCodeLines], footerLines...)
-			codeOnly = codeOnly[:maxCodeLines]
-			for _, fl := range footerLines {
-				codeOnly = append(codeOnly, fl.code)
-			}
-		} else {
-			// Restore — footer trimming was enough
-			parsed = parsed[:totalParsed]
-			parsed = append(parsed, footerLines...)
-		}
-	}
+	// Detect language from filename
+	lang := detectLanguage(fileName)
 
-	// Syntax highlight the code portion
-	highlighted := syntaxHighlight(strings.Join(codeOnly, "\n"), fileName)
-	highlightedLines := strings.Split(highlighted, "\n")
+	// Use herald's CodeBlock with line numbers
+	ty := herald.New(
+		herald.WithCodeLineNumbers(true),
+		herald.WithCodeFormatter(func(code, language string) string {
+			return syntaxHighlight(code, fileName)
+		}),
+	)
 
-	// Layout
-	const codeIndent = "  "
-	gutterWidth := max(maxNumWidth+2, 5)
-	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
-
-	theme := getTheme()
-	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
-	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-
-	var result []string
-	for i, p := range parsed {
-		// If this line has no line number, it's a metadata/footer line (e.g. truncation notice).
-		if p.lineNum == "" {
-			// Render footer lines with code background but no gutter
-			truncatedFooter := truncateLine(p.code, codeWidth-1) // account for PaddingLeft(1)
-			footer := codeStyle.Width(codeWidth).Render(truncatedFooter)
-			emptyGutter := gutterStyle.Width(gutterWidth).Render("")
-			result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footer))
-			continue
-		}
-
-		gutter := gutterStyle.Width(gutterWidth).Render(p.lineNum)
-
-		var codePart string
-		if i < len(highlightedLines) {
-			codePart = highlightedLines[i]
-		} else {
-			codePart = p.code
-		}
-		// Truncate the (possibly ANSI-highlighted) line to fit within
-		// the code column, preventing lipgloss from wrapping it.
-		codePart = truncateLine(codePart, codeWidth-1) // account for PaddingLeft(1)
-		styledCode := codeStyle.Width(codeWidth).Render(codePart)
-
-		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
-	}
-
-	// Truncation hint
-	if codeHiddenCount > 0 {
-		hint := fmt.Sprintf("...(%d more lines)", codeHiddenCount)
-		emptyGutter := gutterStyle.Width(gutterWidth).Render("")
-		hintContent := codeStyle.Width(codeWidth).
-			Foreground(theme.Muted).Italic(true).Render(hint)
-		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, hintContent))
-	}
-
-	return strings.Join(result, "\n")
+	return ty.CodeBlock(content, lang)
 }
 
 // ---------------------------------------------------------------------------

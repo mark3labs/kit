@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/indaco/herald"
 	"github.com/mark3labs/kit/internal/app"
 )
 
@@ -216,6 +217,9 @@ type StreamComponent struct {
 	// height constrains the render output to at most this many lines.
 	// 0 means unconstrained.
 	height int
+
+	// ty provides typography functions for rendering text.
+	ty *herald.Typography
 }
 
 // NewStreamComponent creates a new StreamComponent ready to be embedded in AppModel.
@@ -236,6 +240,7 @@ func NewStreamComponent(compactMode bool, width int, modelName string) *StreamCo
 		modelName:     modelName,
 		renderer:      renderer,
 		width:         width,
+		ty:            createTypography(GetTheme()),
 	}
 }
 
@@ -511,37 +516,26 @@ func (s *StreamComponent) viewContent(fullContent string) string {
 	return fullContent
 }
 
-// renderReasoningBlock renders the reasoning/thinking content in a surface-tinted
-// box. When collapsed, shows the last 10 lines with a truncation hint. When
+// renderReasoningBlock renders the reasoning/thinking content using blockquote.
+// When collapsed, shows the last 10 lines with a truncation hint. When
 // expanded, shows all lines. Includes a "Thought for Xs" duration footer.
 func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
-	theme := GetTheme()
-	maxWidth := max(s.width-4, 20)
-
 	lines := strings.Split(strings.TrimRight(reasoning, "\n"), "\n")
-
-	contentStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Background(theme.MutedBorder).
-		Italic(true)
 
 	var parts []string
 
 	// When collapsed and content exceeds 10 lines, show only the last 10
-	// with a truncation hint (matching iteratr's thinking block pattern).
+	// with a truncation hint.
 	const maxCollapsedLines = 10
 	if !s.thinkingVisible && len(lines) > maxCollapsedLines {
 		hidden := len(lines) - maxCollapsedLines
-		hintStyle := lipgloss.NewStyle().
-			Foreground(theme.VeryMuted).
-			Background(theme.MutedBorder).
-			Italic(true)
-		parts = append(parts, hintStyle.Render(fmt.Sprintf("... (%d lines hidden)", hidden)))
+		parts = append(parts, s.ty.Italic(fmt.Sprintf("... (%d lines hidden)", hidden)))
 		lines = lines[len(lines)-maxCollapsedLines:]
 	}
 
-	// Render reasoning text.
-	parts = append(parts, contentStyle.Width(maxWidth).Render(strings.Join(lines, "\n")))
+	// Main content using blockquote for visual distinction.
+	content := strings.Join(lines, "\n")
+	parts = append(parts, s.ty.Blockquote(content))
 
 	// Duration footer.
 	var duration time.Duration
@@ -557,21 +551,11 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Background(theme.MutedBorder).Render("Thought for ") +
-			lipgloss.NewStyle().Foreground(theme.Info).Background(theme.MutedBorder).Render(durationStr)
+		footer := s.ty.Small(fmt.Sprintf("Thought for %s", durationStr))
 		parts = append(parts, footer)
 	}
 
-	innerContent := strings.Join(parts, "\n")
-
-	// Wrap in box with surface background for visual distinction.
-	boxStyle := lipgloss.NewStyle().
-		Background(theme.MutedBorder). // Surface0 (#313244)
-		PaddingLeft(1).
-		Width(maxWidth + 2).
-		MarginBottom(1)
-
-	return boxStyle.Render(innerContent)
+	return s.ty.Compose(parts...)
 }
 
 // SetThinkingVisible sets whether reasoning blocks are shown or collapsed.

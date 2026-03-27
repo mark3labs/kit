@@ -786,28 +786,29 @@ func (m *AppModel) PrintStartupInfo() {
 		return
 	}
 
-	render := func(text string) string {
-		return m.renderer.RenderSystemMessage(text, time.Now()).Content
-	}
+	// Create typography instance for startup rendering
+	ty := createTypography(GetTheme())
 
 	fmt.Println()
 
-	// Build the combined startup content.
-	var lines []string
+	// Build key-value pairs for startup info
+	var pairs [][2]string
 
 	if m.providerName != "" && m.modelName != "" {
-		lines = append(lines, fmt.Sprintf("Model loaded: %s (%s)", m.providerName, m.modelName))
+		pairs = append(pairs, [2]string{"Model", fmt.Sprintf("%s (%s)", m.providerName, m.modelName)})
 	}
 
 	if m.loadingMessage != "" {
-		lines = append(lines, m.loadingMessage)
+		pairs = append(pairs, [2]string{"Status", m.loadingMessage})
 	}
 
 	// Context — loaded AGENTS.md files.
 	if len(m.contextPaths) > 0 {
-		for _, p := range m.contextPaths {
-			lines = append(lines, fmt.Sprintf("Context: %s", tildeHome(p)))
+		contextStr := tildeHome(m.contextPaths[0])
+		if len(m.contextPaths) > 1 {
+			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)
 		}
+		pairs = append(pairs, [2]string{"Context", contextStr})
 	}
 
 	// Skills — listed by name.
@@ -816,21 +817,22 @@ func (m *AppModel) PrintStartupInfo() {
 		for i, si := range m.skillItems {
 			names[i] = si.Name
 		}
-		lines = append(lines, fmt.Sprintf("Skills: %s", strings.Join(names, ", ")))
+		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
 	}
 
 	// Extension tool count (only shown when > 0).
 	if m.extensionToolCount > 0 {
-		lines = append(lines, fmt.Sprintf("Loaded %d extension tools", m.extensionToolCount))
+		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
 	}
 
 	// MCP tool count (only shown when > 0).
 	if m.mcpToolCount > 0 {
-		lines = append(lines, fmt.Sprintf("Loaded %d tools from MCP servers", m.mcpToolCount))
+		pairs = append(pairs, [2]string{"MCP", fmt.Sprintf("%d tools", m.mcpToolCount)})
 	}
 
-	if len(lines) > 0 {
-		fmt.Println(render(strings.Join(lines, "\n\n")))
+	if len(pairs) > 0 {
+		rendered := ty.KVGroup(pairs)
+		fmt.Println(rendered)
 	}
 }
 

@@ -799,16 +799,26 @@ func runNormalMode(ctx context.Context) error {
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
 
+	// Buffer for extension messages during startup (printed after startup banner).
+	var startupExtensionMessages []string
+
 	// Set up extension context and emit SessionStart.
 	if kitInstance.HasExtensions() {
 		cwd, _ := os.Getwd()
 		kitInstance.SetExtensionContext(extensions.Context{
-			CWD:           cwd,
-			Model:         modelName,
-			Interactive:   positionalPrompt == "",
-			Print:         func(text string) { appInstance.PrintFromExtension("", text) },
-			PrintInfo:     func(text string) { appInstance.PrintFromExtension("info", text) },
-			PrintError:    func(text string) { appInstance.PrintFromExtension("error", text) },
+			CWD:         cwd,
+			Model:       modelName,
+			Interactive: positionalPrompt == "",
+			Print: func(text string) {
+				// Capture messages during startup, print after startup banner.
+				startupExtensionMessages = append(startupExtensionMessages, text)
+			},
+			PrintInfo: func(text string) {
+				startupExtensionMessages = append(startupExtensionMessages, text)
+			},
+			PrintError: func(text string) {
+				startupExtensionMessages = append(startupExtensionMessages, text)
+			},
 			PrintBlock:    appInstance.PrintBlockFromExtension,
 			SendMessage:   func(text string) { appInstance.Run(text) },
 			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
@@ -1099,6 +1109,150 @@ func runNormalMode(ctx context.Context) error {
 			},
 		})
 		kitInstance.EmitSessionStart()
+
+		// Restore normal print functions for runtime use.
+		kitInstance.SetExtensionContext(extensions.Context{
+			CWD:           cwd,
+			Model:         modelName,
+			Interactive:   positionalPrompt == "",
+			Print:         func(text string) { appInstance.PrintFromExtension("", text) },
+			PrintInfo:     func(text string) { appInstance.PrintFromExtension("info", text) },
+			PrintError:    func(text string) { appInstance.PrintFromExtension("error", text) },
+			PrintBlock:    appInstance.PrintBlockFromExtension,
+			SendMessage:   func(text string) { appInstance.Run(text) },
+			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
+			Exit:          func() { appInstance.QuitFromExtension() },
+			SetWidget: func(config extensions.WidgetConfig) {
+				kitInstance.SetExtensionWidget(config)
+				appInstance.NotifyWidgetUpdate()
+			},
+			RemoveWidget: func(id string) {
+				kitInstance.RemoveExtensionWidget(id)
+				appInstance.NotifyWidgetUpdate()
+			},
+			SetHeader: func(config extensions.HeaderFooterConfig) {
+				kitInstance.SetExtensionHeader(config)
+				appInstance.NotifyWidgetUpdate()
+			},
+			RemoveHeader: func() {
+				kitInstance.RemoveExtensionHeader()
+				appInstance.NotifyWidgetUpdate()
+			},
+			SetFooter: func(config extensions.HeaderFooterConfig) {
+				kitInstance.SetExtensionFooter(config)
+				appInstance.NotifyWidgetUpdate()
+			},
+			RemoveFooter: func() {
+				kitInstance.RemoveExtensionFooter()
+				appInstance.NotifyWidgetUpdate()
+			},
+			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
+				ch := make(chan app.PromptResponse, 1)
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType: "select",
+					Message:    config.Message,
+					Options:    config.Options,
+					ResponseCh: ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptSelectResult{Cancelled: true}
+				}
+				return extensions.PromptSelectResult{Value: resp.Value, Index: resp.Index}
+			},
+			PromptConfirm: func(config extensions.PromptConfirmConfig) extensions.PromptConfirmResult {
+				ch := make(chan app.PromptResponse, 1)
+				def := "false"
+				if config.DefaultValue {
+					def = "true"
+				}
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType: "confirm",
+					Message:    config.Message,
+					Default:    def,
+					ResponseCh: ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptConfirmResult{Cancelled: true}
+				}
+				return extensions.PromptConfirmResult{Value: resp.Confirmed}
+			},
+			PromptInput: func(config extensions.PromptInputConfig) extensions.PromptInputResult {
+				ch := make(chan app.PromptResponse, 1)
+				appInstance.SendPromptRequest(app.PromptRequestEvent{
+					PromptType:  "input",
+					Message:     config.Message,
+					Placeholder: config.Placeholder,
+					Default:     config.Default,
+					ResponseCh:  ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.PromptInputResult{Cancelled: true}
+				}
+				return extensions.PromptInputResult{Value: resp.Value}
+			},
+			ShowOverlay: func(config extensions.OverlayConfig) extensions.OverlayResult {
+				ch := make(chan app.OverlayResponse, 1)
+				appInstance.SendOverlayRequest(app.OverlayRequestEvent{
+					Title:       config.Title,
+					Content:     config.Content.Text,
+					Markdown:    config.Content.Markdown,
+					BorderColor: config.Style.BorderColor,
+					Background:  config.Style.Background,
+					Width:       config.Width,
+					MaxHeight:   config.MaxHeight,
+					Anchor:      string(config.Anchor),
+					Actions:     config.Actions,
+					ResponseCh:  ch,
+				})
+				resp := <-ch
+				if resp.Cancelled {
+					return extensions.OverlayResult{Cancelled: true, Index: -1}
+				}
+				return extensions.OverlayResult{
+					Action: resp.Action,
+					Index:  resp.Index,
+				}
+			},
+			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
+				// In-process subagent via SDK.
+				sdkCfg := kit.SubagentConfig{
+					Prompt:       config.Prompt,
+					Model:        config.Model,
+					SystemPrompt: config.SystemPrompt,
+					Timeout:      config.Timeout,
+					NoSession:    config.NoSession,
+				}
+				// Bridge SDK events to extension SubagentEvents.
+				if config.OnEvent != nil {
+					sdkCfg.OnEvent = func(e kit.Event) {
+						se := sdkEventToSubagentEvent(e)
+						if se.Type != "" {
+							config.OnEvent(se)
+						}
+					}
+				}
+				result, err := kitInstance.Subagent(ctx, sdkCfg)
+				if result == nil {
+					return nil, &extensions.SubagentResult{Error: err}, err
+				}
+				extResult := &extensions.SubagentResult{
+					Response:  result.Response,
+					Error:     result.Error,
+					SessionID: result.SessionID,
+					Elapsed:   result.Elapsed,
+				}
+				if result.Usage != nil {
+					extResult.Usage = &extensions.SubagentUsage{
+						InputTokens:  result.Usage.InputTokens,
+						OutputTokens: result.Usage.OutputTokens,
+					}
+				}
+				return nil, extResult, err
+			},
+		})
 	}
 
 	// Convert extension commands to UI-layer type for the interactive TUI.
@@ -1222,7 +1376,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet requires a prompt")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, startupExtensionMessages)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -1278,7 +1432,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModel, emitModelChange, isReasoningModel, thinkingLevel, setThinkingLevel, switchSession)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModel, emitModelChange, isReasoningModel, thinkingLevel, setThinkingLevel, switchSession, nil)
 	}
 
 	return nil
@@ -1376,7 +1530,7 @@ func writeJSONError(err error) {
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []ui.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []ui.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []ui.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, startupExtensionMessages []string) error {
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {
@@ -1425,6 +1579,14 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 
 	// Print startup info to stdout before Bubble Tea takes over the screen.
 	appModel.PrintStartupInfo()
+
+	// Print any extension messages that were captured during startup.
+	if len(startupExtensionMessages) > 0 {
+		fmt.Println()
+		for _, msg := range startupExtensionMessages {
+			fmt.Println(msg)
+		}
+	}
 
 	program := tea.NewProgram(appModel)
 
