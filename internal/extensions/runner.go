@@ -56,11 +56,165 @@ func NewRunner(exts []LoadedExtension) *Runner {
 }
 
 // SetContext updates the runtime context (session ID, model, etc.) that is
-// passed to every handler invocation. Thread-safe.
+// passed to every handler invocation. Nil function fields are replaced with
+// safe no-ops so extension handlers never panic on a missing callback.
+// Thread-safe.
 func (r *Runner) SetContext(ctx Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.ctx = ctx
+	r.ctx = normalizeContext(ctx)
+}
+
+// normalizeContext replaces nil function fields in ctx with no-op stubs so
+// that extension handlers can call any ctx method without a nil-function panic.
+func normalizeContext(ctx Context) Context {
+	if ctx.Print == nil {
+		ctx.Print = func(string) {}
+	}
+	if ctx.PrintInfo == nil {
+		ctx.PrintInfo = func(string) {}
+	}
+	if ctx.PrintError == nil {
+		ctx.PrintError = func(string) {}
+	}
+	if ctx.PrintBlock == nil {
+		ctx.PrintBlock = func(PrintBlockOpts) {}
+	}
+	if ctx.SendMessage == nil {
+		ctx.SendMessage = func(string) {}
+	}
+	if ctx.CancelAndSend == nil {
+		ctx.CancelAndSend = func(string) {}
+	}
+	if ctx.SetWidget == nil {
+		ctx.SetWidget = func(WidgetConfig) {}
+	}
+	if ctx.RemoveWidget == nil {
+		ctx.RemoveWidget = func(string) {}
+	}
+	if ctx.SetHeader == nil {
+		ctx.SetHeader = func(HeaderFooterConfig) {}
+	}
+	if ctx.RemoveHeader == nil {
+		ctx.RemoveHeader = func() {}
+	}
+	if ctx.SetFooter == nil {
+		ctx.SetFooter = func(HeaderFooterConfig) {}
+	}
+	if ctx.RemoveFooter == nil {
+		ctx.RemoveFooter = func() {}
+	}
+	if ctx.PromptSelect == nil {
+		ctx.PromptSelect = func(PromptSelectConfig) PromptSelectResult {
+			return PromptSelectResult{Cancelled: true}
+		}
+	}
+	if ctx.PromptConfirm == nil {
+		ctx.PromptConfirm = func(PromptConfirmConfig) PromptConfirmResult {
+			return PromptConfirmResult{Cancelled: true}
+		}
+	}
+	if ctx.PromptInput == nil {
+		ctx.PromptInput = func(PromptInputConfig) PromptInputResult {
+			return PromptInputResult{Cancelled: true}
+		}
+	}
+	if ctx.PromptMultiSelect == nil {
+		ctx.PromptMultiSelect = func(PromptMultiSelectConfig) PromptMultiSelectResult {
+			return PromptMultiSelectResult{Cancelled: true}
+		}
+	}
+	if ctx.ShowOverlay == nil {
+		ctx.ShowOverlay = func(OverlayConfig) OverlayResult {
+			return OverlayResult{Cancelled: true, Index: -1}
+		}
+	}
+	if ctx.SetEditor == nil {
+		ctx.SetEditor = func(EditorConfig) {}
+	}
+	if ctx.ResetEditor == nil {
+		ctx.ResetEditor = func() {}
+	}
+	if ctx.SetEditorText == nil {
+		ctx.SetEditorText = func(string) {}
+	}
+	if ctx.SetUIVisibility == nil {
+		ctx.SetUIVisibility = func(UIVisibility) {}
+	}
+	if ctx.SetStatus == nil {
+		ctx.SetStatus = func(string, string, int) {}
+	}
+	if ctx.RemoveStatus == nil {
+		ctx.RemoveStatus = func(string) {}
+	}
+	if ctx.GetContextStats == nil {
+		ctx.GetContextStats = func() ContextStats { return ContextStats{} }
+	}
+	if ctx.GetMessages == nil {
+		ctx.GetMessages = func() []SessionMessage { return nil }
+	}
+	if ctx.GetSessionPath == nil {
+		ctx.GetSessionPath = func() string { return "" }
+	}
+	if ctx.AppendEntry == nil {
+		ctx.AppendEntry = func(string, string) (string, error) { return "", nil }
+	}
+	if ctx.GetEntries == nil {
+		ctx.GetEntries = func(string) []ExtensionEntry { return nil }
+	}
+	if ctx.GetOption == nil {
+		ctx.GetOption = func(string) string { return "" }
+	}
+	if ctx.SetOption == nil {
+		ctx.SetOption = func(string, string) {}
+	}
+	if ctx.SetModel == nil {
+		ctx.SetModel = func(string) error { return nil }
+	}
+	if ctx.GetAvailableModels == nil {
+		ctx.GetAvailableModels = func() []ModelInfoEntry { return nil }
+	}
+	if ctx.EmitCustomEvent == nil {
+		ctx.EmitCustomEvent = func(string, string) {}
+	}
+	if ctx.GetAllTools == nil {
+		ctx.GetAllTools = func() []ToolInfo { return nil }
+	}
+	if ctx.SetActiveTools == nil {
+		ctx.SetActiveTools = func([]string) {}
+	}
+	if ctx.Exit == nil {
+		ctx.Exit = func() {}
+	}
+	if ctx.Complete == nil {
+		ctx.Complete = func(CompleteRequest) (CompleteResponse, error) {
+			return CompleteResponse{}, nil
+		}
+	}
+	if ctx.SuspendTUI == nil {
+		ctx.SuspendTUI = func(callback func()) error { callback(); return nil }
+	}
+	if ctx.RenderMessage == nil {
+		ctx.RenderMessage = func(string, string) {}
+	}
+	if ctx.RegisterTheme == nil {
+		ctx.RegisterTheme = func(string, ThemeColorConfig) {}
+	}
+	if ctx.SetTheme == nil {
+		ctx.SetTheme = func(string) error { return nil }
+	}
+	if ctx.ListThemes == nil {
+		ctx.ListThemes = func() []string { return nil }
+	}
+	if ctx.ReloadExtensions == nil {
+		ctx.ReloadExtensions = func() error { return nil }
+	}
+	if ctx.SpawnSubagent == nil {
+		ctx.SpawnSubagent = func(SubagentConfig) (*SubagentHandle, *SubagentResult, error) {
+			return nil, nil, nil
+		}
+	}
+	return ctx
 }
 
 // GetContext returns a snapshot of the current runtime context. Thread-safe.
