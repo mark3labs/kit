@@ -424,7 +424,7 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, exists := s.activeTools[toolID]; !exists {
 				s.activeToolOrder = append(s.activeToolOrder, toolID)
 			}
-			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName, msg.ToolArgs)
+			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -655,7 +655,7 @@ func removeToolID(ids []string, id string) []string {
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
 // For spawn_subagent, it shows simply as "Subagent".
-func formatToolExecutionMessage(toolName, toolArgs string) string {
+func formatToolExecutionMessage(toolName string) string {
 	if toolName == "spawn_subagent" {
 		return "Subagent"
 	}
