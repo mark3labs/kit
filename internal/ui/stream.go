@@ -537,7 +537,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	content := strings.Join(lines, "\n")
 	parts = append(parts, s.ty.Blockquote(content))
 
-	// Duration footer.
+	// Duration footer with indentation.
 	var duration time.Duration
 	if s.reasoningDuration > 0 {
 		duration = s.reasoningDuration
@@ -551,11 +551,20 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		footer := s.ty.Small(fmt.Sprintf("Thought for %s", durationStr))
+		footer := lipgloss.NewStyle().PaddingLeft(2).Render(s.ty.Small(fmt.Sprintf("Thought for %s", durationStr)))
 		parts = append(parts, footer)
 	}
 
-	return s.ty.Compose(parts...)
+	// Concatenate parts with newline between blockquote and footer
+	var result string
+	if len(parts) == 1 {
+		result = parts[0]
+	} else if len(parts) == 2 {
+		result = parts[0] + "\n" + parts[1]
+	} else {
+		result = strings.Join(parts, "\n")
+	}
+	return lipgloss.NewStyle().MarginBottom(1).Render(result)
 }
 
 // SetThinkingVisible sets whether reasoning blocks are shown or collapsed.

@@ -1586,6 +1586,7 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		for _, msg := range startupExtensionMessages {
 			fmt.Println(msg)
 		}
+		fmt.Println()
 	}
 
 	program := tea.NewProgram(appModel)

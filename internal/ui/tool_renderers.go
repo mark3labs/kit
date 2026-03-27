@@ -46,7 +46,7 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		if body := renderWriteBody(toolArgs, toolResult, width); body != "" {
 			return body
 		}
-	case toolName == "bash" || toolName == "run_shell_cmd" ||
+	case toolName == "bash" || toolName == "grep" || toolName == "find" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
 		if body := renderBashBody(toolResult, width); body != "" {
 			return body
@@ -777,7 +777,7 @@ func renderToolBodyCompact(toolName, toolArgs, toolResult string, width int) str
 		return renderReadCompact(toolResult)
 	case toolName == "write":
 		return renderWriteCompact(toolArgs)
-	case toolName == "bash" || toolName == "run_shell_cmd" ||
+	case toolName == "bash" || toolName == "grep" || toolName == "find" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
 		return renderBashCompact(toolResult, width)
 	case toolName == "spawn_subagent":
@@ -939,8 +939,8 @@ func renderBashCompact(toolResult string, width int) string {
 // Subagent tool renderers — show only summary, not full output
 // ---------------------------------------------------------------------------
 
-// renderSubagentBody renders a clean summary of subagent results.
-// Extracts timing/token info and shows only a brief summary instead of raw output.
+// renderSubagentBody renders a clean summary of subagent results with bash-style
+// background styling for consistency with other tools.
 func renderSubagentBody(toolResult string, width int) string {
 	theme := getTheme()
 	result := strings.TrimSpace(toolResult)
@@ -960,9 +960,19 @@ func renderSubagentBody(toolResult string, width int) string {
 	// First line is always the status summary
 	statusLine := lines[0]
 
-	// Build a clean summary
-	var summary strings.Builder
-	summary.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(statusLine))
+	// Build content lines for display with bash-style background
+	outputStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+	errorStyle := lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).PaddingLeft(1)
+
+	const lineIndent = "  "
+	lineWidth := max(width-len(lineIndent), 20)
+	maxLineChars := lineWidth - 1 // account for PaddingLeft(1)
+
+	var contentLines []string
+
+	// Add status line
+	styledStatus := outputStyle.Width(lineWidth).Render(truncateLine(statusLine, maxLineChars))
+	contentLines = append(contentLines, lineIndent+styledStatus)
 
 	// For successful results, extract a brief preview of the actual result
 	if strings.Contains(statusLine, "successfully") {
@@ -970,25 +980,45 @@ func renderSubagentBody(toolResult string, width int) string {
 		if _, resultContent, found := strings.Cut(result, "Result:\n"); found {
 			resultContent = strings.TrimSpace(resultContent)
 			if resultContent != "" {
-				// Show first 3 meaningful lines as preview
-				preview := extractSubagentPreview(resultContent, 3, width-4)
-				if preview != "" {
-					summary.WriteString("\n\n")
-					summary.WriteString(lipgloss.NewStyle().
-						Foreground(theme.Muted).
-						Italic(true).
-						Render(preview))
+				// Show first few meaningful lines as preview
+				previewLines := extractSubagentPreviewLines(resultContent, 5, maxLineChars)
+				if len(previewLines) > 0 {
+					// Add blank separator line
+					blankLine := outputStyle.Width(lineWidth).Render("")
+					contentLines = append(contentLines, lineIndent+blankLine)
+
+					for _, line := range previewLines {
+						styled := outputStyle.Width(lineWidth).Render(line)
+						contentLines = append(contentLines, lineIndent+styled)
+					}
+				}
+			}
+		}
+	} else {
+		// For failed results, show error info
+		if _, errorContent, found := strings.Cut(result, "Error:\n"); found {
+			errorContent = strings.TrimSpace(errorContent)
+			if errorContent != "" {
+				previewLines := extractSubagentPreviewLines(errorContent, 3, maxLineChars)
+				if len(previewLines) > 0 {
+					blankLine := outputStyle.Width(lineWidth).Render("")
+					contentLines = append(contentLines, lineIndent+blankLine)
+
+					for _, line := range previewLines {
+						styled := errorStyle.Width(lineWidth).Render(line)
+						contentLines = append(contentLines, lineIndent+styled)
+					}
 				}
 			}
 		}
 	}
 
-	return summary.String()
+	return strings.Join(contentLines, "\n")
 }
 
-// extractSubagentPreview extracts the first N non-empty lines from content,
-// truncating each line to maxWidth.
-func extractSubagentPreview(content string, maxLines, maxWidth int) string {
+// extractSubagentPreviewLines extracts the first N non-empty lines from content,
+// truncating each line to maxWidth. Returns as a slice of strings.
+func extractSubagentPreviewLines(content string, maxLines, maxWidth int) []string {
 	lines := strings.Split(content, "\n")
 	var preview []string
 
@@ -1007,12 +1037,6 @@ func extractSubagentPreview(content string, maxLines, maxWidth int) string {
 		}
 	}
 
-	if len(preview) == 0 {
-		return ""
-	}
-
-	result := strings.Join(preview, "\n")
-
 	// Count remaining lines for "more" indicator
 	totalLines := 0
 	for _, line := range lines {
@@ -1021,10 +1045,10 @@ func extractSubagentPreview(content string, maxLines, maxWidth int) string {
 		}
 	}
 	if totalLines > maxLines {
-		result += fmt.Sprintf("\n...(%d more lines)", totalLines-maxLines)
+		preview = append(preview, fmt.Sprintf("...(%d more lines)", totalLines-maxLines))
 	}
 
-	return result
+	return preview
 }
 
 // renderSubagentCompact returns a brief one-line summary for subagent results.

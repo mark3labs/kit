@@ -832,6 +832,7 @@ func (m *AppModel) PrintStartupInfo() {
 
 	if len(pairs) > 0 {
 		rendered := ty.KVGroup(pairs)
+		rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
 		fmt.Println(rendered)
 	}
 }

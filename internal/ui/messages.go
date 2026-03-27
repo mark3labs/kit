@@ -43,14 +43,13 @@ type UIMessage struct {
 
 // toolDisplayNames maps raw tool names to human-friendly display names.
 var toolDisplayNames = map[string]string{
-	"bash":          "Bash",
-	"read":          "Read",
-	"write":         "Write",
-	"edit":          "Edit",
-	"grep":          "Grep",
-	"find":          "Find",
-	"ls":            "Ls",
-	"run_shell_cmd": "Bash",
+	"bash":  "Bash",
+	"read":  "Read",
+	"write": "Write",
+	"edit":  "Edit",
+	"grep":  "Grep",
+	"find":  "Find",
+	"ls":    "Ls",
 }
 
 // getTheme returns the current theme (helper for compact_renderer.go)
@@ -349,16 +348,27 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	}
 
 	var icon string
+	iconColor := GetTheme().Success
 	if isError {
 		icon = "×"
+		iconColor = GetTheme().Error
 	} else {
 		icon = "✓"
 	}
 
+	// Style the tool name with color
+	theme := GetTheme()
+	nameColor := theme.Info
+	if isError {
+		nameColor = theme.Error
+	}
+	styledName := lipgloss.NewStyle().Foreground(nameColor).Bold(true).Render(displayName)
+	styledIcon := lipgloss.NewStyle().Foreground(iconColor).Render(icon)
+
 	// Build the content: icon + name + params on first line, then body
-	headerLine := icon + " " + displayName
+	headerLine := styledIcon + " " + styledName
 	if params != "" {
-		headerLine += " " + params
+		headerLine += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
 	}
 
 	// Get body content
@@ -433,7 +443,7 @@ func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 	}
 
 	if strings.Contains(toolName, "bash") || strings.Contains(toolName, "command") ||
-		strings.Contains(toolName, "shell") || toolName == "run_shell_cmd" {
+		strings.Contains(toolName, "shell") {
 		if strings.Contains(result, "<stdout>") || strings.Contains(result, "<stderr>") {
 			return parseBashOutput(result, GetTheme())
 		}
