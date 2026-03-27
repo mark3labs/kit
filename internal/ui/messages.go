@@ -169,13 +169,20 @@ func (r *MessageRenderer) SetWidth(width int) {
 	r.width = width
 }
 
-// RenderUserMessage renders a user's input message
+// RenderUserMessage renders a user's input message with "You" label
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
 	if strings.TrimSpace(content) == "" {
 		content = "(empty message)"
 	}
 
-	rendered := r.ty.Note(content)
+	// Use custom styled block with "You" label instead of ty.Note()
+	theme := GetTheme()
+	labelStyle := lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+	contentStyle := lipgloss.NewStyle().Foreground(theme.Text)
+
+	label := labelStyle.Render("You")
+	body := contentStyle.Render(content)
+	rendered := label + "\n" + body
 	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
 
 	return UIMessage{
@@ -468,7 +475,7 @@ func createTypography(theme Theme) *herald.Typography {
 		}),
 		herald.WithCodeLineNumbers(true),
 		// Customize alert labels
-		herald.WithAlertLabel(herald.AlertNote, "You"),
+		herald.WithAlertLabel(herald.AlertNote, "Info"),
 		herald.WithAlertLabel(herald.AlertWarning, "Working"),
 		herald.WithAlertLabel(herald.AlertCaution, "Error"),
 	)
