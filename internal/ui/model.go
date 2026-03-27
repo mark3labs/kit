@@ -967,7 +967,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	case ModelSelectorCancelledMsg:
@@ -989,7 +988,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.printSystemMessage("Session switching not available.")
 		}
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	case SessionSelectorCancelledMsg:
@@ -1000,7 +998,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SessionDeletedMsg:
 		// Session was deleted from picker — just show a message.
 		m.printSystemMessage(fmt.Sprintf("Deleted session: %s", msg.Name))
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	// ── Window resize ────────────────────────────────────────────────────────
@@ -1282,7 +1279,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := m.handleSlashCommand(sc); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-			cmds = append(cmds, m.drainScrollback())
 			return m, tea.Batch(cmds...)
 		}
 
@@ -1296,43 +1292,36 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/model":
 					if cmd := m.handleModelCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/thinking":
 					if cmd := m.handleThinkingCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/theme":
 					if cmd := m.handleThemeCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/name":
 					if cmd := m.handleNameCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/export":
 					if cmd := m.handleExportCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				case "/import":
 					if cmd := m.handleImportCommand(strings.TrimSpace(args)); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					cmds = append(cmds, m.drainScrollback())
 					return m, tea.Batch(cmds...)
 				}
 			}
@@ -1575,7 +1564,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.steeringMessages = m.steeringMessages[:0]
 			m.distributeHeight()
-			cmds = append(cmds, m.drainScrollback())
 		} else {
 			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
 			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
@@ -1770,7 +1758,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
 		}
-		return m, m.drainScrollback()
 
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
@@ -1800,7 +1787,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	cmds = append(cmds, m.drainScrollback())
 	return m, tea.Batch(cmds...)
 }
 
@@ -2938,16 +2924,6 @@ func (m *AppModel) appendHistoryEntry(kind, content string) {
 	m.historyDirty = true
 	// In follow mode, new entries should keep the viewport pinned to bottom.
 	// The actual scroll adjustment happens in View() or a dedicated helper.
-}
-
-// drainScrollback is a no-op stub maintained during migration.
-// All callers should be removed as part of the alt-screen refactor.
-//
-// Deprecated: This function will be removed once all callers are migrated.
-func (m *AppModel) drainScrollback() tea.Cmd {
-	// No-op: scrollbackBuf has been removed. The history timeline is rendered
-	// directly in View() instead of being flushed via tea.Println.
-	return nil
 }
 
 // distributeHeight recalculates child component heights after a window resize,
