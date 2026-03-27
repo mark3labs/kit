@@ -1028,6 +1028,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, cmd := m.stream.Update(msg)
 			cmds = append(cmds, cmd)
 		}
+		// Adjust history scroll offset for new viewport size.
+		// - Follow mode: renderHistoryRegion will pin to bottom automatically.
+		// - Non-follow mode: preserve top-visible line by clamping offset to valid range.
+		if !m.historyFollow {
+			vis := m.uiVis()
+			availableHeight := m.calculateHistoryStreamHeight(vis, "")
+			maxOffset := m.historyMaxOffset(availableHeight)
+			m.historyOffset = clamp(m.historyOffset, 0, maxOffset)
+		}
 
 	// ── Keyboard input ───────────────────────────────────────────────────────
 	case tea.KeyPressMsg:
