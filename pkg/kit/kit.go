@@ -1063,6 +1063,15 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	// Bridge extension events to SDK hooks.
 	if agentResult.ExtRunner != nil {
 		k.bridgeExtensions(agentResult.ExtRunner)
+
+		// Initialize extension context with minimal defaults. SDK users can call
+		// SetExtensionContext to override with richer implementations (TUI callbacks,
+		// prompts, etc.). This ensures extensions never crash on nil function fields.
+		k.SetExtensionContext(extensions.Context{
+			CWD:         cwd,
+			Model:       k.modelString,
+			Interactive: false, // SDK mode defaults to non-interactive
+		})
 	}
 
 	return k, nil
