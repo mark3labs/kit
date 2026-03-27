@@ -209,13 +209,13 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 }
 
-// RenderSystemMessage renders KIT system messages
+// RenderSystemMessage renders KIT system messages using herald Note alert
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
 	if strings.TrimSpace(content) == "" {
 		content = "No content available"
 	}
 
-	rendered := r.ty.P("◇ " + content)
+	rendered := r.ty.Note(content)
 	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
 
 	return UIMessage{
