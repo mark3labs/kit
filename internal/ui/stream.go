@@ -533,13 +533,13 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		lines = lines[len(lines)-maxCollapsedLines:]
 	}
 
-	// Main content using Italic with subdued color for visual distinction.
+	// Main content using Italic with Muted color for visual distinction.
 	content := strings.Join(lines, "\n")
 	theme := GetTheme()
-	subduedStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
-	parts = append(parts, subduedStyle.Render(s.ty.Italic(content)))
+	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	parts = append(parts, mutedStyle.Render(s.ty.Italic(content)))
 
-	// Duration footer without indentation.
+	// Duration footer with VeryMuted label and Accent duration.
 	var duration time.Duration
 	if s.reasoningDuration > 0 {
 		duration = s.reasoningDuration
@@ -553,8 +553,9 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		footer := s.ty.Small(fmt.Sprintf("Thought for %s", durationStr))
-		parts = append(parts, footer)
+		label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
+		durationStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
+		parts = append(parts, label+durationStyled)
 	}
 
 	// Concatenate parts with newline between blockquote and footer
