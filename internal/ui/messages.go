@@ -169,20 +169,13 @@ func (r *MessageRenderer) SetWidth(width int) {
 	r.width = width
 }
 
-// RenderUserMessage renders a user's input message with "You" label
+// RenderUserMessage renders a user's input message using herald Tip alert
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
 	if strings.TrimSpace(content) == "" {
 		content = "(empty message)"
 	}
 
-	// Use custom styled block with "You" label instead of ty.Note()
-	theme := GetTheme()
-	labelStyle := lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
-	contentStyle := lipgloss.NewStyle().Foreground(theme.Text)
-
-	label := labelStyle.Render("You")
-	body := contentStyle.Render(content)
-	rendered := label + "\n" + body
+	rendered := r.ty.Tip(content)
 	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
 
 	return UIMessage{
