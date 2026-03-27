@@ -2015,6 +2015,62 @@ func (m *AppModel) historyTotalLines() int {
 	return strings.Count(m.historyRenderCache, "\n") + 1
 }
 
+// historyMaxOffset returns the maximum valid scroll offset for the history viewport.
+// This depends on the available height for the history region.
+func (m *AppModel) historyMaxOffset(availableHeight int) int {
+	totalLines := m.historyTotalLines()
+	return max(totalLines-availableHeight, 0)
+}
+
+// scrollHistoryUp scrolls the history viewport up by the given number of lines.
+// Disables follow-mode since the user is actively scrolling away from the bottom.
+func (m *AppModel) scrollHistoryUp(lines int, availableHeight int) {
+	if lines <= 0 {
+		return
+	}
+	// Disable follow mode when user scrolls up.
+	m.historyFollow = false
+	// Decrease offset (scroll toward top).
+	m.historyOffset = max(m.historyOffset-lines, 0)
+}
+
+// scrollHistoryDown scrolls the history viewport down by the given number of lines.
+// Re-enables follow-mode if the scroll position reaches the bottom.
+func (m *AppModel) scrollHistoryDown(lines int, availableHeight int) {
+	if lines <= 0 {
+		return
+	}
+	maxOffset := m.historyMaxOffset(availableHeight)
+	// Increase offset (scroll toward bottom).
+	m.historyOffset = min(m.historyOffset+lines, maxOffset)
+	// Re-enable follow mode if we've scrolled to the bottom.
+	if m.historyOffset >= maxOffset {
+		m.historyFollow = true
+	}
+}
+
+// scrollHistoryToTop scrolls the history viewport to the very top.
+// Disables follow-mode.
+func (m *AppModel) scrollHistoryToTop() {
+	m.historyFollow = false
+	m.historyOffset = 0
+}
+
+// scrollHistoryToBottom scrolls the history viewport to the very bottom.
+// Re-enables follow-mode so new content will be visible.
+func (m *AppModel) scrollHistoryToBottom(availableHeight int) {
+	maxOffset := m.historyMaxOffset(availableHeight)
+	m.historyOffset = maxOffset
+	m.historyFollow = true
+}
+
+// isHistoryAtBottom returns true if the history viewport is at the bottom.
+// Used to determine if follow-mode should be active.
+func (m *AppModel) isHistoryAtBottom(availableHeight int) bool {
+	maxOffset := m.historyMaxOffset(availableHeight)
+	return m.historyOffset >= maxOffset
+}
+
 // renderStreamingBashOutput renders accumulated streaming bash output (stdout + stderr)
 // below the LLM streaming text. Returns empty string if no bash output is present.
 // Lines are truncated to the terminal width and capped to maxBashLines to prevent
