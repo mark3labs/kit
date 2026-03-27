@@ -1161,6 +1161,46 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+
+		case "pgup", "pageup":
+			// Page up: scroll history viewport up by approximately one page.
+			// Available in input and working states (not selectors).
+			if m.state == stateInput || m.state == stateWorking {
+				vis := m.uiVis()
+				historyHeight := m.calculateHistoryStreamHeight(vis, "")
+				// Scroll by page height minus a few lines for context overlap.
+				scrollLines := max(historyHeight-2, 1)
+				m.scrollHistoryUp(scrollLines, historyHeight)
+				return m, tea.Batch(cmds...)
+			}
+
+		case "pgdown", "pagedown":
+			// Page down: scroll history viewport down by approximately one page.
+			// Available in input and working states (not selectors).
+			if m.state == stateInput || m.state == stateWorking {
+				vis := m.uiVis()
+				historyHeight := m.calculateHistoryStreamHeight(vis, "")
+				// Scroll by page height minus a few lines for context overlap.
+				scrollLines := max(historyHeight-2, 1)
+				m.scrollHistoryDown(scrollLines, historyHeight)
+				return m, tea.Batch(cmds...)
+			}
+
+		case "ctrl+home":
+			// Ctrl+Home: jump to top of history.
+			if m.state == stateInput || m.state == stateWorking {
+				m.scrollHistoryToTop()
+				return m, tea.Batch(cmds...)
+			}
+
+		case "ctrl+end":
+			// Ctrl+End: jump to bottom of history and re-enable follow mode.
+			if m.state == stateInput || m.state == stateWorking {
+				vis := m.uiVis()
+				historyHeight := m.calculateHistoryStreamHeight(vis, "")
+				m.scrollHistoryToBottom(historyHeight)
+				return m, tea.Batch(cmds...)
+			}
 		}
 
 		// Route key events to the focused child. Check for editor
