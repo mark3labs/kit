@@ -1210,6 +1210,26 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.scrollHistoryToBottom(historyHeight)
 				return m, tea.Batch(cmds...)
 			}
+
+		case "shift+up":
+			// Shift+Up: scroll history viewport up by one line.
+			// Available in input and working states (not selectors).
+			if m.state == stateInput || m.state == stateWorking {
+				vis := m.uiVis()
+				historyHeight := m.calculateHistoryStreamHeight(vis, "")
+				m.scrollHistoryUp(1, historyHeight)
+				return m, tea.Batch(cmds...)
+			}
+
+		case "shift+down":
+			// Shift+Down: scroll history viewport down by one line.
+			// Available in input and working states (not selectors).
+			if m.state == stateInput || m.state == stateWorking {
+				vis := m.uiVis()
+				historyHeight := m.calculateHistoryStreamHeight(vis, "")
+				m.scrollHistoryDown(1, historyHeight)
+				return m, tea.Batch(cmds...)
+			}
 		}
 
 		// Route key events to the focused child. Check for editor
