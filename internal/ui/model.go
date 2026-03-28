@@ -3021,6 +3021,10 @@ func (m *AppModel) performNewSession() tea.Cmd {
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
 		}
+		// Reset usage statistics for fresh session
+		if m.usageTracker != nil {
+			m.usageTracker.Reset()
+		}
 		m.printSystemMessage("Conversation cleared. Starting fresh.")
 		return nil
 	}
@@ -3034,6 +3038,10 @@ func (m *AppModel) performNewSession() tea.Cmd {
 
 	// Switch to the new session, closing the old one
 	m.appCtrl.SwitchTreeSession(newTs)
+	// Reset usage statistics for the new session
+	if m.usageTracker != nil {
+		m.usageTracker.Reset()
+	}
 	m.printSystemMessage("New session started. Previous conversation saved.")
 	return nil
 }

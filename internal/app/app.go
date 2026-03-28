@@ -963,27 +963,25 @@ func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool)
 //
 // When sawStepUsage is true, totals were already accumulated incrementally via
 // StepUsageEvent callbacks; in that case this method only updates context fill.
-// Otherwise it falls back to TotalUsage (or estimation) to keep costs/tokens
-// visible for providers/modes that don't emit per-step usage.
+// Otherwise it falls back to TotalUsage from the API response.
+//
+// NOTE: We only use ACTUAL token counts from API responses for cost tracking.
+// Estimation is never used for costs - only API-reported tokens are accurate.
 func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt string, sawStepUsage bool) {
 	if a.opts.UsageTracker == nil || result == nil {
 		return
 	}
 
 	// --- Accumulate cost/token totals for the session ---
-	if !sawStepUsage {
-		if result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
-			a.opts.UsageTracker.UpdateUsage(
-				int(result.TotalUsage.InputTokens),
-				int(result.TotalUsage.OutputTokens),
-				int(result.TotalUsage.CacheReadTokens),
-				int(result.TotalUsage.CacheCreationTokens),
-			)
-		} else {
-			// Provider didn't report token counts — fall back to character-based
-			// estimates so the footer shows something rather than nothing.
-			a.opts.UsageTracker.EstimateAndUpdateUsage(userPrompt, result.Response)
-		}
+	// Only use actual API-reported tokens for cost tracking.
+	// If sawStepUsage is true, totals were already updated via StepUsageEvent.
+	if !sawStepUsage && result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
+		a.opts.UsageTracker.UpdateUsage(
+			int(result.TotalUsage.InputTokens),
+			int(result.TotalUsage.OutputTokens),
+			int(result.TotalUsage.CacheReadTokens),
+			int(result.TotalUsage.CacheCreationTokens),
+		)
 	}
 
 	// --- Context window fill (drives the % bar) ---

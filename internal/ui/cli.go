@@ -179,9 +179,8 @@ func (c *CLI) DisplayDebugConfig(config map[string]any) {
 }
 
 // UpdateUsageFromResponse records token usage using metadata from the fantasy
-// response when available. Falls back to text-based estimation if the metadata is
-// missing or appears unreliable. This provides more accurate usage tracking when
-// providers supply token count information.
+// response. Only actual API-reported tokens are used for cost tracking.
+// If the provider doesn't report token counts, no usage is recorded.
 func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText string) {
 	if c.usageTracker == nil {
 		return
@@ -191,8 +190,9 @@ func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText stri
 	inputTokens := int(usage.InputTokens)
 	outputTokens := int(usage.OutputTokens)
 
-	// Validate that the metadata seems reasonable
-	// Use API-reported tokens if input tokens are available (output may be 0 in some cases)
+	// Only use actual API-reported tokens for cost tracking.
+	// We intentionally do NOT estimate tokens - estimation is inaccurate
+	// and should never be used for cost calculations.
 	if inputTokens > 0 {
 		cacheReadTokens := int(usage.CacheReadTokens)
 		cacheWriteTokens := int(usage.CacheCreationTokens)
@@ -200,11 +200,9 @@ func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText stri
 		// Per-response usage is a single API call, so it represents the
 		// actual context window fill level.
 		c.usageTracker.SetContextTokens(inputTokens + outputTokens)
-	} else {
-		// Fallback to estimation if no metadata is available.
-		// EstimateAndUpdateUsage sets context tokens internally.
-		c.usageTracker.EstimateAndUpdateUsage(inputText, response.Content.Text())
 	}
+	// If inputTokens is 0, the provider didn't report usage - we skip recording
+	// rather than estimating, to ensure cost accuracy.
 }
 
 // DisplayUsageAfterResponse renders and displays token usage information immediately
