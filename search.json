@@ -156,10 +156,15 @@
         "Monitoring subagents spawned by the main agent",
         "LLM completion",
         "Themes",
-        "Custom events"
+        "Custom events",
+        "Bridged SDK APIs",
+        "Tree Navigation",
+        "Skill Loading",
+        "Template Parsing",
+        "Model Resolution"
       ],
       "tags": [],
-      "wordCount": 984
+      "wordCount": 1488
     },
     {
       "id": "extensions/examples",
@@ -171,6 +176,7 @@
         "Workflow and automation",
         "Interactive features",
         "Agent and context",
+        "Bridged SDK APIs",
         "Themes",
         "Multi-agent",
         "Development",
@@ -178,7 +184,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 398
+      "wordCount": 462
     },
     {
       "id": "extensions/loading",

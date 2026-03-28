@@ -7,7 +7,7 @@
 <meta name="description" content="Catalog of example extensions included with Kit.">
 <link rel="canonical" href="/extensions/examples">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DyySJuLE.js"></script>
+<script type="module" src="/assets/index-CcDjMecB.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Examples","description":"Catalog of example extensions included with Kit.","url":"https://go-kit.dev/extensions/examples","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -60,6 +60,15 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`context-inject.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/context-inject.go) | Inject context into conversations |
 | [`summarize.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/summarize.go) | Conversation summarization |
 | [`lsp-diagnostics.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/lsp-diagnostics.go) | LSP diagnostic integration |
+
+## Bridged SDK APIs
+
+These examples demonstrate the new bridged SDK APIs that give extensions access to internal Kit capabilities:
+
+| Extension | Description |
+|-----------|-------------|
+| [`conversation-manager.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/conversation-manager.go) | **NEW** Tree navigation (`GetTreeNode`, `GetCurrentBranch`, `NavigateTo`), branch summarization (`SummarizeBranch`), and fresh context loops (`CollapseBranch`) |
+| [`prompt-templates.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/prompt-templates.go) | **NEW** Frontmatter-driven templates with model fallback chains (`ResolveModelChain`), skill injection (`InjectSkillAsContext`), and template parsing (`ParseTemplate`, `RenderTemplate`) |
 
 ## Themes
 

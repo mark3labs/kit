@@ -311,7 +311,106 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Listen</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnCustomEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-extension:data-ready"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">data</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // handle event</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h2 id="bridged-sdk-apis"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#bridged-sdk-apis"><span class="icon icon-link"></span></a>Bridged SDK APIs</h2>
+<p>Extensions can access powerful internal SDK capabilities that enable advanced features like conversation tree navigation, dynamic skill loading, template parsing, and model resolution.</p>
+<h3 id="tree-navigation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tree-navigation"><span class="icon icon-link"></span></a>Tree Navigation</h3>
+<p>Navigate the conversation tree, summarize branches, and implement "fresh context" loops:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get a specific node by ID with full metadata and children</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">node </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTreeNode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"entry-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// node.ID, node.ParentID, node.Type ("message"/"branch_summary"/etc)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// node.Role, node.Content, node.Model, node.Children ([]string)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get the current branch from root to leaf</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">branch </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentBranch</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// []ext.TreeNode</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get child entry IDs of a node</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">children </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetChildren</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"entry-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// []string</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Navigate/fork to a different entry in the tree</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NavigateTo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"entry-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.TreeNavigationResult{Success, Error}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Summarize a range of the branch using LLM</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">summary </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SummarizeBranch</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"from-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"to-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// string</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Collapse a branch range into a summary entry (fresh context primitive)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CollapseBranch</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"from-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"to-id"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"summary text"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<h3 id="skill-loading"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skill-loading"><span class="icon icon-link"></span></a>Skill Loading</h3>
+<p>Load and inject skills dynamically at runtime:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Discover skills from standard locations</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DiscoverSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.SkillLoadResult{Skills, Error}</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Load a specific skill file</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">skill, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skill.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// (*ext.Skill, error string)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// skill.Name, skill.Description, skill.Content, skill.Tags, skill.When</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Load all skills from a directory</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkillsFromDir</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skills"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.SkillLoadResult</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inject a skill as context (pre-loads for next turn)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">InjectSkillAsContext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"skill-name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// error string</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inject a skill file directly</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">InjectRawSkillAsContext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skill.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// error string</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get all discovered skills</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">skills </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAvailableSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// []ext.Skill</span></span></code></pre>
+<h3 id="template-parsing"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#template-parsing"><span class="icon icon-link"></span></a>Template Parsing</h3>
+<p>Parse and render templates with variable substitution:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Parse a template to extract {{variables}}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">tpl </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ParseTemplate</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Hello {{name}}, welcome to {{place}}!"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// tpl.Name, tpl.Content, tpl.Variables ([]string)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Render a template with variable values</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">vars </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Alice"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"place"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Kit"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">rendered </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RenderTemplate</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(tpl, vars)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "Hello Alice, welcome to Kit!"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Parse command-line style arguments</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">pattern </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ArgumentPattern</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Positional: []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"command"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"target"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// $1, $2</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Rest:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"args"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                         </span><span style="color:#6A737D;--shiki-dark:#6A737D">// $@</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Flags:      </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"--loop"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"loop"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"-f"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"force"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ParseArguments</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"deploy staging --loop 5"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, pattern)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// result.Vars["command"] = "deploy"</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// result.Vars["target"] = "staging"</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// result.Flags["--loop"] = "5"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Simple positional argument parsing ($1, $2, $@)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">args </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SimpleParseArguments</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"deploy staging --force"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// args[0] = "deploy staging --force" (full input)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// args[1] = "deploy" ($1)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// args[2] = "staging" ($2)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// args[3] = "--force" ($@)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Evaluate model conditionals with wildcards</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">matches </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EvaluateModelConditional</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"claude-*"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// bool</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Patterns: * matches any, ? matches single char, comma = OR</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Render content with &lt;if-model&gt; conditionals</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">content </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> \`&lt;if-model is="claude-*"&gt;Hi Claude&lt;else&gt;Hi there&lt;/if-model&gt;\`</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">rendered </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RenderWithModelConditionals</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(content)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// based on current model</span></span></code></pre>
+<h3 id="model-resolution"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-resolution"><span class="icon icon-link"></span></a>Model Resolution</h3>
+<p>Resolve model fallback chains and query capabilities:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Resolve a chain of model preferences (tries each until available)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ResolveModelChain</span><span style="color:#24292E;--shiki-dark:#E1E4E8">([]</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "anthropic/claude-opus-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "anthropic/claude-sonnet-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "openai/gpt-4o"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// result.Model (selected), result.Capabilities, result.Attempted, result.Error</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get capabilities for a specific model</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">caps, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelCapabilities</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Check if a model is available (provider exists)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">available </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CheckModelAvailable</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// bool</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get current provider/model ID</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">provider </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentProvider</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "anthropic"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">modelID </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentModelID</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "claude-sonnet-4"</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -642,5 +741,126 @@ ctx.EmitCustomEvent("my-extension:data-ready", payload)
 api.OnCustomEvent("my-extension:data-ready", func(data any, ctx ext.Context) {
     // handle event
 })
+\`\`\`
+
+## Bridged SDK APIs
+
+Extensions can access powerful internal SDK capabilities that enable advanced features like conversation tree navigation, dynamic skill loading, template parsing, and model resolution.
+
+### Tree Navigation
+
+Navigate the conversation tree, summarize branches, and implement "fresh context" loops:
+
+\`\`\`go
+// Get a specific node by ID with full metadata and children
+node := ctx.GetTreeNode("entry-id")
+// node.ID, node.ParentID, node.Type ("message"/"branch_summary"/etc)
+// node.Role, node.Content, node.Model, node.Children ([]string)
+
+// Get the current branch from root to leaf
+branch := ctx.GetCurrentBranch()  // []ext.TreeNode
+
+// Get child entry IDs of a node
+children := ctx.GetChildren("entry-id")  // []string
+
+// Navigate/fork to a different entry in the tree
+result := ctx.NavigateTo("entry-id")  // ext.TreeNavigationResult{Success, Error}
+
+// Summarize a range of the branch using LLM
+summary := ctx.SummarizeBranch("from-id", "to-id")  // string
+
+// Collapse a branch range into a summary entry (fresh context primitive)
+result := ctx.CollapseBranch("from-id", "to-id", "summary text")
+\`\`\`
+
+### Skill Loading
+
+Load and inject skills dynamically at runtime:
+
+\`\`\`go
+// Discover skills from standard locations
+result := ctx.DiscoverSkills()  // ext.SkillLoadResult{Skills, Error}
+// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+
+// Load a specific skill file
+skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
+// skill.Name, skill.Description, skill.Content, skill.Tags, skill.When
+
+// Load all skills from a directory
+result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
+
+// Inject a skill as context (pre-loads for next turn)
+err := ctx.InjectSkillAsContext("skill-name")  // error string
+
+// Inject a skill file directly
+err := ctx.InjectRawSkillAsContext("/path/to/skill.md")  // error string
+
+// Get all discovered skills
+skills := ctx.GetAvailableSkills()  // []ext.Skill
+\`\`\`
+
+### Template Parsing
+
+Parse and render templates with variable substitution:
+
+\`\`\`go
+// Parse a template to extract {{variables}}
+tpl := ctx.ParseTemplate("name", "Hello {{name}}, welcome to {{place}}!")
+// tpl.Name, tpl.Content, tpl.Variables ([]string)
+
+// Render a template with variable values
+vars := map[string]string{"name": "Alice", "place": "Kit"}
+rendered := ctx.RenderTemplate(tpl, vars)  // "Hello Alice, welcome to Kit!"
+
+// Parse command-line style arguments
+pattern := ext.ArgumentPattern{
+    Positional: []string{"command", "target"},  // $1, $2
+    Rest:       "args",                         // $@
+    Flags:      map[string]string{"--loop": "loop", "-f": "force"},
+}
+result := ctx.ParseArguments("deploy staging --loop 5", pattern)
+// result.Vars["command"] = "deploy"
+// result.Vars["target"] = "staging"
+// result.Flags["--loop"] = "5"
+
+// Simple positional argument parsing ($1, $2, $@)
+args := ctx.SimpleParseArguments("deploy staging --force", 2)
+// args[0] = "deploy staging --force" (full input)
+// args[1] = "deploy" ($1)
+// args[2] = "staging" ($2)
+// args[3] = "--force" ($@)
+
+// Evaluate model conditionals with wildcards
+matches := ctx.EvaluateModelConditional("claude-*")  // bool
+// Patterns: * matches any, ? matches single char, comma = OR
+
+// Render content with <if-model> conditionals
+content := \`<if-model is="claude-*">Hi Claude<else>Hi there</if-model>\`
+rendered := ctx.RenderWithModelConditionals(content)  // based on current model
+\`\`\`
+
+### Model Resolution
+
+Resolve model fallback chains and query capabilities:
+
+\`\`\`go
+// Resolve a chain of model preferences (tries each until available)
+result := ctx.ResolveModelChain([]string{
+    "anthropic/claude-opus-4",
+    "anthropic/claude-sonnet-4",
+    "openai/gpt-4o",
+})
+// result.Model (selected), result.Capabilities, result.Attempted, result.Error
+
+// Get capabilities for a specific model
+caps, err := ctx.GetModelCapabilities("anthropic/claude-sonnet-4")
+// caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming
+
+// Check if a model is available (provider exists)
+available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
+
+// Get current provider/model ID
+provider := ctx.GetCurrentProvider()  // "anthropic"
+modelID := ctx.GetCurrentModelID()    // "claude-sonnet-4"
 \`\`\`
 `};export{s as default};
