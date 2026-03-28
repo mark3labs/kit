@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1541,6 +1542,10 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			// Emit step usage event for real-time cost tracking
+			if viper.GetBool("debug") {
+				log.Printf("[DEBUG] Kit.generate emitting StepUsageEvent: input=%d output=%d cacheRead=%d cacheCreate=%d",
+					inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+			}
 			m.events.emit(StepUsageEvent{
 				InputTokens:      uint64(inputTokens),
 				OutputTokens:     uint64(outputTokens),

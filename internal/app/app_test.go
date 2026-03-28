@@ -534,7 +534,9 @@ func TestQueueLength_reflects(t *testing.T) {
 }
 
 // TestRecordStepUsage_updatesTracker verifies that per-step usage updates are
-// recorded immediately (including context tokens) for stop-path correctness.
+// recorded immediately for cost tracking. Context tokens are NOT updated here
+// (only via updateUsageFromTurnResult) to avoid display jumps during multi-step
+// tool calls.
 func TestRecordStepUsage_updatesTracker(t *testing.T) {
 	usage := &usageUpdaterStub{}
 	app := New(Options{UsageTracker: usage}, nil)
@@ -557,11 +559,9 @@ func TestRecordStepUsage_updatesTracker(t *testing.T) {
 		t.Fatalf("unexpected usage update payload: in=%d out=%d cache_read=%d cache_write=%d",
 			usage.lastUpdateInput, usage.lastUpdateOutput, usage.lastUpdateCacheRead, usage.lastUpdateCacheWrite)
 	}
-	if usage.contextCalls != 1 {
-		t.Fatalf("expected 1 context token update, got %d", usage.contextCalls)
-	}
-	if usage.lastContextTokens != 165 {
-		t.Fatalf("expected context tokens 165, got %d", usage.lastContextTokens)
+	// Context tokens should NOT be updated by recordStepUsage (only by updateUsageFromTurnResult)
+	if usage.contextCalls != 0 {
+		t.Fatalf("expected 0 context token updates from recordStepUsage, got %d", usage.contextCalls)
 	}
 }
 
@@ -592,7 +592,73 @@ func TestUpdateUsageFromTurnResult_skipsTotalsWhenStepUsageSeen(t *testing.T) {
 	if usage.estimateCalls != 0 {
 		t.Fatalf("expected no estimate update when sawStepUsage=true, got %d", usage.estimateCalls)
 	}
+	// Context tokens should be InputTokens only (456)
 	if usage.contextCalls != 1 || usage.lastContextTokens != 456 {
-		t.Fatalf("expected final context tokens=456, got calls=%d tokens=%d", usage.contextCalls, usage.lastContextTokens)
+		t.Fatalf("expected final context tokens=456 (InputTokens only), got calls=%d tokens=%d", usage.contextCalls, usage.lastContextTokens)
+	}
+}
+
+// TestUpdateUsageFromTurnResult_recordsWhenInputTokensZero verifies that usage
+// is recorded when InputTokens=0 but OutputTokens>0 (OpenAI-compatible cache behavior).
+func TestUpdateUsageFromTurnResult_recordsWhenInputTokensZero(t *testing.T) {
+	usage := &usageUpdaterStub{}
+	app := New(Options{UsageTracker: usage}, nil)
+	defer app.Close()
+
+	// Simulate OpenAI-compatible behavior: all prompt tokens cached, InputTokens=0
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response: "ok",
+		TotalUsage: &fantasy.Usage{
+			InputTokens:         0,   // All cached - subtracted from prompt
+			OutputTokens:        150, // Actual generated tokens
+			CacheReadTokens:     500, // Cache hit
+			CacheCreationTokens: 0,
+		},
+		FinalUsage: &fantasy.Usage{InputTokens: 0, OutputTokens: 150},
+	}, "prompt", false)
+
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+
+	if usage.updateCalls != 1 {
+		t.Fatalf("expected 1 update call when InputTokens=0 but OutputTokens>0, got %d", usage.updateCalls)
+	}
+	if usage.lastUpdateInput != 0 || usage.lastUpdateOutput != 150 {
+		t.Fatalf("expected input=0 output=150, got input=%d output=%d",
+			usage.lastUpdateInput, usage.lastUpdateOutput)
+	}
+	if usage.lastUpdateCacheRead != 500 {
+		t.Fatalf("expected cache_read=500, got %d", usage.lastUpdateCacheRead)
+	}
+}
+
+// TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly verifies that context
+// window fill uses InputTokens only (not input+output). The API's InputTokens
+// already includes the full conversation history; adding output would double-count.
+func TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly(t *testing.T) {
+	usage := &usageUpdaterStub{}
+	app := New(Options{UsageTracker: usage}, nil)
+	defer app.Close()
+
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response: "ok",
+		TotalUsage: &fantasy.Usage{
+			InputTokens:  1000,
+			OutputTokens: 200,
+		},
+		FinalUsage: &fantasy.Usage{
+			InputTokens:  1000, // Full context including history
+			OutputTokens: 200,
+		},
+	}, "prompt", false)
+
+	usage.mu.Lock()
+	defer usage.mu.Unlock()
+
+	// Context tokens should be InputTokens only (1000), not input+output (1200)
+	// because InputTokens already includes the full conversation history
+	if usage.contextCalls != 1 || usage.lastContextTokens != 1000 {
+		t.Fatalf("expected context tokens=1000 (InputTokens only), got calls=%d tokens=%d",
+			usage.contextCalls, usage.lastContextTokens)
 	}
 }

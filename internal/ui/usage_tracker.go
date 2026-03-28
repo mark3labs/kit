@@ -134,13 +134,23 @@ func (ut *UsageTracker) EstimateAndUpdateUsage(inputText, outputText string) {
 }
 
 // SetContextTokens records the approximate current context window utilization.
-// This should be set from the final API call's input + output tokens (i.e.
-// FinalResponse.Usage) rather than the aggregate TotalUsage, because TotalUsage
+// This should be set from FinalUsage.InputTokens, which already includes the
+// full conversation history (system prompt + all previous messages). Do NOT
+// add OutputTokens as that would double-count (output becomes input next turn).
+// Use FinalResponse.Usage rather than aggregate TotalUsage, because TotalUsage
 // sums across all tool-calling steps and overstates the actual window fill level.
 func (ut *UsageTracker) SetContextTokens(tokens int) {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
-	ut.contextTokens = tokens
+	// Track the maximum context seen so far. In multi-step tool calls,
+	// FinalUsage.InputTokens may reflect only the last step's input, which
+	// can be smaller than previous steps. We want to show the largest context
+	// the model has processed in this session.
+	if tokens > ut.contextTokens {
+		ut.contextTokens = tokens
+	}
+	// If tokens < current, we keep the larger value (no-op)
+	// This prevents the display from dropping during multi-step tool calls.
 }
 
 // RenderUsageInfo generates a formatted string displaying current usage statistics

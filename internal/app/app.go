@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -939,6 +940,10 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 // the usage widget accurate on all stop paths.
 func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool) {
 	hasUsage := ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CacheReadTokens > 0 || ev.CacheWriteTokens > 0
+	if a.opts.Debug {
+		log.Printf("[DEBUG] recordStepUsage: hasUsage=%v input=%d output=%d cacheRead=%d cacheWrite=%d",
+			hasUsage, ev.InputTokens, ev.OutputTokens, ev.CacheReadTokens, ev.CacheWriteTokens)
+	}
 	if !hasUsage {
 		return
 	}
@@ -954,8 +959,10 @@ func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool)
 		int(ev.CacheReadTokens),
 		int(ev.CacheWriteTokens),
 	)
-	// Keep context fill reasonably fresh during long/partial turns.
-	a.opts.UsageTracker.SetContextTokens(int(ev.InputTokens + ev.OutputTokens))
+	// NOTE: We do NOT call SetContextTokens here. Context fill is set once
+	// at turn completion via updateUsageFromTurnResult using FinalUsage.InputTokens,
+	// which reflects the full accumulated context. Per-step context tokens would
+	// cause the display to jump around during multi-step tool calls.
 }
 
 // updateUsageFromTurnResult records token usage from an SDK TurnResult into the
@@ -972,10 +979,44 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 		return
 	}
 
+	// Debug logging for token tracking
+	if a.opts.Debug {
+		if result.TotalUsage != nil {
+			log.Printf("[DEBUG] updateUsageFromTurnResult TotalUsage: input=%d output=%d cacheRead=%d cacheCreate=%d",
+				result.TotalUsage.InputTokens, result.TotalUsage.OutputTokens,
+				result.TotalUsage.CacheReadTokens, result.TotalUsage.CacheCreationTokens)
+		} else {
+			log.Printf("[DEBUG] updateUsageFromTurnResult: TotalUsage=nil")
+		}
+		if result.FinalUsage != nil {
+			log.Printf("[DEBUG] updateUsageFromTurnResult FinalUsage: input=%d output=%d cacheRead=%d cacheCreate=%d",
+				result.FinalUsage.InputTokens, result.FinalUsage.OutputTokens,
+				result.FinalUsage.CacheReadTokens, result.FinalUsage.CacheCreationTokens)
+		} else {
+			log.Printf("[DEBUG] updateUsageFromTurnResult: FinalUsage=nil")
+		}
+		log.Printf("[DEBUG] updateUsageFromTurnResult: sawStepUsage=%v", sawStepUsage)
+	}
+
 	// --- Accumulate cost/token totals for the session ---
 	// Only use actual API-reported tokens for cost tracking.
 	// If sawStepUsage is true, totals were already updated via StepUsageEvent.
-	if !sawStepUsage && result.TotalUsage != nil && result.TotalUsage.InputTokens > 0 {
+	// Check any token field > 0 (not just InputTokens) because cached prompts
+	// can result in InputTokens=0 while OutputTokens>0 (OpenAI-compatible behavior).
+	hasTotalUsage := result.TotalUsage != nil &&
+		(result.TotalUsage.InputTokens > 0 ||
+			result.TotalUsage.OutputTokens > 0 ||
+			result.TotalUsage.CacheReadTokens > 0 ||
+			result.TotalUsage.CacheCreationTokens > 0)
+	if a.opts.Debug {
+		log.Printf("[DEBUG] updateUsageFromTurnResult: hasTotalUsage=%v", hasTotalUsage)
+	}
+	if !sawStepUsage && hasTotalUsage {
+		if a.opts.Debug {
+			log.Printf("[DEBUG] updateUsageFromTurnResult: calling UpdateUsage input=%d output=%d cacheRead=%d cacheCreate=%d",
+				result.TotalUsage.InputTokens, result.TotalUsage.OutputTokens,
+				result.TotalUsage.CacheReadTokens, result.TotalUsage.CacheCreationTokens)
+		}
 		a.opts.UsageTracker.UpdateUsage(
 			int(result.TotalUsage.InputTokens),
 			int(result.TotalUsage.OutputTokens),
@@ -985,11 +1026,15 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 	}
 
 	// --- Context window fill (drives the % bar) ---
-	// Use FinalUsage.InputTokens: the input token count of the last API call
-	// equals the number of tokens currently occupying the context window.
-	// Adding OutputTokens would overstate fill since the response is not part
-	// of the context that was *sent* to the model.
+	// Use FinalUsage.InputTokens as the context window fill. The API's InputTokens
+	// already includes the full conversation history (system prompt + all previous
+	// messages + current user message). Adding OutputTokens would double-count since
+	// the output becomes part of the input for the next turn.
 	if result.FinalUsage != nil && result.FinalUsage.InputTokens > 0 {
+		if a.opts.Debug {
+			log.Printf("[DEBUG] updateUsageFromTurnResult: calling SetContextTokens=%d (FinalUsage.InputTokens)",
+				result.FinalUsage.InputTokens)
+		}
 		a.opts.UsageTracker.SetContextTokens(int(result.FinalUsage.InputTokens))
 	}
 }
