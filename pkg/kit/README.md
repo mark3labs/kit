@@ -71,22 +71,28 @@ host, err := kit.New(ctx, &kit.Options{
 Monitor tool execution in real-time:
 
 ```go
-response, err := host.PromptWithCallbacks(
+unsub := host.OnToolCall(func(e kit.ToolCallEvent) {
+    fmt.Printf("Calling tool: %s\n", e.ToolName)
+})
+defer unsub()
+
+unsub2 := host.OnToolResult(func(e kit.ToolResultEvent) {
+    if e.IsError {
+        fmt.Printf("Tool %s failed: %s\n", e.ToolName, e.Result)
+    } else {
+        fmt.Printf("Tool %s succeeded\n", e.ToolName)
+    }
+})
+defer unsub2()
+
+unsub3 := host.OnStreaming(func(e kit.MessageUpdateEvent) {
+    fmt.Print(e.Chunk)
+})
+defer unsub3()
+
+response, err := host.Prompt(
     ctx,
     "List files in the current directory",
-    func(name, args string) {
-        fmt.Printf("Calling tool: %s\n", name)
-    },
-    func(name, args, result string, isError bool) {
-        if isError {
-            fmt.Printf("Tool %s failed: %s\n", name, result)
-        } else {
-            fmt.Printf("Tool %s succeeded\n", name)
-        }
-    },
-    func(chunk string) {
-        fmt.Print(chunk) // Stream output
-    },
 )
 ```
 
@@ -125,7 +131,6 @@ host.ClearSession()
 
 - `New(ctx, opts)` - Create new Kit instance
 - `Prompt(ctx, message)` - Send message and get response
-- `PromptWithCallbacks(ctx, message, ...)` - Send message with progress callbacks
 - `LoadSession(path)` - Load session from file
 - `SaveSession(path)` - Save session to file
 - `ClearSession()` - Clear conversation history

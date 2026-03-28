@@ -5,48 +5,6 @@ description: Monitor tool calls and streaming output with the Kit Go SDK.
 
 # Callbacks
 
-## PromptWithCallbacks
-
-The `PromptWithCallbacks` method provides real-time visibility into tool calls and streaming output:
-
-```go
-response, err := host.PromptWithCallbacks(
-    ctx,
-    "List files in current directory",
-    func(name, args string) {
-        // Called when the model invokes a tool
-        fmt.Println("Calling tool:", name)
-    },
-    func(name, args, result string, isError bool) {
-        // Called when a tool returns its result
-        if isError {
-            fmt.Println("Tool failed:", name)
-        }
-    },
-    func(chunk string) {
-        // Called for each streaming text chunk
-        fmt.Print(chunk)
-    },
-)
-```
-
-### Callback signatures
-
-| Callback | Signature | When |
-|----------|-----------|------|
-| `onToolCall` | `func(name, args string)` | Model requests a tool call |
-| `onToolResult` | `func(name, args, result string, isError bool)` | Tool execution completes |
-| `onStreaming` | `func(chunk string)` | Streaming text chunk received |
-
-Any callback can be `nil` if you don't need it:
-
-```go
-// Only care about streaming output
-response, err := host.PromptWithCallbacks(ctx, "Hello", nil, nil, func(chunk string) {
-    fmt.Print(chunk)
-})
-```
-
 ## Event-based monitoring
 
 For more granular control, use the event subscription API:

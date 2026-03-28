@@ -167,16 +167,6 @@ result, err := host.PromptResultWithMessages(ctx, []string{
 })
 ```
 
-### Legacy inline callbacks (deprecated — use event subscribers instead)
-
-```go
-response, err := host.PromptWithCallbacks(ctx, "List files",
-    func(name, args string) { fmt.Printf("Tool: %s\n", name) },
-    func(name, args, result string, isError bool) { /* tool result */ },
-    func(chunk string) { fmt.Print(chunk) }, // streaming
-)
-```
-
 ---
 
 ## Event System

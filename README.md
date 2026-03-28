@@ -543,23 +543,26 @@ host, err := kit.New(ctx, &kit.Options{
 ### With Callbacks
 
 ```go
-response, err := host.PromptWithCallbacks(
+unsub := host.OnToolCall(func(e kit.ToolCallEvent) {
+    println("Calling tool:", e.ToolName)
+})
+defer unsub()
+
+unsub2 := host.OnToolResult(func(e kit.ToolResultEvent) {
+    if e.IsError {
+        println("Tool failed:", e.ToolName)
+    }
+})
+defer unsub2()
+
+unsub3 := host.OnStreaming(func(e kit.MessageUpdateEvent) {
+    print(e.Chunk)
+})
+defer unsub3()
+
+response, err := host.Prompt(
     ctx,
     "List files in current directory",
-    func(name, args string) {
-        // Tool call started
-        println("Calling tool:", name)
-    },
-    func(name, args, result string, isError bool) {
-        // Tool call completed
-        if isError {
-            println("Tool failed:", name)
-        }
-    },
-    func(chunk string) {
-        // Streaming text chunk
-        print(chunk)
-    },
 )
 ```
 

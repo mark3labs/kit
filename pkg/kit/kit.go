@@ -77,31 +77,14 @@ type Kit struct {
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
-// event emitted during Prompt() and PromptWithCallbacks(). Returns an
-// unsubscribe function that removes the listener.
+// event emitted during Prompt(). Returns an unsubscribe function that removes
+// the listener.
 func (m *Kit) Subscribe(listener EventListener) func() {
 	return m.events.subscribe(listener)
 }
 
-// GetExtRunner returns the extension runner (nil if extensions are disabled).
-//
-// Deprecated: Use SetExtensionContext and EmitSessionStart instead. GetExtRunner
-// leaks the internal extensions.Runner type across the SDK boundary.
-func (m *Kit) GetExtRunner() *extensions.Runner { return m.extRunner }
-
-// GetBufferedLogger returns the buffered debug logger (nil if not configured).
-//
-// Deprecated: Use GetBufferedDebugMessages instead.
-func (m *Kit) GetBufferedLogger() *tools.BufferedDebugLogger { return m.bufferedLogger }
-
-// GetAgent returns the underlying agent.
-//
-// Deprecated: Use GetToolNames, GetLoadingMessage, GetLoadedServerNames,
-// GetMCPToolCount, GetExtensionToolCount instead.
-func (m *Kit) GetAgent() *agent.Agent { return m.agent }
-
 // --------------------------------------------------------------------------
-// Narrow accessors — prefer these over GetAgent/GetExtRunner/GetBufferedLogger
+// Narrow accessors
 // --------------------------------------------------------------------------
 
 // GetToolNames returns the names of all tools available to the agent.
@@ -1855,45 +1838,6 @@ func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOpti
 		return "", err
 	}
 	return result.Response, nil
-}
-
-// PromptWithCallbacks sends a message with callbacks for monitoring tool
-// execution and streaming responses. Lifecycle events are also emitted to all
-// registered subscribers (via Subscribe).
-//
-// Deprecated: Use Subscribe/OnToolCall/OnToolResult/OnStreaming instead of
-// inline callbacks. PromptWithCallbacks is retained for backward compatibility.
-func (m *Kit) PromptWithCallbacks(
-	ctx context.Context,
-	message string,
-	onToolCall func(name, args string),
-	onToolResult func(name, args, result string, isError bool),
-	onStreaming func(chunk string),
-) (string, error) {
-	// Register temporary subscribers for the inline callbacks.
-	var unsubs []func()
-	if onToolCall != nil {
-		unsubs = append(unsubs, m.OnToolCall(func(e ToolCallEvent) {
-			onToolCall(e.ToolName, e.ToolArgs)
-		}))
-	}
-	if onToolResult != nil {
-		unsubs = append(unsubs, m.OnToolResult(func(e ToolResultEvent) {
-			onToolResult(e.ToolName, e.ToolArgs, e.Result, e.IsError)
-		}))
-	}
-	if onStreaming != nil {
-		unsubs = append(unsubs, m.OnStreaming(func(e MessageUpdateEvent) {
-			onStreaming(e.Chunk)
-		}))
-	}
-	defer func() {
-		for _, unsub := range unsubs {
-			unsub()
-		}
-	}()
-
-	return m.Prompt(ctx, message)
 }
 
 // PromptResult sends a message and returns the full turn result including

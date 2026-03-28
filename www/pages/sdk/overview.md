@@ -62,7 +62,6 @@ The SDK provides several prompt variants:
 | Method | Description |
 |--------|-------------|
 | `Prompt(ctx, message)` | Simple prompt, returns response string |
-| `PromptWithCallbacks(ctx, message, ...)` | With tool call and streaming callbacks |
 | `PromptWithOptions(ctx, message, opts)` | With per-call options |
 | `PromptResult(ctx, message)` | Returns full `TurnResult` with usage stats |
 | `PromptResultWithFiles(ctx, message, files)` | Multimodal with file attachments |
