@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,7 +71,7 @@ func TestMCPToolManager_LoadTools_GracefulFailure(t *testing.T) {
 	}
 
 	// The error should mention that all servers failed
-	if err != nil && !contains(err.Error(), "all MCP servers failed") {
+	if err != nil && !strings.Contains(err.Error(), "all MCP servers failed") {
 		t.Errorf("Expected error message to mention all servers failed, got: %v", err)
 	}
 
@@ -460,12 +461,4 @@ func sliceEqual(a, b []any) bool {
 	return true
 }
 
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
+

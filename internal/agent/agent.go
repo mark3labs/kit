@@ -257,8 +257,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// field so Fantasy includes them in the API request.
 	prompt, files, history := splitPromptAndHistory(messages)
 
-	// Track current tool call info for callbacks
-	var currentToolName string
+	// Track current tool call args for callbacks
 	var currentToolArgs string
 
 	// Use the streaming path when streaming is enabled OR when any callbacks are
@@ -308,7 +307,6 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				currentToolName = tc.ToolName
 				currentToolArgs = tc.Input
 
 				// Notify about the tool call
@@ -451,8 +449,6 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	if onResponse != nil && result.Response.Content.Text() != "" {
 		onResponse(result.Response.Content.Text())
 	}
-
-	_ = currentToolName // satisfy compiler for non-streaming path
 
 	return convertAgentResult(result, messages), nil
 }

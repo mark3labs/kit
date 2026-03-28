@@ -127,9 +127,7 @@ func (p *MCPConnectionPool) GetConnection(ctx context.Context, serverName string
 			return conn, nil
 		} else {
 			if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
-				if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
-					p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Connection %s unhealthy, removing", serverName))
-				}
+				p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Connection %s unhealthy, removing", serverName))
 			}
 			_ = conn.client.Close()
 			delete(p.connections, serverName)
