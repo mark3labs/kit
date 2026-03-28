@@ -86,7 +86,7 @@ func ReadOnlyTools(opts ...ToolOption) []fantasy.AgentTool {
 	}
 }
 
-// SubagentTools returns all core tools except spawn_subagent. This prevents
+// SubagentTools returns all core tools except subagent. This prevents
 // infinite recursion when a subagent is itself a Kit instance.
 func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{

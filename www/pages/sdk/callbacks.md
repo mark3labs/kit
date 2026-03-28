@@ -74,11 +74,11 @@ The first argument is a priority (lower = runs first).
 
 ## Subagent event monitoring
 
-Monitor real-time events from LLM-initiated subagents (when the model uses the `spawn_subagent` tool):
+Monitor real-time events from LLM-initiated subagents (when the model uses the `subagent` tool):
 
 ```go
 host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "spawn_subagent" {
+    if e.ToolName == "subagent" {
         host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
             // Receives the same event types as Subscribe(), scoped to the child agent
             switch ev := event.(type) {

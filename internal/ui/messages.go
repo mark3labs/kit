@@ -41,27 +41,14 @@ type UIMessage struct {
 	Streaming bool
 }
 
-// toolDisplayNames maps raw tool names to human-friendly display names.
-var toolDisplayNames = map[string]string{
-	"bash":  "Bash",
-	"read":  "Read",
-	"write": "Write",
-	"edit":  "Edit",
-	"grep":  "Grep",
-	"find":  "Find",
-	"ls":    "Ls",
-}
-
 // getTheme returns the current theme (helper for compact_renderer.go)
 func getTheme() Theme {
 	return GetTheme()
 }
 
-// toolDisplayName returns a human-friendly display name for a tool.
+// toolDisplayName returns a human-friendly display name for a tool,
+// title-casing the first letter of the raw name.
 func toolDisplayName(rawName string) string {
-	if display, ok := toolDisplayNames[rawName]; ok {
-		return display
-	}
 	if rawName != "" {
 		return strings.ToUpper(rawName[:1]) + rawName[1:]
 	}

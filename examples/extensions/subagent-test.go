@@ -37,7 +37,7 @@ func Init(api ext.API) {
 			"Subagent Test Extension loaded\n\n" +
 				"/subtest <task>    Spawn blocking subagent\n" +
 				"/subbg <task>      Spawn background subagent\n\n" +
-				"The LLM can also use the spawn_subagent tool.")
+				"The LLM can also use the subagent tool.")
 	})
 
 	api.OnAgentEnd(func(_ ext.AgentEndEvent, ctx ext.Context) {

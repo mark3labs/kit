@@ -49,7 +49,7 @@ var coreToolKinds = map[string]string{
 	"ls":             "read",
 	"grep":           "search",
 	"find":           "search",
-	"spawn_subagent": "agent",
+	"subagent": "agent",
 }
 
 // toolKindFor returns the ToolKind for a given tool name, defaulting to

@@ -1022,7 +1022,7 @@ func (a *API) OnToolResult(handler func(ToolResultEvent, Context) *ToolResultRes
 	a.onToolResult(handler)
 }
 
-// OnSubagentStart registers a handler that fires when a spawn_subagent tool
+// OnSubagentStart registers a handler that fires when a subagent tool
 // call begins executing. Use the ToolCallID to correlate with subsequent
 // OnSubagentChunk and OnSubagentEnd events for the same subagent.
 func (a *API) OnSubagentStart(handler func(SubagentStartEvent, Context)) {
@@ -1037,7 +1037,7 @@ func (a *API) OnSubagentChunk(handler func(SubagentChunkEvent, Context)) {
 	a.onSubagentChunk(handler)
 }
 
-// OnSubagentEnd registers a handler that fires when a spawn_subagent call
+// OnSubagentEnd registers a handler that fires when a subagent call
 // completes. ErrorMsg is non-empty when the subagent failed.
 func (a *API) OnSubagentEnd(handler func(SubagentEndEvent, Context)) {
 	a.onSubagentEnd(handler)
@@ -2046,9 +2046,9 @@ func (BeforeCompactResult) isResult() {}
 // Subagent lifecycle events (exposed to Yaegi — concrete structs)
 // ---------------------------------------------------------------------------
 
-// SubagentStartEvent fires when a spawn_subagent tool call begins executing.
+// SubagentStartEvent fires when a subagent tool call begins executing.
 type SubagentStartEvent struct {
-	// ToolCallID is the LLM-assigned ID of the spawn_subagent tool call.
+	// ToolCallID is the LLM-assigned ID of the subagent tool call.
 	// Use this to correlate SubagentChunkEvent and SubagentEndEvent.
 	ToolCallID string
 	// Task is the task description passed to the subagent.
@@ -2088,7 +2088,7 @@ type SubagentChunkEvent struct {
 
 func (e SubagentChunkEvent) Type() EventType { return SubagentChunk }
 
-// SubagentEndEvent fires when a spawn_subagent tool call completes.
+// SubagentEndEvent fires when a subagent tool call completes.
 type SubagentEndEvent struct {
 	// ToolCallID matches the SubagentStartEvent.ToolCallID for this subagent.
 	ToolCallID string

@@ -70,7 +70,7 @@ const (
 	ToolKindEdit     = "edit"    // File modification (edit, write)
 	ToolKindRead     = "read"    // File reading (read, ls)
 	ToolKindSearch   = "search"  // Content/file search (grep, find)
-	ToolKindSubagent = "agent"   // Subagent spawning (spawn_subagent)
+	ToolKindSubagent = "agent"   // Subagent spawning (subagent)
 )
 
 // coreToolKinds maps built-in tool names to their kind. MCP and extension
@@ -83,7 +83,7 @@ var coreToolKinds = map[string]string{
 	"ls":             ToolKindRead,
 	"grep":           ToolKindSearch,
 	"find":           ToolKindSearch,
-	"spawn_subagent": ToolKindSubagent,
+	"subagent": ToolKindSubagent,
 }
 
 // toolKindFor returns the ToolKind for a given tool name, defaulting to
@@ -216,7 +216,7 @@ type ToolResultEvent struct {
 // ToolResultMetadata carries structured data from tool executions.
 type ToolResultMetadata struct {
 	FileDiffs         []FileDiffInfo `json:"file_diffs,omitempty"`          // Present for edit/write tools
-	SubagentSessionID string         `json:"subagent_session_id,omitempty"` // Present for spawn_subagent tool
+	SubagentSessionID string         `json:"subagent_session_id,omitempty"` // Present for subagent tool
 }
 
 // FileDiffInfo describes a file modification from an edit or write tool.
@@ -457,13 +457,13 @@ func (s *subagentListenerSet) emit(event Event) {
 //
 // The listener receives the same event types as Subscribe() (ToolCallEvent,
 // MessageUpdateEvent, etc.) but scoped to the child agent's activity. If the
-// tool call ID doesn't correspond to an active or future spawn_subagent call,
+// tool call ID doesn't correspond to an active or future subagent call,
 // the listener simply never fires.
 //
 // Typical usage — register inside an OnToolCall handler:
 //
 //	kit.OnToolCall(func(e kit.ToolCallEvent) {
-//	    if e.ToolName == "spawn_subagent" {
+//	    if e.ToolName == "subagent" {
 //	        kit.SubscribeSubagent(e.ToolCallID, func(child kit.Event) {
 //	            // real-time subagent events
 //	        })

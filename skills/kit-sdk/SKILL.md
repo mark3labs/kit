@@ -251,7 +251,7 @@ Tools are classified by kind for UI rendering:
 - `ToolKindEdit` = `"edit"` — edit, write
 - `ToolKindRead` = `"read"` — read, ls
 - `ToolKindSearch` = `"search"` — grep, find
-- `ToolKindSubagent` = `"agent"` — spawn_subagent
+- `ToolKindSubagent` = `"agent"` — subagent
 
 ---
 
@@ -358,7 +358,7 @@ kit.NewLsTool(opts...)   // directory listing
 kit.AllTools(opts...)       // all 7 core tools
 kit.CodingTools(opts...)    // bash, read, write, edit
 kit.ReadOnlyTools(opts...)  // read, grep, find, ls
-kit.SubagentTools(opts...)  // all except spawn_subagent (prevents recursion)
+kit.SubagentTools(opts...)  // all except subagent (prevents recursion)
 ```
 
 ### Tool options
@@ -514,7 +514,7 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Prompt:       "Analyze the test files and summarize coverage",
     Model:        "anthropic/claude-haiku-3-5-20241022", // empty = parent's model
     SystemPrompt: "You are a test analysis expert.",
-    Tools:        nil,           // nil = SubagentTools() (all except spawn_subagent)
+    Tools:        nil,           // nil = SubagentTools() (all except subagent)
     NoSession:    true,          // ephemeral
     Timeout:      2 * time.Minute, // 0 = 5 minute default
     OnEvent: func(e kit.Event) {
@@ -532,7 +532,7 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 
 ```go
 host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "spawn_subagent" {
+    if e.ToolName == "subagent" {
         host.SubscribeSubagent(e.ToolCallID, func(child kit.Event) {
             // Real-time events scoped to this subagent
         })

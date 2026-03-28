@@ -908,7 +908,7 @@ func summarizeToolAction(toolName string, inputJSON string) string {
 		return "searching " + getStr("pattern", "text")
 	case "ls":
 		return "listing " + getStr("path", "directory")
-	case "spawn_subagent":
+	case "subagent":
 		return "spawning subagent"
 	default:
 		return "using " + toolName

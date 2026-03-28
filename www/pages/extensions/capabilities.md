@@ -239,7 +239,7 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 
 ### Monitoring subagents spawned by the main agent
 
-When the LLM uses the built-in `spawn_subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+When the LLM uses the built-in `subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
 
 ```go
 // Subagent started

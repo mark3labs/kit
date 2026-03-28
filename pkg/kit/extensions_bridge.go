@@ -126,9 +126,9 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	// extension runner.
 	//
 	// Flow:
-	//   ToolExecutionStartEvent(spawn_subagent) → emit SubagentStartEvent
+	//   ToolExecutionStartEvent(subagent) → emit SubagentStartEvent
 	//                                           → SubscribeSubagent → emit SubagentChunkEvents
-	//   ToolResultEvent(spawn_subagent)         → emit SubagentEndEvent
+	//   ToolResultEvent(subagent)         → emit SubagentEndEvent
 	//
 	// We use ToolExecutionStart (not ToolCall) for SubagentStart because that
 	// is when the subagent actually begins running. We use ToolResult for
@@ -146,7 +146,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		// Intercept ToolCall to capture the task and subscribe to child events.
 		m.Subscribe(func(e Event) {
 			ev, ok := e.(ToolCallEvent)
-			if !ok || ev.ToolName != "spawn_subagent" {
+			if !ok || ev.ToolName != "subagent" {
 				return
 			}
 
@@ -201,7 +201,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		if runner.HasHandlers(extensions.SubagentStart) {
 			m.Subscribe(func(e Event) {
 				ev, ok := e.(ToolExecutionStartEvent)
-				if !ok || ev.ToolName != "spawn_subagent" {
+				if !ok || ev.ToolName != "subagent" {
 					return
 				}
 				task := taskMu.get(taskByCallID, ev.ToolCallID)
@@ -216,7 +216,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		if runner.HasHandlers(extensions.SubagentEnd) {
 			m.Subscribe(func(e Event) {
 				ev, ok := e.(ToolResultEvent)
-				if !ok || ev.ToolName != "spawn_subagent" {
+				if !ok || ev.ToolName != "subagent" {
 					return
 				}
 				task := taskMu.get(taskByCallID, ev.ToolCallID)

@@ -1256,7 +1256,7 @@ type SubagentConfig struct {
 	SystemPrompt string
 
 	// Tools overrides the tool set. If nil, SubagentTools() is used (all
-	// core tools except spawn_subagent, preventing infinite recursion).
+	// core tools except subagent, preventing infinite recursion).
 	Tools []Tool
 
 	// NoSession, when true, uses an in-memory ephemeral session. When false
@@ -1330,7 +1330,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		systemPrompt = "You are a helpful coding assistant. Complete the task efficiently and thoroughly."
 	}
 
-	// Default tools: everything except spawn_subagent.
+	// Default tools: everything except subagent.
 	tools := cfg.Tools
 	if tools == nil {
 		tools = SubagentTools()
@@ -1438,7 +1438,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 	})
 
 	// Inject the in-process subagent spawner into the context so the
-	// spawn_subagent core tool can create child Kit instances without
+	// subagent core tool can create child Kit instances without
 	// importing pkg/kit (which would create an import cycle).
 	ctx = core.WithSubagentSpawner(ctx, func(
 		spawnCtx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration,

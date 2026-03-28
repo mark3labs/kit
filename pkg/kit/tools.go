@@ -52,7 +52,7 @@ func CodingTools(opts ...ToolOption) []Tool { return core.CodingTools(opts...) }
 // read, grep, find, ls.
 func ReadOnlyTools(opts ...ToolOption) []Tool { return core.ReadOnlyTools(opts...) }
 
-// SubagentTools returns all core tools except spawn_subagent. Use this when
+// SubagentTools returns all core tools except subagent. Use this when
 // creating child Kit instances (in-process subagents) to prevent infinite
 // recursion.
 func SubagentTools(opts ...ToolOption) []Tool { return core.SubagentTools(opts...) }

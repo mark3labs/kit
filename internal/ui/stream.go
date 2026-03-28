@@ -650,10 +650,6 @@ func removeToolID(ids []string, id string) []string {
 }
 
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-// For spawn_subagent, it shows simply as "Subagent".
 func formatToolExecutionMessage(toolName string) string {
-	if toolName == "spawn_subagent" {
-		return "Subagent"
-	}
 	return toolName
 }

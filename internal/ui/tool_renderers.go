@@ -51,7 +51,7 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		if body := renderBashBody(toolResult, width); body != "" {
 			return body
 		}
-	case toolName == "spawn_subagent":
+	case toolName == "subagent":
 		if body := renderSubagentBody(toolResult, width); body != "" {
 			return body
 		}
@@ -780,7 +780,7 @@ func renderToolBodyCompact(toolName, toolArgs, toolResult string, width int) str
 	case toolName == "bash" || toolName == "grep" || toolName == "find" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
 		return renderBashCompact(toolResult, width)
-	case toolName == "spawn_subagent":
+	case toolName == "subagent":
 		return renderSubagentCompact(toolResult)
 	}
 	return ""

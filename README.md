@@ -18,7 +18,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 ## Features
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
-- **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, spawn_subagent - no MCP overhead
+- **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, subagent - no MCP overhead
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
 - **Theming**: 22 built-in color themes (KITT, Catppuccin, Dracula, Nord, etc.) with runtime switching, persistence, and custom theme files

@@ -28,14 +28,14 @@ type SubagentSpawnResult struct {
 // SubagentSpawnFunc is a callback that spawns an in-process subagent. The
 // parent Kit instance injects this into the context so the core tool can
 // call back without importing pkg/kit (which would create a cycle).
-// The toolCallID parameter is the LLM-assigned ID of the spawn_subagent
+// The toolCallID parameter is the LLM-assigned ID of the subagent
 // tool call, enabling the parent to correlate subagent events.
 type SubagentSpawnFunc func(ctx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error)
 
 type subagentCtxKey struct{}
 
 // WithSubagentSpawner stores a spawn function in the context so that the
-// spawn_subagent core tool can create in-process subagents.
+// subagent core tool can create in-process subagents.
 func WithSubagentSpawner(ctx context.Context, fn SubagentSpawnFunc) context.Context {
 	return context.WithValue(ctx, subagentCtxKey{}, fn)
 }
@@ -49,7 +49,7 @@ func getSubagentSpawner(ctx context.Context) SubagentSpawnFunc {
 }
 
 // ---------------------------------------------------------------------------
-// spawn_subagent tool
+// subagent tool
 // ---------------------------------------------------------------------------
 
 type subagentArgs struct {
@@ -59,11 +59,11 @@ type subagentArgs struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-// NewSubagentTool creates the spawn_subagent core tool.
+// NewSubagentTool creates the subagent core tool.
 func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{
-			Name: "spawn_subagent",
+			Name: "subagent",
 			Description: `Spawn a subagent to perform a task autonomously.
 
 The subagent runs as a separate in-process Kit instance with full tool access
