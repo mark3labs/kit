@@ -113,19 +113,23 @@ func fuzzyScore(query string, cmd *SlashCommand) int {
 	return 0
 }
 
-// fuzzyCharacterMatch performs character-by-character fuzzy matching
+// fuzzyCharacterMatch performs character-by-character fuzzy matching using
+// rune-safe iteration so multi-byte Unicode characters are handled correctly.
+// Returns a positive score if all query runes appear in order within target.
 func fuzzyCharacterMatch(query, target string) int {
-	if len(query) > len(target) {
+	qRunes := []rune(query)
+	tRunes := []rune(target)
+	if len(qRunes) > len(tRunes) {
 		return 0
 	}
 
-	queryIdx := 0
+	qi := 0
 	score := 100
 	consecutiveMatches := 0
 
-	for i := 0; i < len(target) && queryIdx < len(query); i++ {
-		if target[i] == query[queryIdx] {
-			queryIdx++
+	for ti := 0; ti < len(tRunes) && qi < len(qRunes); ti++ {
+		if tRunes[ti] == qRunes[qi] {
+			qi++
 			consecutiveMatches++
 			score += consecutiveMatches * 10
 		} else {
@@ -135,7 +139,7 @@ func fuzzyCharacterMatch(query, target string) int {
 	}
 
 	// Must match all characters in query
-	if queryIdx < len(query) {
+	if qi < len(qRunes) {
 		return 0
 	}
 

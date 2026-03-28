@@ -293,39 +293,6 @@ func (r *MessageRenderer) RenderErrorMessage(errorMsg string, timestamp time.Tim
 	}
 }
 
-// RenderToolCallMessage renders a notification that a tool is being executed
-func (r *MessageRenderer) RenderToolCallMessage(toolName, toolArgs string, timestamp time.Time) UIMessage {
-	timeStr := timestamp.Local().Format("15:04")
-
-	var argsContent string
-	if toolArgs != "" && toolArgs != "{}" {
-		argsContent = r.ty.Italic(fmt.Sprintf("Arguments: %s", r.formatToolArgs(toolArgs)))
-	}
-
-	info := fmt.Sprintf(" Executing %s (%s)", toolName, timeStr)
-	infoStyled := r.ty.Small(info)
-
-	var fullContent string
-	if argsContent != "" {
-		fullContent = r.ty.Compose(
-			argsContent,
-			infoStyled,
-		)
-	} else {
-		fullContent = infoStyled
-	}
-
-	rendered := r.ty.Warning(fullContent)
-	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
-
-	return UIMessage{
-		Type:      ToolCallMessage,
-		Content:   rendered,
-		Height:    lipgloss.Height(rendered),
-		Timestamp: timestamp,
-	}
-}
-
 // RenderToolMessage renders a unified tool block
 func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
 	var extRd *ToolRendererData

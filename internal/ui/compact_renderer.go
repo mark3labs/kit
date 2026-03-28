@@ -127,30 +127,6 @@ func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 }
 
-// RenderToolCallMessage renders a tool call notification in compact format, showing
-// the tool being executed with its arguments in a single line. The tool name is
-// highlighted and arguments are displayed in a muted color for visual distinction.
-func (r *CompactRenderer) RenderToolCallMessage(toolName, toolArgs string, timestamp time.Time) UIMessage {
-	theme := getTheme()
-	symbol := lipgloss.NewStyle().Foreground(theme.Tool).Render("[")
-	label := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render(toolName)
-
-	// Format args for compact display
-	argsDisplay := r.formatToolArgs(toolArgs)
-	if argsDisplay != "" {
-		argsDisplay = lipgloss.NewStyle().Foreground(theme.Muted).Render(argsDisplay)
-	}
-
-	line := fmt.Sprintf("%s  %s %s", symbol, label, argsDisplay)
-
-	return UIMessage{
-		Type:      ToolCallMessage,
-		Content:   line,
-		Height:    1,
-		Timestamp: timestamp,
-	}
-}
-
 // RenderToolMessage renders a unified tool block in compact format, combining
 // the tool invocation header (icon + display name + params) with the execution
 // result body. Status is indicated by icon: checkmark for success, cross for error.

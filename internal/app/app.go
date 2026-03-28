@@ -685,8 +685,8 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 			messages = append(messages, item.Prompt)
 		}
 
-		// TODO: Handle file attachments in batch mode
-		// For now, files are ignored in batch mode (rare edge case)
+		// File attachments are not supported in batch mode; fall back to
+		// processing only the first item that carries files.
 		if hasFiles {
 			// If files exist, fall back to processing just the first item with files
 			for _, item := range items {

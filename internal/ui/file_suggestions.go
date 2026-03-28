@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
 // FileSuggestion represents a single file or directory suggestion for the @
@@ -345,44 +344,16 @@ func scoreFilePath(query, path string) int {
 	}
 
 	// Fuzzy character match on basename.
-	if score := fuzzyCharMatch(query, baseNameLower); score > 0 {
+	if score := fuzzyCharacterMatch(query, baseNameLower); score > 0 {
 		return score
 	}
 
 	// Fuzzy character match on full path.
-	if score := fuzzyCharMatch(query, pathLower); score > 0 {
+	if score := fuzzyCharacterMatch(query, pathLower); score > 0 {
 		return score - 50
 	}
 
 	return 0
 }
 
-// fuzzyCharMatch performs character-by-character fuzzy matching. Returns a
-// positive score if all query characters appear in order in the target.
-func fuzzyCharMatch(query, target string) int {
-	if utf8.RuneCountInString(query) > utf8.RuneCountInString(target) {
-		return 0
-	}
 
-	qRunes := []rune(query)
-	tRunes := []rune(target)
-	qi := 0
-	score := 100
-	consecutive := 0
-
-	for ti := 0; ti < len(tRunes) && qi < len(qRunes); ti++ {
-		if tRunes[ti] == qRunes[qi] {
-			qi++
-			consecutive++
-			score += consecutive * 5
-		} else {
-			consecutive = 0
-			score -= 2
-		}
-	}
-
-	if qi < len(qRunes) {
-		return 0
-	}
-	return score
-}

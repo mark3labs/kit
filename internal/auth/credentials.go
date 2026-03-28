@@ -43,13 +43,30 @@ type OpenAICredentials struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// oauthTokenExpired reports whether an OAuth token with the given type and
+// expiry unix timestamp is past its expiry. Returns false for API key
+// credentials or when no expiry is set.
+func oauthTokenExpired(credType string, expiresAt int64) bool {
+	if credType != "oauth" || expiresAt == 0 {
+		return false
+	}
+	return time.Now().Unix() >= expiresAt
+}
+
+// oauthTokenNeedsRefresh reports whether an OAuth token will expire within the
+// next 5 minutes, allowing proactive refresh before it becomes invalid.
+// Returns false for API key credentials or when no expiry is set.
+func oauthTokenNeedsRefresh(credType string, expiresAt int64) bool {
+	if credType != "oauth" || expiresAt == 0 {
+		return false
+	}
+	return time.Now().Unix() >= (expiresAt - 300) // 5 minutes buffer
+}
+
 // IsExpired checks if the OAuth token is expired based on the ExpiresAt timestamp.
 // Returns false for API key authentication or if no expiration is set.
 func (c *AnthropicCredentials) IsExpired() bool {
-	if c.Type != "oauth" || c.ExpiresAt == 0 {
-		return false
-	}
-	return time.Now().Unix() >= c.ExpiresAt
+	return oauthTokenExpired(c.Type, c.ExpiresAt)
 }
 
 // NeedsRefresh checks if the OAuth token needs refresh, returning true if the token
@@ -57,19 +74,13 @@ func (c *AnthropicCredentials) IsExpired() bool {
 // to avoid authentication failures during operations. Returns false for API key
 // authentication or if no expiration is set.
 func (c *AnthropicCredentials) NeedsRefresh() bool {
-	if c.Type != "oauth" || c.ExpiresAt == 0 {
-		return false
-	}
-	return time.Now().Unix() >= (c.ExpiresAt - 300) // 5 minutes buffer
+	return oauthTokenNeedsRefresh(c.Type, c.ExpiresAt)
 }
 
 // IsExpired checks if the OAuth token is expired based on the ExpiresAt timestamp.
 // Returns false for API key authentication or if no expiration is set.
 func (c *OpenAICredentials) IsExpired() bool {
-	if c.Type != "oauth" || c.ExpiresAt == 0 {
-		return false
-	}
-	return time.Now().Unix() >= c.ExpiresAt
+	return oauthTokenExpired(c.Type, c.ExpiresAt)
 }
 
 // NeedsRefresh checks if the OAuth token needs refresh, returning true if the token
@@ -77,10 +88,7 @@ func (c *OpenAICredentials) IsExpired() bool {
 // to avoid authentication failures during operations. Returns false for API key
 // authentication or if no expiration is set.
 func (c *OpenAICredentials) NeedsRefresh() bool {
-	if c.Type != "oauth" || c.ExpiresAt == 0 {
-		return false
-	}
-	return time.Now().Unix() >= (c.ExpiresAt - 300) // 5 minutes buffer
+	return oauthTokenNeedsRefresh(c.Type, c.ExpiresAt)
 }
 
 // CredentialManager handles secure storage and retrieval of authentication credentials.

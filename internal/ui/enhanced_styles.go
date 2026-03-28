@@ -292,11 +292,6 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 	return result.String()
 }
 
-// CreateGradientText creates styled text with a gradient effect between two colors.
-func CreateGradientText(text string, startColor, endColor color.Color) string {
-	return ApplyGradient(text, startColor, endColor)
-}
-
 // Compact styling utilities
 
 // StyleCompactSymbol creates a lipgloss style for message type indicators in
