@@ -50,10 +50,6 @@ const s={frontmatter:{title:"Go SDK",description:"Embed Kit in your Go applicati
 <td>Simple prompt, returns response string</td>
 </tr>
 <tr>
-<td><code>PromptWithCallbacks(ctx, message, ...)</code></td>
-<td>With tool call and streaming callbacks</td>
-</tr>
-<tr>
 <td><code>PromptWithOptions(ctx, message, opts)</code></td>
 <td>With per-call options</td>
 </tr>
@@ -162,7 +158,6 @@ The SDK provides several prompt variants:
 | Method | Description |
 |--------|-------------|
 | \`Prompt(ctx, message)\` | Simple prompt, returns response string |
-| \`PromptWithCallbacks(ctx, message, ...)\` | With tool call and streaming callbacks |
 | \`PromptWithOptions(ctx, message, opts)\` | With per-call options |
 | \`PromptResult(ctx, message)\` | Returns full \`TurnResult\` with usage stats |
 | \`PromptResultWithFiles(ctx, message, files)\` | Multimodal with file attachments |

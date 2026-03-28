@@ -1,56 +1,4 @@
 const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and streaming output with the Kit Go SDK.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="callbacks"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#callbacks"><span class="icon icon-link"></span></a>Callbacks</h1>
-<h2 id="promptwithcallbacks"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#promptwithcallbacks"><span class="icon icon-link"></span></a>PromptWithCallbacks</h2>
-<p>The <code>PromptWithCallbacks</code> method provides real-time visibility into tool calls and streaming output:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">response, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptWithCallbacks</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx,</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "List files in current directory"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">args</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Called when the model invokes a tool</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Calling tool:"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, name)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">args</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">result</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">isError</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Called when a tool returns its result</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> isError {</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Tool failed:"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, name)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">chunk</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Called for each streaming text chunk</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(chunk)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
-<h3 id="callback-signatures"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#callback-signatures"><span class="icon icon-link"></span></a>Callback signatures</h3>
-<table>
-<thead>
-<tr>
-<th>Callback</th>
-<th>Signature</th>
-<th>When</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>onToolCall</code></td>
-<td><code>func(name, args string)</code></td>
-<td>Model requests a tool call</td>
-</tr>
-<tr>
-<td><code>onToolResult</code></td>
-<td><code>func(name, args, result string, isError bool)</code></td>
-<td>Tool execution completes</td>
-</tr>
-<tr>
-<td><code>onStreaming</code></td>
-<td><code>func(chunk string)</code></td>
-<td>Streaming text chunk received</td>
-</tr>
-</tbody>
-</table>
-<p>Any callback can be <code>nil</code> if you don't need it:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Only care about streaming output</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">response, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptWithCallbacks</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Hello"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">chunk</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(chunk)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="event-based-monitoring"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#event-based-monitoring"><span class="icon icon-link"></span></a>Event-based monitoring</h2>
 <p>For more granular control, use the event subscription API:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Subscribe returns an unsubscribe function</span></span>
@@ -122,50 +70,8 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"PromptWithCallbacks",id:"promptwithcallbacks"},{depth:3,text:"Callback signatures",id:"callback-signatures"},{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Hook system",id:"hook-system"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
+<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Hook system",id:"hook-system"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
 # Callbacks
-
-## PromptWithCallbacks
-
-The \`PromptWithCallbacks\` method provides real-time visibility into tool calls and streaming output:
-
-\`\`\`go
-response, err := host.PromptWithCallbacks(
-    ctx,
-    "List files in current directory",
-    func(name, args string) {
-        // Called when the model invokes a tool
-        fmt.Println("Calling tool:", name)
-    },
-    func(name, args, result string, isError bool) {
-        // Called when a tool returns its result
-        if isError {
-            fmt.Println("Tool failed:", name)
-        }
-    },
-    func(chunk string) {
-        // Called for each streaming text chunk
-        fmt.Print(chunk)
-    },
-)
-\`\`\`
-
-### Callback signatures
-
-| Callback | Signature | When |
-|----------|-----------|------|
-| \`onToolCall\` | \`func(name, args string)\` | Model requests a tool call |
-| \`onToolResult\` | \`func(name, args, result string, isError bool)\` | Tool execution completes |
-| \`onStreaming\` | \`func(chunk string)\` | Streaming text chunk received |
-
-Any callback can be \`nil\` if you don't need it:
-
-\`\`\`go
-// Only care about streaming output
-response, err := host.PromptWithCallbacks(ctx, "Hello", nil, nil, func(chunk string) {
-    fmt.Print(chunk)
-})
-\`\`\`
 
 ## Event-based monitoring
 

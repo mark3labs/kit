@@ -327,14 +327,12 @@
       "title": "Callbacks",
       "description": "Monitor tool calls and streaming output with the Kit Go SDK.",
       "headings": [
-        "PromptWithCallbacks",
-        "Callback signatures",
         "Event-based monitoring",
         "Hook system",
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 438
+      "wordCount": 281
     },
     {
       "id": "sdk/options",
@@ -363,7 +361,7 @@
         "Context and compaction"
       ],
       "tags": [],
-      "wordCount": 287
+      "wordCount": 275
     },
     {
       "id": "sdk/sessions",
