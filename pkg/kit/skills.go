@@ -1,6 +1,12 @@
 package kit
 
-import "github.com/mark3labs/kit/internal/skills"
+import (
+	"os"
+	"sync"
+
+	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/skills"
+)
 
 // ==== Skills Types ====
 
@@ -66,4 +72,87 @@ func LoadPromptTemplate(path string) (*PromptTemplate, error) {
 // The base prompt is always emitted first.
 func NewPromptBuilder(basePrompt string) *PromptBuilder {
 	return skills.NewPromptBuilder(basePrompt)
+}
+
+// ---------------------------------------------------------------------------
+// Skill Bridge for Extensions (Phase 2)
+// ---------------------------------------------------------------------------
+
+// skillCache holds skills discovered for the current session.
+type skillCache struct {
+	skills []*Skill
+	mu     sync.RWMutex
+}
+
+var globalSkillCache skillCache
+
+// DiscoverSkillsForExtension finds skills in standard locations for extensions.
+// Returns skills in the extension-facing format.
+func (m *Kit) DiscoverSkillsForExtension() []extensions.Skill {
+	cwd, _ := os.Getwd()
+
+	// Check cache first
+	globalSkillCache.mu.RLock()
+	if len(globalSkillCache.skills) > 0 {
+		globalSkillCache.mu.RUnlock()
+		return m.convertSkills(globalSkillCache.skills)
+	}
+	globalSkillCache.mu.RUnlock()
+
+	// Load fresh
+	skillList, _ := skills.LoadSkills(cwd)
+
+	globalSkillCache.mu.Lock()
+	globalSkillCache.skills = skillList
+	globalSkillCache.mu.Unlock()
+
+	return m.convertSkills(skillList)
+}
+
+// LoadSkillForExtension loads a single skill file for extensions.
+func (m *Kit) LoadSkillForExtension(path string) (*extensions.Skill, string) {
+	s, err := skills.LoadSkill(path)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return m.convertSkill(s), ""
+}
+
+// LoadSkillsFromDirForExtension loads all skills from a directory for extensions.
+func (m *Kit) LoadSkillsFromDirForExtension(dir string) extensions.SkillLoadResult {
+	skillList, err := skills.LoadSkillsFromDir(dir)
+	if err != nil {
+		return extensions.SkillLoadResult{Error: err.Error()}
+	}
+	return extensions.SkillLoadResult{Skills: m.convertSkills(skillList)}
+}
+
+// convertSkill converts internal skill to extension-facing format.
+func (m *Kit) convertSkill(s *skills.Skill) *extensions.Skill {
+	return &extensions.Skill{
+		Name:        s.Name,
+		Description: s.Description,
+		Content:     s.Content,
+		Path:        s.Path,
+		Tags:        s.Tags,
+		When:        s.When,
+	}
+}
+
+// convertSkills converts a slice of skills.
+func (m *Kit) convertSkills(skills []*skills.Skill) []extensions.Skill {
+	result := make([]extensions.Skill, 0, len(skills))
+	for _, s := range skills {
+		if converted := m.convertSkill(s); converted != nil {
+			result = append(result, *converted)
+		}
+	}
+	return result
+}
+
+// ClearSkillCache clears the global skill cache (called on reload).
+func (m *Kit) ClearSkillCache() {
+	globalSkillCache.mu.Lock()
+	globalSkillCache.skills = nil
+	globalSkillCache.mu.Unlock()
 }

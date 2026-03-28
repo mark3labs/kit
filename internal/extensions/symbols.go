@@ -128,6 +128,24 @@ func Symbols() interp.Exports {
 			"ThemeColor":       reflect.ValueOf((*ThemeColor)(nil)),
 			"ThemeColorConfig": reflect.ValueOf((*ThemeColorConfig)(nil)),
 
+			// Tree navigation types
+			"TreeNode":             reflect.ValueOf((*TreeNode)(nil)),
+			"TreeNavigationResult": reflect.ValueOf((*TreeNavigationResult)(nil)),
+
+			// Skill types
+			"Skill":           reflect.ValueOf((*Skill)(nil)),
+			"SkillLoadResult": reflect.ValueOf((*SkillLoadResult)(nil)),
+
+			// Template parsing types
+			"PromptTemplate":   reflect.ValueOf((*PromptTemplate)(nil)),
+			"ArgumentPattern":  reflect.ValueOf((*ArgumentPattern)(nil)),
+			"ParseResult":      reflect.ValueOf((*ParseResult)(nil)),
+			"ModelConditional": reflect.ValueOf((*ModelConditional)(nil)),
+
+			// Model resolution types
+			"ModelCapabilities":     reflect.ValueOf((*ModelCapabilities)(nil)),
+			"ModelResolutionResult": reflect.ValueOf((*ModelResolutionResult)(nil)),
+
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),

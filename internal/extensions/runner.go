@@ -214,6 +214,102 @@ func normalizeContext(ctx Context) Context {
 			return nil, nil, nil
 		}
 	}
+
+	// -------------------------------------------------------------------------
+	// Tree Navigation API no-ops
+	// -------------------------------------------------------------------------
+	if ctx.GetTreeNode == nil {
+		ctx.GetTreeNode = func(string) *TreeNode { return nil }
+	}
+	if ctx.GetCurrentBranch == nil {
+		ctx.GetCurrentBranch = func() []TreeNode { return nil }
+	}
+	if ctx.GetChildren == nil {
+		ctx.GetChildren = func(string) []string { return nil }
+	}
+	if ctx.NavigateTo == nil {
+		ctx.NavigateTo = func(string) TreeNavigationResult {
+			return TreeNavigationResult{Success: false, Error: "not implemented"}
+		}
+	}
+	if ctx.SummarizeBranch == nil {
+		ctx.SummarizeBranch = func(string, string) string {
+			return ""
+		}
+	}
+	if ctx.CollapseBranch == nil {
+		ctx.CollapseBranch = func(string, string, string) TreeNavigationResult {
+			return TreeNavigationResult{Success: false, Error: "not implemented"}
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Skill Loading API no-ops
+	// -------------------------------------------------------------------------
+	if ctx.LoadSkill == nil {
+		ctx.LoadSkill = func(string) (*Skill, string) { return nil, "" }
+	}
+	if ctx.LoadSkillsFromDir == nil {
+		ctx.LoadSkillsFromDir = func(string) SkillLoadResult { return SkillLoadResult{} }
+	}
+	if ctx.DiscoverSkills == nil {
+		ctx.DiscoverSkills = func() SkillLoadResult { return SkillLoadResult{} }
+	}
+	if ctx.InjectSkillAsContext == nil {
+		ctx.InjectSkillAsContext = func(string) string { return "" }
+	}
+	if ctx.InjectRawSkillAsContext == nil {
+		ctx.InjectRawSkillAsContext = func(string) string { return "" }
+	}
+	if ctx.GetAvailableSkills == nil {
+		ctx.GetAvailableSkills = func() []Skill { return nil }
+	}
+
+	// -------------------------------------------------------------------------
+	// Template Parsing API no-ops
+	// -------------------------------------------------------------------------
+	if ctx.ParseTemplate == nil {
+		ctx.ParseTemplate = func(string, string) PromptTemplate { return PromptTemplate{} }
+	}
+	if ctx.RenderTemplate == nil {
+		ctx.RenderTemplate = func(PromptTemplate, map[string]string) string { return "" }
+	}
+	if ctx.ParseArguments == nil {
+		ctx.ParseArguments = func(string, ArgumentPattern) ParseResult { return ParseResult{} }
+	}
+	if ctx.SimpleParseArguments == nil {
+		ctx.SimpleParseArguments = func(string, int) []string { return nil }
+	}
+	if ctx.EvaluateModelConditional == nil {
+		ctx.EvaluateModelConditional = func(string) bool { return false }
+	}
+	if ctx.RenderWithModelConditionals == nil {
+		ctx.RenderWithModelConditionals = func(string) string { return "" }
+	}
+
+	// -------------------------------------------------------------------------
+	// Model Resolution API no-ops
+	// -------------------------------------------------------------------------
+	if ctx.ResolveModelChain == nil {
+		ctx.ResolveModelChain = func([]string) ModelResolutionResult {
+			return ModelResolutionResult{Error: "not implemented"}
+		}
+	}
+	if ctx.GetModelCapabilities == nil {
+		ctx.GetModelCapabilities = func(string) (ModelCapabilities, string) {
+			return ModelCapabilities{}, "not implemented"
+		}
+	}
+	if ctx.CheckModelAvailable == nil {
+		ctx.CheckModelAvailable = func(string) bool { return false }
+	}
+	if ctx.GetCurrentProvider == nil {
+		ctx.GetCurrentProvider = func() string { return "" }
+	}
+	if ctx.GetCurrentModelID == nil {
+		ctx.GetCurrentModelID = func() string { return "" }
+	}
+
 	return ctx
 }
 

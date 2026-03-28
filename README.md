@@ -307,6 +307,12 @@ kit -e examples/extensions/minimal.go
 - **Themes**: Register and switch color themes via `RegisterTheme`, `SetTheme`, `ListThemes`
 - **Custom Events**: Inter-extension communication via `EmitCustomEvent`
 
+**Bridged SDK APIs** (NEW): Extensions can now access internal SDK capabilities:
+- **Tree Navigation**: Navigate conversation history (`GetTreeNode`, `GetCurrentBranch`, `NavigateTo`), summarize branches (`SummarizeBranch`), and implement fresh context loops (`CollapseBranch`)
+- **Skill Loading**: Dynamically load and inject skills at runtime (`LoadSkill`, `DiscoverSkills`, `InjectSkillAsContext`)
+- **Template Parsing**: Parse and render templates with `{{variables}}` (`ParseTemplate`, `RenderTemplate`), parse CLI-style arguments (`ParseArguments`, `SimpleParseArguments`), and evaluate model conditionals (`EvaluateModelConditional`, `RenderWithModelConditionals`)
+- **Model Resolution**: Resolve model fallback chains (`ResolveModelChain`), query model capabilities (`GetModelCapabilities`, `CheckModelAvailable`), and extract provider/model ID (`GetCurrentProvider`, `GetCurrentModelID`)
+
 ### Extension Examples
 
 See the `examples/extensions/` directory:
@@ -318,6 +324,7 @@ See the `examples/extensions/` directory:
 - `compact-notify.go` - Notification on compaction
 - `confirm-destructive.go` - Confirm destructive operations
 - `context-inject.go` - Inject context into conversations
+- `conversation-manager.go` - **NEW** Tree navigation, branch summarization, and fresh context loops
 - `custom-editor-demo.go` - Vim-like modal editor
 - `dev-reload.go` - Development live-reload
 - `header-footer-demo.go` - Custom headers and footers
@@ -332,6 +339,7 @@ See the `examples/extensions/` directory:
 - `plan-mode.go` - Read-only planning mode
 - `project-rules.go` - Project-specific rules
 - `prompt-demo.go` - Interactive prompts (select/confirm/input)
+- `prompt-templates.go` - **NEW** Frontmatter-driven templates with model switching and skill injection
 - `protected-paths.go` - Path protection for sensitive files
 - `subagent-widget.go` - Multi-agent orchestration with status widget
 - `subagent-test.go` - Subagent testing utilities

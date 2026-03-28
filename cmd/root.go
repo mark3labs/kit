@@ -1107,6 +1107,126 @@ func runNormalMode(ctx context.Context) error {
 				}
 				return nil, extResult, err
 			},
+
+			// -------------------------------------------------------------------------
+			// Tree Navigation API (Phase 1 Bridge)
+			// -------------------------------------------------------------------------
+			GetTreeNode: func(entryID string) *extensions.TreeNode {
+				node := kitInstance.GetTreeNode(entryID)
+				if node == nil {
+					return nil
+				}
+				return &extensions.TreeNode{
+					ID:        node.ID,
+					ParentID:  node.ParentID,
+					Type:      node.Type,
+					Role:      node.Role,
+					Content:   node.Content,
+					Model:     node.Model,
+					Provider:  node.Provider,
+					Timestamp: node.Timestamp,
+					Children:  node.Children,
+				}
+			},
+			GetCurrentBranch: func() []extensions.TreeNode {
+				nodes := kitInstance.GetCurrentBranch()
+				result := make([]extensions.TreeNode, len(nodes))
+				for i, n := range nodes {
+					result[i] = extensions.TreeNode{
+						ID:        n.ID,
+						ParentID:  n.ParentID,
+						Type:      n.Type,
+						Role:      n.Role,
+						Content:   n.Content,
+						Model:     n.Model,
+						Provider:  n.Provider,
+						Timestamp: n.Timestamp,
+						Children:  n.Children,
+					}
+				}
+				return result
+			},
+			GetChildren: kitInstance.GetChildren,
+			NavigateTo: func(entryID string) extensions.TreeNavigationResult {
+				err := kitInstance.NavigateTo(entryID)
+				if err != "" {
+					return extensions.TreeNavigationResult{Success: false, Error: err}
+				}
+				return extensions.TreeNavigationResult{Success: true}
+			},
+			SummarizeBranch: kitInstance.SummarizeBranch,
+			CollapseBranch: func(fromID, toID, summary string) extensions.TreeNavigationResult {
+				err := kitInstance.CollapseBranch(fromID, toID, summary)
+				if err != "" {
+					return extensions.TreeNavigationResult{Success: false, Error: err}
+				}
+				return extensions.TreeNavigationResult{Success: true}
+			},
+
+			// -------------------------------------------------------------------------
+			// Skill Loading API (Phase 2 Bridge)
+			// -------------------------------------------------------------------------
+			LoadSkill: func(path string) (*extensions.Skill, string) {
+				s, err := kitInstance.LoadSkillForExtension(path)
+				return s, err
+			},
+			LoadSkillsFromDir: func(dir string) extensions.SkillLoadResult {
+				return kitInstance.LoadSkillsFromDirForExtension(dir)
+			},
+			DiscoverSkills: func() extensions.SkillLoadResult {
+				skills := kitInstance.DiscoverSkillsForExtension()
+				return extensions.SkillLoadResult{Skills: skills}
+			},
+			InjectSkillAsContext: func(skillName string) string {
+				// Find skill by name
+				skills := kitInstance.DiscoverSkillsForExtension()
+				for _, s := range skills {
+					if s.Name == skillName {
+						// Inject via SendMessage as a system context message
+						appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+						return ""
+					}
+				}
+				return fmt.Sprintf("skill not found: %s", skillName)
+			},
+			InjectRawSkillAsContext: func(path string) string {
+				s, err := kitInstance.LoadSkillForExtension(path)
+				if err != "" {
+					return err
+				}
+				appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+				return ""
+			},
+			GetAvailableSkills: kitInstance.DiscoverSkillsForExtension,
+
+			// -------------------------------------------------------------------------
+			// Template Parsing API (Phase 3 Bridge)
+			// -------------------------------------------------------------------------
+			ParseTemplate:        kit.ParseTemplate,
+			RenderTemplate:       kit.RenderTemplate,
+			ParseArguments:       kit.ParseArguments,
+			SimpleParseArguments: kit.SimpleParseArguments,
+			EvaluateModelConditional: func(condition string) bool {
+				return kit.EvaluateModelConditional(kitInstance.GetExtensionContext().Model, condition)
+			},
+			RenderWithModelConditionals: func(content string) string {
+				return kit.RenderWithModelConditionals(content, kitInstance.GetExtensionContext().Model)
+			},
+
+			// -------------------------------------------------------------------------
+			// Model Resolution API (Phase 4 Bridge)
+			// -------------------------------------------------------------------------
+			ResolveModelChain: kit.ResolveModelChain,
+			GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
+				return kit.GetModelCapabilities(model)
+			},
+			CheckModelAvailable: kit.CheckModelAvailable,
+			GetCurrentProvider: func() string {
+				return kit.GetCurrentProvider(kitInstance.GetExtensionContext().Model)
+			},
+			GetCurrentModelID: func() string {
+				return kit.GetCurrentModelID(kitInstance.GetExtensionContext().Model)
+			},
 		})
 		kitInstance.EmitSessionStart()
 
@@ -1251,6 +1371,126 @@ func runNormalMode(ctx context.Context) error {
 					}
 				}
 				return nil, extResult, err
+			},
+
+			// -------------------------------------------------------------------------
+			// Tree Navigation API (Phase 1 Bridge) - Second Context
+			// -------------------------------------------------------------------------
+			GetTreeNode: func(entryID string) *extensions.TreeNode {
+				node := kitInstance.GetTreeNode(entryID)
+				if node == nil {
+					return nil
+				}
+				return &extensions.TreeNode{
+					ID:        node.ID,
+					ParentID:  node.ParentID,
+					Type:      node.Type,
+					Role:      node.Role,
+					Content:   node.Content,
+					Model:     node.Model,
+					Provider:  node.Provider,
+					Timestamp: node.Timestamp,
+					Children:  node.Children,
+				}
+			},
+			GetCurrentBranch: func() []extensions.TreeNode {
+				nodes := kitInstance.GetCurrentBranch()
+				result := make([]extensions.TreeNode, len(nodes))
+				for i, n := range nodes {
+					result[i] = extensions.TreeNode{
+						ID:        n.ID,
+						ParentID:  n.ParentID,
+						Type:      n.Type,
+						Role:      n.Role,
+						Content:   n.Content,
+						Model:     n.Model,
+						Provider:  n.Provider,
+						Timestamp: n.Timestamp,
+						Children:  n.Children,
+					}
+				}
+				return result
+			},
+			GetChildren: kitInstance.GetChildren,
+			NavigateTo: func(entryID string) extensions.TreeNavigationResult {
+				err := kitInstance.NavigateTo(entryID)
+				if err != "" {
+					return extensions.TreeNavigationResult{Success: false, Error: err}
+				}
+				return extensions.TreeNavigationResult{Success: true}
+			},
+			SummarizeBranch: kitInstance.SummarizeBranch,
+			CollapseBranch: func(fromID, toID, summary string) extensions.TreeNavigationResult {
+				err := kitInstance.CollapseBranch(fromID, toID, summary)
+				if err != "" {
+					return extensions.TreeNavigationResult{Success: false, Error: err}
+				}
+				return extensions.TreeNavigationResult{Success: true}
+			},
+
+			// -------------------------------------------------------------------------
+			// Skill Loading API (Phase 2 Bridge) - Second Context
+			// -------------------------------------------------------------------------
+			LoadSkill: func(path string) (*extensions.Skill, string) {
+				s, err := kitInstance.LoadSkillForExtension(path)
+				return s, err
+			},
+			LoadSkillsFromDir: func(dir string) extensions.SkillLoadResult {
+				return kitInstance.LoadSkillsFromDirForExtension(dir)
+			},
+			DiscoverSkills: func() extensions.SkillLoadResult {
+				skills := kitInstance.DiscoverSkillsForExtension()
+				return extensions.SkillLoadResult{Skills: skills}
+			},
+			InjectSkillAsContext: func(skillName string) string {
+				skills := kitInstance.DiscoverSkillsForExtension()
+				for _, s := range skills {
+					if s.Name == skillName {
+						appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+						return ""
+					}
+				}
+				return fmt.Sprintf("skill not found: %s", skillName)
+			},
+			InjectRawSkillAsContext: func(path string) string {
+				s, err := kitInstance.LoadSkillForExtension(path)
+				if err != "" {
+					return err
+				}
+				appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+				return ""
+			},
+			GetAvailableSkills: func() []extensions.Skill {
+				return kitInstance.DiscoverSkillsForExtension()
+			},
+
+			// -------------------------------------------------------------------------
+			// Template Parsing API (Phase 3 Bridge) - Second Context
+			// -------------------------------------------------------------------------
+			ParseTemplate:        kit.ParseTemplate,
+			RenderTemplate:       kit.RenderTemplate,
+			ParseArguments:       kit.ParseArguments,
+			SimpleParseArguments: kit.SimpleParseArguments,
+			EvaluateModelConditional: func(condition string) bool {
+				return kit.EvaluateModelConditional(kitInstance.GetExtensionContext().Model, condition)
+			},
+			RenderWithModelConditionals: func(content string) string {
+				return kit.RenderWithModelConditionals(content, kitInstance.GetExtensionContext().Model)
+			},
+
+			// -------------------------------------------------------------------------
+			// Model Resolution API (Phase 4 Bridge) - Second Context
+			// -------------------------------------------------------------------------
+			ResolveModelChain: kit.ResolveModelChain,
+			GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
+				return kit.GetModelCapabilities(model)
+			},
+			CheckModelAvailable: kit.CheckModelAvailable,
+			GetCurrentProvider: func() string {
+				return kit.GetCurrentProvider(kitInstance.GetExtensionContext().Model)
+			},
+			GetCurrentModelID: func() string {
+				return kit.GetCurrentModelID(kitInstance.GetExtensionContext().Model)
 			},
 		})
 	}

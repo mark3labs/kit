@@ -572,6 +572,102 @@ type Context struct {
 	//   })
 	//   // handle.Kill() to cancel, handle.Wait() to block
 	SpawnSubagent func(SubagentConfig) (*SubagentHandle, *SubagentResult, error)
+
+	// -------------------------------------------------------------------------
+	// Tree Navigation API (Phase 1 Bridge)
+	// -------------------------------------------------------------------------
+
+	// GetTreeNode returns a node by ID with full metadata and children.
+	// Returns nil if entry not found.
+	GetTreeNode func(entryID string) *TreeNode
+
+	// GetCurrentBranch returns the path from root to current leaf.
+	// Each node contains full metadata (unlike GetMessages which flattens).
+	GetCurrentBranch func() []TreeNode
+
+	// GetChildren returns direct child IDs of an entry.
+	GetChildren func(entryID string) []string
+
+	// NavigateTo branches/forks the session to the specified entry ID.
+	// Equivalent to SDK's Branch() but for extensions.
+	NavigateTo func(entryID string) TreeNavigationResult
+
+	// SummarizeBranch uses LLM to summarize a branch range.
+	// Returns summary text or error string (empty if success).
+	SummarizeBranch func(fromID, toID string) string
+
+	// CollapseBranch replaces a branch range with a summary entry.
+	// This is the "fresh context" primitive for context window management.
+	CollapseBranch func(fromID, toID, summary string) TreeNavigationResult
+
+	// -------------------------------------------------------------------------
+	// Skill Loading API (Phase 2 Bridge)
+	// -------------------------------------------------------------------------
+
+	// LoadSkill loads a single skill file from path.
+	// Parses YAML frontmatter, returns skill with content ready for injection.
+	LoadSkill func(path string) (*Skill, string)
+
+	// LoadSkillsFromDir discovers and loads all skills from a directory.
+	LoadSkillsFromDir func(dir string) SkillLoadResult
+
+	// DiscoverSkills finds skills in standard locations.
+	// Checks ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+	DiscoverSkills func() SkillLoadResult
+
+	// InjectSkillAsContext sends a skill's content as a system message.
+	// Looks up skill by name from discovered skills.
+	InjectSkillAsContext func(skillName string) string
+
+	// InjectRawSkillAsContext loads and immediately injects a skill file.
+	InjectRawSkillAsContext func(path string) string
+
+	// GetAvailableSkills returns all currently loaded/discovered skills.
+	GetAvailableSkills func() []Skill
+
+	// -------------------------------------------------------------------------
+	// Template Parsing API (Phase 3 Bridge)
+	// -------------------------------------------------------------------------
+
+	// ParseTemplate extracts {{variables}} from template content.
+	ParseTemplate func(name, content string) PromptTemplate
+
+	// RenderTemplate substitutes variables into template content.
+	RenderTemplate func(tpl PromptTemplate, vars map[string]string) string
+
+	// ParseArguments parses command-line style arguments.
+	ParseArguments func(input string, pattern ArgumentPattern) ParseResult
+
+	// SimpleParseArguments parses $1, $2, $@ style arguments.
+	// Returns slice where [0]=full input, [1]=$1, [2]=$2, ... [n]=$@
+	SimpleParseArguments func(input string, count int) []string
+
+	// EvaluateModelConditional checks if condition matches current model.
+	// Condition supports wildcards: * matches any, ? matches single char.
+	EvaluateModelConditional func(condition string) bool
+
+	// RenderWithModelConditionals processes <if-model> blocks in content.
+	RenderWithModelConditionals func(content string) string
+
+	// -------------------------------------------------------------------------
+	// Model Resolution API (Phase 4 Bridge)
+	// -------------------------------------------------------------------------
+
+	// ResolveModelChain attempts each model in order until one is available.
+	ResolveModelChain func(preferences []string) ModelResolutionResult
+
+	// GetModelCapabilities returns capabilities for a specific model.
+	// If model is empty, uses current model.
+	GetModelCapabilities func(model string) (ModelCapabilities, string)
+
+	// CheckModelAvailable verifies if a model string is valid.
+	CheckModelAvailable func(model string) bool
+
+	// GetCurrentProvider returns just the provider part of current model.
+	GetCurrentProvider func() string
+
+	// GetCurrentModelID returns just the model ID part of current model.
+	GetCurrentModelID func() string
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +692,148 @@ type SessionMessage struct {
 	Provider string
 	// Timestamp is the RFC3339-formatted creation time.
 	Timestamp string
+}
+
+// ---------------------------------------------------------------------------
+// Tree navigation types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// TreeNode represents a node in the session tree for navigation.
+// Extensions use this to traverse conversation history and implement
+// features like "fresh context" loops and branch summarization.
+type TreeNode struct {
+	// ID is the unique entry identifier.
+	ID string
+	// ParentID links this entry to its parent (empty if root).
+	ParentID string
+	// Type is the entry type: "message", "branch_summary", "model_change", "extension_data", "tool_execution".
+	Type string
+	// Role is the message role for message entries: "user", "assistant", "system", "tool".
+	Role string
+	// Content is the text content or summary.
+	Content string
+	// Model is the model that generated this (for assistant messages).
+	Model string
+	// Provider is the provider used.
+	Provider string
+	// Timestamp is the RFC3339-formatted creation time.
+	Timestamp string
+	// Children is the list of child entry IDs for tree traversal.
+	Children []string
+}
+
+// TreeNavigationResult reports success or failure of tree operations.
+type TreeNavigationResult struct {
+	// Success is true if the operation completed.
+	Success bool
+	// Error describes what went wrong (empty if success).
+	Error string
+}
+
+// ---------------------------------------------------------------------------
+// Skill types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// Skill represents a loaded skill file with parsed YAML frontmatter.
+type Skill struct {
+	// Name is the human-readable identifier.
+	Name string
+	// Description summarizes what this skill provides.
+	Description string
+	// Content is the markdown body (frontmatter stripped).
+	Content string
+	// Path is the absolute filesystem path.
+	Path string
+	// Tags are optional labels for categorization.
+	Tags []string
+	// When controls automatic inclusion: "always", "on-demand", or file-glob.
+	When string
+}
+
+// SkillLoadResult reports skills loaded from a directory.
+type SkillLoadResult struct {
+	// Skills is the list of loaded skills.
+	Skills []Skill
+	// Error describes loading failures (empty if success).
+	Error string
+}
+
+// ---------------------------------------------------------------------------
+// Template parsing types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// PromptTemplate represents a parsed template with variable placeholders.
+type PromptTemplate struct {
+	// Name is the template identifier.
+	Name string
+	// Content is the original template content.
+	Content string
+	// Variables are the extracted {{variable}} names.
+	Variables []string
+}
+
+// ArgumentPattern defines how to parse command arguments.
+type ArgumentPattern struct {
+	// Positional names for $1, $2, etc.
+	Positional []string
+	// Rest is the variable name for $@ (all remaining).
+	Rest string
+	// Flags maps flag names to variable names (e.g., "--loop" -> "loop").
+	Flags map[string]string
+}
+
+// ParseResult reports argument parsing outcome.
+type ParseResult struct {
+	// Vars maps variable names to values for positional args.
+	Vars map[string]string
+	// Flags maps flag names to values.
+	Flags map[string]string
+	// Rest is remaining unparsed text.
+	Rest string
+	// Error describes parsing failures (empty if success).
+	Error string
+}
+
+// ModelConditional represents an <if-model> block for evaluation.
+type ModelConditional struct {
+	// Condition is the model pattern (e.g., "claude-*", "anthropic/*").
+	Condition string
+	// Content is rendered if condition matches.
+	Content string
+	// Else is rendered if condition doesn't match.
+	Else string
+}
+
+// ---------------------------------------------------------------------------
+// Model resolution types (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// ModelCapabilities describes what a model supports.
+type ModelCapabilities struct {
+	// Provider is the provider ID (e.g., "anthropic").
+	Provider string
+	// ModelID is the model identifier (e.g., "claude-sonnet-4-20250929").
+	ModelID string
+	// ContextLimit is the maximum context window in tokens.
+	ContextLimit int
+	// OutputLimit is the maximum output tokens.
+	OutputLimit int
+	// Reasoning indicates if the model supports reasoning/thinking.
+	Reasoning bool
+	// Streaming indicates if the model supports streaming.
+	Streaming bool
+}
+
+// ModelResolutionResult reports model chain resolution outcome.
+type ModelResolutionResult struct {
+	// Model is the selected model in "provider/model" format.
+	Model string
+	// Capabilities describes the selected model.
+	Capabilities ModelCapabilities
+	// Attempted lists models tried before success.
+	Attempted []string
+	// Error describes resolution failures (empty if success).
+	Error string
 }
 
 // ExtensionEntry represents persisted extension data stored in the session.
