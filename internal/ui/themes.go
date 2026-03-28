@@ -129,13 +129,20 @@ type presetColors struct {
 }
 
 func makeTheme(p presetColors) Theme {
-	ac := func(pair [2]string) color.Color { return AdaptiveColor(pair[0], pair[1]) }
 	def := DefaultTheme()
-	acOr := func(pair [2]string, fb color.Color) color.Color {
+	ac := func(pair [2]string) color.Color {
+		c := AdaptiveColor(pair[0], pair[1])
 		if pair[0] == "" && pair[1] == "" {
+			return nil
+		}
+		return c
+	}
+	acOr := func(pair [2]string, fb color.Color) color.Color {
+		c := ac(pair)
+		if c == nil {
 			return fb
 		}
-		return ac(pair)
+		return c
 	}
 	t := Theme{
 		Primary:     ac(p.primary),

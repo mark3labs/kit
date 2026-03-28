@@ -47,46 +47,56 @@ func LoadExtensions(extraPaths []string) ([]LoadedExtension, error) {
 	return loaded, nil
 }
 
+// pathSet is a thread-safe helper for deduplicating and ordering file paths.
+type pathSet struct {
+	m    map[string]bool
+	list []string
+}
+
+func newPathSet() *pathSet {
+	return &pathSet{m: make(map[string]bool)}
+}
+
+func (ps *pathSet) add(p string) bool {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return false
+	}
+	if ps.m[abs] {
+		return false
+	}
+	ps.m[abs] = true
+	ps.list = append(ps.list, abs)
+	return true
+}
+
 // discoverExtensionPaths returns deduplicated paths to extension files in
 // load-order (global first, then project-local, then explicit).
 func discoverExtensionPaths(extraPaths []string) []string {
-	seen := make(map[string]bool)
-	var paths []string
-
-	add := func(p string) {
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			return
-		}
-		if seen[abs] {
-			return
-		}
-		seen[abs] = true
-		paths = append(paths, abs)
-	}
+	ps := newPathSet()
 
 	// Global extensions: $XDG_CONFIG_HOME/kit/extensions/ (default ~/.config/kit/extensions/)
 	globalDir := globalExtensionsDir()
 	for _, p := range findExtensionsInDir(globalDir) {
-		add(p)
+		ps.add(p)
 	}
 
 	// Global installed git packages: $XDG_DATA_HOME/kit/git/
 	globalGitDir := globalGitInstallRoot()
 	for _, p := range findExtensionsInGitPackages(globalGitDir) {
-		add(p)
+		ps.add(p)
 	}
 
 	// Project-local extensions: .kit/extensions/
 	localDir := filepath.Join(".kit", "extensions")
 	for _, p := range findExtensionsInDir(localDir) {
-		add(p)
+		ps.add(p)
 	}
 
 	// Project-local installed git packages: .kit/git/
 	projectGitDir := filepath.Join(".kit", "git")
 	for _, p := range findExtensionsInGitPackages(projectGitDir) {
-		add(p)
+		ps.add(p)
 	}
 
 	// Explicit paths (highest precedence)
@@ -97,14 +107,14 @@ func discoverExtensionPaths(extraPaths []string) []string {
 		}
 		if info.IsDir() {
 			for _, found := range findExtensionsInDir(p) {
-				add(found)
+				ps.add(found)
 			}
 		} else if strings.HasSuffix(p, ".go") {
-			add(p)
+			ps.add(p)
 		}
 	}
 
-	return paths
+	return ps.list
 }
 
 // findExtensionsInDir returns .go files in dir and main.go in immediate subdirs.

@@ -42,13 +42,13 @@ func ExtensionToolsAsFantasy(defs []ToolDef, runner *Runner) []fantasy.AgentTool
 
 // coreToolKinds maps built-in tool names to their kind classification.
 var coreToolKinds = map[string]string{
-	"bash":           "execute",
-	"edit":           "edit",
-	"write":          "edit",
-	"read":           "read",
-	"ls":             "read",
-	"grep":           "search",
-	"find":           "search",
+	"bash":     "execute",
+	"edit":     "edit",
+	"write":    "edit",
+	"read":     "read",
+	"ls":       "read",
+	"grep":     "search",
+	"find":     "search",
 	"subagent": "agent",
 }
 

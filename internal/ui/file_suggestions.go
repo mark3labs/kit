@@ -355,5 +355,3 @@ func scoreFilePath(query, path string) int {
 
 	return 0
 }
-
-

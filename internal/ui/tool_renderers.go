@@ -26,6 +26,14 @@ const (
 	maxLsLines    = 20 // lines for Ls directory listings
 )
 
+// isShellTool reports if the tool name matches a shell-like tool (bash, grep, find, or
+// tools with "shell"/"command" in the name). Used by both renderToolBody and
+// renderToolBodyCompact to avoid code duplication.
+func isShellTool(toolName string) bool {
+	return toolName == "bash" || toolName == "grep" || toolName == "find" ||
+		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command")
+}
+
 // renderToolBody dispatches to tool-specific body renderers based on tool name.
 // Returns the styled body string, or empty string to fall back to default rendering.
 func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
@@ -46,8 +54,7 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		if body := renderWriteBody(toolArgs, toolResult, width); body != "" {
 			return body
 		}
-	case toolName == "bash" || toolName == "grep" || toolName == "find" ||
-		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
+	case isShellTool(toolName):
 		if body := renderBashBody(toolResult, width); body != "" {
 			return body
 		}
@@ -777,8 +784,7 @@ func renderToolBodyCompact(toolName, toolArgs, toolResult string, width int) str
 		return renderReadCompact(toolResult)
 	case toolName == "write":
 		return renderWriteCompact(toolArgs)
-	case toolName == "bash" || toolName == "grep" || toolName == "find" ||
-		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command"):
+	case isShellTool(toolName):
 		return renderBashCompact(toolResult, width)
 	case toolName == "subagent":
 		return renderSubagentCompact(toolResult)

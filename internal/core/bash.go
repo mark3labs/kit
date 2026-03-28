@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,20 +40,8 @@ func toolOutputCallbackFromContext(ctx context.Context) ToolOutputCallback {
 const defaultBashTimeout = 120 * time.Second
 const maxBashTimeout = 600 * time.Second
 
-var bannedCommands = []string{
-	"alias ", "bg ", "bind ", "builtin ",
-	"caller ", "command ", "compgen ",
-	"complete ", "compopt ", "coproc ",
-	"dirs ", "disown ", "enable ",
-	"fc ", "fg ", "hash ", "help ",
-	"history ", "jobs ", "kill ",
-	"logout ", "mapfile ", "popd ",
-	"pushd ", "readonly ", "select ",
-	"set ", "shopt ", "source ",
-	"suspend ", "times ", "trap ",
-	"type ", "typeset ", "ulimit ",
-	"umask ", "unalias ", "wait ",
-}
+// bannedCmdRe matches bash builtin commands that are not allowed for security reasons.
+var bannedCmdRe = regexp.MustCompile(`^(alias|bg|bind|builtin|caller|command|compgen|complete|compopt|coproc|dirs|disown|enable|fc|fg|hash|help|history|jobs|kill|logout|mapfile|popd|pushd|readonly|select|set|shopt|source|suspend|times|trap|type|typeset|ulimit|umask|unalias|wait)\s`)
 
 type bashArgs struct {
 	Command string  `json:"command"`
@@ -94,10 +83,8 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	// Check for banned commands
-	for _, banned := range bannedCommands {
-		if strings.HasPrefix(args.Command, banned) {
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("command '%s' is not allowed", args.Command)), nil
-		}
+	if bannedCmdRe.MatchString(args.Command) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("command '%s' is not allowed", args.Command)), nil
 	}
 
 	// Determine timeout
