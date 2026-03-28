@@ -128,12 +128,12 @@ Key flags for subprocess usage:
 
 Positional arguments are the prompt. `@file` arguments attach file content as context.
 
-## Built-in spawn_subagent tool
+## Built-in subagent tool
 
-Kit includes a built-in `spawn_subagent` tool that the LLM can use to delegate tasks to independent child agents:
+Kit includes a built-in `subagent` tool that the LLM can use to delegate tasks to independent child agents:
 
 ```
-spawn_subagent(
+subagent(
     task: "Analyze the test files and summarize coverage",
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
@@ -157,7 +157,7 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 
 ### Monitoring subagents from extensions
 
-When the LLM (not the extension itself) spawns a subagent using the `spawn_subagent` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
+When the LLM (not the extension itself) spawns a subagent using the `subagent` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
 
 ```go
 // Track active subagents and display their output
@@ -243,11 +243,11 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 
 ### Real-time subagent events
 
-Use `SubscribeSubagent` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the `spawn_subagent` tool). Register inside an `OnToolCall` handler using the tool call ID:
+Use `SubscribeSubagent` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the `subagent` tool). Register inside an `OnToolCall` handler using the tool call ID:
 
 ```go
 host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "spawn_subagent" {
+    if e.ToolName == "subagent" {
         host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
             switch ev := event.(type) {
             case kit.MessageUpdateEvent:
@@ -1058,7 +1058,7 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 
 ### Monitoring subagents spawned by the main agent
 
-When the LLM uses the built-in `spawn_subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+When the LLM uses the built-in `subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
 
 ```go
 // Subagent started
@@ -2023,7 +2023,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 ## Features
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
-- **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, spawn_subagent with no MCP overhead
+- **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead
 - **MCP Integration** — Connect external MCP servers for expanded capabilities
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
@@ -2424,11 +2424,11 @@ The first argument is a priority (lower = runs first).
 
 ## Subagent event monitoring
 
-Monitor real-time events from LLM-initiated subagents (when the model uses the `spawn_subagent` tool):
+Monitor real-time events from LLM-initiated subagents (when the model uses the `subagent` tool):
 
 ```go
 host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "spawn_subagent" {
+    if e.ToolName == "subagent" {
         host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
             // Receives the same event types as Subscribe(), scoped to the child agent
             switch ev := event.(type) {

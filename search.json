@@ -30,7 +30,7 @@
       "description": "Multi-agent orchestration with Kit subagents.",
       "headings": [
         "Subprocess pattern",
-        "Built-in spawn_subagent tool",
+        "Built-in subagent tool",
         "Extension subagents",
         "Monitoring subagents from extensions",
         "Go SDK subagents",

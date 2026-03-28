@@ -40,9 +40,9 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 </tbody>
 </table>
 <p>Positional arguments are the prompt. <code>@file</code> arguments attach file content as context.</p>
-<h2 id="built-in-spawn_subagent-tool"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#built-in-spawn_subagent-tool"><span class="icon icon-link"></span></a>Built-in spawn_subagent tool</h2>
-<p>Kit includes a built-in <code>spawn_subagent</code> tool that the LLM can use to delegate tasks to independent child agents:</p>
-<pre><code>spawn_subagent(
+<h2 id="built-in-subagent-tool"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#built-in-subagent-tool"><span class="icon icon-link"></span></a>Built-in subagent tool</h2>
+<p>Kit includes a built-in <code>subagent</code> tool that the LLM can use to delegate tasks to independent child agents:</p>
+<pre><code>subagent(
     task: "Analyze the test files and summarize coverage",
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
@@ -58,7 +58,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a security auditor."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h3 id="monitoring-subagents-from-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-from-extensions"><span class="icon icon-link"></span></a>Monitoring subagents from extensions</h3>
-<p>When the LLM (not the extension itself) spawns a subagent using the <code>spawn_subagent</code> tool, extensions can monitor its activity in real-time using three lifecycle event handlers:</p>
+<p>When the LLM (not the extension itself) spawns a subagent using the <code>subagent</code> tool, extensions can monitor its activity in real-time using three lifecycle event handlers:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Track active subagents and display their output</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">var</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> subagentWidgets </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentWidget</span></span>
 <span class="line"></span>
@@ -129,9 +129,9 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:      </span><span style="color:#005CC5;--shiki-dark:#79B8FF">5</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h3 id="real-time-subagent-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#real-time-subagent-events"><span class="icon icon-link"></span></a>Real-time subagent events</h3>
-<p>Use <code>SubscribeSubagent</code> to receive real-time events from LLM-initiated subagents (i.e., when the model uses the <code>spawn_subagent</code> tool). Register inside an <code>OnToolCall</code> handler using the tool call ID:</p>
+<p>Use <code>SubscribeSubagent</code> to receive real-time events from LLM-initiated subagents (i.e., when the model uses the <code>subagent</code> tool). Register inside an <code>OnToolCall</code> handler using the tool call ID:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> e.ToolName </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "spawn_subagent"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> e.ToolName </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "subagent"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubscribeSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(e.ToolCallID, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">event</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Event</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ev </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> event.(</span><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            case</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MessageUpdateEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
@@ -145,7 +145,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in spawn_subagent tool",id:"built-in-spawn_subagent-tool"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
+<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in subagent tool",id:"built-in-subagent-tool"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
@@ -175,12 +175,12 @@ Key flags for subprocess usage:
 
 Positional arguments are the prompt. \`@file\` arguments attach file content as context.
 
-## Built-in spawn_subagent tool
+## Built-in subagent tool
 
-Kit includes a built-in \`spawn_subagent\` tool that the LLM can use to delegate tasks to independent child agents:
+Kit includes a built-in \`subagent\` tool that the LLM can use to delegate tasks to independent child agents:
 
 \`\`\`
-spawn_subagent(
+subagent(
     task: "Analyze the test files and summarize coverage",
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
@@ -204,7 +204,7 @@ result := ctx.SpawnSubagent(ext.SubagentConfig{
 
 ### Monitoring subagents from extensions
 
-When the LLM (not the extension itself) spawns a subagent using the \`spawn_subagent\` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
+When the LLM (not the extension itself) spawns a subagent using the \`subagent\` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
 
 \`\`\`go
 // Track active subagents and display their output
@@ -290,11 +290,11 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 
 ### Real-time subagent events
 
-Use \`SubscribeSubagent\` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the \`spawn_subagent\` tool). Register inside an \`OnToolCall\` handler using the tool call ID:
+Use \`SubscribeSubagent\` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the \`subagent\` tool). Register inside an \`OnToolCall\` handler using the tool call ID:
 
 \`\`\`go
 host.OnToolCall(func(e kit.ToolCallEvent) {
-    if e.ToolName == "spawn_subagent" {
+    if e.ToolName == "subagent" {
         host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
             switch ev := event.(type) {
             case kit.MessageUpdateEvent:

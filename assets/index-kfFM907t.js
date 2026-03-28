@@ -5,7 +5,7 @@ const n={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
 <h2 id="features"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#features"><span class="icon icon-link"></span></a>Features</h2>
 <ul>
 <li><strong>Multi-Provider LLM Support</strong> — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more</li>
-<li><strong>Built-in Core Tools</strong> — bash, read, write, edit, grep, find, ls, spawn_subagent with no MCP overhead</li>
+<li><strong>Built-in Core Tools</strong> — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead</li>
 <li><strong>MCP Integration</strong> — Connect external MCP servers for expanded capabilities</li>
 <li><strong>Extension System</strong> — Write custom tools, commands, widgets, and UI modifications in Go</li>
 <li><strong>Interactive TUI</strong> — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering</li>
@@ -54,7 +54,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 ## Features
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
-- **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, spawn_subagent with no MCP overhead
+- **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead
 - **MCP Integration** — Connect external MCP servers for expanded capabilities
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
