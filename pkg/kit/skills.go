@@ -91,22 +91,12 @@ var globalSkillCache skillCache
 func (m *Kit) DiscoverSkillsForExtension() []extensions.Skill {
 	cwd, _ := os.Getwd()
 
-	// Check cache first
-	globalSkillCache.mu.RLock()
-	if len(globalSkillCache.skills) > 0 {
-		globalSkillCache.mu.RUnlock()
-		return m.convertSkills(globalSkillCache.skills)
-	}
-	globalSkillCache.mu.RUnlock()
-
-	// Load fresh
-	skillList, _ := skills.LoadSkills(cwd)
-
 	globalSkillCache.mu.Lock()
-	globalSkillCache.skills = skillList
-	globalSkillCache.mu.Unlock()
-
-	return m.convertSkills(skillList)
+	defer globalSkillCache.mu.Unlock()
+	if len(globalSkillCache.skills) == 0 {
+		globalSkillCache.skills, _ = skills.LoadSkills(cwd)
+	}
+	return m.convertSkills(globalSkillCache.skills)
 }
 
 // LoadSkillForExtension loads a single skill file for extensions.
@@ -140,12 +130,10 @@ func (m *Kit) convertSkill(s *skills.Skill) *extensions.Skill {
 }
 
 // convertSkills converts a slice of skills.
-func (m *Kit) convertSkills(skills []*skills.Skill) []extensions.Skill {
-	result := make([]extensions.Skill, 0, len(skills))
-	for _, s := range skills {
-		if converted := m.convertSkill(s); converted != nil {
-			result = append(result, *converted)
-		}
+func (m *Kit) convertSkills(skillList []*skills.Skill) []extensions.Skill {
+	result := make([]extensions.Skill, 0, len(skillList))
+	for _, s := range skillList {
+		result = append(result, *m.convertSkill(s))
 	}
 	return result
 }

@@ -59,29 +59,12 @@ type MockContext struct {
 	Overlays []extensions.OverlayConfig
 }
 
-// StatusBarEntry represents a recorded status bar entry
-type StatusBarEntry struct {
-	Key      string
-	Text     string
-	Priority int
-}
-
 // NewMockContext creates a new mock context with default values.
 func NewMockContext() *MockContext {
 	return &MockContext{
-		Prints:        make([]string, 0),
-		PrintInfos:    make([]string, 0),
-		PrintErrors:   make([]string, 0),
-		PrintBlocks:   make([]extensions.PrintBlockOpts, 0),
-		Messages:      make([]string, 0),
-		CancelSends:   make([]string, 0),
 		Widgets:       make(map[string]extensions.WidgetConfig),
-		RemovedIDs:    make([]string, 0),
 		StatusEntries: make(map[string]extensions.StatusBarEntry),
-		RemovedStatus: make([]string, 0),
-		EditorTexts:   make([]string, 0),
 		Options:       make(map[string]string),
-		Overlays:      make([]extensions.OverlayConfig, 0),
 		Interactive:   true,
 		SessionID:     "test-session",
 		CWD:           "/test",

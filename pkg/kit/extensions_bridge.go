@@ -104,11 +104,9 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
 			if ev, ok := e.(TurnEndEvent); ok {
-				stopReason := ev.StopReason
-				response := ev.Response
+				stopReason, response := ev.StopReason, ev.Response
 				if ev.Error != nil {
-					stopReason = "error"
-					response = ""
+					stopReason, response = "error", ""
 				} else if stopReason == "" {
 					stopReason = "completed"
 				}
@@ -141,7 +139,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		// taskByCallID tracks the task description extracted from ToolCall input,
 		// keyed by toolCallID. Populated on ToolCall, consumed on ToolResult.
 		taskByCallID := make(map[string]string)
-		var taskMu = &taskMutex{}
+		var taskMu sync.Mutex
 
 		// Intercept ToolCall to capture the task and subscribe to child events.
 		m.Subscribe(func(e Event) {
@@ -157,7 +155,9 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 					task = t
 				}
 			}
-			taskMu.set(taskByCallID, ev.ToolCallID, task)
+			taskMu.Lock()
+			taskByCallID[ev.ToolCallID] = task
+			taskMu.Unlock()
 
 			// Subscribe to child events so we can forward them as SubagentChunkEvents.
 			if runner.HasHandlers(extensions.SubagentChunk) {
@@ -204,7 +204,9 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 				if !ok || ev.ToolName != "subagent" {
 					return
 				}
-				task := taskMu.get(taskByCallID, ev.ToolCallID)
+				taskMu.Lock()
+				task := taskByCallID[ev.ToolCallID]
+				taskMu.Unlock()
 				_, _ = runner.Emit(extensions.SubagentStartEvent{
 					ToolCallID: ev.ToolCallID,
 					Task:       task,
@@ -219,8 +221,10 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 				if !ok || ev.ToolName != "subagent" {
 					return
 				}
-				task := taskMu.get(taskByCallID, ev.ToolCallID)
-				taskMu.del(taskByCallID, ev.ToolCallID)
+				taskMu.Lock()
+				task := taskByCallID[ev.ToolCallID]
+				delete(taskByCallID, ev.ToolCallID)
+				taskMu.Unlock()
 				errMsg := ""
 				if ev.IsError {
 					errMsg = ev.Result
@@ -325,26 +329,3 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	}
 }
 
-// taskMutex is a simple mutex-protected map helper used by bridgeExtensions.
-// It lives in this file to avoid polluting the kit package with unexported types.
-type taskMutex struct {
-	mu sync.Mutex
-}
-
-func (t *taskMutex) set(m map[string]string, key, val string) {
-	t.mu.Lock()
-	m[key] = val
-	t.mu.Unlock()
-}
-
-func (t *taskMutex) get(m map[string]string, key string) string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return m[key]
-}
-
-func (t *taskMutex) del(m map[string]string, key string) {
-	t.mu.Lock()
-	delete(m, key)
-	t.mu.Unlock()
-}

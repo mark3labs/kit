@@ -78,20 +78,16 @@ func InitConfig(configFile string, debug bool) error {
 	viper.AddConfigPath(home)
 
 	configLoaded := false
-	configNames := []string{".kit"}
 
-	for _, name := range configNames {
-		viper.SetConfigName(name)
-		if err := viper.ReadInConfig(); err == nil {
-			configPath := viper.ConfigFileUsed()
-			if err := LoadConfigWithEnvSubstitution(configPath); err != nil {
-				if strings.Contains(err.Error(), "environment variable substitution failed") {
-					return fmt.Errorf("error reading config file '%s': %w", configPath, err)
-				}
-				continue
+	viper.SetConfigName(".kit")
+	if err := viper.ReadInConfig(); err == nil {
+		configPath := viper.ConfigFileUsed()
+		if err := LoadConfigWithEnvSubstitution(configPath); err != nil {
+			if strings.Contains(err.Error(), "environment variable substitution failed") {
+				return fmt.Errorf("error reading config file '%s': %w", configPath, err)
 			}
+		} else {
 			configLoaded = true
-			break
 		}
 	}
 

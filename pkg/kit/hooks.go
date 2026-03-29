@@ -167,8 +167,13 @@ func (hr *hookRegistry[In, Out]) register(p HookPriority, h func(In) *Out) func(
 }
 
 // run executes all hooks in priority order. The first non-nil result wins.
+// Returns nil immediately if no hooks are registered.
 func (hr *hookRegistry[In, Out]) run(input In) *Out {
 	hr.mu.RLock()
+	if len(hr.hooks) == 0 {
+		hr.mu.RUnlock()
+		return nil
+	}
 	snapshot := make([]hookEntry[In, Out], len(hr.hooks))
 	copy(snapshot, hr.hooks)
 	hr.mu.RUnlock()

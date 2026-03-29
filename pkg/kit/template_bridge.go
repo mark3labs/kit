@@ -3,6 +3,7 @@ package kit
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
@@ -34,16 +35,17 @@ func ParseTemplate(name, content string) extensions.PromptTemplate {
 }
 
 // RenderTemplate substitutes variables into template content.
+// Handles {{name}} and {{ name }} (any whitespace) placeholders.
 func RenderTemplate(tpl extensions.PromptTemplate, vars map[string]string) string {
-	result := tpl.Content
-	for name, value := range vars {
-		placeholder := "{{" + name + "}}"
-		result = strings.ReplaceAll(result, placeholder, value)
-		// Also handle with spaces
-		placeholderSpaced := "{{ " + name + " }}"
-		result = strings.ReplaceAll(result, placeholderSpaced, value)
-	}
-	return result
+	return varRegex.ReplaceAllStringFunc(tpl.Content, func(m string) string {
+		sub := varRegex.FindStringSubmatch(m)
+		if len(sub) > 1 {
+			if v, ok := vars[sub[1]]; ok {
+				return v
+			}
+		}
+		return m
+	})
 }
 
 // ParseArguments parses command-line style arguments.
@@ -58,13 +60,10 @@ func ParseArguments(input string, pattern extensions.ArgumentPattern) extensions
 		return result
 	}
 
-	// First field is the command itself (if present)
+	// First field is the command itself (if present); skip it.
 	startIdx := 0
 	if len(fields) > 0 && !strings.HasPrefix(fields[0], "-") {
-		// Check if it's a command name or positional arg
-		if len(pattern.Positional) == 0 || !isFlag(fields[0], pattern.Flags) {
-			startIdx = 1 // Skip command name
-		}
+		startIdx = 1
 	}
 
 	// Parse flags
@@ -224,16 +223,6 @@ func parseFields(input string) []string {
 	return fields
 }
 
-// isFlag checks if a field is a known flag.
-func isFlag(field string, flags map[string]string) bool {
-	if strings.HasPrefix(field, "--") {
-		return true
-	}
-	if strings.HasPrefix(field, "-") && len(field) > 1 {
-		return true
-	}
-	return false
-}
 
 // EvaluateModelConditional checks if condition matches current model.
 // Condition supports wildcards: * matches any, ? matches single char.
@@ -248,17 +237,24 @@ func EvaluateModelConditional(currentModel, condition string) bool {
 	return false
 }
 
-// matchModelPattern matches a model against a pattern with wildcards.
-func matchModelPattern(model, pattern string) bool {
-	// Convert pattern to regexp
-	pattern = strings.ReplaceAll(pattern, "*", ".*")
-	pattern = strings.ReplaceAll(pattern, "?", ".")
-	pattern = "^" + pattern + "$"
+// modelPatternCache caches compiled regexps for model glob patterns.
+var modelPatternCache sync.Map
 
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		// Fallback: exact match
-		return model == pattern
+// matchModelPattern matches a model against a pattern with wildcards.
+// Compiled regexps are cached to avoid recompilation on hot paths.
+func matchModelPattern(model, pattern string) bool {
+	rePattern := "^" + strings.ReplaceAll(strings.ReplaceAll(pattern, "*", ".*"), "?", ".") + "$"
+	var re *regexp.Regexp
+	if v, ok := modelPatternCache.Load(rePattern); ok {
+		re = v.(*regexp.Regexp)
+	} else {
+		compiled, err := regexp.Compile(rePattern)
+		if err != nil {
+			// Fallback: exact match
+			return model == pattern
+		}
+		modelPatternCache.Store(rePattern, compiled)
+		re = compiled
 	}
 	return re.MatchString(model)
 }

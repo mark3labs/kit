@@ -416,42 +416,6 @@ func (m *Kit) OnTurnEnd(handler func(TurnEndEvent)) func() {
 // Subagent event subscriptions
 // ---------------------------------------------------------------------------
 
-// subagentListenerSet holds per-tool-call listeners for subagent events.
-type subagentListenerSet struct {
-	mu        sync.RWMutex
-	listeners map[int]EventListener
-	nextID    int
-}
-
-func newSubagentListenerSet() *subagentListenerSet {
-	return &subagentListenerSet{listeners: make(map[int]EventListener)}
-}
-
-func (s *subagentListenerSet) add(listener EventListener) func() {
-	s.mu.Lock()
-	id := s.nextID
-	s.nextID++
-	s.listeners[id] = listener
-	s.mu.Unlock()
-	return func() {
-		s.mu.Lock()
-		delete(s.listeners, id)
-		s.mu.Unlock()
-	}
-}
-
-func (s *subagentListenerSet) emit(event Event) {
-	s.mu.RLock()
-	snapshot := make([]EventListener, 0, len(s.listeners))
-	for _, l := range s.listeners {
-		snapshot = append(snapshot, l)
-	}
-	s.mu.RUnlock()
-	for _, l := range snapshot {
-		l(event)
-	}
-}
-
 // SubscribeSubagent registers a listener for real-time events from a subagent
 // identified by its tool call ID. Returns an unsubscribe function.
 //
@@ -470,14 +434,14 @@ func (s *subagentListenerSet) emit(event Event) {
 //	    }
 //	})
 func (m *Kit) SubscribeSubagent(toolCallID string, listener EventListener) func() {
-	actual, _ := m.subagentListeners.LoadOrStore(toolCallID, newSubagentListenerSet())
-	return actual.(*subagentListenerSet).add(listener)
+	actual, _ := m.subagentListeners.LoadOrStore(toolCallID, newEventBus())
+	return actual.(*eventBus).subscribe(listener)
 }
 
 // getSubagentListenerSet returns the listener set for a tool call, or nil.
-func (m *Kit) getSubagentListenerSet(toolCallID string) *subagentListenerSet {
+func (m *Kit) getSubagentListenerSet(toolCallID string) *eventBus {
 	if v, ok := m.subagentListeners.Load(toolCallID); ok {
-		return v.(*subagentListenerSet)
+		return v.(*eventBus)
 	}
 	return nil
 }

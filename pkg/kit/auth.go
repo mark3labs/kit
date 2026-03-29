@@ -1,6 +1,10 @@
 package kit
 
-import "github.com/mark3labs/kit/internal/auth"
+import (
+	"os"
+
+	"github.com/mark3labs/kit/internal/auth"
+)
 
 // CredentialManager manages API keys and OAuth credentials.
 type CredentialManager = auth.CredentialManager
@@ -66,14 +70,12 @@ func HasOpenAICredentials() bool {
 // Returns an empty string if no key is found.
 func GetOpenAIAPIKey() string {
 	cm, err := auth.NewCredentialManager()
-	if err != nil {
-		return ""
-	}
-	// Try to get valid access token (handles OAuth refresh)
-	token, err := cm.GetValidOpenAIAccessToken()
-	if err == nil && token != "" {
-		return token
+	if err == nil {
+		// Try to get valid access token (handles OAuth refresh)
+		if token, err := cm.GetValidOpenAIAccessToken(); err == nil && token != "" {
+			return token
+		}
 	}
 	// Fall back to environment variable
-	return ""
+	return os.Getenv("OPENAI_API_KEY")
 }

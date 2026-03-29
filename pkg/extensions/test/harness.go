@@ -52,7 +52,6 @@ type Harness struct {
 	t       *testing.T
 	runner  *extensions.Runner
 	context *MockContext
-	extPath string
 }
 
 // New creates a new test harness for the given test.
@@ -72,15 +71,9 @@ func New(t *testing.T) *Harness {
 func (h *Harness) LoadFile(path string) *extensions.LoadedExtension {
 	h.t.Helper()
 
-	// Verify file exists
-	if _, err := os.Stat(path); err != nil {
-		h.t.Fatalf("extension file not found: %s: %v", path, err)
-	}
-
-	// Read extension source
 	src, err := os.ReadFile(path)
 	if err != nil {
-		h.t.Fatalf("failed to read extension file: %v", err)
+		h.t.Fatalf("failed to read extension file %s: %v", path, err)
 	}
 
 	return h.loadSource(string(src), path)
@@ -144,7 +137,6 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 
 	// Create runner with the loaded extension
 	h.runner = extensions.NewRunner([]extensions.LoadedExtension{*ext})
-	h.extPath = path
 
 	// Wire the mock context
 	h.runner.SetContext(h.context.ToContext())
@@ -223,10 +215,3 @@ func (h *Harness) RegisteredCommands() []extensions.CommandDef {
 	return h.runner.RegisteredCommands()
 }
 
-// MustLoad is like LoadFile but fails the test immediately on error.
-// It returns the harness for chaining.
-func (h *Harness) MustLoad(path string) *Harness {
-	h.t.Helper()
-	h.LoadFile(path)
-	return h
-}

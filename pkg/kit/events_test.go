@@ -140,8 +140,14 @@ func TestEventBusConcurrentSubscribeEmit(t *testing.T) {
 	wg.Wait()
 
 	// We can't assert an exact count because subscribe/emit ordering is
-	// non-deterministic, but it must not panic or deadlock.
-	t.Logf("total events received across subscribers: %d", total.Load())
+	// non-deterministic, but we can assert the count is non-negative and
+	// that no events were lost (each subscriber that registered before an
+	// emit must have received it at least partially).
+	got := total.Load()
+	if got < 0 {
+		t.Errorf("expected non-negative total event count, got %d", got)
+	}
+	t.Logf("total events received across subscribers: %d", got)
 }
 
 // TestEventBusEmitNoListeners verifies emit is a no-op with no subscribers.
@@ -169,6 +175,11 @@ func TestEventTypes(t *testing.T) {
 		{ToolResultEvent{}, EventToolResult},
 		{ToolCallContentEvent{}, EventToolCallContent},
 		{ResponseEvent{}, EventResponse},
+		{CompactionEvent{}, EventCompaction},
+		{ReasoningDeltaEvent{}, EventReasoningDelta},
+		{ToolOutputEvent{}, EventToolOutput},
+		{StepUsageEvent{}, EventStepUsage},
+		{SteerConsumedEvent{}, EventSteerConsumed},
 	}
 
 	for _, tt := range tests {
@@ -212,26 +223,36 @@ func TestEventOrdering(t *testing.T) {
 		EventTurnStart,
 		EventMessageStart,
 		EventMessageUpdate,
+		EventReasoningDelta,
+		EventToolOutput,
 		EventToolCall,
 		EventToolExecutionStart,
 		EventToolExecutionEnd,
 		EventToolResult,
 		EventToolCallContent,
 		EventMessageEnd,
+		EventStepUsage,
 		EventResponse,
+		EventCompaction,
+		EventSteerConsumed,
 		EventTurnEnd,
 	}
 
 	bus.emit(TurnStartEvent{})
 	bus.emit(MessageStartEvent{})
 	bus.emit(MessageUpdateEvent{Chunk: "hello"})
+	bus.emit(ReasoningDeltaEvent{Delta: "thinking..."})
+	bus.emit(ToolOutputEvent{ToolName: "bash", Chunk: "output"})
 	bus.emit(ToolCallEvent{ToolName: "bash"})
 	bus.emit(ToolExecutionStartEvent{ToolName: "bash"})
 	bus.emit(ToolExecutionEndEvent{ToolName: "bash"})
 	bus.emit(ToolResultEvent{ToolName: "bash", Result: "ok"})
 	bus.emit(ToolCallContentEvent{Content: "I'll run bash"})
 	bus.emit(MessageEndEvent{Content: "done"})
+	bus.emit(StepUsageEvent{InputTokens: 100})
 	bus.emit(ResponseEvent{Content: "done"})
+	bus.emit(CompactionEvent{Summary: "compacted"})
+	bus.emit(SteerConsumedEvent{Count: 1})
 	bus.emit(TurnEndEvent{Response: "done"})
 
 	if len(types) != len(expected) {

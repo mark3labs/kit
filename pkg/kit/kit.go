@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	charmlog "github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
@@ -1423,14 +1423,13 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			case msg := <-steerCh:
 				leftover = append(leftover, msg)
 			default:
-				goto drained
+				m.steerMu.Lock()
+				m.steerCh = nil
+				m.leftoverSteer = leftover
+				m.steerMu.Unlock()
+				return
 			}
 		}
-	drained:
-		m.steerMu.Lock()
-		m.steerCh = nil
-		m.leftoverSteer = leftover
-		m.steerMu.Unlock()
 	}()
 	ctx = agent.ContextWithSteerCh(ctx, steerCh)
 	ctx = agent.ContextWithSteerConsumed(ctx, func(count int) {
@@ -1526,8 +1525,12 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			// Emit step usage event for real-time cost tracking
 			if viper.GetBool("debug") {
-				log.Printf("[DEBUG] Kit.generate emitting StepUsageEvent: input=%d output=%d cacheRead=%d cacheCreate=%d",
-					inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+				charmlog.Debug("Kit.generate emitting StepUsageEvent",
+					"input", inputTokens,
+					"output", outputTokens,
+					"cacheRead", cacheReadTokens,
+					"cacheCreate", cacheCreationTokens,
+				)
 			}
 			m.events.emit(StepUsageEvent{
 				InputTokens:      uint64(inputTokens),
@@ -1568,30 +1571,28 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Run BeforeTurn hooks — can modify the prompt, inject system/context messages.
-	if m.beforeTurn.hasHooks() {
-		if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
-			// Override prompt text in the last user message, preserving
-			// any file parts (e.g. clipboard images).
-			if hookResult.Prompt != nil {
-				for i := len(preMessages) - 1; i >= 0; i-- {
-					if preMessages[i].Role == fantasy.MessageRoleUser {
-						files := extractFileParts(preMessages[i])
-						preMessages[i] = fantasy.NewUserMessage(*hookResult.Prompt, files...)
-						break
-					}
+	if hookResult := m.beforeTurn.run(BeforeTurnHook{Prompt: prompt}); hookResult != nil {
+		// Override prompt text in the last user message, preserving
+		// any file parts (e.g. clipboard images).
+		if hookResult.Prompt != nil {
+			for i := len(preMessages) - 1; i >= 0; i-- {
+				if preMessages[i].Role == fantasy.MessageRoleUser {
+					files := extractFileParts(preMessages[i])
+					preMessages[i] = fantasy.NewUserMessage(*hookResult.Prompt, files...)
+					break
 				}
 			}
-			// Inject messages before the original preMessages.
-			var injected []fantasy.Message
-			if hookResult.SystemPrompt != nil {
-				injected = append(injected, fantasy.NewSystemMessage(*hookResult.SystemPrompt))
-			}
-			if hookResult.InjectText != nil {
-				injected = append(injected, fantasy.NewUserMessage(*hookResult.InjectText))
-			}
-			if len(injected) > 0 {
-				preMessages = append(injected, preMessages...)
-			}
+		}
+		// Inject messages before the original preMessages.
+		var injected []fantasy.Message
+		if hookResult.SystemPrompt != nil {
+			injected = append(injected, fantasy.NewSystemMessage(*hookResult.SystemPrompt))
+		}
+		if hookResult.InjectText != nil {
+			injected = append(injected, fantasy.NewUserMessage(*hookResult.InjectText))
+		}
+		if len(injected) > 0 {
+			preMessages = append(injected, preMessages...)
 		}
 	}
 
@@ -1609,10 +1610,8 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	messages := m.treeSession.GetFantasyMessages()
 
 	// Run ContextPrepare hooks — extensions can filter, reorder, or inject messages.
-	if m.contextPrepare.hasHooks() {
-		if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
-			messages = hookResult.Messages
-		}
+	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
+		messages = hookResult.Messages
 	}
 
 	sentCount := len(messages)
@@ -1636,9 +1635,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		}
 		m.events.emit(TurnEndEvent{Error: err})
 		// Run AfterTurn hooks even on error.
-		if m.afterTurn.hasHooks() {
-			m.afterTurn.run(AfterTurnHook{Error: err})
-		}
+		m.afterTurn.run(AfterTurnHook{Error: err})
 		return nil, err
 	}
 
@@ -1669,9 +1666,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	m.events.emit(TurnEndEvent{Response: responseText, StopReason: stopReason})
 
 	// Run AfterTurn hooks.
-	if m.afterTurn.hasHooks() {
-		m.afterTurn.run(AfterTurnHook{Response: responseText})
-	}
+	m.afterTurn.run(AfterTurnHook{Response: responseText})
 
 	// Build TurnResult with usage stats.
 	turnResult := &TurnResult{

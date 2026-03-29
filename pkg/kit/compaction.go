@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"charm.land/fantasy"
@@ -16,6 +17,10 @@ type ContextStats struct {
 	UsagePercent    float64 // Fraction of context used (0.0–1.0), 0 if limit unknown
 	MessageCount    int     // Number of messages in the conversation
 }
+
+// defaultReserveTokens is the number of tokens to keep free in the context
+// window as a safety margin during compaction checks.
+const defaultReserveTokens = 16384
 
 // EstimateContextTokens returns the estimated token count of the current
 // conversation based on tree session messages.
@@ -34,7 +39,7 @@ func (m *Kit) ShouldCompact() bool {
 		return false
 	}
 
-	reserveTokens := 16384
+	reserveTokens := defaultReserveTokens
 	if m.compactionOpts != nil && m.compactionOpts.ReserveTokens > 0 {
 		reserveTokens = m.compactionOpts.ReserveTokens
 	}
@@ -131,7 +136,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 				if reason == "" {
 					reason = "compaction cancelled by extension"
 				}
-				return nil, fmt.Errorf("%s", reason)
+				return nil, errors.New(reason)
 			}
 			// Extension provided a custom summary — use it directly.
 			if hookResult.Summary != "" {
@@ -166,26 +171,9 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 		firstKeptEntryID = entryIDs[result.CutPoint]
 	}
 
-	if _, err := m.treeSession.AppendCompaction(
-		result.Summary,
-		firstKeptEntryID,
-		result.OriginalTokens,
-		result.CompactedTokens,
-		result.MessagesRemoved,
-		result.ReadFiles,
-		result.ModifiedFiles,
-	); err != nil {
-		return nil, fmt.Errorf("failed to persist compaction entry: %w", err)
+	if err := m.persistAndEmitCompaction(result.Summary, firstKeptEntryID, result.OriginalTokens, result.CompactedTokens, result.MessagesRemoved, result.ReadFiles, result.ModifiedFiles); err != nil {
+		return nil, err
 	}
-
-	m.events.emit(CompactionEvent{
-		Summary:         result.Summary,
-		OriginalTokens:  result.OriginalTokens,
-		CompactedTokens: result.CompactedTokens,
-		MessagesRemoved: result.MessagesRemoved,
-		ReadFiles:       result.ReadFiles,
-		ModifiedFiles:   result.ModifiedFiles,
-	})
 
 	return result, nil
 }
@@ -218,17 +206,6 @@ func (m *Kit) applyCustomCompaction(summary string, messages []fantasy.Message, 
 	recentTokens := compaction.EstimateMessageTokens(messages[cutPoint:])
 	compactedTokens := summaryTokens + recentTokens
 
-	if _, err := m.treeSession.AppendCompaction(
-		summary,
-		firstKeptEntryID,
-		originalTokens,
-		compactedTokens,
-		cutPoint,
-		nil, nil, // no file tracking for custom summaries
-	); err != nil {
-		return nil, fmt.Errorf("failed to persist compaction entry: %w", err)
-	}
-
 	result := &CompactionResult{
 		Summary:         summary,
 		OriginalTokens:  originalTokens,
@@ -236,12 +213,39 @@ func (m *Kit) applyCustomCompaction(summary string, messages []fantasy.Message, 
 		MessagesRemoved: cutPoint,
 	}
 
-	m.events.emit(CompactionEvent{
-		Summary:         result.Summary,
-		OriginalTokens:  result.OriginalTokens,
-		CompactedTokens: result.CompactedTokens,
-		MessagesRemoved: result.MessagesRemoved,
-	})
+	if err := m.persistAndEmitCompaction(summary, firstKeptEntryID, originalTokens, compactedTokens, cutPoint, nil, nil); err != nil {
+		return nil, err
+	}
 
 	return result, nil
+}
+
+// persistAndEmitCompaction writes a CompactionEntry to the session tree and
+// emits a CompactionEvent. It is the single implementation shared by
+// compactInternal and applyCustomCompaction.
+func (m *Kit) persistAndEmitCompaction(
+	summary, firstKeptEntryID string,
+	originalTokens, compactedTokens, messagesRemoved int,
+	readFiles, modifiedFiles []string,
+) error {
+	if _, err := m.treeSession.AppendCompaction(
+		summary,
+		firstKeptEntryID,
+		originalTokens,
+		compactedTokens,
+		messagesRemoved,
+		readFiles,
+		modifiedFiles,
+	); err != nil {
+		return fmt.Errorf("failed to persist compaction entry: %w", err)
+	}
+	m.events.emit(CompactionEvent{
+		Summary:         summary,
+		OriginalTokens:  originalTokens,
+		CompactedTokens: compactedTokens,
+		MessagesRemoved: messagesRemoved,
+		ReadFiles:       readFiles,
+		ModifiedFiles:   modifiedFiles,
+	})
+	return nil
 }
