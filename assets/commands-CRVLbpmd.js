@@ -7,7 +7,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-database"><span class="icon icon-link"></span></a>Model database</h2>
 <p>Manage the local model database that maps provider names to API configurations.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]        </span><span style="color:#6A737D;--shiki-dark:#6A737D"># List available models (optionally filter by provider)</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers (not just Fantasy-compatible)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers (not just LLM-compatible)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [source]   </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Update model database</span></span></code></pre>
 <p>The <code>update-models</code> command accepts an optional source argument:</p>
 <ul>
@@ -209,7 +209,7 @@ Manage the local model database that maps provider names to API configurations.
 
 \`\`\`bash
 kit models [provider]        # List available models (optionally filter by provider)
-kit models --all             # Show all providers (not just Fantasy-compatible)
+kit models --all             # Show all providers (not just LLM-compatible)
 kit update-models [source]   # Update model database
 \`\`\`
 

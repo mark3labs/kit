@@ -128,7 +128,7 @@ const s={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "https://my-proxy.example.com/v1"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span></code></pre>
 <p>When <code>--provider-url</code> is provided without <code>--model</code>, Kit automatically defaults to <code>custom/custom</code>:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "http://localhost:8080/v1"</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
-<p>The <code>custom/custom</code> model has zero cost, 262K context window, and supports reasoning. It routes through fantasy's <code>openaicompat</code> provider and accepts any OpenAI-compatible API endpoint.</p>
+<p>The <code>custom/custom</code> model has zero cost, 262K context window, and supports reasoning. It routes through the <code>openaicompat</code> provider and accepts any OpenAI-compatible API endpoint.</p>
 <p>Optionally set <code>CUSTOM_API_KEY</code> environment variable or use <code>--provider-api-key</code> for endpoints requiring authentication.</p>
 <h2 id="model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-database"><span class="icon icon-link"></span></a>Model database</h2>
 <p>Kit ships with a local model database that maps provider names to API configurations. You can manage it with:</p>
@@ -273,7 +273,7 @@ When \`--provider-url\` is provided without \`--model\`, Kit automatically defau
 kit --provider-url "http://localhost:8080/v1" "Hello"
 \`\`\`
 
-The \`custom/custom\` model has zero cost, 262K context window, and supports reasoning. It routes through fantasy's \`openaicompat\` provider and accepts any OpenAI-compatible API endpoint.
+The \`custom/custom\` model has zero cost, 262K context window, and supports reasoning. It routes through the \`openaicompat\` provider and accepts any OpenAI-compatible API endpoint.
 
 Optionally set \`CUSTOM_API_KEY\` environment variable or use \`--provider-api-key\` for endpoints requiring authentication.
 
