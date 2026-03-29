@@ -16,9 +16,8 @@ func cacheControlOptions() fantasy.ProviderOptions {
 }
 
 // applyCacheControlToMessages adds cache control to specific messages.
-// Anthropic allows max 4 cache blocks per request:
-// 1. Last system message (if present)
-// 2. Last 2 messages in the conversation
+// Anthropic allows max 4 cache blocks per request.
+// Counts existing cache blocks and only adds new ones up to the limit.
 func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 	if len(messages) == 0 {
 		return messages
@@ -29,8 +28,36 @@ func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 	copy(result, messages)
 
 	cacheOpts := cacheControlOptions()
+	maxCacheBlocks := 4
 
-	// Find the last system message
+	// Helper to check if message already has cache control
+	hasCache := func(msg fantasy.Message) bool {
+		if msg.ProviderOptions == nil {
+			return false
+		}
+		if _, ok := msg.ProviderOptions["anthropic"]; ok {
+			return true
+		}
+		return false
+	}
+
+	// Count existing cache blocks
+	existingCacheCount := 0
+	for _, msg := range result {
+		if hasCache(msg) {
+			existingCacheCount++
+		}
+	}
+
+	// If we're already at or over the limit, don't add more
+	if existingCacheCount >= maxCacheBlocks {
+		return result
+	}
+
+	// How many new cache blocks can we add?
+	remaining := maxCacheBlocks - existingCacheCount
+
+	// First: find and cache the last system message (most important)
 	lastSystemIdx := -1
 	for i, msg := range result {
 		if msg.Role == fantasy.MessageRoleSystem {
@@ -38,17 +65,19 @@ func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 		}
 	}
 
-	// Apply cache control to last system message (block 1)
-	if lastSystemIdx >= 0 {
+	if lastSystemIdx >= 0 && remaining > 0 && !hasCache(result[lastSystemIdx]) {
 		result[lastSystemIdx].ProviderOptions = cacheOpts
+		remaining--
 	}
 
-	// Apply cache control to last 2 messages (blocks 2-3)
-	// Only if not the same as system message
-	for i := max(len(result)-2, 0); i < len(result); i++ {
-		if i != lastSystemIdx {
-			result[i].ProviderOptions = cacheOpts
+	// Second: cache the most recent messages (up to remaining limit)
+	// Work backwards from the end to prioritize recent context
+	for i := len(result) - 1; i >= 0 && remaining > 0; i-- {
+		if hasCache(result[i]) {
+			continue
 		}
+		result[i].ProviderOptions = cacheOpts
+		remaining--
 	}
 
 	return result

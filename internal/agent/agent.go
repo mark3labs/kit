@@ -166,8 +166,6 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	if len(allTools) > 0 {
-		// Apply cache control to last tool (4th cache block)
-		allTools[len(allTools)-1].SetProviderOptions(cacheControlOptions())
 		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
 	}
 
