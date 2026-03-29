@@ -502,7 +502,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    defer host.Close()
+    defer func() { _ = host.Close() }()
     
     // Send a prompt
     response, err := host.Prompt(ctx, "What is 2+2?")

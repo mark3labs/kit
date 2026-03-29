@@ -242,6 +242,8 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `response` | `ResponseEvent` | `Content` |
 | `compaction` | `CompactionEvent` | `Summary`, `OriginalTokens`, `CompactedTokens`, `MessagesRemoved`, `ReadFiles`, `ModifiedFiles` |
 | `reasoning_delta` | `ReasoningDeltaEvent` | `Delta` |
+| `step_usage` | `StepUsageEvent` | `InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens` |
+| `steer_consumed` | `SteerConsumedEvent` | `Count` |
 
 ### Tool kind constants
 
@@ -542,6 +544,53 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 
 ---
 
+## Extension API
+
+The `Extensions()` method returns an `ExtensionAPI` interface that groups all extension-related functionality. This is the primary way to interact with extension state from the SDK.
+
+```go
+extAPI := host.Extensions()
+
+// Check if extensions are loaded
+if extAPI.HasExtensions() {
+    // Context management
+    extAPI.SetContext(extensions.Context{...})
+    ctx := extAPI.GetContext()
+    extAPI.UpdateContextModel("anthropic/claude-sonnet-4-5-20250929")
+
+    // Widgets, headers, footers
+    extAPI.SetWidget(extensions.WidgetConfig{...})
+    extAPI.RemoveWidget("widget-id")
+    extAPI.SetHeader(extensions.HeaderFooterConfig{...})
+    extAPI.SetFooter(extensions.HeaderFooterConfig{...})
+
+    // Status bar
+    extAPI.SetStatus(extensions.StatusBarEntry{...})
+    extAPI.RemoveStatus("key")
+
+    // Options
+    extAPI.SetOption("name", "value")
+    val := extAPI.GetOption("name")
+
+    // Tools
+    tools := extAPI.GetToolInfos()
+    extAPI.SetActiveTools([]string{"bash", "read"})
+
+    // Events
+    extAPI.EmitSessionStart()
+    extAPI.EmitModelChange("new/model", "old/model", "extension")
+    extAPI.EmitCustomEvent("my-event", "data")
+
+    // Commands and lifecycle
+    cmds := extAPI.Commands()
+    err := extAPI.Reload()
+}
+```
+
+All methods are no-ops when extensions are disabled (nil runner), so callers don't need nil checks.
+
+---
+
 ## Authentication
 
 ```go
@@ -749,6 +798,7 @@ kit.LoadConfigWithEnvSubstitution("/path/to/config.yml")
 ## Key Files for Reference
 
 - [`pkg/kit/kit.go`](https://github.com/mark3labs/kit/blob/main/pkg/kit/kit.go) — Kit struct, New(), Prompt methods, Subagent, Close
+- [`pkg/kit/extension_api.go`](https://github.com/mark3labs/kit/blob/main/pkg/kit/extension_api.go) — ExtensionAPI interface, kit.Extensions() accessor
 - [`pkg/kit/types.go`](https://github.com/mark3labs/kit/blob/main/pkg/kit/types.go) — Re-exported types from internal packages
 - [`pkg/kit/tools.go`](https://github.com/mark3labs/kit/blob/main/pkg/kit/tools.go) — Tool constructors and bundles
 - [`pkg/kit/events.go`](https://github.com/mark3labs/kit/blob/main/pkg/kit/events.go) — Event types, EventBus, typed subscribers
