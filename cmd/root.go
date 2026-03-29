@@ -415,7 +415,7 @@ func runKit(ctx context.Context) error {
 // normalised to start with "/" so they integrate with the slash-command
 // autocomplete and dispatch pipeline.
 func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
-	defs := k.ExtensionCommands()
+	defs := k.Extensions().Commands()
 	if len(defs) == 0 {
 		return nil
 	}
@@ -429,12 +429,12 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 			Name:        name,
 			Description: d.Description,
 			Execute: func(args string) (string, error) {
-				return d.Execute(args, k.GetExtensionContext())
+				return d.Execute(args, k.Extensions().GetContext())
 			},
 		}
 		if d.Complete != nil {
 			ec.Complete = func(prefix string) []string {
-				return d.Complete(prefix, k.GetExtensionContext())
+				return d.Complete(prefix, k.Extensions().GetContext())
 			}
 		}
 		cmds = append(cmds, ec)
@@ -446,11 +446,11 @@ func extensionCommandsForUI(k *kit.Kit) []ui.ExtensionCommand {
 // ui.WidgetData for the given placement. Returns nil if extensions are
 // disabled, which is safe — the UI treats a nil GetWidgets as "no widgets".
 func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func(placement string) []ui.WidgetData {
-		configs := k.GetExtensionWidgets(extensions.WidgetPlacement(placement))
+		configs := k.Extensions().GetWidgets(extensions.WidgetPlacement(placement))
 		if len(configs) == 0 {
 			return nil
 		}
@@ -471,7 +471,7 @@ func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
 // extensions.HeaderFooterConfig getter into the ui.WidgetData shape
 // expected by AppModel. The getter argument selects header vs footer.
 func headerFooterProviderForUI(k *kit.Kit, getter func() *extensions.HeaderFooterConfig) func() *ui.WidgetData {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func() *ui.WidgetData {
@@ -492,7 +492,9 @@ func headerFooterProviderForUI(k *kit.Kit, getter func() *extensions.HeaderFoote
 // to a *ui.WidgetData for the TUI. Returns nil if extensions are disabled,
 // which is safe — the UI treats a nil GetHeader as "no header".
 func headerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
-	return headerFooterProviderForUI(k, k.GetExtensionHeader)
+	return headerFooterProviderForUI(k, func() *extensions.HeaderFooterConfig {
+		return k.Extensions().GetHeader()
+	})
 }
 
 // toolRendererProviderForUI returns a function that converts extension tool
@@ -500,11 +502,11 @@ func headerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
 // disabled, which is safe — the UI treats a nil GetToolRenderer as "no
 // custom renderers".
 func toolRendererProviderForUI(k *kit.Kit) func(string) *ui.ToolRendererData {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func(toolName string) *ui.ToolRendererData {
-		config := k.GetExtensionToolRenderer(toolName)
+		config := k.Extensions().GetToolRenderer(toolName)
 		if config == nil {
 			return nil
 		}
@@ -524,11 +526,11 @@ func toolRendererProviderForUI(k *kit.Kit) func(string) *ui.ToolRendererData {
 // Returns nil if extensions are disabled, which is safe — the UI treats a
 // nil GetEditorInterceptor as "no interceptor".
 func editorInterceptorProviderForUI(k *kit.Kit) func() *ui.EditorInterceptor {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func() *ui.EditorInterceptor {
-		config := k.GetExtensionEditor()
+		config := k.Extensions().GetEditor()
 		if config == nil {
 			return nil
 		}
@@ -562,11 +564,11 @@ func editorInterceptorProviderForUI(k *kit.Kit) func() *ui.EditorInterceptor {
 // visibility overrides to a *ui.UIVisibility for the TUI. Returns nil if
 // extensions are disabled — the UI treats nil as "show everything".
 func uiVisibilityProviderForUI(k *kit.Kit) func() *ui.UIVisibility {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func() *ui.UIVisibility {
-		v := k.GetExtensionUIVisibility()
+		v := k.Extensions().GetUIVisibility()
 		if v == nil {
 			return nil
 		}
@@ -583,7 +585,9 @@ func uiVisibilityProviderForUI(k *kit.Kit) func() *ui.UIVisibility {
 // to a *ui.WidgetData for the TUI. Returns nil if extensions are disabled,
 // which is safe — the UI treats a nil GetFooter as "no footer".
 func footerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
-	return headerFooterProviderForUI(k, k.GetExtensionFooter)
+	return headerFooterProviderForUI(k, func() *extensions.HeaderFooterConfig {
+		return k.Extensions().GetFooter()
+	})
 }
 
 // statusBarProviderForUI returns a function that fetches extension status bar
@@ -591,11 +595,11 @@ func footerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
 // if extensions are disabled, which is safe — the TUI treats a nil
 // GetStatusBarEntries as "no extension entries".
 func statusBarProviderForUI(k *kit.Kit) func() []ui.StatusBarEntryData {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
 	return func() []ui.StatusBarEntryData {
-		entries := k.GetExtensionStatusEntries()
+		entries := k.Extensions().GetStatusEntries()
 		if len(entries) == 0 {
 			return nil
 		}
@@ -615,30 +619,36 @@ func statusBarProviderForUI(k *kit.Kit) func() []ui.StatusBarEntryData {
 // and returns (cancelled, reason). Returns nil if extensions are disabled —
 // the UI treats nil as "no hook".
 func beforeForkProviderForUI(k *kit.Kit) func(string, bool, string) (bool, string) {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
-	return k.EmitBeforeFork
+	return func(targetID string, isUserMsg bool, userText string) (bool, string) {
+		return k.Extensions().EmitBeforeFork(targetID, isUserMsg, userText)
+	}
 }
 
 // beforeSessionSwitchProviderForUI returns a callback that emits a
 // BeforeSessionSwitch event and returns (cancelled, reason). Returns nil
 // if extensions are disabled — the UI treats nil as "no hook".
 func beforeSessionSwitchProviderForUI(k *kit.Kit) func(string) (bool, string) {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
-	return k.EmitBeforeSessionSwitch
+	return func(switchReason string) (bool, string) {
+		return k.Extensions().EmitBeforeSessionSwitch(switchReason)
+	}
 }
 
 // globalShortcutsProviderForUI returns a callback that queries the extension
 // runner for registered keyboard shortcuts. Returns nil if extensions are
 // disabled — the UI treats nil as "no shortcuts".
 func globalShortcutsProviderForUI(k *kit.Kit) func() map[string]func() {
-	if !k.HasExtensions() {
+	if !k.Extensions().HasExtensions() {
 		return nil
 	}
-	return k.GetExtensionShortcuts
+	return func() map[string]func() {
+		return k.Extensions().GetShortcuts()
+	}
 }
 
 func runNormalMode(ctx context.Context) error {
@@ -796,9 +806,9 @@ func runNormalMode(ctx context.Context) error {
 	var startupExtensionMessages []string
 
 	// Set up extension context and emit SessionStart.
-	if kitInstance.HasExtensions() {
+	if kitInstance.Extensions().HasExtensions() {
 		cwd, _ := os.Getwd()
-		kitInstance.SetExtensionContext(extensions.Context{
+		kitInstance.Extensions().SetContext(extensions.Context{
 			CWD:         cwd,
 			Model:       modelName,
 			Interactive: positionalPrompt == "",
@@ -817,27 +827,27 @@ func runNormalMode(ctx context.Context) error {
 			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
 			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
-				kitInstance.SetExtensionWidget(config)
+				kitInstance.Extensions().SetWidget(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveWidget: func(id string) {
-				kitInstance.RemoveExtensionWidget(id)
+				kitInstance.Extensions().RemoveWidget(id)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			SetHeader: func(config extensions.HeaderFooterConfig) {
-				kitInstance.SetExtensionHeader(config)
+				kitInstance.Extensions().SetHeader(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveHeader: func() {
-				kitInstance.RemoveExtensionHeader()
+				kitInstance.Extensions().RemoveHeader()
 				go appInstance.NotifyWidgetUpdate()
 			},
 			SetFooter: func(config extensions.HeaderFooterConfig) {
-				kitInstance.SetExtensionFooter(config)
+				kitInstance.Extensions().SetFooter(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveFooter: func() {
-				kitInstance.RemoveExtensionFooter()
+				kitInstance.Extensions().RemoveFooter()
 				go appInstance.NotifyWidgetUpdate()
 			},
 			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
@@ -888,7 +898,7 @@ func runNormalMode(ctx context.Context) error {
 				return extensions.PromptInputResult{Value: resp.Value}
 			},
 			SetUIVisibility: func(v extensions.UIVisibility) {
-				kitInstance.SetExtensionUIVisibility(v)
+				kitInstance.Extensions().SetUIVisibility(v)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			GetContextStats: func() extensions.ContextStats {
@@ -901,33 +911,33 @@ func runNormalMode(ctx context.Context) error {
 				}
 			},
 			SetEditor: func(config extensions.EditorConfig) {
-				kitInstance.SetExtensionEditor(config)
+				kitInstance.Extensions().SetEditor(config)
 				// Always use a goroutine for NotifyWidgetUpdate: prog.Send()
 				// deadlocks if called synchronously from inside BubbleTea's
 				// Update() handler. All call sites use go-routines uniformly.
 				go appInstance.NotifyWidgetUpdate()
 			},
 			ResetEditor: func() {
-				kitInstance.ResetExtensionEditor()
+				kitInstance.Extensions().ResetEditor()
 				go appInstance.NotifyWidgetUpdate()
 			},
 			GetMessages: func() []extensions.SessionMessage {
-				return kitInstance.GetSessionMessages()
+				return kitInstance.Extensions().GetSessionMessages()
 			},
 			GetSessionPath: func() string {
 				return kitInstance.GetSessionPath()
 			},
 			AppendEntry: func(entryType string, data string) (string, error) {
-				return kitInstance.AppendExtensionEntry(entryType, data)
+				return kitInstance.Extensions().AppendEntry(entryType, data)
 			},
 			GetEntries: func(entryType string) []extensions.ExtensionEntry {
-				return kitInstance.GetExtensionEntries(entryType)
+				return kitInstance.Extensions().GetEntries(entryType)
 			},
 			SetEditorText: func(text string) {
 				appInstance.SetEditorTextFromExtension(text)
 			},
 			SetStatus: func(key string, text string, priority int) {
-				kitInstance.SetExtensionStatus(extensions.StatusBarEntry{
+				kitInstance.Extensions().SetStatus(extensions.StatusBarEntry{
 					Key:      key,
 					Text:     text,
 					Priority: priority,
@@ -935,18 +945,18 @@ func runNormalMode(ctx context.Context) error {
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveStatus: func(key string) {
-				kitInstance.RemoveExtensionStatus(key)
+				kitInstance.Extensions().RemoveStatus(key)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			GetOption: func(name string) string {
-				return kitInstance.GetExtensionOption(name)
+				return kitInstance.Extensions().GetOption(name)
 			},
 			SetOption: func(name string, value string) {
-				kitInstance.SetExtensionOption(name, value)
+				kitInstance.Extensions().SetOption(name, value)
 			},
 			SetModel: func(modelString string) error {
 				// Capture previous model for the ModelChange event.
-				previousModel := kitInstance.GetExtensionContext().Model
+				previousModel := kitInstance.Extensions().GetContext().Model
 				err := kitInstance.SetModel(context.Background(), modelString)
 				if err != nil {
 					return err
@@ -955,9 +965,9 @@ func runNormalMode(ctx context.Context) error {
 				p, m, _ := models.ParseModelString(modelString)
 				appInstance.NotifyModelChanged(p, m)
 				// Update the context's Model field so handlers see it.
-				kitInstance.UpdateExtensionContextModel(modelString)
+				kitInstance.Extensions().UpdateContextModel(modelString)
 				// Fire OnModelChange event to extensions.
-				kitInstance.EmitModelChange(modelString, previousModel, "extension")
+				kitInstance.Extensions().EmitModelChange(modelString, previousModel, "extension")
 				// Update usage tracker with new model info for correct token counting.
 				if usageTracker != nil {
 					newProvider, newModel, _ := models.ParseModelString(modelString)
@@ -982,7 +992,7 @@ func runNormalMode(ctx context.Context) error {
 				return kitInstance.GetAvailableModels()
 			},
 			EmitCustomEvent: func(name string, data string) {
-				kitInstance.EmitExtensionCustomEvent(name, data)
+				kitInstance.Extensions().EmitCustomEvent(name, data)
 			},
 			Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
 				return kitInstance.ExecuteCompletion(context.Background(), req)
@@ -991,7 +1001,7 @@ func runNormalMode(ctx context.Context) error {
 				return appInstance.SuspendTUI(callback)
 			},
 			RenderMessage: func(rendererName, content string) {
-				renderer := kitInstance.GetExtensionMessageRenderer(rendererName)
+				renderer := kitInstance.Extensions().GetMessageRenderer(rendererName)
 				if renderer == nil || renderer.Render == nil {
 					appInstance.PrintFromExtension("", content)
 					return
@@ -1004,7 +1014,7 @@ func runNormalMode(ctx context.Context) error {
 				appInstance.PrintFromExtension("", rendered)
 			},
 			ReloadExtensions: func() error {
-				err := kitInstance.ReloadExtensions()
+				err := kitInstance.Extensions().Reload()
 				if err != nil {
 					return err
 				}
@@ -1013,10 +1023,10 @@ func runNormalMode(ctx context.Context) error {
 				return nil
 			},
 			GetAllTools: func() []extensions.ToolInfo {
-				return kitInstance.GetExtensionToolInfos()
+				return kitInstance.Extensions().GetToolInfos()
 			},
 			SetActiveTools: func(names []string) {
-				kitInstance.SetExtensionActiveTools(names)
+				kitInstance.Extensions().SetActiveTools(names)
 			},
 			RegisterTheme: func(name string, config extensions.ThemeColorConfig) {
 				tc := func(c extensions.ThemeColor) [2]string { return [2]string{c.Light, c.Dark} }
@@ -1202,10 +1212,10 @@ func runNormalMode(ctx context.Context) error {
 			ParseArguments:       kit.ParseArguments,
 			SimpleParseArguments: kit.SimpleParseArguments,
 			EvaluateModelConditional: func(condition string) bool {
-				return kit.EvaluateModelConditional(kitInstance.GetExtensionContext().Model, condition)
+				return kit.EvaluateModelConditional(kitInstance.Extensions().GetContext().Model, condition)
 			},
 			RenderWithModelConditionals: func(content string) string {
-				return kit.RenderWithModelConditionals(content, kitInstance.GetExtensionContext().Model)
+				return kit.RenderWithModelConditionals(content, kitInstance.Extensions().GetContext().Model)
 			},
 
 			// -------------------------------------------------------------------------
@@ -1217,16 +1227,16 @@ func runNormalMode(ctx context.Context) error {
 			},
 			CheckModelAvailable: kit.CheckModelAvailable,
 			GetCurrentProvider: func() string {
-				return kit.GetCurrentProvider(kitInstance.GetExtensionContext().Model)
+				return kit.GetCurrentProvider(kitInstance.Extensions().GetContext().Model)
 			},
 			GetCurrentModelID: func() string {
-				return kit.GetCurrentModelID(kitInstance.GetExtensionContext().Model)
+				return kit.GetCurrentModelID(kitInstance.Extensions().GetContext().Model)
 			},
 		})
-		kitInstance.EmitSessionStart()
+		kitInstance.Extensions().EmitSessionStart()
 
 		// Restore normal print functions for runtime use.
-		kitInstance.SetExtensionContext(extensions.Context{
+		kitInstance.Extensions().SetContext(extensions.Context{
 			CWD:           cwd,
 			Model:         modelName,
 			Interactive:   positionalPrompt == "",
@@ -1238,27 +1248,27 @@ func runNormalMode(ctx context.Context) error {
 			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
 			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
-				kitInstance.SetExtensionWidget(config)
+				kitInstance.Extensions().SetWidget(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveWidget: func(id string) {
-				kitInstance.RemoveExtensionWidget(id)
+				kitInstance.Extensions().RemoveWidget(id)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			SetHeader: func(config extensions.HeaderFooterConfig) {
-				kitInstance.SetExtensionHeader(config)
+				kitInstance.Extensions().SetHeader(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveHeader: func() {
-				kitInstance.RemoveExtensionHeader()
+				kitInstance.Extensions().RemoveHeader()
 				go appInstance.NotifyWidgetUpdate()
 			},
 			SetFooter: func(config extensions.HeaderFooterConfig) {
-				kitInstance.SetExtensionFooter(config)
+				kitInstance.Extensions().SetFooter(config)
 				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveFooter: func() {
-				kitInstance.RemoveExtensionFooter()
+				kitInstance.Extensions().RemoveFooter()
 				go appInstance.NotifyWidgetUpdate()
 			},
 			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
@@ -1470,10 +1480,10 @@ func runNormalMode(ctx context.Context) error {
 			ParseArguments:       kit.ParseArguments,
 			SimpleParseArguments: kit.SimpleParseArguments,
 			EvaluateModelConditional: func(condition string) bool {
-				return kit.EvaluateModelConditional(kitInstance.GetExtensionContext().Model, condition)
+				return kit.EvaluateModelConditional(kitInstance.Extensions().GetContext().Model, condition)
 			},
 			RenderWithModelConditionals: func(content string) string {
-				return kit.RenderWithModelConditionals(content, kitInstance.GetExtensionContext().Model)
+				return kit.RenderWithModelConditionals(content, kitInstance.Extensions().GetContext().Model)
 			},
 
 			// -------------------------------------------------------------------------
@@ -1485,10 +1495,10 @@ func runNormalMode(ctx context.Context) error {
 			},
 			CheckModelAvailable: kit.CheckModelAvailable,
 			GetCurrentProvider: func() string {
-				return kit.GetCurrentProvider(kitInstance.GetExtensionContext().Model)
+				return kit.GetCurrentProvider(kitInstance.Extensions().GetContext().Model)
 			},
 			GetCurrentModelID: func() string {
-				return kit.GetCurrentModelID(kitInstance.GetExtensionContext().Model)
+				return kit.GetCurrentModelID(kitInstance.Extensions().GetContext().Model)
 			},
 		})
 	}
@@ -1558,7 +1568,7 @@ func runNormalMode(ctx context.Context) error {
 			return err
 		}
 		// Update the extension context's Model field so handlers see it.
-		kitInstance.UpdateExtensionContextModel(modelString)
+		kitInstance.Extensions().UpdateContextModel(modelString)
 		// NOTE: We do NOT call appInstance.NotifyModelChanged() here because
 		// this callback runs synchronously inside BubbleTea's Update(), and
 		// NotifyModelChanged calls prog.Send() which deadlocks. The UI layer
@@ -1584,7 +1594,7 @@ func runNormalMode(ctx context.Context) error {
 		return nil
 	}
 	emitModelChangeForUI := func(newModel, previousModel, source string) {
-		kitInstance.EmitModelChange(newModel, previousModel, source)
+		kitInstance.Extensions().EmitModelChange(newModel, previousModel, source)
 	}
 
 	// Build thinking level callback.

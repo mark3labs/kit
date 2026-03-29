@@ -62,8 +62,8 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 	// work in ACP mode. TUI-dependent features (widgets, prompts, editor)
 	// become no-ops or return cancelled; all data/model/tool APIs work
 	// identically to interactive mode.
-	if kitInstance.HasExtensions() {
-		kitInstance.SetExtensionContext(extensions.Context{
+	if kitInstance.Extensions().HasExtensions() {
+		kitInstance.Extensions().SetContext(extensions.Context{
 			SessionID:   sessionID,
 			CWD:         cwd,
 			Model:       kitInstance.GetModelString(),
@@ -121,31 +121,31 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 					MessageCount:    s.MessageCount,
 				}
 			},
-			GetMessages:    func() []extensions.SessionMessage { return kitInstance.GetSessionMessages() },
+			GetMessages:    func() []extensions.SessionMessage { return kitInstance.Extensions().GetSessionMessages() },
 			GetSessionPath: func() string { return kitInstance.GetSessionPath() },
 			AppendEntry: func(entryType, data string) (string, error) {
-				return kitInstance.AppendExtensionEntry(entryType, data)
+				return kitInstance.Extensions().AppendEntry(entryType, data)
 			},
 			GetEntries: func(entryType string) []extensions.ExtensionEntry {
-				return kitInstance.GetExtensionEntries(entryType)
+				return kitInstance.Extensions().GetEntries(entryType)
 			},
 
 			// Options, model, and tool management.
-			GetOption: func(name string) string { return kitInstance.GetExtensionOption(name) },
-			SetOption: func(name, value string) { kitInstance.SetExtensionOption(name, value) },
+			GetOption: func(name string) string { return kitInstance.Extensions().GetOption(name) },
+			SetOption: func(name, value string) { kitInstance.Extensions().SetOption(name, value) },
 			SetModel: func(modelString string) error {
-				previousModel := kitInstance.GetExtensionContext().Model
+				previousModel := kitInstance.Extensions().GetContext().Model
 				if err := kitInstance.SetModel(context.Background(), modelString); err != nil {
 					return err
 				}
-				kitInstance.UpdateExtensionContextModel(modelString)
-				kitInstance.EmitModelChange(modelString, previousModel, "extension")
+				kitInstance.Extensions().UpdateContextModel(modelString)
+				kitInstance.Extensions().EmitModelChange(modelString, previousModel, "extension")
 				return nil
 			},
 			GetAvailableModels: func() []extensions.ModelInfoEntry { return kitInstance.GetAvailableModels() },
-			EmitCustomEvent:    func(name, data string) { kitInstance.EmitExtensionCustomEvent(name, data) },
-			GetAllTools:        func() []extensions.ToolInfo { return kitInstance.GetExtensionToolInfos() },
-			SetActiveTools:     func(names []string) { kitInstance.SetExtensionActiveTools(names) },
+			EmitCustomEvent:    func(name, data string) { kitInstance.Extensions().EmitCustomEvent(name, data) },
+			GetAllTools:        func() []extensions.ToolInfo { return kitInstance.Extensions().GetToolInfos() },
+			SetActiveTools:     func(names []string) { kitInstance.Extensions().SetActiveTools(names) },
 
 			// LLM completions and subagents.
 			Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
@@ -188,15 +188,15 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 
 			// Render — fall back to logging.
 			RenderMessage: func(name, content string) {
-				renderer := kitInstance.GetExtensionMessageRenderer(name)
+				renderer := kitInstance.Extensions().GetMessageRenderer(name)
 				if renderer != nil && renderer.Render != nil {
 					content = renderer.Render(content, 80)
 				}
 				log.Info("extension: message", "renderer", name, "content", content)
 			},
-			ReloadExtensions: func() error { return kitInstance.ReloadExtensions() },
+			ReloadExtensions: func() error { return kitInstance.Extensions().Reload() },
 		})
-		kitInstance.EmitSessionStart()
+		kitInstance.Extensions().EmitSessionStart()
 	}
 
 	sess := &acpSession{
