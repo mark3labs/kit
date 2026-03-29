@@ -149,11 +149,13 @@ func TestInputComponent_QuitReturnsTeaQuit(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// TestInputComponent_ClearCallsClearMessages verifies that /clear (and its
-// aliases) calls appCtrl.ClearMessages() and returns no submitMsg.
+// TestInputComponent_ClearForwardsAsSubmitMsg verifies that /clear (and its
+// aliases) are forwarded as submitMsg to the parent model so that the parent
+// can call ClearMessages(), update scrollback, and print the confirmation
+// message in one place. InputComponent must NOT call ClearMessages() directly.
 // --------------------------------------------------------------------------
 
-func TestInputComponent_ClearCallsClearMessages(t *testing.T) {
+func TestInputComponent_ClearForwardsAsSubmitMsg(t *testing.T) {
 	aliases := []string{"/clear", "/c", "/cls"}
 	for _, alias := range aliases {
 		t.Run(alias, func(t *testing.T) {
@@ -164,22 +166,29 @@ func TestInputComponent_ClearCallsClearMessages(t *testing.T) {
 
 			_, cmd := sendInputMsg(c, tea.KeyPressMsg{Code: tea.KeyEnter})
 
-			if ctrl.clearMsgCalled != 1 {
-				t.Fatalf("%s: expected ClearMessages() called once, got %d", alias, ctrl.clearMsgCalled)
+			// InputComponent must NOT call ClearMessages() directly.
+			if ctrl.clearMsgCalled != 0 {
+				t.Fatalf("%s: InputComponent must not call ClearMessages(), got %d", alias, ctrl.clearMsgCalled)
 			}
-			// No cmd should be returned (no submitMsg forwarded to parent).
-			if cmd != nil {
-				msg := runCmd(cmd)
-				if _, ok := msg.(submitMsg); ok {
-					t.Fatalf("%s: /clear should not emit submitMsg, got submitMsg", alias)
-				}
+			// A submitMsg must be emitted so the parent model handles /clear.
+			if cmd == nil {
+				t.Fatalf("%s: expected submitMsg cmd, got nil", alias)
+			}
+			msg := runCmd(cmd)
+			sm, ok := msg.(submitMsg)
+			if !ok {
+				t.Fatalf("%s: expected submitMsg, got %T", alias, msg)
+			}
+			if sm.Text != alias {
+				t.Fatalf("%s: expected submitMsg text %q, got %q", alias, alias, sm.Text)
 			}
 		})
 	}
 }
 
 // TestInputComponent_ClearNilCtrl_NoPanic verifies that /clear with a nil
-// appCtrl does not panic.
+// appCtrl does not panic. Since /clear is now forwarded to the parent via
+// submitMsg, no appCtrl interaction happens in InputComponent at all.
 func TestInputComponent_ClearNilCtrl_NoPanic(t *testing.T) {
 	c := newTestInput(nil)
 	c.textarea.SetValue("/clear")

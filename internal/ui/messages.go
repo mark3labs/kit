@@ -41,10 +41,6 @@ type UIMessage struct {
 	Streaming bool
 }
 
-// getTheme returns the current theme (helper for compact_renderer.go)
-func getTheme() Theme {
-	return GetTheme()
-}
 
 // toolDisplayName returns a human-friendly display name for a tool,
 // title-casing the first letter of the raw name.
@@ -163,7 +159,7 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 	}
 
 	rendered := r.ty.Tip(content)
-	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
+	rendered = styleMarginBottom1.Render(rendered)
 
 	return UIMessage{
 		Type:      UserMessage,
@@ -186,7 +182,7 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 
 	// Use markdown rendering with Chroma syntax highlighting
 	rendered := toMarkdown(content, r.width-4)
-	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
+	rendered = styleMarginBottom1.Render(rendered)
 
 	return UIMessage{
 		Type:      AssistantMessage,
@@ -203,7 +199,7 @@ func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Tim
 	}
 
 	rendered := r.ty.Note(content)
-	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
+	rendered = styleMarginBottom1.Render(rendered)
 
 	return UIMessage{
 		Type:      SystemMessage,
@@ -229,7 +225,7 @@ func (r *MessageRenderer) RenderDebugMessage(message string, timestamp time.Time
 		header,
 		r.ty.P(strings.Join(formattedLines, "\n")),
 	)
-	content = lipgloss.NewStyle().MarginBottom(1).Render(content)
+	content = styleMarginBottom1.Render(content)
 
 	return UIMessage{
 		Content: content,
@@ -257,7 +253,7 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 	} else {
 		content = header
 	}
-	content = lipgloss.NewStyle().MarginBottom(1).Render(content)
+	content = styleMarginBottom1.Render(content)
 
 	return UIMessage{
 		Type:      SystemMessage,
@@ -270,7 +266,7 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 // RenderErrorMessage renders error notifications
 func (r *MessageRenderer) RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage {
 	rendered := r.ty.Caution(errorMsg)
-	rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
+	rendered = styleMarginBottom1.Render(rendered)
 
 	return UIMessage{
 		Type:      ErrorMessage,
@@ -354,7 +350,7 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		"",
 		body,
 	)
-	fullContent = lipgloss.NewStyle().MarginBottom(1).Render(fullContent)
+	fullContent = styleMarginBottom1.Render(fullContent)
 
 	return UIMessage{
 		Type:    ToolMessage,

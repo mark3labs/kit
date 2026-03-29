@@ -33,14 +33,31 @@ func colorHexPtr(c color.Color) *string {
 	return &s
 }
 
-// GetMarkdownRenderer creates and returns a configured glamour.TermRenderer for
-// rendering markdown content with syntax highlighting and proper formatting. The
-// renderer is customized with our theme colors and adapted to the specified width.
+// markdownRendererCache holds the last-created TermRenderer so we avoid
+// re-initializing a full goldmark parser on every streaming flush tick.
+// The cache is keyed by width; it is invalidated (set to nil) by SetTheme
+// whenever the active theme changes.
+// This is only accessed from BubbleTea's single-threaded Update/View cycle,
+// so no mutex is required.
+var (
+	markdownRendererCache *glamour.TermRenderer
+	markdownRendererWidth int
+)
+
+// GetMarkdownRenderer returns a glamour.TermRenderer configured for our theme
+// and the given content width. The renderer is cached by width — it is only
+// rebuilt when the width changes, avoiding expensive goldmark re-initialization
+// on every streaming flush tick.
 func GetMarkdownRenderer(width int) *glamour.TermRenderer {
+	if markdownRendererCache != nil && markdownRendererWidth == width {
+		return markdownRendererCache
+	}
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithStyles(generateMarkdownStyleConfig()),
 		glamour.WithWordWrap(width),
 	)
+	markdownRendererCache = r
+	markdownRendererWidth = width
 	return r
 }
 

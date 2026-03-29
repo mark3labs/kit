@@ -409,21 +409,14 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	}
 
 	// Resolve via canonical command lookup so aliases are handled uniformly.
-	// Only /quit and /clear are handled locally — /clear-queue must go
-	// through the parent model so it can update queueCount directly
-	// (calling ClearQueue here would skip the UI state update since we
-	// can't send events from within Update without deadlocking).
+	// Only /quit is handled locally — all other slash commands (including
+	// /clear and /clear-queue) are forwarded to the parent model via
+	// submitMsg so the parent can update its own state (scrollback, queue
+	// counts, etc.) in one place.
 	if sc := GetCommandByName(trimmed); sc != nil {
 		switch sc.Name {
 		case "/quit":
 			return tea.Quit
-
-		case "/clear":
-			if s.appCtrl != nil {
-				s.appCtrl.ClearMessages()
-			}
-			// Don't forward to app.Run(); just clear silently.
-			return nil
 		}
 	}
 

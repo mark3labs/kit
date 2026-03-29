@@ -467,25 +467,32 @@ func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
 	}
 }
 
-// headerProviderForUI returns a function that converts the extension header
-// to a *ui.WidgetData for the TUI. Returns nil if extensions are disabled,
-// which is safe — the UI treats a nil GetHeader as "no header".
-func headerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
+// headerFooterProviderForUI returns a provider func that maps an
+// extensions.HeaderFooterConfig getter into the ui.WidgetData shape
+// expected by AppModel. The getter argument selects header vs footer.
+func headerFooterProviderForUI(k *kit.Kit, getter func() *extensions.HeaderFooterConfig) func() *ui.WidgetData {
 	if !k.HasExtensions() {
 		return nil
 	}
 	return func() *ui.WidgetData {
-		config := k.GetExtensionHeader()
-		if config == nil {
+		cfg := getter()
+		if cfg == nil {
 			return nil
 		}
 		return &ui.WidgetData{
-			Text:        config.Content.Text,
-			Markdown:    config.Content.Markdown,
-			BorderColor: config.Style.BorderColor,
-			NoBorder:    config.Style.NoBorder,
+			Text:        cfg.Content.Text,
+			Markdown:    cfg.Content.Markdown,
+			BorderColor: cfg.Style.BorderColor,
+			NoBorder:    cfg.Style.NoBorder,
 		}
 	}
+}
+
+// headerProviderForUI returns a function that converts the extension header
+// to a *ui.WidgetData for the TUI. Returns nil if extensions are disabled,
+// which is safe — the UI treats a nil GetHeader as "no header".
+func headerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
+	return headerFooterProviderForUI(k, k.GetExtensionHeader)
 }
 
 // toolRendererProviderForUI returns a function that converts extension tool
@@ -576,21 +583,7 @@ func uiVisibilityProviderForUI(k *kit.Kit) func() *ui.UIVisibility {
 // to a *ui.WidgetData for the TUI. Returns nil if extensions are disabled,
 // which is safe — the UI treats a nil GetFooter as "no footer".
 func footerProviderForUI(k *kit.Kit) func() *ui.WidgetData {
-	if !k.HasExtensions() {
-		return nil
-	}
-	return func() *ui.WidgetData {
-		config := k.GetExtensionFooter()
-		if config == nil {
-			return nil
-		}
-		return &ui.WidgetData{
-			Text:        config.Content.Text,
-			Markdown:    config.Content.Markdown,
-			BorderColor: config.Style.BorderColor,
-			NoBorder:    config.Style.NoBorder,
-		}
-	}
+	return headerFooterProviderForUI(k, k.GetExtensionFooter)
 }
 
 // statusBarProviderForUI returns a function that fetches extension status bar
@@ -825,27 +818,27 @@ func runNormalMode(ctx context.Context) error {
 			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.SetExtensionWidget(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveWidget: func(id string) {
 				kitInstance.RemoveExtensionWidget(id)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			SetHeader: func(config extensions.HeaderFooterConfig) {
 				kitInstance.SetExtensionHeader(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveHeader: func() {
 				kitInstance.RemoveExtensionHeader()
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			SetFooter: func(config extensions.HeaderFooterConfig) {
 				kitInstance.SetExtensionFooter(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveFooter: func() {
 				kitInstance.RemoveExtensionFooter()
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
 				ch := make(chan app.PromptResponse, 1)
@@ -896,7 +889,7 @@ func runNormalMode(ctx context.Context) error {
 			},
 			SetUIVisibility: func(v extensions.UIVisibility) {
 				kitInstance.SetExtensionUIVisibility(v)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			GetContextStats: func() extensions.ContextStats {
 				s := kitInstance.GetContextStats()
@@ -909,10 +902,9 @@ func runNormalMode(ctx context.Context) error {
 			},
 			SetEditor: func(config extensions.EditorConfig) {
 				kitInstance.SetExtensionEditor(config)
-				// Use a goroutine for NotifyWidgetUpdate because this may be
-				// called from within an editor HandleKey callback, which runs
-				// synchronously inside BubbleTea's Update(). Calling prog.Send()
-				// directly from Update() deadlocks the event loop.
+				// Always use a goroutine for NotifyWidgetUpdate: prog.Send()
+				// deadlocks if called synchronously from inside BubbleTea's
+				// Update() handler. All call sites use go-routines uniformly.
 				go appInstance.NotifyWidgetUpdate()
 			},
 			ResetEditor: func() {
@@ -940,11 +932,11 @@ func runNormalMode(ctx context.Context) error {
 					Text:     text,
 					Priority: priority,
 				})
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveStatus: func(key string) {
 				kitInstance.RemoveExtensionStatus(key)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			GetOption: func(name string) string {
 				return kitInstance.GetExtensionOption(name)
@@ -1017,7 +1009,7 @@ func runNormalMode(ctx context.Context) error {
 					return err
 				}
 				// Notify TUI that widgets/status/commands may have changed.
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 				return nil
 			},
 			GetAllTools: func() []extensions.ToolInfo {
@@ -1244,27 +1236,27 @@ func runNormalMode(ctx context.Context) error {
 			Exit:          func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.SetExtensionWidget(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveWidget: func(id string) {
 				kitInstance.RemoveExtensionWidget(id)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			SetHeader: func(config extensions.HeaderFooterConfig) {
 				kitInstance.SetExtensionHeader(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveHeader: func() {
 				kitInstance.RemoveExtensionHeader()
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			SetFooter: func(config extensions.HeaderFooterConfig) {
 				kitInstance.SetExtensionFooter(config)
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			RemoveFooter: func() {
 				kitInstance.RemoveExtensionFooter()
-				appInstance.NotifyWidgetUpdate()
+				go appInstance.NotifyWidgetUpdate()
 			},
 			PromptSelect: func(config extensions.PromptSelectConfig) extensions.PromptSelectResult {
 				ch := make(chan app.PromptResponse, 1)

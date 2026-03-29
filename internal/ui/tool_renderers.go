@@ -251,7 +251,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 	gutterWidth := max(len(fmt.Sprintf("%d", maxLineNum)), 3)
 	contentWidth := max(panelWidth-gutterWidth-4, 10) // gutter + " - " or " + "
 
-	theme := getTheme()
+	theme := GetTheme()
 
 	// Styles for each cell type
 	gutterInsert := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.DiffInsertBg)
@@ -356,7 +356,7 @@ func renderLsBody(toolResult string, width int) string {
 	const indent = "  "
 	codeWidth := max(width-len(indent), 20)
 
-	theme := getTheme()
+	theme := GetTheme()
 	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
 
 	var result []string
@@ -470,7 +470,7 @@ func renderCodeBlock(content, fileName string, width int) string {
 	gutterWidth := max(maxNumWidth+2, 5)
 	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
 
-	theme := getTheme()
+	theme := GetTheme()
 	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
 	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
 
@@ -565,7 +565,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 	gutterWidth := numDigits + 2
 	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
 
-	theme := getTheme()
+	theme := GetTheme()
 	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
 	writeStyle := lipgloss.NewStyle().Background(theme.WriteBg).PaddingLeft(1)
 
@@ -617,7 +617,7 @@ func renderBashBody(toolResult string, width int) string {
 		return ""
 	}
 
-	theme := getTheme()
+	theme := GetTheme()
 	outputStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
 	stderrStyle := lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).PaddingLeft(1)
 
@@ -815,7 +815,7 @@ func renderReadCompact(toolResult string) string {
 		return ""
 	}
 
-	theme := getTheme()
+	theme := GetTheme()
 	summary := fmt.Sprintf("%d lines", codeLines)
 	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
 }
@@ -836,7 +836,7 @@ func renderEditCompact(toolArgs, toolResult string) string {
 	oldCount := len(strings.Split(oldText, "\n"))
 	newCount := len(strings.Split(newText, "\n"))
 
-	theme := getTheme()
+	theme := GetTheme()
 	var summary string
 	if oldCount == newCount {
 		summary = fmt.Sprintf("%d lines modified", oldCount)
@@ -859,7 +859,7 @@ func renderWriteCompact(toolArgs string) string {
 	}
 
 	count := len(strings.Split(content, "\n"))
-	theme := getTheme()
+	theme := GetTheme()
 	summary := fmt.Sprintf("%d lines written", count)
 	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
 }
@@ -872,7 +872,7 @@ func renderLsCompact(toolResult string) string {
 	}
 
 	entries := strings.Split(content, "\n")
-	theme := getTheme()
+	theme := GetTheme()
 	summary := fmt.Sprintf("%d entries", len(entries))
 	return lipgloss.NewStyle().Foreground(theme.Muted).Italic(true).Render(summary)
 }
@@ -910,14 +910,14 @@ func renderBashCompact(toolResult string, width int) string {
 
 	if len(outputLines) == 0 {
 		if exitCode != "" {
-			theme := getTheme()
+			theme := GetTheme()
 			return lipgloss.NewStyle().Foreground(theme.Error).Render(exitCode)
 		}
 		return ""
 	}
 
 	const maxLines = 3
-	theme := getTheme()
+	theme := GetTheme()
 
 	display := outputLines
 	if len(display) > maxLines {
@@ -948,7 +948,7 @@ func renderBashCompact(toolResult string, width int) string {
 // renderSubagentBody renders a clean summary of subagent results with bash-style
 // background styling for consistency with other tools.
 func renderSubagentBody(toolResult string, width int) string {
-	theme := getTheme()
+	theme := GetTheme()
 	result := strings.TrimSpace(toolResult)
 	if result == "" {
 		return ""
@@ -1064,7 +1064,7 @@ func renderSubagentCompact(toolResult string) string {
 		return ""
 	}
 
-	theme := getTheme()
+	theme := GetTheme()
 
 	// Extract just the first line which contains the status
 	lines := strings.Split(result, "\n")

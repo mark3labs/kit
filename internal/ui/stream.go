@@ -567,7 +567,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	} else {
 		result = strings.Join(parts, "\n")
 	}
-	return lipgloss.NewStyle().MarginBottom(1).Render(result)
+	return styleMarginBottom1.Render(result)
 }
 
 // SetThinkingVisible sets whether reasoning blocks are shown or collapsed.

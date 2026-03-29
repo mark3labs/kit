@@ -142,7 +142,11 @@ func newTestAppModel(ctrl AppController) (*AppModel, *stubStreamComponent, *stub
 // sendMsg calls m.Update once with the given message and returns the updated model.
 func sendMsg(m *AppModel, msg tea.Msg) *AppModel {
 	updated, _ := m.Update(msg)
-	return updated.(*AppModel)
+	result := updated.(*AppModel)
+	// Simulate BubbleTea's frame cycle: View() is called after every Update().
+	// This flushes any pending layoutDirty work (e.g. distributeHeight).
+	_ = result.View()
+	return result
 }
 
 // --------------------------------------------------------------------------

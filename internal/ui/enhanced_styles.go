@@ -35,8 +35,11 @@ func GetTheme() Theme {
 
 // SetTheme updates the global UI theme, affecting all subsequent rendering
 // operations. This allows runtime theme switching for different visual preferences.
+// It also invalidates the markdownRendererCache so the next call to
+// GetMarkdownRenderer picks up the new theme's colors.
 func SetTheme(theme Theme) {
 	currentTheme = theme
+	markdownRendererCache = nil // invalidate cached renderer; colors may have changed
 }
 
 // MarkdownThemeColors defines colors for markdown rendering and syntax highlighting.
@@ -292,39 +295,3 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 	return result.String()
 }
 
-// Compact styling utilities
-
-// StyleCompactSymbol creates a lipgloss style for message type indicators in
-// compact mode, using bold colored text to distinguish different message categories.
-func StyleCompactSymbol(symbol string, c color.Color) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(c).
-		Bold(true)
-}
-
-// StyleCompactLabel creates a lipgloss style for message labels in compact mode
-// with fixed width for alignment and bold colored text for readability.
-func StyleCompactLabel(c color.Color) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(c).
-		Bold(true).
-		Width(8)
-}
-
-// StyleCompactContent creates a simple lipgloss style for message content in
-// compact mode, applying only color without additional formatting.
-func StyleCompactContent(c color.Color) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(c)
-}
-
-// FormatCompactLine assembles a complete compact mode message line with consistent
-// spacing and styling. Combines a symbol, fixed-width label, and content with their
-// respective colors to create a uniform appearance across all message types.
-func FormatCompactLine(symbol, label, content string, symbolColor, labelColor, contentColor color.Color) string {
-	styledSymbol := StyleCompactSymbol(symbol, symbolColor).Render(symbol)
-	styledLabel := StyleCompactLabel(labelColor).Render(label)
-	styledContent := StyleCompactContent(contentColor).Render(content)
-
-	return fmt.Sprintf("%s  %-8s %s", styledSymbol, styledLabel, styledContent)
-}

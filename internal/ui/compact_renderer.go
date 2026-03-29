@@ -43,7 +43,7 @@ func (r *CompactRenderer) SetWidth(width int) {
 // while minimizing vertical space usage. Returns a UIMessage with formatted content
 // and metadata.
 func (r *CompactRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Info).Render(">")
 	label := lipgloss.NewStyle().Foreground(theme.Info).Bold(true).Render("User")
 
@@ -96,7 +96,7 @@ func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.
 		}
 	}
 
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Primary).Render("<")
 
 	// Use the full model name, fallback to "Assistant" if empty
@@ -131,7 +131,7 @@ func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.
 // the tool invocation header (icon + display name + params) with the execution
 // result body. Status is indicated by icon: checkmark for success, cross for error.
 func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 
 	// Resolve extension renderer once for all overrides.
 	var extRd *ToolRendererData
@@ -220,7 +220,7 @@ func (r *CompactRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 // compact format with a distinctive symbol (*) and "System" label. Content is
 // formatted to fit on a single line for minimal space usage.
 func (r *CompactRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Muted).Render("◇")
 	label := lipgloss.NewStyle().Foreground(theme.Muted).Bold(true).Render("System")
 
@@ -240,7 +240,7 @@ func (r *CompactRenderer) RenderSystemMessage(content string, timestamp time.Tim
 // distinctive error symbol (!) and styling to ensure visibility. The error
 // content is displayed in a single line with appropriate color highlighting.
 func (r *CompactRenderer) RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Error).Render("!")
 	label := lipgloss.NewStyle().Foreground(theme.Error).Bold(true).Render("Error")
 
@@ -260,7 +260,7 @@ func (r *CompactRenderer) RenderErrorMessage(errorMsg string, timestamp time.Tim
 // mode is enabled. Messages are truncated if they exceed the available width to
 // maintain single-line display.
 func (r *CompactRenderer) RenderDebugMessage(message string, timestamp time.Time) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Tool).Render("*")
 	label := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render("Debug")
 
@@ -284,7 +284,7 @@ func (r *CompactRenderer) RenderDebugMessage(message string, timestamp time.Time
 // debugging purposes. Config entries are displayed as key=value pairs separated
 // by commas, truncated if necessary to fit on a single line.
 func (r *CompactRenderer) RenderDebugConfigMessage(config map[string]any, timestamp time.Time) UIMessage {
-	theme := getTheme()
+	theme := GetTheme()
 	symbol := lipgloss.NewStyle().Foreground(theme.Tool).Render("*")
 	label := lipgloss.NewStyle().Foreground(theme.Tool).Bold(true).Render("Debug")
 
@@ -466,5 +466,5 @@ func (r *CompactRenderer) formatToolResult(result string) string {
 // and styling appropriately. Delegates tag parsing to the shared parseBashOutput
 // helper.
 func (r *CompactRenderer) formatBashOutput(result string) string {
-	return parseBashOutput(result, getTheme())
+	return parseBashOutput(result, GetTheme())
 }

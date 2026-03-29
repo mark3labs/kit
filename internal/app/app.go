@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
@@ -68,6 +69,15 @@ type App struct {
 	// rootCtx/rootCancel are used to signal shutdown to all goroutines.
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
+
+	// widgetUpdatePending is set to true when a WidgetUpdateEvent has been
+	// sent to the TUI but not yet consumed by its event loop. While the flag
+	// is set, subsequent NotifyWidgetUpdate calls are coalesced (dropped) to
+	// prevent fast extension tickers from flooding the BubbleTea mailbox with
+	// redundant re-render triggers. The flag is cleared after a short debounce
+	// (~1 frame) so new updates are always let through once the TUI has had a
+	// chance to process the pending event.
+	widgetUpdatePending atomic.Bool
 }
 
 // New creates a new App with the provided options and pre-loaded messages.
@@ -834,12 +844,32 @@ func (a *App) NotifyModelChanged(provider, model string) {
 // NotifyWidgetUpdate sends a WidgetUpdateEvent to the TUI so it re-renders
 // extension widgets. Called from the extension context's SetWidget/RemoveWidget
 // closures. In non-interactive mode this is a no-op (widgets are TUI-only).
+//
+// Coalescing: if a WidgetUpdateEvent is already queued and not yet consumed
+// by the TUI event loop, additional calls within the same ~16 ms window are
+// dropped. This prevents fast extension tickers from flooding BubbleTea's
+// mailbox with redundant re-render triggers.
 func (a *App) NotifyWidgetUpdate() {
+	// Coalesce: only one pending update at a time.
+	if !a.widgetUpdatePending.CompareAndSwap(false, true) {
+		return
+	}
 	a.mu.Lock()
 	prog := a.program
 	a.mu.Unlock()
 	if prog != nil {
 		prog.Send(WidgetUpdateEvent{})
+		// Reset the pending flag after a short debounce so subsequent calls
+		// within the same render cycle are also coalesced, but new updates
+		// after the cycle are allowed through.
+		go func() {
+			time.Sleep(16 * time.Millisecond) // ~1 frame at 60 fps
+			a.widgetUpdatePending.Store(false)
+		}()
+	} else {
+		// No program registered (non-interactive mode); clear the flag so
+		// future calls are never permanently blocked.
+		a.widgetUpdatePending.Store(false)
 	}
 }
 

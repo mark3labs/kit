@@ -148,6 +148,22 @@ type ToolRendererData struct {
 	RenderBody func(toolResult string, isError bool, width int) string
 }
 
+// noopCmd is a sentinel tea.Cmd returned by handlers that have consumed an
+// event but produce no side-effects. It returns a nil Msg which BubbleTea
+// discards, but its non-nil value lets callers distinguish "handled" from
+// "not handled" (nil tea.Cmd).
+var noopCmd tea.Cmd = func() tea.Msg { return nil }
+
+// Package-level lipgloss styles that are invariant across frames (only depend
+// on theme colors, which are updated via SetTheme). Defined at package level
+// to avoid allocating new lipgloss.Style structs on every render call.
+//
+// Note: theme-sensitive styles (those using theme.Warning, theme.Muted, etc.)
+// are rebuilt on theme change via ApplyTheme. The cancel warning style
+// intentionally reads the theme at render time because themes can change at
+// runtime; only truly static styles belong here.
+var styleMarginBottom1 = lipgloss.NewStyle().MarginBottom(1)
+
 // ---------------------------------------------------------------------------
 // Editor interceptor types (UI-layer, decoupled from extensions package)
 // ---------------------------------------------------------------------------
@@ -587,20 +603,26 @@ type AppModel struct {
 	// (Update/View), so no mutex is required here.
 	// streamingBashCommand holds the command being executed for display as a header.
 	streamingBashCommand string
+
+	// ---------- Cached layout heights (invalidated by layoutDirty) ----------
+
+	// layoutDirty marks that distributeHeight must recompute the stream height
+	// on the next View() call. Set by any state change that affects sizing
+	// (resize, queue changes, widget updates, visibility changes, etc.).
+	// View() calls distributeHeight() when this is true and then clears it.
+	layoutDirty bool
 }
 
 // --------------------------------------------------------------------------
-// Child component interfaces (stubs until TAS-15/16/17 implement them)
+// Child component interfaces
 // --------------------------------------------------------------------------
 
 // inputComponentIface is the interface the parent requires from InputComponent.
-// It will be satisfied by the real InputComponent created in TAS-15.
 type inputComponentIface interface {
 	tea.Model
 }
 
 // streamComponentIface is the interface the parent requires from StreamComponent.
-// It will be satisfied by the real StreamComponent created in TAS-16.
 type streamComponentIface interface {
 	tea.Model
 	// Reset clears accumulated state between agent steps.
@@ -753,16 +775,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 // Init implements tea.Model. Initialises child components. Startup info is
 // printed to stdout before the program starts via PrintStartupInfo().
 func (m *AppModel) Init() tea.Cmd {
-	var cmds []tea.Cmd
-
-	if m.input != nil {
-		cmds = append(cmds, m.input.Init())
-	}
-	if m.stream != nil {
-		cmds = append(cmds, m.stream.Init())
-	}
-
-	return tea.Batch(cmds...)
+	// m.input is always set by NewAppModel; its Init starts the textarea cursor blink.
+	// m.stream.Init() always returns nil, so there is nothing to batch.
+	return m.input.Init()
 }
 
 // uiVis returns the current UIVisibility, defaulting to zero value (show all)
@@ -832,7 +847,7 @@ func (m *AppModel) PrintStartupInfo() {
 
 	if len(pairs) > 0 {
 		rendered := ty.KVGroup(pairs)
-		rendered = lipgloss.NewStyle().MarginBottom(1).Render(rendered)
+		rendered = styleMarginBottom1.Render(rendered)
 		fmt.Println(rendered)
 	}
 }
@@ -903,7 +918,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}()
 				m.treeSelector = nil
 				m.state = stateInput
-				return m, func() tea.Msg { return nil }
+				return m, noopCmd
 			}
 
 			cmds = append(cmds, m.performFork(targetID, msg.IsUser, msg.UserText))
@@ -985,14 +1000,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.distributeHeight()
+		m.layoutDirty = true
 		// Propagate to children.
 		if m.input != nil {
-			_, cmd := m.input.Update(msg)
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
@@ -1116,7 +1133,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sLen := m.appCtrl.Steer(processedText)
 					if sLen > 0 {
 						m.steeringMessages = append(m.steeringMessages, text)
-						m.distributeHeight()
+						m.layoutDirty = true
 					} else {
 						// Started immediately (agent was idle).
 						m.pendingUserPrints = append(m.pendingUserPrints, text)
@@ -1187,63 +1204,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case submitMsg:
 		// Handle slash commands locally — they should never reach app.Run().
-		if sc := GetCommandByName(msg.Text); sc != nil {
-			if cmd := m.handleSlashCommand(sc); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			cmds = append(cmds, m.drainScrollback())
-			return m, tea.Batch(cmds...)
-		}
-
-		// /compact and /model support optional args (e.g. "/compact Focus on API",
-		// "/model anthropic/claude-haiku-3-5-20241022").
-		// GetCommandByName won't match the full text, so check the prefix.
-		if name, args, ok := strings.Cut(msg.Text, " "); ok {
+		// Parse once: split on the first space so argument-bearing commands
+		// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
+		// their name and their args are passed through to the handler.
+		if strings.HasPrefix(msg.Text, "/") {
+			name, args, _ := strings.Cut(msg.Text, " ")
 			if sc := GetCommandByName(name); sc != nil {
-				switch sc.Name {
-				case "/compact":
-					if cmd := m.handleCompactCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/model":
-					if cmd := m.handleModelCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/thinking":
-					if cmd := m.handleThinkingCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/theme":
-					if cmd := m.handleThemeCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/name":
-					if cmd := m.handleNameCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/export":
-					if cmd := m.handleExportCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
-				case "/import":
-					if cmd := m.handleImportCommand(strings.TrimSpace(args)); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-					cmds = append(cmds, m.drainScrollback())
-					return m, tea.Batch(cmds...)
+				if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
+					cmds = append(cmds, cmd)
 				}
+				cmds = append(cmds, m.drainScrollback())
+				return m, tea.Batch(cmds...)
 			}
 		}
 
@@ -1300,7 +1271,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// "queued" badge. It will be printed to scrollback when
 				// the agent picks it up (via SpinnerEvent).
 				m.queuedMessages = append(m.queuedMessages, displayText)
-				m.distributeHeight()
+				m.layoutDirty = true
 			} else {
 				// Started immediately. Flush any leftover stream content
 				// from the previous step first, then print the user
@@ -1321,7 +1292,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show spinner while the shell command runs.
 		m.state = stateWorking
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		// Execute the shell command asynchronously so the TUI stays responsive.
@@ -1330,7 +1302,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellCommandResultMsg:
 		// Stop spinner now that the command has finished.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
@@ -1348,22 +1321,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Show {
 			m.flushStreamAndPendingUserMessages()
 			m.state = stateWorking
-			m.distributeHeight()
+			m.layoutDirty = true
 		}
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
 	case app.ReasoningChunkEvent:
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
 	case app.StreamChunkEvent:
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
@@ -1387,7 +1363,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.ToolExecutionEvent:
 		// Pass to stream component for execution spinner display.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
@@ -1400,7 +1377,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamingBashCommand = ""
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
@@ -1452,7 +1430,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.queuedMessages = m.queuedMessages[1:]
 			m.pendingUserPrints = append(m.pendingUserPrints, text)
 		}
-		m.distributeHeight()
+		m.layoutDirty = true
 
 	case app.SteerConsumedEvent:
 		// Steering messages were consumed — either injected mid-turn via
@@ -1477,13 +1455,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.printUserMessage(text)
 			}
 			m.steeringMessages = m.steeringMessages[:0]
-			m.distributeHeight()
+			m.layoutDirty = true
 			cmds = append(cmds, m.drainScrollback())
 		} else {
 			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
 			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
 			m.steeringMessages = m.steeringMessages[:0]
-			m.distributeHeight()
+			m.layoutDirty = true
 		}
 
 	case app.StepCompleteEvent:
@@ -1494,7 +1472,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// scrollback when the next step starts (SpinnerEvent{Show: true}).
 		// Just stop the spinner and return to input state.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
@@ -1504,7 +1483,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// User cancelled the step (double-ESC). Keep partial stream content
 		// visible (same reasoning as StepCompleteEvent). Just stop the spinner.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
@@ -1515,7 +1495,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// StepCompleteEvent). Print the error to scrollback — it appears
 		// above the view, and the partial response stays visible below.
 		if m.stream != nil {
-			_, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		if msg.Err != nil {
@@ -1548,7 +1529,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Extension widget changed — recalculate height distribution so the
 		// stream region accounts for widget space. View() will read the
 		// latest widget state on the next render.
-		m.distributeHeight()
+		m.layoutDirty = true
 
 		// Refresh extension commands (e.g. after hot-reload). The callback
 		// returns the current set from the runner which may have changed.
@@ -1693,11 +1674,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		// Pass unrecognised messages to all children.
 		if m.input != nil {
-			_, cmd := m.input.Update(msg)
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
 			cmds = append(cmds, cmd)
 		}
 		if m.stream != nil {
-			_, cmd := m.stream.Update(msg)
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 	}
@@ -1729,6 +1712,15 @@ func (m *AppModel) View() tea.View {
 	// Overlay dialog replaces the normal layout.
 	if m.state == stateOverlay && m.overlay != nil {
 		return tea.NewView(m.overlay.Render())
+	}
+
+	// Recompute layout heights if any Update() changed state that affects
+	// sizing. Deferring this to View() guarantees exactly one call per frame
+	// regardless of how many events triggered a layout change in a single
+	// Update() invocation.
+	if m.layoutDirty {
+		m.distributeHeight()
+		m.layoutDirty = false
 	}
 
 	vis := m.uiVis()
@@ -2238,10 +2230,10 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 // Slash command handlers
 // --------------------------------------------------------------------------
 
-// handleSlashCommand executes a recognized slash command and returns a tea.Cmd
-// that emits the appropriate output to scrollback. Returns tea.Quit for /quit,
-// nil for commands with no visible output, or a tea.Println cmd for display.
-func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
+// handleSlashCommand executes a recognized slash command and returns a tea.Cmd.
+// args contains any text after the command name (may be empty). Returns tea.Quit
+// for /quit, nil for commands with no output, or a tea.Println cmd for display.
+func (m *AppModel) handleSlashCommand(sc *SlashCommand, args string) tea.Cmd {
 	switch sc.Name {
 	case "/quit":
 		return tea.Quit
@@ -2256,13 +2248,13 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 	case "/reset-usage":
 		m.printResetUsage()
 	case "/model":
-		return m.handleModelCommand("")
+		return m.handleModelCommand(args)
 	case "/theme":
-		return m.handleThemeCommand("")
+		return m.handleThemeCommand(args)
 	case "/thinking":
-		return m.handleThinkingCommand("")
+		return m.handleThinkingCommand(args)
 	case "/compact":
-		return m.handleCompactCommand("")
+		return m.handleCompactCommand(args)
 	case "/clear":
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
@@ -2274,7 +2266,7 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 		}
 		m.queuedMessages = m.queuedMessages[:0]
 		m.steeringMessages = m.steeringMessages[:0]
-		m.distributeHeight()
+		m.layoutDirty = true
 
 	case "/tree":
 		return m.handleTreeCommand()
@@ -2283,15 +2275,15 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand) tea.Cmd {
 	case "/new":
 		return m.handleNewCommand()
 	case "/name":
-		return m.handleNameCommand("")
+		return m.handleNameCommand(args)
 	case "/resume":
 		return m.handleResumeCommand()
 	case "/export":
-		return m.handleExportCommand("")
+		return m.handleExportCommand(args)
 	case "/share":
 		return m.handleShareCommand()
 	case "/import":
-		return m.handleImportCommand("")
+		return m.handleImportCommand(args)
 	case "/session":
 		return m.handleSessionInfoCommand()
 
@@ -2378,7 +2370,7 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 	// Return a non-nil Cmd so the caller knows the command was handled
 	// and doesn't fall through to the regular prompt path. The Cmd itself
 	// is a no-op.
-	return func() tea.Msg { return nil }
+	return noopCmd
 }
 
 // expandPromptTemplate checks if the submitted text matches a prompt template
@@ -3004,7 +2996,7 @@ func (m *AppModel) handleNewCommand() tea.Cmd {
 				reason:    reason,
 			})
 		}()
-		return func() tea.Msg { return nil }
+		return noopCmd
 	}
 
 	return m.performNewSession()
