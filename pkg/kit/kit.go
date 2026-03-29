@@ -388,13 +388,6 @@ func (m *Kit) GetStructuredMessages() []StructuredMessage {
 	return msgs
 }
 
-// GetSessionFilePath returns the JSONL file path of the current session.
-func (m *Kit) GetSessionFilePath() string {
-	if m.treeSession == nil {
-		return ""
-	}
-	return m.treeSession.GetFilePath()
-}
 
 // AppendExtensionEntry persists custom extension data in the session tree.
 func (m *Kit) AppendExtensionEntry(extType, data string) (string, error) {
@@ -1274,11 +1267,10 @@ type SubagentConfig struct {
 }
 
 // SubagentResult contains the outcome of an in-process subagent execution.
+// Errors are returned as the error return value of Subagent(), not in this struct.
 type SubagentResult struct {
 	// Response is the subagent's final text response.
 	Response string
-	// Error is set if the subagent failed (nil on success).
-	Error error
 	// SessionID is the subagent's session identifier (for replay).
 	SessionID string
 	// StopReason is the LLM's finish reason for the subagent's final turn.
@@ -1352,10 +1344,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		childOpts.Model = m.modelString
 		child, err = New(ctx, childOpts)
 		if err != nil {
-			return &SubagentResult{
-				Error:   fmt.Errorf("failed to create subagent: %w", err),
-				Elapsed: time.Since(start),
-			}, err
+			return nil, fmt.Errorf("failed to create subagent: %w", err)
 		}
 		// Prepend a note so the agent knows which model is actually running.
 		cfg.Prompt = fmt.Sprintf(
@@ -1363,10 +1352,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 			model, m.modelString, cfg.Prompt,
 		)
 	} else if err != nil {
-		return &SubagentResult{
-			Error:   fmt.Errorf("failed to create subagent: %w", err),
-			Elapsed: time.Since(start),
-		}, err
+		return nil, fmt.Errorf("failed to create subagent: %w", err)
 	}
 	defer func() { _ = child.Close() }()
 
@@ -1380,11 +1366,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return &SubagentResult{
-			Error:     err,
-			SessionID: child.GetSessionID(),
-			Elapsed:   elapsed,
-		}, err
+		return nil, err
 	}
 
 	subResult := &SubagentResult{
@@ -1462,7 +1444,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		}
 		sr := &core.SubagentSpawnResult{
 			Response:  result.Response,
-			Error:     result.Error,
+			Error:     err,
 			SessionID: result.SessionID,
 			Elapsed:   result.Elapsed,
 		}

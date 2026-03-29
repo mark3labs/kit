@@ -134,22 +134,20 @@ func (m *Kit) GetChildren(parentID string) []string {
 }
 
 // NavigateTo branches/forks the session to the specified entry ID.
-// Returns error description or empty string for success.
-func (m *Kit) NavigateTo(entryID string) string {
+// Returns an error if the session is unavailable or the entry ID is not found.
+func (m *Kit) NavigateTo(entryID string) error {
 	if m.treeSession == nil {
-		return "no tree session available"
+		return fmt.Errorf("no tree session available")
 	}
-	if err := m.treeSession.Branch(entryID); err != nil {
-		return err.Error()
-	}
-	return ""
+	return m.treeSession.Branch(entryID)
 }
 
-// SummarizeBranch uses LLM to summarize a branch range.
-// Returns summary text or error string.
-func (m *Kit) SummarizeBranch(fromID, toID string) string {
+// SummarizeBranch uses the LLM to summarize the conversation between two
+// entry IDs. Returns the summary text, or an error if the range is invalid,
+// the session is unavailable, or the LLM call fails.
+func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 	if m.treeSession == nil {
-		return ""
+		return "", fmt.Errorf("no tree session available")
 	}
 
 	// Get the branch and find the range
@@ -166,7 +164,7 @@ func (m *Kit) SummarizeBranch(fromID, toID string) string {
 	}
 
 	if startIdx < 0 || endIdx < 0 || startIdx > endIdx {
-		return ""
+		return "", fmt.Errorf("entry IDs not found or out of order in current branch")
 	}
 
 	// Build text to summarize
@@ -179,7 +177,7 @@ func (m *Kit) SummarizeBranch(fromID, toID string) string {
 	}
 
 	if content.Len() == 0 {
-		return ""
+		return "", fmt.Errorf("no content found in the specified range")
 	}
 
 	// Use LLM to summarize
@@ -189,22 +187,19 @@ func (m *Kit) SummarizeBranch(fromID, toID string) string {
 		Prompt: content.String(),
 	})
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("summarization failed: %w", err)
 	}
-	return resp.Text
+	return resp.Text, nil
 }
 
 // CollapseBranch replaces a branch range with a summary entry.
-// Returns error description or empty string for success.
-func (m *Kit) CollapseBranch(fromID, toID, summary string) string {
+// Returns an error if the session is unavailable or the operation fails.
+func (m *Kit) CollapseBranch(fromID, toID, summary string) error {
 	if m.treeSession == nil {
-		return "no tree session available"
+		return fmt.Errorf("no tree session available")
 	}
 	_, err := m.treeSession.AppendBranchSummary(fromID, summary)
-	if err != nil {
-		return err.Error()
-	}
-	return ""
+	return err
 }
 
 // entryToTreeNode converts a session entry to a TreeNode.

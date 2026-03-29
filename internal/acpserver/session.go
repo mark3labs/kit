@@ -122,7 +122,7 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 				}
 			},
 			GetMessages:    func() []extensions.SessionMessage { return kitInstance.GetSessionMessages() },
-			GetSessionPath: func() string { return kitInstance.GetSessionFilePath() },
+			GetSessionPath: func() string { return kitInstance.GetSessionPath() },
 			AppendEntry: func(entryType, data string) (string, error) {
 				return kitInstance.AppendExtensionEntry(entryType, data)
 			},
@@ -173,7 +173,7 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 				}
 				extResult := &extensions.SubagentResult{
 					Response:  result.Response,
-					Error:     result.Error,
+					Error:     err,
 					SessionID: result.SessionID,
 					Elapsed:   result.Elapsed,
 				}

@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"context"
+
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/agent"
@@ -151,16 +153,27 @@ type CompactionOptions = compaction.CompactionOptions
 
 // ==== Constructor & Helper Functions ====
 
-var (
-	// ParseModelString parses a model string in "provider/model" format.
-	ParseModelString = models.ParseModelString
-	// CreateProvider creates a fantasy LanguageModel based on provider config.
-	CreateProvider = models.CreateProvider
-	// GetGlobalRegistry returns the global models registry instance.
-	GetGlobalRegistry = models.GetGlobalRegistry
-	// LoadSystemPrompt loads system prompt from file or returns string directly.
-	LoadSystemPrompt = config.LoadSystemPrompt
-)
+// ParseModelString parses a model string in "provider/model" format.
+// Returns provider, modelID, and an error if the format is invalid.
+func ParseModelString(model string) (provider, modelID string, err error) {
+	return models.ParseModelString(model)
+}
+
+// CreateProvider creates a fantasy LanguageModel based on provider config.
+func CreateProvider(ctx context.Context, cfg *ProviderConfig) (*ProviderResult, error) {
+	return models.CreateProvider(ctx, cfg)
+}
+
+// GetGlobalRegistry returns the global models registry instance.
+func GetGlobalRegistry() *ModelsRegistry {
+	return models.GetGlobalRegistry()
+}
+
+// LoadSystemPrompt loads a system prompt from a file path, or returns the
+// string directly if it is not a valid file path.
+func LoadSystemPrompt(pathOrContent string) (string, error) {
+	return config.LoadSystemPrompt(pathOrContent)
+}
 
 // ==== Conversion Helpers ====
 

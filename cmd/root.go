@@ -915,7 +915,7 @@ func runNormalMode(ctx context.Context) error {
 				return kitInstance.GetSessionMessages()
 			},
 			GetSessionPath: func() string {
-				return kitInstance.GetSessionFilePath()
+				return kitInstance.GetSessionPath()
 			},
 			AppendEntry: func(entryType string, data string) (string, error) {
 				return kitInstance.AppendExtensionEntry(entryType, data)
@@ -1087,7 +1087,7 @@ func runNormalMode(ctx context.Context) error {
 				}
 				extResult := &extensions.SubagentResult{
 					Response:  result.Response,
-					Error:     result.Error,
+					Error:     err,
 					SessionID: result.SessionID,
 					Elapsed:   result.Elapsed,
 				}
@@ -1141,16 +1141,19 @@ func runNormalMode(ctx context.Context) error {
 			GetChildren: kitInstance.GetChildren,
 			NavigateTo: func(entryID string) extensions.TreeNavigationResult {
 				err := kitInstance.NavigateTo(entryID)
-				if err != "" {
-					return extensions.TreeNavigationResult{Success: false, Error: err}
+				if err != nil {
+					return extensions.TreeNavigationResult{Success: false, Error: err.Error()}
 				}
 				return extensions.TreeNavigationResult{Success: true}
 			},
-			SummarizeBranch: kitInstance.SummarizeBranch,
+			SummarizeBranch: func(fromID, toID string) string {
+				summary, _ := kitInstance.SummarizeBranch(fromID, toID)
+				return summary
+			},
 			CollapseBranch: func(fromID, toID, summary string) extensions.TreeNavigationResult {
 				err := kitInstance.CollapseBranch(fromID, toID, summary)
-				if err != "" {
-					return extensions.TreeNavigationResult{Success: false, Error: err}
+				if err != nil {
+					return extensions.TreeNavigationResult{Success: false, Error: err.Error()}
 				}
 				return extensions.TreeNavigationResult{Success: true}
 			},
@@ -1352,7 +1355,7 @@ func runNormalMode(ctx context.Context) error {
 				}
 				extResult := &extensions.SubagentResult{
 					Response:  result.Response,
-					Error:     result.Error,
+					Error:     err,
 					SessionID: result.SessionID,
 					Elapsed:   result.Elapsed,
 				}
@@ -1406,16 +1409,19 @@ func runNormalMode(ctx context.Context) error {
 			GetChildren: kitInstance.GetChildren,
 			NavigateTo: func(entryID string) extensions.TreeNavigationResult {
 				err := kitInstance.NavigateTo(entryID)
-				if err != "" {
-					return extensions.TreeNavigationResult{Success: false, Error: err}
+				if err != nil {
+					return extensions.TreeNavigationResult{Success: false, Error: err.Error()}
 				}
 				return extensions.TreeNavigationResult{Success: true}
 			},
-			SummarizeBranch: kitInstance.SummarizeBranch,
+			SummarizeBranch: func(fromID, toID string) string {
+				summary, _ := kitInstance.SummarizeBranch(fromID, toID)
+				return summary
+			},
 			CollapseBranch: func(fromID, toID, summary string) extensions.TreeNavigationResult {
 				err := kitInstance.CollapseBranch(fromID, toID, summary)
-				if err != "" {
-					return extensions.TreeNavigationResult{Success: false, Error: err}
+				if err != nil {
+					return extensions.TreeNavigationResult{Success: false, Error: err.Error()}
 				}
 				return extensions.TreeNavigationResult{Success: true}
 			},
