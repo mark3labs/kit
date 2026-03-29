@@ -181,7 +181,7 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 
 	// Set leaf to the last entry.
 	if len(tm.entries) > 0 {
-		tm.leafID = tm.entryID(tm.entries[len(tm.entries)-1])
+		tm.leafID = tm.EntryID(tm.entries[len(tm.entries)-1])
 	}
 
 	// Open file for appending.
@@ -521,7 +521,7 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 	for _, entry := range branch {
 		// Once we reach the first kept entry, stop skipping.
 		if skipping {
-			entryID := tm.entryID(entry)
+			entryID := tm.EntryID(entry)
 			if entryID == lastCompaction.FirstKeptEntryID {
 				skipping = false
 			} else {
@@ -684,7 +684,7 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 	skipping := lastCompaction != nil
 	for _, entry := range branch {
 		if skipping {
-			entryID := tm.entryID(entry)
+			entryID := tm.EntryID(entry)
 			if entryID == lastCompaction.FirstKeptEntryID {
 				skipping = false
 			} else {
@@ -761,7 +761,7 @@ func (tm *TreeManager) GetFantasyMessages() []fantasy.Message {
 func (tm *TreeManager) addEntryToIndex(entry any) {
 	tm.entries = append(tm.entries, entry)
 
-	id := tm.entryID(entry)
+	id := tm.EntryID(entry)
 	parentID := tm.entryParentID(entry)
 
 	if id != "" {
@@ -798,8 +798,8 @@ func (tm *TreeManager) writeEntry(entry any) error {
 	return err
 }
 
-// entryID extracts the ID from any entry type.
-func (tm *TreeManager) entryID(entry any) string {
+// EntryID extracts the ID from any entry type.
+func (tm *TreeManager) EntryID(entry any) string {
 	switch e := entry.(type) {
 	case *MessageEntry:
 		return e.ID

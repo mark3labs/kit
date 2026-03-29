@@ -12,6 +12,10 @@ import (
 // defaultSystemPrompt is the built-in system prompt used when no custom
 // prompt is configured. It describes the available core tools and provides
 // usage guidelines.
+//
+// NOTE: Keep this in sync with the CLI default in cmd/root.go (search for
+// defaultSystemPrompt or system-prompt flag default). Changes here should
+// generally be reflected there, and vice versa.
 const defaultSystemPrompt = `You are an expert coding assistant operating inside kit, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:

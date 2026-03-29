@@ -154,7 +154,7 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 	branch := m.treeSession.GetBranch("")
 	var startIdx, endIdx = -1, -1
 	for i, entry := range branch {
-		id := m.getEntryID(entry)
+		id := m.treeSession.EntryID(entry)
 		if id == fromID {
 			startIdx = i
 		}
@@ -265,22 +265,6 @@ func (m *Kit) entryToTreeNode(entry any) *TreeNode {
 		}
 	default:
 		return nil
-	}
-}
-
-// getEntryID extracts the ID from a session entry.
-func (m *Kit) getEntryID(entry any) string {
-	switch e := entry.(type) {
-	case *session.MessageEntry:
-		return e.ID
-	case *session.BranchSummaryEntry:
-		return e.ID
-	case *session.ModelChangeEntry:
-		return e.ID
-	case *session.ExtensionDataEntry:
-		return e.ID
-	default:
-		return ""
 	}
 }
 

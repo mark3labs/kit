@@ -2,7 +2,6 @@ package kit
 
 import (
 	"os"
-	"sync"
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/skills"
@@ -78,25 +77,18 @@ func NewPromptBuilder(basePrompt string) *PromptBuilder {
 // Skill Bridge for Extensions (Phase 2)
 // ---------------------------------------------------------------------------
 
-// skillCache holds skills discovered for the current session.
-type skillCache struct {
-	skills []*Skill
-	mu     sync.RWMutex
-}
-
-var globalSkillCache skillCache
-
 // DiscoverSkillsForExtension finds skills in standard locations for extensions.
-// Returns skills in the extension-facing format.
+// Returns skills in the extension-facing format. Results are cached per-Kit
+// instance to avoid reloading on every call.
 func (m *Kit) DiscoverSkillsForExtension() []extensions.Skill {
 	cwd, _ := os.Getwd()
 
-	globalSkillCache.mu.Lock()
-	defer globalSkillCache.mu.Unlock()
-	if len(globalSkillCache.skills) == 0 {
-		globalSkillCache.skills, _ = skills.LoadSkills(cwd)
+	m.skillCache.mu.Lock()
+	defer m.skillCache.mu.Unlock()
+	if len(m.skillCache.skills) == 0 {
+		m.skillCache.skills, _ = skills.LoadSkills(cwd)
 	}
-	return m.convertSkills(globalSkillCache.skills)
+	return m.convertSkills(m.skillCache.skills)
 }
 
 // LoadSkillForExtension loads a single skill file for extensions.
@@ -138,9 +130,9 @@ func (m *Kit) convertSkills(skillList []*skills.Skill) []extensions.Skill {
 	return result
 }
 
-// ClearSkillCache clears the global skill cache (called on reload).
+// ClearSkillCache clears the skill cache for this Kit instance.
 func (m *Kit) ClearSkillCache() {
-	globalSkillCache.mu.Lock()
-	globalSkillCache.skills = nil
-	globalSkillCache.mu.Unlock()
+	m.skillCache.mu.Lock()
+	defer m.skillCache.mu.Unlock()
+	m.skillCache.skills = nil
 }

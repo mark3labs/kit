@@ -68,6 +68,14 @@ type Kit struct {
 	// SubscribeSubagent(). Keyed by toolCallID → *subagentListenerSet.
 	subagentListeners sync.Map
 
+	// skillCache holds skills discovered for this Kit instance.
+	// Using a per-instance cache avoids cross-contamination when multiple
+	// Kit instances exist in the same process.
+	skillCache struct {
+		skills []*skills.Skill
+		mu     sync.RWMutex
+	}
+
 	// steerCh is a buffered channel used to inject steering messages into
 	// the running agent turn via Fantasy's PrepareStep. Created fresh for
 	// each generate() call and set to nil when idle. Protected by steerMu.
@@ -303,20 +311,7 @@ func (m *Kit) GetExtensionUIVisibility() *extensions.UIVisibility {
 // GetSessionMessages returns the conversation messages on the current branch
 // as extension-facing SessionMessage structs, ordered root to leaf.
 func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
-	if m.treeSession == nil {
-		return nil
-	}
-	branch := m.treeSession.GetBranch("")
-	var msgs []extensions.SessionMessage
-	for _, entry := range branch {
-		me, ok := entry.(*session.MessageEntry)
-		if !ok {
-			continue
-		}
-		msg, err := me.ToMessage()
-		if err != nil {
-			continue
-		}
+	return iterBranchMessages(m.treeSession, func(me *session.MessageEntry, msg message.Message) extensions.SessionMessage {
 		// Flatten content parts into a single text string.
 		var content strings.Builder
 		for _, p := range msg.Parts {
@@ -331,7 +326,7 @@ func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
 				fmt.Fprintf(&content, "[tool_result: %s]", pt.Content)
 			}
 		}
-		msgs = append(msgs, extensions.SessionMessage{
+		return extensions.SessionMessage{
 			ID:        me.ID,
 			ParentID:  me.ParentID,
 			Role:      string(msg.Role),
@@ -339,9 +334,8 @@ func (m *Kit) GetSessionMessages() []extensions.SessionMessage {
 			Model:     msg.Model,
 			Provider:  msg.Provider,
 			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		})
-	}
-	return msgs
+		}
+	})
 }
 
 // StructuredMessage represents a conversation message with typed content parts
@@ -361,11 +355,29 @@ type StructuredMessage struct {
 // flattens all content to a single text string, this preserves tool calls,
 // tool results, reasoning blocks, and finish markers as distinct typed parts.
 func (m *Kit) GetStructuredMessages() []StructuredMessage {
-	if m.treeSession == nil {
+	return iterBranchMessages(m.treeSession, func(me *session.MessageEntry, msg message.Message) StructuredMessage {
+		return StructuredMessage{
+			ID:        me.ID,
+			ParentID:  me.ParentID,
+			Role:      msg.Role,
+			Parts:     msg.Parts,
+			Model:     msg.Model,
+			Provider:  msg.Provider,
+			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	})
+}
+
+// iterBranchMessages iterates over the current branch's MessageEntry items,
+// converting each to a message.Message and calling fn to build the result.
+// Returns nil if there is no tree session. Skips entries that are not
+// MessageEntry or that fail conversion.
+func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.MessageEntry, message.Message) T) []T {
+	if tm == nil {
 		return nil
 	}
-	branch := m.treeSession.GetBranch("")
-	var msgs []StructuredMessage
+	branch := tm.GetBranch("")
+	var results []T
 	for _, entry := range branch {
 		me, ok := entry.(*session.MessageEntry)
 		if !ok {
@@ -375,17 +387,9 @@ func (m *Kit) GetStructuredMessages() []StructuredMessage {
 		if err != nil {
 			continue
 		}
-		msgs = append(msgs, StructuredMessage{
-			ID:        me.ID,
-			ParentID:  me.ParentID,
-			Role:      msg.Role,
-			Parts:     msg.Parts,
-			Model:     msg.Model,
-			Provider:  msg.Provider,
-			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		results = append(results, fn(me, msg))
 	}
-	return msgs
+	return results
 }
 
 

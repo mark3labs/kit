@@ -107,6 +107,11 @@ func TestHookRegistry_SamePriorityPreservesOrder(t *testing.T) {
 func TestHookRegistry_Unregister(t *testing.T) {
 	hr := newHookRegistry[string, string]()
 
+	// Verify initial state (merged from TestHookRegistry_HasHooks).
+	if hr.hasHooks() {
+		t.Error("expected hasHooks to be false initially")
+	}
+
 	unregister := hr.register(HookPriorityNormal, func(input string) *string {
 		result := "should be gone"
 		return &result
@@ -134,24 +139,6 @@ func TestHookRegistry_NoHooksReturnsNil(t *testing.T) {
 	got := hr.run("test")
 	if got != nil {
 		t.Errorf("expected nil when no hooks registered, got %v", *got)
-	}
-}
-
-func TestHookRegistry_HasHooks(t *testing.T) {
-	hr := newHookRegistry[string, string]()
-
-	if hr.hasHooks() {
-		t.Error("expected hasHooks to be false initially")
-	}
-
-	unsub := hr.register(HookPriorityNormal, func(_ string) *string { return nil })
-	if !hr.hasHooks() {
-		t.Error("expected hasHooks to be true after registration")
-	}
-
-	unsub()
-	if hr.hasHooks() {
-		t.Error("expected hasHooks to be false after unregister")
 	}
 }
 
@@ -206,10 +193,14 @@ func (m *mockAgentTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	return fantasy.NewTextResponse("default output"), nil
 }
 
-func TestHookedTool_Passthrough(t *testing.T) {
+// newEmptyHookedTool creates a hookedTool with empty hook registries and the given mock tool.
+func newEmptyHookedTool(mock *mockAgentTool) *hookedTool {
 	before := newHookRegistry[BeforeToolCallHook, BeforeToolCallResult]()
 	after := newHookRegistry[AfterToolResultHook, AfterToolResultResult]()
+	return &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
+}
 
+func TestHookedTool_Passthrough(t *testing.T) {
 	mock := &mockAgentTool{
 		name: "test_tool",
 		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
@@ -217,7 +208,7 @@ func TestHookedTool_Passthrough(t *testing.T) {
 		},
 	}
 
-	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
+	ht := newEmptyHookedTool(mock)
 
 	resp, err := ht.Run(context.Background(), fantasy.ToolCall{Input: "{}"})
 	if err != nil {
@@ -372,11 +363,7 @@ func TestHookedTool_HookReceivesToolInfo(t *testing.T) {
 
 func TestHookedTool_InfoDelegates(t *testing.T) {
 	mock := &mockAgentTool{name: "delegate_test"}
-	ht := &hookedTool{
-		inner:           mock,
-		beforeToolCall:  newHookRegistry[BeforeToolCallHook, BeforeToolCallResult](),
-		afterToolResult: newHookRegistry[AfterToolResultHook, AfterToolResultResult](),
-	}
+	ht := newEmptyHookedTool(mock)
 
 	if ht.Info().Name != "delegate_test" {
 		t.Errorf("expected Info() to delegate to inner tool")
