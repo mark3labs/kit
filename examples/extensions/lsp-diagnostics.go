@@ -2,9 +2,7 @@
 
 // lsp-diagnostics.go — LSP-powered diagnostics for Kit's edit tool.
 //
-// Starts language servers on demand and surfaces diagnostics after file edits,
-// following the same pattern used by Charm's crush editor:
-//
+// Starts language servers on demand and surfaces diagnostics after file edits:
 //  1. After an edit, notify the LSP server of the file change
 //  2. Wait for the server to publish fresh diagnostics
 //  3. Append diagnostic output to the edit tool's result
@@ -412,7 +410,7 @@ func (c *lspClient) changeFile(absPath, content string) {
 }
 
 // waitForDiagnostics polls until the server publishes new diagnostics or
-// the timeout elapses. Mirrors crush's WaitForDiagnostics pattern.
+// the timeout elapses.
 func (c *lspClient) waitForDiagnostics(timeout time.Duration) {
 	c.diagMu.Lock()
 	startVersion := c.diagVersion

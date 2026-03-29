@@ -115,9 +115,9 @@ const (
 )
 
 // Message is a single conversation message containing a heterogeneous slice
-// of ContentPart blocks. This design (borrowed from crush) enables a single
-// assistant message to carry text, reasoning, and multiple tool calls as
-// discrete, typed blocks rather than flattening everything into strings.
+// of ContentPart blocks. This design enables a single assistant message to
+// carry text, reasoning, and multiple tool calls as discrete, typed blocks
+// rather than flattening everything into strings.
 type Message struct {
 	ID        string        `json:"id"`
 	Role      MessageRole   `json:"role"`

@@ -634,7 +634,6 @@ func renderBashBody(toolResult string, width int) string {
 
 	const lineIndent = "  "
 	// Truncate individual lines to the available width so they never wrap.
-	// This mirrors Crush's approach: truncate, don't wrap.
 	lineWidth := max(width-len(lineIndent), 20)
 	// Account for PaddingLeft(1) on the output/stderr styles
 	maxLineChars := lineWidth - 1

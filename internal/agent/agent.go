@@ -100,7 +100,7 @@ type GenerateWithLoopResult struct {
 	FinalResponse *fantasy.Response
 	// ConversationMessages contains all messages in the conversation including tool calls and results
 	ConversationMessages []fantasy.Message
-	// Messages contains the conversation as custom content blocks (crush-style)
+	// Messages contains the conversation as custom content blocks
 	Messages []message.Message
 	// TotalUsage contains aggregate token usage across all steps
 	TotalUsage fantasy.Usage
@@ -166,7 +166,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	if len(allTools) > 0 {
-		// Apply cache control to last tool (4th block in Crush's 4-block strategy)
+		// Apply cache control to last tool (4th cache block)
 		allTools[len(allTools)-1].SetProviderOptions(cacheControlOptions())
 		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
 	}

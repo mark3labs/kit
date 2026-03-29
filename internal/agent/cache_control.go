@@ -16,7 +16,7 @@ func cacheControlOptions() fantasy.ProviderOptions {
 }
 
 // applyCacheControlToMessages adds cache control to specific messages.
-// Following Crush's strategy (max 4 blocks per Anthropic limit):
+// Anthropic allows max 4 cache blocks per request:
 // 1. Last system message (if present)
 // 2. Last 2 messages in the conversation
 func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
