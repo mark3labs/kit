@@ -46,6 +46,10 @@ func (s *stubAppController) ClearMessages() {
 	s.clearMsgCalled++
 }
 
+func (s *stubAppController) ReloadMessagesFromTree() {
+	// no-op in tests
+}
+
 func (s *stubAppController) CompactConversation(_ string) error {
 	return nil
 }

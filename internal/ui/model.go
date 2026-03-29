@@ -74,6 +74,11 @@ type AppController interface {
 	ClearQueue()
 	// ClearMessages clears the conversation history.
 	ClearMessages()
+	// ReloadMessagesFromTree clears the in-memory message store and reloads
+	// it from the tree session's current branch. Unlike ClearMessages, this
+	// does NOT reset the tree session's leaf pointer. Used after Branch() to
+	// sync the store with the new branch position.
+	ReloadMessagesFromTree()
 	// CompactConversation summarises older messages to free context space.
 	// Runs asynchronously; results are delivered via CompactCompleteEvent or
 	// CompactErrorEvent sent through the registered tea.Program. Returns an
@@ -3047,8 +3052,12 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 		return nil
 	}
 
+	// Branch the tree session to the target entry. We must NOT call
+	// ClearMessages() here because it resets the leaf pointer back to "",
+	// undoing the branch we just set. Instead, branch first and then
+	// reload the in-memory store from the tree session's current branch.
 	_ = ts.Branch(targetID)
-	m.appCtrl.ClearMessages()
+	m.appCtrl.ReloadMessagesFromTree()
 
 	// If it was a user message, populate the input with the text.
 	if isUser && userText != "" {

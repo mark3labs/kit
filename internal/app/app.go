@@ -271,6 +271,17 @@ func (a *App) ClearMessages() {
 	}
 }
 
+// ReloadMessagesFromTree clears the in-memory message store and reloads it
+// from the tree session's current branch. Unlike ClearMessages, this does NOT
+// reset the tree session's leaf pointer. Used after Branch() to sync the
+// store with the new branch position.
+func (a *App) ReloadMessagesFromTree() {
+	a.store.Clear()
+	if a.opts.TreeSession != nil {
+		a.store.Replace(a.opts.TreeSession.GetLLMMessages())
+	}
+}
+
 // GetTreeSession returns the tree session manager, or nil if not configured.
 func (a *App) GetTreeSession() *session.TreeManager {
 	return a.opts.TreeSession
