@@ -166,11 +166,6 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	if len(allTools) > 0 {
-		// Apply cache control to the last tool for Anthropic models.
-		// This helps with caching tool definitions in long contexts.
-		if len(allTools) > 0 {
-			allTools[len(allTools)-1].SetProviderOptions(cacheControlOptions())
-		}
 		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
 	}
 

@@ -16,10 +16,8 @@ func cacheControlOptions() fantasy.ProviderOptions {
 }
 
 // applyCacheControlToMessages adds cache control to specific messages in the conversation.
-// Following Crush's strategy:
-// 1. The last system message gets cache control
-// 2. The last 2 messages get cache control
-// This ensures optimal caching for the most expensive parts of the context.
+// Anthropic allows a maximum of 4 blocks with cache_control per request.
+// We prioritize: last system message first, then most recent user messages.
 func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 	if len(messages) == 0 {
 		return messages
@@ -30,8 +28,10 @@ func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 	copy(result, messages)
 
 	cacheOpts := cacheControlOptions()
+	cacheCount := 0
+	maxCacheBlocks := 4
 
-	// Find the last system message and add cache control
+	// First: find and cache the last system message (most important for context)
 	lastSystemIdx := -1
 	for i, msg := range result {
 		if msg.Role == fantasy.MessageRoleSystem {
@@ -39,18 +39,21 @@ func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 		}
 	}
 
-	// Apply cache control to the last system message
-	if lastSystemIdx >= 0 {
+	if lastSystemIdx >= 0 && cacheCount < maxCacheBlocks {
 		result[lastSystemIdx].ProviderOptions = cacheOpts
+		cacheCount++
 	}
 
-	// Apply cache control to the last 2 messages
-	startIdx := max(len(result)-2, 0)
-	for i := startIdx; i < len(result); i++ {
-		// Only apply if not already set (avoid double-setting system message)
-		if i != lastSystemIdx {
-			result[i].ProviderOptions = cacheOpts
+	// Second: cache the most recent messages (up to remaining limit)
+	// Work backwards from the end to prioritize recent context
+	for i := len(result) - 1; i >= 0 && cacheCount < maxCacheBlocks; i-- {
+		// Skip if already cached (system message) or if it's the first message
+		// (we want to spread cache across the conversation)
+		if result[i].ProviderOptions != nil || i == 0 {
+			continue
 		}
+		result[i].ProviderOptions = cacheOpts
+		cacheCount++
 	}
 
 	return result
