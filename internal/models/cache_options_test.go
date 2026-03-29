@@ -63,34 +63,29 @@ func TestModelInfo_CacheType(t *testing.T) {
 }
 
 func TestGenerateCacheKey(t *testing.T) {
-	// Test that same inputs produce same output (deterministic)
 	key1 := generateCacheKey("system prompt", "model-id")
 	key2 := generateCacheKey("system prompt", "model-id")
 	if key1 != key2 {
 		t.Errorf("generateCacheKey should be deterministic: got %q and %q", key1, key2)
 	}
 
-	// Test that different inputs produce different outputs
 	key3 := generateCacheKey("different prompt", "model-id")
 	if key1 == key3 {
 		t.Errorf("generateCacheKey should produce different keys for different inputs")
 	}
 
-	// Test that empty system prompt uses "default"
 	key4 := generateCacheKey("", "model-id")
 	key5 := generateCacheKey("default", "model-id")
 	if key4 != key5 {
 		t.Errorf("generateCacheKey should treat empty prompt as 'default'")
 	}
 
-	// Test that keys have the "kit-" prefix
 	if len(key1) < 4 || key1[:4] != "kit-" {
 		t.Errorf("generateCacheKey should produce keys with 'kit-' prefix, got %q", key1)
 	}
 }
 
 func TestBuildCacheProviderOptions_Disabled(t *testing.T) {
-	// Test that DisableCaching=true returns nil
 	config := &ProviderConfig{DisableCaching: true}
 	modelInfo := &ModelInfo{Family: "claude-3", ID: "claude-3-opus"}
 
@@ -100,7 +95,6 @@ func TestBuildCacheProviderOptions_Disabled(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_EnvironmentVariable(t *testing.T) {
-	// Test that KIT_DISABLE_CACHE environment variable disables caching
 	os.Setenv("KIT_DISABLE_CACHE", "1")
 	defer os.Unsetenv("KIT_DISABLE_CACHE")
 
@@ -113,7 +107,6 @@ func TestBuildCacheProviderOptions_EnvironmentVariable(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_UnsupportedModel(t *testing.T) {
-	// Test that unsupported models return nil
 	config := &ProviderConfig{DisableCaching: false}
 	modelInfo := &ModelInfo{Family: "llama-3", ID: "llama-3-70b"}
 
@@ -123,7 +116,6 @@ func TestBuildCacheProviderOptions_UnsupportedModel(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_NilModelInfo(t *testing.T) {
-	// Test that nil modelInfo returns nil
 	config := &ProviderConfig{DisableCaching: false}
 
 	if opts := buildCacheProviderOptions(nil, config); opts != nil {
@@ -132,24 +124,19 @@ func TestBuildCacheProviderOptions_NilModelInfo(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_Anthropic(t *testing.T) {
-	// Ensure environment is clean
 	os.Unsetenv("KIT_DISABLE_CACHE")
 
 	config := &ProviderConfig{DisableCaching: false}
 	modelInfo := &ModelInfo{Family: "claude-3", ID: "claude-3-opus"}
 
 	opts := buildCacheProviderOptions(modelInfo, config)
-	// NOTE: Anthropic caching is currently DISABLED due to Fantasy library limitation.
-	// The library's prepareParams() expects *anthropic.ProviderOptions but
-	// cache control uses *anthropic.ProviderCacheControlOptions, causing a type conflict.
-	// This test documents the current behavior.
+	// Provider-level Anthropic caching is disabled; message-level caching is used instead
 	if opts != nil {
-		t.Logf("Note: Anthropic caching is temporarily disabled due to library type conflict")
+		t.Logf("Provider-level Anthropic caching disabled; using message-level caching")
 	}
 }
 
 func TestBuildCacheProviderOptions_OpenAI(t *testing.T) {
-	// Ensure environment is clean
 	os.Unsetenv("KIT_DISABLE_CACHE")
 
 	config := &ProviderConfig{
@@ -163,36 +150,26 @@ func TestBuildCacheProviderOptions_OpenAI(t *testing.T) {
 		t.Fatalf("buildCacheProviderOptions should return options for OpenAI models")
 	}
 
-	// Check that the options contain the openai provider key
 	if _, ok := opts["openai"]; !ok {
 		t.Errorf("buildCacheProviderOptions should include 'openai' key for GPT models")
 	}
 }
 
 func TestCachingPriorityOverThinking(t *testing.T) {
-	// This test verifies the caching architecture:
-	// - Provider-level caching is used for OpenAI (no type conflicts)
-	// - Message-level caching is used for Anthropic (avoids type conflicts)
-	// - Anthropic provider-level caching is disabled to avoid the type error
-
-	// Ensure clean environment
 	os.Unsetenv("KIT_DISABLE_CACHE")
 
-	// Test 1: Anthropic provider-level caching is DISABLED
-	// (message-level caching is used instead in the agent)
+	// Anthropic uses message-level caching; provider-level returns nil
 	config1 := &ProviderConfig{
 		DisableCaching: false,
 		ThinkingLevel:  ThinkingOff,
 	}
 	modelInfo1 := &ModelInfo{Family: "claude-3", ID: "claude-3-opus"}
 	opts1 := buildCacheProviderOptions(modelInfo1, config1)
-	// Provider-level Anthropic caching is disabled to avoid type conflicts
-	// Message-level caching is applied in the agent instead
 	if opts1 != nil {
-		t.Logf("Note: Anthropic provider-level caching is disabled; message-level caching is used")
+		t.Logf("Provider-level Anthropic caching disabled; using message-level caching")
 	}
 
-	// Test 2: OpenAI provider-level caching works (no type conflict)
+	// OpenAI provider-level caching works with thinking enabled
 	config2 := &ProviderConfig{
 		DisableCaching: false,
 		SystemPrompt:   "test prompt",
@@ -201,10 +178,10 @@ func TestCachingPriorityOverThinking(t *testing.T) {
 	modelInfo2 := &ModelInfo{Family: "gpt-4", ID: "gpt-4o"}
 	opts2 := buildCacheProviderOptions(modelInfo2, config2)
 	if opts2 == nil {
-		t.Errorf("OpenAI provider-level caching should work (no type conflict)")
+		t.Errorf("OpenAI caching should work with thinking enabled")
 	}
 
-	// Test 3: OpenAI caching with thinking OFF
+	// OpenAI caching also works with thinking disabled
 	config3 := &ProviderConfig{
 		DisableCaching: false,
 		SystemPrompt:   "test prompt",
@@ -217,7 +194,6 @@ func TestCachingPriorityOverThinking(t *testing.T) {
 }
 
 func TestMergeProviderOptions(t *testing.T) {
-	// Test merging multiple options using simple string values
 	opts1 := fantasy.ProviderOptions{
 		"provider1": &testProviderData{value: "value1"},
 	}
@@ -239,7 +215,7 @@ func TestMergeProviderOptions(t *testing.T) {
 		t.Errorf("merged options should contain 'provider2' key")
 	}
 
-	// Test that later options override earlier ones
+	// Later options should override earlier ones
 	opts3 := fantasy.ProviderOptions{
 		"provider1": &testProviderData{value: "overridden"},
 	}
@@ -251,7 +227,6 @@ func TestMergeProviderOptions(t *testing.T) {
 		}
 	}
 
-	// Test with empty input
 	if mergeProviderOptions() != nil {
 		t.Errorf("mergeProviderOptions with no args should return nil")
 	}

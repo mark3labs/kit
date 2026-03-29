@@ -31,17 +31,12 @@ func buildCacheProviderOptions(modelInfo *ModelInfo, config *ProviderConfig) fan
 
 	switch modelInfo.CacheType() {
 	case "anthropic-ephemeral":
-		// NOTE: Anthropic caching is DISABLED due to Fantasy library limitation.
-		// The library's prepareParams() strictly validates that ProviderOptions["anthropic"]
-		// must be *anthropic.ProviderOptions, but cache control uses 
-		// *anthropic.ProviderCacheControlOptions which fails this check.
-		// TODO: Re-enable when Fantasy supports cache control options at the provider level.
+		// Provider-level Anthropic caching disabled - use message-level caching instead.
 		return nil
 	case "openai-prompt-cache":
 		return buildOpenAICacheOptions(config, modelInfo.ID)
 	case "google-cached-content":
-		// NOTE: Google caching disabled for now - requires pre-caching workflow
-		// and may have similar type conflicts as Anthropic.
+		// Google caching not yet implemented.
 		return nil
 	default:
 		return nil
@@ -49,9 +44,7 @@ func buildCacheProviderOptions(modelInfo *ModelInfo, config *ProviderConfig) fan
 }
 
 // buildAnthropicCacheOptions enables ephemeral caching for Anthropic models.
-// This reduces costs by 60-90% for repeated prompts with the same system context.
-// NOTE: This only works when thinking is NOT enabled, due to type conflicts
-// in the Fantasy library (both use different types under the same provider key).
+// Used for message-level caching to avoid provider-level type conflicts.
 func buildAnthropicCacheOptions() fantasy.ProviderOptions {
 	return anthropic.NewProviderCacheControlOptions(&anthropic.ProviderCacheControlOptions{
 		CacheControl: anthropic.CacheControl{
