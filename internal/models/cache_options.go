@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"charm.land/fantasy"
-	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/openai"
 )
 
@@ -42,16 +41,6 @@ func buildCacheProviderOptions(modelInfo *ModelInfo, config *ProviderConfig) fan
 	default:
 		return nil
 	}
-}
-
-// buildAnthropicCacheOptions enables ephemeral caching for Anthropic models.
-// Used for message-level caching to avoid provider-level type conflicts.
-func buildAnthropicCacheOptions() fantasy.ProviderOptions {
-	return anthropic.NewProviderCacheControlOptions(&anthropic.ProviderCacheControlOptions{
-		CacheControl: anthropic.CacheControl{
-			Type: "ephemeral",
-		},
-	})
 }
 
 // buildOpenAICacheOptions enables prompt caching for OpenAI models.

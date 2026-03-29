@@ -45,10 +45,7 @@ func applyCacheControlToMessages(messages []fantasy.Message) []fantasy.Message {
 	}
 
 	// Apply cache control to the last 2 messages
-	startIdx := len(result) - 2
-	if startIdx < 0 {
-		startIdx = 0
-	}
+	startIdx := max(len(result)-2, 0)
 	for i := startIdx; i < len(result); i++ {
 		// Only apply if not already set (avoid double-setting system message)
 		if i != lastSystemIdx {
