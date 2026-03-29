@@ -48,10 +48,10 @@ type modelsDBLimit struct {
 	Output  int `json:"output"`
 }
 
-// npmToFantasyProvider maps npm package names from models.dev to fantasy
+// npmToLLMProvider maps npm package names from models.dev to LLM
 // provider identifiers. Providers not in this map but with an api URL
 // can be auto-routed through openaicompat.
-var npmToFantasyProvider = map[string]string{
+var npmToLLMProvider = map[string]string{
 	"@ai-sdk/anthropic":               "anthropic",
 	"@ai-sdk/openai":                  "openai",
 	"@ai-sdk/google":                  "google",

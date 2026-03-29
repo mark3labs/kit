@@ -31,7 +31,7 @@ type AgentConfig struct {
 	CoreTools []fantasy.AgentTool
 
 	// ToolWrapper is an optional function that wraps the combined tool list
-	// before it is passed to the Fantasy agent. Used by the extensions system
+	// before it is passed to the LLM agent. Used by the extensions system
 	// to intercept tool calls/results.
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 
@@ -75,9 +75,9 @@ type ToolOutputHandler = core.ToolOutputCallback
 // tracking during long-running tool-calling conversations.
 type StepUsageHandler func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64)
 
-// Agent represents an AI agent with core tool integration using the fantasy library.
+// Agent represents an AI agent with core tool integration using the LLM library.
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
-// fantasy.AgentTool implementations — no MCP layer, no serialization overhead.
+// AgentTool implementations — no MCP layer, no serialization overhead.
 // Additional tools from external MCP servers can be loaded alongside core tools.
 type Agent struct {
 	toolManager      *tools.MCPToolManager
@@ -112,13 +112,13 @@ type GenerateWithLoopResult struct {
 // Core tools (bash, read, write, edit, grep, find, ls) are always registered.
 // External MCP tools are loaded from the config if any MCP servers are configured.
 func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
-	// Create the LLM provider via fantasy
+	// Create the LLM provider
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model provider: %v", err)
 	}
 
-	// Register core tools (direct fantasy implementations, no MCP overhead).
+	// Register core tools (direct AgentTool implementations, no MCP overhead).
 	// Use caller-provided tools if set, otherwise default to all core tools.
 	coreTools := agentConfig.CoreTools
 	if len(coreTools) == 0 {
@@ -158,7 +158,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		allTools = agentConfig.ToolWrapper(allTools)
 	}
 
-	// Build fantasy agent options
+	// Build agent options
 	var agentOpts []fantasy.AgentOption
 
 	if agentConfig.SystemPrompt != "" {
@@ -198,7 +198,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		}
 	}
 
-	// Create the fantasy agent
+	// Create the agent
 	fantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
 
 	// Determine provider type from model string
@@ -234,8 +234,8 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 		onResponse, onToolCallContent, nil, nil, nil, nil)
 }
 
-// GenerateWithLoopAndStreaming processes messages using the fantasy agent with streaming and callbacks.
-// Fantasy handles the tool call loop internally. We map fantasy's rich callback system
+// GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
+// The agent handles the tool call loop internally. We map the rich callback system
 // to kit's existing callback interface for UI integration.
 func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fantasy.Message,
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
@@ -251,17 +251,17 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		ctx = core.ContextWithToolOutputCallback(ctx, onToolOutput)
 	}
 
-	// Fantasy requires the current user input as Prompt, with prior messages as history.
+	// The agent requires the current user input as Prompt, with prior messages as history.
 	// Extract the last user message text and files as the prompt, and pass everything
 	// before it as Messages. Files (e.g. clipboard images) are passed via the Files
-	// field so Fantasy includes them in the API request.
+	// field so the agent includes them in the API request.
 	prompt, files, history := splitPromptAndHistory(messages)
 
 	// Track current tool call args for callbacks
 	var currentToolArgs string
 
 	// Use the streaming path when streaming is enabled OR when any callbacks are
-	// provided. Fantasy only exposes tool/step callbacks on AgentStreamCall, so
+	// provided. The agent only exposes tool/step callbacks on AgentStreamCall, so
 	// Stream is required to observe tool execution in real time. The non-streaming
 	// Generate path is reserved for the simple case with no callbacks at all.
 	hasCallbacks := onToolCall != nil || onToolExecution != nil || onToolResult != nil ||
@@ -269,12 +269,12 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 	if a.streamingEnabled || hasCallbacks {
 		// Track completed step messages so we can return partial results
-		// on cancellation. Fantasy's Stream() discards accumulated steps
+		// on cancellation. The agent's Stream() discards accumulated steps
 		// when it returns an error, but the OnStepFinish callback fires
 		// for every step that completed before the error occurred.
 		var completedStepMessages []fantasy.Message
 
-		// Use fantasy's streaming agent
+		// Use the streaming agent
 		streamCall := fantasy.AgentStreamCall{
 			Prompt:   prompt,
 			Files:    files,
@@ -454,7 +454,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 }
 
 // splitPromptAndHistory extracts the last user message as the prompt string,
-// and returns everything before it as conversation history. Fantasy's agent
+// and returns everything before it as conversation history. The agent's
 // requires the current turn's input as Prompt (string), with prior messages
 // passed separately as Messages (history).
 func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.FilePart, []fantasy.Message) {
@@ -497,8 +497,8 @@ func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.FilePa
 	return "", nil, messages
 }
 
-// convertAgentResult converts a fantasy AgentResult to our GenerateWithLoopResult.
-// It builds both the legacy fantasy.Message slice and the new custom content blocks.
+// convertAgentResult converts an AgentResult to our GenerateWithLoopResult.
+// It builds both the message slice and the new custom content blocks.
 func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.Message) *GenerateWithLoopResult {
 	// Collect all conversation messages: original + all step messages
 	var allFantasyMessages []fantasy.Message
@@ -523,7 +523,7 @@ func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.
 	}
 }
 
-// extractToolResultText extracts the text and error status from a fantasy ToolResultContent.
+// extractToolResultText extracts the text and error status from a ToolResultContent.
 // For core tools, the result is already clean text (no MCP JSON wrapping).
 // For MCP tools, it unwraps the MCP content structure.
 func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
@@ -536,7 +536,7 @@ func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 		return errResult.Error.Error(), true
 	}
 
-	// Get text directly from the Fantasy result type.
+	// Get text directly from the result type.
 	if textResult, ok := tr.Result.(fantasy.ToolResultOutputContentText); ok {
 		// Try to unwrap MCP JSON structure (for external MCP tools).
 		// Core tools return plain text, so this is a no-op for them.
@@ -649,7 +649,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 		allTools = a.toolWrapper(allTools)
 	}
 
-	// Rebuild fantasy agent options.
+	// Rebuild agent options.
 	var agentOpts []fantasy.AgentOption
 	if a.systemPrompt != "" {
 		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(a.systemPrompt))
@@ -710,7 +710,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	return nil
 }
 
-// GetModel returns the underlying fantasy LanguageModel.
+// GetModel returns the underlying LanguageModel.
 func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
 }

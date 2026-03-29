@@ -1,6 +1,6 @@
 # KIT SDK
 
-The KIT SDK allows you to use KIT programmatically from Go applications without spawning OS processes.
+The KIT SDK (`pkg/kit`) lets you embed Kit's full agent capabilities — LLM interactions, tool execution, session management, streaming, hooks — into any Go application.
 
 ## Installation
 
@@ -17,26 +17,26 @@ import (
     "context"
     "fmt"
     "log"
-    
+
     kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 func main() {
     ctx := context.Background()
-    
+
     // Create Kit instance with default configuration
     host, err := kit.New(ctx, nil)
     if err != nil {
         log.Fatal(err)
     }
-    defer host.Close()
-    
+    defer func() { _ = host.Close() }()
+
     // Send a prompt
     response, err := host.Prompt(ctx, "What is 2+2?")
     if err != nil {
         log.Fatal(err)
     }
-    
+
     fmt.Println(response)
 }
 ```
@@ -56,11 +56,23 @@ You can override specific settings:
 ```go
 host, err := kit.New(ctx, &kit.Options{
     Model:        "ollama/llama3",            // Override model
-    SystemPrompt: "You are a helpful bot",   // Override system prompt
-    ConfigFile:   "/path/to/config.yml",     // Use specific config file
-    MaxSteps:     10,                        // Override max steps
-    Streaming:    true,                      // Enable streaming
-    Quiet:        true,                      // Suppress debug output
+    SystemPrompt: "You are a helpful bot",    // Override system prompt
+    ConfigFile:   "/path/to/config.yml",      // Use specific config file
+    MaxSteps:     10,                         // Override max steps
+    Streaming:    true,                       // Enable streaming
+    Quiet:        true,                       // Suppress debug output
+
+    // Session options
+    SessionPath:  "./session.jsonl",          // Open specific session
+    Continue:     true,                       // Resume most recent session
+    NoSession:    true,                       // Ephemeral mode
+
+    // Tool options
+    Tools:        []kit.Tool{kit.NewBashTool()}, // Replace default tool set
+    ExtraTools:   []kit.Tool{myTool},            // Add alongside defaults
+
+    // Compaction
+    AutoCompact:  true,                       // Auto-compact near context limit
 })
 ```
 
@@ -108,14 +120,26 @@ host.Prompt(ctx, "My name is Alice")
 response, _ := host.Prompt(ctx, "What's my name?")
 // Response: "Your name is Alice"
 
-// Save session
-host.SaveSession("./session.json")
-
-// Load session later
-host.LoadSession("./session.json")
-
-// Clear session
+// Clear conversation history
 host.ClearSession()
+```
+
+## Re-exported Types
+
+The SDK re-exports types so you don't need direct internal imports:
+
+```go
+// Message types
+kit.Message, kit.MessageRole, kit.ContentPart
+kit.TextContent, kit.ReasoningContent, kit.ToolCall, kit.ToolResult, kit.Finish
+kit.RoleUser, kit.RoleAssistant, kit.RoleTool, kit.RoleSystem
+
+// LLM types (re-exported from the underlying LLM library)
+kit.LLMMessage, kit.LLMUsage, kit.LLMResponse, kit.LLMFilePart
+
+// Conversion helpers
+msgs := kit.ConvertToLLMMessages(&msg)   // SDK message → LLM messages
+msg := kit.ConvertFromLLMMessage(fMsg)    // LLM message → SDK message
 ```
 
 ## API Reference
@@ -124,18 +148,24 @@ host.ClearSession()
 
 - `Kit` - Main SDK type
 - `Options` - Configuration options
-- `Message` - Conversation message
-- `ToolCall` - Tool invocation details
+- `Message` - Conversation message with typed content parts
+- `Tool` - Agent tool interface
+- `TurnResult` - Full result from a prompt including usage stats
 
-### Methods
+### Key Methods
 
 - `New(ctx, opts)` - Create new Kit instance
-- `Prompt(ctx, message)` - Send message and get response
-- `LoadSession(path)` - Load session from file
-- `SaveSession(path)` - Save session to file
-- `ClearSession()` - Clear conversation history
-- `GetSessionManager()` - Get session manager for advanced usage
+- `Prompt(ctx, message)` - Send message and get response string
+- `PromptResult(ctx, message)` - Send message and get full TurnResult
+- `PromptWithOptions(ctx, message, opts)` - Prompt with per-call options
+- `Steer(ctx, instruction)` - System-level steering
+- `FollowUp(ctx, text)` - Continue without new user input
+- `SetModel(ctx, model)` - Switch model at runtime
 - `GetModelString()` - Get current model string
+- `GetModelInfo()` - Get model capabilities and limits
+- `ClearSession()` - Clear conversation history
+- `GetSessionPath()` - Get session file path
+- `GetSessionID()` - Get session UUID
 - `Close()` - Clean up resources
 
 ## Environment Variables

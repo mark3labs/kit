@@ -139,7 +139,7 @@ When `--provider-url` is provided without `--model`, Kit automatically defaults 
 kit --provider-url "http://localhost:8080/v1" "Hello"
 ```
 
-The `custom/custom` model has zero cost, 262K context window, and supports reasoning. It routes through fantasy's `openaicompat` provider and accepts any OpenAI-compatible API endpoint.
+The `custom/custom` model has zero cost, 262K context window, and supports reasoning. It routes through the `openaicompat` provider and accepts any OpenAI-compatible API endpoint.
 
 Optionally set `CUSTOM_API_KEY` environment variable or use `--provider-api-key` for endpoints requiring authentication.
 

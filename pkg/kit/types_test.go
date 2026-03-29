@@ -49,12 +49,12 @@ func TestTypeExports(t *testing.T) {
 		Role:  kit.RoleUser,
 		Parts: []kit.ContentPart{kit.TextContent{Text: "test"}},
 	}
-	fantasyMsgs := kit.ConvertToFantasyMessages(&userMsg)
-	if len(fantasyMsgs) == 0 {
-		t.Error("ConvertToFantasyMessages returned empty slice")
+	llmMsgs := kit.ConvertToLLMMessages(&userMsg)
+	if len(llmMsgs) == 0 {
+		t.Error("ConvertToLLMMessages returned empty slice")
 	}
 
-	roundTrip := kit.ConvertFromFantasyMessage(fantasyMsgs[0])
+	roundTrip := kit.ConvertFromLLMMessage(llmMsgs[0])
 	if roundTrip.Content() != "test" {
 		t.Errorf("round-trip Content() = %q, want %q", roundTrip.Content(), "test")
 	}

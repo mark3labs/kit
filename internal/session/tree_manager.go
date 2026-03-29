@@ -242,9 +242,14 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 	return entry.ID, nil
 }
 
-// AppendFantasyMessage converts a fantasy.Message and appends it.
-func (tm *TreeManager) AppendFantasyMessage(msg fantasy.Message) (string, error) {
+// AppendLLMMessage converts an LLM message and appends it.
+func (tm *TreeManager) AppendLLMMessage(msg fantasy.Message) (string, error) {
 	return tm.AppendMessage(message.FromFantasyMessage(msg))
+}
+
+// Deprecated: Use AppendLLMMessage instead.
+func (tm *TreeManager) AppendFantasyMessage(msg fantasy.Message) (string, error) {
+	return tm.AppendLLMMessage(msg)
 }
 
 // AppendModelChange records a model/provider change.
@@ -737,22 +742,32 @@ func (tm *TreeManager) GetLastCompaction() *CompactionEntry {
 
 // --- Legacy bridge ---
 
-// AddFantasyMessages appends multiple fantasy messages as entries. This is
+// AddLLMMessages appends multiple LLM messages as entries. This is
 // used when syncing from the agent's ConversationMessages after a step.
-func (tm *TreeManager) AddFantasyMessages(msgs []fantasy.Message) error {
+func (tm *TreeManager) AddLLMMessages(msgs []fantasy.Message) error {
 	for _, msg := range msgs {
-		if _, err := tm.AppendFantasyMessage(msg); err != nil {
+		if _, err := tm.AppendLLMMessage(msg); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// GetFantasyMessages builds the context and returns just the messages.
+// Deprecated: Use AddLLMMessages instead.
+func (tm *TreeManager) AddFantasyMessages(msgs []fantasy.Message) error {
+	return tm.AddLLMMessages(msgs)
+}
+
+// GetLLMMessages builds the context and returns just the messages.
 // This satisfies the same conceptual role as the old Manager.GetMessages().
-func (tm *TreeManager) GetFantasyMessages() []fantasy.Message {
+func (tm *TreeManager) GetLLMMessages() []fantasy.Message {
 	msgs, _, _ := tm.BuildContext()
 	return msgs
+}
+
+// Deprecated: Use GetLLMMessages instead.
+func (tm *TreeManager) GetFantasyMessages() []fantasy.Message {
+	return tm.GetLLMMessages()
 }
 
 // --- Internal helpers ---

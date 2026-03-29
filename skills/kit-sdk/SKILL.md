@@ -127,9 +127,7 @@ result, err := host.PromptResult(ctx, "Analyze this file")
 ### Multimodal with file attachments
 
 ```go
-import "charm.land/fantasy"
-
-files := []fantasy.FilePart{{
+files := []kit.LLMFilePart{{
     Name:      "screenshot.png",
     MediaType: "image/png",
     Data:      imageBytes,
@@ -310,7 +308,7 @@ host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
 
 ```go
 host.OnContextPrepare(kit.HookPriorityNormal, func(h kit.ContextPrepareHook) *kit.ContextPrepareResult {
-    // h.Messages — []fantasy.Message (the full context being sent to the LLM)
+    // h.Messages — []kit.LLMMessage (the full context being sent to the LLM)
     // Return nil to pass through, or replace entire context:
     return &kit.ContextPrepareResult{Messages: filteredMessages}
 })
@@ -459,7 +457,7 @@ err = host.SetThinkingLevel(ctx, "medium") // recreates agent with new thinking 
 ```go
 models := host.GetAvailableModels()      // []extensions.ModelInfoEntry
 providers := kit.GetSupportedProviders() // []string
-providers := kit.GetFantasyProviders()   // providers usable with fantasy
+providers := kit.GetLLMProviders()       // providers with LLM support
 models, _ := kit.GetModelsForProvider("anthropic") // map[string]kit.ModelInfo
 info := kit.LookupModel("anthropic", "claude-sonnet-4-5-20250929") // *kit.ModelInfo
 info := kit.GetProviderInfo("openai")    // *kit.ProviderInfo (env vars, API URL)
@@ -642,15 +640,15 @@ kit.Config, kit.MCPServerConfig
 // Provider types
 kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelLimit
 
-// LLM types (from charm.land/fantasy)
-kit.LLMMessage, kit.LLMUsage, kit.LLMResponse
+// LLM types (re-exported from the underlying LLM library)
+kit.LLMMessage, kit.LLMUsage, kit.LLMResponse, kit.LLMFilePart
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions
 
 // Conversion helpers
-msgs := kit.ConvertToFantasyMessages(&msg)   // SDK message → fantasy messages
-msg := kit.ConvertFromFantasyMessage(fMsg)    // fantasy message → SDK message
+msgs := kit.ConvertToLLMMessages(&msg)   // SDK message → LLM messages
+msg := kit.ConvertFromLLMMessage(fMsg)    // LLM message → SDK message
 ```
 
 ---

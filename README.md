@@ -209,7 +209,7 @@ kit auth status              # Check authentication status
 
 # Model database
 kit models [provider]        # List available models (optionally filter by provider)
-kit models --all             # Show all providers (not just Fantasy-compatible)
+kit models --all             # Show all providers (not just LLM-compatible)
 kit update-models [source]   # Update model database (from models.dev, URL, file, or 'embedded')
 
 # Extension management
@@ -726,7 +726,7 @@ Use `custom/custom` when pointing Kit at any OpenAI-compatible endpoint with `--
 kit --provider-url "http://localhost:8080/v1" "Hello"
 ```
 
-This automatically defaults to `custom/custom` without needing to specify a model. The custom provider routes through fantasy's `openaicompat` provider and supports:
+This automatically defaults to `custom/custom` without needing to specify a model. The custom provider routes through the `openaicompat` provider and supports:
 
 - Zero cost tracking (input/output = 0)
 - 262K context window, 65K output limit

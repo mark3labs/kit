@@ -312,12 +312,18 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 	return parts, nil
 }
 
-// --- Fantasy bridge ---
+// --- LLM bridge ---
 
-// ToFantasyMessages converts a Message to one or more fantasy.Message values.
-// An assistant message with tool calls produces a single fantasy message with
+// ToLLMMessages converts a Message to one or more LLM message values.
+// An assistant message with tool calls produces a single message with
 // mixed TextPart and ToolCallPart content. Tool-role messages produce
 // ToolResultPart entries.
+func (m *Message) ToLLMMessages() []fantasy.Message {
+	return m.ToFantasyMessages()
+}
+
+// Deprecated: Use ToLLMMessages instead.
+// ToFantasyMessages converts a Message to one or more LLM message values.
 func (m *Message) ToFantasyMessages() []fantasy.Message {
 	switch m.Role {
 	case RoleAssistant:
@@ -416,7 +422,14 @@ func (m *Message) ToFantasyMessages() []fantasy.Message {
 	}
 }
 
-// FromFantasyMessage converts a fantasy.Message into our Message type,
+// FromLLMMessage converts an LLM message into our Message type,
+// extracting all content parts into the appropriate block types.
+func FromLLMMessage(msg fantasy.Message) Message {
+	return FromFantasyMessage(msg)
+}
+
+// Deprecated: Use FromLLMMessage instead.
+// FromFantasyMessage converts an LLM message into our Message type,
 // extracting all content parts into the appropriate block types.
 func FromFantasyMessage(msg fantasy.Message) Message {
 	m := Message{

@@ -126,11 +126,11 @@ type ModelsRegistry = models.ModelsRegistry
 // Ollama model loading. Signature: func(fn func() error) error.
 type SpinnerFunc = agent.SpinnerFunc
 
-// ==== LLM Types (re-exported from charm.land/fantasy) ====
+// ==== LLM Types ====
 
 // LLMMessage is the underlying message type used by the LLM agent
 // library. Re-exported so SDK users can work with LLM types without a
-// direct import of charm.land/fantasy.
+// direct import of the underlying LLM library.
 type LLMMessage = fantasy.Message
 
 // LLMUsage contains token usage information from an LLM response.
@@ -138,6 +138,10 @@ type LLMUsage = fantasy.Usage
 
 // LLMResponse is the response type returned by the LLM agent library.
 type LLMResponse = fantasy.Response
+
+// LLMFilePart represents a file attachment (image, document, etc.) that can
+// be included in a prompt via PromptResultWithFiles.
+type LLMFilePart = fantasy.FilePart
 
 // ==== Compaction Types (internal/compaction/) ====
 
@@ -155,7 +159,7 @@ func ParseModelString(model string) (provider, modelID string, err error) {
 	return models.ParseModelString(model)
 }
 
-// CreateProvider creates a fantasy LanguageModel based on provider config.
+// CreateProvider creates a LanguageModel based on provider config.
 func CreateProvider(ctx context.Context, cfg *ProviderConfig) (*ProviderResult, error) {
 	return models.CreateProvider(ctx, cfg)
 }
@@ -173,14 +177,24 @@ func LoadSystemPrompt(pathOrContent string) (string, error) {
 
 // ==== Conversion Helpers ====
 
-// ConvertToFantasyMessages converts an SDK message to the underlying fantasy
+// ConvertToLLMMessages converts an SDK message to the underlying LLM
 // messages used by the agent for LLM interactions.
-func ConvertToFantasyMessages(msg *Message) []fantasy.Message {
+func ConvertToLLMMessages(msg *Message) []fantasy.Message {
 	return msg.ToFantasyMessages()
 }
 
-// ConvertFromFantasyMessage converts a fantasy message from the agent to an SDK
+// ConvertFromLLMMessage converts an LLM message from the agent to an SDK
 // message format for use in the SDK API.
-func ConvertFromFantasyMessage(msg fantasy.Message) Message {
+func ConvertFromLLMMessage(msg fantasy.Message) Message {
 	return message.FromFantasyMessage(msg)
+}
+
+// Deprecated: Use ConvertToLLMMessages instead.
+func ConvertToFantasyMessages(msg *Message) []fantasy.Message {
+	return ConvertToLLMMessages(msg)
+}
+
+// Deprecated: Use ConvertFromLLMMessage instead.
+func ConvertFromFantasyMessage(msg fantasy.Message) Message {
+	return ConvertFromLLMMessage(msg)
 }

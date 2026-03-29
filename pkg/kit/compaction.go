@@ -25,7 +25,7 @@ const defaultReserveTokens = 16384
 // EstimateContextTokens returns the estimated token count of the current
 // conversation based on tree session messages.
 func (m *Kit) EstimateContextTokens() int {
-	messages := m.treeSession.GetFantasyMessages()
+	messages := m.treeSession.GetLLMMessages()
 	return compaction.EstimateMessageTokens(messages)
 }
 
@@ -44,7 +44,7 @@ func (m *Kit) ShouldCompact() bool {
 		reserveTokens = m.compactionOpts.ReserveTokens
 	}
 
-	messages := m.treeSession.GetFantasyMessages()
+	messages := m.treeSession.GetLLMMessages()
 	return compaction.ShouldCompact(messages, info.Limit.Context, reserveTokens)
 }
 
@@ -57,7 +57,7 @@ func (m *Kit) ShouldCompact() bool {
 // because it includes system prompts, tool definitions, and other overhead
 // that the heuristic cannot account for.
 func (m *Kit) GetContextStats() ContextStats {
-	messages := m.treeSession.GetFantasyMessages()
+	messages := m.treeSession.GetLLMMessages()
 
 	// Prefer the real API-reported input token count when available.
 	m.lastInputTokensMu.RLock()
@@ -116,7 +116,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 		}
 	}
 
-	messages := m.treeSession.GetFantasyMessages()
+	messages := m.treeSession.GetLLMMessages()
 	if len(messages) < 2 {
 		return nil, fmt.Errorf("cannot compact: need at least 2 messages")
 	}

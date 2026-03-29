@@ -280,14 +280,14 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		npmPackage = modelInfo.ProviderNPM
 	}
 
-	// Determine the fantasy provider for this npm package
-	fantasyProvider := npmToFantasyProvider[npmPackage]
-	if fantasyProvider == "" && providerInfo.API != "" {
+	// Determine the LLM provider for this npm package
+	llmProvider := npmToLLMProvider[npmPackage]
+	if llmProvider == "" && providerInfo.API != "" {
 		// Unknown npm but has API URL → route through openaicompat
-		fantasyProvider = "openaicompat"
+		llmProvider = "openaicompat"
 	}
 
-	switch fantasyProvider {
+	switch llmProvider {
 	case "openaicompat":
 		return createAutoRoutedOpenAICompatProvider(ctx, config, modelName, providerInfo)
 	case "anthropic":
@@ -301,7 +301,7 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		}
 		return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no fantasy mapping)", provider, npmPackage)
+		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no LLM provider mapping)", provider, npmPackage)
 	}
 }
 

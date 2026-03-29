@@ -174,7 +174,7 @@ func TestHookRegistry_ConcurrentAccess(t *testing.T) {
 // hookedTool tests
 // ---------------------------------------------------------------------------
 
-// mockAgentTool implements fantasy.AgentTool for testing.
+// mockAgentTool implements the AgentTool interface for testing.
 type mockAgentTool struct {
 	name  string
 	runFn func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error)

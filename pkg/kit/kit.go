@@ -77,7 +77,7 @@ type Kit struct {
 	}
 
 	// steerCh is a buffered channel used to inject steering messages into
-	// the running agent turn via Fantasy's PrepareStep. Created fresh for
+	// the running agent turn via the LLM library's PrepareStep. Created fresh for
 	// each generate() call and set to nil when idle. Protected by steerMu.
 	steerMu       sync.Mutex
 	steerCh       chan string
@@ -243,7 +243,7 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 func (m *Kit) GetAvailableModels() []extensions.ModelInfoEntry {
 	registry := models.GetGlobalRegistry()
 	var result []extensions.ModelInfoEntry
-	for _, providerID := range registry.GetFantasyProviders() {
+	for _, providerID := range registry.GetLLMProviders() {
 		modelsMap, err := registry.GetModelsForProvider(providerID)
 		if err != nil {
 			continue
@@ -336,7 +336,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 	}
 	defer closer()
 
-	// Build fantasy agent options (no tools — just a simple completion).
+	// Build agent options (no tools — just a simple completion).
 	var agentOpts []fantasy.AgentOption
 	if req.System != "" {
 		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(req.System))
@@ -350,7 +350,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 
 	completionAgent := fantasy.NewAgent(llmModel, agentOpts...)
 
-	// Convert extension SessionMessage history to fantasy.Message slice.
+	// Convert extension SessionMessage history to LLM message slice.
 	var messages []fantasy.Message
 	for _, sm := range req.Messages {
 		messages = append(messages, fantasy.Message{
@@ -1178,7 +1178,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	// Persist pre-generation messages to tree session.
 	for _, msg := range preMessages {
-		_, _ = m.treeSession.AppendFantasyMessage(msg)
+		_, _ = m.treeSession.AppendLLMMessage(msg)
 	}
 
 	// Auto-compact if enabled and conversation is near the context limit.
@@ -1187,7 +1187,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Build context from the tree so only the current branch is sent.
-	messages := m.treeSession.GetFantasyMessages()
+	messages := m.treeSession.GetLLMMessages()
 
 	// Run ContextPrepare hooks — extensions can filter, reorder, or inject messages.
 	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
@@ -1210,7 +1210,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		// (pending) message or tool call is discarded.
 		if result != nil && len(result.ConversationMessages) > sentCount {
 			for _, msg := range result.ConversationMessages[sentCount:] {
-				_, _ = m.treeSession.AppendFantasyMessage(msg)
+				_, _ = m.treeSession.AppendLLMMessage(msg)
 			}
 		}
 		m.events.emit(TurnEndEvent{Error: err})
@@ -1226,7 +1226,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// GetContextStats() see up-to-date token counts.
 	if len(result.ConversationMessages) > sentCount {
 		for _, msg := range result.ConversationMessages[sentCount:] {
-			_, _ = m.treeSession.AppendFantasyMessage(msg)
+			_, _ = m.treeSession.AppendLLMMessage(msg)
 		}
 	}
 
@@ -1308,7 +1308,7 @@ func (m *Kit) Steer(ctx context.Context, instruction string) (string, error) {
 // Returns an error if there are no previous messages in the session.
 func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 	// Verify there is conversation history to follow up on.
-	if len(m.treeSession.GetFantasyMessages()) == 0 {
+	if len(m.treeSession.GetLLMMessages()) == 0 {
 		return "", fmt.Errorf("cannot follow up: no previous messages")
 	}
 
@@ -1427,7 +1427,7 @@ func (m *Kit) PromptResult(ctx context.Context, message string) (*TurnResult, er
 // PromptResultWithFiles sends a multimodal message (text + images) and returns
 // the full turn result. The files parameter carries binary file data (e.g.
 // clipboard images) that are included alongside the text in the user message.
-func (m *Kit) PromptResultWithFiles(ctx context.Context, message string, files []fantasy.FilePart) (*TurnResult, error) {
+func (m *Kit) PromptResultWithFiles(ctx context.Context, message string, files []LLMFilePart) (*TurnResult, error) {
 	return m.runTurn(ctx, message, message, []fantasy.Message{
 		fantasy.NewUserMessage(message, files...),
 	})
@@ -1448,7 +1448,7 @@ func (m *Kit) PromptResultWithMessages(ctx context.Context, messages []string) (
 		promptLabel = promptLabel[:100] + "..."
 	}
 
-	// Build fantasy messages from all strings
+	// Build LLM messages from all strings
 	var preMessages []fantasy.Message
 	for _, msg := range messages {
 		preMessages = append(preMessages, fantasy.NewUserMessage(msg))

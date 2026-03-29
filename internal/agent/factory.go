@@ -39,7 +39,7 @@ type AgentCreationOptions struct {
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used.
 	CoreTools []fantasy.AgentTool
-	// ToolWrapper wraps the combined tool list before Fantasy agent creation.
+	// ToolWrapper wraps the combined tool list before agent creation.
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 	// ExtraTools are additional tools to include (e.g. from extensions).
 	ExtraTools []fantasy.AgentTool

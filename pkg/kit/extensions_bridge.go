@@ -247,7 +247,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	// Extension ContextPrepare → SDK ContextPrepare hook.
 	if runner.HasHandlers(extensions.ContextPrepare) {
 		m.OnContextPrepare(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
-			// Convert fantasy.Message slice to extension ContextMessage slice.
+			// Convert LLM message slice to extension ContextMessage slice.
 			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
 			for i, msg := range h.Messages {
 				// Extract text from content parts.
@@ -270,7 +270,7 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 				return nil
 			}
 
-			// Rebuild fantasy.Message slice from extension result.
+			// Rebuild LLM message slice from extension result.
 			rebuilt := make([]fantasy.Message, 0, len(r.Messages))
 			for _, cm := range r.Messages {
 				if cm.Index >= 0 && cm.Index < len(h.Messages) {

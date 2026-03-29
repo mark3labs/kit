@@ -42,6 +42,33 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - **Extension system** (`internal/extensions/`): Yaegi-interpreted Go, 13 lifecycle events, custom tools/commands/widgets/overlays/editor interceptors
 - **TUI** (`internal/ui/`): Bubble Tea v2 parent-child model (`AppModel` → `InputComponent`, `StreamComponent`, etc.)
 - **Decoupling pattern**: `cmd/root.go` has converter functions (e.g. `widgetProviderForUI()`) that bridge `internal/extensions/` types to `internal/ui/` types — the UI never imports extensions directly
+- **Public SDK** (`pkg/kit/`): The public-facing Go SDK for embedding Kit as a library. See rules below.
+
+## Public SDK (`pkg/kit/`) Rules
+
+`pkg/kit/` is the **public API surface** consumed by external Go developers. All exported symbols, types, function names, and godoc comments in this package are part of the SDK contract.
+
+### No Dependency Name Leakage
+Internal dependency names (e.g. `charm.land/fantasy`, library-specific jargon) **must not** appear in:
+- **Exported function/method names** — use generic terms (`LLM`, `Provider`, `Message`) instead of library names
+- **Exported type names** — type aliases should use domain names (e.g. `LLMMessage`, not `FantasyMessage`)
+- **Godoc comments** on exported symbols — these are visible in `go doc` output and pkg.go.dev
+- **Struct field names and tags** on exported types
+
+Using dependency types directly in **function bodies** (private implementation) is fine — that's invisible to SDK consumers.
+
+### Naming Conventions for SDK Symbols
+- Type aliases re-exporting dependency types: use `LLM*` prefix (e.g. `LLMMessage`, `LLMUsage`, `LLMResponse`)
+- Conversion helpers: use `ConvertToLLM*` / `ConvertFromLLM*` (not the dependency name)
+- Provider queries: use `GetLLMProviders` (not `GetFantasyProviders`)
+- When wrapping internal methods, the `pkg/kit/` name should be dependency-agnostic even if the `internal/` method still uses the old name
+
+### Deprecation Pattern
+When renaming a public SDK symbol, keep the old name as a deprecated wrapper for one release cycle:
+```go
+// Deprecated: Use NewName instead.
+func OldName() { return NewName() }
+```
 
 ## Key Patterns
 

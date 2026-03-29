@@ -82,7 +82,7 @@ type AfterTurnResult struct{}
 // is assembled from the session tree (including compaction) and before the
 // messages are sent to the LLM. Hooks can filter, reorder, or inject messages.
 type ContextPrepareHook struct {
-	// Messages is the current context as fantasy.Message objects.
+	// Messages is the current context as LLM message objects.
 	Messages []fantasy.Message
 }
 
@@ -252,7 +252,7 @@ func (m *Kit) OnBeforeCompact(p HookPriority, h func(BeforeCompactHook) *BeforeC
 // Tool wrapping via hooks
 // ---------------------------------------------------------------------------
 
-// hookedTool wraps a fantasy.AgentTool to run BeforeToolCall and
+// hookedTool wraps an AgentTool to run BeforeToolCall and
 // AfterToolResult hooks around each execution. The registries are referenced
 // by pointer so hooks added after agent creation are still invoked.
 type hookedTool struct {

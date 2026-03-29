@@ -16,10 +16,15 @@ func GetSupportedProviders() []string {
 	return models.GetGlobalRegistry().GetSupportedProviders()
 }
 
-// GetFantasyProviders returns provider IDs that can be used with fantasy,
+// GetLLMProviders returns provider IDs that have LLM support,
 // either through a native provider or via openaicompat auto-routing.
+func GetLLMProviders() []string {
+	return models.GetGlobalRegistry().GetLLMProviders()
+}
+
+// Deprecated: Use GetLLMProviders instead.
 func GetFantasyProviders() []string {
-	return models.GetGlobalRegistry().GetFantasyProviders()
+	return GetLLMProviders()
 }
 
 // GetModelsForProvider returns all known models for a provider.

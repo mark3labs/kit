@@ -50,7 +50,7 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 	registry := models.GetGlobalRegistry()
 	var allModels []ModelEntry
 
-	for _, providerID := range registry.GetFantasyProviders() {
+	for _, providerID := range registry.GetLLMProviders() {
 		// Only include providers with valid API keys configured.
 		if err := registry.ValidateEnvironment(providerID, ""); err != nil {
 			continue

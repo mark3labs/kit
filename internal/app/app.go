@@ -292,7 +292,7 @@ func (a *App) SwitchTreeSession(ts *session.TreeManager) {
 	// Reload messages from new session.
 	a.store.Clear()
 	if ts != nil {
-		a.store.Replace(ts.GetFantasyMessages())
+		a.store.Replace(ts.GetLLMMessages())
 	}
 }
 
@@ -308,7 +308,7 @@ func (a *App) AddContextMessage(text string) {
 
 	// Persist to tree session if active.
 	if ts := a.opts.TreeSession; ts != nil {
-		_, _ = ts.AppendFantasyMessage(msg)
+		_, _ = ts.AppendLLMMessage(msg)
 	}
 }
 
@@ -358,7 +358,7 @@ func (a *App) CompactConversation(customInstructions string) error {
 
 		// Sync in-memory store with the compacted session.
 		if a.opts.TreeSession != nil {
-			a.store.Replace(a.opts.TreeSession.GetFantasyMessages())
+			a.store.Replace(a.opts.TreeSession.GetLLMMessages())
 		}
 
 		a.sendEvent(CompactCompleteEvent{
@@ -579,7 +579,7 @@ func (a *App) runQueueBatch(items []queueItem) {
 			// call/result pairs; only the in-progress message or tool
 			// call is discarded. Sync the in-memory store to match.
 			if ts := a.opts.TreeSession; ts != nil {
-				a.store.Replace(ts.GetFantasyMessages())
+				a.store.Replace(ts.GetLLMMessages())
 			}
 			a.sendEvent(StepCancelledEvent{})
 			return

@@ -308,27 +308,32 @@ func (r *ModelsRegistry) GetSupportedProviders() []string {
 	return providers
 }
 
-// GetFantasyProviders returns provider IDs that can be used with fantasy,
+// GetLLMProviders returns provider IDs that have LLM support,
 // either through a native provider or via openaicompat auto-routing.
-func (r *ModelsRegistry) GetFantasyProviders() []string {
+func (r *ModelsRegistry) GetLLMProviders() []string {
 	var providers []string
 	for providerID, info := range r.providers {
-		if isProviderFantasySupported(providerID, &info) {
+		if isProviderLLMSupported(providerID, &info) {
 			providers = append(providers, providerID)
 		}
 	}
 	return providers
 }
 
-// isProviderFantasySupported checks if a provider can be used with fantasy.
-func isProviderFantasySupported(providerID string, info *ProviderInfo) bool {
+// Deprecated: Use GetLLMProviders instead.
+func (r *ModelsRegistry) GetFantasyProviders() []string {
+	return r.GetLLMProviders()
+}
+
+// isProviderLLMSupported checks if a provider can be used with the LLM layer.
+func isProviderLLMSupported(providerID string, info *ProviderInfo) bool {
 	// Ollama is always supported (via openaicompat pointed at localhost)
 	if providerID == "ollama" {
 		return true
 	}
 
-	// Check if npm maps to a fantasy provider
-	if _, ok := npmToFantasyProvider[info.NPM]; ok {
+	// Check if npm maps to an LLM provider
+	if _, ok := npmToLLMProvider[info.NPM]; ok {
 		return true
 	}
 

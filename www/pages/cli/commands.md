@@ -21,7 +21,7 @@ Manage the local model database that maps provider names to API configurations.
 
 ```bash
 kit models [provider]        # List available models (optionally filter by provider)
-kit models --all             # Show all providers (not just Fantasy-compatible)
+kit models --all             # Show all providers (not just LLM-compatible)
 kit update-models [source]   # Update model database
 ```
 
