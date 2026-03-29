@@ -119,9 +119,9 @@ result, err := host.PromptResult(ctx, "Analyze this file")
 // result.Response     — assistant's text
 // result.StopReason   — "stop", "length", "tool-calls", "error", etc.
 // result.SessionID    — session UUID
-// result.TotalUsage   — aggregate tokens across all steps (*kit.FantasyUsage)
+// result.TotalUsage   — aggregate tokens across all steps (*kit.LLMUsage)
 // result.FinalUsage   — tokens from last API call only
-// result.Messages     — full updated conversation ([]kit.FantasyMessage)
+// result.Messages     — full updated conversation ([]kit.LLMMessage)
 ```
 
 ### Multimodal with file attachments
@@ -525,7 +525,7 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     },
 })
 // result.Response, result.Error, result.SessionID, result.StopReason
-// result.Usage (*kit.FantasyUsage), result.Elapsed (time.Duration)
+// result.Usage (*kit.LLMUsage), result.Elapsed (time.Duration)
 ```
 
 ### Subscribing to subagent events from parent
@@ -593,8 +593,8 @@ kit.Config, kit.MCPServerConfig
 // Provider types
 kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelLimit
 
-// Fantasy types (from charm.land/fantasy)
-kit.FantasyMessage, kit.FantasyUsage, kit.FantasyResponse
+// LLM types (from charm.land/fantasy)
+kit.LLMMessage, kit.LLMUsage, kit.LLMResponse
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions

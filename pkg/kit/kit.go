@@ -1223,16 +1223,16 @@ type TurnResult struct {
 	// TotalUsage is the aggregate token usage across all steps in the turn
 	// (includes tool-calling loop iterations). Nil if the provider didn't
 	// report usage.
-	TotalUsage *FantasyUsage
+	TotalUsage *LLMUsage
 
 	// FinalUsage is the token usage from the last API call only. Use this
 	// for context window fill estimation (InputTokens + OutputTokens ≈
 	// current context size). Nil if unavailable.
-	FinalUsage *FantasyUsage
+	FinalUsage *LLMUsage
 
 	// Messages is the full updated conversation after the turn, including
 	// any tool call/result messages added during the agent loop.
-	Messages []FantasyMessage
+	Messages []LLMMessage
 }
 
 // ---------------------------------------------------------------------------
@@ -1280,7 +1280,7 @@ type SubagentResult struct {
 	// StopReason is the LLM's finish reason for the subagent's final turn.
 	StopReason string
 	// Usage contains token usage from the subagent's run.
-	Usage *FantasyUsage
+	Usage *LLMUsage
 	// Elapsed is the total execution time.
 	Elapsed time.Duration
 }

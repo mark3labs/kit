@@ -78,10 +78,6 @@ type MCPServerConfig = config.MCPServerConfig
 // AgentConfig holds configuration options for creating a new Agent.
 type AgentConfig = agent.AgentConfig
 
-// GenerateResult contains the result and conversation history from an agent
-// interaction.
-type GenerateResult = agent.GenerateWithLoopResult
-
 type (
 	// ToolCallHandler is a function type for handling tool calls as they happen.
 	ToolCallHandler = agent.ToolCallHandler
@@ -130,18 +126,18 @@ type ModelsRegistry = models.ModelsRegistry
 // Ollama model loading. Signature: func(fn func() error) error.
 type SpinnerFunc = agent.SpinnerFunc
 
-// ==== Fantasy Types (re-exported) ====
+// ==== LLM Types (re-exported from charm.land/fantasy) ====
 
-// FantasyMessage is the underlying message type used by the fantasy agent
-// library. Re-exported so SDK users can work with fantasy types without a
+// LLMMessage is the underlying message type used by the LLM agent
+// library. Re-exported so SDK users can work with LLM types without a
 // direct import of charm.land/fantasy.
-type FantasyMessage = fantasy.Message
+type LLMMessage = fantasy.Message
 
-// FantasyUsage contains token usage information from an LLM response.
-type FantasyUsage = fantasy.Usage
+// LLMUsage contains token usage information from an LLM response.
+type LLMUsage = fantasy.Usage
 
-// FantasyResponse is the response type returned by the fantasy agent library.
-type FantasyResponse = fantasy.Response
+// LLMResponse is the response type returned by the LLM agent library.
+type LLMResponse = fantasy.Response
 
 // ==== Compaction Types (internal/compaction/) ====
 
