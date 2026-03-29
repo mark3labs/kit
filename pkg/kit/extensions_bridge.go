@@ -328,4 +328,3 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		})
 	}
 }
-

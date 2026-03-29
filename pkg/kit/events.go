@@ -76,13 +76,13 @@ const (
 // coreToolKinds maps built-in tool names to their kind. MCP and extension
 // tools without an entry default to ToolKindExecute.
 var coreToolKinds = map[string]string{
-	"bash":           ToolKindExecute,
-	"edit":           ToolKindEdit,
-	"write":          ToolKindEdit,
-	"read":           ToolKindRead,
-	"ls":             ToolKindRead,
-	"grep":           ToolKindSearch,
-	"find":           ToolKindSearch,
+	"bash":     ToolKindExecute,
+	"edit":     ToolKindEdit,
+	"write":    ToolKindEdit,
+	"read":     ToolKindRead,
+	"ls":       ToolKindRead,
+	"grep":     ToolKindSearch,
+	"find":     ToolKindSearch,
 	"subagent": ToolKindSubagent,
 }
 

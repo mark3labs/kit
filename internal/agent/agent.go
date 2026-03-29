@@ -525,7 +525,7 @@ func convertAgentResult(result *fantasy.AgentResult, originalMessages []fantasy.
 	// Convert to custom content blocks
 	var allMessages []message.Message
 	for _, fm := range allFantasyMessages {
-		allMessages = append(allMessages, message.FromFantasyMessage(fm))
+		allMessages = append(allMessages, message.FromLLMMessage(fm))
 	}
 
 	return &GenerateWithLoopResult{

@@ -779,7 +779,7 @@ func runNormalMode(ctx context.Context) error {
 	treeSession := kitInstance.GetTreeSession()
 	var messages []fantasy.Message
 	if treeSession != nil {
-		messages = treeSession.GetFantasyMessages()
+		messages = treeSession.GetLLMMessages()
 	}
 
 	// Create the app.App instance.
@@ -1735,7 +1735,7 @@ func buildJSONOutput(result *kit.TurnResult, model string) ([]byte, error) {
 	}
 
 	for _, fmsg := range result.Messages {
-		converted := kit.ConvertFromFantasyMessage(fmsg)
+		converted := kit.ConvertFromLLMMessage(fmsg)
 		m := jsonMessage{Role: string(converted.Role)}
 		for _, p := range converted.Parts {
 			switch c := p.(type) {

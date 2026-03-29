@@ -55,7 +55,7 @@ func printAllProviders(showAll bool) error {
 	if showAll {
 		providerIDs = kit.GetSupportedProviders()
 	} else {
-		providerIDs = kit.GetFantasyProviders()
+		providerIDs = kit.GetLLMProviders()
 	}
 	sort.Strings(providerIDs)
 

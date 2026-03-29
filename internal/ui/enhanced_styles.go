@@ -294,4 +294,3 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 
 	return result.String()
 }
-

@@ -41,7 +41,6 @@ type UIMessage struct {
 	Streaming bool
 }
 
-
 // toolDisplayName returns a human-friendly display name for a tool,
 // title-casing the first letter of the raw name.
 func toolDisplayName(rawName string) string {
@@ -357,29 +356,6 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		Content: fullContent,
 		Height:  lipgloss.Height(fullContent),
 	}
-}
-
-// formatToolArgs formats tool arguments for display
-func (r *MessageRenderer) formatToolArgs(args string) string {
-	args = strings.TrimSpace(args)
-	if strings.HasPrefix(args, "{") && strings.HasSuffix(args, "}") {
-		args = strings.TrimPrefix(args, "{")
-		args = strings.TrimSuffix(args, "}")
-		args = strings.TrimSpace(args)
-	}
-
-	if args == "" {
-		return "(no arguments)"
-	}
-
-	if !r.debug {
-		maxLen := 100
-		if len(args) > maxLen {
-			return args[:maxLen] + "..."
-		}
-	}
-
-	return args
 }
 
 // formatToolResult formats tool results based on tool type

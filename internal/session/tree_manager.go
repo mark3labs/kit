@@ -244,7 +244,7 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 
 // AppendLLMMessage converts an LLM message and appends it.
 func (tm *TreeManager) AppendLLMMessage(msg fantasy.Message) (string, error) {
-	return tm.AppendMessage(message.FromFantasyMessage(msg))
+	return tm.AppendMessage(message.FromLLMMessage(msg))
 }
 
 // Deprecated: Use AppendLLMMessage instead.
@@ -540,7 +540,7 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 			if err != nil {
 				continue // skip malformed entries
 			}
-			msgs := msg.ToFantasyMessages()
+			msgs := msg.ToLLMMessages()
 			messages = append(messages, msgs...)
 
 		case *BranchSummaryEntry:
@@ -703,7 +703,7 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 			if err != nil {
 				continue
 			}
-			msgs := msg.ToFantasyMessages()
+			msgs := msg.ToLLMMessages()
 			for range msgs {
 				ids = append(ids, e.ID)
 			}

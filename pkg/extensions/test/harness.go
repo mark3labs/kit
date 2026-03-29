@@ -214,4 +214,3 @@ func (h *Harness) RegisteredCommands() []extensions.CommandDef {
 	}
 	return h.runner.RegisteredCommands()
 }
-

@@ -402,32 +402,6 @@ func (r *CompactRenderer) wrapText(text string, width int) string {
 	return strings.Join(wrappedLines, "\n")
 }
 
-// formatToolArgs formats tool arguments for compact display
-func (r *CompactRenderer) formatToolArgs(args string) string {
-	if args == "" || args == "{}" {
-		return ""
-	}
-
-	// Remove JSON braces and format compactly
-	args = strings.TrimSpace(args)
-	if strings.HasPrefix(args, "{") && strings.HasSuffix(args, "}") {
-		args = strings.TrimPrefix(args, "{")
-		args = strings.TrimSuffix(args, "}")
-		args = strings.TrimSpace(args)
-	}
-
-	// Remove quotes around simple values
-	args = strings.ReplaceAll(args, `"`, "")
-
-	// Remove parameter names (e.g., "command: ls" -> "ls", "path: /home" -> "/home")
-	// Look for pattern "key: value" and extract just the value
-	if colonIndex := strings.Index(args, ":"); colonIndex != -1 {
-		args = strings.TrimSpace(args[colonIndex+1:])
-	}
-
-	return r.formatCompactContent(args)
-}
-
 // formatToolResult formats tool results preserving formatting but limiting to 5 lines
 func (r *CompactRenderer) formatToolResult(result string) string {
 	if result == "" {

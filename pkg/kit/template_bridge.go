@@ -165,7 +165,7 @@ func SimpleParseArguments(input string, count int) []string {
 	result = append(result, input) // [0] = full input
 
 	// [1]..[count] = positional args
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if i < len(fields) {
 			result = append(result, fields[i])
 		} else {
@@ -223,12 +223,11 @@ func parseFields(input string) []string {
 	return fields
 }
 
-
 // EvaluateModelConditional checks if condition matches current model.
 // Condition supports wildcards: * matches any, ? matches single char.
 func EvaluateModelConditional(currentModel, condition string) bool {
 	// Handle comma-separated conditions (OR logic)
-	for _, c := range strings.Split(condition, ",") {
+	for c := range strings.SplitSeq(condition, ",") {
 		c = strings.TrimSpace(c)
 		if matchModelPattern(currentModel, c) {
 			return true

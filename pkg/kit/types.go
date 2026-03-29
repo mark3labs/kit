@@ -180,13 +180,13 @@ func LoadSystemPrompt(pathOrContent string) (string, error) {
 // ConvertToLLMMessages converts an SDK message to the underlying LLM
 // messages used by the agent for LLM interactions.
 func ConvertToLLMMessages(msg *Message) []fantasy.Message {
-	return msg.ToFantasyMessages()
+	return msg.ToLLMMessages()
 }
 
 // ConvertFromLLMMessage converts an LLM message from the agent to an SDK
 // message format for use in the SDK API.
 func ConvertFromLLMMessage(msg fantasy.Message) Message {
-	return message.FromFantasyMessage(msg)
+	return message.FromLLMMessage(msg)
 }
 
 // Deprecated: Use ConvertToLLMMessages instead.

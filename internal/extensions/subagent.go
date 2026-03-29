@@ -173,10 +173,10 @@ type subagentJSONOutput struct {
 	} `json:"usage,omitempty"`
 }
 
-var subagentCounter uint64
+var subagentCounter atomic.Uint64
 
 func generateSubagentID() string {
-	n := atomic.AddUint64(&subagentCounter, 1)
+	n := subagentCounter.Add(1)
 	return fmt.Sprintf("sub-%d-%d", time.Now().UnixNano(), n)
 }
 
