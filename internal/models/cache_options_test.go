@@ -95,8 +95,8 @@ func TestBuildCacheProviderOptions_Disabled(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_EnvironmentVariable(t *testing.T) {
-	os.Setenv("KIT_DISABLE_CACHE", "1")
-	defer os.Unsetenv("KIT_DISABLE_CACHE")
+	_ = os.Setenv("KIT_DISABLE_CACHE", "1")
+	defer func() { _ = os.Unsetenv("KIT_DISABLE_CACHE") }()
 
 	config := &ProviderConfig{DisableCaching: false}
 	modelInfo := &ModelInfo{Family: "claude-3", ID: "claude-3-opus"}
@@ -124,7 +124,7 @@ func TestBuildCacheProviderOptions_NilModelInfo(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_Anthropic(t *testing.T) {
-	os.Unsetenv("KIT_DISABLE_CACHE")
+	_ = os.Unsetenv("KIT_DISABLE_CACHE")
 
 	config := &ProviderConfig{DisableCaching: false}
 	modelInfo := &ModelInfo{Family: "claude-3", ID: "claude-3-opus"}
@@ -137,7 +137,7 @@ func TestBuildCacheProviderOptions_Anthropic(t *testing.T) {
 }
 
 func TestBuildCacheProviderOptions_OpenAI(t *testing.T) {
-	os.Unsetenv("KIT_DISABLE_CACHE")
+	_ = os.Unsetenv("KIT_DISABLE_CACHE")
 
 	config := &ProviderConfig{
 		DisableCaching: false,
@@ -156,7 +156,7 @@ func TestBuildCacheProviderOptions_OpenAI(t *testing.T) {
 }
 
 func TestCachingPriorityOverThinking(t *testing.T) {
-	os.Unsetenv("KIT_DISABLE_CACHE")
+	_ = os.Unsetenv("KIT_DISABLE_CACHE")
 
 	// Anthropic uses message-level caching; provider-level returns nil
 	config1 := &ProviderConfig{

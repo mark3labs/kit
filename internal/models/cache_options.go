@@ -3,6 +3,7 @@ package models
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"os"
 
 	"charm.land/fantasy"
@@ -86,9 +87,7 @@ func mergeProviderOptions(opts ...fantasy.ProviderOptions) fantasy.ProviderOptio
 	result := make(fantasy.ProviderOptions)
 
 	for _, opt := range opts {
-		for k, v := range opt {
-			result[k] = v
-		}
+		maps.Copy(result, opt)
 	}
 
 	if len(result) == 0 {
