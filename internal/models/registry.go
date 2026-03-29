@@ -17,12 +17,51 @@ var embeddedModelsJSON []byte
 type ModelInfo struct {
 	ID          string
 	Name        string
+	Family      string // Model family (e.g., "claude", "gpt", "gemini")
 	Attachment  bool
 	Reasoning   bool
 	Temperature bool
 	Cost        Cost
 	Limit       Limit
 	ProviderNPM string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+}
+
+// SupportsCaching returns true if this model family supports prompt caching.
+// This enables automatic cost savings for supported models regardless of provider.
+func (m *ModelInfo) SupportsCaching() bool {
+	switch {
+	case strings.HasPrefix(m.Family, "claude"):
+		return true
+	case strings.HasPrefix(m.Family, "gpt"),
+		strings.HasPrefix(m.Family, "o1"),
+		strings.HasPrefix(m.Family, "o3"),
+		strings.HasPrefix(m.Family, "o4"),
+		strings.HasPrefix(m.Family, "codex"):
+		return true
+	case strings.HasPrefix(m.Family, "gemini"):
+		return true
+	default:
+		return false
+	}
+}
+
+// CacheType returns the appropriate cache mechanism for this model family.
+// Returns empty string if caching is not supported.
+func (m *ModelInfo) CacheType() string {
+	switch {
+	case strings.HasPrefix(m.Family, "claude"):
+		return "anthropic-ephemeral"
+	case strings.HasPrefix(m.Family, "gpt"),
+		strings.HasPrefix(m.Family, "o1"),
+		strings.HasPrefix(m.Family, "o3"),
+		strings.HasPrefix(m.Family, "o4"),
+		strings.HasPrefix(m.Family, "codex"):
+		return "openai-prompt-cache"
+	case strings.HasPrefix(m.Family, "gemini"):
+		return "google-cached-content"
+	default:
+		return ""
+	}
 }
 
 // Cost represents the pricing information for a model.
@@ -86,6 +125,7 @@ func buildFromModelsDB() map[string]ProviderInfo {
 			modelsMap[modelID] = ModelInfo{
 				ID:          dm.ID,
 				Name:        dm.Name,
+				Family:      dm.Family,
 				Attachment:  dm.Attachment,
 				Reasoning:   dm.Reasoning,
 				Temperature: dm.Temperature,

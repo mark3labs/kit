@@ -166,6 +166,11 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	if len(allTools) > 0 {
+		// Apply cache control to the last tool for Anthropic models.
+		// This helps with caching tool definitions in long contexts.
+		if len(allTools) > 0 {
+			allTools[len(allTools)-1].SetProviderOptions(cacheControlOptions())
+		}
 		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
 	}
 
@@ -256,6 +261,10 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// before it as Messages. Files (e.g. clipboard images) are passed via the Files
 	// field so the agent includes them in the API request.
 	prompt, files, history := splitPromptAndHistory(messages)
+
+	// Apply message-level cache control for Anthropic models.
+	// This avoids type conflicts with provider-level options.
+	history = applyCacheControlToMessages(history)
 
 	// Track current tool call args for callbacks
 	var currentToolArgs string
@@ -403,6 +412,11 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 						onConsumed(len(steered))
 					}
 				}
+
+				// Apply message-level cache control for Anthropic models.
+				// This avoids type conflicts with provider-level options.
+				result.Messages = applyCacheControlToMessages(result.Messages)
+
 				return stepCtx, result, nil
 			}
 		}

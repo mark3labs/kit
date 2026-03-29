@@ -155,6 +155,7 @@ type ProviderConfig struct {
 	MainGPU        *int32
 	TLSSkipVerify  bool
 	ThinkingLevel  ThinkingLevel
+	DisableCaching bool // Opt-out: set to true to disable automatic prompt caching
 }
 
 // ProviderResult contains the result of provider creation.
@@ -237,30 +238,59 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		validateModelConfig(config, modelInfo)
 	}
 
+	// Create the base provider
+	var result *ProviderResult
+	var createErr error
+
 	switch provider {
 	case "anthropic":
-		return createAnthropicProvider(ctx, config, modelName)
+		result, createErr = createAnthropicProvider(ctx, config, modelName)
 	case "openai":
-		return createOpenAIProvider(ctx, config, modelName)
+		result, createErr = createOpenAIProvider(ctx, config, modelName)
 	case "google", "gemini":
-		return createGoogleProvider(ctx, config, modelName)
+		result, createErr = createGoogleProvider(ctx, config, modelName)
 	case "ollama":
-		return createOllamaProvider(ctx, config, modelName)
+		result, createErr = createOllamaProvider(ctx, config, modelName)
 	case "azure":
-		return createAzureProvider(ctx, config, modelName)
+		result, createErr = createAzureProvider(ctx, config, modelName)
 	case "google-vertex-anthropic":
-		return createVertexAnthropicProvider(ctx, config, modelName)
+		result, createErr = createVertexAnthropicProvider(ctx, config, modelName)
 	case "openrouter":
-		return createOpenRouterProvider(ctx, config, modelName)
+		result, createErr = createOpenRouterProvider(ctx, config, modelName)
 	case "bedrock":
-		return createBedrockProvider(ctx, config, modelName)
+		result, createErr = createBedrockProvider(ctx, config, modelName)
 	case "vercel":
-		return createVercelProvider(ctx, config, modelName)
+		result, createErr = createVercelProvider(ctx, config, modelName)
 	case "custom":
-		return createCustomProvider(ctx, config, modelName)
+		result, createErr = createCustomProvider(ctx, config, modelName)
 	default:
-		return autoRouteProvider(ctx, config, provider, modelName, registry)
+		result, createErr = autoRouteProvider(ctx, config, provider, modelName, registry)
 	}
+
+	if createErr != nil {
+		return nil, createErr
+	}
+
+	// AUTOMATICALLY ENABLE CACHING for supported models (unless disabled).
+	// This works for BOTH native and auto-routed providers by detecting
+	// the model family from the model metadata.
+	if cacheOpts := buildCacheProviderOptions(modelInfo, config); cacheOpts != nil {
+		if result.ProviderOptions == nil {
+			result.ProviderOptions = cacheOpts
+		} else {
+			// Merge cache options with existing provider options.
+			// Only add cache options for providers that don't already have
+			// options set, to avoid type conflicts (e.g., Anthropic has
+			// different types for regular options vs cache control options).
+			for k, v := range cacheOpts {
+				if _, exists := result.ProviderOptions[k]; !exists {
+					result.ProviderOptions[k] = v
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // autoRouteProvider attempts to create a provider by looking up its npm package
@@ -510,11 +540,25 @@ func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort
 // SendReasoning to true and configures the thinking budget. For thinking-off
 // or non-reasoning models the returned map is nil.
 //
+// NOTE: Thinking is disabled when caching is preferred (default behavior).
+// Caching provides better cost savings (60-90%) compared to thinking.
+// To enable thinking, user must explicitly set it AND disable caching.
+//
 // Anthropic requires max_tokens > thinking.budget_tokens. If the configured
 // MaxTokens is too low, it is bumped to budget + 4096 to leave room for the
 // actual response.
 func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
+	// Thinking is OFF by default. If user hasn't explicitly enabled it, return nil.
 	if config.ThinkingLevel == "" || config.ThinkingLevel == ThinkingOff {
+		return nil
+	}
+
+	// Caching and thinking cannot both be enabled for Anthropic due to type conflicts
+	// (both use ProviderOptions[anthropic.Name] but with different types).
+	// The caller (SetModel) should have already disabled caching when thinking is enabled.
+	if !config.DisableCaching {
+		// This shouldn't happen if SetModel is configured correctly.
+		// Skip thinking to avoid the type conflict.
 		return nil
 	}
 

@@ -204,6 +204,13 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	// Build a provider config from current settings, overriding the model.
 	// Load system prompt properly (handles both file paths and inline content).
 	systemPrompt, _ := config.LoadSystemPrompt(viper.GetString("system-prompt"))
+	thinkingLevel := models.ParseThinkingLevel(viper.GetString("thinking-level"))
+
+	// When thinking is enabled (non-OFF), disable caching for Anthropic models
+	// to avoid type conflicts between ProviderOptions and ProviderCacheControlOptions.
+	// Caching provides better cost savings, so it's enabled by default when thinking is OFF.
+	disableCaching := thinkingLevel != models.ThinkingOff
+
 	config := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
@@ -211,7 +218,8 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		ProviderURL:    viper.GetString("provider-url"),
 		MaxTokens:      viper.GetInt("max-tokens"),
 		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
-		ThinkingLevel:  models.ParseThinkingLevel(viper.GetString("thinking-level")),
+		ThinkingLevel:  thinkingLevel,
+		DisableCaching: disableCaching,
 	}
 	temperature := float32(viper.GetFloat64("temperature"))
 	config.Temperature = &temperature
@@ -1493,6 +1501,10 @@ func (m *Kit) GetThinkingLevel() string {
 
 // SetThinkingLevel changes the thinking level and recreates the agent with
 // the new thinking budget. Returns an error if provider recreation fails.
+//
+// When thinking is enabled (non-OFF), caching is automatically disabled for
+// Anthropic models to avoid type conflicts. When thinking is disabled (OFF),
+// caching is re-enabled for cost savings.
 func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 	viper.Set("thinking-level", level)
 	// Recreate agent with new thinking config by re-running SetModel
