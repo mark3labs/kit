@@ -205,6 +205,14 @@ type StreamComponent struct {
 	// the cache.
 	renderDirty bool
 
+	// scrollbackFlushedLines is the number of lines from the top of the
+	// rendered content that have already been emitted to the terminal
+	// scrollback buffer. On each flush, lines that overflow the allocated
+	// height and haven't been pushed yet are emitted via tea.Println so
+	// they appear in the terminal's real scrollback (scrollable with the
+	// terminal's own scroll mechanism).
+	scrollbackFlushedLines int
+
 	// thinkingVisible controls whether reasoning blocks are expanded or collapsed.
 	thinkingVisible bool
 
@@ -295,6 +303,42 @@ func (s *StreamComponent) Reset() {
 	s.timestamp = time.Time{}
 	s.reasoningStartTime = time.Time{}
 	s.reasoningDuration = 0
+	s.scrollbackFlushedLines = 0
+}
+
+// ConsumeOverflow returns any lines from the rendered stream content that have
+// overflowed the allocated height and have not yet been pushed to the terminal
+// scrollback buffer. It advances the internal flushed-line pointer so
+// subsequent calls only return newly overflowed lines.
+//
+// Returns "" when there is no overflow or height is unconstrained (0).
+// The caller should emit the returned string via tea.Println so the content
+// appears in the terminal's real scrollback (not just discarded).
+func (s *StreamComponent) ConsumeOverflow() string {
+	if s.height <= 0 {
+		return ""
+	}
+	content := s.render()
+	if content == "" {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+	// Number of lines that overflow the viewable height.
+	overflowLines := totalLines - s.height
+	if overflowLines <= 0 {
+		return ""
+	}
+	// How many overflow lines are new (not yet flushed to scrollback).
+	newOverflow := overflowLines - s.scrollbackFlushedLines
+	if newOverflow <= 0 {
+		return ""
+	}
+	// The new overflow is lines [s.scrollbackFlushedLines .. overflowLines).
+	start := s.scrollbackFlushedLines
+	end := overflowLines
+	s.scrollbackFlushedLines = overflowLines
+	return strings.Join(lines[start:end], "\n")
 }
 
 // GetRenderedContent returns the rendered assistant message from the accumulated
@@ -303,6 +347,10 @@ func (s *StreamComponent) Reset() {
 //
 // This commits any pending chunks first so the output includes all received
 // content, not just what has been flushed by the tick.
+//
+// Lines already pushed to the terminal scrollback buffer via ConsumeOverflow
+// are skipped so that callers do not re-emit content that is already visible
+// in the terminal's real scrollback.
 func (s *StreamComponent) GetRenderedContent() string {
 	// Commit any pending chunks so the final output is complete.
 	s.commitPending()
@@ -323,7 +371,19 @@ func (s *StreamComponent) GetRenderedContent() string {
 	if len(sections) == 0 {
 		return ""
 	}
-	return strings.Join(sections, "\n")
+	fullContent := strings.Join(sections, "\n")
+
+	// Skip lines already emitted to the terminal scrollback via ConsumeOverflow
+	// so the caller doesn't re-print content that is already there.
+	if s.scrollbackFlushedLines > 0 {
+		lines := strings.Split(fullContent, "\n")
+		if s.scrollbackFlushedLines >= len(lines) {
+			return "" // everything already in scrollback
+		}
+		return strings.Join(lines[s.scrollbackFlushedLines:], "\n")
+	}
+
+	return fullContent
 }
 
 // commitPending moves any pending chunks to the committed content builders.

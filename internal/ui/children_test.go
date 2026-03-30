@@ -699,3 +699,170 @@ func TestStreamComponent_StaleFlushTick_Discarded(t *testing.T) {
 		t.Fatalf("expected streamContent='new' after current flush, got %q", got)
 	}
 }
+
+// TestStreamComponent_ConsumeOverflow_NoHeight verifies that when height is
+// unconstrained (0), ConsumeOverflow always returns "".
+func TestStreamComponent_ConsumeOverflow_NoHeight(t *testing.T) {
+	c := newTestStream()
+	// Commit some content directly.
+	c.streamContent.WriteString("line1\nline2\nline3")
+	c.phase = streamPhaseActive
+	c.renderDirty = true
+
+	if got := c.ConsumeOverflow(); got != "" {
+		t.Fatalf("expected empty with height=0, got %q", got)
+	}
+}
+
+// TestStreamComponent_ConsumeOverflow_NoOverflow verifies that when content fits
+// within the allocated height, ConsumeOverflow returns "".
+func TestStreamComponent_ConsumeOverflow_NoOverflow(t *testing.T) {
+	c := newTestStream()
+	c.streamContent.WriteString("line1\nline2")
+	c.phase = streamPhaseActive
+	c.renderDirty = true
+	c.height = 20 // plenty of room
+
+	if got := c.ConsumeOverflow(); got != "" {
+		t.Fatalf("expected empty when content fits, got %q", got)
+	}
+}
+
+// TestStreamComponent_ConsumeOverflow_EmitsTopLines verifies that when the
+// rendered content has more lines than the allocated height, ConsumeOverflow
+// returns the top overflow lines and advances the internal pointer.
+func TestStreamComponent_ConsumeOverflow_EmitsTopLines(t *testing.T) {
+	c := newTestStream()
+	c.height = 2
+
+	// Build raw content that when "rendered" (plain text for this test)
+	// is 5 lines — we bypass the markdown renderer by writing directly to
+	// streamContent and using a nil renderer.
+	c.renderer = nil
+	c.streamContent.WriteString("a\nb\nc\nd\ne")
+	c.phase = streamPhaseActive
+	c.renderDirty = true
+
+	// First call: should return lines a, b, c (5 lines - 2 visible = 3 overflow).
+	overflow1 := c.ConsumeOverflow()
+	if overflow1 == "" {
+		t.Fatal("expected overflow, got empty")
+	}
+	overflowLines := strings.Split(overflow1, "\n")
+	if len(overflowLines) != 3 {
+		t.Fatalf("expected 3 overflow lines, got %d: %q", len(overflowLines), overflow1)
+	}
+	if overflowLines[0] != "a" || overflowLines[1] != "b" || overflowLines[2] != "c" {
+		t.Fatalf("unexpected overflow lines: %v", overflowLines)
+	}
+
+	// Second call without new content should return "" (pointer already advanced).
+	overflow2 := c.ConsumeOverflow()
+	if overflow2 != "" {
+		t.Fatalf("expected empty on second call, got %q", overflow2)
+	}
+}
+
+// TestStreamComponent_ConsumeOverflow_IncrementalFlush verifies that as new
+// content arrives, ConsumeOverflow incrementally returns only newly overflowed
+// lines on each call.
+func TestStreamComponent_ConsumeOverflow_IncrementalFlush(t *testing.T) {
+	c := newTestStream()
+	c.height = 2
+	c.renderer = nil
+	c.phase = streamPhaseActive
+
+	// Start with 3 lines — 1 overflows.
+	c.streamContent.WriteString("a\nb\nc")
+	c.renderDirty = true
+
+	overflow1 := c.ConsumeOverflow()
+	if overflow1 != "a" {
+		t.Fatalf("expected 'a', got %q", overflow1)
+	}
+
+	// Add 2 more lines — 2 additional overflows.
+	c.streamContent.WriteString("\nd\ne")
+	c.renderDirty = true
+
+	overflow2 := c.ConsumeOverflow()
+	want := "b\nc"
+	if overflow2 != want {
+		t.Fatalf("expected %q, got %q", want, overflow2)
+	}
+}
+
+// TestStreamComponent_ConsumeOverflow_ResetClearsPointer verifies that Reset()
+// resets the scrollback pointer so the next response starts fresh.
+func TestStreamComponent_ConsumeOverflow_ResetClearsPointer(t *testing.T) {
+	c := newTestStream()
+	c.height = 1
+	c.renderer = nil
+	c.phase = streamPhaseActive
+
+	c.streamContent.WriteString("a\nb")
+	c.renderDirty = true
+	overflow := c.ConsumeOverflow()
+	if overflow != "a" {
+		t.Fatalf("expected 'a', got %q", overflow)
+	}
+
+	c.Reset()
+	if c.scrollbackFlushedLines != 0 {
+		t.Fatalf("expected scrollbackFlushedLines=0 after Reset, got %d", c.scrollbackFlushedLines)
+	}
+}
+
+// TestStreamComponent_GetRenderedContent_SkipsFlushedLines verifies that
+// GetRenderedContent skips lines already emitted via ConsumeOverflow so the
+// caller doesn't re-print content already in the terminal scrollback.
+func TestStreamComponent_GetRenderedContent_SkipsFlushedLines(t *testing.T) {
+	c := newTestStream()
+	c.height = 2
+	c.renderer = nil
+	c.phase = streamPhaseActive
+
+	// 5 lines → 3 overflow, 2 visible.
+	c.streamContent.WriteString("a\nb\nc\nd\ne")
+	c.renderDirty = true
+
+	// Consume the overflow: lines a, b, c.
+	overflow := c.ConsumeOverflow()
+	if overflow != "a\nb\nc" {
+		t.Fatalf("expected 'a\\nb\\nc', got %q", overflow)
+	}
+	if c.scrollbackFlushedLines != 3 {
+		t.Fatalf("expected flushedLines=3, got %d", c.scrollbackFlushedLines)
+	}
+
+	// GetRenderedContent should only return the non-flushed portion: d, e.
+	got := c.GetRenderedContent()
+	if got != "d\ne" {
+		t.Fatalf("expected 'd\\ne', got %q", got)
+	}
+}
+
+// TestStreamComponent_GetRenderedContent_AllFlushed verifies that when all
+// lines have been pushed via ConsumeOverflow, GetRenderedContent returns "".
+func TestStreamComponent_GetRenderedContent_AllFlushed(t *testing.T) {
+	c := newTestStream()
+	c.height = 1
+	c.renderer = nil
+	c.phase = streamPhaseActive
+
+	// 2 lines → height=1, so 1 overflow.
+	c.streamContent.WriteString("a\nb")
+	c.renderDirty = true
+
+	// Consume overflow (line a), leaving 1 visible line (b).
+	_ = c.ConsumeOverflow()
+
+	// Now bump height so everything overflows — simulate a resize that made
+	// the viewable area 0, forcing all content to be "flushed".
+	c.scrollbackFlushedLines = 2 // pretend both lines were flushed
+
+	got := c.GetRenderedContent()
+	if got != "" {
+		t.Fatalf("expected empty when all lines flushed, got %q", got)
+	}
+}

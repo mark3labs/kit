@@ -101,6 +101,7 @@ func (s *stubStreamComponent) View() tea.View             { return tea.NewView("
 func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
 func (s *stubStreamComponent) SetHeight(h int)            { s.height = h }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
+func (s *stubStreamComponent) ConsumeOverflow() string    { return "" }
 func (s *stubStreamComponent) SpinnerView() string        { return "" }
 func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
 func (s *stubStreamComponent) HasReasoning() bool         { return false }

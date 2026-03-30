@@ -637,6 +637,10 @@ type streamComponentIface interface {
 	// GetRenderedContent returns the rendered assistant message from accumulated
 	// streaming text, or empty string if nothing has been accumulated.
 	GetRenderedContent() string
+	// ConsumeOverflow returns lines from the top of the rendered content that
+	// have overflowed the allocated height and haven't been pushed to the
+	// terminal scrollback yet. Returns "" when no new overflow exists.
+	ConsumeOverflow() string
 	// SpinnerView returns the rendered spinner line (animation + optional label).
 	// Returns "" when the spinner is not active. The parent renders this in the
 	// status bar so the spinner never changes the view height.
@@ -1689,6 +1693,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.stream.Update(msg)
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
+		}
+	}
+
+	// Flush any stream overflow lines that have grown past the allocated
+	// height into the terminal's real scrollback buffer. This ensures the
+	// diagram's invariant: streaming text starts at the top of the viewable
+	// terminal and overflows upward into the scrollback buffer rather than
+	// silently discarding the older lines.
+	//
+	// IMPORTANT: overflow is emitted directly via tea.Println rather than
+	// via appendScrollback. Using appendScrollback would cause drainScrollback
+	// to see a non-empty scrollbackBuf and trigger its auto-flush, which calls
+	// GetRenderedContent() + Reset() while the stream is still active —
+	// causing duplication and premature resets.
+	if m.stream != nil {
+		if overflow := m.stream.ConsumeOverflow(); overflow != "" {
+			cmds = append(cmds, tea.Println(overflow))
 		}
 	}
 
