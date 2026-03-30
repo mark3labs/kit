@@ -104,6 +104,7 @@ func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedCon
 func (s *stubStreamComponent) SpinnerView() string        { return "" }
 func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
 func (s *stubStreamComponent) HasReasoning() bool         { return false }
+func (s *stubStreamComponent) UpdateTheme()               {}
 
 // stubInputComponent satisfies inputComponentIface without rendering anything.
 type stubInputComponent struct {

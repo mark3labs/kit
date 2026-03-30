@@ -442,3 +442,10 @@ func (r *CompactRenderer) formatToolResult(result string) string {
 func (r *CompactRenderer) formatBashOutput(result string) string {
 	return parseBashOutput(result, GetTheme())
 }
+
+// UpdateTheme is a no-op for CompactRenderer since it fetches theme colors
+// directly from GetTheme() in each rendering method. This stub satisfies
+// the Renderer interface.
+func (r *CompactRenderer) UpdateTheme() {
+	// No-op: theme colors are fetched fresh on each render
+}

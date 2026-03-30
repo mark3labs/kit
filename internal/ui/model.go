@@ -645,6 +645,8 @@ type streamComponentIface interface {
 	SetThinkingVisible(visible bool)
 	// HasReasoning returns true if any reasoning content has been accumulated.
 	HasReasoning() bool
+	// UpdateTheme refreshes typography with colors from the current theme.
+	UpdateTheme()
 }
 
 // --------------------------------------------------------------------------
@@ -2893,6 +2895,8 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	m.renderer.UpdateTheme()
+	m.stream.UpdateTheme()
 	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
 	return nil
 }

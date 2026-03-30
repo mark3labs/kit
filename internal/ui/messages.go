@@ -408,6 +408,12 @@ func createTypography(theme Theme) *herald.Typography {
 	)
 }
 
+// UpdateTheme refreshes the renderer's typography instance with colors from
+// the current theme. This is called when the user changes themes via /theme.
+func (r *MessageRenderer) UpdateTheme() {
+	r.ty = createTypography(GetTheme())
+}
+
 // removeBlankLines removes lines that are visually blank from rendered output.
 func removeBlankLines(s string) string {
 	lines := strings.Split(s, "\n")

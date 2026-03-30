@@ -19,6 +19,7 @@ type Renderer interface {
 	RenderDebugMessage(message string, timestamp time.Time) UIMessage
 	RenderDebugConfigMessage(config map[string]any, timestamp time.Time) UIMessage
 	SetWidth(width int)
+	UpdateTheme()
 }
 
 // Compile-time checks that both renderers satisfy the Renderer interface.
