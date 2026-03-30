@@ -26,9 +26,12 @@ var Version = "dev"
 // thinkingTagOpen and thinkingTagClose are the XML-style tags that some models
 // (Qwen, DeepSeek) wrap reasoning content in. We parse these to extract
 // reasoning/thinking content and send it as ACP thought updates.
+// Also support <think> format used by some models.
 const (
-	thinkingTagOpen  = "<thinking>"
-	thinkingTagClose = "</thinking>"
+	thinkingTagOpen    = "<thinking>"
+	thinkingTagClose   = "</thinking>"
+	shortThinkTagOpen  = "<think>"
+	shortThinkTagClose = "</think>"
 )
 
 // Agent implements the acp.Agent interface, delegating to Kit for LLM
@@ -43,11 +46,6 @@ type Agent struct {
 	// inThinkingTag tracks whether we're currently inside a <thinking> tag
 	// when parsing streaming content from models that wrap reasoning in XML tags.
 	inThinkingTag bool
-
-	// hasProperReasoningEvents tracks whether the model is sending ReasoningDeltaEvent
-	// (proper reasoning events) vs wrapping reasoning in <thinking> tags in text.
-	// If true, we skip thinking tag parsing to avoid double-sending reasoning.
-	hasProperReasoningEvents bool
 }
 
 // NewAgent creates a new ACP agent backed by Kit.
@@ -146,8 +144,7 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 
 	log.Debug("acp: prompt", "session", sessionID, "prompt_len", len(promptText), "files", len(files))
 
-	// Reset reasoning tracking for this new prompt turn
-	a.hasProperReasoningEvents = false
+	// Reset thinking tag state for this new prompt turn
 	a.inThinkingTag = false
 
 	// Create a cancellable context for this prompt turn.
@@ -215,36 +212,26 @@ func (a *Agent) subscribeEvents(ctx context.Context, k *kit.Kit, sessionID acp.S
 		var update *acp.SessionUpdate
 		switch ev := e.(type) {
 		case kit.MessageUpdateEvent:
-			// If the model sends proper ReasoningDeltaEvent, don't parse thinking tags
-			// from text to avoid double-sending reasoning content.
-			if a.hasProperReasoningEvents {
-				// Send text as-is without thinking tag parsing
-				u := acp.UpdateAgentMessageText(ev.Chunk)
+			// Handle models that wrap reasoning in <thinking> tags (Qwen, DeepSeek)
+			// Parse the chunk and separate reasoning from regular text
+			reasoning, text := a.parseThinkingTags(ev.Chunk)
+
+			// Send reasoning update if we have reasoning content
+			if reasoning != "" {
+				u := acp.UpdateAgentThoughtText(reasoning)
+				_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
+					SessionId: sessionID,
+					Update:    u,
+				})
+			}
+
+			// Send text update if we have text content
+			if text != "" {
+				u := acp.UpdateAgentMessageText(text)
 				update = &u
-			} else {
-				// Handle models that wrap reasoning in <thinking> tags (Qwen, DeepSeek)
-				// Parse the chunk and separate reasoning from regular text
-				reasoning, text := a.parseThinkingTags(ev.Chunk)
-
-				// Send reasoning update if we have reasoning content
-				if reasoning != "" {
-					u := acp.UpdateAgentThoughtText(reasoning)
-					_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
-						SessionId: sessionID,
-						Update:    u,
-					})
-				}
-
-				// Send text update if we have text content
-				if text != "" {
-					u := acp.UpdateAgentMessageText(text)
-					update = &u
-				}
 			}
 
 		case kit.ReasoningDeltaEvent:
-			// Track that this model sends proper reasoning events
-			a.hasProperReasoningEvents = true
 			u := acp.UpdateAgentThoughtText(ev.Delta)
 			update = &u
 
@@ -425,7 +412,7 @@ func extractPromptContent(blocks []acp.ContentBlock) (string, []kit.LLMFilePart)
 	return strings.Join(textParts, "\n"), files
 }
 
-// parseThinkingTags parses a text chunk for <thinking> tags and separates
+// parseThinkingTags parses a text chunk for <thinking> or  tags and separates
 // reasoning content from regular text. This handles models (Qwen, DeepSeek)
 // that wrap reasoning in XML-style tags instead of using proper reasoning events.
 // Returns (reasoningContent, textContent).
@@ -435,9 +422,21 @@ func (a *Agent) parseThinkingTags(chunk string) (reasoning string, text string) 
 		return "", ""
 	}
 
+	// Determine which tag format to use (long or short)
+	openTag := thinkingTagOpen
+	closeTag := thinkingTagClose
+
+	if strings.Contains(chunk, shortThinkTagOpen) || strings.Contains(chunk, shortThinkTagClose) {
+		openTag = shortThinkTagOpen
+		closeTag = shortThinkTagClose
+	} else if !strings.Contains(chunk, thinkingTagOpen) && !strings.Contains(chunk, thinkingTagClose) && !a.inThinkingTag {
+		// No tags at all and not in thinking mode - return as text
+		return "", chunk
+	}
+
 	// Check for opening tag
-	if strings.Contains(chunk, thinkingTagOpen) {
-		parts := strings.SplitN(chunk, thinkingTagOpen, 2)
+	if strings.Contains(chunk, openTag) {
+		parts := strings.SplitN(chunk, openTag, 2)
 
 		// Content before the opening tag is regular text
 		if !a.inThinkingTag && parts[0] != "" {
@@ -447,10 +446,10 @@ func (a *Agent) parseThinkingTags(chunk string) (reasoning string, text string) 
 		a.inThinkingTag = true
 
 		// Content after the opening tag is reasoning
-		if len(parts) > 1 && parts[1] != "" {
+		if len(parts) > 1 {
 			// Check if the same chunk contains the closing tag
-			if strings.Contains(parts[1], thinkingTagClose) {
-				innerParts := strings.SplitN(parts[1], thinkingTagClose, 2)
+			if strings.Contains(parts[1], closeTag) {
+				innerParts := strings.SplitN(parts[1], closeTag, 2)
 				reasoning = innerParts[0]
 				a.inThinkingTag = false
 
@@ -458,7 +457,7 @@ func (a *Agent) parseThinkingTags(chunk string) (reasoning string, text string) 
 				if len(innerParts) > 1 && innerParts[1] != "" {
 					text += innerParts[1]
 				}
-			} else {
+			} else if parts[1] != "" {
 				// No closing tag yet, all remaining content is reasoning
 				reasoning = parts[1]
 			}
@@ -467,8 +466,8 @@ func (a *Agent) parseThinkingTags(chunk string) (reasoning string, text string) 
 	}
 
 	// Check for closing tag
-	if strings.Contains(chunk, thinkingTagClose) {
-		parts := strings.SplitN(chunk, thinkingTagClose, 2)
+	if strings.Contains(chunk, closeTag) {
+		parts := strings.SplitN(chunk, closeTag, 2)
 		a.inThinkingTag = false
 
 		// Content before closing tag is reasoning
