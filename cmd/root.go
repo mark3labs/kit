@@ -1840,7 +1840,9 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		ShowSessionPicker:       resumeFlag,
 	})
 
-	// Print startup info to stdout before Bubble Tea takes over the screen.
+	// Print KIT banner and startup info to stdout before Bubble Tea takes over the screen.
+	fmt.Println(kitBanner())
+	fmt.Println()
 	appModel.PrintStartupInfo()
 
 	// Print any extension messages that were captured during startup.
