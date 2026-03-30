@@ -43,6 +43,11 @@ type Agent struct {
 	// inThinkingTag tracks whether we're currently inside a <thinking> tag
 	// when parsing streaming content from models that wrap reasoning in XML tags.
 	inThinkingTag bool
+
+	// hasProperReasoningEvents tracks whether the model is sending ReasoningDeltaEvent
+	// (proper reasoning events) vs wrapping reasoning in <thinking> tags in text.
+	// If true, we skip thinking tag parsing to avoid double-sending reasoning.
+	hasProperReasoningEvents bool
 }
 
 // NewAgent creates a new ACP agent backed by Kit.
@@ -141,6 +146,10 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 
 	log.Debug("acp: prompt", "session", sessionID, "prompt_len", len(promptText), "files", len(files))
 
+	// Reset reasoning tracking for this new prompt turn
+	a.hasProperReasoningEvents = false
+	a.inThinkingTag = false
+
 	// Create a cancellable context for this prompt turn.
 	promptCtx, cancel := context.WithCancel(ctx)
 	sess.setCancel(cancel)
@@ -206,26 +215,36 @@ func (a *Agent) subscribeEvents(ctx context.Context, k *kit.Kit, sessionID acp.S
 		var update *acp.SessionUpdate
 		switch ev := e.(type) {
 		case kit.MessageUpdateEvent:
-			// Handle models that wrap reasoning in <thinking> tags (Qwen, DeepSeek)
-			// Parse the chunk and separate reasoning from regular text
-			reasoning, text := a.parseThinkingTags(ev.Chunk)
-
-			// Send reasoning update if we have reasoning content
-			if reasoning != "" {
-				u := acp.UpdateAgentThoughtText(reasoning)
-				_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
-					SessionId: sessionID,
-					Update:    u,
-				})
-			}
-
-			// Send text update if we have text content
-			if text != "" {
-				u := acp.UpdateAgentMessageText(text)
+			// If the model sends proper ReasoningDeltaEvent, don't parse thinking tags
+			// from text to avoid double-sending reasoning content.
+			if a.hasProperReasoningEvents {
+				// Send text as-is without thinking tag parsing
+				u := acp.UpdateAgentMessageText(ev.Chunk)
 				update = &u
+			} else {
+				// Handle models that wrap reasoning in <thinking> tags (Qwen, DeepSeek)
+				// Parse the chunk and separate reasoning from regular text
+				reasoning, text := a.parseThinkingTags(ev.Chunk)
+
+				// Send reasoning update if we have reasoning content
+				if reasoning != "" {
+					u := acp.UpdateAgentThoughtText(reasoning)
+					_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
+						SessionId: sessionID,
+						Update:    u,
+					})
+				}
+
+				// Send text update if we have text content
+				if text != "" {
+					u := acp.UpdateAgentMessageText(text)
+					update = &u
+				}
 			}
 
 		case kit.ReasoningDeltaEvent:
+			// Track that this model sends proper reasoning events
+			a.hasProperReasoningEvents = true
 			u := acp.UpdateAgentThoughtText(ev.Delta)
 			update = &u
 
