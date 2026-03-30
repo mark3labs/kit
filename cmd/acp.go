@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/charmbracelet/log"
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/mark3labs/kit/internal/acpserver"
@@ -54,6 +55,8 @@ func runACP(cmd *cobra.Command, _ []string) error {
 		conn.SetLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})))
+		// Also set charmbracelet/log level for acpserver package logging
+		log.SetLevel(log.DebugLevel)
 	}
 
 	// Wait for either the client to disconnect or a signal.

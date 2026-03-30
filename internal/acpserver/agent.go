@@ -7,8 +7,11 @@ package acpserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/charmbracelet/log"
@@ -111,13 +114,20 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 		)
 	}
 
-	// Extract text from prompt content blocks.
-	promptText := extractPromptText(params.Prompt)
-	if promptText == "" {
+	// Extract text and file attachments from prompt content blocks.
+	promptText, files := extractPromptContent(params.Prompt)
+	if promptText == "" && len(files) == 0 {
 		return acp.PromptResponse{}, acp.NewInvalidParams("empty prompt")
 	}
 
-	log.Debug("acp: prompt", "session", sessionID, "prompt_len", len(promptText))
+	// If we have files but no text prompt, add a default prompt
+	// This is required because the underlying LLM library needs a non-empty prompt
+	// when there are no previous messages in the conversation.
+	if promptText == "" && len(files) > 0 {
+		promptText = "Please analyze the attached file."
+	}
+
+	log.Debug("acp: prompt", "session", sessionID, "prompt_len", len(promptText), "files", len(files))
 
 	// Create a cancellable context for this prompt turn.
 	promptCtx, cancel := context.WithCancel(ctx)
@@ -129,7 +139,13 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 	defer unsub()
 
 	// Run the prompt through Kit's full turn lifecycle.
-	_, err := sess.kit.PromptResult(promptCtx, promptText)
+	// Use PromptResultWithFiles when file attachments are present.
+	var err error
+	if len(files) > 0 {
+		_, err = sess.kit.PromptResultWithFiles(promptCtx, promptText, files)
+	} else {
+		_, err = sess.kit.PromptResult(promptCtx, promptText)
+	}
 	if err != nil {
 		if promptCtx.Err() != nil {
 			return acp.PromptResponse{
@@ -231,19 +247,199 @@ func (a *Agent) subscribeEvents(ctx context.Context, k *kit.Kit, sessionID acp.S
 // Helpers
 // ---------------------------------------------------------------------------
 
-// extractPromptText extracts the concatenated text content from ACP content
-// blocks. Non-text blocks are ignored for now.
-func extractPromptText(blocks []acp.ContentBlock) string {
-	var text string
-	for _, block := range blocks {
-		if block.Text != nil {
-			if text != "" {
-				text += "\n"
+// extractPromptContent extracts text and file attachments from ACP content blocks.
+// It converts supported content blocks (image, audio, resource) to Kit's LLMFilePart.
+func extractPromptContent(blocks []acp.ContentBlock) (string, []kit.LLMFilePart) {
+	var textParts []string
+	var files []kit.LLMFilePart
+
+	log.Debug("acp: extracting content", "blocks", len(blocks))
+
+	for i, block := range blocks {
+		switch {
+		// Text content
+		case block.Text != nil:
+			log.Debug("acp: content block", "index", i, "type", "text", "len", len(block.Text.Text))
+			textParts = append(textParts, block.Text.Text)
+
+		// Image data (base64)
+		case block.Image != nil:
+			mimeType := block.Image.MimeType
+			if mimeType == "" {
+				mimeType = "image/png" // Default fallback
 			}
-			text += block.Text.Text
+			log.Debug("acp: content block", "index", i, "type", "image", "mime", mimeType, "data_len", len(block.Image.Data))
+			if data, err := base64.StdEncoding.DecodeString(block.Image.Data); err == nil {
+				files = append(files, kit.LLMFilePart{
+					Filename:  "image.png",
+					Data:      data,
+					MediaType: mimeType,
+				})
+			} else {
+				log.Debug("acp: failed to decode image", "error", err)
+			}
+
+		// Audio data (base64)
+		case block.Audio != nil:
+			mimeType := block.Audio.MimeType
+			if mimeType == "" {
+				mimeType = "audio/wav" // Default fallback
+			}
+			log.Debug("acp: content block", "index", i, "type", "audio", "mime", mimeType)
+			if data, err := base64.StdEncoding.DecodeString(block.Audio.Data); err == nil {
+				files = append(files, kit.LLMFilePart{
+					Filename:  "audio.wav",
+					Data:      data,
+					MediaType: mimeType,
+				})
+			} else {
+				log.Debug("acp: failed to decode audio", "error", err)
+			}
+
+		// Embedded resource (text or binary file content)
+		case block.Resource != nil:
+			log.Debug("acp: content block", "index", i, "type", "resource")
+			res := block.Resource.Resource
+			// Text resource - append as text content with file reference
+			if res.TextResourceContents != nil {
+				uri := res.TextResourceContents.Uri
+				content := res.TextResourceContents.Text
+				mimeType := "text/plain"
+				if res.TextResourceContents.MimeType != nil {
+					mimeType = *res.TextResourceContents.MimeType
+				}
+				log.Debug("acp: text resource", "uri", uri, "mime", mimeType, "len", len(content))
+				// Text files are included as formatted text, NOT as FilePart
+				// FilePart is for binary files (images, audio, PDFs) only
+				textParts = append(textParts, fmt.Sprintf("[File: %s]\n```\n%s\n```", uri, content))
+			}
+			// Binary resource (base64 blob) - these become FilePart
+			if res.BlobResourceContents != nil {
+				uri := res.BlobResourceContents.Uri
+				mimeType := "application/octet-stream"
+				if res.BlobResourceContents.MimeType != nil {
+					mimeType = *res.BlobResourceContents.MimeType
+				}
+				log.Debug("acp: binary resource", "uri", uri, "mime", mimeType, "blob_len", len(res.BlobResourceContents.Blob))
+				if data, err := base64.StdEncoding.DecodeString(res.BlobResourceContents.Blob); err == nil {
+					files = append(files, kit.LLMFilePart{
+						Filename:  extractFilenameFromURI(uri),
+						Data:      data,
+						MediaType: mimeType,
+					})
+				} else {
+					log.Debug("acp: failed to decode binary resource", "error", err)
+				}
+			}
+
+		// Resource link (file reference without embedded content)
+		case block.ResourceLink != nil:
+			uri := block.ResourceLink.Uri
+			name := block.ResourceLink.Name
+			log.Debug("acp: content block", "index", i, "type", "resource_link", "uri", uri, "name", name)
+			// For resource links, we'll try to read the file from disk
+			// This requires the file URI to be accessible (file:// scheme)
+			if content, err := readResourceFromURI(uri); err == nil {
+				// Detect if it's a text file or binary file
+				mimeType := "text/plain"
+				if block.ResourceLink.MimeType != nil {
+					mimeType = *block.ResourceLink.MimeType
+				}
+				log.Debug("acp: resource link loaded", "uri", uri, "mime", mimeType, "size", len(content))
+
+				// Only create FilePart for binary files (images, audio, PDFs, etc.)
+				// Text files are included as formatted text in the message
+				if isTextMimeType(mimeType) || looksLikeText(content) {
+					textParts = append(textParts, fmt.Sprintf("[File: %s]\n```\n%s\n```", uri, string(content)))
+				} else {
+					// Binary file - create FilePart for models that support it
+					files = append(files, kit.LLMFilePart{
+						Filename:  extractFilenameFromURI(uri),
+						Data:      content,
+						MediaType: mimeType,
+					})
+				}
+			} else {
+				// If we can't read it, include as a text reference
+				log.Debug("acp: resource link failed to load", "uri", uri, "error", err)
+				textParts = append(textParts, fmt.Sprintf("[Referenced file: %s]", uri))
+			}
+
+		default:
+			log.Debug("acp: content block", "index", i, "type", "unknown/unhandled")
 		}
 	}
-	return text
+
+	// Debug log the extracted content
+	for i, f := range files {
+		log.Debug("acp: extracted file", "index", i, "filename", f.Filename, "mime", f.MediaType, "size", len(f.Data))
+	}
+
+	return strings.Join(textParts, "\n"), files
+}
+
+// isTextMimeType returns true if the MIME type indicates text content.
+func isTextMimeType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "text/") ||
+		mimeType == "application/json" ||
+		mimeType == "application/xml" ||
+		mimeType == "application/javascript" ||
+		mimeType == "application/typescript" ||
+		mimeType == "application/x-sh" ||
+		mimeType == "application/x-python" ||
+		mimeType == "application/x-yaml" ||
+		mimeType == "application/x-toml"
+}
+
+// looksLikeText checks if the content appears to be text (not binary).
+// It samples the first 512 bytes and checks for null bytes or high
+// concentration of non-printable characters.
+func looksLikeText(data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	// Check first 512 bytes (or less if file is smaller)
+	sampleSize := 512
+	if len(data) < sampleSize {
+		sampleSize = len(data)
+	}
+	sample := data[:sampleSize]
+
+	// Count non-printable characters
+	nonPrintable := 0
+	for _, b := range sample {
+		// Null byte indicates binary
+		if b == 0 {
+			return false
+		}
+		// Count control characters (except common whitespace)
+		if b < 32 && b != '\n' && b != '\r' && b != '\t' {
+			nonPrintable++
+		}
+	}
+
+	// If more than 30% non-printable, consider it binary
+	return float64(nonPrintable)/float64(sampleSize) < 0.3
+}
+
+// extractFilenameFromURI extracts a filename from a file URI or path.
+func extractFilenameFromURI(uri string) string {
+	// Handle file:// URIs
+	uri = strings.TrimPrefix(uri, "file://")
+	// Extract basename
+	if idx := strings.LastIndex(uri, "/"); idx >= 0 {
+		return uri[idx+1:]
+	}
+	return uri
+}
+
+// readResourceFromURI attempts to read file content from a file:// URI.
+func readResourceFromURI(uri string) ([]byte, error) {
+	if !strings.HasPrefix(uri, "file://") {
+		return nil, fmt.Errorf("unsupported URI scheme: %s", uri)
+	}
+	path := uri[7:] // Remove file:// prefix
+	return os.ReadFile(path)
 }
 
 // parseToolArgs attempts to parse a JSON tool args string into a map for
