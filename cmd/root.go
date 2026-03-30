@@ -680,9 +680,15 @@ func runNormalMode(ctx context.Context) error {
 	// Restore persisted model preference when no explicit --model flag or
 	// config file model is set. Precedence: CLI flag > config file > saved
 	// preference > built-in default. This mirrors how themes are persisted.
+	// Skip custom/* models unless --provider-url is also provided, since the
+	// custom provider requires a URL that was only valid for the previous session.
 	if !modelFlagChanged && !viper.InConfig("model") {
 		if pref := ui.LoadModelPreference(); pref != "" {
-			viper.Set("model", pref)
+			if strings.HasPrefix(pref, "custom/") && viper.GetString("provider-url") == "" {
+				// Don't restore custom models without a provider URL
+			} else {
+				viper.Set("model", pref)
+			}
 		}
 	}
 
@@ -701,6 +707,15 @@ func runNormalMode(ctx context.Context) error {
 	// custom/custom's provider routing.
 	if viper.GetString("provider-url") != "" && !modelFlagChanged && !viper.InConfig("model") {
 		viper.Set("model", "custom/custom")
+	}
+
+	// When --provider-url is set with an explicit --model that lacks a provider
+	// prefix (no "/"), auto-prefix with "custom/" for OpenAI-compatible endpoints.
+	if viper.GetString("provider-url") != "" && modelFlagChanged {
+		model := viper.GetString("model")
+		if model != "" && !strings.Contains(model, "/") {
+			viper.Set("model", "custom/"+model)
+		}
 	}
 
 	// Load MCP configuration.
