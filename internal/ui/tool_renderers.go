@@ -440,8 +440,19 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	}
 
 	// Create typography with line number offset and custom formatter
+	// Match Write tool: GutterBg for line numbers, CodeBg for content
 	codeContent := strings.Join(codeLines, "\n")
+	theme := GetTheme()
+	hty := herald.Theme{
+		CodeBlock: lipgloss.NewStyle().
+			Background(theme.CodeBg).
+			PaddingLeft(1),
+		CodeLineNumber: lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.GutterBg),
+	}
 	ty := herald.New(
+		herald.WithTheme(hty),
 		herald.WithCodeLineNumbers(true),
 		herald.WithCodeLineNumberOffset(offset),
 		herald.WithCodeFormatter(func(code, _ string) string {
@@ -465,7 +476,13 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 		result += "\n" + lipgloss.NewStyle().Foreground(GetTheme().Muted).Render(footer)
 	}
 
-	return result
+	// Indent entire block to match Write/Edit tools (2 spaces)
+	const blockIndent = "  "
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		lines[i] = blockIndent + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ---------------------------------------------------------------------------
