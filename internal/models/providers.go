@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"charm.land/fantasy/providers/openaicompat"
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
+	openaisdk "github.com/charmbracelet/openai-go"
 
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/ui/progress"
@@ -998,6 +1000,133 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model}, nil
 }
 
+// thinkTagRegex matches <think>...</think> tags for extracting reasoning content
+// from models that wrap thinking in XML-like tags (e.g., Qwen, DeepSeek).
+var thinkTagRegex = regexp.MustCompile(`(?s)<think>(.*?)</think>`)
+
+// customExtraContentFunc extracts reasoning from <think> tags in the content field.
+// This handles models like Qwen and DeepSeek that return reasoning wrapped in XML tags
+// rather than using a separate reasoning_content field.
+func customExtraContentFunc(choice openaisdk.ChatCompletionChoice) []fantasy.Content {
+	var content []fantasy.Content
+	if choice.Message.Content == "" {
+		return content
+	}
+
+	// Check for <think> tags in the content
+	matches := thinkTagRegex.FindStringSubmatch(choice.Message.Content)
+	if len(matches) > 1 {
+		// Found reasoning content in <think> tags
+		reasoning := strings.TrimSpace(matches[1])
+		if reasoning != "" {
+			content = append(content, fantasy.ReasoningContent{
+				Text: reasoning,
+			})
+		}
+	}
+
+	return content
+}
+
+// customStreamExtraFunc handles streaming responses with <think> tags.
+// It extracts reasoning content and emits proper reasoning events.
+func customStreamExtraFunc(
+	chunk openaisdk.ChatCompletionChunk,
+	yield func(fantasy.StreamPart) bool,
+	ctx map[string]any,
+) (map[string]any, bool) {
+	if len(chunk.Choices) == 0 {
+		return ctx, true
+	}
+
+	const reasoningStartedKey = "reasoning_started"
+	const reasoningBufferKey = "reasoning_buffer"
+	const inThinkTagKey = "in_think_tag"
+
+	reasoningStarted, _ := ctx[reasoningStartedKey].(bool)
+	inThinkTag, _ := ctx[inThinkTagKey].(bool)
+	reasoningBuffer, _ := ctx[reasoningBufferKey].(string)
+
+	for i, choice := range chunk.Choices {
+		content := choice.Delta.Content
+		if content == "" {
+			continue
+		}
+
+		// Check for <think> tag start
+		if strings.Contains(content, "<think>") {
+			inThinkTag = true
+			ctx[inThinkTagKey] = true
+
+			// Emit reasoning start event
+			if !reasoningStarted {
+				reasoningStarted = true
+				ctx[reasoningStartedKey] = true
+				if !yield(fantasy.StreamPart{
+					Type: fantasy.StreamPartTypeReasoningStart,
+					ID:   fmt.Sprintf("%d", i),
+				}) {
+					return ctx, false
+				}
+			}
+
+			// Extract content after <think>
+			parts := strings.SplitN(content, "<think>", 2)
+			if len(parts) > 1 && parts[1] != "" {
+				reasoningBuffer += parts[1]
+				ctx[reasoningBufferKey] = reasoningBuffer
+			}
+			continue
+		}
+
+		// Check for </think> tag end
+		if strings.Contains(content, "</think>") {
+			inThinkTag = false
+			ctx[inThinkTagKey] = false
+
+			// Extract content before </think>
+			parts := strings.SplitN(content, "</think>", 2)
+			if len(parts) > 0 {
+				reasoningBuffer += parts[0]
+			}
+
+			// Emit the accumulated reasoning
+			if reasoningBuffer != "" {
+				if !yield(fantasy.StreamPart{
+					Type:  fantasy.StreamPartTypeReasoningDelta,
+					ID:    fmt.Sprintf("%d", i),
+					Delta: reasoningBuffer,
+				}) {
+					return ctx, false
+				}
+				ctx[reasoningBufferKey] = ""
+			}
+
+			// Emit reasoning end
+			if !yield(fantasy.StreamPart{
+				Type: fantasy.StreamPartTypeReasoningEnd,
+				ID:   fmt.Sprintf("%d", i),
+			}) {
+				return ctx, false
+			}
+			continue
+		}
+
+		// Accumulate reasoning content while in think tag
+		if inThinkTag {
+			reasoningBuffer += content
+			ctx[reasoningBufferKey] = reasoningBuffer
+		}
+	}
+
+	return ctx, true
+}
+
+// customToPromptFunc converts prompts to OpenAI format using the default conversion.
+func customToPromptFunc(prompt fantasy.Prompt, systemPrompt, user string) ([]openaisdk.ChatCompletionMessageParamUnion, []fantasy.CallWarning) {
+	return openai.DefaultToPrompt(prompt, systemPrompt, user)
+}
+
 func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	if config.ProviderURL == "" {
 		return nil, fmt.Errorf("custom provider requires --provider-url")
@@ -1012,16 +1141,23 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 		apiKey = "custom"
 	}
 
-	var opts []openaicompat.Option
-	opts = append(opts, openaicompat.WithBaseURL(config.ProviderURL))
-	opts = append(opts, openaicompat.WithAPIKey(apiKey))
-	opts = append(opts, openaicompat.WithName("custom"))
+	// Use the openai provider directly with custom hooks to handle <think> tags
+	// from models like Qwen and DeepSeek that wrap reasoning in XML tags.
+	var opts []openai.Option
+	opts = append(opts, openai.WithBaseURL(config.ProviderURL))
+	opts = append(opts, openai.WithAPIKey(apiKey))
+	opts = append(opts, openai.WithName("custom"))
+	opts = append(opts, openai.WithLanguageModelOptions(
+		openai.WithLanguageModelExtraContentFunc(customExtraContentFunc),
+		openai.WithLanguageModelStreamExtraFunc(customStreamExtraFunc),
+		openai.WithLanguageModelToPromptFunc(customToPromptFunc),
+	))
 
 	if config.TLSSkipVerify {
-		opts = append(opts, openaicompat.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
 	}
 
-	p, err := openaicompat.New(opts...)
+	p, err := openai.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create custom provider: %w", err)
 	}

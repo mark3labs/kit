@@ -4,11 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"charm.land/fantasy"
 )
+
+// thinkTagRegex matches  ...  tags that some models (Qwen, DeepSeek) wrap
+// reasoning content in. Used to strip these tags from text content.
+// The (?s) flag makes . match newlines.
+var thinkTagRegex = regexp.MustCompile(`(?s)` + `` + `think` + `` + `(.*?)` + `` + `/think` + ``)
 
 // sanitizeToolCallID ensures the ID matches Anthropic's required pattern:
 // ^[a-zA-Z0-9_-]+$ (alphanumeric, underscores, and hyphens only).
@@ -443,7 +449,11 @@ func FromFantasyMessage(msg fantasy.Message) Message {
 		switch p := part.(type) {
 		case fantasy.TextPart:
 			if p.Text != "" {
-				m.Parts = append(m.Parts, TextContent{Text: p.Text})
+				// Strip  ...  tags that some models wrap reasoning in
+				cleanedText := thinkTagRegex.ReplaceAllString(p.Text, "")
+				if cleanedText != "" {
+					m.Parts = append(m.Parts, TextContent{Text: cleanedText})
+				}
 			}
 		case fantasy.ToolCallPart:
 			m.Parts = append(m.Parts, ToolCall{

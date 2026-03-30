@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -9,6 +10,17 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
 	"github.com/mark3labs/kit/internal/app"
+)
+
+// thinkTagRegex matches  ...  tags that some models (Qwen, DeepSeek) wrap
+// reasoning content in. Used to strip these tags from streaming text content.
+// The (?s) flag makes . match newlines.
+var thinkTagRegex = regexp.MustCompile(`(?s)` + `` + `think` + `` + `(.*?)` + `` + `/think` + ``)
+
+// thinkTagOpen and thinkTagClose are the opening and closing think tag strings.
+const (
+	thinkTagOpen  = "<think>"
+	thinkTagClose = "</think>"
 )
 
 // knightRiderFrames generates a KITT-style scanning animation where a bright
@@ -202,6 +214,10 @@ type StreamComponent struct {
 	// reasoningDuration holds the total reasoning time, frozen when streaming text begins.
 	reasoningDuration time.Duration
 
+	// inThinkTag tracks whether we're currently inside a  section
+	// from models that wrap reasoning in XML-like tags (Qwen, DeepSeek).
+	inThinkTag bool
+
 	// renderer renders streaming assistant text in either compact or standard mode.
 	renderer Renderer
 
@@ -314,7 +330,9 @@ func (s *StreamComponent) GetRenderedContent() string {
 // Called before reading content for scrollback output or on flush tick.
 func (s *StreamComponent) commitPending() {
 	if s.pendingStream.Len() > 0 {
-		s.streamContent.WriteString(s.pendingStream.String())
+		// Strip  ...  tags that some models wrap reasoning in
+		cleanedText := thinkTagRegex.ReplaceAllString(s.pendingStream.String(), "")
+		s.streamContent.WriteString(cleanedText)
 		s.pendingStream.Reset()
 		s.renderDirty = true
 	}
@@ -408,8 +426,46 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.reasoningDuration == 0 && !s.reasoningStartTime.IsZero() {
 			s.reasoningDuration = time.Since(s.reasoningStartTime)
 		}
-		s.pendingStream.WriteString(msg.Content)
-		if !s.flushPending {
+
+		// Handle models that wrap reasoning in  tags (Qwen, DeepSeek)
+		// Filter out all content between  and  tags
+		content := msg.Content
+
+		// Check for opening tag
+		if strings.Contains(content, thinkTagOpen) {
+			parts := strings.SplitN(content, thinkTagOpen, 2)
+			// Content before the tag can be written
+			if !s.inThinkTag && parts[0] != "" {
+				s.pendingStream.WriteString(parts[0])
+			}
+			s.inThinkTag = true
+			// Content after the opening tag is reasoning - don't write it
+			if len(parts) > 1 && parts[1] != "" {
+				// Check if the same chunk contains the closing tag
+				if strings.Contains(parts[1], thinkTagClose) {
+					innerParts := strings.SplitN(parts[1], thinkTagClose, 2)
+					s.inThinkTag = false
+					// Content after closing tag can be written
+					if len(innerParts) > 1 && innerParts[1] != "" {
+						s.pendingStream.WriteString(innerParts[1])
+					}
+				}
+			}
+		} else if strings.Contains(content, thinkTagClose) {
+			// Closing tag found
+			parts := strings.SplitN(content, thinkTagClose, 2)
+			s.inThinkTag = false
+			// Content after closing tag can be written
+			if len(parts) > 1 && parts[1] != "" {
+				s.pendingStream.WriteString(parts[1])
+			}
+		} else if !s.inThinkTag {
+			// Normal content, not inside think tags
+			s.pendingStream.WriteString(content)
+		}
+		// else: inside think tag, don't write this content
+
+		if !s.flushPending && s.pendingStream.Len() > 0 {
 			s.flushPending = true
 			return s, streamFlushTickCmd(s.flushGeneration)
 		}
