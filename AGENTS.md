@@ -100,3 +100,21 @@ Positional args are the prompt. `@file` args attach file content. Key flags: `--
 - Never guess or manually search the filesystem for external projects
 - Example: `btca ask -r https://github.com/user/repo -q "How does X work?"`
 - See `.agents/skills/btca-cli/SKILL.md` for full btca usage
+
+## BTCA Configured Resources
+The following external repositories are configured in `btca.config.jsonc` for research:
+
+- bubbletea
+- lipgloss
+- bubbles
+- glamour
+- fantasy
+- catwalk
+- crush
+- pi
+- iteratr
+- yaegi
+- acp-go-sdk
+- opencode
+- herald
+- herald-md
