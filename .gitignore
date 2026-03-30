@@ -3,6 +3,7 @@
 .env
 .kit/*
 !.kit/extensions/
+!.kit/prompts/
 aidocs/
 *.log
 /kit
