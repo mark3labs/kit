@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	udiff "github.com/aymanbagabas/go-udiff"
 	xansi "github.com/charmbracelet/x/ansi"
+	"github.com/indaco/herald"
 )
 
 // Maximum visible lines per tool type before truncation.
@@ -381,137 +383,89 @@ func renderLsBody(toolResult string, width int) string {
 // Read tool — code block with line numbers + syntax highlighting
 // ---------------------------------------------------------------------------
 
-// renderReadBody renders Read tool output with styled line numbers and optional
-// syntax highlighting based on file extension.
+// renderReadBody renders Read tool output using herald.CodeBlock with line numbers
+// and syntax highlighting. Uses WithCodeLineNumberOffset to show correct offsets
+// based on the Read tool's offset parameter.
 func renderReadBody(toolArgs, toolResult string, width int) string {
 	if strings.TrimSpace(toolResult) == "" {
 		return ""
 	}
 
-	// Extract file path for syntax highlighting
+	// Extract file path and offset from tool args
 	var fileName string
+	var offset = 1
 	var args map[string]any
 	if err := json.Unmarshal([]byte(toolArgs), &args); err == nil {
 		if p, ok := args["path"].(string); ok {
 			fileName = p
 		}
+		if o, ok := args["offset"].(float64); ok {
+			offset = int(o)
+		}
 	}
 
-	return renderCodeBlock(toolResult, fileName, width)
-}
-
-// codeLine holds a parsed line with optional line number.
-type codeLine struct {
-	lineNum string
-	code    string
-}
-
-// renderCodeBlock renders content with a styled gutter (line numbers) and
-// optional syntax highlighting.
-func renderCodeBlock(content, fileName string, width int) string {
-	rawLines := strings.Split(content, "\n")
-
-	// Parse lines: detect "N: content" format from Read tool
-	var parsed []codeLine
-	maxNumWidth := 0
-	var codeOnly []string
+	// Parse lines to extract pure code content (removing "N: " prefixes)
+	rawLines := strings.Split(toolResult, "\n")
+	var codeLines []string
+	var footerLines []string
+	var codeHiddenCount int
 
 	for _, line := range rawLines {
+		// Detect "N: content" format from Read tool
 		if idx := strings.Index(line, ": "); idx > 0 && idx <= 7 {
 			numPart := line[:idx]
 			if _, err := strconv.Atoi(strings.TrimSpace(numPart)); err == nil {
-				parsed = append(parsed, codeLine{lineNum: numPart, code: line[idx+2:]})
-				if len(numPart) > maxNumWidth {
-					maxNumWidth = len(numPart)
-				}
-				codeOnly = append(codeOnly, line[idx+2:])
+				codeLines = append(codeLines, line[idx+2:])
 				continue
 			}
 		}
-		// No line number — treat as metadata/footer
-		parsed = append(parsed, codeLine{code: line})
-		codeOnly = append(codeOnly, line)
+		// No line number — treat as footer/metadata (e.g., truncation notice)
+		footerLines = append(footerLines, line)
 	}
 
-	if len(parsed) == 0 {
-		return ""
+	// Apply maxCodeLines truncation
+	totalCodeLines := len(codeLines)
+	if totalCodeLines > maxCodeLines {
+		codeHiddenCount = totalCodeLines - maxCodeLines
+		codeLines = codeLines[:maxCodeLines]
 	}
 
-	// Truncate to maxCodeLines visible lines (preserve footer/metadata lines)
-	var codeHiddenCount int
-	totalParsed := len(parsed)
-	if totalParsed > maxCodeLines {
-		// Check if last line is a footer (no line number) — keep it
-		var footerLines []codeLine
-		for totalParsed > 0 && parsed[totalParsed-1].lineNum == "" {
-			footerLines = append([]codeLine{parsed[totalParsed-1]}, footerLines...)
-			totalParsed--
-		}
-		if totalParsed > maxCodeLines {
-			codeHiddenCount = totalParsed - maxCodeLines
-			parsed = append(parsed[:maxCodeLines], footerLines...)
-			codeOnly = codeOnly[:maxCodeLines]
-			for _, fl := range footerLines {
-				codeOnly = append(codeOnly, fl.code)
-			}
-		} else {
-			// Restore — footer trimming was enough
-			parsed = parsed[:totalParsed]
-			parsed = append(parsed, footerLines...)
+	// Build language hint from file extension
+	lang := ""
+	if fileName != "" {
+		// Extract extension without the dot
+		if ext := strings.TrimPrefix(filepath.Ext(fileName), "."); ext != "" {
+			lang = ext
 		}
 	}
 
-	// Syntax highlight the code portion
-	highlighted := syntaxHighlight(strings.Join(codeOnly, "\n"), fileName)
-	highlightedLines := strings.Split(highlighted, "\n")
+	// Create typography with line number offset and custom formatter
+	codeContent := strings.Join(codeLines, "\n")
+	ty := herald.New(
+		herald.WithCodeLineNumbers(true),
+		herald.WithCodeLineNumberOffset(offset),
+		herald.WithCodeFormatter(func(code, _ string) string {
+			// Use our syntax highlighter with the filename for lexer detection
+			return syntaxHighlight(code, fileName)
+		}),
+	)
 
-	// Layout
-	const codeIndent = "  "
-	gutterWidth := max(maxNumWidth+2, 5)
-	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
+	// Render the code block
+	result := ty.CodeBlock(codeContent, lang)
 
-	theme := GetTheme()
-	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
-	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-
-	var result []string
-	for i, p := range parsed {
-		// If this line has no line number, it's a metadata/footer line (e.g. truncation notice).
-		if p.lineNum == "" {
-			// Render footer lines with code background but no gutter
-			truncatedFooter := truncateLine(p.code, codeWidth-1) // account for PaddingLeft(1)
-			footer := codeStyle.Width(codeWidth).Render(truncatedFooter)
-			emptyGutter := gutterStyle.Width(gutterWidth).Render("")
-			result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footer))
-			continue
-		}
-
-		gutter := gutterStyle.Width(gutterWidth).Render(p.lineNum)
-
-		var codePart string
-		if i < len(highlightedLines) {
-			codePart = highlightedLines[i]
-		} else {
-			codePart = p.code
-		}
-		// Truncate the (possibly ANSI-highlighted) line to fit within
-		// the code column, preventing lipgloss from wrapping it.
-		codePart = truncateLine(codePart, codeWidth-1) // account for PaddingLeft(1)
-		styledCode := codeStyle.Width(codeWidth).Render(codePart)
-
-		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
-	}
-
-	// Truncation hint
+	// Add truncation hint if needed
 	if codeHiddenCount > 0 {
 		hint := fmt.Sprintf("...(%d more lines)", codeHiddenCount)
-		emptyGutter := gutterStyle.Width(gutterWidth).Render("")
-		hintContent := codeStyle.Width(codeWidth).
-			Foreground(theme.Muted).Italic(true).Render(hint)
-		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, hintContent))
+		result += "\n" + lipgloss.NewStyle().Foreground(GetTheme().Muted).Italic(true).Render(hint)
 	}
 
-	return strings.Join(result, "\n")
+	// Add any footer lines
+	if len(footerLines) > 0 {
+		footer := strings.Join(footerLines, "\n")
+		result += "\n" + lipgloss.NewStyle().Foreground(GetTheme().Muted).Render(footer)
+	}
+
+	return result
 }
 
 // ---------------------------------------------------------------------------
