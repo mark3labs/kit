@@ -82,6 +82,12 @@
       "name": "herald",
       "url": "https://github.com/indaco/herald",
       "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "herald-md",
+      "url": "https://github.com/indaco/herald-md",
+      "branch": "main"
     }
   ],
   "model": "claude-haiku-4-5",

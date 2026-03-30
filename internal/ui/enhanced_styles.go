@@ -35,11 +35,11 @@ func GetTheme() Theme {
 
 // SetTheme updates the global UI theme, affecting all subsequent rendering
 // operations. This allows runtime theme switching for different visual preferences.
-// It also invalidates the markdownRendererCache so the next call to
-// GetMarkdownRenderer picks up the new theme's colors.
+// It also invalidates the markdownTypographyCache so the next call to
+// GetMarkdownTypography picks up the new theme.
 func SetTheme(theme Theme) {
 	currentTheme = theme
-	markdownRendererCache = nil // invalidate cached renderer; colors may have changed
+	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
 }
 
 // MarkdownThemeColors defines colors for markdown rendering and syntax highlighting.
