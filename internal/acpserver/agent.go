@@ -508,10 +508,7 @@ func looksLikeText(data []byte) bool {
 		return true
 	}
 	// Check first 512 bytes (or less if file is smaller)
-	sampleSize := 512
-	if len(data) < sampleSize {
-		sampleSize = len(data)
-	}
+	sampleSize := min(len(data), 512)
 	sample := data[:sampleSize]
 
 	// Count non-printable characters

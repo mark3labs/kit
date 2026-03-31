@@ -3,7 +3,6 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,9 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
 )
-
-// ansiEscapeRe matches ANSI escape sequences used for terminal styling.
-var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // MessageType represents different categories of messages displayed in the UI,
 // each with distinct visual styling and formatting rules.
@@ -442,16 +438,4 @@ func createTypography(theme Theme) *herald.Typography {
 // the current theme. This is called when the user changes themes via /theme.
 func (r *MessageRenderer) UpdateTheme() {
 	r.ty = createTypography(GetTheme())
-}
-
-// removeBlankLines removes lines that are visually blank from rendered output.
-func removeBlankLines(s string) string {
-	lines := strings.Split(s, "\n")
-	filtered := lines[:0]
-	for _, line := range lines {
-		if strings.TrimSpace(ansiEscapeRe.ReplaceAllString(line, "")) != "" {
-			filtered = append(filtered, line)
-		}
-	}
-	return strings.Join(filtered, "\n")
 }

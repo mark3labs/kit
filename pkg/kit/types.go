@@ -2,7 +2,6 @@ package kit
 
 import (
 	"context"
-	"strings"
 
 	"charm.land/fantasy"
 
@@ -128,67 +127,74 @@ type ModelsRegistry = models.ModelsRegistry
 type SpinnerFunc = agent.SpinnerFunc
 
 // ==== LLM Types ====
+//
+// These are type aliases for the corresponding charm.land/fantasy types,
+// giving them clean LLM-prefixed names without leaking the dependency name.
+// SDK consumers can use these types without importing charm.land/fantasy directly.
 
-// LLMMessageRole identifies the participant role in an LLM conversation.
-type LLMMessageRole string
+// LLMMessage represents a message in an LLM conversation, carrying a role
+// and a slice of typed content parts (text, tool calls, reasoning, etc.).
+type LLMMessage = fantasy.Message
 
-const (
-	// LLMMessageRoleUser identifies a user message.
-	LLMMessageRoleUser LLMMessageRole = "user"
-	// LLMMessageRoleAssistant identifies an assistant message.
-	LLMMessageRoleAssistant LLMMessageRole = "assistant"
-	// LLMMessageRoleSystem identifies a system message.
-	LLMMessageRoleSystem LLMMessageRole = "system"
-	// LLMMessageRoleTool identifies a tool result message.
-	LLMMessageRoleTool LLMMessageRole = "tool"
-)
-
-// LLMMessage represents a message in an LLM conversation. It carries the
-// role and a plain-text representation of the message content.
-type LLMMessage struct {
-	// Role is the participant role (user, assistant, system, tool).
-	Role LLMMessageRole `json:"role"`
-	// Content is the text content of the message.
-	Content string `json:"content"`
-}
-
-// LLMUsage contains token usage information returned by the LLM provider.
-type LLMUsage struct {
-	// InputTokens is the number of tokens in the prompt.
-	InputTokens int64 `json:"input_tokens"`
-	// OutputTokens is the number of tokens in the response.
-	OutputTokens int64 `json:"output_tokens"`
-	// TotalTokens is the total tokens used (input + output).
-	TotalTokens int64 `json:"total_tokens"`
-	// ReasoningTokens is the number of tokens used for chain-of-thought reasoning.
-	ReasoningTokens int64 `json:"reasoning_tokens"`
-	// CacheCreationTokens is the number of tokens written to the provider cache.
-	CacheCreationTokens int64 `json:"cache_creation_tokens"`
-	// CacheReadTokens is the number of tokens read from the provider cache.
-	CacheReadTokens int64 `json:"cache_read_tokens"`
-}
-
-// LLMResponse represents a response from the LLM provider.
-type LLMResponse struct {
-	// Content is the text content of the response.
-	Content string `json:"content"`
-	// FinishReason explains why the LLM stopped generating
-	// (e.g. "stop", "length", "tool-calls", "error").
-	FinishReason string `json:"finish_reason"`
-	// Usage contains the token usage for this response.
-	Usage LLMUsage `json:"usage"`
-}
+// LLMMessagePart is the interface implemented by all LLM message content parts.
+type LLMMessagePart = fantasy.MessagePart
 
 // LLMFilePart represents a file attachment (image, document, audio, etc.)
 // that can be included in a multimodal prompt via PromptResultWithFiles.
-type LLMFilePart struct {
-	// Filename is the optional display name of the file.
-	Filename string `json:"filename"`
-	// Data is the raw file bytes.
-	Data []byte `json:"data"`
-	// MediaType is the MIME type of the file (e.g. "image/png", "application/pdf").
-	MediaType string `json:"media_type"`
-}
+type LLMFilePart = fantasy.FilePart
+
+// LLMUsage contains token usage information returned by the LLM provider.
+type LLMUsage = fantasy.Usage
+
+// LLMResponse represents a complete response from the LLM provider.
+type LLMResponse = fantasy.Response
+
+// LLMTextPart is a plain-text content part for constructing LLM messages.
+type LLMTextPart = fantasy.TextPart
+
+// LLMReasoningPart is a reasoning/chain-of-thought content part.
+type LLMReasoningPart = fantasy.ReasoningPart
+
+// LLMToolCallPart represents an LLM-initiated tool invocation within a message.
+type LLMToolCallPart = fantasy.ToolCallPart
+
+// LLMToolResultPart represents the result of a tool execution within a message.
+type LLMToolResultPart = fantasy.ToolResultPart
+
+// LLMToolResultOutputContent is the interface for tool result output content.
+type LLMToolResultOutputContent = fantasy.ToolResultOutputContent
+
+// LLMToolResultOutputContentText is a text-valued tool result output.
+type LLMToolResultOutputContentText = fantasy.ToolResultOutputContentText
+
+// LLMToolResultOutputContentError is an error-valued tool result output.
+type LLMToolResultOutputContentError = fantasy.ToolResultOutputContentError
+
+// LLMMessageRole identifies the participant role in an LLM conversation.
+type LLMMessageRole = fantasy.MessageRole
+
+// LLMFinishReason indicates why the LLM stopped generating.
+type LLMFinishReason = fantasy.FinishReason
+
+// LLM role constants mirror fantasy.MessageRole* values under clean LLM-prefixed names.
+const (
+	// LLMRoleUser identifies a user message.
+	LLMRoleUser = fantasy.MessageRoleUser
+	// LLMRoleAssistant identifies an assistant message.
+	LLMRoleAssistant = fantasy.MessageRoleAssistant
+	// LLMRoleSystem identifies a system message.
+	LLMRoleSystem = fantasy.MessageRoleSystem
+	// LLMRoleTool identifies a tool result message.
+	LLMRoleTool = fantasy.MessageRoleTool
+)
+
+// NewLLMUserMessage constructs a user-role LLMMessage with optional file
+// attachments. It is equivalent to fantasy.NewUserMessage.
+var NewLLMUserMessage = fantasy.NewUserMessage
+
+// NewLLMSystemMessage constructs a system-role LLMMessage from one or more
+// prompt strings. It is equivalent to fantasy.NewSystemMessage.
+var NewLLMSystemMessage = fantasy.NewSystemMessage
 
 // ==== Compaction Types (internal/compaction/) ====
 
@@ -227,34 +233,10 @@ func LoadSystemPrompt(pathOrContent string) (string, error) {
 // ConvertToLLMMessages converts an SDK message to a slice of LLMMessages.
 // Each SDK message may expand to multiple LLM messages depending on its content.
 func ConvertToLLMMessages(msg *Message) []LLMMessage {
-	raw := msg.ToLLMMessages()
-	result := make([]LLMMessage, 0, len(raw))
-	for _, fm := range raw {
-		lm := LLMMessage{
-			Role:    LLMMessageRole(fm.Role),
-			Content: extractTextFromFantasyMessage(fm),
-		}
-		result = append(result, lm)
-	}
-	return result
+	return msg.ToLLMMessages()
 }
 
 // ConvertFromLLMMessage converts an LLMMessage to an SDK message.
 func ConvertFromLLMMessage(msg LLMMessage) Message {
-	fm := fantasy.Message{
-		Role:    fantasy.MessageRole(msg.Role),
-		Content: []fantasy.MessagePart{fantasy.TextPart{Text: msg.Content}},
-	}
-	return message.FromLLMMessage(fm)
-}
-
-// extractTextFromFantasyMessage extracts plain text from a fantasy.Message.
-func extractTextFromFantasyMessage(fm fantasy.Message) string {
-	var b strings.Builder
-	for _, part := range fm.Content {
-		if tp, ok := part.(fantasy.TextPart); ok {
-			b.WriteString(tp.Text)
-		}
-	}
-	return b.String()
+	return message.FromLLMMessage(msg)
 }

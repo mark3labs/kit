@@ -11,7 +11,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/app"
@@ -20,6 +19,7 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/session"
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
 // appState represents the current state of the parent TUI model.
@@ -105,7 +105,7 @@ type AppController interface {
 	// Behaves like Run but includes file parts (e.g. clipboard images)
 	// alongside the text. Returns the current queue depth (0 = started
 	// immediately, >0 = queued).
-	RunWithFiles(prompt string, files []fantasy.FilePart) int
+	RunWithFiles(prompt string, files []kit.LLMFilePart) int
 	// Steer injects a steering message into the currently running agent
 	// turn. If the agent is busy, the message is delivered between steps
 	// (after current tool finishes, before next LLM call). If idle, the
@@ -1233,10 +1233,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			processedText = ProcessFileAttachments(msg.Text, m.cwd)
 		}
 
-		// Convert image attachments to fantasy.FilePart for the app layer.
-		var fileParts []fantasy.FilePart
+		// Convert image attachments to kit.LLMFilePart for the app layer.
+		var fileParts []kit.LLMFilePart
 		for _, img := range msg.Images {
-			fileParts = append(fileParts, fantasy.FilePart{
+			fileParts = append(fileParts, kit.LLMFilePart{
 				Data:      img.Data,
 				MediaType: img.MediaType,
 			})

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/auth"
@@ -788,7 +787,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Load existing messages from resumed/continued sessions.
 	treeSession := kitInstance.GetTreeSession()
-	var messages []fantasy.Message
+	var messages []kit.LLMMessage
 	if treeSession != nil {
 		messages = treeSession.GetLLMMessages()
 	}

@@ -1,6 +1,6 @@
 package app
 
-import "charm.land/fantasy"
+import kit "github.com/mark3labs/kit/pkg/kit"
 
 // StreamChunkEvent is sent by the app layer when a streaming text delta arrives
 // from the LLM. Each chunk contains an incremental portion of the response.
@@ -118,8 +118,8 @@ type SpinnerEvent struct {
 // MessageCreatedEvent is sent when a new message is added to the message store.
 // This allows the TUI to stay in sync with the conversation history.
 type MessageCreatedEvent struct {
-	// Message is the fantasy message that was added to the store.
-	Message fantasy.Message
+	// Message is the message that was added to the store.
+	Message kit.LLMMessage
 }
 
 // CompactCompleteEvent is sent when a /compact operation finishes successfully.

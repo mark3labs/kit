@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"charm.land/fantasy"
-
 	"github.com/mark3labs/kit/internal/compaction"
 )
 
@@ -140,7 +138,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 			}
 			// Extension provided a custom summary — use it directly.
 			if hookResult.Summary != "" {
-				return m.applyCustomCompaction(hookResult.Summary, fantasyToLLMMessages(messages), opts)
+				return m.applyCustomCompaction(hookResult.Summary, messages, opts)
 			}
 		}
 	}
@@ -182,12 +180,11 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 // custom summary. It still determines the cut point and persists a
 // CompactionEntry.
 func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts *CompactionOptions) (*CompactionResult, error) {
-	fantasyMessages := llmMessagesToFantasy(messages)
-	originalTokens := compaction.EstimateMessageTokens(fantasyMessages)
+	originalTokens := compaction.EstimateMessageTokens(messages)
 
-	cutPoint := compaction.FindCutPoint(fantasyMessages, opts.KeepRecentTokens)
+	cutPoint := compaction.FindCutPoint(messages, opts.KeepRecentTokens)
 	if cutPoint == 0 {
-		cutPoint = len(fantasyMessages) - 1
+		cutPoint = len(messages) - 1
 		if cutPoint < 1 {
 			return nil, nil
 		}
@@ -200,11 +197,11 @@ func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts 
 	}
 
 	// Estimate new token count.
-	summaryTokens := compaction.EstimateMessageTokens([]fantasy.Message{{
-		Role:    "system",
-		Content: []fantasy.MessagePart{fantasy.TextPart{Text: summary}},
+	summaryTokens := compaction.EstimateMessageTokens([]LLMMessage{{
+		Role:    LLMRoleSystem,
+		Content: []LLMMessagePart{LLMTextPart{Text: summary}},
 	}})
-	recentTokens := compaction.EstimateMessageTokens(fantasyMessages[cutPoint:])
+	recentTokens := compaction.EstimateMessageTokens(messages[cutPoint:])
 	compactedTokens := summaryTokens + recentTokens
 
 	result := &CompactionResult{

@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -246,12 +247,19 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	if runner.HasHandlers(extensions.ContextPrepare) {
 		m.OnContextPrepare(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
 			// Convert LLM message slice to extension ContextMessage slice.
+			// Extract plain text from each message for the extension API.
 			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
 			for i, msg := range h.Messages {
+				var sb strings.Builder
+				for _, part := range msg.Content {
+					if tp, ok := part.(LLMTextPart); ok {
+						sb.WriteString(tp.Text)
+					}
+				}
 				extMsgs[i] = extensions.ContextMessage{
 					Index:   i,
 					Role:    string(msg.Role),
-					Content: msg.Content,
+					Content: sb.String(),
 				}
 			}
 
@@ -268,19 +276,19 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 					// Reuse original message (preserves original role and content).
 					rebuilt = append(rebuilt, h.Messages[cm.Index])
 				} else {
-					// New message injected by extension.
-					role := LLMMessageRoleUser
+					// New message injected by extension — construct from role + text.
+					role := LLMRoleUser
 					switch cm.Role {
 					case "assistant":
-						role = LLMMessageRoleAssistant
+						role = LLMRoleAssistant
 					case "system":
-						role = LLMMessageRoleSystem
+						role = LLMRoleSystem
 					case "tool":
-						role = LLMMessageRoleTool
+						role = LLMRoleTool
 					}
 					rebuilt = append(rebuilt, LLMMessage{
 						Role:    role,
-						Content: cm.Content,
+						Content: []LLMMessagePart{LLMTextPart{Text: cm.Content}},
 					})
 				}
 			}

@@ -1196,8 +1196,8 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	messages := m.treeSession.GetLLMMessages()
 
 	// Run ContextPrepare hooks — extensions can filter, reorder, or inject messages.
-	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: fantasyToLLMMessages(messages)}); hookResult != nil && hookResult.Messages != nil {
-		messages = llmToFantasyMessages(hookResult.Messages)
+	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
+		messages = hookResult.Messages
 	}
 
 	sentCount := len(messages)
@@ -1259,12 +1259,12 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		Response:   responseText,
 		StopReason: stopReason,
 		SessionID:  m.GetSessionID(),
-		Messages:   fantasyToLLMMessages(result.ConversationMessages),
+		Messages:   result.ConversationMessages,
 	}
-	totalUsage := fantasyUsageToLLM(result.TotalUsage)
+	totalUsage := result.TotalUsage
 	turnResult.TotalUsage = &totalUsage
 	if result.FinalResponse != nil {
-		finalUsage := fantasyUsageToLLM(result.FinalResponse.Usage)
+		finalUsage := result.FinalResponse.Usage
 		turnResult.FinalUsage = &finalUsage
 	}
 
@@ -1435,7 +1435,7 @@ func (m *Kit) PromptResult(ctx context.Context, message string) (*TurnResult, er
 // clipboard images) that are included alongside the text in the user message.
 func (m *Kit) PromptResultWithFiles(ctx context.Context, message string, files []LLMFilePart) (*TurnResult, error) {
 	return m.runTurn(ctx, message, message, []fantasy.Message{
-		fantasy.NewUserMessage(message, llmFilePartsToFantasy(files)...),
+		fantasy.NewUserMessage(message, files...),
 	})
 }
 

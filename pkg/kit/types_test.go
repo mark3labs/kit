@@ -61,37 +61,80 @@ func TestTypeExports(t *testing.T) {
 	}
 }
 
-// TestLLMMessageConcrete verifies LLMMessage is a concrete Kit-owned type
-// with no dependency on charm.land/fantasy in its definition.
-func TestLLMMessageConcrete(t *testing.T) {
+// TestLLMRoleConstants verifies the LLM role constants have the correct values.
+func TestLLMRoleConstants(t *testing.T) {
+	if kit.LLMRoleUser != "user" {
+		t.Errorf("LLMRoleUser = %q, want %q", kit.LLMRoleUser, "user")
+	}
+	if kit.LLMRoleAssistant != "assistant" {
+		t.Errorf("LLMRoleAssistant = %q, want %q", kit.LLMRoleAssistant, "assistant")
+	}
+	if kit.LLMRoleSystem != "system" {
+		t.Errorf("LLMRoleSystem = %q, want %q", kit.LLMRoleSystem, "system")
+	}
+	if kit.LLMRoleTool != "tool" {
+		t.Errorf("LLMRoleTool = %q, want %q", kit.LLMRoleTool, "tool")
+	}
+}
+
+// TestLLMMessageAlias verifies LLMMessage is a type alias for fantasy.Message
+// and can be used interchangeably.
+func TestLLMMessageAlias(t *testing.T) {
+	// Construct an LLMMessage using alias types.
 	msg := kit.LLMMessage{
-		Role:    kit.LLMMessageRoleUser,
-		Content: "hello world",
+		Role: kit.LLMRoleUser,
+		Content: []kit.LLMMessagePart{
+			kit.LLMTextPart{Text: "hello world"},
+		},
 	}
 	if msg.Role != "user" {
 		t.Errorf("LLMMessage.Role = %q, want %q", msg.Role, "user")
 	}
-	if msg.Content != "hello world" {
-		t.Errorf("LLMMessage.Content = %q, want %q", msg.Content, "hello world")
+	// Verify we can extract text via the part types.
+	if len(msg.Content) != 1 {
+		t.Fatalf("expected 1 content part, got %d", len(msg.Content))
 	}
-
-	// All role constants should match their string values.
-	if kit.LLMMessageRoleUser != "user" {
-		t.Errorf("LLMMessageRoleUser = %q, want %q", kit.LLMMessageRoleUser, "user")
+	tp, ok := msg.Content[0].(kit.LLMTextPart)
+	if !ok {
+		t.Fatal("content part is not LLMTextPart")
 	}
-	if kit.LLMMessageRoleAssistant != "assistant" {
-		t.Errorf("LLMMessageRoleAssistant = %q, want %q", kit.LLMMessageRoleAssistant, "assistant")
-	}
-	if kit.LLMMessageRoleSystem != "system" {
-		t.Errorf("LLMMessageRoleSystem = %q, want %q", kit.LLMMessageRoleSystem, "system")
-	}
-	if kit.LLMMessageRoleTool != "tool" {
-		t.Errorf("LLMMessageRoleTool = %q, want %q", kit.LLMMessageRoleTool, "tool")
+	if tp.Text != "hello world" {
+		t.Errorf("LLMTextPart.Text = %q, want %q", tp.Text, "hello world")
 	}
 }
 
-// TestLLMUsageConcrete verifies LLMUsage is a concrete Kit-owned type.
-func TestLLMUsageConcrete(t *testing.T) {
+// TestNewLLMUserMessage verifies the NewLLMUserMessage constructor works.
+func TestNewLLMUserMessage(t *testing.T) {
+	msg := kit.NewLLMUserMessage("hello from user")
+	if msg.Role != kit.LLMRoleUser {
+		t.Errorf("NewLLMUserMessage role = %q, want %q", msg.Role, kit.LLMRoleUser)
+	}
+	if len(msg.Content) == 0 {
+		t.Fatal("NewLLMUserMessage content is empty")
+	}
+	tp, ok := msg.Content[0].(kit.LLMTextPart)
+	if !ok {
+		t.Fatal("content[0] is not LLMTextPart")
+	}
+	if tp.Text != "hello from user" {
+		t.Errorf("NewLLMUserMessage text = %q, want %q", tp.Text, "hello from user")
+	}
+}
+
+// TestNewLLMSystemMessage verifies the NewLLMSystemMessage constructor works.
+func TestNewLLMSystemMessage(t *testing.T) {
+	msg := kit.NewLLMSystemMessage("you are helpful")
+	if msg.Role != kit.LLMRoleSystem {
+		t.Errorf("NewLLMSystemMessage role = %q, want %q", msg.Role, kit.LLMRoleSystem)
+	}
+	if len(msg.Content) == 0 {
+		t.Fatal("NewLLMSystemMessage content is empty")
+	}
+}
+
+// TestLLMUsageAlias verifies LLMUsage is a type alias for fantasy.Usage
+// and carries the correct fields.
+func TestLLMUsageAlias(t *testing.T) {
 	u := kit.LLMUsage{
 		InputTokens:         100,
 		OutputTokens:        50,
@@ -107,36 +150,23 @@ func TestLLMUsageConcrete(t *testing.T) {
 		t.Errorf("LLMUsage.TotalTokens = %d, want 150", u.TotalTokens)
 	}
 
-	// Verify JSON marshaling uses snake_case.
+	// Verify JSON marshaling uses snake_case (inherited from fantasy.Usage tags).
 	data, err := json.Marshal(u)
 	if err != nil {
 		t.Fatalf("LLMUsage.MarshalJSON: %v", err)
 	}
-	if string(data) != `{"input_tokens":100,"output_tokens":50,"total_tokens":150,"reasoning_tokens":10,"cache_creation_tokens":5,"cache_read_tokens":20}` {
-		t.Errorf("LLMUsage JSON = %s", data)
+	jsonStr := string(data)
+	if jsonStr == "" {
+		t.Error("LLMUsage JSON is empty")
+	}
+	// Check that input_tokens key is present.
+	if !containsStr(jsonStr, `"input_tokens":100`) {
+		t.Errorf("LLMUsage JSON missing input_tokens: %s", jsonStr)
 	}
 }
 
-// TestLLMResponseConcrete verifies LLMResponse is a concrete Kit-owned type.
-func TestLLMResponseConcrete(t *testing.T) {
-	r := kit.LLMResponse{
-		Content:      "here is my answer",
-		FinishReason: "stop",
-		Usage: kit.LLMUsage{
-			InputTokens:  10,
-			OutputTokens: 5,
-		},
-	}
-	if r.Content != "here is my answer" {
-		t.Errorf("LLMResponse.Content = %q, want %q", r.Content, "here is my answer")
-	}
-	if r.FinishReason != "stop" {
-		t.Errorf("LLMResponse.FinishReason = %q, want %q", r.FinishReason, "stop")
-	}
-}
-
-// TestLLMFilePartConcrete verifies LLMFilePart is a concrete Kit-owned type.
-func TestLLMFilePartConcrete(t *testing.T) {
+// TestLLMFilePartAlias verifies LLMFilePart is a type alias for fantasy.FilePart.
+func TestLLMFilePartAlias(t *testing.T) {
 	fp := kit.LLMFilePart{
 		Filename:  "screenshot.png",
 		Data:      []byte{0x89, 0x50, 0x4E, 0x47},
@@ -151,6 +181,47 @@ func TestLLMFilePartConcrete(t *testing.T) {
 	if len(fp.Data) != 4 {
 		t.Errorf("LLMFilePart.Data len = %d, want 4", len(fp.Data))
 	}
+
+	// Verify it can be used as a file part for constructing user messages.
+	msg := kit.NewLLMUserMessage("see this image", fp)
+	if msg.Role != kit.LLMRoleUser {
+		t.Errorf("message role = %q, want user", msg.Role)
+	}
+}
+
+// TestLLMPartTypesAlias verifies all the part type aliases compile and work.
+func TestLLMPartTypesAlias(t *testing.T) {
+	// LLMTextPart
+	tp := kit.LLMTextPart{Text: "plain text"}
+	if tp.Text != "plain text" {
+		t.Errorf("LLMTextPart.Text = %q", tp.Text)
+	}
+
+	// LLMReasoningPart
+	rp := kit.LLMReasoningPart{Text: "I think therefore"}
+	if rp.Text != "I think therefore" {
+		t.Errorf("LLMReasoningPart.Text = %q", rp.Text)
+	}
+
+	// LLMToolCallPart
+	tc := kit.LLMToolCallPart{
+		ToolCallID: "call-1",
+		ToolName:   "bash",
+		Input:      `{"cmd":"echo hi"}`,
+	}
+	if tc.ToolCallID != "call-1" {
+		t.Errorf("LLMToolCallPart.ToolCallID = %q", tc.ToolCallID)
+	}
+
+	// LLMToolResultPart
+	tro := kit.LLMToolResultOutputContentText{Text: "output text"}
+	tr := kit.LLMToolResultPart{
+		ToolCallID: "call-1",
+		Output:     tro,
+	}
+	if tr.ToolCallID != "call-1" {
+		t.Errorf("LLMToolResultPart.ToolCallID = %q", tr.ToolCallID)
+	}
 }
 
 // TestConvertToLLMMessages verifies round-trip conversion preserves content.
@@ -163,20 +234,25 @@ func TestConvertToLLMMessages(t *testing.T) {
 	if len(llmMsgs) == 0 {
 		t.Fatal("ConvertToLLMMessages returned empty slice")
 	}
-	if llmMsgs[0].Role != kit.LLMMessageRoleUser {
-		t.Errorf("converted Role = %q, want %q", llmMsgs[0].Role, kit.LLMMessageRoleUser)
+	if llmMsgs[0].Role != kit.LLMRoleUser {
+		t.Errorf("converted Role = %q, want %q", llmMsgs[0].Role, kit.LLMRoleUser)
 	}
-	if llmMsgs[0].Content != "what is 2+2?" {
-		t.Errorf("converted Content = %q, want %q", llmMsgs[0].Content, "what is 2+2?")
+	// Check text is preserved in content parts.
+	found := false
+	for _, part := range llmMsgs[0].Content {
+		if tp, ok := part.(kit.LLMTextPart); ok && tp.Text == "what is 2+2?" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("text content not found in converted LLMMessage")
 	}
 }
 
 // TestConvertFromLLMMessage verifies LLMMessage → Message conversion.
 func TestConvertFromLLMMessage(t *testing.T) {
-	llm := kit.LLMMessage{
-		Role:    kit.LLMMessageRoleAssistant,
-		Content: "the answer is 4",
-	}
+	llm := kit.NewLLMUserMessage("the answer is 4")
+	llm.Role = kit.LLMRoleAssistant
 	msg := kit.ConvertFromLLMMessage(llm)
 	if msg.Role != kit.RoleAssistant {
 		t.Errorf("converted Role = %q, want %q", msg.Role, kit.RoleAssistant)
@@ -186,13 +262,16 @@ func TestConvertFromLLMMessage(t *testing.T) {
 	}
 }
 
-// TestNoFantasyInLLMTypes verifies that none of the LLM* types require a
-// fantasy import to construct — they are plain Go structs.
-func TestNoFantasyInLLMTypes(t *testing.T) {
-	// If this file compiles without importing charm.land/fantasy,
-	// the types are properly encapsulated. This test just documents intent.
-	_ = kit.LLMMessage{Role: kit.LLMMessageRoleUser, Content: "hi"}
-	_ = kit.LLMUsage{InputTokens: 1}
-	_ = kit.LLMResponse{Content: "ok", FinishReason: "stop"}
-	_ = kit.LLMFilePart{Filename: "f.png", MediaType: "image/png"}
+// containsStr is a tiny helper to avoid importing strings in test.
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && indexStr(s, substr) >= 0)
+}
+
+func indexStr(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }

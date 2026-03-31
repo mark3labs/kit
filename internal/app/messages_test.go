@@ -4,14 +4,27 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
+
+	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
-// makeTextMsg builds a minimal fantasy.Message with a single TextPart.
-func makeTextMsg(role, text string) fantasy.Message {
-	return fantasy.Message{
-		Role:    fantasy.MessageRole(role),
+// makeTextMsg builds a minimal kit.LLMMessage using fantasy.NewUserMessage
+// or constructing with the given role.
+func makeTextMsg(role, text string) kit.LLMMessage {
+	return kit.LLMMessage{
+		Role:    kit.LLMMessageRole(role),
 		Content: []fantasy.MessagePart{fantasy.TextPart{Text: text}},
 	}
+}
+
+// textOf extracts the plain text from an LLMMessage for assertions.
+func textOf(msg kit.LLMMessage) string {
+	for _, part := range msg.Content {
+		if tp, ok := part.(fantasy.TextPart); ok {
+			return tp.Text
+		}
+	}
+	return ""
 }
 
 // --------------------------------------------------------------------------
@@ -29,7 +42,7 @@ func TestNewMessageStore_empty(t *testing.T) {
 }
 
 func TestNewMessageStoreWithMessages_preloaded(t *testing.T) {
-	msgs := []fantasy.Message{
+	msgs := []kit.LLMMessage{
 		makeTextMsg("user", "hello"),
 		makeTextMsg("assistant", "hi"),
 	}
@@ -42,7 +55,7 @@ func TestNewMessageStoreWithMessages_preloaded(t *testing.T) {
 // NewMessageStoreWithMessages must deep-copy the slice so that external
 // modifications don't affect the store.
 func TestNewMessageStoreWithMessages_isolatesInput(t *testing.T) {
-	msgs := []fantasy.Message{makeTextMsg("user", "hello")}
+	msgs := []kit.LLMMessage{makeTextMsg("user", "hello")}
 	s := NewMessageStoreWithMessages(msgs)
 
 	// Mutate the source slice.
@@ -52,9 +65,8 @@ func TestNewMessageStoreWithMessages_isolatesInput(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(got))
 	}
-	tp, ok := got[0].Content[0].(fantasy.TextPart)
-	if !ok || tp.Text != "hello" {
-		t.Fatalf("store was mutated by external slice change; got %q", tp.Text)
+	if textOf(got[0]) != "hello" {
+		t.Fatalf("store was mutated by external slice change; got %q", textOf(got[0]))
 	}
 }
 
@@ -80,9 +92,8 @@ func TestAdd_preservesOrder(t *testing.T) {
 	}
 	got := s.GetAll()
 	for i, expected := range texts {
-		tp, ok := got[i].Content[0].(fantasy.TextPart)
-		if !ok || tp.Text != expected {
-			t.Fatalf("message[%d]: expected %q, got %q", i, expected, tp.Text)
+		if textOf(got[i]) != expected {
+			t.Fatalf("message[%d]: expected %q, got %q", i, expected, textOf(got[i]))
 		}
 	}
 }
@@ -95,7 +106,7 @@ func TestReplace_swapsHistory(t *testing.T) {
 	s := NewMessageStore()
 	s.Add(makeTextMsg("user", "old"))
 
-	replacement := []fantasy.Message{
+	replacement := []kit.LLMMessage{
 		makeTextMsg("user", "new1"),
 		makeTextMsg("assistant", "new2"),
 	}
@@ -105,25 +116,22 @@ func TestReplace_swapsHistory(t *testing.T) {
 		t.Fatalf("expected 2 messages after replace, got %d", s.Len())
 	}
 	got := s.GetAll()
-	tp0, _ := got[0].Content[0].(fantasy.TextPart)
-	tp1, _ := got[1].Content[0].(fantasy.TextPart)
-	if tp0.Text != "new1" || tp1.Text != "new2" {
-		t.Fatalf("unexpected messages after replace: %q %q", tp0.Text, tp1.Text)
+	if textOf(got[0]) != "new1" || textOf(got[1]) != "new2" {
+		t.Fatalf("unexpected messages after replace: %q %q", textOf(got[0]), textOf(got[1]))
 	}
 }
 
 // Replace must deep-copy the incoming slice.
 func TestReplace_isolatesInput(t *testing.T) {
 	s := NewMessageStore()
-	replacement := []fantasy.Message{makeTextMsg("user", "original")}
+	replacement := []kit.LLMMessage{makeTextMsg("user", "original")}
 	s.Replace(replacement)
 
 	replacement[0] = makeTextMsg("user", "mutated")
 
 	got := s.GetAll()
-	tp, _ := got[0].Content[0].(fantasy.TextPart)
-	if tp.Text != "original" {
-		t.Fatalf("store was mutated by external slice change after Replace; got %q", tp.Text)
+	if textOf(got[0]) != "original" {
+		t.Fatalf("store was mutated by external slice change after Replace; got %q", textOf(got[0]))
 	}
 }
 
@@ -140,9 +148,8 @@ func TestGetAll_returnsCopy(t *testing.T) {
 	got[0] = makeTextMsg("user", "mutated")
 
 	internal := s.GetAll()
-	tp, _ := internal[0].Content[0].(fantasy.TextPart)
-	if tp.Text != "hello" {
-		t.Fatalf("GetAll returned non-copy; store was mutated to %q", tp.Text)
+	if textOf(internal[0]) != "hello" {
+		t.Fatalf("GetAll returned non-copy; store was mutated to %q", textOf(internal[0]))
 	}
 }
 
@@ -179,9 +186,8 @@ func TestClear_allowsSubsequentAdds(t *testing.T) {
 		t.Fatalf("expected 1 message after Clear+Add, got %d", s.Len())
 	}
 	got := s.GetAll()
-	tp, _ := got[0].Content[0].(fantasy.TextPart)
-	if tp.Text != "after" {
-		t.Fatalf("expected %q, got %q", "after", tp.Text)
+	if textOf(got[0]) != "after" {
+		t.Fatalf("expected %q, got %q", "after", textOf(got[0]))
 	}
 }
 

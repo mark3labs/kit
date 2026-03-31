@@ -20,7 +20,7 @@ import (
 // queueItem holds a prompt and optional image attachments for the execution queue.
 type queueItem struct {
 	Prompt string
-	Files  []fantasy.FilePart
+	Files  []kit.LLMFilePart
 }
 
 // App is the application-layer orchestrator. It owns the agentic loop,
@@ -82,7 +82,7 @@ type App struct {
 
 // New creates a new App with the provided options and pre-loaded messages.
 // initialMessages may be nil or empty for a fresh session.
-func New(opts Options, initialMessages []fantasy.Message) *App {
+func New(opts Options, initialMessages []kit.LLMMessage) *App {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &App{
 		opts:       opts,
@@ -126,9 +126,8 @@ func (a *App) Run(prompt string) int {
 // If the app is idle the prompt executes immediately; otherwise it is queued.
 // Returns the current queue depth (0 = started immediately, >0 = queued).
 //
-// Satisfies ui.AppController (via RunWithImages which converts ImageAttachment
-// to fantasy.FilePart).
-func (a *App) RunWithFiles(prompt string, files []fantasy.FilePart) int {
+// Satisfies ui.AppController.
+func (a *App) RunWithFiles(prompt string, files []kit.LLMFilePart) int {
 	a.mu.Lock()
 
 	if a.closed {
@@ -314,12 +313,12 @@ func (a *App) SwitchTreeSession(ts *session.TreeManager) {
 //
 // Satisfies ui.AppController.
 func (a *App) AddContextMessage(text string) {
-	msg := fantasy.NewUserMessage(text)
-	a.store.Add(msg)
+	kitMsg := fantasy.NewUserMessage(text)
+	a.store.Add(kitMsg)
 
 	// Persist to tree session if active.
 	if ts := a.opts.TreeSession; ts != nil {
-		_, _ = ts.AppendLLMMessage(msg)
+		_, _ = ts.AppendLLMMessage(fantasy.NewUserMessage(text))
 	}
 }
 
@@ -613,7 +612,7 @@ func (a *App) runQueueBatch(items []queueItem) {
 // executeStep runs a single agentic step by delegating to the SDK's
 // PromptResult() (or PromptResultWithFiles for multimodal), which handles
 // session persistence, hooks, extension events, and the generation loop.
-func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg), files []fantasy.FilePart) (*kit.TurnResult, error) {
+func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.Msg), files []kit.LLMFilePart) (*kit.TurnResult, error) {
 	// Test hook: bypass SDK entirely.
 	if a.opts.PromptFunc != nil {
 		return a.opts.PromptFunc(ctx, prompt)
@@ -637,7 +636,7 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	var result *kit.TurnResult
 	var err error
 	if len(files) > 0 {
-		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, fantasyFilePartsToKit(files))
+		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, files)
 	} else {
 		result, err = a.opts.Kit.PromptResult(ctx, prompt)
 	}
@@ -646,7 +645,7 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	}
 
 	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(kitMessagesToFantasy(result.Messages))
+	a.store.Replace(result.Messages)
 
 	// Update usage tracker. If per-step usage was already recorded from
 	// StepUsageEvent callbacks, avoid double-counting totals.
@@ -699,7 +698,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 		// Single item: use the original path for compatibility
 		item := items[0]
 		if len(item.Files) > 0 || hasFiles {
-			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, fantasyFilePartsToKit(item.Files))
+			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
 		} else {
 			result, err = a.opts.Kit.PromptResult(ctx, item.Prompt)
 		}
@@ -716,7 +715,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 			// If files exist, fall back to processing just the first item with files
 			for _, item := range items {
 				if len(item.Files) > 0 {
-					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, fantasyFilePartsToKit(item.Files))
+					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
 					break
 				}
 			}
@@ -730,7 +729,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 	}
 
 	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(kitMessagesToFantasy(result.Messages))
+	a.store.Replace(result.Messages)
 
 	// Update usage tracker (using last item's prompt for fallback estimation).
 	// If per-step usage was already recorded from StepUsageEvent callbacks,
@@ -1082,29 +1081,4 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 		}
 		a.opts.UsageTracker.SetContextTokens(int(result.FinalUsage.InputTokens))
 	}
-}
-
-// fantasyFilePartsToKit converts []fantasy.FilePart to []kit.LLMFilePart.
-func fantasyFilePartsToKit(parts []fantasy.FilePart) []kit.LLMFilePart {
-	result := make([]kit.LLMFilePart, len(parts))
-	for i, p := range parts {
-		result[i] = kit.LLMFilePart{
-			Filename:  p.Filename,
-			Data:      p.Data,
-			MediaType: p.MediaType,
-		}
-	}
-	return result
-}
-
-// kitMessagesToFantasy converts []kit.LLMMessage to []fantasy.Message.
-func kitMessagesToFantasy(msgs []kit.LLMMessage) []fantasy.Message {
-	result := make([]fantasy.Message, len(msgs))
-	for i, m := range msgs {
-		result[i] = fantasy.Message{
-			Role:    fantasy.MessageRole(m.Role),
-			Content: []fantasy.MessagePart{fantasy.TextPart{Text: m.Content}},
-		}
-	}
-	return result
 }
