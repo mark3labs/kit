@@ -1492,15 +1492,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.ToolResultEvent:
-		// Buffer tool result for scrollback.
-		m.printToolResult(msg)
-
-		// Mark streaming bash output as complete.
+		// Remove streaming bash output item (if present) before adding the final tool result.
+		// The tool result will contain the truncated output.
 		if len(m.messages) > 0 {
-			if bashItem, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
-				bashItem.MarkComplete()
+			if _, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
+				// Remove the streaming bash item
+				m.messages = m.messages[:len(m.messages)-1]
 			}
 		}
+
+		// Add the final tool result with truncated output.
+		m.printToolResult(msg)
 
 		// Clear legacy bash output state
 		m.streamingBashOutput = nil
@@ -1536,6 +1538,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			bashItem.AppendStderr(msg.Chunk)
 		} else {
 			bashItem.AppendStdout(msg.Chunk)
+		}
+
+		// Check height and cap if needed - we don't want streaming output to grow forever
+		const maxStreamingBashHeight = 20 // Max lines to show during streaming
+		if bashItem.Height() > maxStreamingBashHeight {
+			// Stop showing new output once we hit the limit
+			// The final tool result will show truncated output
+			return m, nil
 		}
 
 		// Refresh ScrollList

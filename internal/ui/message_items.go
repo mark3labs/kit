@@ -270,14 +270,18 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 		parts = append(parts, headerStyle.Render(fmt.Sprintf("▸ %s", m.command)))
 	}
 
+	const lineIndent = "  "
+	lineWidth := width - len(lineIndent)
+
 	// Stdout lines
 	if len(m.stdoutLines) > 0 {
 		outputStyle := lipgloss.NewStyle().
 			Foreground(theme.Text).
 			Background(theme.CodeBg).
-			PaddingLeft(2)
+			PaddingLeft(1).
+			Width(lineWidth)
 		for _, line := range m.stdoutLines {
-			parts = append(parts, outputStyle.Render(line))
+			parts = append(parts, lineIndent+outputStyle.Render(line))
 		}
 	}
 
@@ -286,9 +290,10 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 		stderrStyle := lipgloss.NewStyle().
 			Foreground(theme.Error).
 			Background(theme.CodeBg).
-			PaddingLeft(2)
+			PaddingLeft(1).
+			Width(lineWidth)
 		for _, line := range m.stderrLines {
-			parts = append(parts, stderrStyle.Render(line))
+			parts = append(parts, lineIndent+stderrStyle.Render(line))
 		}
 	}
 
