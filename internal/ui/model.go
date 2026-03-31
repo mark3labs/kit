@@ -2958,14 +2958,21 @@ func (m *AppModel) flushStreamContent() {
 	}
 	m.stream.Reset()
 
-	// Render styled content using MessageRenderer
-	styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+	// Mark the existing StreamingMessageItem as complete instead of creating a new one.
+	// The StreamingMessageItem already has the content from appendStreamingChunk().
+	if len(m.messages) > 0 {
+		if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+			streamMsg.MarkComplete()
+			m.refreshContent()
+			return
+		}
+	}
 
-	// Add to in-memory scrollList as a completed assistant message with styled content
+	// Fallback: If no StreamingMessageItem exists (shouldn't happen), create a new styled message.
+	// This handles edge cases where flushStreamContent is called without streaming.
+	styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
 	msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
 	m.messages = append(m.messages, msg)
-
-	// Refresh ScrollList content
 	m.refreshContent()
 
 	// Also append to legacy buffer for compatibility
