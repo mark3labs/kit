@@ -2063,7 +2063,7 @@ func overlayContent(base, overlay string, width, height int) string {
 
 	// Merge lines - overlay takes precedence where non-empty
 	result := make([]string, height)
-	for i := 0; i < height; i++ {
+	for i := range height {
 		if i < len(overlayLines) && strings.TrimSpace(overlayLines[i]) != "" {
 			result[i] = overlayLines[i]
 		} else if i < len(baseLines) {
@@ -2077,33 +2077,6 @@ func overlayContent(base, overlay string, width, height int) string {
 }
 
 // renderStream returns the stream region content.
-func (m *AppModel) renderStream() string {
-	theme := GetTheme()
-
-	var parts []string
-
-	// Stream component content (LLM streaming text, reasoning, spinner placeholder).
-	if m.stream != nil {
-		if content := m.stream.View().Content; content != "" {
-			parts = append(parts, content)
-		}
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	// Show canceling warning if set.
-	if m.canceling {
-		warning := lipgloss.NewStyle().
-			Foreground(theme.Warning).
-			Bold(true).
-			Render("  ⚠ Press ESC again to cancel")
-		parts = append(parts, warning)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
 
 // refreshContent updates the ScrollList with current messages.
 // Called whenever messages change (new message, streaming update, etc.)
@@ -2134,89 +2107,6 @@ func (m *AppModel) renderScrollback() string {
 // below the LLM streaming text. Returns empty string if no bash output is present.
 // Lines are truncated to the terminal width and capped to maxBashLines to prevent
 // long-running commands from blowing up the TUI layout.
-func (m *AppModel) renderStreamingBashOutput(theme Theme) string {
-	stdoutLines := make([]string, len(m.streamingBashOutput))
-	copy(stdoutLines, m.streamingBashOutput)
-	stderrLines := make([]string, len(m.streamingBashStderr))
-	copy(stderrLines, m.streamingBashStderr)
-	command := m.streamingBashCommand
-
-	if len(stdoutLines) == 0 && len(stderrLines) == 0 {
-		return ""
-	}
-
-	const lineIndent = "  "
-	lineWidth := max(m.width-2-len(lineIndent), 20)
-	// Account for PaddingLeft(1) on the output/stderr styles.
-	maxLineChars := lineWidth - 1
-
-	outputStyle := lipgloss.NewStyle().
-		Background(theme.CodeBg).
-		PaddingLeft(1)
-
-	stderrStyle := lipgloss.NewStyle().
-		Foreground(theme.Error).
-		Background(theme.CodeBg).
-		PaddingLeft(1)
-
-	// Header style for the command - muted text with a subtle indicator.
-	headerStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		PaddingLeft(1)
-
-	// Cap displayed lines to maxBashLines (show the tail, since streaming
-	// output is most useful at the end). The buffer itself is larger to
-	// preserve context, but we only render the last N lines.
-	totalLines := len(stdoutLines) + len(stderrLines)
-	var hiddenCount int
-	if totalLines > maxBashLines {
-		hiddenCount = totalLines - maxBashLines
-		// Trim from stdout first (older output), then stderr.
-		remaining := maxBashLines
-		if len(stderrLines) >= remaining {
-			stdoutLines = nil
-			stderrLines = stderrLines[len(stderrLines)-remaining:]
-		} else {
-			remaining -= len(stderrLines)
-			if len(stdoutLines) > remaining {
-				stdoutLines = stdoutLines[len(stdoutLines)-remaining:]
-			}
-		}
-	}
-
-	var lines []string
-
-	// Command header - show the bash command being executed.
-	if command != "" {
-		headerText := fmt.Sprintf("$ %s", command)
-		headerContent := headerStyle.Width(lineWidth).Render(truncateLine(headerText, maxLineChars))
-		lines = append(lines, lineIndent+headerContent)
-	}
-
-	// Truncation hint at the top.
-	if hiddenCount > 0 {
-		hint := fmt.Sprintf("...(%d more lines above)", hiddenCount)
-		hintContent := outputStyle.Width(lineWidth).
-			Foreground(theme.Muted).Italic(true).Render(hint)
-		lines = append(lines, lineIndent+hintContent)
-	}
-
-	// Render stdout lines.
-	for _, line := range stdoutLines {
-		line = truncateLine(strings.TrimRight(line, "\n"), maxLineChars)
-		styled := outputStyle.Width(lineWidth).Render(line)
-		lines = append(lines, lineIndent+styled)
-	}
-
-	// Render stderr lines with error styling.
-	for _, line := range stderrLines {
-		line = truncateLine(strings.TrimRight(line, "\n"), maxLineChars)
-		styled := stderrStyle.Width(lineWidth).Render(line)
-		lines = append(lines, lineIndent+styled)
-	}
-
-	return strings.Join(lines, "\n")
-}
 
 // renderStatusBar renders a persistent single-line status bar below the input.
 // Left side: spinner (when active). Middle: extension status entries (sorted by
@@ -2919,30 +2809,6 @@ func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 
 // printCompactResult renders the compaction summary in a styled block with
 // a distinct border color and a stats subtitle into the scrollback buffer.
-func (m *AppModel) printCompactResult(evt app.CompactCompleteEvent) {
-	theme := GetTheme()
-
-	saved := evt.OriginalTokens - evt.CompactedTokens
-	subtitle := fmt.Sprintf(
-		"%d messages summarised, ~%dk tokens freed (%dk -> %dk)",
-		evt.MessagesRemoved, saved/1000, evt.OriginalTokens/1000, evt.CompactedTokens/1000,
-	)
-
-	content := evt.Summary
-	if subtitle != "" {
-		sub := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(" " + subtitle)
-		content = strings.TrimSuffix(content, "\n") + "\n\n" + sub
-	}
-
-	rendered := renderContentBlock(
-		content,
-		m.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.Secondary),
-		WithMarginBottom(1),
-	)
-	m.appendScrollback(rendered)
-}
 
 // flushStreamContent moves rendered content from the stream component into the
 // scrollback buffer and resets the stream. Called before tool calls (streaming

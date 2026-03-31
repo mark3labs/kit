@@ -78,13 +78,9 @@ func (m *TextMessageItem) renderContent(width int) string {
 	}
 
 	// Content with simple wrapping
-	contentWidth := width - 4
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
+	contentWidth := max(width-4, 20)
 
-	lines := strings.Split(m.content, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(m.content, "\n") {
 		if len(line) <= contentWidth {
 			parts = append(parts, "│ "+line)
 		} else {

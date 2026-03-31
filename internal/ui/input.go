@@ -543,10 +543,6 @@ func (s *InputComponent) View() tea.View {
 
 // renderPopup renders the autocomplete popup for slash command suggestions.
 // When rendered inline (not centered), returns the styled popup content.
-func (s *InputComponent) renderPopup() string {
-	return s.renderPopupWithOptions(false)
-}
-
 // RenderPopupCentered renders the popup as a centered overlay.
 func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 	if !s.showPopup || len(s.filtered) == 0 {
