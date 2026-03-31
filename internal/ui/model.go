@@ -1494,10 +1494,19 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.ToolResultEvent:
 		// Buffer tool result for scrollback.
 		m.printToolResult(msg)
-		// Clear streaming bash output since tool completed.
+
+		// Mark streaming bash output as complete.
+		if len(m.messages) > 0 {
+			if bashItem, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
+				bashItem.MarkComplete()
+			}
+		}
+
+		// Clear legacy bash output state
 		m.streamingBashOutput = nil
 		m.streamingBashStderr = nil
 		m.streamingBashCommand = ""
+
 		// Start spinner again while waiting for the next LLM response.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
@@ -1506,19 +1515,35 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.ToolOutputEvent:
-		// Accumulate streaming bash output for display.
+		// Append bash output to streaming bash item in ScrollList.
+		// Find or create the streaming bash output item.
+		var bashItem *StreamingBashOutputItem
+		if len(m.messages) > 0 {
+			if item, ok := m.messages[len(m.messages)-1].(*StreamingBashOutputItem); ok {
+				bashItem = item
+			}
+		}
+
+		// Create new bash output item if needed
+		if bashItem == nil {
+			id := fmt.Sprintf("bash-%d", len(m.messages))
+			bashItem = NewStreamingBashOutputItem(id, m.streamingBashCommand)
+			m.messages = append(m.messages, bashItem)
+		}
+
+		// Append the chunk
 		if msg.IsStderr {
-			m.streamingBashStderr = append(m.streamingBashStderr, msg.Chunk)
-			// Cap stderr lines to prevent memory issues.
-			if len(m.streamingBashStderr) > m.streamingBashMaxLines {
-				m.streamingBashStderr = m.streamingBashStderr[len(m.streamingBashStderr)-m.streamingBashMaxLines:]
-			}
+			bashItem.AppendStderr(msg.Chunk)
 		} else {
-			m.streamingBashOutput = append(m.streamingBashOutput, msg.Chunk)
-			// Cap stdout lines to prevent memory issues.
-			if len(m.streamingBashOutput) > m.streamingBashMaxLines {
-				m.streamingBashOutput = m.streamingBashOutput[len(m.streamingBashOutput)-m.streamingBashMaxLines:]
-			}
+			bashItem.AppendStdout(msg.Chunk)
+		}
+
+		// Refresh ScrollList
+		m.refreshContent()
+
+		// Auto-scroll to bottom
+		if m.scrollList != nil && m.scrollList.autoScroll {
+			m.scrollList.GotoBottom()
 		}
 
 	case app.ToolCallContentEvent:
@@ -1947,13 +1972,9 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, scrollbackView)
 	}
 
-	// Add bash output and canceling warning between scrollback and separator
-	// (these don't go inside scrollback viewport to avoid affecting scroll position)
+	// Add canceling warning between scrollback and separator
+	// (doesn't go inside scrollback viewport to avoid affecting scroll position)
 	theme := GetTheme()
-	bashView := m.renderStreamingBashOutput(theme)
-	if bashView != "" {
-		parts = append(parts, bashView)
-	}
 	if m.canceling {
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
@@ -2056,12 +2077,6 @@ func (m *AppModel) renderStream() string {
 		if content := m.stream.View().Content; content != "" {
 			parts = append(parts, content)
 		}
-	}
-
-	// Streaming bash output section (if any).
-	bashView := m.renderStreamingBashOutput(theme)
-	if bashView != "" {
-		parts = append(parts, bashView)
 	}
 
 	if len(parts) == 0 {

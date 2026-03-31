@@ -222,6 +222,118 @@ func (s *StreamingMessageItem) MarkComplete() {
 }
 
 // --------------------------------------------------------------------------
+// StreamingBashOutputItem - Live bash command output
+// --------------------------------------------------------------------------
+
+// StreamingBashOutputItem represents live bash command output.
+type StreamingBashOutputItem struct {
+	id           string
+	command      string
+	stdoutLines  []string
+	stderrLines  []string
+	maxLines     int
+	complete     bool
+	cachedRender string
+	cachedWidth  int
+}
+
+// NewStreamingBashOutputItem creates a new streaming bash output item.
+func NewStreamingBashOutputItem(id string, command string) *StreamingBashOutputItem {
+	return &StreamingBashOutputItem{
+		id:          id,
+		command:     command,
+		stdoutLines: make([]string, 0),
+		stderrLines: make([]string, 0),
+		maxLines:    100, // Cap lines to prevent memory issues
+		complete:    false,
+	}
+}
+
+func (m *StreamingBashOutputItem) ID() string {
+	return m.id
+}
+
+func (m *StreamingBashOutputItem) Render(width int) string {
+	// Return cached if width matches and complete
+	if m.complete && m.cachedWidth == width && m.cachedRender != "" {
+		return m.cachedRender
+	}
+
+	theme := GetTheme()
+	var parts []string
+
+	// Header with command
+	if m.command != "" {
+		headerStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true)
+		parts = append(parts, headerStyle.Render(fmt.Sprintf("▸ %s", m.command)))
+	}
+
+	// Stdout lines
+	if len(m.stdoutLines) > 0 {
+		outputStyle := lipgloss.NewStyle().
+			Foreground(theme.Text).
+			Background(theme.CodeBg).
+			PaddingLeft(2)
+		for _, line := range m.stdoutLines {
+			parts = append(parts, outputStyle.Render(line))
+		}
+	}
+
+	// Stderr lines
+	if len(m.stderrLines) > 0 {
+		stderrStyle := lipgloss.NewStyle().
+			Foreground(theme.Error).
+			Background(theme.CodeBg).
+			PaddingLeft(2)
+		for _, line := range m.stderrLines {
+			parts = append(parts, stderrStyle.Render(line))
+		}
+	}
+
+	result := strings.Join(parts, "\n")
+	if m.complete {
+		m.cachedRender = result
+		m.cachedWidth = width
+	}
+	return result
+}
+
+func (m *StreamingBashOutputItem) Height() int {
+	if m.cachedRender != "" {
+		return strings.Count(m.cachedRender, "\n") + 1
+	}
+	// Estimate: command header + stdout + stderr
+	return 1 + len(m.stdoutLines) + len(m.stderrLines)
+}
+
+// AppendStdout adds a stdout line to the output.
+func (m *StreamingBashOutputItem) AppendStdout(line string) {
+	m.stdoutLines = append(m.stdoutLines, line)
+	// Cap lines
+	if len(m.stdoutLines) > m.maxLines {
+		m.stdoutLines = m.stdoutLines[len(m.stdoutLines)-m.maxLines:]
+	}
+	m.cachedWidth = 0 // Invalidate cache
+}
+
+// AppendStderr adds a stderr line to the output.
+func (m *StreamingBashOutputItem) AppendStderr(line string) {
+	m.stderrLines = append(m.stderrLines, line)
+	// Cap lines
+	if len(m.stderrLines) > m.maxLines {
+		m.stderrLines = m.stderrLines[len(m.stderrLines)-m.maxLines:]
+	}
+	m.cachedWidth = 0 // Invalidate cache
+}
+
+// MarkComplete marks the bash output as complete.
+func (m *StreamingBashOutputItem) MarkComplete() {
+	m.complete = true
+}
+
+// --------------------------------------------------------------------------
 // SystemMessageItem - System messages (commands, info, errors)
 // --------------------------------------------------------------------------
 
