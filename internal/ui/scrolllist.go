@@ -6,6 +6,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// highlightStyle is lazily initialized to avoid creating it on every render
+var highlightStyle lipgloss.Style
+
+// initHighlightStyle creates the highlight style with proper colors
+func initHighlightStyle() lipgloss.Style {
+	if highlightStyle.String() == "" {
+		theme := GetTheme()
+		highlightStyle = lipgloss.NewStyle().
+			Background(theme.Secondary).
+			Foreground(theme.Background).
+			Bold(true)
+	}
+	return highlightStyle
+}
+
 // MessageItem is the interface all scrollback messages must implement.
 // This allows lazy rendering - messages are only rendered when visible.
 type MessageItem interface {
@@ -531,23 +546,19 @@ func (s *ScrollList) applyHighlight(line string) string {
 	if line == "" {
 		return line
 	}
-	// Get the current theme's highlight color
-	theme := GetTheme()
-	highlightStyle := lipgloss.NewStyle().Background(theme.Highlight)
-	return highlightStyle.Render(line)
+	// Apply background/foreground color change for selection
+	style := initHighlightStyle()
+	return style.Render(line)
 }
 
 // applyFocusIndicator applies a subtle visual indicator for focused items.
-// Uses a different background color or style to show which item is focused.
 func (s *ScrollList) applyFocusIndicator(line string) string {
 	if line == "" {
 		return line
 	}
-	// Get the current theme - use a subtle background tint
-	theme := GetTheme()
-	// Use the muted border color for a subtle focus indicator
-	focusStyle := lipgloss.NewStyle().Background(theme.MutedBorder)
-	return focusStyle.Render(line)
+	// Just return the line as-is - no visual indicator for focus
+	// The selection highlighting is enough
+	return line
 }
 
 // ScrollPercent returns the current scroll position as a percentage (0.0-1.0).
