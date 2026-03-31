@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"charm.land/lipgloss/v2"
 )
 
 // --------------------------------------------------------------------------
@@ -98,6 +100,88 @@ func (m *TextMessageItem) renderContent(width int) string {
 	}
 
 	return strings.Join(parts, "\n")
+}
+
+// --------------------------------------------------------------------------
+// StreamingMessageItem - Live streaming assistant/reasoning text
+// --------------------------------------------------------------------------
+
+// StreamingMessageItem represents actively streaming assistant or reasoning text.
+// It accumulates content chunks and re-renders on each update for live display.
+type StreamingMessageItem struct {
+	id           string
+	role         string // "assistant" or "reasoning"
+	content      string // Accumulated streaming content
+	timestamp    time.Time
+	modelName    string
+	streaming    bool         // true while actively streaming
+	cachedRender string
+	cachedWidth  int
+}
+
+// NewStreamingMessageItem creates a new streaming message item.
+func NewStreamingMessageItem(id, role string, modelName string) *StreamingMessageItem {
+	return &StreamingMessageItem{
+		id:        id,
+		role:      role,
+		timestamp: time.Now(),
+		modelName: modelName,
+		streaming: true,
+	}
+}
+
+// ID returns the unique identifier.
+func (s *StreamingMessageItem) ID() string {
+	return s.id
+}
+
+// Render renders the streaming message with live content.
+func (s *StreamingMessageItem) Render(width int) string {
+	// Return cached render if width matches and cache is valid
+	if s.cachedWidth == width && s.cachedRender != "" {
+		return s.cachedRender
+	}
+
+	// Get renderer from context
+	renderer := newMessageRenderer(width, false)
+
+	var rendered string
+	if s.role == "reasoning" {
+		// Render as reasoning/thinking block
+		theme := GetTheme()
+		mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		ty := createTypography(theme)
+		content := strings.TrimLeft(s.content, " \t\n")
+		rendered = styleMarginBottom1.Render(mutedStyle.Render(ty.Italic(content)))
+	} else {
+		// Render as assistant message
+		msg := renderer.RenderAssistantMessage(s.content, s.timestamp, s.modelName)
+		rendered = msg.Content
+	}
+
+	// Cache and return
+	s.cachedRender = rendered
+	s.cachedWidth = width
+	return rendered
+}
+
+// Height returns the number of lines.
+func (s *StreamingMessageItem) Height() int {
+	if s.cachedRender == "" {
+		return 0
+	}
+	return strings.Count(s.cachedRender, "\n") + 1
+}
+
+// AppendChunk adds a content chunk and invalidates the render cache.
+func (s *StreamingMessageItem) AppendChunk(chunk string) {
+	s.content += chunk
+	s.cachedWidth = 0 // Invalidate cache
+}
+
+// MarkComplete marks the streaming message as complete.
+func (s *StreamingMessageItem) MarkComplete() {
+	s.streaming = false
 }
 
 // --------------------------------------------------------------------------

@@ -1445,18 +1445,26 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.ReasoningChunkEvent:
+		// Forward to stream component for display rendering
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(msg)
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
 
+		// Also update/create StreamingMessageItem in ScrollList for live display
+		m.appendStreamingChunk("reasoning", msg.Delta)
+
 	case app.StreamChunkEvent:
+		// Forward to stream component for display rendering
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(msg)
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+
+		// Also update/create StreamingMessageItem in ScrollList for live display
+		m.appendStreamingChunk("assistant", msg.Content)
 
 	case app.ToolCallStartedEvent:
 		// Flush any accumulated streaming text to scrollback first (streaming
@@ -1520,17 +1528,26 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.ResponseCompleteEvent:
 		// This event fires for both streaming and non-streaming paths.
-		// In streaming mode, flush the accumulated stream content to scrollback.
+		// In streaming mode, mark the StreamingMessageItem as complete.
 		// In non-streaming mode (no stream content accumulated), print the text.
-		hasStreamContent := m.stream != nil && m.stream.GetRenderedContent() != ""
-		if hasStreamContent {
-			// Flush stream content to scrollback immediately
-			m.flushStreamContent()
-		} else if strings.TrimSpace(msg.Content) != "" {
-			m.printAssistantMessage(msg.Content)
-			if m.stream != nil {
-				m.stream.Reset()
+		
+		// Check if we have an active StreamingMessageItem
+		hasStreamingItem := false
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+				hasStreamingItem = true
 			}
+		}
+		
+		// Reset stream component
+		if m.stream != nil {
+			m.stream.Reset()
+		}
+		
+		// If no streaming item exists and we have content, print it as a regular message
+		if !hasStreamingItem && strings.TrimSpace(msg.Content) != "" {
+			m.printAssistantMessage(msg.Content)
 		}
 
 	case app.MessageCreatedEvent:
@@ -2911,6 +2928,35 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 	m.pendingUserPrints = nil
 
 	// Refresh ScrollList content once after all messages are added
+	m.refreshContent()
+}
+
+// appendStreamingChunk updates or creates a StreamingMessageItem in the ScrollList.
+// This enables live streaming text display within the ScrollList viewport (iteratr-style).
+func (m *AppModel) appendStreamingChunk(role, content string) {
+	// Find the last message
+	var lastMsg MessageItem
+	if len(m.messages) > 0 {
+		lastMsg = m.messages[len(m.messages)-1]
+	}
+
+	// If last message is a StreamingMessageItem with matching role, append to it
+	if streamMsg, ok := lastMsg.(*StreamingMessageItem); ok && streamMsg.role == role {
+		streamMsg.AppendChunk(content)
+		// Auto-scroll to bottom if enabled
+		if m.scrollList != nil && m.scrollList.autoScroll {
+			m.scrollList.GotoBottom()
+		}
+		return
+	}
+
+	// Otherwise, create a new StreamingMessageItem
+	id := fmt.Sprintf("streaming-%s-%d", role, len(m.messages))
+	newMsg := NewStreamingMessageItem(id, role, m.modelName)
+	newMsg.AppendChunk(content)
+	m.messages = append(m.messages, newMsg)
+
+	// Refresh ScrollList and scroll to bottom
 	m.refreshContent()
 }
 
