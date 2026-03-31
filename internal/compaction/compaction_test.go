@@ -243,7 +243,7 @@ func TestCompact_TooFewMessages(t *testing.T) {
 		makeTextMessageN(fantasy.MessageRoleUser, 400),
 	}
 
-	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil)
+	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestCompact_WithinBudget(t *testing.T) {
 		makeTextMessageN(fantasy.MessageRoleAssistant, 400),
 	}
 
-	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil)
+	result, newMsgs, err := Compact(context.TODO(), nil, msgs, CompactionOptions{}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

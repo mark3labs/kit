@@ -1530,7 +1530,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This event fires for both streaming and non-streaming paths.
 		// In streaming mode, mark the StreamingMessageItem as complete.
 		// In non-streaming mode (no stream content accumulated), print the text.
-		
+
 		// Check if we have an active StreamingMessageItem
 		hasStreamingItem := false
 		if len(m.messages) > 0 {
@@ -1539,12 +1539,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				hasStreamingItem = true
 			}
 		}
-		
+
 		// Reset stream component
 		if m.stream != nil {
 			m.stream.Reset()
 		}
-		
+
 		// If no streaming item exists and we have content, print it as a regular message
 		if !hasStreamingItem && strings.TrimSpace(msg.Content) != "" {
 			m.printAssistantMessage(msg.Content)
@@ -1639,11 +1639,29 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.canceling = false
 
 	case app.CompactCompleteEvent:
+		// Finalize any streaming compaction content.
 		if m.stream != nil {
 			m.stream.Reset()
 		}
 		m.state = stateInput
-		m.printCompactResult(msg)
+
+		// Mark the last streaming message as complete in ScrollList.
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
+		}
+
+		// Refresh content to show the finalized message.
+		m.refreshContent()
+
+		// Print stats as a separate system message.
+		saved := msg.OriginalTokens - msg.CompactedTokens
+		statsMsg := fmt.Sprintf(
+			"Compaction complete: %d messages summarised, ~%dk tokens freed (%dk -> %dk)",
+			msg.MessagesRemoved, saved/1000, msg.OriginalTokens/1000, msg.CompactedTokens/1000,
+		)
+		m.printSystemMessage(statsMsg)
 
 	case app.CompactErrorEvent:
 		if m.stream != nil {
@@ -2003,7 +2021,7 @@ func (m *AppModel) View() tea.View {
 func overlayContent(base, overlay string, width, height int) string {
 	baseLines := strings.Split(base, "\n")
 	overlayLines := strings.Split(overlay, "\n")
-	
+
 	// Ensure we have exactly height lines
 	for len(baseLines) < height {
 		baseLines = append(baseLines, strings.Repeat(" ", width))
@@ -2011,7 +2029,7 @@ func overlayContent(base, overlay string, width, height int) string {
 	for len(overlayLines) < height {
 		overlayLines = append(overlayLines, strings.Repeat(" ", width))
 	}
-	
+
 	// Merge lines - overlay takes precedence where non-empty
 	result := make([]string, height)
 	for i := 0; i < height; i++ {
@@ -2023,7 +2041,7 @@ func overlayContent(base, overlay string, width, height int) string {
 			result[i] = strings.Repeat(" ", width)
 		}
 	}
-	
+
 	return strings.Join(result, "\n")
 }
 

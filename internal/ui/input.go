@@ -552,9 +552,9 @@ func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 	if !s.showPopup || len(s.filtered) == 0 {
 		return ""
 	}
-	
+
 	popupContent := s.renderPopupWithOptions(true)
-	
+
 	// Center popup using lipgloss.Place
 	positioned := lipgloss.Place(
 		termWidth,
@@ -563,7 +563,7 @@ func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 		lipgloss.Center,
 		popupContent,
 	)
-	
+
 	return positioned
 }
 

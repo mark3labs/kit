@@ -356,6 +356,15 @@ func (a *App) CompactConversation(customInstructions string) error {
 			a.mu.Unlock()
 		}()
 
+		// Subscribe to SDK events for streaming compaction summary to the TUI.
+		sendFn := func(msg tea.Msg) {
+			if a.program != nil {
+				a.program.Send(msg)
+			}
+		}
+		unsub := a.subscribeSDKEvents(sendFn, nil)
+		defer unsub()
+
 		result, err := a.opts.Kit.Compact(a.rootCtx, nil, customInstructions)
 		if err != nil {
 			a.sendEvent(CompactErrorEvent{Err: err})

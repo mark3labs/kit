@@ -428,6 +428,10 @@ type PreviousCompaction struct {
 	ModifiedFiles []string
 }
 
+// StreamCallback is called for each chunk of text during streaming compaction.
+// Return a non-nil error to cancel the stream.
+type StreamCallback func(delta string) error
+
 // Compact summarises older messages using the LLM, returning the compaction
 // result and a new message slice (summary message + preserved recent
 // messages).
@@ -442,6 +446,8 @@ type PreviousCompaction struct {
 //
 // prev carries file tracking from a previous compaction for cumulative
 // tracking. Pass nil if there is no prior compaction.
+// onChunk is an optional callback for streaming summary text. Pass nil for
+// non-streaming compaction.
 func Compact(
 	ctx context.Context,
 	model fantasy.LanguageModel,
@@ -449,6 +455,7 @@ func Compact(
 	opts CompactionOptions,
 	customInstructions string,
 	prev *PreviousCompaction,
+	onChunk StreamCallback,
 ) (*CompactionResult, []fantasy.Message, error) {
 	opts.defaults()
 
@@ -487,9 +494,9 @@ func Compact(
 	var err error
 
 	if IsSplitTurn(messages, cutPoint) {
-		summaryText, err = compactSplitTurn(ctx, model, oldMessages, messages, cutPoint, opts, customInstructions)
+		summaryText, err = compactSplitTurn(ctx, model, oldMessages, messages, cutPoint, opts, customInstructions, onChunk)
 	} else {
-		summaryText, err = compactNormal(ctx, model, oldMessages, opts, customInstructions)
+		summaryText, err = compactNormal(ctx, model, oldMessages, opts, customInstructions, onChunk)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -527,15 +534,17 @@ func Compact(
 }
 
 // compactNormal generates a summary for a clean turn-boundary cut.
+// If onChunk is provided, text deltas are streamed to it.
 func compactNormal(
 	ctx context.Context,
 	model fantasy.LanguageModel,
 	oldMessages []fantasy.Message,
 	opts CompactionOptions,
 	customInstructions string,
+	onChunk StreamCallback,
 ) (string, error) {
 	conversationText := serializeMessages(oldMessages)
-	return generateSummary(ctx, model, conversationText, opts, customInstructions)
+	return generateSummary(ctx, model, conversationText, opts, customInstructions, onChunk)
 }
 
 // compactSplitTurn handles the case where the cut point lands mid-turn.
@@ -546,6 +555,7 @@ func compactNormal(
 //
 // The merged result preserves context from both the older history and the
 // beginning of the current long turn.
+// If onChunk is provided, both summaries and the separator are streamed.
 func compactSplitTurn(
 	ctx context.Context,
 	model fantasy.LanguageModel,
@@ -554,6 +564,7 @@ func compactSplitTurn(
 	cutPoint int,
 	opts CompactionOptions,
 	customInstructions string,
+	onChunk StreamCallback,
 ) (string, error) {
 	// Find where the split turn starts.
 	turnStart := findTurnStart(allMessages, cutPoint)
@@ -573,9 +584,16 @@ func compactSplitTurn(
 	// Generate history summary if there are complete turns before the split.
 	if len(historyMessages) >= 2 {
 		historySummary, err = generateSummary(ctx, model,
-			serializeMessages(historyMessages), opts, "")
+			serializeMessages(historyMessages), opts, "", onChunk)
 		if err != nil {
 			return "", fmt.Errorf("split turn history summary failed: %w", err)
+		}
+	}
+
+	// Stream the separator between history and turn prefix summaries.
+	if onChunk != nil && historySummary != "" {
+		if err := onChunk("\n\n---\n\n## Current Turn (in progress)\n\n"); err != nil {
+			return "", fmt.Errorf("streaming separator failed: %w", err)
 		}
 	}
 
@@ -588,16 +606,10 @@ func compactSplitTurn(
 		turnPrefixPrompt += "\n\nAdditional instructions: " + customInstructions
 	}
 
-	summaryAgent := fantasy.NewAgent(model,
-		fantasy.WithSystemPrompt(defaultSystemPrompt),
-	)
-	result, err := summaryAgent.Generate(ctx, fantasy.AgentCall{
-		Prompt: turnPrefixText + "\n\n" + turnPrefixPrompt,
-	})
+	turnPrefixSummary, err := generateSummary(ctx, model, turnPrefixText, opts, turnPrefixPrompt, onChunk)
 	if err != nil {
 		return "", fmt.Errorf("split turn prefix summary failed: %w", err)
 	}
-	turnPrefixSummary := result.Response.Content.Text()
 
 	// Merge the two summaries.
 	if historySummary != "" && turnPrefixSummary != "" {
@@ -610,12 +622,14 @@ func compactSplitTurn(
 }
 
 // generateSummary calls the LLM to produce a structured summary.
+// If onChunk is provided, the summary is streamed using Agent.Stream().
 func generateSummary(
 	ctx context.Context,
 	model fantasy.LanguageModel,
 	conversationText string,
 	opts CompactionOptions,
 	customInstructions string,
+	onChunk StreamCallback,
 ) (string, error) {
 	userPrompt := opts.SummaryPrompt
 	if userPrompt == "" {
@@ -628,8 +642,31 @@ func generateSummary(
 	summaryAgent := fantasy.NewAgent(model,
 		fantasy.WithSystemPrompt(defaultSystemPrompt),
 	)
+
+	prompt := conversationText + "\n\n" + userPrompt
+
+	// Use streaming if onChunk is provided.
+	if onChunk != nil {
+		var fullText strings.Builder
+		_, err := summaryAgent.Stream(ctx, fantasy.AgentStreamCall{
+			Prompt: prompt,
+			OnTextDelta: func(_, delta string) error {
+				if delta != "" {
+					fullText.WriteString(delta)
+					return onChunk(delta)
+				}
+				return nil
+			},
+		})
+		if err != nil {
+			return "", fmt.Errorf("compaction summarisation (streaming) failed: %w", err)
+		}
+		return fullText.String(), nil
+	}
+
+	// Non-streaming path.
 	result, err := summaryAgent.Generate(ctx, fantasy.AgentCall{
-		Prompt: conversationText + "\n\n" + userPrompt,
+		Prompt: prompt,
 	})
 	if err != nil {
 		return "", fmt.Errorf("compaction summarisation failed: %w", err)

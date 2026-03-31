@@ -109,16 +109,16 @@ func (m *TextMessageItem) renderContent(width int) string {
 // StreamingMessageItem represents actively streaming assistant or reasoning text.
 // It accumulates content chunks and re-renders on each update for live display.
 type StreamingMessageItem struct {
-	id           string
-	role         string // "assistant" or "reasoning"
-	content      string // Accumulated streaming content
-	timestamp    time.Time
-	startTime    time.Time // When streaming started (for live duration counter)
-	modelName    string
-	streaming    bool           // true while actively streaming
+	id            string
+	role          string // "assistant" or "reasoning"
+	content       string // Accumulated streaming content
+	timestamp     time.Time
+	startTime     time.Time // When streaming started (for live duration counter)
+	modelName     string
+	streaming     bool          // true while actively streaming
 	finalDuration time.Duration // Frozen duration when complete
-	cachedRender string
-	cachedWidth  int
+	cachedRender  string
+	cachedWidth   int
 }
 
 // NewStreamingMessageItem creates a new streaming message item.
@@ -157,10 +157,10 @@ func (s *StreamingMessageItem) Render(width int) string {
 		mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 		ty := createTypography(theme)
 		content := strings.TrimLeft(s.content, " \t\n")
-		
+
 		var parts []string
 		parts = append(parts, mutedStyle.Render(ty.Italic(content)))
-		
+
 		// Add live duration counter (updates on each render)
 		var duration time.Duration
 		if s.finalDuration > 0 {
@@ -170,7 +170,7 @@ func (s *StreamingMessageItem) Render(width int) string {
 			// Still streaming, show live duration
 			duration = time.Since(s.startTime)
 		}
-		
+
 		if duration > 0 {
 			var durationStr string
 			if duration < time.Second {
@@ -182,7 +182,7 @@ func (s *StreamingMessageItem) Render(width int) string {
 			durationStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
 			parts = append(parts, label+durationStyled)
 		}
-		
+
 		rendered = styleMarginBottom1.Render(strings.Join(parts, "\n"))
 	} else {
 		// Render as assistant message

@@ -153,7 +153,15 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 	}
 
 	model := m.agent.GetModel()
-	result, _, err := compaction.Compact(ctx, model, messages, *opts, customInstructions, prev)
+
+	// Create a streaming callback to emit chunks as events.
+	streamCallback := func(delta string) error {
+		// Emit MessageUpdateEvent to the UI for streaming display.
+		m.events.emit(MessageUpdateEvent{Chunk: delta})
+		return nil
+	}
+
+	result, _, err := compaction.Compact(ctx, model, messages, *opts, customInstructions, prev, streamCallback)
 	if err != nil {
 		return nil, err
 	}
