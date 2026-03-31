@@ -120,15 +120,17 @@ result, err := host.PromptResult(ctx, "Analyze this file")
 // result.StopReason   — "stop", "length", "tool-calls", "error", etc.
 // result.SessionID    — session UUID
 // result.TotalUsage   — aggregate tokens across all steps (*kit.LLMUsage)
-// result.FinalUsage   — tokens from last API call only
+//                        LLMUsage{InputTokens, OutputTokens, TotalTokens, ...}
+// result.FinalUsage   — tokens from last API call only (*kit.LLMUsage)
 // result.Messages     — full updated conversation ([]kit.LLMMessage)
+//                        LLMMessage{Role kit.LLMMessageRole, Content string}
 ```
 
 ### Multimodal with file attachments
 
 ```go
 files := []kit.LLMFilePart{{
-    Name:      "screenshot.png",
+    Filename:  "screenshot.png",
     MediaType: "image/png",
     Data:      imageBytes,
 }}
@@ -640,15 +642,19 @@ kit.Config, kit.MCPServerConfig
 // Provider types
 kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelLimit
 
-// LLM types (re-exported from the underlying LLM library)
-kit.LLMMessage, kit.LLMUsage, kit.LLMResponse, kit.LLMFilePart
+// LLM types — concrete Kit-owned structs (no external library dependency)
+kit.LLMMessage      // {Role LLMMessageRole, Content string}
+kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
+kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ReasoningTokens, ...}
+kit.LLMResponse     // {Content, FinishReason, Usage}
+kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions
 
 // Conversion helpers
-msgs := kit.ConvertToLLMMessages(&msg)   // SDK message → LLM messages
-msg := kit.ConvertFromLLMMessage(fMsg)    // LLM message → SDK message
+msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message  → []LLMMessage
+msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage   → SDK Message
 ```
 
 ---

@@ -140,7 +140,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 			}
 			// Extension provided a custom summary — use it directly.
 			if hookResult.Summary != "" {
-				return m.applyCustomCompaction(hookResult.Summary, messages, opts)
+				return m.applyCustomCompaction(hookResult.Summary, fantasyToLLMMessages(messages), opts)
 			}
 		}
 	}
@@ -181,12 +181,13 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 // applyCustomCompaction handles compaction when an extension provides a
 // custom summary. It still determines the cut point and persists a
 // CompactionEntry.
-func (m *Kit) applyCustomCompaction(summary string, messages []fantasy.Message, opts *CompactionOptions) (*CompactionResult, error) {
-	originalTokens := compaction.EstimateMessageTokens(messages)
+func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts *CompactionOptions) (*CompactionResult, error) {
+	fantasyMessages := llmMessagesToFantasy(messages)
+	originalTokens := compaction.EstimateMessageTokens(fantasyMessages)
 
-	cutPoint := compaction.FindCutPoint(messages, opts.KeepRecentTokens)
+	cutPoint := compaction.FindCutPoint(fantasyMessages, opts.KeepRecentTokens)
 	if cutPoint == 0 {
-		cutPoint = len(messages) - 1
+		cutPoint = len(fantasyMessages) - 1
 		if cutPoint < 1 {
 			return nil, nil
 		}
@@ -203,7 +204,7 @@ func (m *Kit) applyCustomCompaction(summary string, messages []fantasy.Message, 
 		Role:    "system",
 		Content: []fantasy.MessagePart{fantasy.TextPart{Text: summary}},
 	}})
-	recentTokens := compaction.EstimateMessageTokens(messages[cutPoint:])
+	recentTokens := compaction.EstimateMessageTokens(fantasyMessages[cutPoint:])
 	compactedTokens := summaryTokens + recentTokens
 
 	result := &CompactionResult{
@@ -249,3 +250,5 @@ func (m *Kit) persistAndEmitCompaction(
 	})
 	return nil
 }
+
+// Conversion helpers are in llm_convert.go.

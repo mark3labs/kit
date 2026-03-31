@@ -134,12 +134,16 @@ kit.Message, kit.MessageRole, kit.ContentPart
 kit.TextContent, kit.ReasoningContent, kit.ToolCall, kit.ToolResult, kit.Finish
 kit.RoleUser, kit.RoleAssistant, kit.RoleTool, kit.RoleSystem
 
-// LLM types (re-exported from the underlying LLM library)
-kit.LLMMessage, kit.LLMUsage, kit.LLMResponse, kit.LLMFilePart
+// LLM types — concrete Kit-owned structs, no external library dependency
+kit.LLMMessage      // {Role LLMMessageRole, Content string}
+kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
+kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ...}
+kit.LLMResponse     // {Content, FinishReason, Usage}
+kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 
 // Conversion helpers
-msgs := kit.ConvertToLLMMessages(&msg)   // SDK message → LLM messages
-msg := kit.ConvertFromLLMMessage(fMsg)    // LLM message → SDK message
+msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message → []LLMMessage
+msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 ```
 
 ## API Reference

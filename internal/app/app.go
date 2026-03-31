@@ -637,7 +637,7 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	var result *kit.TurnResult
 	var err error
 	if len(files) > 0 {
-		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, files)
+		result, err = a.opts.Kit.PromptResultWithFiles(ctx, prompt, fantasyFilePartsToKit(files))
 	} else {
 		result, err = a.opts.Kit.PromptResult(ctx, prompt)
 	}
@@ -646,7 +646,7 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	}
 
 	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(result.Messages)
+	a.store.Replace(kitMessagesToFantasy(result.Messages))
 
 	// Update usage tracker. If per-step usage was already recorded from
 	// StepUsageEvent callbacks, avoid double-counting totals.
@@ -699,7 +699,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 		// Single item: use the original path for compatibility
 		item := items[0]
 		if len(item.Files) > 0 || hasFiles {
-			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
+			result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, fantasyFilePartsToKit(item.Files))
 		} else {
 			result, err = a.opts.Kit.PromptResult(ctx, item.Prompt)
 		}
@@ -716,7 +716,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 			// If files exist, fall back to processing just the first item with files
 			for _, item := range items {
 				if len(item.Files) > 0 {
-					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, item.Files)
+					result, err = a.opts.Kit.PromptResultWithFiles(ctx, item.Prompt, fantasyFilePartsToKit(item.Files))
 					break
 				}
 			}
@@ -730,7 +730,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 	}
 
 	// Sync in-memory store with the SDK's authoritative conversation.
-	a.store.Replace(result.Messages)
+	a.store.Replace(kitMessagesToFantasy(result.Messages))
 
 	// Update usage tracker (using last item's prompt for fallback estimation).
 	// If per-step usage was already recorded from StepUsageEvent callbacks,
@@ -1082,4 +1082,29 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 		}
 		a.opts.UsageTracker.SetContextTokens(int(result.FinalUsage.InputTokens))
 	}
+}
+
+// fantasyFilePartsToKit converts []fantasy.FilePart to []kit.LLMFilePart.
+func fantasyFilePartsToKit(parts []fantasy.FilePart) []kit.LLMFilePart {
+	result := make([]kit.LLMFilePart, len(parts))
+	for i, p := range parts {
+		result[i] = kit.LLMFilePart{
+			Filename:  p.Filename,
+			Data:      p.Data,
+			MediaType: p.MediaType,
+		}
+	}
+	return result
+}
+
+// kitMessagesToFantasy converts []kit.LLMMessage to []fantasy.Message.
+func kitMessagesToFantasy(msgs []kit.LLMMessage) []fantasy.Message {
+	result := make([]fantasy.Message, len(msgs))
+	for i, m := range msgs {
+		result[i] = fantasy.Message{
+			Role:    fantasy.MessageRole(m.Role),
+			Content: []fantasy.MessagePart{fantasy.TextPart{Text: m.Content}},
+		}
+	}
+	return result
 }

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"charm.land/fantasy"
-
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -574,13 +572,13 @@ func TestUpdateUsageFromTurnResult_skipsTotalsWhenStepUsageSeen(t *testing.T) {
 
 	app.updateUsageFromTurnResult(&kit.TurnResult{
 		Response: "ok",
-		TotalUsage: &fantasy.Usage{
+		TotalUsage: &kit.LLMUsage{
 			InputTokens:         999,
 			OutputTokens:        111,
 			CacheReadTokens:     7,
 			CacheCreationTokens: 3,
 		},
-		FinalUsage: &fantasy.Usage{InputTokens: 456},
+		FinalUsage: &kit.LLMUsage{InputTokens: 456},
 	}, "prompt", true)
 
 	usage.mu.Lock()
@@ -608,13 +606,13 @@ func TestUpdateUsageFromTurnResult_recordsWhenInputTokensZero(t *testing.T) {
 	// Simulate OpenAI-compatible behavior: all prompt tokens cached, InputTokens=0
 	app.updateUsageFromTurnResult(&kit.TurnResult{
 		Response: "ok",
-		TotalUsage: &fantasy.Usage{
+		TotalUsage: &kit.LLMUsage{
 			InputTokens:         0,   // All cached - subtracted from prompt
 			OutputTokens:        150, // Actual generated tokens
 			CacheReadTokens:     500, // Cache hit
 			CacheCreationTokens: 0,
 		},
-		FinalUsage: &fantasy.Usage{InputTokens: 0, OutputTokens: 150},
+		FinalUsage: &kit.LLMUsage{InputTokens: 0, OutputTokens: 150},
 	}, "prompt", false)
 
 	usage.mu.Lock()
@@ -642,11 +640,11 @@ func TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly(t *testing.T) {
 
 	app.updateUsageFromTurnResult(&kit.TurnResult{
 		Response: "ok",
-		TotalUsage: &fantasy.Usage{
+		TotalUsage: &kit.LLMUsage{
 			InputTokens:  1000,
 			OutputTokens: 200,
 		},
-		FinalUsage: &fantasy.Usage{
+		FinalUsage: &kit.LLMUsage{
 			InputTokens:  1000, // Full context including history
 			OutputTokens: 200,
 		},

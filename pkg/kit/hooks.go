@@ -83,14 +83,14 @@ type AfterTurnResult struct{}
 // messages are sent to the LLM. Hooks can filter, reorder, or inject messages.
 type ContextPrepareHook struct {
 	// Messages is the current context as LLM message objects.
-	Messages []fantasy.Message
+	Messages []LLMMessage
 }
 
 // ContextPrepareResult can replace the context window.
 type ContextPrepareResult struct {
 	// Messages replaces the entire context window. If nil, the original
 	// messages are used.
-	Messages []fantasy.Message
+	Messages []LLMMessage
 }
 
 // BeforeCompactHook is the input for hooks that fire before compaction runs.

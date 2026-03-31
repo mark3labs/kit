@@ -1,10 +1,8 @@
 package kit
 
 import (
-	"strings"
 	"sync"
 
-	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/extensions"
 )
 
@@ -250,17 +248,10 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			// Convert LLM message slice to extension ContextMessage slice.
 			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
 			for i, msg := range h.Messages {
-				// Extract text from content parts.
-				var text strings.Builder
-				for _, part := range msg.Content {
-					if tp, ok := part.(fantasy.TextPart); ok {
-						text.WriteString(tp.Text)
-					}
-				}
 				extMsgs[i] = extensions.ContextMessage{
 					Index:   i,
 					Role:    string(msg.Role),
-					Content: text.String(),
+					Content: msg.Content,
 				}
 			}
 
@@ -271,27 +262,25 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			}
 
 			// Rebuild LLM message slice from extension result.
-			rebuilt := make([]fantasy.Message, 0, len(r.Messages))
+			rebuilt := make([]LLMMessage, 0, len(r.Messages))
 			for _, cm := range r.Messages {
 				if cm.Index >= 0 && cm.Index < len(h.Messages) {
-					// Reuse original message (preserves tool calls, reasoning, etc.)
+					// Reuse original message (preserves original role and content).
 					rebuilt = append(rebuilt, h.Messages[cm.Index])
 				} else {
 					// New message injected by extension.
-					role := fantasy.MessageRoleUser
+					role := LLMMessageRoleUser
 					switch cm.Role {
 					case "assistant":
-						role = fantasy.MessageRoleAssistant
+						role = LLMMessageRoleAssistant
 					case "system":
-						role = fantasy.MessageRoleSystem
+						role = LLMMessageRoleSystem
 					case "tool":
-						role = fantasy.MessageRoleTool
+						role = LLMMessageRoleTool
 					}
-					rebuilt = append(rebuilt, fantasy.Message{
-						Role: role,
-						Content: []fantasy.MessagePart{
-							fantasy.TextPart{Text: cm.Content},
-						},
+					rebuilt = append(rebuilt, LLMMessage{
+						Role:    role,
+						Content: cm.Content,
 					})
 				}
 			}

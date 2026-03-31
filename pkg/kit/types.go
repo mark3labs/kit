@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"strings"
 
 	"charm.land/fantasy"
 
@@ -128,20 +129,66 @@ type SpinnerFunc = agent.SpinnerFunc
 
 // ==== LLM Types ====
 
-// LLMMessage is the underlying message type used by the LLM agent
-// library. Re-exported so SDK users can work with LLM types without a
-// direct import of the underlying LLM library.
-type LLMMessage = fantasy.Message
+// LLMMessageRole identifies the participant role in an LLM conversation.
+type LLMMessageRole string
 
-// LLMUsage contains token usage information from an LLM response.
-type LLMUsage = fantasy.Usage
+const (
+	// LLMMessageRoleUser identifies a user message.
+	LLMMessageRoleUser LLMMessageRole = "user"
+	// LLMMessageRoleAssistant identifies an assistant message.
+	LLMMessageRoleAssistant LLMMessageRole = "assistant"
+	// LLMMessageRoleSystem identifies a system message.
+	LLMMessageRoleSystem LLMMessageRole = "system"
+	// LLMMessageRoleTool identifies a tool result message.
+	LLMMessageRoleTool LLMMessageRole = "tool"
+)
 
-// LLMResponse is the response type returned by the LLM agent library.
-type LLMResponse = fantasy.Response
+// LLMMessage represents a message in an LLM conversation. It carries the
+// role and a plain-text representation of the message content.
+type LLMMessage struct {
+	// Role is the participant role (user, assistant, system, tool).
+	Role LLMMessageRole `json:"role"`
+	// Content is the text content of the message.
+	Content string `json:"content"`
+}
 
-// LLMFilePart represents a file attachment (image, document, etc.) that can
-// be included in a prompt via PromptResultWithFiles.
-type LLMFilePart = fantasy.FilePart
+// LLMUsage contains token usage information returned by the LLM provider.
+type LLMUsage struct {
+	// InputTokens is the number of tokens in the prompt.
+	InputTokens int64 `json:"input_tokens"`
+	// OutputTokens is the number of tokens in the response.
+	OutputTokens int64 `json:"output_tokens"`
+	// TotalTokens is the total tokens used (input + output).
+	TotalTokens int64 `json:"total_tokens"`
+	// ReasoningTokens is the number of tokens used for chain-of-thought reasoning.
+	ReasoningTokens int64 `json:"reasoning_tokens"`
+	// CacheCreationTokens is the number of tokens written to the provider cache.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	// CacheReadTokens is the number of tokens read from the provider cache.
+	CacheReadTokens int64 `json:"cache_read_tokens"`
+}
+
+// LLMResponse represents a response from the LLM provider.
+type LLMResponse struct {
+	// Content is the text content of the response.
+	Content string `json:"content"`
+	// FinishReason explains why the LLM stopped generating
+	// (e.g. "stop", "length", "tool-calls", "error").
+	FinishReason string `json:"finish_reason"`
+	// Usage contains the token usage for this response.
+	Usage LLMUsage `json:"usage"`
+}
+
+// LLMFilePart represents a file attachment (image, document, audio, etc.)
+// that can be included in a multimodal prompt via PromptResultWithFiles.
+type LLMFilePart struct {
+	// Filename is the optional display name of the file.
+	Filename string `json:"filename"`
+	// Data is the raw file bytes.
+	Data []byte `json:"data"`
+	// MediaType is the MIME type of the file (e.g. "image/png", "application/pdf").
+	MediaType string `json:"media_type"`
+}
 
 // ==== Compaction Types (internal/compaction/) ====
 
@@ -177,24 +224,37 @@ func LoadSystemPrompt(pathOrContent string) (string, error) {
 
 // ==== Conversion Helpers ====
 
-// ConvertToLLMMessages converts an SDK message to the underlying LLM
-// messages used by the agent for LLM interactions.
-func ConvertToLLMMessages(msg *Message) []fantasy.Message {
-	return msg.ToLLMMessages()
+// ConvertToLLMMessages converts an SDK message to a slice of LLMMessages.
+// Each SDK message may expand to multiple LLM messages depending on its content.
+func ConvertToLLMMessages(msg *Message) []LLMMessage {
+	raw := msg.ToLLMMessages()
+	result := make([]LLMMessage, 0, len(raw))
+	for _, fm := range raw {
+		lm := LLMMessage{
+			Role:    LLMMessageRole(fm.Role),
+			Content: extractTextFromFantasyMessage(fm),
+		}
+		result = append(result, lm)
+	}
+	return result
 }
 
-// ConvertFromLLMMessage converts an LLM message from the agent to an SDK
-// message format for use in the SDK API.
-func ConvertFromLLMMessage(msg fantasy.Message) Message {
-	return message.FromLLMMessage(msg)
+// ConvertFromLLMMessage converts an LLMMessage to an SDK message.
+func ConvertFromLLMMessage(msg LLMMessage) Message {
+	fm := fantasy.Message{
+		Role:    fantasy.MessageRole(msg.Role),
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: msg.Content}},
+	}
+	return message.FromLLMMessage(fm)
 }
 
-// Deprecated: Use ConvertToLLMMessages instead.
-func ConvertToFantasyMessages(msg *Message) []fantasy.Message {
-	return ConvertToLLMMessages(msg)
-}
-
-// Deprecated: Use ConvertFromLLMMessage instead.
-func ConvertFromFantasyMessage(msg fantasy.Message) Message {
-	return ConvertFromLLMMessage(msg)
+// extractTextFromFantasyMessage extracts plain text from a fantasy.Message.
+func extractTextFromFantasyMessage(fm fantasy.Message) string {
+	var b strings.Builder
+	for _, part := range fm.Content {
+		if tp, ok := part.(fantasy.TextPart); ok {
+			b.WriteString(tp.Text)
+		}
+	}
+	return b.String()
 }
