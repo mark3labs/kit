@@ -378,6 +378,10 @@ type AppModelOptions struct {
 	// on startup (used by --resume flag).
 	ShowSessionPicker bool
 
+	// StartupExtensionMessages are messages captured during extension
+	// initialization. They are displayed in the ScrollList at startup.
+	StartupExtensionMessages []string
+
 	// ThinkingLevel is the initial thinking level (e.g. "off", "medium").
 	ThinkingLevel string
 	// IsReasoningModel is true when the current model supports reasoning.
@@ -504,6 +508,9 @@ type AppModel struct {
 	// the startup info display.
 	mcpToolCount       int
 	extensionToolCount int
+
+	// startupExtensionMessages stores messages from extensions during initialization.
+	startupExtensionMessages []string
 
 	// getWidgets returns extension widgets for a given placement. May be nil.
 	getWidgets func(placement string) []WidgetData
@@ -726,6 +733,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.skillItems = opts.SkillItems
 	m.mcpToolCount = opts.MCPToolCount
 	m.extensionToolCount = opts.ExtensionToolCount
+	m.startupExtensionMessages = opts.StartupExtensionMessages
 
 	// Initialize streaming bash output buffer.
 	m.streamingBashMaxLines = 50 // cap to prevent memory issues
@@ -788,6 +796,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 // Init implements tea.Model. Initialises child components. Startup info is
 // printed to stdout before the program starts via PrintStartupInfo().
 func (m *AppModel) Init() tea.Cmd {
+	// Add startup info to ScrollList so it's visible in alt screen mode
+	m.AddStartupMessageToScrollList()
+
 	// m.input is always set by NewAppModel; its Init starts the textarea cursor blink.
 	// m.stream.Init() always returns nil, so there is nothing to batch.
 	return m.input.Init()
@@ -862,6 +873,76 @@ func (m *AppModel) PrintStartupInfo() {
 		rendered := ty.KVGroup(pairs)
 		rendered = styleMarginBottom1.Render(rendered)
 		fmt.Println(rendered)
+	}
+}
+
+// AddStartupMessageToScrollList adds the startup info as the first message in the ScrollList.
+// This ensures the startup info is visible in alt screen mode.
+func (m *AppModel) AddStartupMessageToScrollList() {
+	if m.uiVis().HideStartupMessage {
+		return
+	}
+
+	// Build the same content as PrintStartupInfo but add to ScrollList
+	ty := createTypography(GetTheme())
+	var pairs [][2]string
+
+	if m.providerName != "" && m.modelName != "" {
+		pairs = append(pairs, [2]string{"Model", fmt.Sprintf("%s (%s)", m.providerName, m.modelName)})
+	}
+
+	if m.loadingMessage != "" {
+		pairs = append(pairs, [2]string{"Status", m.loadingMessage})
+	}
+
+	// Context — loaded AGENTS.md files.
+	if len(m.contextPaths) > 0 {
+		contextStr := tildeHome(m.contextPaths[0])
+		if len(m.contextPaths) > 1 {
+			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)
+		}
+		pairs = append(pairs, [2]string{"Context", contextStr})
+	}
+
+	// Skills — listed by name.
+	if len(m.skillItems) > 0 {
+		names := make([]string, len(m.skillItems))
+		for i, si := range m.skillItems {
+			names[i] = si.Name
+		}
+		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
+	}
+
+	// Extension tool count (only shown when > 0).
+	if m.extensionToolCount > 0 {
+		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
+	}
+
+	// MCP tool count (only shown when > 0).
+	if m.mcpToolCount > 0 {
+		pairs = append(pairs, [2]string{"MCP", fmt.Sprintf("%d tools", m.mcpToolCount)})
+	}
+
+	if len(pairs) > 0 {
+		rendered := ty.KVGroup(pairs)
+		rendered = styleMarginBottom1.Render(rendered)
+
+		// Add as a styled system message to ScrollList
+		msg := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
+		m.messages = append(m.messages, msg)
+	}
+
+	// Add extension startup messages if any
+	if len(m.startupExtensionMessages) > 0 {
+		for _, extMsg := range m.startupExtensionMessages {
+			msg := NewStyledMessageItem(generateMessageID(), "system", extMsg, extMsg)
+			m.messages = append(m.messages, msg)
+		}
+	}
+
+	// Refresh ScrollList once with all startup messages
+	if len(m.messages) > 0 {
+		m.refreshContent()
 	}
 }
 
