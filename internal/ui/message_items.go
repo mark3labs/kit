@@ -113,18 +113,22 @@ type StreamingMessageItem struct {
 	role         string // "assistant" or "reasoning"
 	content      string // Accumulated streaming content
 	timestamp    time.Time
+	startTime    time.Time // When streaming started (for live duration counter)
 	modelName    string
-	streaming    bool         // true while actively streaming
+	streaming    bool           // true while actively streaming
+	finalDuration time.Duration // Frozen duration when complete
 	cachedRender string
 	cachedWidth  int
 }
 
 // NewStreamingMessageItem creates a new streaming message item.
 func NewStreamingMessageItem(id, role string, modelName string) *StreamingMessageItem {
+	now := time.Now()
 	return &StreamingMessageItem{
 		id:        id,
 		role:      role,
-		timestamp: time.Now(),
+		timestamp: now,
+		startTime: now,
 		modelName: modelName,
 		streaming: true,
 	}
@@ -137,8 +141,9 @@ func (s *StreamingMessageItem) ID() string {
 
 // Render renders the streaming message with live content.
 func (s *StreamingMessageItem) Render(width int) string {
-	// Return cached render if width matches and cache is valid
-	if s.cachedWidth == width && s.cachedRender != "" {
+	// For reasoning, never cache - we need live duration updates
+	// For assistant, cache is OK
+	if s.role != "reasoning" && s.cachedWidth == width && s.cachedRender != "" {
 		return s.cachedRender
 	}
 
@@ -147,21 +152,49 @@ func (s *StreamingMessageItem) Render(width int) string {
 
 	var rendered string
 	if s.role == "reasoning" {
-		// Render as reasoning/thinking block
+		// Render as reasoning/thinking block with live duration counter
 		theme := GetTheme()
 		mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 		ty := createTypography(theme)
 		content := strings.TrimLeft(s.content, " \t\n")
-		rendered = styleMarginBottom1.Render(mutedStyle.Render(ty.Italic(content)))
+		
+		var parts []string
+		parts = append(parts, mutedStyle.Render(ty.Italic(content)))
+		
+		// Add live duration counter (updates on each render)
+		var duration time.Duration
+		if s.finalDuration > 0 {
+			// Streaming complete, show frozen duration
+			duration = s.finalDuration
+		} else if !s.startTime.IsZero() {
+			// Still streaming, show live duration
+			duration = time.Since(s.startTime)
+		}
+		
+		if duration > 0 {
+			var durationStr string
+			if duration < time.Second {
+				durationStr = fmt.Sprintf("%dms", duration.Milliseconds())
+			} else {
+				durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
+			}
+			label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
+			durationStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
+			parts = append(parts, label+durationStyled)
+		}
+		
+		rendered = styleMarginBottom1.Render(strings.Join(parts, "\n"))
 	} else {
 		// Render as assistant message
 		msg := renderer.RenderAssistantMessage(s.content, s.timestamp, s.modelName)
 		rendered = msg.Content
 	}
 
-	// Cache and return
-	s.cachedRender = rendered
-	s.cachedWidth = width
+	// Cache and return (but reasoning is never cached due to live duration)
+	if s.role != "reasoning" {
+		s.cachedRender = rendered
+		s.cachedWidth = width
+	}
 	return rendered
 }
 
@@ -179,9 +212,13 @@ func (s *StreamingMessageItem) AppendChunk(chunk string) {
 	s.cachedWidth = 0 // Invalidate cache
 }
 
-// MarkComplete marks the streaming message as complete.
+// MarkComplete marks the streaming message as complete and freezes the duration.
 func (s *StreamingMessageItem) MarkComplete() {
 	s.streaming = false
+	// Freeze the duration for reasoning blocks
+	if s.role == "reasoning" && !s.startTime.IsZero() {
+		s.finalDuration = time.Since(s.startTime)
+	}
 }
 
 // --------------------------------------------------------------------------

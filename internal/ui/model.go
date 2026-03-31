@@ -2950,6 +2950,11 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 		return
 	}
 
+	// Transition detected: mark previous reasoning message as complete when assistant text starts
+	if streamMsg, ok := lastMsg.(*StreamingMessageItem); ok && streamMsg.role == "reasoning" && role == "assistant" {
+		streamMsg.MarkComplete()
+	}
+
 	// Otherwise, create a new StreamingMessageItem
 	id := fmt.Sprintf("streaming-%s-%d", role, len(m.messages))
 	newMsg := NewStreamingMessageItem(id, role, m.modelName)
