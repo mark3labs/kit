@@ -196,6 +196,24 @@ func (a *Agent) SetSessionMode(_ context.Context, _ acp.SetSessionModeRequest) (
 	return acp.SetSessionModeResponse{}, nil
 }
 
+// SetSessionModel changes the active model for a session.
+func (a *Agent) SetSessionModel(ctx context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
+	sessionID := string(params.SessionId)
+	sess, ok := a.registry.get(sessionID)
+	if !ok {
+		return acp.SetSessionModelResponse{}, acp.NewInvalidParams(fmt.Sprintf("session not found: %s", sessionID))
+	}
+
+	modelID := string(params.ModelId)
+	log.Debug("acp: set_session_model", "session", sessionID, "model", modelID)
+
+	if err := sess.kit.SetModel(ctx, modelID); err != nil {
+		return acp.SetSessionModelResponse{}, fmt.Errorf("set model: %w", err)
+	}
+
+	return acp.SetSessionModelResponse{}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Event streaming: Kit events → ACP SessionUpdate notifications
 // ---------------------------------------------------------------------------
