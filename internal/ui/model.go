@@ -940,6 +940,22 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		}
 	}
 
+	// Add a visual separator after startup info
+	if len(m.messages) > 0 {
+		theme := GetTheme()
+		separator := strings.Repeat("─", 80)
+		separatorStyled := lipgloss.NewStyle().
+			Foreground(theme.Border).
+			Render(separator)
+
+		// Add blank line, separator, blank line
+		blankMsg := NewStyledMessageItem(generateMessageID(), "system", "", "")
+		separatorMsg := NewStyledMessageItem(generateMessageID(), "system", separatorStyled, separatorStyled)
+		blankMsg2 := NewStyledMessageItem(generateMessageID(), "system", "", "")
+
+		m.messages = append(m.messages, blankMsg, separatorMsg, blankMsg2)
+	}
+
 	// Refresh ScrollList once with all startup messages
 	if len(m.messages) > 0 {
 		m.refreshContent()
