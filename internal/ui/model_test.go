@@ -136,6 +136,8 @@ func newTestAppModel(ctrl AppController) (*AppModel, *stubStreamComponent, *stub
 		width:                 80,
 		height:                24,
 		streamingBashMaxLines: 50, // Initialize buffer cap like NewAppModel does
+		scrollList:            NewScrollList(80, 20),
+		messages:              []MessageItem{},
 	}
 	return m, stream, input
 }
@@ -552,65 +554,87 @@ func TestStepComplete_noStreamContent_noCmd(t *testing.T) {
 	}
 }
 
-// TestSubmitMsg_printsUserMessage verifies that submitMsg produces a tea.Println
-// cmd for the user message.
+// TestSubmitMsg_printsUserMessage verifies that submitMsg adds the user message
+// to the ScrollList messages and triggers a layout update.
 func TestSubmitMsg_printsUserMessage(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
-	_, cmd := m.Update(submitMsg{Text: "user query"})
+	m = sendMsg(m, submitMsg{Text: "user query"})
 
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) for user message on submitMsg")
+	// In alt screen mode, user messages are added to the in-memory ScrollList
+	// rather than printed via tea.Println. Verify the message was added.
+	found := false
+	for _, msg := range m.messages {
+		if tm, ok := msg.(*TextMessageItem); ok && tm.role == "user" && tm.content == "user query" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected user message 'user query' in ScrollList messages")
 	}
 }
 
-// TestToolCallStarted_flushesOnly verifies that ToolCallStartedEvent flushes
-// accumulated stream content but does NOT print a tool call block (the unified
-// block is printed later on ToolResultEvent).
+// TestToolCallStarted_flushesOnly verifies that ToolCallStartedEvent marks
+// any active StreamingMessageItem as complete and resets the stream.
 func TestToolCallStarted_flushesOnly(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	// With no stream content, flush returns nil → cmd should be nil.
-	_, cmd := m.Update(app.ToolCallStartedEvent{
+	// With no stream content, nothing should change.
+	initialCount := len(m.messages)
+	m = sendMsg(m, app.ToolCallStartedEvent{
 		ToolName: "bash",
 		ToolArgs: `{"cmd":"ls"}`,
 	})
 
-	if cmd != nil {
-		t.Fatal("expected nil cmd on ToolCallStartedEvent with no stream content")
+	if len(m.messages) != initialCount {
+		t.Fatal("expected no new messages on ToolCallStartedEvent with no stream content")
 	}
 
-	// With stream content, flush returns tea.Println → cmd should be non-nil.
+	// Simulate a StreamingMessageItem already in messages (as if appendStreamingChunk was called)
+	// plus the stream component having rendered content.
+	streamItem := NewStreamingMessageItem("stream-1", "assistant", "test-model")
+	streamItem.AppendChunk("partial text")
+	m.messages = append(m.messages, streamItem)
 	stream.renderedContent = "partial text"
-	_, cmd = m.Update(app.ToolCallStartedEvent{
+
+	_ = sendMsg(m, app.ToolCallStartedEvent{
 		ToolName: "bash",
 		ToolArgs: `{"cmd":"ls"}`,
 	})
 
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd on ToolCallStartedEvent with stream content to flush")
+	// The StreamingMessageItem should have been marked complete.
+	if streamItem.streaming {
+		t.Fatal("expected StreamingMessageItem to be marked complete after ToolCallStartedEvent")
+	}
+	// Stream should have been reset.
+	if stream.resetCalled == 0 {
+		t.Fatal("expected stream.Reset() to be called")
 	}
 }
 
-// TestToolResult_printsAndStartsSpinner verifies that ToolResultEvent produces
-// a non-nil cmd and the stream receives a SpinnerEvent.
+// TestToolResult_printsAndStartsSpinner verifies that ToolResultEvent adds
+// the tool result to the ScrollList and the stream receives a SpinnerEvent.
 func TestToolResult_printsAndStartsSpinner(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, stream, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	_, cmd := m.Update(app.ToolResultEvent{
+	initialCount := len(m.messages)
+
+	m = sendMsg(m, app.ToolResultEvent{
 		ToolName: "bash",
 		ToolArgs: "{}",
 		Result:   "output",
 		IsError:  false,
 	})
 
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd on ToolResultEvent")
+	// Tool result should have been added to ScrollList messages.
+	if len(m.messages) <= initialCount {
+		t.Fatal("expected tool result message added to ScrollList")
 	}
 	// Stream should have received a SpinnerEvent to start spinner for next LLM call.
 	if stream.lastMsg == nil {
@@ -622,7 +646,7 @@ func TestToolResult_printsAndStartsSpinner(t *testing.T) {
 }
 
 // TestToolOutputEvent_accumulatesBashOutput verifies that ToolOutputEvent
-// accumulates stdout and stderr lines into the streaming bash output buffers.
+// accumulates stdout and stderr lines into a StreamingBashOutputItem in the ScrollList.
 func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
@@ -636,11 +660,22 @@ func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
 		IsStderr:   false,
 	})
 
-	if len(m.streamingBashOutput) != 1 || m.streamingBashOutput[0] != "line one\n" {
-		t.Fatalf("expected streamingBashOutput=['line one\\n'], got %v", m.streamingBashOutput)
+	// Should have created a StreamingBashOutputItem in messages.
+	var bashItem *StreamingBashOutputItem
+	for _, msg := range m.messages {
+		if item, ok := msg.(*StreamingBashOutputItem); ok {
+			bashItem = item
+			break
+		}
 	}
-	if len(m.streamingBashStderr) != 0 {
-		t.Fatalf("expected empty streamingBashStderr, got %v", m.streamingBashStderr)
+	if bashItem == nil {
+		t.Fatal("expected StreamingBashOutputItem in messages after ToolOutputEvent")
+	}
+	if len(bashItem.stdoutLines) != 1 || bashItem.stdoutLines[0] != "line one\n" {
+		t.Fatalf("expected stdout=['line one\\n'], got %v", bashItem.stdoutLines)
+	}
+	if len(bashItem.stderrLines) != 0 {
+		t.Fatalf("expected empty stderr, got %v", bashItem.stderrLines)
 	}
 
 	// Send another stdout chunk.
@@ -651,8 +686,15 @@ func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
 		IsStderr:   false,
 	})
 
-	if len(m.streamingBashOutput) != 2 {
-		t.Fatalf("expected 2 stdout lines, got %d", len(m.streamingBashOutput))
+	// Re-find the bash item (same item, updated)
+	bashItem = nil
+	for _, msg := range m.messages {
+		if item, ok := msg.(*StreamingBashOutputItem); ok {
+			bashItem = item
+		}
+	}
+	if bashItem == nil || len(bashItem.stdoutLines) != 2 {
+		t.Fatalf("expected 2 stdout lines, got %d", len(bashItem.stdoutLines))
 	}
 
 	// Send stderr chunk.
@@ -663,11 +705,17 @@ func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
 		IsStderr:   true,
 	})
 
-	if len(m.streamingBashStderr) != 1 {
-		t.Fatalf("expected 1 stderr line, got %d", len(m.streamingBashStderr))
+	bashItem = nil
+	for _, msg := range m.messages {
+		if item, ok := msg.(*StreamingBashOutputItem); ok {
+			bashItem = item
+		}
 	}
-	if m.streamingBashStderr[0] != "error: something failed\n" {
-		t.Fatalf("expected stderr 'error: something failed\\n', got %q", m.streamingBashStderr[0])
+	if bashItem == nil || len(bashItem.stderrLines) != 1 {
+		t.Fatalf("expected 1 stderr line, got %d", len(bashItem.stderrLines))
+	}
+	if bashItem.stderrLines[0] != "error: something failed\n" {
+		t.Fatalf("expected stderr 'error: something failed\\n', got %q", bashItem.stderrLines[0])
 	}
 }
 
@@ -749,16 +797,19 @@ func TestToolCallStarted_nonBashTool_doesNotSetCommand(t *testing.T) {
 }
 
 // TestStepError_printCmd verifies that StepErrorEvent with a non-nil error
-// produces a non-nil cmd (the tea.Println call for the error message).
+// adds an error message to the ScrollList.
 func TestStepError_printCmd(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	_, cmd := m.Update(app.StepErrorEvent{Err: errors.New("agent failed")})
+	initialCount := len(m.messages)
 
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd (tea.Println) on StepErrorEvent with error")
+	m = sendMsg(m, app.StepErrorEvent{Err: errors.New("agent failed")})
+
+	// Error should have been added to ScrollList messages.
+	if len(m.messages) <= initialCount {
+		t.Fatal("expected error message added to ScrollList on StepErrorEvent")
 	}
 }
 

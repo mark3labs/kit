@@ -325,7 +325,7 @@ type AppModelOptions struct {
 
 	// GetUIVisibility returns the current UI visibility overrides set by
 	// an extension, or nil if none have been set (show everything).
-	// Called during View() and PrintStartupInfo() to conditionally hide
+	// Called during View() to conditionally hide
 	// built-in chrome elements. May be nil if no extensions are loaded.
 	GetUIVisibility func() *UIVisibility
 
@@ -499,7 +499,7 @@ type AppModel struct {
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
 
-	// contextPaths and skillItems are used by PrintStartupInfo for the
+	// contextPaths and skillItems are used by AddStartupMessageToScrollList for the
 	// [Context] and [Skills] sections.
 	contextPaths []string
 	skillItems   []SkillItem
@@ -629,6 +629,11 @@ type AppModel struct {
 	// (resize, queue changes, widget updates, visibility changes, etc.).
 	// View() calls distributeHeight() when this is true and then clears it.
 	layoutDirty bool
+
+	// pendingGotoBottom requests a GotoBottom() after the next layout
+	// recalculation. Set when loading a session so that scrolling to the
+	// bottom happens with the correct viewport height.
+	pendingGotoBottom bool
 }
 
 // --------------------------------------------------------------------------
@@ -793,8 +798,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 // tea.Model interface
 // --------------------------------------------------------------------------
 
-// Init implements tea.Model. Initialises child components. Startup info is
-// printed to stdout before the program starts via PrintStartupInfo().
+// Init implements tea.Model. Initialises child components.
 func (m *AppModel) Init() tea.Cmd {
 	// Add startup info to ScrollList so it's visible in alt screen mode
 	m.AddStartupMessageToScrollList()
@@ -815,75 +819,20 @@ func (m *AppModel) uiVis() UIVisibility {
 	return UIVisibility{}
 }
 
-// PrintStartupInfo prints the startup banner (model name, context, skills,
-// tool counts) to stdout. Call this before program.Run() so the messages are
-// visible above the Bubble Tea managed region.
-//
-// All startup information is rendered inside a single system message block.
-func (m *AppModel) PrintStartupInfo() {
-	if m.uiVis().HideStartupMessage {
-		return
-	}
-
-	// Create typography instance for startup rendering
-	ty := createTypography(GetTheme())
-
-	fmt.Println()
-
-	// Build key-value pairs for startup info
-	var pairs [][2]string
-
-	if m.providerName != "" && m.modelName != "" {
-		pairs = append(pairs, [2]string{"Model", fmt.Sprintf("%s (%s)", m.providerName, m.modelName)})
-	}
-
-	if m.loadingMessage != "" {
-		pairs = append(pairs, [2]string{"Status", m.loadingMessage})
-	}
-
-	// Context — loaded AGENTS.md files.
-	if len(m.contextPaths) > 0 {
-		contextStr := tildeHome(m.contextPaths[0])
-		if len(m.contextPaths) > 1 {
-			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)
-		}
-		pairs = append(pairs, [2]string{"Context", contextStr})
-	}
-
-	// Skills — listed by name.
-	if len(m.skillItems) > 0 {
-		names := make([]string, len(m.skillItems))
-		for i, si := range m.skillItems {
-			names[i] = si.Name
-		}
-		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
-	}
-
-	// Extension tool count (only shown when > 0).
-	if m.extensionToolCount > 0 {
-		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
-	}
-
-	// MCP tool count (only shown when > 0).
-	if m.mcpToolCount > 0 {
-		pairs = append(pairs, [2]string{"MCP", fmt.Sprintf("%d tools", m.mcpToolCount)})
-	}
-
-	if len(pairs) > 0 {
-		rendered := ty.KVGroup(pairs)
-		rendered = styleMarginBottom1.Render(rendered)
-		fmt.Println(rendered)
-	}
-}
-
-// AddStartupMessageToScrollList adds the startup info as the first message in the ScrollList.
-// This ensures the startup info is visible in alt screen mode.
+// AddStartupMessageToScrollList adds the logo and startup info as the first
+// messages in the ScrollList. This is the only place startup information is
+// rendered — nothing is printed to stdout/terminal scrollback.
 func (m *AppModel) AddStartupMessageToScrollList() {
 	if m.uiVis().HideStartupMessage {
 		return
 	}
 
-	// Build the same content as PrintStartupInfo but add to ScrollList
+	// Add the ASCII logo at the very top.
+	logo := KitBanner()
+	logoMsg := NewStyledMessageItem(generateMessageID(), "logo", logo, logo)
+	m.messages = append(m.messages, logoMsg)
+
+	// Build key-value pairs for startup info.
 	ty := createTypography(GetTheme())
 	var pairs [][2]string
 
@@ -940,26 +889,19 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		}
 	}
 
-	// Add a visual separator after startup info
-	if len(m.messages) > 0 {
-		theme := GetTheme()
-		separator := strings.Repeat("─", 80)
-		separatorStyled := lipgloss.NewStyle().
-			Foreground(theme.Border).
-			Render(separator)
-
-		// Add blank line, separator, blank line
-		blankMsg := NewStyledMessageItem(generateMessageID(), "system", "", "")
-		separatorMsg := NewStyledMessageItem(generateMessageID(), "system", separatorStyled, separatorStyled)
-		blankMsg2 := NewStyledMessageItem(generateMessageID(), "system", "", "")
-
-		m.messages = append(m.messages, blankMsg, separatorMsg, blankMsg2)
-	}
+	// Add a visual separator after startup info: blank line + HR + blank line.
+	// Uses a single pre-rendered item so there are no left borders on the spacing.
+	theme := GetTheme()
+	separator := strings.Repeat("─", 80)
+	separatorStyled := lipgloss.NewStyle().
+		Foreground(theme.Border).
+		Render(separator)
+	separatorBlock := "\n" + separatorStyled + "\n"
+	separatorMsg := NewStyledMessageItem(generateMessageID(), "separator", separatorBlock, separatorBlock)
+	m.messages = append(m.messages, separatorMsg)
 
 	// Refresh ScrollList once with all startup messages
-	if len(m.messages) > 0 {
-		m.refreshContent()
-	}
+	m.refreshContent()
 }
 
 // tildeHome replaces the user's home directory prefix with ~ for display.
@@ -2039,6 +1981,13 @@ func (m *AppModel) View() tea.View {
 		m.layoutDirty = false
 	}
 
+	// After layout is recalculated with correct heights, scroll to bottom
+	// if requested (e.g. after loading a session).
+	if m.pendingGotoBottom {
+		m.scrollList.GotoBottom()
+		m.pendingGotoBottom = false
+	}
+
 	vis := m.uiVis()
 
 	// Render scrollback content from ScrollList (replaces renderStream() in alt screen mode)
@@ -2590,6 +2539,8 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand, args string) tea.Cmd {
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
 		}
+		// Clear the ScrollList so the conversation starts fresh.
+		m.messages = []MessageItem{}
 		m.printSystemMessage("Conversation cleared. Starting fresh.")
 	case "/clear-queue":
 		if m.appCtrl != nil {
@@ -3396,6 +3347,8 @@ func (m *AppModel) performNewSession() tea.Cmd {
 		if m.usageTracker != nil {
 			m.usageTracker.Reset()
 		}
+		// Clear the ScrollList so the new session starts fresh.
+		m.messages = []MessageItem{}
 		m.printSystemMessage("Conversation cleared. Starting fresh.")
 		return nil
 	}
@@ -3413,6 +3366,8 @@ func (m *AppModel) performNewSession() tea.Cmd {
 	if m.usageTracker != nil {
 		m.usageTracker.Reset()
 	}
+	// Clear the ScrollList so the new session starts fresh.
+	m.messages = []MessageItem{}
 	m.printSystemMessage("New session started. Previous conversation saved.")
 	return nil
 }
@@ -3663,7 +3618,7 @@ func (m *AppModel) handleResumeCommand() tea.Cmd {
 }
 
 // renderSessionHistory walks the current session branch and renders all
-// messages (user, assistant, tool calls/results) into the scrollback buffer.
+// messages (user, assistant, tool calls/results) into the ScrollList.
 // This gives the user visual context of the conversation when resuming or
 // importing a session. Call this after switchSession succeeds.
 func (m *AppModel) renderSessionHistory() {
@@ -3676,6 +3631,9 @@ func (m *AppModel) renderSessionHistory() {
 	if len(branch) == 0 {
 		return
 	}
+
+	// Clear existing messages so we start fresh with the resumed session.
+	m.messages = []MessageItem{}
 
 	// First pass: build a map of tool call ID → {name, args} from assistant
 	// messages so we can pair them with tool results.
@@ -3701,7 +3659,7 @@ func (m *AppModel) renderSessionHistory() {
 		}
 	}
 
-	// Second pass: render each message in order.
+	// Second pass: create MessageItems for each message in order.
 	for _, entry := range branch {
 		me, ok := entry.(*session.MessageEntry)
 		if !ok {
@@ -3716,14 +3674,18 @@ func (m *AppModel) renderSessionHistory() {
 		case message.RoleUser:
 			text := msg.Content()
 			if text != "" {
-				m.appendScrollback(m.renderer.RenderUserMessage(text, msg.CreatedAt).Content)
+				styledMsg := m.renderer.RenderUserMessage(text, msg.CreatedAt)
+				item := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
+				m.messages = append(m.messages, item)
 			}
 
 		case message.RoleAssistant:
 			// First render any reasoning/thinking content
 			reasoning := msg.Reasoning()
 			if reasoning.Thinking != "" {
-				m.appendScrollback(m.renderer.RenderReasoningBlock(reasoning.Thinking, msg.CreatedAt).Content)
+				styledMsg := m.renderer.RenderReasoningBlock(reasoning.Thinking, msg.CreatedAt)
+				item := NewStyledMessageItem(generateMessageID(), "reasoning", reasoning.Thinking, styledMsg.Content)
+				m.messages = append(m.messages, item)
 			}
 			// Then render the text content
 			text := msg.Content()
@@ -3732,7 +3694,9 @@ func (m *AppModel) renderSessionHistory() {
 				if msg.Model != "" {
 					modelName = msg.Model
 				}
-				m.appendScrollback(m.renderer.RenderAssistantMessage(text, msg.CreatedAt, modelName).Content)
+				styledMsg := m.renderer.RenderAssistantMessage(text, msg.CreatedAt, modelName)
+				item := NewStyledMessageItem(generateMessageID(), "assistant", text, styledMsg.Content)
+				m.messages = append(m.messages, item)
 			}
 			// Tool calls from assistant messages are rendered when we
 			// encounter their corresponding tool results below.
@@ -3747,10 +3711,19 @@ func (m *AppModel) renderSessionHistory() {
 					}
 					toolArgs = info.Args
 				}
-				m.appendScrollback(m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError).Content)
+				styledMsg := m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError)
+				item := NewStyledMessageItem(generateMessageID(), "tool", styledMsg.Content, styledMsg.Content)
+				m.messages = append(m.messages, item)
 			}
 		}
 	}
+
+	// Update the ScrollList with the rebuilt message list.
+	// Defer GotoBottom until after the next distributeHeight() so the
+	// scroll position is calculated with the correct viewport height.
+	m.refreshContent()
+	m.layoutDirty = true
+	m.pendingGotoBottom = true
 }
 
 // handleSessionInfoCommand shows session statistics.

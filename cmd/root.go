@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
@@ -217,29 +216,10 @@ func configToUiTheme(cfg config.Theme) ui.Theme {
 	}
 }
 
-// kitBanner returns the KIT ASCII art title with KITT scanner lights,
-// rendered with a KITT red gradient.
+// kitBanner returns the KIT ASCII art title with KITT scanner lights.
+// Delegates to ui.KitBanner() which owns the logo rendering.
 func kitBanner() string {
-	kittDark := lipgloss.Color("#8B0000")
-	kittBright := lipgloss.Color("#FF2200")
-	lines := []string{
-		"            ██╗  ██╗ ██╗ ████████╗",
-		"            ██║ ██╔╝ ██║ ╚══██╔══╝",
-		"            █████╔╝  ██║    ██║",
-		"            ██╔═██╗  ██║    ██║",
-		"            ██║  ██╗ ██║    ██║",
-		"            ╚═╝  ╚═╝ ╚═╝    ╚═╝",
-		" ░░░░░░▒▒▒▒▒▓▓▓▓███████████████▓▓▓▓▒▒▒▒▒░░░░░░",
-	}
-
-	var result strings.Builder
-	for i, line := range lines {
-		if i > 0 {
-			result.WriteString("\n")
-		}
-		result.WriteString(ui.ApplyGradient(line, kittDark, kittBright))
-	}
-	return result.String()
+	return ui.KitBanner()
 }
 
 func init() {
@@ -1834,20 +1814,6 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		SwitchSession:            switchSession,
 		ShowSessionPicker:        resumeFlag,
 	})
-
-	// Print KIT banner and startup info to stdout before Bubble Tea takes over the screen.
-	fmt.Println(kitBanner())
-	fmt.Println()
-	appModel.PrintStartupInfo()
-
-	// Print any extension messages that were captured during startup.
-	if len(startupExtensionMessages) > 0 {
-		fmt.Println()
-		for _, msg := range startupExtensionMessages {
-			fmt.Println(msg)
-		}
-		fmt.Println()
-	}
 
 	program := tea.NewProgram(appModel)
 

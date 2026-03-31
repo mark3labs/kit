@@ -294,3 +294,28 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 
 	return result.String()
 }
+
+// KitBanner returns the KIT ASCII art title with KITT scanner lights,
+// rendered with a KITT red gradient.
+func KitBanner() string {
+	kittDark := lipgloss.Color("#8B0000")
+	kittBright := lipgloss.Color("#FF2200")
+	lines := []string{
+		"            ██╗  ██╗ ██╗ ████████╗",
+		"            ██║ ██╔╝ ██║ ╚══██╔══╝",
+		"            █████╔╝  ██║    ██║",
+		"            ██╔═██╗  ██║    ██║",
+		"            ██║  ██╗ ██║    ██║",
+		"            ╚═╝  ╚═╝ ╚═╝    ╚═╝",
+		" ░░░░░░▒▒▒▒▒▓▓▓▓███████████████▓▓▓▓▒▒▒▒▒░░░░░░",
+	}
+
+	var result strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(ApplyGradient(line, kittDark, kittBright))
+	}
+	return result.String()
+}
