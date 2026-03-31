@@ -243,9 +243,6 @@ type UIVisibility struct {
 
 // AppModelOptions holds configuration passed to NewAppModel.
 type AppModelOptions struct {
-	// CompactMode selects the compact renderer for message formatting.
-	CompactMode bool
-
 	// ModelName is the display name of the model (e.g. "claude-sonnet-4-5").
 	ModelName string
 
@@ -428,14 +425,8 @@ type AppModel struct {
 	// stream is the child streaming display component (spinner + streaming text).
 	stream streamComponentIface
 
-	// renderer renders completed messages for tea.Println output. It is either
-	// a *MessageRenderer (standard mode) or a *CompactRenderer (compact mode),
-	// chosen at construction time via the Renderer interface.
+	// renderer renders completed messages for tea.Println output.
 	renderer Renderer
-
-	// compactMode is retained for StreamComponent selection and any remaining
-	// mode-specific logic (e.g. startup info formatting).
-	compactMode bool
 
 	// modelName is the LLM model name shown in rendered messages.
 	modelName string
@@ -675,23 +666,14 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		height = 24 // sensible fallback
 	}
 
-	// Choose the renderer implementation based on compact mode.
-	var rdr Renderer
-	if opts.CompactMode {
-		cr := NewCompactRenderer(width, false)
-		cr.getToolRenderer = opts.GetToolRenderer
-		rdr = cr
-	} else {
-		mr := newMessageRenderer(width, false)
-		mr.getToolRenderer = opts.GetToolRenderer
-		rdr = mr
-	}
+	mr := newMessageRenderer(width, false)
+	mr.getToolRenderer = opts.GetToolRenderer
+	rdr := mr
 
 	m := &AppModel{
 		state:          stateInput,
 		appCtrl:        appCtrl,
 		renderer:       rdr,
-		compactMode:    opts.CompactMode,
 		modelName:      opts.ModelName,
 		providerName:   opts.ProviderName,
 		loadingMessage: opts.LoadingMessage,
@@ -764,7 +746,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		}
 	}
 
-	m.stream = NewStreamComponent(opts.CompactMode, width, opts.ModelName)
+	m.stream = NewStreamComponent(width, opts.ModelName)
 	m.stream.SetThinkingVisible(m.thinkingVisible)
 
 	// If --resume was passed, open the session picker immediately.

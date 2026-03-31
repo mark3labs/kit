@@ -67,10 +67,6 @@ type Options struct {
 	// Debug enables verbose debug logging.
 	Debug bool
 
-	// CompactMode selects the compact renderer instead of the block renderer for
-	// message formatting.
-	CompactMode bool
-
 	// UsageTracker is an optional callback for recording token usage after each
 	// agent step. When non-nil, the app layer calls UpdateUsage (or
 	// EstimateAndUpdateUsage as a fallback) using the usage data returned by the

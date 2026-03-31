@@ -25,7 +25,6 @@ type CLISetupOptions struct {
 	Agent          AgentInterface
 	ModelString    string
 	Debug          bool
-	Compact        bool
 	Quiet          bool
 	ShowDebug      bool   // Whether to show debug config
 	ProviderAPIKey string // For OAuth detection
@@ -76,7 +75,7 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 		return nil, nil // No CLI in quiet mode
 	}
 
-	cli, err := NewCLI(opts.Debug, opts.Compact)
+	cli, err := NewCLI(opts.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CLI: %v", err)
 	}

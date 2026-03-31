@@ -275,10 +275,9 @@ func TestInputComponent_UnknownSlashCommand_ForwardsAsSubmit(t *testing.T) {
 // Helpers
 // --------------------------------------------------------------------------
 
-// newTestStream creates a StreamComponent with a fixed width and model name,
-// in non-compact mode.
+// newTestStream creates a StreamComponent with a fixed width and model name.
 func newTestStream() *StreamComponent {
-	return NewStreamComponent(false, 80, "test-model")
+	return NewStreamComponent(80, "test-model")
 }
 
 // sendStreamMsg calls component.Update and returns the updated component.

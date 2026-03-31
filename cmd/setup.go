@@ -41,7 +41,6 @@ func BuildAppOptions(mcpConfig *config.Config, modelName string, serverNames, to
 		StreamingEnabled: viper.GetBool("stream"),
 		Quiet:            quietFlag,
 		Debug:            viper.GetBool("debug"),
-		CompactMode:      viper.GetBool("compact"),
 	}
 }
 
@@ -131,7 +130,6 @@ func SetupCLIForNonInteractive(k *kit.Kit) (*ui.CLI, error) {
 		Agent:          agentAdapter,
 		ModelString:    viper.GetString("model"),
 		Debug:          viper.GetBool("debug"),
-		Compact:        viper.GetBool("compact"),
 		Quiet:          quietFlag,
 		ShowDebug:      false,
 		ProviderAPIKey: viper.GetString("provider-api-key"),

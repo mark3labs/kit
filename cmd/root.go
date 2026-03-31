@@ -38,7 +38,6 @@ var (
 	noExitFlag       bool
 	maxSteps         int
 	streamFlag       bool // Enable streaming output
-	compactMode      bool // Enable compact output mode
 	autoCompactFlag  bool // Enable auto-compaction near context limit
 
 	// Session management
@@ -281,8 +280,6 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&streamFlag, "stream", true, "enable streaming output for faster response display")
 	rootCmd.PersistentFlags().
-		BoolVar(&compactMode, "compact", false, "enable compact output mode without fancy styling")
-	rootCmd.PersistentFlags().
 		BoolVar(&autoCompactFlag, "auto-compact", false, "auto-compact conversation when near context limit")
 	rootCmd.PersistentFlags().
 		StringVarP(&sessionPath, "session", "s", "", "open a specific JSONL session file")
@@ -325,7 +322,6 @@ func init() {
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
 	_ = viper.BindPFlag("stream", rootCmd.PersistentFlags().Lookup("stream"))
-	_ = viper.BindPFlag("compact", rootCmd.PersistentFlags().Lookup("compact"))
 	_ = viper.BindPFlag("auto-compact", rootCmd.PersistentFlags().Lookup("auto-compact"))
 
 	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
@@ -728,7 +724,7 @@ func runNormalMode(ctx context.Context) error {
 	var spinnerFunc kit.SpinnerFunc
 	if !quietFlag {
 		spinnerFunc = func(fn func() error) error {
-			tempCli, tempErr := ui.NewCLI(viper.GetBool("debug"), viper.GetBool("compact"))
+			tempCli, tempErr := ui.NewCLI(viper.GetBool("debug"))
 			if tempErr == nil {
 				return tempCli.ShowSpinner(fn)
 			}
@@ -1804,7 +1800,6 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 	cwd, _ := os.Getwd()
 
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
-		CompactMode:             viper.GetBool("compact"),
 		ModelName:               modelName,
 		ProviderName:            providerName,
 		LoadingMessage:          loadingMessage,

@@ -7,9 +7,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Renderer is the interface satisfied by both MessageRenderer and
-// CompactRenderer. It allows model.go and cli.go to call rendering methods
-// without branching on compact mode.
+// Renderer is the interface satisfied by MessageRenderer. It allows model.go
+// and cli.go to call rendering methods uniformly.
 type Renderer interface {
 	RenderUserMessage(content string, timestamp time.Time) UIMessage
 	RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage
@@ -23,15 +22,14 @@ type Renderer interface {
 	UpdateTheme()
 }
 
-// Compile-time checks that both renderers satisfy the Renderer interface.
+// Compile-time check that MessageRenderer satisfies the Renderer interface.
 var _ Renderer = (*MessageRenderer)(nil)
-var _ Renderer = (*CompactRenderer)(nil)
 
 // parseBashOutput parses <stdout>/<stderr> tagged output from bash tool
 // results, styling stderr with the theme's error color. Returns the
 // combined, styled output string with tags stripped.
 //
-// Shared by both MessageRenderer and CompactRenderer.
+// Shared by MessageRenderer.
 func parseBashOutput(result string, theme Theme) string {
 	var formattedResult strings.Builder
 	remaining := result

@@ -191,7 +191,6 @@ type Config struct {
 	Model          string                     `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxSteps       int                        `json:"max-steps,omitempty" yaml:"max-steps,omitempty"`
 	Debug          bool                       `json:"debug,omitempty" yaml:"debug,omitempty"`
-	Compact        bool                       `json:"compact,omitempty" yaml:"compact,omitempty"`
 	SystemPrompt   string                     `json:"system-prompt,omitempty" yaml:"system-prompt,omitempty"`
 	ProviderAPIKey string                     `json:"provider-api-key,omitempty" yaml:"provider-api-key,omitempty"`
 	ProviderURL    string                     `json:"provider-url,omitempty" yaml:"provider-url,omitempty"`

@@ -226,7 +226,7 @@ type StreamComponent struct {
 	// from models that wrap reasoning in XML-like tags (Qwen, DeepSeek).
 	inThinkTag bool
 
-	// renderer renders streaming assistant text in either compact or standard mode.
+	// renderer renders streaming assistant text.
 	renderer Renderer
 
 	// modelName is displayed in the streaming text header.
@@ -247,17 +247,12 @@ type StreamComponent struct {
 }
 
 // NewStreamComponent creates a new StreamComponent ready to be embedded in AppModel.
-func NewStreamComponent(compactMode bool, width int, modelName string) *StreamComponent {
+func NewStreamComponent(width int, modelName string) *StreamComponent {
 	if width == 0 {
 		width = 80
 	}
 
-	var renderer Renderer
-	if compactMode {
-		renderer = NewCompactRenderer(width, false)
-	} else {
-		renderer = newMessageRenderer(width, false)
-	}
+	renderer := newMessageRenderer(width, false)
 
 	return &StreamComponent{
 		spinnerFrames: knightRiderFrames(),

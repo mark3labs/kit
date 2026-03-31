@@ -11,33 +11,26 @@ import (
 )
 
 // CLI manages the command-line interface for KIT, providing message rendering,
-// user input handling, and display management. It supports both standard and compact
-// display modes, handles streaming responses, tracks token usage, and manages the
-// overall conversation flow between the user and AI assistants.
+// user input handling, and display management. It handles streaming responses,
+// tracks token usage, and manages the overall conversation flow between the
+// user and AI assistants.
 type CLI struct {
 	renderer     Renderer
 	usageTracker *UsageTracker
 	width        int
-	compactMode  bool
 	debug        bool
 	modelName    string
 }
 
-// NewCLI creates and initializes a new CLI instance with the specified display modes.
-// The debug parameter enables debug message rendering, while compact enables a more
-// condensed display format. Returns an initialized CLI ready for interaction or an
+// NewCLI creates and initializes a new CLI instance. The debug parameter enables
+// debug message rendering. Returns an initialized CLI ready for interaction or an
 // error if initialization fails.
-func NewCLI(debug bool, compact bool) (*CLI, error) {
+func NewCLI(debug bool) (*CLI, error) {
 	cli := &CLI{
-		compactMode: compact,
-		debug:       debug,
+		debug: debug,
 	}
 	cli.updateSize()
-	if compact {
-		cli.renderer = NewCompactRenderer(cli.width, debug)
-	} else {
-		cli.renderer = newMessageRenderer(cli.width, debug)
-	}
+	cli.renderer = newMessageRenderer(cli.width, debug)
 
 	return cli, nil
 }
