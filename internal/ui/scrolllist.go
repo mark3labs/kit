@@ -29,6 +29,15 @@ type ScrollList struct {
 	height     int  // Viewport height in lines
 	autoScroll bool // Whether to auto-scroll to bottom on new content
 	itemGap    int  // Number of blank lines between items (0 = no gap)
+	focusedIdx int  // Index of focused/selected item (-1 = none)
+	selectable bool // Whether items can be selected via mouse/keyboard
+
+	// Selection tracking for copy+paste (crush-style)
+	selection     CopySelection // Current text selection
+	mouseDown     bool          // Whether mouse button is currently down
+	mouseDownX    int           // X coordinate where mouse was pressed
+	mouseDownY    int           // Y coordinate where mouse was pressed
+	mouseDownItem int           // Item index where mouse was pressed
 }
 
 // NewScrollList creates a new ScrollList with the given dimensions.
@@ -73,6 +82,149 @@ func (s *ScrollList) SetItemGap(gap int) {
 // ItemGap returns the current gap between items.
 func (s *ScrollList) ItemGap() int {
 	return s.itemGap
+}
+
+// SetSelectable enables or disables item selection.
+func (s *ScrollList) SetSelectable(selectable bool) {
+	s.selectable = selectable
+}
+
+// FocusedIdx returns the currently focused item index (-1 if none).
+func (s *ScrollList) FocusedIdx() int {
+	return s.focusedIdx
+}
+
+// SetFocused sets the focused item by index.
+func (s *ScrollList) SetFocused(idx int) {
+	if idx < -1 {
+		s.focusedIdx = -1
+	} else if idx >= len(s.items) {
+		s.focusedIdx = len(s.items) - 1
+	} else {
+		s.focusedIdx = idx
+	}
+}
+
+// SelectItemAtY selects the item at the given Y coordinate (relative to viewport).
+// Returns the selected item index or -1 if no item at that position.
+func (s *ScrollList) SelectItemAtY(y int) int {
+	if !s.selectable || len(s.items) == 0 || y < 0 || y >= s.height {
+		return -1
+	}
+
+	// Calculate which item is at the given Y position
+	currentY := 0
+	for idx := s.offsetIdx; idx < len(s.items); idx++ {
+		item := s.items[idx]
+		itemHeight := item.Height()
+
+		// Check if y falls within this item
+		if y >= currentY && y < currentY+itemHeight {
+			s.focusedIdx = idx
+			return idx
+		}
+
+		currentY += itemHeight
+
+		// Add gap after item (except last)
+		if s.itemGap > 0 && idx < len(s.items)-1 {
+			currentY += s.itemGap
+		}
+
+		// Stop if we've passed the viewport
+		if currentY >= s.height {
+			break
+		}
+	}
+
+	return -1
+}
+
+// HandleMouseDown handles mouse button press for selection (crush-style).
+// Returns true if the click was handled.
+func (s *ScrollList) HandleMouseDown(x, y int) bool {
+	if !s.selectable || len(s.items) == 0 {
+		return false
+	}
+
+	s.mouseDown = true
+	s.mouseDownX = x
+	s.mouseDownY = y
+
+	// Find which item was clicked
+	itemIdx := s.SelectItemAtY(y)
+	s.mouseDownItem = itemIdx
+
+	// Start a new selection at click position
+	if itemIdx >= 0 {
+		s.selection = CopySelection{
+			StartItemIdx: itemIdx,
+			StartLine:    0, // Will be calculated based on Y within item
+			StartCol:     x,
+			EndItemIdx:   itemIdx,
+			EndLine:      0,
+			EndCol:       x,
+			Active:       true,
+		}
+		return true
+	}
+
+	return false
+}
+
+// HandleMouseDrag handles mouse drag for selection (crush-style).
+// Updates the selection end point. Returns true if selection changed.
+func (s *ScrollList) HandleMouseDrag(x, y int) bool {
+	if !s.mouseDown || !s.selectable {
+		return false
+	}
+
+	// Find which item we're dragging over
+	itemIdx := s.SelectItemAtY(y)
+	if itemIdx < 0 {
+		return false
+	}
+
+	// Update selection end point
+	s.selection.EndItemIdx = itemIdx
+	s.selection.EndLine = 0 // Will be calculated based on Y within item
+	s.selection.EndCol = x
+	s.selection.Active = true
+
+	return true
+}
+
+// HandleMouseUp handles mouse button release (crush-style).
+// Finalizes selection and returns true if there was an active selection.
+func (s *ScrollList) HandleMouseUp(x, y int) bool {
+	if !s.mouseDown {
+		return false
+	}
+
+	s.mouseDown = false
+
+	// Check if we have a valid selection
+	if s.selection.Active && !s.selection.IsEmpty() {
+		return true
+	}
+
+	return false
+}
+
+// GetSelection returns the current text selection.
+func (s *ScrollList) GetSelection() CopySelection {
+	return s.selection
+}
+
+// ClearSelection clears the current text selection.
+func (s *ScrollList) ClearSelection() {
+	s.selection = CopySelection{}
+	s.mouseDown = false
+}
+
+// HasSelection returns true if there is an active non-empty selection.
+func (s *ScrollList) HasSelection() bool {
+	return s.selection.Active && !s.selection.IsEmpty()
 }
 
 // ScrollBy scrolls the viewport by the given number of lines.

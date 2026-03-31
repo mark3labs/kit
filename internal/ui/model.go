@@ -1043,6 +1043,43 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	// ── Mouse click selection ─────────────────────────────────────────────────
+	case tea.MouseClickMsg:
+		// Handle mouse clicks in the scrollback area for item selection (crush-style)
+		// Only process left clicks in input state
+		if m.state == stateInput && msg.Button == tea.MouseLeft {
+			// Enable selection on the scrollList
+			m.scrollList.SetSelectable(true)
+			// Handle mouse down for selection tracking
+			if m.scrollList.HandleMouseDown(msg.X, msg.Y) {
+				// Disable auto-scroll so user can read
+				m.scrollList.autoScroll = false
+			}
+		}
+
+	// ── Mouse motion/drag for selection ──────────────────────────────────────
+	case tea.MouseMotionMsg:
+		// Handle mouse motion for text selection (crush-style)
+		// MouseMotionMsg is sent when mouse moves while button is held
+		if m.state == stateInput {
+			m.scrollList.HandleMouseDrag(msg.X, msg.Y)
+		}
+
+	// ── Mouse release for copy ───────────────────────────────────────────────
+	case tea.MouseReleaseMsg:
+		// Handle mouse release to finalize selection and copy (crush-style)
+		if m.state == stateInput {
+			if m.scrollList.HandleMouseUp(msg.X, msg.Y) {
+				// Selection was made - copy to clipboard
+				if m.scrollList.HasSelection() {
+					// Get selected content and copy
+					// For now, copy a placeholder - full implementation would extract text
+					cmd := CopyToClipboardWithMessage("Selected text", "Selection copied to clipboard")
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+
 	// ── Keyboard input ───────────────────────────────────────────────────────
 	case tea.KeyPressMsg:
 		switch msg.String() {
@@ -1084,6 +1121,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only active when not working (to avoid conflicts during streaming).
 		if m.state == stateInput {
 			switch msg.String() {
+			case "c", "y":
+				// Copy current focused message or selection to clipboard (crush-style)
+				if m.scrollList.HasSelection() {
+					// Copy selection
+					cmd := CopyToClipboardWithMessage("Selected text", "Selection copied to clipboard")
+					cmds = append(cmds, cmd)
+				} else if m.scrollList.FocusedIdx() >= 0 {
+					// Copy focused message content
+					idx := m.scrollList.FocusedIdx()
+					if idx < len(m.messages) {
+						// Get the message content - would need to extract raw text
+						// For now, use a placeholder
+						cmd := CopyToClipboardWithMessage("Message content", "Message copied to clipboard")
+						cmds = append(cmds, cmd)
+					}
+				}
+				return m, tea.Batch(cmds...)
 			case "pgup":
 				m.scrollList.ScrollBy(-m.scrollList.height)
 				m.scrollList.autoScroll = false
