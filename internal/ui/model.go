@@ -395,11 +395,11 @@ type AppModelOptions struct {
 // layout. It holds a reference to the app layer (AppController) for triggering
 // agent work and queue operations.
 //
-// Layout (stacked, no alt screen):
+// Layout (alt screen):
 //
 //	┌─ [custom header] (optional, from extension) ──────┐
-//	├─ stream region (variable height) ─────────────────┤
-//	│                                                    │
+//	├─ scroll region (variable height, ScrollList) ─────┤
+//	│  (completed messages + live streaming text)        │
 //	├─ separator line (with optional queue count) ───────┤
 //	│  [above widgets]                                   │
 //	│  queued  How do I fix the build?                   │
@@ -413,8 +413,8 @@ type AppModelOptions struct {
 // The status bar is always present (1 line) to avoid layout shifts that
 // occurred when usage info appeared/disappeared conditionally.
 //
-// Completed responses are emitted above the BT-managed region via tea.Println()
-// before the model resets for the next interaction.
+// All messages (completed and streaming) are rendered via the ScrollList
+// viewport. The alt screen owns the full terminal.
 type AppModel struct {
 	// state is the current state machine state.
 	state appState
@@ -429,7 +429,7 @@ type AppModel struct {
 	// stream is the child streaming display component (spinner + streaming text).
 	stream streamComponentIface
 
-	// renderer renders completed messages for tea.Println output.
+	// renderer renders completed messages for ScrollList display.
 	renderer Renderer
 
 	// modelName is the LLM model name shown in rendered messages.
@@ -437,7 +437,7 @@ type AppModel struct {
 
 	// queuedMessages stores the text of prompts that were queued (not yet
 	// submitted to the agent). They are rendered with a "queued" badge above
-	// the input and move to scrollback when the agent picks them up.
+	// the input and move to the ScrollList when the agent picks them up.
 	queuedMessages []string
 
 	// steeringMessages stores the text of prompts that were sent as steer
@@ -446,8 +446,6 @@ type AppModel struct {
 	steeringMessages []string
 
 	// scrollList manages the in-memory message history with viewport scrolling.
-	// Replaces the terminal scrollback (tea.Println) pattern with in-memory
-	// scrollback for alt screen mode.
 	scrollList *ScrollList
 
 	// messages holds all completed messages in the conversation history.
@@ -455,20 +453,10 @@ type AppModel struct {
 	messages []MessageItem
 
 	// pendingUserPrints holds user messages that have been consumed from the
-	// queue but not yet printed to scrollback. They are deferred until
+	// queue but not yet added to the ScrollList. They are deferred until
 	// SpinnerEvent{Show: true} so the previous assistant response can be
 	// flushed first, preserving chronological order.
-	// NOTE: With ScrollList, we add these directly to messages instead of printing.
 	pendingUserPrints []string
-
-	// scrollbackBuf is DEPRECATED in alt screen mode but kept for compatibility.
-	// In alt screen mode, messages go directly to the scrollList.
-	// All print helpers append here instead of returning tea.Println directly.
-	// The buffer is drained into a single atomic tea.Println at the end of
-	// each Update call via drainScrollback(). If the stream component has
-	// unflushed content, it is automatically prepended so that new messages
-	// always appear below the previous assistant response.
-	scrollbackBuf []string
 
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
@@ -650,15 +638,9 @@ type streamComponentIface interface {
 	tea.Model
 	// Reset clears accumulated state between agent steps.
 	Reset()
-	// SetHeight constrains the render output to at most h lines (0 = unconstrained).
-	SetHeight(h int)
 	// GetRenderedContent returns the rendered assistant message from accumulated
 	// streaming text, or empty string if nothing has been accumulated.
 	GetRenderedContent() string
-	// ConsumeOverflow returns lines from the top of the rendered content that
-	// have overflowed the allocated height and haven't been pushed to the
-	// terminal scrollback yet. Returns "" when no new overflow exists.
-	ConsumeOverflow() string
 	// SpinnerView returns the rendered spinner line (animation + optional label).
 	// Returns "" when the spinner is not active. The parent renders this in the
 	// status bar so the spinner never changes the view height.
@@ -821,7 +803,7 @@ func (m *AppModel) uiVis() UIVisibility {
 
 // AddStartupMessageToScrollList adds the logo and startup info as the first
 // messages in the ScrollList. This is the only place startup information is
-// rendered — nothing is printed to stdout/terminal scrollback.
+// rendered — nothing is printed to stdout.
 func (m *AppModel) AddStartupMessageToScrollList() {
 	if m.uiVis().HideStartupMessage {
 		return
@@ -1012,7 +994,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	case ModelSelectorCancelledMsg:
@@ -1034,7 +1015,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.printSystemMessage("Session switching not available.")
 		}
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	case SessionSelectorCancelledMsg:
@@ -1045,7 +1025,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SessionDeletedMsg:
 		// Session was deleted from picker — just show a message.
 		m.printSystemMessage(fmt.Sprintf("Deleted session: %s", msg.Name))
-		cmds = append(cmds, m.drainScrollback())
 		return m, tea.Batch(cmds...)
 
 	// ── Window resize ────────────────────────────────────────────────────────
@@ -1367,7 +1346,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
-				cmds = append(cmds, m.drainScrollback())
 				return m, tea.Batch(cmds...)
 			}
 		}
@@ -1388,7 +1366,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Regular prompt — forward to the app layer.
 		// Preprocess @file references: expand them into XML-wrapped file
 		// content before sending to the agent. The display text (shown in
-		// scrollback) uses the original user text so the UI stays clean.
+		// ScrollList) uses the original user text so the UI stays clean.
 		processedText := msg.Text
 		if m.cwd != "" {
 			processedText = ProcessFileAttachments(msg.Text, m.cwd)
@@ -1403,7 +1381,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
-		// Build display text for scrollback (include image count if any).
+		// Build display text for ScrollList (include image count if any).
 		displayText := msg.Text
 		if len(msg.Images) > 0 {
 			displayText = fmt.Sprintf("%s\n[%d image(s) attached]", msg.Text, len(msg.Images))
@@ -1422,15 +1400,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if qLen > 0 {
 				// Queued: anchor the message text above the input with a
-				// "queued" badge. It will be printed to scrollback when
+				// "queued" badge. It will be added to the ScrollList when
 				// the agent picks it up (via SpinnerEvent).
 				m.queuedMessages = append(m.queuedMessages, displayText)
 				m.layoutDirty = true
 			} else {
 				// Started immediately. Flush any leftover stream content
 				// from the previous step first, then print the user
-				// message — combined via the scrollback buffer so
-				// scrollback stays in chronological order.
+				// message — combined via the ScrollList so
+				// messages stay in chronological order.
 				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 				m.flushStreamAndPendingUserMessages()
 			}
@@ -1468,9 +1446,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.SpinnerEvent:
 		// SpinnerEvent{Show: true} means a new agent step has started (either
 		// freshly or from the queue after a previous step completed). Flush
-		// any leftover stream content from the previous step to scrollback
+		// any leftover stream content from the previous step to the ScrollList
 		// before starting the new one, followed by any pending user messages
-		// from the queue. Everything goes through the scrollback buffer to
+		// from the queue. Everything goes through the ScrollList to
 		// guarantee chronological ordering.
 		if msg.Show {
 			m.flushStreamAndPendingUserMessages()
@@ -1506,7 +1484,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendStreamingChunk("assistant", msg.Content)
 
 	case app.ToolCallStartedEvent:
-		// Flush any accumulated streaming text to scrollback first (streaming
+		// Flush any accumulated streaming text to the ScrollList first (streaming
 		// always completes before tool calls fire). The tool call itself is
 		// NOT printed here — a unified block (header + result) will be
 		// rendered when the ToolResultEvent arrives.
@@ -1625,7 +1603,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case app.QueueUpdatedEvent:
 		// drainQueue popped item(s) from the queue. Move consumed
 		// messages to pendingUserPrints — they will be printed to
-		// scrollback in the next SpinnerEvent{Show: true} after the
+		// the ScrollList in the next SpinnerEvent{Show: true} after the
 		// previous assistant response is flushed.
 		for len(m.queuedMessages) > msg.Length {
 			text := m.queuedMessages[0]
@@ -1644,7 +1622,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//     true} will follow within this turn, so we cannot rely on
 		//     flushStreamAndPendingUserMessages() being called. Flush any live
 		//     stream content first (assistant text up to the steer point), then
-		//     render the steering user messages immediately to scrollback.
+		//     render the steering user messages immediately to the ScrollList.
 		//
 		//  2. Post-turn (text-only response, drained after StepComplete): a
 		//     SpinnerEvent{Show: true} for the next turn is already in flight.
@@ -1658,7 +1636,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.steeringMessages = m.steeringMessages[:0]
 			m.layoutDirty = true
-			cmds = append(cmds, m.drainScrollback())
 		} else {
 			// Case 2: post-turn — defer so SpinnerEvent orders correctly.
 			m.pendingUserPrints = append(m.pendingUserPrints, m.steeringMessages...)
@@ -1667,11 +1644,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.StepCompleteEvent:
-		// Keep stream content visible in the view — don't flush to scrollback
+		// Keep stream content visible in the view — don't flush to the ScrollList
 		// yet. Flushing + resetting in the same frame would shrink the view
 		// height, and bubbletea's inline renderer leaves blank lines at the
 		// bottom for the orphaned rows. The content will be flushed to
-		// scrollback when the next step starts (SpinnerEvent{Show: true}).
+		// the ScrollList when the next step starts (SpinnerEvent{Show: true}).
 		// Just stop the spinner and return to input state.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
@@ -1694,7 +1671,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.StepErrorEvent:
 		// Keep partial stream content visible (same reasoning as
-		// StepCompleteEvent). Print the error to scrollback — it appears
+		// StepCompleteEvent). Print the error to the ScrollList — it appears
 		// above the view, and the partial response stays visible below.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
@@ -1874,7 +1851,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.printSystemMessage(fmt.Sprintf("Session shared!\n\n  Viewer: %s\n  Gist:   %s", msg.viewerURL, msg.gistURL))
 		}
-		return m, m.drainScrollback()
+		return m, nil
 
 	case app.ExtensionPrintEvent:
 		// Extension output — route through styled renderers when a level is set.
@@ -1888,7 +1865,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "block":
 			m.printExtensionBlock(msg)
 		default:
-			m.appendScrollback(msg.Text)
+			// Plain text from extension — add as system message.
+			m.printSystemMessage(msg.Text)
 		}
 
 	default:
@@ -1905,29 +1883,6 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Flush any stream overflow lines that have grown past the allocated
-	// height into the terminal's real scrollback buffer. This ensures the
-	// diagram's invariant: streaming text starts at the top of the viewable
-	// terminal and overflows upward into the scrollback buffer rather than
-	// silently discarding the older lines.
-	//
-	// IMPORTANT: overflow is emitted directly via tea.Println rather than
-	// via appendScrollback. Using appendScrollback would cause drainScrollback
-	// to see a non-empty scrollbackBuf and trigger its auto-flush, which calls
-	// GetRenderedContent() + Reset() while the stream is still active —
-	// causing duplication and premature resets.
-	//
-	// NOTE: In alt screen mode, overflow is handled differently - we don't use
-	// tea.Println() since that writes to terminal scrollback, not alt screen.
-	// The StreamingMessageItem dynamically renders the current stream content.
-	// Overflow is not emitted - the full stream content is always rendered
-	// via StreamingMessageItem in the ScrollList viewport.
-	if m.stream != nil {
-		// Consume and discard overflow in alt screen mode
-		_ = m.stream.ConsumeOverflow()
-	}
-
-	cmds = append(cmds, m.drainScrollback())
 	return m, tea.Batch(cmds...)
 }
 
@@ -2117,8 +2072,6 @@ func overlayContent(base, overlay string, width, height int) string {
 	return strings.Join(result, "\n")
 }
 
-// renderStream returns the stream region content.
-
 // refreshContent updates the ScrollList with current messages.
 // Called whenever messages change (new message, streaming update, etc.)
 // ScrollList lazily renders only visible items on View() call.
@@ -2138,11 +2091,6 @@ func (m *AppModel) renderScrollback() string {
 	// ScrollList renders lazily on View() call
 	return m.scrollList.View()
 }
-
-// renderStreamingBashOutput renders accumulated streaming bash output (stdout + stderr)
-// below the LLM streaming text. Returns empty string if no bash output is present.
-// Lines are truncated to the terminal width and capped to maxBashLines to prevent
-// long-running commands from blowing up the TUI layout.
 
 // renderStatusBar renders a persistent single-line status bar below the input.
 // Left side: spinner (when active). Middle: extension status entries (sorted by
@@ -2425,10 +2373,10 @@ func (m *AppModel) renderQueuedMessages() string {
 }
 
 // --------------------------------------------------------------------------
-// Print helpers — emit content to scrollback via tea.Println
+// Print helpers — add content to ScrollList
 // --------------------------------------------------------------------------
 
-// printUserMessage renders a user message into the scrollback buffer.
+// printUserMessage renders a user message into the ScrollList.
 func (m *AppModel) printUserMessage(text string) {
 	// Check if this exact message was just added (prevents duplicates)
 	if len(m.messages) > 0 {
@@ -2448,12 +2396,9 @@ func (m *AppModel) printUserMessage(text string) {
 
 	// Refresh ScrollList content and scroll to bottom
 	m.refreshContent()
-
-	// Also append to legacy buffer for compatibility
-	m.appendScrollback(styledMsg.Content)
 }
 
-// printAssistantMessage renders an assistant message into the scrollback buffer.
+// printAssistantMessage renders an assistant message into the ScrollList.
 func (m *AppModel) printAssistantMessage(text string) {
 	if strings.TrimSpace(text) != "" {
 		// Render styled content using MessageRenderer
@@ -2465,13 +2410,10 @@ func (m *AppModel) printAssistantMessage(text string) {
 
 		// Refresh ScrollList content and scroll to bottom
 		m.refreshContent()
-
-		// Also append to legacy buffer for compatibility
-		m.appendScrollback(styledMsg.Content)
 	}
 }
 
-// printToolResult renders a tool result message into the scrollback buffer.
+// printToolResult renders a tool result message into the ScrollList.
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	// Render styled tool message using MessageRenderer
 	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
@@ -2482,12 +2424,9 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 
 	// Refresh ScrollList content
 	m.refreshContent()
-
-	// Also append to legacy buffer for compatibility
-	m.appendScrollback(styledMsg.Content)
 }
 
-// printErrorResponse renders an error message into the scrollback buffer.
+// printErrorResponse renders an error message into the ScrollList.
 func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 	if evt.Err != nil {
 		// Render styled error message using MessageRenderer
@@ -2499,9 +2438,6 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 
 		// Refresh ScrollList content
 		m.refreshContent()
-
-		// Also append to legacy buffer for compatibility
-		m.appendScrollback(styledMsg.Content)
 	}
 }
 
@@ -2510,8 +2446,7 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 // --------------------------------------------------------------------------
 
 // handleSlashCommand executes a recognized slash command and returns a tea.Cmd.
-// args contains any text after the command name (may be empty). Returns tea.Quit
-// for /quit, nil for commands with no output, or a tea.Println cmd for display.
+// args contains any text after the command name (may be empty).
 func (m *AppModel) handleSlashCommand(sc *SlashCommand, args string) tea.Cmd {
 	switch sc.Name {
 	case "/quit":
@@ -2575,7 +2510,7 @@ func (m *AppModel) handleSlashCommand(sc *SlashCommand, args string) tea.Cmd {
 	return nil
 }
 
-// printSystemMessage renders a system-level message into the scrollback buffer.
+// printSystemMessage renders a system-level message into the ScrollList.
 func (m *AppModel) printSystemMessage(text string) {
 	// Render styled system message using MessageRenderer
 	styledMsg := m.renderer.RenderSystemMessage(text, time.Now())
@@ -2586,13 +2521,10 @@ func (m *AppModel) printSystemMessage(text string) {
 
 	// Refresh ScrollList content
 	m.refreshContent()
-
-	// Also append to legacy buffer for compatibility
-	m.appendScrollback(styledMsg.Content)
 }
 
 // printExtensionBlock renders a custom styled block from an extension with
-// caller-chosen border color and optional subtitle into the scrollback buffer.
+// caller-chosen border color and optional subtitle into the ScrollList.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 	theme := GetTheme()
 
@@ -2623,9 +2555,6 @@ func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
 
 	// Refresh ScrollList content
 	m.refreshContent()
-
-	// Also append to legacy buffer for compatibility
-	m.appendScrollback(rendered)
 }
 
 // handleExtensionCommand checks if the submitted text matches an extension-
@@ -2846,12 +2775,11 @@ func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 }
 
 // printCompactResult renders the compaction summary in a styled block with
-// a distinct border color and a stats subtitle into the scrollback buffer.
+// a distinct border color and a stats subtitle into the ScrollList.
 
 // flushStreamContent moves rendered content from the stream component into the
-// scrollback buffer and resets the stream. Called before tool calls (streaming
-// completes before tools fire). The actual tea.Println is deferred to
-// drainScrollback() at the end of the Update cycle.
+// ScrollList and resets the stream. Called before tool calls (streaming
+// completes before tools fire).
 func (m *AppModel) flushStreamContent() {
 	if m.stream == nil {
 		return
@@ -2873,9 +2801,9 @@ func (m *AppModel) flushStreamContent() {
 }
 
 // flushStreamAndPendingUserMessages moves the previous assistant response and
-// any pending queued user messages into the scrollback buffer. Called from
+// any pending queued user messages into the ScrollList. Called from
 // SpinnerEvent{Show: true} where all previous stream chunks are guaranteed to
-// have been processed. The actual tea.Println is deferred to drainScrollback().
+// have been processed.
 func (m *AppModel) flushStreamAndPendingUserMessages() {
 	// 1. Flush previous stream content (assistant response).
 	if m.stream != nil {
@@ -2888,9 +2816,6 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 			// Add to in-memory scrollList with styled content
 			msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
 			m.messages = append(m.messages, msg)
-
-			// Also append to legacy buffer for compatibility
-			m.appendScrollback(styledMsg.Content)
 		}
 	}
 
@@ -2902,9 +2827,6 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 		// Add to in-memory scrollList with styled content
 		msg := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
 		m.messages = append(m.messages, msg)
-
-		// Also append to legacy buffer for compatibility
-		m.appendScrollback(styledMsg.Content)
 	}
 	m.pendingUserPrints = nil
 
@@ -2945,33 +2867,6 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 
 	// Refresh ScrollList and scroll to bottom
 	m.refreshContent()
-}
-
-// appendScrollback adds rendered content to the scrollback buffer. The content
-// will be emitted via tea.Println when drainScrollback is called at the end of
-// the current Update cycle.
-func (m *AppModel) appendScrollback(content string) {
-	if content != "" {
-		m.scrollbackBuf = append(m.scrollbackBuf, content)
-	}
-}
-
-// drainScrollback flushes the scrollback buffer into a single tea.Println. If
-// the stream component has unflushed content, it is automatically prepended so
-// that new messages always appear below the previous assistant response. When
-// stream content is flushed a ClearScreen follows to clean up orphaned terminal
-// rows left after the view height shrinks. Returns nil if there is nothing to
-// print.
-//
-// drainScrollback is a no-op in alt screen mode. Scrollback is managed
-// in-memory by ScrollList and never printed via tea.Println().
-// The scrollbackBuf is still populated for compatibility but cleared here
-// to prevent memory leaks.
-func (m *AppModel) drainScrollback() tea.Cmd {
-	// In alt screen mode, all scrollback is managed in-memory by ScrollList.
-	// Never use tea.Println() as it writes to terminal scrollback, not alt screen.
-	m.scrollbackBuf = m.scrollbackBuf[:0] // Clear buffer to prevent memory leak
-	return nil
 }
 
 // distributeHeight recalculates child component heights after a window resize,
@@ -3051,11 +2946,6 @@ func (m *AppModel) distributeHeight() {
 	// The stream component still exists but is embedded as the last item in scrollList.
 	m.scrollList.SetHeight(streamHeight)
 	m.scrollList.SetWidth(m.width)
-
-	// Keep stream height in sync for rendering (even though it's embedded in scrollList)
-	if m.stream != nil {
-		m.stream.SetHeight(streamHeight)
-	}
 }
 
 // clamp constrains v to the range [lo, hi].
@@ -4022,7 +3912,7 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 }
 
 // handleShellCommandResult processes the result of a shell command execution.
-// It prints the output to scrollback and optionally injects it into the
+// It prints the output to the ScrollList and optionally injects it into the
 // conversation context (for ! commands) so the LLM can see it.
 func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 	theme := GetTheme()
@@ -4093,7 +3983,10 @@ func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
 		WithMarginBottom(1),
 	)
 
-	m.appendScrollback(rendered)
+	// Add shell command output to ScrollList.
+	msg2 := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
+	m.messages = append(m.messages, msg2)
+	m.refreshContent()
 
 	// For ! (included in context): inject the command output into the
 	// conversation as a user message so the LLM can reference it on the

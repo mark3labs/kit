@@ -325,14 +325,7 @@ func (ss *SessionSelectorComponent) View() tea.View {
 		}
 	}
 
-	v := tea.NewView(b.String())
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.ReportFocus = true
-	v.KeyboardEnhancements = tea.KeyboardEnhancements{
-		ReportEventTypes: true,
-	}
-	return v
+	return tea.NewView(b.String())
 }
 
 // IsActive returns whether the selector is still accepting input.

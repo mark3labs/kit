@@ -87,7 +87,6 @@ func (s *stubAppController) Steer(prompt string) int {
 // stubStreamComponent satisfies streamComponentIface without rendering anything.
 type stubStreamComponent struct {
 	resetCalled     int
-	height          int
 	lastMsg         tea.Msg
 	renderedContent string // returned by GetRenderedContent
 }
@@ -99,9 +98,7 @@ func (s *stubStreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (s *stubStreamComponent) View() tea.View             { return tea.NewView("") }
 func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
-func (s *stubStreamComponent) SetHeight(h int)            { s.height = h }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
-func (s *stubStreamComponent) ConsumeOverflow() string    { return "" }
 func (s *stubStreamComponent) SpinnerView() string        { return "" }
 func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
 func (s *stubStreamComponent) HasReasoning() bool         { return false }
@@ -419,7 +416,7 @@ func TestQueuedMessages_storedOnQueuedSubmit(t *testing.T) {
 	if m.queuedMessages[0] != "queued prompt" {
 		t.Fatalf("expected queued message text 'queued prompt', got %q", m.queuedMessages[0])
 	}
-	// Should NOT produce a tea.Println cmd (message is anchored, not in scrollback).
+	// Should NOT flush (message is anchored in ScrollList).
 	if cmd != nil {
 		t.Fatal("expected nil cmd for queued submit (message should not print to scrollback)")
 	}
@@ -509,19 +506,19 @@ func TestWindowResize_propagatesToStream(t *testing.T) {
 // sets the stream height after a resize.
 func TestWindowResize_distributeHeight(t *testing.T) {
 	ctrl := &stubAppController{}
-	m, stream, _ := newTestAppModel(ctrl)
+	m, _, _ := newTestAppModel(ctrl)
 
-	// With height=30, stream height = 30 - 1 (separator) - 9 (input) - 1 (statusBar) = 19
+	// With height=30, scroll height = 30 - 1 (separator) - 9 (input) - 1 (statusBar) = 19
 	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	_ = m
 
-	if stream.height != 19 {
-		t.Fatalf("expected stream height=19, got %d", stream.height)
+	if m.scrollList.height != 19 {
+		t.Fatalf("expected scroll list height=19, got %d", m.scrollList.height)
 	}
 }
 
 // --------------------------------------------------------------------------
-// tea.Println on step complete
+// Step complete behavior
 // --------------------------------------------------------------------------
 
 // TestStepComplete_preservesStreamContent verifies that StepCompleteEvent
@@ -563,7 +560,7 @@ func TestSubmitMsg_printsUserMessage(t *testing.T) {
 	m = sendMsg(m, submitMsg{Text: "user query"})
 
 	// In alt screen mode, user messages are added to the in-memory ScrollList
-	// rather than printed via tea.Println. Verify the message was added.
+	// rather than printed separately. Verify the message was added.
 	found := false
 	for _, msg := range m.messages {
 		if tm, ok := msg.(*TextMessageItem); ok && tm.role == "user" && tm.content == "user query" {

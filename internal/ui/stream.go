@@ -131,13 +131,13 @@ const (
 // alongside streaming text until the step completes and Reset() is called.
 //
 // Tool calls, tool results, user messages, and other non-streaming content
-// are printed immediately by the parent AppModel via tea.Println(). The
-// StreamComponent only handles the live streaming text and spinner display.
+// are added to the ScrollList by the parent AppModel. The StreamComponent
+// only handles the live streaming text and spinner display.
 //
 // Lifecycle is managed entirely by the parent AppModel:
 //   - Parent calls Reset() between agent steps to clear state.
-//   - Parent emits completed responses above the BT region via tea.Println()
-//     then calls Reset(); StreamComponent never calls tea.Quit.
+//   - Content is displayed via StreamingMessageItem in the ScrollList.
+//   - StreamComponent never calls tea.Quit.
 //
 // Events handled:
 //   - app.SpinnerEvent{Show:true}  → start spinner tick loop
@@ -195,23 +195,6 @@ type StreamComponent struct {
 	// flushGeneration is incremented when stream state resets so stale flush
 	// ticks from a previous step can be discarded.
 	flushGeneration uint64
-
-	// renderCache holds the last rendered output string. Reused by View()
-	// between flush ticks to avoid redundant markdown re-parsing.
-	renderCache string
-
-	// renderDirty is true when committed content has changed since the
-	// last render. Set on flush tick; cleared after render() rebuilds
-	// the cache.
-	renderDirty bool
-
-	// scrollbackFlushedLines is the number of lines from the top of the
-	// rendered content that have already been emitted to the terminal
-	// scrollback buffer. On each flush, lines that overflow the allocated
-	// height and haven't been pushed yet are emitted via tea.Println so
-	// they appear in the terminal's real scrollback (scrollable with the
-	// terminal's own scroll mechanism).
-	scrollbackFlushedLines int
 
 	// thinkingVisible controls whether reasoning blocks are expanded or collapsed.
 	thinkingVisible bool
@@ -272,9 +255,6 @@ func (s *StreamComponent) SetHeight(h int) {
 	}
 	if s.height != h {
 		s.height = h
-		// Invalidate cache — height clamp affects output.
-		s.renderCache = ""
-		s.renderDirty = true
 	}
 }
 
@@ -293,59 +273,23 @@ func (s *StreamComponent) Reset() {
 	s.pendingReasoning.Reset()
 	s.flushPending = false
 	s.flushGeneration++
-	s.renderCache = ""
-	s.renderDirty = false
 	s.timestamp = time.Time{}
 	s.reasoningStartTime = time.Time{}
 	s.reasoningDuration = 0
-	s.scrollbackFlushedLines = 0
 }
 
-// ConsumeOverflow returns any lines from the rendered stream content that have
-// overflowed the allocated height and have not yet been pushed to the terminal
-// scrollback buffer. It advances the internal flushed-line pointer so
-// subsequent calls only return newly overflowed lines.
-//
-// Returns "" when there is no overflow or height is unconstrained (0).
-// The caller should emit the returned string via tea.Println so the content
-// appears in the terminal's real scrollback (not just discarded).
+// ConsumeOverflow is a no-op in alt screen mode. Overflow is handled by the
+// ScrollList viewport. Retained to satisfy streamComponentIface.
 func (s *StreamComponent) ConsumeOverflow() string {
-	if s.height <= 0 {
-		return ""
-	}
-	content := s.render()
-	if content == "" {
-		return ""
-	}
-	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
-	// Number of lines that overflow the viewable height.
-	overflowLines := totalLines - s.height
-	if overflowLines <= 0 {
-		return ""
-	}
-	// How many overflow lines are new (not yet flushed to scrollback).
-	newOverflow := overflowLines - s.scrollbackFlushedLines
-	if newOverflow <= 0 {
-		return ""
-	}
-	// The new overflow is lines [s.scrollbackFlushedLines .. overflowLines).
-	start := s.scrollbackFlushedLines
-	end := overflowLines
-	s.scrollbackFlushedLines = overflowLines
-	return strings.Join(lines[start:end], "\n")
+	return ""
 }
 
 // GetRenderedContent returns the rendered assistant message from the accumulated
 // streaming text. Returns empty string if no text has been accumulated. Used by
-// the parent AppModel to flush content via tea.Println() before resetting.
+// the parent AppModel to flush stream content before resetting.
 //
 // This commits any pending chunks first so the output includes all received
 // content, not just what has been flushed by the tick.
-//
-// Lines already pushed to the terminal scrollback buffer via ConsumeOverflow
-// are skipped so that callers do not re-emit content that is already visible
-// in the terminal's real scrollback.
 func (s *StreamComponent) GetRenderedContent() string {
 	// Commit any pending chunks so the final output is complete.
 	s.commitPending()
@@ -366,35 +310,21 @@ func (s *StreamComponent) GetRenderedContent() string {
 	if len(sections) == 0 {
 		return ""
 	}
-	fullContent := strings.Join(sections, "\n")
-
-	// Skip lines already emitted to the terminal scrollback via ConsumeOverflow
-	// so the caller doesn't re-print content that is already there.
-	if s.scrollbackFlushedLines > 0 {
-		lines := strings.Split(fullContent, "\n")
-		if s.scrollbackFlushedLines >= len(lines) {
-			return "" // everything already in scrollback
-		}
-		return strings.Join(lines[s.scrollbackFlushedLines:], "\n")
-	}
-
-	return fullContent
+	return strings.Join(sections, "\n")
 }
 
 // commitPending moves any pending chunks to the committed content builders.
-// Called before reading content for scrollback output or on flush tick.
+// Called before reading content for output or on flush tick.
 func (s *StreamComponent) commitPending() {
 	if s.pendingStream.Len() > 0 {
 		// Strip  ...  tags that some models wrap reasoning in
 		cleanedText := thinkTagRegex.ReplaceAllString(s.pendingStream.String(), "")
 		s.streamContent.WriteString(cleanedText)
 		s.pendingStream.Reset()
-		s.renderDirty = true
 	}
 	if s.pendingReasoning.Len() > 0 {
 		s.reasoningContent.WriteString(s.pendingReasoning.String())
 		s.pendingReasoning.Reset()
-		s.renderDirty = true
 	}
 }
 
@@ -417,9 +347,6 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.renderer != nil {
 			s.renderer.SetWidth(s.width)
 		}
-		// Invalidate render cache — width change affects wrapping/styling.
-		s.renderCache = ""
-		s.renderDirty = true
 
 	case streamSpinnerTickMsg:
 		// Only continue the tick loop if this tick belongs to the current
@@ -559,79 +486,10 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-// View implements tea.Model. Renders the current stream region content.
+// View implements tea.Model. Returns an empty view since rendering is handled
+// by StreamingMessageItem in the ScrollList. Retained to satisfy tea.Model.
 func (s *StreamComponent) View() tea.View {
-	fullContent := s.render()
-	visibleContent := s.viewContent(fullContent)
-	v := tea.NewView(visibleContent)
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.ReportFocus = true
-	v.KeyboardEnhancements = tea.KeyboardEnhancements{
-		ReportEventTypes: true,
-	}
-	return v
-}
-
-// --------------------------------------------------------------------------
-// Internal rendering
-// --------------------------------------------------------------------------
-
-// render builds the full content string for the stream region. Uses a render
-// cache to avoid redundant markdown re-parsing between flush ticks. The cache
-// is invalidated when committed content changes (flush tick), terminal width
-// changes, or height/thinking visibility changes.
-func (s *StreamComponent) render() string {
-	if s.phase == streamPhaseIdle {
-		return ""
-	}
-
-	// Return cached render if committed content hasn't changed.
-	if !s.renderDirty {
-		return s.renderCache
-	}
-
-	var sections []string
-
-	// Render reasoning/thinking block above the main text if present.
-	if reasoning := s.reasoningContent.String(); reasoning != "" {
-		sections = append(sections, s.renderReasoningBlock(reasoning))
-	}
-
-	// Render streaming text only. The spinner is rendered in the status bar
-	// by the parent so it never changes the stream region height.
-	text := s.streamContent.String()
-	if text != "" {
-		sections = append(sections, s.renderStreamingText(text))
-	}
-
-	if len(sections) == 0 {
-		s.renderCache = ""
-		s.renderDirty = false
-		return ""
-	}
-
-	content := strings.Join(sections, "\n")
-
-	// Cache FULL content without height clamping.
-	// Height clamping is applied in View() for display only.
-	s.renderCache = content
-	s.renderDirty = false
-	return content
-}
-
-// viewContent returns the visible portion of content based on height constraint.
-// This is called by View() to get the slice that fits in the terminal.
-func (s *StreamComponent) viewContent(fullContent string) string {
-	if s.height > 0 && fullContent != "" {
-		lines := strings.Split(fullContent, "\n")
-		if len(lines) > s.height {
-			// Keep only the last h lines so the most recent output is visible.
-			lines = lines[len(lines)-s.height:]
-			return strings.Join(lines, "\n")
-		}
-	}
-	return fullContent
+	return tea.NewView("")
 }
 
 // renderReasoningBlock renders the reasoning/thinking content using blockquote.
@@ -692,9 +550,6 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 func (s *StreamComponent) SetThinkingVisible(visible bool) {
 	if s.thinkingVisible != visible {
 		s.thinkingVisible = visible
-		// Invalidate cache — thinking visibility affects rendered output.
-		s.renderCache = ""
-		s.renderDirty = true
 	}
 }
 

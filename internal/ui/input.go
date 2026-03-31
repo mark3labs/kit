@@ -411,7 +411,7 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	// Resolve via canonical command lookup so aliases are handled uniformly.
 	// Only /quit is handled locally — all other slash commands (including
 	// /clear and /clear-queue) are forwarded to the parent model via
-	// submitMsg so the parent can update its own state (scrollback, queue
+	// submitMsg so the parent can update its own state (ScrollList, queue
 	// counts, etc.) in one place.
 	if sc := GetCommandByName(trimmed); sc != nil {
 		switch sc.Name {
@@ -531,14 +531,7 @@ func (s *InputComponent) View() tea.View {
 		view.WriteString(helpStyle.Render(hint))
 	}
 
-	v := tea.NewView(containerStyle.Render(view.String()))
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.ReportFocus = true
-	v.KeyboardEnhancements = tea.KeyboardEnhancements{
-		ReportEventTypes: true,
-	}
-	return v
+	return tea.NewView(containerStyle.Render(view.String()))
 }
 
 // renderPopup renders the autocomplete popup for slash command suggestions.

@@ -83,17 +83,8 @@ func (t *ToolApprovalInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (t *ToolApprovalInput) View() tea.View {
-	v := tea.NewView("")
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.ReportFocus = true
-	v.KeyboardEnhancements = tea.KeyboardEnhancements{
-		ReportEventTypes: true,
-	}
-
 	if t.done {
-		v.Content = "we are done"
-		return v
+		return tea.NewView("we are done")
 	}
 
 	containerStyle := lipgloss.NewStyle()
@@ -145,6 +136,5 @@ func (t *ToolApprovalInput) View() tea.View {
 	}
 	view.WriteString(yesText + "/" + noText + "\n")
 
-	v.Content = containerStyle.Render(inputBoxStyle.Render(view.String()))
-	return v
+	return tea.NewView(containerStyle.Render(inputBoxStyle.Render(view.String())))
 }
