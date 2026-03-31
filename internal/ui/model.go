@@ -2958,25 +2958,14 @@ func (m *AppModel) flushStreamContent() {
 	}
 	m.stream.Reset()
 
-	// Mark the existing StreamingMessageItem as complete instead of creating a new one.
+	// Mark the existing StreamingMessageItem as complete.
 	// The StreamingMessageItem already has the content from appendStreamingChunk().
 	if len(m.messages) > 0 {
 		if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
 			streamMsg.MarkComplete()
 			m.refreshContent()
-			return
 		}
 	}
-
-	// Fallback: If no StreamingMessageItem exists (shouldn't happen), create a new styled message.
-	// This handles edge cases where flushStreamContent is called without streaming.
-	styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
-	msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
-	m.messages = append(m.messages, msg)
-	m.refreshContent()
-
-	// Also append to legacy buffer for compatibility
-	m.appendScrollback(styledMsg.Content)
 }
 
 // flushStreamAndPendingUserMessages moves the previous assistant response and
