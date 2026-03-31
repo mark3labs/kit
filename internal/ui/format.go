@@ -13,6 +13,7 @@ import (
 type Renderer interface {
 	RenderUserMessage(content string, timestamp time.Time) UIMessage
 	RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage
+	RenderReasoningBlock(content string, timestamp time.Time) UIMessage
 	RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage
 	RenderSystemMessage(content string, timestamp time.Time) UIMessage
 	RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage

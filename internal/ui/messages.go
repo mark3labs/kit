@@ -191,6 +191,36 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 }
 
+// RenderReasoningBlock renders a reasoning/thinking block with the same styling
+// as live streaming: muted italic text with margin. This is used when resuming
+// sessions to display saved reasoning content.
+func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Time) UIMessage {
+	if strings.TrimSpace(content) == "" {
+		return UIMessage{
+			Type:      AssistantMessage,
+			Content:   "",
+			Height:    0,
+			Timestamp: timestamp,
+		}
+	}
+
+	theme := GetTheme()
+	// Match live streaming styling: muted italic text
+	// Same as stream.go renderReasoningBlock()
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	contentStr := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
+	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	rendered := mutedStyle.Render(r.ty.Italic(contentStr))
+	rendered = styleMarginBottom1.Render(rendered)
+
+	return UIMessage{
+		Type:      AssistantMessage,
+		Content:   rendered,
+		Height:    lipgloss.Height(rendered),
+		Timestamp: timestamp,
+	}
+}
+
 // RenderSystemMessage renders KIT system messages using herald Note alert
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
 	if strings.TrimSpace(content) == "" {

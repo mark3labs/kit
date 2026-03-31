@@ -3371,6 +3371,12 @@ func (m *AppModel) renderSessionHistory() {
 			}
 
 		case message.RoleAssistant:
+			// First render any reasoning/thinking content
+			reasoning := msg.Reasoning()
+			if reasoning.Thinking != "" {
+				m.appendScrollback(m.renderer.RenderReasoningBlock(reasoning.Thinking, msg.CreatedAt).Content)
+			}
+			// Then render the text content
 			text := msg.Content()
 			if text != "" {
 				modelName := m.modelName

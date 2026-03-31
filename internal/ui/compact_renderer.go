@@ -127,6 +127,35 @@ func (r *CompactRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 }
 
+// RenderReasoningBlock renders a reasoning/thinking block in compact format
+// with the same muted italic styling as live streaming. This is used when
+// resuming sessions to display saved reasoning content.
+func (r *CompactRenderer) RenderReasoningBlock(content string, timestamp time.Time) UIMessage {
+	if strings.TrimSpace(content) == "" {
+		return UIMessage{
+			Type:      AssistantMessage,
+			Content:   "",
+			Height:    0,
+			Timestamp: timestamp,
+		}
+	}
+
+	theme := GetTheme()
+	// Match live streaming styling: muted italic text
+	// Compact mode uses direct lipgloss styling (no typography)
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	contentStr := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
+	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+	rendered := mutedStyle.Render(contentStr)
+
+	return UIMessage{
+		Type:      AssistantMessage,
+		Content:   rendered,
+		Height:    lipgloss.Height(rendered),
+		Timestamp: timestamp,
+	}
+}
+
 // RenderToolMessage renders a unified tool block in compact format, combining
 // the tool invocation header (icon + display name + params) with the execution
 // result body. Status is indicated by icon: checkmark for success, cross for error.
