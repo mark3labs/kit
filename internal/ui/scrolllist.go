@@ -361,9 +361,13 @@ func (s *ScrollList) GotoBottom() {
 	}
 
 	// Calculate total height including gaps
+	// Ensure items are rendered before checking height (iteratr pattern)
 	totalHeight := 0
 	for i, item := range s.items {
-		totalHeight += item.Height()
+		// Render to get actual content (handles non-cached items like reasoning blocks)
+		rendered := item.Render(s.width)
+		itemHeight := strings.Count(rendered, "\n") + 1
+		totalHeight += itemHeight
 		// Add gap after each item except the last
 		if s.itemGap > 0 && i < len(s.items)-1 {
 			totalHeight += s.itemGap
@@ -380,7 +384,9 @@ func (s *ScrollList) GotoBottom() {
 	// Otherwise, position viewport at bottom
 	remaining := totalHeight - s.height
 	for idx := 0; idx < len(s.items); idx++ {
-		itemHeight := s.items[idx].Height()
+		// Render to get actual content
+		rendered := s.items[idx].Render(s.width)
+		itemHeight := strings.Count(rendered, "\n") + 1
 		if remaining < itemHeight {
 			s.offsetIdx = idx
 			s.offsetLine = remaining
@@ -411,10 +417,13 @@ func (s *ScrollList) AtBottom() bool {
 	}
 
 	// Calculate visible height from current position including gaps
+	// Calculate height directly from rendered content (handles non-cached items)
 	visibleHeight := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
 		item := s.items[idx]
-		itemHeight := item.Height()
+		// Render to get actual content
+		rendered := item.Render(s.width)
+		itemHeight := strings.Count(rendered, "\n") + 1
 
 		if idx == s.offsetIdx {
 			visibleHeight += itemHeight - s.offsetLine

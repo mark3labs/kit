@@ -1548,13 +1548,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Refresh ScrollList
+		// Refresh ScrollList (handles autoscroll internally)
 		m.refreshContent()
-
-		// Auto-scroll to bottom
-		if m.scrollList != nil && m.scrollList.autoScroll {
-			m.scrollList.GotoBottom()
-		}
 
 	case app.ToolCallContentEvent:
 		// In streaming mode this text was already delivered via StreamChunkEvents
@@ -2086,13 +2081,8 @@ func (m *AppModel) refreshContent() {
 		return
 	}
 
-	// MessageItem implements ScrollItem interface, so we can use copy
+	// SetItems handles autoscroll internally if enabled
 	m.scrollList.SetItems(m.messages)
-
-	// Only adjust scroll position if auto-scroll is enabled
-	if m.scrollList.autoScroll {
-		m.scrollList.GotoBottom()
-	}
 }
 
 // renderScrollback returns the scrollback content from ScrollList.
@@ -2886,7 +2876,8 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 	// If last message is a StreamingMessageItem with matching role, append to it
 	if streamMsg, ok := lastMsg.(*StreamingMessageItem); ok && streamMsg.role == role {
 		streamMsg.AppendChunk(content)
-		// Auto-scroll to bottom if enabled
+		// Auto-scroll to bottom if enabled (iteratr pattern)
+		// Don't call SetItems() - the slice reference hasn't changed
 		if m.scrollList != nil && m.scrollList.autoScroll {
 			m.scrollList.GotoBottom()
 		}
