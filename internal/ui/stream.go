@@ -563,7 +563,14 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *StreamComponent) View() tea.View {
 	fullContent := s.render()
 	visibleContent := s.viewContent(fullContent)
-	return tea.NewView(visibleContent)
+	v := tea.NewView(visibleContent)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
+	v.KeyboardEnhancements = tea.KeyboardEnhancements{
+		ReportEventTypes: true,
+	}
+	return v
 }
 
 // --------------------------------------------------------------------------

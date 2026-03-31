@@ -265,7 +265,14 @@ func (ts *TreeSelectorComponent) View() tea.View {
 	footer := fmt.Sprintf("(%d/%d) [%s]", ts.cursor+1, len(ts.flatNodes), ts.filter)
 	b.WriteString(footerStyle.Render(footer))
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
+	v.KeyboardEnhancements = tea.KeyboardEnhancements{
+		ReportEventTypes: true,
+	}
+	return v
 }
 
 // IsActive returns whether the tree selector is still accepting input.

@@ -281,7 +281,14 @@ func (ms *ModelSelectorComponent) View() tea.View {
 	footerStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
 	b.WriteString(footerStyle.Render(strings.Join(footerParts, "  ")))
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
+	v.KeyboardEnhancements = tea.KeyboardEnhancements{
+		ReportEventTypes: true,
+	}
+	return v
 }
 
 // IsActive returns whether the selector is still accepting input.

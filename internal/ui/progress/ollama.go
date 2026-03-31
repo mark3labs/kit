@@ -118,22 +118,33 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // status information and help text. Displays error messages if present or
 // a completion message when the download finishes.
 func (m ProgressModel) View() tea.View {
+	var v tea.View
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
+	v.KeyboardEnhancements = tea.KeyboardEnhancements{
+		ReportEventTypes: true,
+	}
+
 	if m.err != nil {
-		return tea.NewView(fmt.Sprintf("Error: %s\n", m.err.Error()))
+		v.Content = fmt.Sprintf("Error: %s\n", m.err.Error())
+		return v
 	}
 
 	if m.complete {
-		return tea.NewView(fmt.Sprintf("\n%s%s\n\n%sComplete!\n",
+		v.Content = fmt.Sprintf("\n%s%s\n\n%sComplete!\n",
 			strings.Repeat(" ", padding),
 			m.progress.View(),
-			strings.Repeat(" ", padding)))
+			strings.Repeat(" ", padding))
+		return v
 	}
 
 	pad := strings.Repeat(" ", padding)
-	return tea.NewView(fmt.Sprintf("\n%s%s\n%s%s\n\n%s",
+	v.Content = fmt.Sprintf("\n%s%s\n%s%s\n\n%s",
 		pad, m.progress.View(),
 		pad, m.status,
-		pad+helpStyle("Press 'q' or Ctrl+C to cancel")))
+		pad+helpStyle("Press 'q' or Ctrl+C to cancel"))
+	return v
 }
 
 // ProgressReader wraps an io.Reader to intercept and parse Ollama pull operation

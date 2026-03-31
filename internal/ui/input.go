@@ -533,7 +533,14 @@ func (s *InputComponent) View() tea.View {
 		view.WriteString(helpStyle.Render(hint))
 	}
 
-	return tea.NewView(containerStyle.Render(view.String()))
+	v := tea.NewView(containerStyle.Render(view.String()))
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
+	v.KeyboardEnhancements = tea.KeyboardEnhancements{
+		ReportEventTypes: true,
+	}
+	return v
 }
 
 // renderPopup renders the autocomplete popup for slash command suggestions.
