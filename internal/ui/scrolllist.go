@@ -2,6 +2,8 @@ package ui
 
 import (
 	"strings"
+
+	"charm.land/lipgloss/v2"
 )
 
 // MessageItem is the interface all scrollback messages must implement.
@@ -151,18 +153,18 @@ func (s *ScrollList) HandleMouseDown(x, y int) bool {
 	s.mouseDownX = x
 	s.mouseDownY = y
 
-	// Find which item was clicked
-	itemIdx := s.SelectItemAtY(y)
+	// Find which item and line was clicked
+	itemIdx, lineIdx := s.getItemAndLineAtY(y)
 	s.mouseDownItem = itemIdx
 
 	// Start a new selection at click position
 	if itemIdx >= 0 {
 		s.selection = CopySelection{
 			StartItemIdx: itemIdx,
-			StartLine:    0, // Will be calculated based on Y within item
+			StartLine:    lineIdx,
 			StartCol:     x,
 			EndItemIdx:   itemIdx,
-			EndLine:      0,
+			EndLine:      lineIdx,
 			EndCol:       x,
 			Active:       true,
 		}
@@ -179,19 +181,52 @@ func (s *ScrollList) HandleMouseDrag(x, y int) bool {
 		return false
 	}
 
-	// Find which item we're dragging over
-	itemIdx := s.SelectItemAtY(y)
+	// Find which item and line we're dragging over
+	itemIdx, lineIdx := s.getItemAndLineAtY(y)
 	if itemIdx < 0 {
 		return false
 	}
 
 	// Update selection end point
 	s.selection.EndItemIdx = itemIdx
-	s.selection.EndLine = 0 // Will be calculated based on Y within item
+	s.selection.EndLine = lineIdx
 	s.selection.EndCol = x
 	s.selection.Active = true
 
 	return true
+}
+
+// getItemAndLineAtY converts a Y coordinate to item index and line index within that item.
+// Returns (-1, -1) if Y is outside the viewport or beyond all items.
+func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
+	if y < 0 || y >= s.height || len(s.items) == 0 {
+		return -1, -1
+	}
+
+	currentY := 0
+	for idx := s.offsetIdx; idx < len(s.items); idx++ {
+		item := s.items[idx]
+		itemHeight := item.Height()
+
+		// Check if y falls within this item
+		if y >= currentY && y < currentY+itemHeight {
+			return idx, y - currentY
+		}
+
+		currentY += itemHeight
+
+		// Add gap after item (except last)
+		if s.itemGap > 0 && idx < len(s.items)-1 {
+			currentY += s.itemGap
+		}
+
+		// Stop if we've passed the viewport
+		if currentY >= s.height {
+			break
+		}
+	}
+
+	return -1, -1
 }
 
 // HandleMouseUp handles mouse button release (crush-style).
@@ -414,8 +449,21 @@ func (s *ScrollList) View() string {
 				startLine = s.offsetLine
 			}
 
+			// Check if this item is focused (for visual indicator)
+			isFocused := idx == s.focusedIdx
+
 			for i := startLine; i < len(contentLines) && remainingHeight > 0; i++ {
-				lines = append(lines, contentLines[i])
+				line := contentLines[i]
+
+				// Apply selection highlighting if this line is within selection
+				if s.selection.Active && s.isLineInSelection(idx, i) {
+					line = s.applyHighlight(line)
+				} else if isFocused && s.selectable {
+					// Apply subtle focus indicator when item is focused but not in selection
+					line = s.applyFocusIndicator(line)
+				}
+
+				lines = append(lines, line)
 				remainingHeight--
 			}
 
@@ -437,6 +485,69 @@ func (s *ScrollList) View() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// isLineInSelection checks if a specific line within an item is part of the current selection.
+func (s *ScrollList) isLineInSelection(itemIdx, lineIdx int) bool {
+	if !s.selection.Active {
+		return false
+	}
+
+	// Normalize selection (start <= end)
+	startItem := s.selection.StartItemIdx
+	startLine := s.selection.StartLine
+	endItem := s.selection.EndItemIdx
+	endLine := s.selection.EndLine
+
+	if startItem > endItem || (startItem == endItem && startLine > endLine) {
+		startItem, endItem = endItem, startItem
+		startLine, endLine = endLine, startLine
+	}
+
+	// Check if item is within selection range
+	if itemIdx < startItem || itemIdx > endItem {
+		return false
+	}
+
+	// For single item selection
+	if startItem == endItem {
+		return itemIdx == startItem && lineIdx >= startLine && lineIdx <= endLine
+	}
+
+	// For multi-item selection
+	if itemIdx == startItem {
+		return lineIdx >= startLine
+	}
+	if itemIdx == endItem {
+		return lineIdx <= endLine
+	}
+	// Middle items are fully selected
+	return itemIdx > startItem && itemIdx < endItem
+}
+
+// applyHighlight applies the highlight style to a line.
+// Uses the theme's Highlight color for the background.
+func (s *ScrollList) applyHighlight(line string) string {
+	if line == "" {
+		return line
+	}
+	// Get the current theme's highlight color
+	theme := GetTheme()
+	highlightStyle := lipgloss.NewStyle().Background(theme.Highlight)
+	return highlightStyle.Render(line)
+}
+
+// applyFocusIndicator applies a subtle visual indicator for focused items.
+// Uses a different background color or style to show which item is focused.
+func (s *ScrollList) applyFocusIndicator(line string) string {
+	if line == "" {
+		return line
+	}
+	// Get the current theme - use a subtle background tint
+	theme := GetTheme()
+	// Use the muted border color for a subtle focus indicator
+	focusStyle := lipgloss.NewStyle().Background(theme.MutedBorder)
+	return focusStyle.Render(line)
 }
 
 // ScrollPercent returns the current scroll position as a percentage (0.0-1.0).
