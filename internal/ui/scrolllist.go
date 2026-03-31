@@ -609,7 +609,8 @@ func (s *ScrollList) ScrollPercent() float64 {
 }
 
 // clampOffset ensures the offset values are within valid bounds after
-// resizing or scrolling operations.
+// resizing or scrolling operations. Prevents scrolling past the bottom
+// of content (showing empty space when there's content above).
 func (s *ScrollList) clampOffset() {
 	if len(s.items) == 0 {
 		s.offsetIdx = 0
@@ -617,7 +618,7 @@ func (s *ScrollList) clampOffset() {
 		return
 	}
 
-	// Clamp offsetIdx
+	// First, clamp offsetIdx to valid item range
 	if s.offsetIdx >= len(s.items) {
 		s.offsetIdx = len(s.items) - 1
 	}
@@ -625,14 +626,73 @@ func (s *ScrollList) clampOffset() {
 		s.offsetIdx = 0
 	}
 
-	// Clamp offsetLine
+	// Clamp offsetLine within current item
 	if s.offsetIdx < len(s.items) {
-		itemHeight := s.items[s.offsetIdx].Height()
+		// Calculate height from rendered content (handles non-cached items)
+		rendered := s.items[s.offsetIdx].Render(s.width)
+		itemHeight := strings.Count(rendered, "\n") + 1
 		if s.offsetLine >= itemHeight {
 			s.offsetLine = max(0, itemHeight-1)
 		}
 	}
 	if s.offsetLine < 0 {
 		s.offsetLine = 0
+	}
+
+	// Prevent scrolling past the bottom (showing empty space at bottom when there's content above)
+	// Calculate total content height
+	totalHeight := 0
+	for i, item := range s.items {
+		rendered := item.Render(s.width)
+		totalHeight += strings.Count(rendered, "\n") + 1
+		if s.itemGap > 0 && i < len(s.items)-1 {
+			totalHeight += s.itemGap
+		}
+	}
+
+	// If content fits in viewport, force start at top
+	if totalHeight <= s.height {
+		s.offsetIdx = 0
+		s.offsetLine = 0
+		return
+	}
+
+	// Calculate how many lines are currently above the viewport
+	linesAbove := 0
+	for i := 0; i < s.offsetIdx; i++ {
+		rendered := s.items[i].Render(s.width)
+		linesAbove += strings.Count(rendered, "\n") + 1
+		if s.itemGap > 0 && i < len(s.items)-1 {
+			linesAbove += s.itemGap
+		}
+	}
+	linesAbove += s.offsetLine
+
+	// Calculate how many lines are visible from current position to end
+	linesFromCurrentToEnd := totalHeight - linesAbove
+
+	// If there's less content remaining than the viewport height,
+	// we've scrolled past the bottom - need to back up
+	if linesFromCurrentToEnd < s.height {
+		// Position viewport so the last line of content is at the bottom
+		targetLine := totalHeight - s.height
+		currentLine := 0
+
+		for idx := 0; idx < len(s.items); idx++ {
+			rendered := s.items[idx].Render(s.width)
+			itemHeight := strings.Count(rendered, "\n") + 1
+
+			if currentLine+itemHeight > targetLine {
+				// This item contains the target line
+				s.offsetIdx = idx
+				s.offsetLine = targetLine - currentLine
+				return
+			}
+
+			currentLine += itemHeight
+			if s.itemGap > 0 && idx < len(s.items)-1 {
+				currentLine += s.itemGap
+			}
+		}
 	}
 }
