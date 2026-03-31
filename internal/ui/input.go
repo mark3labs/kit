@@ -486,10 +486,8 @@ func (s *InputComponent) View() tea.View {
 	view.WriteString("\n")
 	view.WriteString(inputBoxStyle.Render(s.textarea.View()))
 
-	if s.showPopup && len(s.filtered) > 0 {
-		view.WriteString("\n")
-		view.WriteString(s.renderPopup())
-	}
+	// Popup is now rendered as a centered overlay in AppModel.View()
+	// instead of inline here to prevent bottom overflow
 
 	// Show image attachment indicator when images are pending.
 	if len(s.pendingImages) > 0 {
@@ -544,7 +542,33 @@ func (s *InputComponent) View() tea.View {
 }
 
 // renderPopup renders the autocomplete popup for slash command suggestions.
+// When rendered inline (not centered), returns the styled popup content.
 func (s *InputComponent) renderPopup() string {
+	return s.renderPopupWithOptions(false)
+}
+
+// RenderPopupCentered renders the popup as a centered overlay.
+func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
+	if !s.showPopup || len(s.filtered) == 0 {
+		return ""
+	}
+	
+	popupContent := s.renderPopupWithOptions(true)
+	
+	// Center popup using lipgloss.Place
+	positioned := lipgloss.Place(
+		termWidth,
+		termHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		popupContent,
+	)
+	
+	return positioned
+}
+
+// renderPopupWithOptions renders the popup content with optional center styling.
+func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 	theme := GetTheme()
 	popupWidth := max(s.width-4, 20)
 	popupStyle := lipgloss.NewStyle().

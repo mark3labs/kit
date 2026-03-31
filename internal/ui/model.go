@@ -1975,7 +1975,16 @@ func (m *AppModel) View() tea.View {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	v := tea.NewView(content)
+	// Render slash command popup as centered overlay if active
+	finalContent := content
+	if ic, ok := m.input.(*InputComponent); ok {
+		if popupContent := ic.RenderPopupCentered(m.width, m.height); popupContent != "" {
+			// Overlay popup content on top of main content
+			finalContent = overlayContent(content, popupContent, m.width, m.height)
+		}
+	}
+
+	v := tea.NewView(finalContent)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	v.ReportFocus = true
@@ -1988,6 +1997,35 @@ func (m *AppModel) View() tea.View {
 // --------------------------------------------------------------------------
 // Rendering helpers
 // --------------------------------------------------------------------------
+
+// overlayContent overlays popup content on top of base content line-by-line.
+// Both content strings should be full-screen (width x height).
+func overlayContent(base, overlay string, width, height int) string {
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	
+	// Ensure we have exactly height lines
+	for len(baseLines) < height {
+		baseLines = append(baseLines, strings.Repeat(" ", width))
+	}
+	for len(overlayLines) < height {
+		overlayLines = append(overlayLines, strings.Repeat(" ", width))
+	}
+	
+	// Merge lines - overlay takes precedence where non-empty
+	result := make([]string, height)
+	for i := 0; i < height; i++ {
+		if i < len(overlayLines) && strings.TrimSpace(overlayLines[i]) != "" {
+			result[i] = overlayLines[i]
+		} else if i < len(baseLines) {
+			result[i] = baseLines[i]
+		} else {
+			result[i] = strings.Repeat(" ", width)
+		}
+	}
+	
+	return strings.Join(result, "\n")
+}
 
 // renderStream returns the stream region content.
 func (m *AppModel) renderStream() string {
