@@ -506,11 +506,10 @@ func (a *App) drainQueue(first queueItem) {
 		a.mu.Lock()
 		items = append(items, a.queue...)
 		a.queue = a.queue[:0] // Clear the queue
-		queueLen := len(a.queue)
 		a.mu.Unlock()
 
-		// Send queue updated event (queue is now empty)
-		a.sendEvent(QueueUpdatedEvent{Length: queueLen})
+		// Notify UI: all queued messages have been consumed into this batch.
+		a.sendEvent(QueueUpdatedEvent{Length: 0})
 
 		// Process all collected items as a single batch
 		a.runQueueBatch(items)
@@ -542,6 +541,11 @@ func (a *App) drainQueue(first queueItem) {
 			a.queue = a.queue[:0]
 		}
 		a.mu.Unlock()
+
+		if hasMore {
+			// Notify UI: these newly queued messages have been consumed into the next batch.
+			a.sendEvent(QueueUpdatedEvent{Length: 0})
+		}
 
 		if !hasMore {
 			// No more items, we're done
