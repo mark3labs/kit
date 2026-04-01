@@ -71,7 +71,7 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 </tr>
 <tr>
 <td><code>/fork</code></td>
-<td>Branch from an earlier message</td>
+<td>Fork to new session from an earlier message (creates new session file)</td>
 </tr>
 <tr>
 <td><code>/new</code></td>
@@ -174,7 +174,7 @@ These slash commands are available during an interactive session:
 | \`/import <path>\` | Import and switch to a session from a JSONL file |
 | \`/share\` | Upload session to GitHub Gist and get a shareable viewer URL |
 | \`/tree\` | Navigate the session tree |
-| \`/fork\` | Branch from an earlier message |
+| \`/fork\` | Fork to new session from an earlier message (creates new session file) |
 | \`/new\` | Start a new session (creates new session file) |
 
 ## Ephemeral mode

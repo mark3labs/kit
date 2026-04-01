@@ -88,7 +88,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 <tr>
 <td><code>/fork</code></td>
-<td>Branch from an earlier message</td>
+<td>Fork to new session from an earlier message</td>
 </tr>
 <tr>
 <td><code>/new</code></td>
@@ -261,7 +261,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/usage\` | Show token usage |
 | \`/reset-usage\` | Reset usage statistics |
 | \`/tree\` | Navigate session tree |
-| \`/fork\` | Branch from an earlier message |
+| \`/fork\` | Fork to new session from an earlier message |
 | \`/new\` | Start a new session (creates new session file) |
 | \`/name [name]\` | Set or show session display name |
 | \`/resume\` | Open session picker to switch sessions (alias: \`/r\`) |
