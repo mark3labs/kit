@@ -1336,6 +1336,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case submitMsg:
+		// Re-enable auto-scroll when user submits a new message.
+		m.scrollList.autoScroll = true
+
 		// Handle slash commands locally — they should never reach app.Run().
 		// Parse once: split on the first space so argument-bearing commands
 		// (e.g. "/model anthropic/foo", "/compact Focus on X") are matched by
