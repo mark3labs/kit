@@ -284,6 +284,10 @@ func (s *ScrollList) selectLine(itemIdx, lineIdx int) {
 // getItemAndLineAtY converts a viewport-relative Y coordinate to item index
 // and line index within that item. Accounts for scroll offset and item gaps.
 // Returns (-1, -1) if Y is outside the viewport or beyond all items.
+//
+// IMPORTANT: Uses Render()+line counting (not Height()) to compute item height,
+// because Height() on some MessageItem implementations (e.g. StreamingMessageItem
+// for reasoning blocks) may return 0 when the render cache is empty.
 func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 	if y < 0 || y >= s.height || len(s.items) == 0 {
 		return -1, -1
@@ -292,7 +296,8 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 	currentY := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
 		item := s.items[idx]
-		itemHeight := item.Height()
+		// Compute height the same way View() does: render, then count lines.
+		itemHeight := s.renderedHeight(item)
 
 		// Account for partial visibility of the first item.
 		startLine := 0
@@ -665,6 +670,18 @@ func (s *ScrollList) clampOffset() {
 			}
 		}
 	}
+}
+
+// renderedHeight returns the height of a message item in lines by actually
+// rendering it. This is the single source of truth for item height — it
+// matches exactly what View() produces, unlike item.Height() which may
+// return stale/zero values for uncached items (e.g. reasoning blocks).
+func (s *ScrollList) renderedHeight(item MessageItem) int {
+	rendered := item.Render(s.width)
+	if rendered == "" {
+		return 0
+	}
+	return strings.Count(rendered, "\n") + 1
 }
 
 // abs returns the absolute value of x.

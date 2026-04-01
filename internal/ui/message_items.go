@@ -172,10 +172,17 @@ func (s *StreamingMessageItem) Render(width int) string {
 
 // Height returns the number of lines.
 func (s *StreamingMessageItem) Height() int {
-	if s.cachedRender == "" {
+	// For reasoning blocks, cachedRender is never populated (rendering is
+	// width-independent and includes a live timer). Fall back to Render(0)
+	// so callers always get the correct height.
+	rendered := s.cachedRender
+	if rendered == "" {
+		rendered = s.Render(0)
+	}
+	if rendered == "" {
 		return 0
 	}
-	return strings.Count(s.cachedRender, "\n") + 1
+	return strings.Count(rendered, "\n") + 1
 }
 
 // AppendChunk adds a content chunk and invalidates the render cache.
