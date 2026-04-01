@@ -325,7 +325,9 @@ func (ss *SessionSelectorComponent) View() tea.View {
 		}
 	}
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 // IsActive returns whether the selector is still accepting input.
