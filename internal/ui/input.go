@@ -560,15 +560,36 @@ func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 	theme := GetTheme()
 	popupWidth := max(s.width-4, 20)
+
+	// Use the theme background for the popup - the full-width item backgrounds
+	// and primary-colored selection will provide sufficient contrast
+	popupBg := theme.Background
+
 	popupStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.MutedBorder).
+		BorderForeground(theme.Primary).
+		Background(popupBg).
 		Padding(1, 2).
 		Width(popupWidth).
-		MarginLeft(0)
+		MarginLeft(0).
+		MarginBottom(1) // Visual depth/shadow effect
 
 	// Inner content width: popup minus border (2) and horizontal padding (4).
 	innerWidth := max(popupWidth-6, 10)
+
+	// Item background styles for high contrast
+	normalItemBg := lipgloss.NewStyle().
+		Background(popupBg).
+		Foreground(theme.Text).
+		Width(innerWidth).
+		Padding(0, 1)
+
+	selectedItemBg := lipgloss.NewStyle().
+		Background(theme.Primary).
+		Foreground(theme.Background).
+		Width(innerWidth).
+		Padding(0, 1).
+		Bold(true)
 
 	var items []string
 
@@ -583,44 +604,45 @@ func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 		match := s.filtered[i]
 		sc := match.Command
 
+		// Choose the appropriate background style
+		itemStyle := normalItemBg
+		if i == s.selected {
+			itemStyle = selectedItemBg
+		}
+
+		// Build indicator with proper coloring
 		var indicator string
 		if i == s.selected {
-			indicator = lipgloss.NewStyle().Foreground(theme.Primary).Render("> ")
+			indicator = "> "
 		} else {
 			indicator = "  "
 		}
 
-		nameStyle := lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
-		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		if i == s.selected {
-			nameStyle = nameStyle.Foreground(theme.Primary)
-			descStyle = descStyle.Foreground(theme.Text)
-		}
-
+		// Build content with name and description
+		var content string
 		if s.fileMode {
-			// File mode: use full width for the path, show description
-			// (e.g. "directory") inline after a gap.
+			// File mode: use full width for the path, show description inline
 			maxNameLen := max(innerWidth-16, 8)
 			displayName := sc.Name
 			if len(displayName) > maxNameLen && maxNameLen > 3 {
 				displayName = displayName[:maxNameLen-3] + "..."
 			}
-			name := nameStyle.Render(displayName)
+
 			if sc.Description != "" && innerWidth > 30 {
-				items = append(items, indicator+name+"  "+descStyle.Render(sc.Description))
+				content = indicator + displayName + "  " + sc.Description
 			} else {
-				items = append(items, indicator+name)
+				content = indicator + displayName
 			}
 		} else {
-			// Line layout: indicator(2) + name(nameWidth-2 visual) + desc.
+			// Line layout: indicator(2) + name(nameWidth-2 visual) + desc
 			if innerWidth < 20 {
-				// Very narrow: show truncated name only, no fixed column.
+				// Very narrow: show truncated name only
 				displayName := sc.Name
 				maxName := max(innerWidth-2, 3)
 				if len(displayName) > maxName {
 					displayName = displayName[:maxName-1] + "…"
 				}
-				items = append(items, indicator+nameStyle.Render(displayName))
+				content = indicator + displayName
 			} else {
 				nameWidth := 15
 				if innerWidth < 25 {
@@ -631,33 +653,41 @@ func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 				if len(displayName) > maxNameChars {
 					displayName = displayName[:maxNameChars-1] + "…"
 				}
-				name := nameStyle.Width(maxNameChars).Render(displayName)
 
-				// Description gets remaining space.
+				// Description gets remaining space
 				maxDescLen := max(innerWidth-nameWidth, 0)
 				desc := sc.Description
-				if maxDescLen < 4 {
-					items = append(items, indicator+name)
-				} else {
+				if maxDescLen >= 4 && desc != "" {
 					if len(desc) > maxDescLen {
 						desc = desc[:maxDescLen-3] + "..."
 					}
-					items = append(items, indicator+name+descStyle.Render(desc))
+					content = indicator + lipgloss.NewStyle().Width(maxNameChars).Render(displayName) + desc
+				} else {
+					content = indicator + displayName
 				}
 			}
 		}
+
+		items = append(items, itemStyle.Render(content))
 	}
 
+	// Add scroll indicators with background
+	scrollStyle := lipgloss.NewStyle().
+		Background(popupBg).
+		Foreground(theme.VeryMuted).
+		Width(innerWidth).
+		Padding(0, 1)
+
 	if startIdx > 0 {
-		items = append([]string{lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("  ↑ more above")}, items...)
+		items = append([]string{scrollStyle.Render("  ↑ more above")}, items...)
 	}
 	if endIdx < len(s.filtered) {
-		items = append(items, lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("  ↓ more below"))
+		items = append(items, scrollStyle.Render("  ↓ more below"))
 	}
 
 	content := strings.Join(items, "\n")
 
-	// Adapt footer text to available width.
+	// Adapt footer text to available width with background
 	var footerText string
 	if innerWidth >= 50 {
 		footerText = "↑↓ navigate • tab complete • ↵ select • esc dismiss"
@@ -666,7 +696,10 @@ func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 	} else {
 		footerText = "↑↓ tab ↵ esc"
 	}
-	footer := lipgloss.NewStyle().Foreground(theme.VeryMuted).Italic(true).
+	footer := lipgloss.NewStyle().
+		Background(popupBg).
+		Foreground(theme.VeryMuted).
+		Italic(true).
 		Render(footerText)
 
 	return popupStyle.Render(content + "\n\n" + footer)
