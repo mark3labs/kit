@@ -2,27 +2,12 @@ package ui
 
 import (
 	"strings"
+	"time"
 
-	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
-	"github.com/mark3labs/kit/internal/ui/clipboard"
-	"github.com/mark3labs/kit/internal/ui/style"
+	"github.com/mark3labs/kit/internal/ui/selection"
 )
-
-// highlightStyle is lazily initialized to avoid creating it on every render
-var highlightStyle lipgloss.Style
-
-// initHighlightStyle creates the highlight style with proper colors
-func initHighlightStyle() lipgloss.Style {
-	if highlightStyle.String() == "" {
-		theme := style.GetTheme()
-		highlightStyle = lipgloss.NewStyle().
-			Background(theme.Secondary).
-			Foreground(theme.Background).
-			Bold(true)
-	}
-	return highlightStyle
-}
 
 // MessageItem is the interface all scrollback messages must implement.
 // This allows lazy rendering - messages are only rendered when visible.
@@ -39,8 +24,8 @@ type MessageItem interface {
 }
 
 // ScrollList manages a viewport over a list of MessageItems.
-// It handles offset-based scrolling and lazy rendering. Only visible
-// items are rendered on each View() call.
+// It handles offset-based scrolling, lazy rendering, and character-level
+// text selection (crush-style). Only visible items are rendered on each View() call.
 type ScrollList struct {
 	items      []MessageItem
 	offsetIdx  int // Index of first visible item
@@ -49,15 +34,9 @@ type ScrollList struct {
 	height     int  // Viewport height in lines
 	autoScroll bool // Whether to auto-scroll to bottom on new content
 	itemGap    int  // Number of blank lines between items (0 = no gap)
-	focusedIdx int  // Index of focused/selected item (-1 = none)
-	selectable bool // Whether items can be selected via mouse/keyboard
 
-	// Selection tracking for copy+paste (crush-style)
-	selection     clipboard.CopySelection // Current text selection
-	mouseDown     bool                    // Whether mouse button is currently down
-	mouseDownX    int                     // X coordinate where mouse was pressed
-	mouseDownY    int                     // Y coordinate where mouse was pressed
-	mouseDownItem int                     // Item index where mouse was pressed
+	// Character-level text selection (crush-style).
+	sel selection.State
 }
 
 // NewScrollList creates a new ScrollList with the given dimensions.
@@ -68,7 +47,8 @@ func NewScrollList(width, height int) *ScrollList {
 		offsetLine: 0,
 		width:      width,
 		height:     height,
-		autoScroll: true, // Start with auto-scroll enabled
+		autoScroll: true,
+		sel:        selection.NewState(),
 	}
 }
 
@@ -104,117 +84,205 @@ func (s *ScrollList) ItemGap() int {
 	return s.itemGap
 }
 
-// SetSelectable enables or disables item selection.
-func (s *ScrollList) SetSelectable(selectable bool) {
-	s.selectable = selectable
-}
+// --------------------------------------------------------------------------
+// Mouse event handling — character-level text selection (crush-style)
+// --------------------------------------------------------------------------
 
-// FocusedIdx returns the currently focused item index (-1 if none).
-func (s *ScrollList) FocusedIdx() int {
-	return s.focusedIdx
-}
-
-// SetFocused sets the focused item by index.
-func (s *ScrollList) SetFocused(idx int) {
-	if idx < -1 {
-		s.focusedIdx = -1
-	} else if idx >= len(s.items) {
-		s.focusedIdx = len(s.items) - 1
-	} else {
-		s.focusedIdx = idx
-	}
-}
-
-// SelectItemAtY selects the item at the given Y coordinate (relative to viewport).
-// Returns the selected item index or -1 if no item at that position.
-func (s *ScrollList) SelectItemAtY(y int) int {
-	if !s.selectable || len(s.items) == 0 || y < 0 || y >= s.height {
-		return -1
-	}
-
-	// Calculate which item is at the given Y position
-	currentY := 0
-	for idx := s.offsetIdx; idx < len(s.items); idx++ {
-		item := s.items[idx]
-		itemHeight := item.Height()
-
-		// Check if y falls within this item
-		if y >= currentY && y < currentY+itemHeight {
-			s.focusedIdx = idx
-			return idx
-		}
-
-		currentY += itemHeight
-
-		// Add gap after item (except last)
-		if s.itemGap > 0 && idx < len(s.items)-1 {
-			currentY += s.itemGap
-		}
-
-		// Stop if we've passed the viewport
-		if currentY >= s.height {
-			break
-		}
-	}
-
-	return -1
-}
-
-// HandleMouseDown handles mouse button press for selection (crush-style).
+// HandleMouseDown handles mouse button press. Detects single, double, and
+// triple clicks for character, word, and line selection respectively.
 // Returns true if the click was handled.
 func (s *ScrollList) HandleMouseDown(x, y int) bool {
-	if !s.selectable || len(s.items) == 0 {
+	if len(s.items) == 0 {
 		return false
 	}
 
-	s.mouseDown = true
-	s.mouseDownX = x
-	s.mouseDownY = y
-
-	// Find which item and line was clicked
-	itemIdx, lineIdx := s.getItemAndLineAtY(y)
-	s.mouseDownItem = itemIdx
-
-	// Start a new selection at click position
-	if itemIdx >= 0 {
-		s.selection = clipboard.CopySelection{
-			StartItemIdx: itemIdx,
-			StartLine:    lineIdx,
-			StartCol:     x,
-			EndItemIdx:   itemIdx,
-			EndLine:      lineIdx,
-			EndCol:       x,
-			Active:       true,
-		}
-		return true
-	}
-
-	return false
-}
-
-// HandleMouseDrag handles mouse drag for selection (crush-style).
-// Updates the selection end point. Returns true if selection changed.
-func (s *ScrollList) HandleMouseDrag(x, y int) bool {
-	if !s.mouseDown || !s.selectable {
-		return false
-	}
-
-	// Find which item and line we're dragging over
 	itemIdx, lineIdx := s.getItemAndLineAtY(y)
 	if itemIdx < 0 {
 		return false
 	}
 
-	// Update selection end point
-	s.selection.EndItemIdx = itemIdx
-	s.selection.EndLine = lineIdx
-	s.selection.EndCol = x
-	s.selection.Active = true
+	// Multi-click detection (crush-style).
+	now := time.Now()
+	if now.Sub(s.sel.LastClickTime) <= selection.DoubleClickThreshold &&
+		abs(x-s.sel.LastClickX) <= selection.ClickTolerance &&
+		abs(y-s.sel.LastClickY) <= selection.ClickTolerance {
+		s.sel.ClickCount++
+	} else {
+		s.sel.ClickCount = 1
+	}
+	s.sel.LastClickTime = now
+	s.sel.LastClickX = x
+	s.sel.LastClickY = y
+
+	switch s.sel.ClickCount {
+	case 1:
+		// Single click: start character-level drag selection.
+		s.sel.MouseDown = true
+		s.sel.MouseDownItemIdx = itemIdx
+		s.sel.MouseDownLineIdx = lineIdx
+		s.sel.MouseDownCol = x
+		s.sel.DragItemIdx = itemIdx
+		s.sel.DragLineIdx = lineIdx
+		s.sel.DragCol = x
+
+	case 2:
+		// Double click: select word at position.
+		s.selectWord(itemIdx, lineIdx, x)
+
+	case 3:
+		// Triple click: select entire line.
+		s.selectLine(itemIdx, lineIdx)
+		s.sel.ClickCount = 0 // Reset after triple
+	}
 
 	return true
 }
 
-// getItemAndLineAtY converts a Y coordinate to item index and line index within that item.
+// HandleMouseDrag handles mouse motion while button is held.
+// Updates the selection endpoint for character-level precision.
+// Returns true if selection was updated.
+func (s *ScrollList) HandleMouseDrag(x, y int) bool {
+	if !s.sel.MouseDown {
+		return false
+	}
+
+	if len(s.items) == 0 {
+		return false
+	}
+
+	itemIdx, lineIdx := s.getItemAndLineAtY(y)
+	if itemIdx < 0 {
+		return false
+	}
+
+	s.sel.DragItemIdx = itemIdx
+	s.sel.DragLineIdx = lineIdx
+	s.sel.DragCol = x
+
+	return true
+}
+
+// HandleMouseUp handles mouse button release.
+// Returns true if there was an active selection.
+func (s *ScrollList) HandleMouseUp() bool {
+	if !s.sel.MouseDown {
+		return false
+	}
+	s.sel.MouseDown = false
+	return s.sel.HasSelection()
+}
+
+// HasSelection returns true if there is a non-empty active selection.
+func (s *ScrollList) HasSelection() bool {
+	return s.sel.HasSelection()
+}
+
+// ClearSelection clears the current text selection.
+func (s *ScrollList) ClearSelection() {
+	s.sel.Clear()
+}
+
+// ExtractSelectedText returns the plain text content of the current selection
+// by walking through selected items and extracting text at the character level
+// using the ultraviolet cell buffer (ANSI-aware).
+func (s *ScrollList) ExtractSelectedText() string {
+	r := s.sel.GetRange()
+	if r.IsEmpty() {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	for itemIdx := r.StartItemIdx; itemIdx <= r.EndItemIdx && itemIdx < len(s.items); itemIdx++ {
+		item := s.items[itemIdx]
+		content := item.Render(s.width)
+		contentLines := strings.Split(content, "\n")
+
+		for lineIdx, line := range contentLines {
+			inRange, startCol, endCol := selection.IsLineInRange(r, itemIdx, lineIdx)
+			if !inRange {
+				continue
+			}
+
+			text := selection.ExtractText(line, startCol, endCol)
+			if text != "" {
+				if sb.Len() > 0 {
+					sb.WriteString("\n")
+				}
+				sb.WriteString(text)
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// selectWord selects the word at the given position using UAX#29 word
+// segmentation and display-width-aware column calculations.
+func (s *ScrollList) selectWord(itemIdx, lineIdx, x int) {
+	if itemIdx < 0 || itemIdx >= len(s.items) {
+		return
+	}
+
+	item := s.items[itemIdx]
+	content := item.Render(s.width)
+	lines := strings.Split(content, "\n")
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+
+	// Strip ANSI codes for word boundary detection.
+	plainLine := xansi.Strip(lines[lineIdx])
+	startCol, endCol := selection.FindWordBoundaries(plainLine, x)
+
+	if startCol == endCol {
+		// No word at this position — set up single-click drag state.
+		s.sel.MouseDown = true
+		s.sel.MouseDownItemIdx = itemIdx
+		s.sel.MouseDownLineIdx = lineIdx
+		s.sel.MouseDownCol = x
+		s.sel.DragItemIdx = itemIdx
+		s.sel.DragLineIdx = lineIdx
+		s.sel.DragCol = x
+		return
+	}
+
+	// Set selection to the word boundaries.
+	s.sel.MouseDown = true
+	s.sel.MouseDownItemIdx = itemIdx
+	s.sel.MouseDownLineIdx = lineIdx
+	s.sel.MouseDownCol = startCol
+	s.sel.DragItemIdx = itemIdx
+	s.sel.DragLineIdx = lineIdx
+	s.sel.DragCol = endCol
+}
+
+// selectLine selects the entire line at the given position.
+func (s *ScrollList) selectLine(itemIdx, lineIdx int) {
+	if itemIdx < 0 || itemIdx >= len(s.items) {
+		return
+	}
+
+	item := s.items[itemIdx]
+	content := item.Render(s.width)
+	lines := strings.Split(content, "\n")
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+
+	lineWidth := xansi.StringWidth(lines[lineIdx])
+
+	s.sel.MouseDown = true
+	s.sel.MouseDownItemIdx = itemIdx
+	s.sel.MouseDownLineIdx = lineIdx
+	s.sel.MouseDownCol = 0
+	s.sel.DragItemIdx = itemIdx
+	s.sel.DragLineIdx = lineIdx
+	s.sel.DragCol = lineWidth
+}
+
+// getItemAndLineAtY converts a viewport-relative Y coordinate to item index
+// and line index within that item. Accounts for scroll offset and item gaps.
 // Returns (-1, -1) if Y is outside the viewport or beyond all items.
 func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 	if y < 0 || y >= s.height || len(s.items) == 0 {
@@ -226,19 +294,24 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 		item := s.items[idx]
 		itemHeight := item.Height()
 
-		// Check if y falls within this item
+		// Account for partial visibility of the first item.
+		startLine := 0
+		if idx == s.offsetIdx {
+			startLine = s.offsetLine
+			itemHeight -= s.offsetLine
+		}
+
 		if y >= currentY && y < currentY+itemHeight {
-			return idx, y - currentY
+			return idx, (y - currentY) + startLine
 		}
 
 		currentY += itemHeight
 
-		// Add gap after item (except last)
+		// Add gap after item (except last).
 		if s.itemGap > 0 && idx < len(s.items)-1 {
 			currentY += s.itemGap
 		}
 
-		// Stop if we've passed the viewport
 		if currentY >= s.height {
 			break
 		}
@@ -247,38 +320,9 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 	return -1, -1
 }
 
-// HandleMouseUp handles mouse button release (crush-style).
-// Finalizes selection and returns true if there was an active selection.
-func (s *ScrollList) HandleMouseUp(x, y int) bool {
-	if !s.mouseDown {
-		return false
-	}
-
-	s.mouseDown = false
-
-	// Check if we have a valid selection
-	if s.selection.Active && !s.selection.IsEmpty() {
-		return true
-	}
-
-	return false
-}
-
-// GetSelection returns the current text selection.
-func (s *ScrollList) GetSelection() clipboard.CopySelection {
-	return s.selection
-}
-
-// ClearSelection clears the current text selection.
-func (s *ScrollList) ClearSelection() {
-	s.selection = clipboard.CopySelection{}
-	s.mouseDown = false
-}
-
-// HasSelection returns true if there is an active non-empty selection.
-func (s *ScrollList) HasSelection() bool {
-	return s.selection.Active && !s.selection.IsEmpty()
-}
+// --------------------------------------------------------------------------
+// Scrolling
+// --------------------------------------------------------------------------
 
 // ScrollBy scrolls the viewport by the given number of lines.
 // Positive = scroll down, negative = scroll up.
@@ -364,14 +408,11 @@ func (s *ScrollList) GotoBottom() {
 	}
 
 	// Calculate total height including gaps
-	// Ensure items are rendered before checking height (iteratr pattern)
 	totalHeight := 0
 	for i, item := range s.items {
-		// Render to get actual content (handles non-cached items like reasoning blocks)
 		rendered := item.Render(s.width)
 		itemHeight := strings.Count(rendered, "\n") + 1
 		totalHeight += itemHeight
-		// Add gap after each item except the last
 		if s.itemGap > 0 && i < len(s.items)-1 {
 			totalHeight += s.itemGap
 		}
@@ -387,7 +428,6 @@ func (s *ScrollList) GotoBottom() {
 	// Otherwise, position viewport at bottom
 	remaining := totalHeight - s.height
 	for idx := 0; idx < len(s.items); idx++ {
-		// Render to get actual content
 		rendered := s.items[idx].Render(s.width)
 		itemHeight := strings.Count(rendered, "\n") + 1
 		if remaining < itemHeight {
@@ -396,7 +436,6 @@ func (s *ScrollList) GotoBottom() {
 			return
 		}
 		remaining -= itemHeight
-		// Subtract gap after item (except last)
 		if s.itemGap > 0 && idx < len(s.items)-1 {
 			remaining -= s.itemGap
 		}
@@ -419,12 +458,9 @@ func (s *ScrollList) AtBottom() bool {
 		return true
 	}
 
-	// Calculate visible height from current position including gaps
-	// Calculate height directly from rendered content (handles non-cached items)
 	visibleHeight := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
 		item := s.items[idx]
-		// Render to get actual content
 		rendered := item.Render(s.width)
 		itemHeight := strings.Count(rendered, "\n") + 1
 
@@ -434,7 +470,6 @@ func (s *ScrollList) AtBottom() bool {
 			visibleHeight += itemHeight
 		}
 
-		// Add gap after item (except last)
 		if s.itemGap > 0 && idx < len(s.items)-1 {
 			visibleHeight += s.itemGap
 		}
@@ -452,19 +487,28 @@ func (s *ScrollList) AtTop() bool {
 	return s.offsetIdx == 0 && s.offsetLine == 0
 }
 
+// --------------------------------------------------------------------------
+// Rendering
+// --------------------------------------------------------------------------
+
 // View renders the visible portion of the scrollback.
 // Only items that fit within the viewport height are rendered.
 // ALWAYS returns exactly s.height lines (padded with empty lines if needed)
 // to ensure the input/footer stay fixed at the bottom.
+//
+// When an active selection exists, character-level highlighting is applied
+// using ultraviolet ScreenBuffer for ANSI-aware cell manipulation.
 func (s *ScrollList) View() string {
 	if s.height <= 0 {
 		return ""
 	}
 
+	selRange := s.sel.GetRange()
+	hasSelection := !selRange.IsEmpty()
+
 	var lines []string
 	remainingHeight := s.height
 
-	// Render visible items
 	if len(s.items) > 0 {
 		for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
 			item := s.items[idx]
@@ -476,25 +520,22 @@ func (s *ScrollList) View() string {
 				startLine = s.offsetLine
 			}
 
-			// Check if this item is focused (for visual indicator)
-			isFocused := idx == s.focusedIdx
-
 			for i := startLine; i < len(contentLines) && remainingHeight > 0; i++ {
 				line := contentLines[i]
 
-				// Apply selection highlighting if this line is within selection
-				if s.selection.Active && s.isLineInSelection(idx, i) {
-					line = s.applyHighlight(line)
-				} else if isFocused && s.selectable {
-					// Apply subtle focus indicator when item is focused but not in selection
-					line = s.applyFocusIndicator(line)
+				// Apply character-level selection highlighting.
+				if hasSelection {
+					inRange, startCol, endCol := selection.IsLineInRange(selRange, idx, i)
+					if inRange {
+						line = selection.HighlightLine(line, startCol, endCol)
+					}
 				}
 
 				lines = append(lines, line)
 				remainingHeight--
 			}
 
-			// Add gap lines between items (but not after the last visible item)
+			// Add gap lines between items.
 			if remainingHeight > 0 && idx < len(s.items)-1 && s.itemGap > 0 {
 				for g := 0; g < s.itemGap && remainingHeight > 0; g++ {
 					lines = append(lines, "")
@@ -504,73 +545,13 @@ func (s *ScrollList) View() string {
 		}
 	}
 
-	// Pad with empty lines to ensure exactly s.height lines
-	// This keeps the input/footer fixed at the bottom of the screen
+	// Pad with empty lines to ensure exactly s.height lines.
 	for remainingHeight > 0 {
 		lines = append(lines, "")
 		remainingHeight--
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-// isLineInSelection checks if a specific line within an item is part of the current selection.
-func (s *ScrollList) isLineInSelection(itemIdx, lineIdx int) bool {
-	if !s.selection.Active {
-		return false
-	}
-
-	// Normalize selection (start <= end)
-	startItem := s.selection.StartItemIdx
-	startLine := s.selection.StartLine
-	endItem := s.selection.EndItemIdx
-	endLine := s.selection.EndLine
-
-	if startItem > endItem || (startItem == endItem && startLine > endLine) {
-		startItem, endItem = endItem, startItem
-		startLine, endLine = endLine, startLine
-	}
-
-	// Check if item is within selection range
-	if itemIdx < startItem || itemIdx > endItem {
-		return false
-	}
-
-	// For single item selection
-	if startItem == endItem {
-		return itemIdx == startItem && lineIdx >= startLine && lineIdx <= endLine
-	}
-
-	// For multi-item selection
-	if itemIdx == startItem {
-		return lineIdx >= startLine
-	}
-	if itemIdx == endItem {
-		return lineIdx <= endLine
-	}
-	// Middle items are fully selected
-	return itemIdx > startItem && itemIdx < endItem
-}
-
-// applyHighlight applies the highlight style to a line.
-// Uses the theme's Highlight color for the background.
-func (s *ScrollList) applyHighlight(line string) string {
-	if line == "" {
-		return line
-	}
-	// Apply background/foreground color change for selection
-	style := initHighlightStyle()
-	return style.Render(line)
-}
-
-// applyFocusIndicator applies a subtle visual indicator for focused items.
-func (s *ScrollList) applyFocusIndicator(line string) string {
-	if line == "" {
-		return line
-	}
-	// Just return the line as-is - no visual indicator for focus
-	// The selection highlighting is enough
-	return line
 }
 
 // ScrollPercent returns the current scroll position as a percentage (0.0-1.0).
@@ -586,10 +567,9 @@ func (s *ScrollList) ScrollPercent() float64 {
 	}
 
 	if totalHeight <= s.height {
-		return 1.0 // All content fits, consider it "at bottom"
+		return 1.0
 	}
 
-	// Calculate how many lines are above the viewport
 	linesAbove := 0
 	for i := 0; i < s.offsetIdx && i < len(s.items); i++ {
 		linesAbove += s.items[i].Height()
@@ -612,8 +592,7 @@ func (s *ScrollList) ScrollPercent() float64 {
 }
 
 // clampOffset ensures the offset values are within valid bounds after
-// resizing or scrolling operations. Prevents scrolling past the bottom
-// of content (showing empty space when there's content above).
+// resizing or scrolling operations.
 func (s *ScrollList) clampOffset() {
 	if len(s.items) == 0 {
 		s.offsetIdx = 0
@@ -621,7 +600,6 @@ func (s *ScrollList) clampOffset() {
 		return
 	}
 
-	// First, clamp offsetIdx to valid item range
 	if s.offsetIdx >= len(s.items) {
 		s.offsetIdx = len(s.items) - 1
 	}
@@ -629,9 +607,7 @@ func (s *ScrollList) clampOffset() {
 		s.offsetIdx = 0
 	}
 
-	// Clamp offsetLine within current item
 	if s.offsetIdx < len(s.items) {
-		// Calculate height from rendered content (handles non-cached items)
 		rendered := s.items[s.offsetIdx].Render(s.width)
 		itemHeight := strings.Count(rendered, "\n") + 1
 		if s.offsetLine >= itemHeight {
@@ -642,8 +618,7 @@ func (s *ScrollList) clampOffset() {
 		s.offsetLine = 0
 	}
 
-	// Prevent scrolling past the bottom (showing empty space at bottom when there's content above)
-	// Calculate total content height
+	// Prevent scrolling past the bottom
 	totalHeight := 0
 	for i, item := range s.items {
 		rendered := item.Render(s.width)
@@ -653,14 +628,12 @@ func (s *ScrollList) clampOffset() {
 		}
 	}
 
-	// If content fits in viewport, force start at top
 	if totalHeight <= s.height {
 		s.offsetIdx = 0
 		s.offsetLine = 0
 		return
 	}
 
-	// Calculate how many lines are currently above the viewport
 	linesAbove := 0
 	for i := 0; i < s.offsetIdx; i++ {
 		rendered := s.items[i].Render(s.width)
@@ -671,13 +644,8 @@ func (s *ScrollList) clampOffset() {
 	}
 	linesAbove += s.offsetLine
 
-	// Calculate how many lines are visible from current position to end
 	linesFromCurrentToEnd := totalHeight - linesAbove
-
-	// If there's less content remaining than the viewport height,
-	// we've scrolled past the bottom - need to back up
 	if linesFromCurrentToEnd < s.height {
-		// Position viewport so the last line of content is at the bottom
 		targetLine := totalHeight - s.height
 		currentLine := 0
 
@@ -686,7 +654,6 @@ func (s *ScrollList) clampOffset() {
 			itemHeight := strings.Count(rendered, "\n") + 1
 
 			if currentLine+itemHeight > targetLine {
-				// This item contains the target line
 				s.offsetIdx = idx
 				s.offsetLine = targetLine - currentLine
 				return
@@ -698,4 +665,12 @@ func (s *ScrollList) clampOffset() {
 			}
 		}
 	}
+}
+
+// abs returns the absolute value of x.
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
