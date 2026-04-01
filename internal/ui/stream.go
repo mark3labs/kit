@@ -9,7 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
+
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // thinkTagRegex matches  ...  tags that some models (Qwen, DeepSeek) wrap
@@ -31,7 +33,7 @@ func knightRiderFrames() []string {
 	const numDots = 8
 	const dot = "▪"
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	bright := lipgloss.NewStyle().Foreground(theme.Primary)
 	med := lipgloss.NewStyle().Foreground(theme.Muted)

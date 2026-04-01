@@ -1,4 +1,4 @@
-package ui
+package commands
 
 import (
 	"slices"
@@ -6,6 +6,10 @@ import (
 
 	"github.com/mark3labs/kit/internal/models"
 )
+
+// ListThemesFunc is set by the ui package to provide theme name completion.
+// This breaks the circular dependency between commands and ui packages.
+var ListThemesFunc func() []string
 
 // SlashCommand represents a user-invokable slash command with its metadata.
 // Commands can have multiple aliases and are organized by category for better
@@ -99,7 +103,10 @@ var SlashCommands = []SlashCommand{
 		Description: "Switch color theme (e.g. /theme catppuccin)",
 		Category:    "System",
 		Complete: func(prefix string) []string {
-			names := ListThemes()
+			if ListThemesFunc == nil {
+				return nil
+			}
+			names := ListThemesFunc()
 			if prefix == "" {
 				return names
 			}

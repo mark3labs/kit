@@ -19,6 +19,11 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/ui/commands"
+	uicore "github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/fileutil"
+	"github.com/mark3labs/kit/internal/ui/prefs"
+	"github.com/mark3labs/kit/internal/ui/style"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -276,7 +281,7 @@ type AppModelOptions struct {
 
 	// ExtensionCommands are slash commands registered by extensions. They
 	// appear in autocomplete, /help, and are dispatched when submitted.
-	ExtensionCommands []ExtensionCommand
+	ExtensionCommands []commands.ExtensionCommand
 
 	// PromptTemplates are user-defined prompt templates loaded from ~/.kit/prompts/,
 	// .kit/prompts/, or explicit --prompt-template paths. They appear in autocomplete
@@ -355,7 +360,7 @@ type AppModelOptions struct {
 	// GetExtensionCommands, if non-nil, returns the current extension
 	// commands. Called on WidgetUpdateEvent to refresh the command list
 	// after an extension hot-reload. May be nil if no extensions loaded.
-	GetExtensionCommands func() []ExtensionCommand
+	GetExtensionCommands func() []commands.ExtensionCommand
 
 	// SetModel changes the active model at runtime. The model string uses
 	// "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
@@ -478,7 +483,7 @@ type AppModel struct {
 
 	// extensionCommands are slash commands from extensions, dispatched via
 	// handleExtensionCommand when submitted.
-	extensionCommands []ExtensionCommand
+	extensionCommands []commands.ExtensionCommand
 
 	// promptTemplates are user-defined prompt templates for expansion.
 	// They appear in autocomplete and are expanded when submitted.
@@ -542,7 +547,7 @@ type AppModel struct {
 
 	// getExtensionCommands returns the current extension commands. Used
 	// to refresh the command list after an extension hot-reload. May be nil.
-	getExtensionCommands func() []ExtensionCommand
+	getExtensionCommands func() []commands.ExtensionCommand
 
 	// setModel changes the active model at runtime. Wired from cmd/root.go.
 	// May be nil if model switching is not supported.
@@ -710,6 +715,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.setModel = opts.SetModel
 	m.emitModelChange = opts.EmitModelChange
 	m.thinkingLevel = opts.ThinkingLevel
+
+	// Initialize the theme list function for command completion.
+	commands.ListThemesFunc = style.ListThemes
 	m.thinkingVisible = true // default to showing thinking blocks
 	m.isReasoningModel = opts.IsReasoningModel
 	m.setThinkingLevel = opts.SetThinkingLevel
@@ -741,7 +749,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Merge extension commands into the InputComponent's autocomplete source.
 	if ic, ok := m.input.(*InputComponent); ok && len(opts.ExtensionCommands) > 0 {
 		for _, ec := range opts.ExtensionCommands {
-			ic.commands = append(ic.commands, SlashCommand{
+			ic.commands = append(ic.commands, commands.SlashCommand{
 				Name:        ec.Name,
 				Description: ec.Description,
 				Category:    "Extensions",
@@ -753,7 +761,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Merge prompt templates into the InputComponent's autocomplete source.
 	if ic, ok := m.input.(*InputComponent); ok && len(opts.PromptTemplates) > 0 {
 		for _, tpl := range opts.PromptTemplates {
-			ic.commands = append(ic.commands, SlashCommand{
+			ic.commands = append(ic.commands, commands.SlashCommand{
 				Name:        "/" + tpl.Name,
 				Description: tpl.Description,
 				Category:    "Prompts",
@@ -810,12 +818,12 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	}
 
 	// Add the ASCII logo at the very top.
-	logo := KitBanner()
+	logo := style.KitBanner()
 	logoMsg := NewStyledMessageItem(generateMessageID(), "logo", logo, logo)
 	m.messages = append(m.messages, logoMsg)
 
 	// Build key-value pairs for startup info.
-	ty := createTypography(GetTheme())
+	ty := createTypography(style.GetTheme())
 	var pairs [][2]string
 
 	if m.providerName != "" && m.modelName != "" {
@@ -873,7 +881,7 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 
 	// Add a visual separator after startup info: blank line + HR + blank line.
 	// Uses a single pre-rendered item so there are no left borders on the spacing.
-	theme := GetTheme()
+	theme := style.GetTheme()
 	separator := strings.Repeat("─", 80)
 	separatorStyled := lipgloss.NewStyle().
 		Foreground(theme.Border).
@@ -916,7 +924,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	// ── Tree selector events ─────────────────────────────────────────────────
-	case TreeNodeSelectedMsg:
+	case uicore.TreeNodeSelectedMsg:
 		// User selected a node in the tree. Branch to it and return to input.
 		if ts := m.appCtrl.GetTreeSession(); ts != nil {
 			// For user messages: branch to parent (so user can resubmit).
@@ -961,7 +969,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, tea.Batch(cmds...)
 
-	case TreeCancelledMsg:
+	case uicore.TreeCancelledMsg:
 		m.treeSelector = nil
 		m.state = stateInput
 		return m, nil
@@ -985,7 +993,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString))
 				// Persist model selection for next launch.
-				go func() { _ = SaveModelPreference(msg.ModelString) }()
+				go func() { _ = prefs.SaveModelPreference(msg.ModelString) }()
 				if m.emitModelChange != nil {
 					emit := m.emitModelChange
 					newModel := msg.ModelString
@@ -1259,7 +1267,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Preprocess @file references.
 					processedText := text
 					if m.cwd != "" {
-						processedText = ProcessFileAttachments(text, m.cwd)
+						processedText = fileutil.ProcessFileAttachments(text, m.cwd)
 					}
 
 					// Inject the steer message.
@@ -1304,7 +1312,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// If remap target is unrecognized, fall through to normal handling.
 					case EditorKeySubmit:
 						text := action.SubmitText
-						var images []ImageAttachment
+						var images []uicore.ImageAttachment
 						if text == "" {
 							if ic, ok := m.input.(*InputComponent); ok {
 								text = strings.TrimSpace(ic.textarea.Value())
@@ -1315,7 +1323,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						if text != "" {
 							cmds = append(cmds, func() tea.Msg {
-								return submitMsg{Text: text, Images: images}
+								return uicore.SubmitMsg{Text: text, Images: images}
 							})
 						}
 						intercepted = true
@@ -1331,11 +1339,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// ── Cancel timer expired ─────────────────────────────────────────────────
-	case cancelTimerExpiredMsg:
+	case uicore.CancelTimerExpiredMsg:
 		m.canceling = false
 
 	// ── Input submitted ──────────────────────────────────────────────────────
-	case submitMsg:
+	case uicore.SubmitMsg:
 		// Re-enable auto-scroll when user submits a new message.
 		m.scrollList.autoScroll = true
 
@@ -1345,7 +1353,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// their name and their args are passed through to the handler.
 		if strings.HasPrefix(msg.Text, "/") {
 			name, args, _ := strings.Cut(msg.Text, " ")
-			if sc := GetCommandByName(name); sc != nil {
+			if sc := commands.GetCommandByName(name); sc != nil {
 				if cmd := m.handleSlashCommand(sc, strings.TrimSpace(args)); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -1372,7 +1380,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ScrollList) uses the original user text so the UI stays clean.
 		processedText := msg.Text
 		if m.cwd != "" {
-			processedText = ProcessFileAttachments(msg.Text, m.cwd)
+			processedText = fileutil.ProcessFileAttachments(msg.Text, m.cwd)
 		}
 
 		// Convert image attachments to kit.LLMFilePart for the app layer.
@@ -1423,7 +1431,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
-	case shellCommandMsg:
+	case uicore.ShellCommandMsg:
 		// Show spinner while the shell command runs.
 		m.state = stateWorking
 		if m.stream != nil {
@@ -1434,7 +1442,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Execute the shell command asynchronously so the TUI stays responsive.
 		cmds = append(cmds, m.executeShellCommand(msg))
 
-	case shellCommandResultMsg:
+	case uicore.ShellCommandResultMsg:
 		// Stop spinner now that the command has finished.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
@@ -1738,14 +1746,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.extensionCommands = newCmds
 			if ic, ok := m.input.(*InputComponent); ok {
 				// Remove old extension commands and add fresh ones.
-				var builtins []SlashCommand
+				var builtins []commands.SlashCommand
 				for _, sc := range ic.commands {
 					if sc.Category != "Extensions" {
 						builtins = append(builtins, sc)
 					}
 				}
 				for _, ec := range newCmds {
-					builtins = append(builtins, SlashCommand{
+					builtins = append(builtins, commands.SlashCommand{
 						Name:        ec.Name,
 						Description: ec.Description,
 						Category:    "Extensions",
@@ -1983,7 +1991,7 @@ func (m *AppModel) View() tea.View {
 
 	// Add canceling warning between scrollback and separator
 	// (doesn't go inside scrollback viewport to avoid affecting scroll position)
-	theme := GetTheme()
+	theme := style.GetTheme()
 	if m.canceling {
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
@@ -2101,7 +2109,7 @@ func (m *AppModel) renderScrollback() string {
 // This bar is always present so its height is constant, eliminating layout
 // shifts from spinner or usage info appearing/disappearing.
 func (m *AppModel) renderStatusBar() string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// Left side: spinner animation (when active).
 	var leftSide string
@@ -2210,12 +2218,12 @@ func (m *AppModel) cycleThinkingLevel() {
 	}
 
 	// Persist thinking level for next launch.
-	go func() { _ = SaveThinkingLevelPreference(next) }()
+	go func() { _ = prefs.SaveThinkingLevelPreference(next) }()
 }
 
 // renderSeparator renders the separator line with an optional queue/steer count badge.
 func (m *AppModel) renderSeparator() string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 	lineStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	queueLen := len(m.queuedMessages)
 	steerLen := len(m.steeringMessages)
@@ -2270,7 +2278,7 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 		return ""
 	}
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 	var blocks []string
 	for _, w := range widgets {
 		content := w.Text
@@ -2310,7 +2318,7 @@ func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
 		return ""
 	}
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	var opts []renderingOption
 	opts = append(opts, WithAlign(lipgloss.Left))
@@ -2338,13 +2346,13 @@ func (m *AppModel) renderQueuedMessages() string {
 	if len(m.queuedMessages) == 0 && len(m.steeringMessages) == 0 {
 		return ""
 	}
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	var blocks []string
 
 	// Render steering messages first (higher priority).
 	if len(m.steeringMessages) > 0 {
-		badge := CreateBadge("STEERING", theme.Warning)
+		badge := style.CreateBadge("STEERING", theme.Warning)
 		for _, msg := range m.steeringMessages {
 			content := msg + "\n" + badge
 			rendered := renderContentBlock(
@@ -2359,7 +2367,7 @@ func (m *AppModel) renderQueuedMessages() string {
 
 	// Render queued messages.
 	if len(m.queuedMessages) > 0 {
-		badge := CreateBadge("QUEUED", theme.Accent)
+		badge := style.CreateBadge("QUEUED", theme.Accent)
 		for _, msg := range m.queuedMessages {
 			content := msg + "\n" + badge
 			rendered := renderContentBlock(
@@ -2450,7 +2458,7 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 
 // handleSlashCommand executes a recognized slash command and returns a tea.Cmd.
 // args contains any text after the command name (may be empty).
-func (m *AppModel) handleSlashCommand(sc *SlashCommand, args string) tea.Cmd {
+func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) tea.Cmd {
 	switch sc.Name {
 	case "/quit":
 		m.quitting = true
@@ -2529,7 +2537,7 @@ func (m *AppModel) printSystemMessage(text string) {
 // printExtensionBlock renders a custom styled block from an extension with
 // caller-chosen border color and optional subtitle into the ScrollList.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// Resolve border color: use the extension's hex value, fall back to theme info.
 	borderClr := theme.Info
@@ -2583,7 +2591,7 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 
 	// Split: "/sub list files" → name="/sub", args="list files"
 	name, args, _ := strings.Cut(text, " ")
-	ecmd := FindExtensionCommand(name, m.extensionCommands)
+	ecmd := commands.FindExtensionCommand(name, m.extensionCommands)
 	if ecmd == nil {
 		return nil
 	}
@@ -2851,8 +2859,15 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 		streamMsg.AppendChunk(content)
 		// Auto-scroll to bottom if enabled (iteratr pattern)
 		// Don't call SetItems() - the slice reference hasn't changed
-		if m.scrollList != nil && m.scrollList.autoScroll {
-			m.scrollList.GotoBottom()
+		if m.scrollList != nil {
+			if m.scrollList.autoScroll {
+				m.scrollList.GotoBottom()
+			} else if m.scrollList.AtBottom() {
+				// User manually scrolled back to bottom during streaming,
+				// re-enable auto-scroll so they follow new content
+				m.scrollList.autoScroll = true
+				m.scrollList.GotoBottom()
+			}
 		}
 		return
 	}
@@ -3065,7 +3080,7 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 	}
 
 	// Persist model selection for next launch.
-	go func() { _ = SaveModelPreference(args) }()
+	go func() { _ = prefs.SaveModelPreference(args) }()
 
 	m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
 	return nil
@@ -3081,8 +3096,8 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 	if args == "" {
 		// List available themes.
-		names := ListThemes()
-		active := ActiveThemeName()
+		names := style.ListThemes()
+		active := style.ActiveThemeName()
 
 		var lines []string
 		lines = append(lines, "Available themes:")
@@ -3094,8 +3109,8 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 			}
 		}
 		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("User themes:    %s", userThemesDir()))
-		if pdir := projectThemesDir(); pdir != "" {
+		lines = append(lines, fmt.Sprintf("User themes:    %s", style.UserThemesDir()))
+		if pdir := style.ProjectThemesDir(); pdir != "" {
 			lines = append(lines, fmt.Sprintf("Project themes: %s", pdir))
 		} else {
 			lines = append(lines, "Project themes: .kit/themes/ (not found)")
@@ -3104,7 +3119,7 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 		return nil
 	}
 
-	if err := ApplyTheme(args); err != nil {
+	if err := style.ApplyTheme(args); err != nil {
 		m.printSystemMessage(fmt.Sprintf("Theme error: %v", err))
 		return nil
 	}
@@ -3159,7 +3174,7 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 		}()
 	}
 	// Persist thinking level for next launch.
-	go func() { _ = SaveThinkingLevelPreference(string(level)) }()
+	go func() { _ = prefs.SaveThinkingLevelPreference(string(level)) }()
 	m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
 	return nil
 }
@@ -3657,11 +3672,11 @@ func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
 // Cancel timer command
 // --------------------------------------------------------------------------
 
-// cancelTimerCmd returns a tea.Cmd that fires cancelTimerExpiredMsg after 2s.
+// cancelTimerCmd returns a tea.Cmd that fires CancelTimerExpiredMsg after 2s.
 // This is used for the double-tap ESC cancel flow.
 func cancelTimerCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
-		return cancelTimerExpiredMsg{}
+		return uicore.CancelTimerExpiredMsg{}
 	})
 }
 
@@ -3845,9 +3860,9 @@ func (m *AppModel) resolveOverlay(resp app.OverlayResponse) {
 const shellCommandTimeout = 120 * time.Second
 
 // executeShellCommand runs a shell command asynchronously and returns the
-// result as a shellCommandResultMsg. This is launched from Update() as a
+// result as a ShellCommandResultMsg. This is launched from Update() as a
 // tea.Cmd so the TUI stays responsive during execution.
-func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
+func (m *AppModel) executeShellCommand(msg uicore.ShellCommandMsg) tea.Cmd {
 	command := msg.Command
 	excludeFromContext := msg.ExcludeFromContext
 	cwd := m.cwd
@@ -3882,7 +3897,7 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 				// Non-zero exit is reported via exitCode, not as an error.
 				err = nil
 			} else if ctx.Err() == context.DeadlineExceeded {
-				return shellCommandResultMsg{
+				return uicore.ShellCommandResultMsg{
 					Command:            command,
 					Output:             fmt.Sprintf("command timed out after %v", shellCommandTimeout),
 					ExitCode:           -1,
@@ -3904,7 +3919,7 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 			combined.WriteString(stderr.String())
 		}
 
-		return shellCommandResultMsg{
+		return uicore.ShellCommandResultMsg{
 			Command:            command,
 			Output:             combined.String(),
 			ExitCode:           exitCode,
@@ -3917,8 +3932,8 @@ func (m *AppModel) executeShellCommand(msg shellCommandMsg) tea.Cmd {
 // handleShellCommandResult processes the result of a shell command execution.
 // It prints the output to the ScrollList and optionally injects it into the
 // conversation context (for ! commands) so the LLM can see it.
-func (m *AppModel) handleShellCommandResult(msg shellCommandResultMsg) tea.Cmd {
-	theme := GetTheme()
+func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) tea.Cmd {
+	theme := style.GetTheme()
 
 	// Build the display header.
 	var header string

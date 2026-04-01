@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/ui/core"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -167,7 +168,7 @@ func TestStateTransition_InputToWorking(t *testing.T) {
 		t.Fatalf("expected stateInput, got %v", m.state)
 	}
 
-	m = sendMsg(m, submitMsg{Text: "hello"})
+	m = sendMsg(m, core.SubmitMsg{Text: "hello"})
 
 	if m.state != stateWorking {
 		t.Fatalf("expected stateWorking after submitMsg, got %v", m.state)
@@ -355,7 +356,7 @@ func TestESCCancel_timerExpiry(t *testing.T) {
 	m.state = stateWorking
 	m.canceling = true
 
-	m = sendMsg(m, cancelTimerExpiredMsg{})
+	m = sendMsg(m, core.CancelTimerExpiredMsg{})
 
 	if m.canceling {
 		t.Fatal("expected canceling=false after timer expiry")
@@ -408,7 +409,7 @@ func TestQueuedMessages_storedOnQueuedSubmit(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	_, cmd := m.Update(submitMsg{Text: "queued prompt"})
+	_, cmd := m.Update(core.SubmitMsg{Text: "queued prompt"})
 
 	if len(m.queuedMessages) != 1 {
 		t.Fatalf("expected 1 queued message, got %d", len(m.queuedMessages))
@@ -557,7 +558,7 @@ func TestSubmitMsg_printsUserMessage(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
-	m = sendMsg(m, submitMsg{Text: "user query"})
+	m = sendMsg(m, core.SubmitMsg{Text: "user query"})
 
 	// In alt screen mode, user messages are added to the in-memory ScrollList
 	// rather than printed separately. Verify the message was added.
@@ -876,7 +877,7 @@ func TestSubmit_duringWorking_stays(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 	m.state = stateWorking
 
-	m = sendMsg(m, submitMsg{Text: "queued prompt"})
+	m = sendMsg(m, core.SubmitMsg{Text: "queued prompt"})
 
 	if m.state != stateWorking {
 		t.Fatalf("expected stateWorking to persist after submitMsg during working, got %v", m.state)

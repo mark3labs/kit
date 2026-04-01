@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/ui/core"
 )
 
 // TreeFilterMode controls which entries are visible in the tree selector.
@@ -138,7 +139,7 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ts.selectedID = ts.flatNodes[ts.cursor].ID
 				ts.active = false
 				return ts, func() tea.Msg {
-					return TreeNodeSelectedMsg{
+					return core.TreeNodeSelectedMsg{
 						ID:       ts.selectedID,
 						Entry:    ts.flatNodes[ts.cursor].Entry,
 						IsUser:   ts.isUserMessage(ts.flatNodes[ts.cursor].Entry),
@@ -155,7 +156,7 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ts.cancelled = true
 				ts.active = false
 				return ts, func() tea.Msg {
-					return TreeCancelledMsg{}
+					return core.TreeCancelledMsg{}
 				}
 			}
 

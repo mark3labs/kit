@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // ---------------------------------------------------------------------------
@@ -204,7 +206,7 @@ func (p *promptOverlay) updateInput(msg tea.KeyPressMsg) (*promptResult, tea.Cmd
 // AppModel layout. The prompt replaces the normal input area (below the
 // separator and above the status bar) rather than taking over the full screen.
 func (p *promptOverlay) Render() string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 	var content string
 
 	switch p.mode {
@@ -224,7 +226,7 @@ func (p *promptOverlay) Render() string {
 	)
 }
 
-func (p *promptOverlay) viewSelect(theme Theme) string {
+func (p *promptOverlay) viewSelect(theme style.Theme) string {
 	var lines []string
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render(p.message))
 	lines = append(lines, "")
@@ -247,7 +249,7 @@ func (p *promptOverlay) viewSelect(theme Theme) string {
 	return strings.Join(lines, "\n")
 }
 
-func (p *promptOverlay) viewConfirm(theme Theme) string {
+func (p *promptOverlay) viewConfirm(theme style.Theme) string {
 	var lines []string
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render(p.message))
 	lines = append(lines, "")
@@ -272,7 +274,7 @@ func (p *promptOverlay) viewConfirm(theme Theme) string {
 	return strings.Join(lines, "\n")
 }
 
-func (p *promptOverlay) viewInput(theme Theme) string {
+func (p *promptOverlay) viewInput(theme style.Theme) string {
 	var lines []string
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render(p.message))
 	lines = append(lines, "")

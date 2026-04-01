@@ -1,4 +1,4 @@
-package ui
+package core
 
 // ImageAttachment holds a clipboard image that will be sent alongside the
 // user's text prompt to the LLM. The data is raw image bytes; MediaType is
@@ -10,9 +10,9 @@ type ImageAttachment struct {
 	MediaType string
 }
 
-// submitMsg is sent by the InputComponent when the user submits a text prompt.
+// SubmitMsg is sent by the InputComponent when the user submits a text prompt.
 // The parent model receives this and calls app.Run(Text) to start agent processing.
-type submitMsg struct {
+type SubmitMsg struct {
 	// Text is the user's input text to send to the agent.
 	Text string
 	// Images holds clipboard image attachments to send alongside the text.
@@ -20,10 +20,10 @@ type submitMsg struct {
 	Images []ImageAttachment
 }
 
-// cancelTimerExpiredMsg is sent by the tea.Tick command that starts when the user
+// CancelTimerExpiredMsg is sent by the tea.Tick command that starts when the user
 // presses ESC once during stateWorking. If this message arrives before the user
 // presses ESC a second time, the canceling state is reset to false.
-type cancelTimerExpiredMsg struct{}
+type CancelTimerExpiredMsg struct{}
 
 // --- Tree session events ---
 
@@ -42,14 +42,14 @@ type TreeNodeSelectedMsg struct {
 // TreeCancelledMsg is sent when the user cancels the tree selector (ESC).
 type TreeCancelledMsg struct{}
 
-// shellCommandMsg is sent by the InputComponent when the user submits a
+// ShellCommandMsg is sent by the InputComponent when the user submits a
 // ! or !! prefixed command. The parent model intercepts this to execute
 // the shell command directly instead of forwarding to the LLM.
 //
 // Matching pi's behavior:
 //   - !cmd  → run shell command, output INCLUDED in LLM context
 //   - !!cmd → run shell command, output EXCLUDED from LLM context
-type shellCommandMsg struct {
+type ShellCommandMsg struct {
 	// Command is the shell command to execute (prefix stripped).
 	Command string
 	// ExcludeFromContext is true for !! (output excluded from LLM context),
@@ -57,9 +57,9 @@ type shellCommandMsg struct {
 	ExcludeFromContext bool
 }
 
-// shellCommandResultMsg carries the result of a shell command execution
+// ShellCommandResultMsg carries the result of a shell command execution
 // back to the parent model for display.
-type shellCommandResultMsg struct {
+type ShellCommandResultMsg struct {
 	// Command is the original shell command that was executed.
 	Command string
 	// Output is the combined stdout/stderr output.
@@ -68,6 +68,6 @@ type shellCommandResultMsg struct {
 	ExitCode int
 	// Err is non-nil if the command failed to start or timed out.
 	Err error
-	// ExcludeFromContext mirrors the flag from shellCommandMsg.
+	// ExcludeFromContext mirrors the flag from ShellCommandMsg.
 	ExcludeFromContext bool
 }

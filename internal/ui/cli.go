@@ -8,6 +8,8 @@ import (
 	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // CLI manages the command-line interface for KIT, providing message rendering,
@@ -125,7 +127,7 @@ func (c *CLI) DisplayInfo(message string) {
 // DisplayExtensionBlock renders a custom styled block with the given border
 // color and optional subtitle. Used by extensions via ctx.PrintBlock.
 func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	borderClr := theme.Info
 	if borderColor != "" {

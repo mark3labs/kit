@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // ---------------------------------------------------------------------------
@@ -133,7 +135,7 @@ func (o *overlayDialog) handleKey(msg tea.KeyPressMsg) (*overlayResult, tea.Cmd)
 // composition. The dialog is a bordered box centered (or anchored)
 // horizontally within the terminal width.
 func (o *overlayDialog) Render() string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// Calculate dialog dimensions, clamped to terminal bounds.
 	termW := max(o.width, 10)
@@ -157,7 +159,7 @@ func (o *overlayDialog) Render() string {
 	// Render body text (potentially as markdown).
 	bodyText := o.content
 	if o.markdown {
-		bodyText = toMarkdown(bodyText, innerWidth)
+		bodyText = style.ToMarkdown(bodyText, innerWidth)
 	}
 	bodyText = strings.TrimRight(bodyText, "\n")
 

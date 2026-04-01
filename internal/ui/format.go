@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // Renderer is the interface satisfied by MessageRenderer. It allows model.go
@@ -30,7 +32,7 @@ var _ Renderer = (*MessageRenderer)(nil)
 // combined, styled output string with tags stripped.
 //
 // Shared by MessageRenderer.
-func parseBashOutput(result string, theme Theme) string {
+func parseBashOutput(result string, theme style.Theme) string {
 	var formattedResult strings.Builder
 	remaining := result
 

@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // ModelEntry holds display metadata for a single model in the selector.
@@ -188,7 +189,7 @@ func (ms *ModelSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ms *ModelSelectorComponent) View() tea.View {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -395,7 +396,7 @@ func (ms *ModelSelectorComponent) fuzzyScoreModel(query string, entry ModelEntry
 }
 
 func (ms *ModelSelectorComponent) renderEntry(entry ModelEntry, isCursor bool) string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 	modelStr := entry.ModelID
 	providerStr := fmt.Sprintf("[%s]", entry.Provider)
 

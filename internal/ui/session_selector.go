@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // SessionSelectedMsg is sent when the user selects a session from the picker.
@@ -250,7 +251,7 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ss *SessionSelectorComponent) View() tea.View {
-	theme := GetTheme()
+	theme := style.GetTheme()
 	w := ss.width
 	var b strings.Builder
 
@@ -405,7 +406,7 @@ func removeByPath(sessions []session.SessionInfo, path string) []session.Session
 // renderEntry renders a single session line with right-aligned metadata.
 // Layout: [cursor 2] [message ...variable...] [padding] [count age] [cwd?]
 func (ss *SessionSelectorComponent) renderEntry(info session.SessionInfo, isCursor, isCurrent, isDeleting bool, width int) string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// ── Cursor indicator (2 chars) ───────────────────────────────
 	cursorStr := "  "

@@ -4,6 +4,8 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // blockRenderer handles rendering of content blocks with configurable options
@@ -175,7 +177,7 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		borderChars = 1
 	}
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// Resolve foreground color: caller override or theme default.
 	fgColor := theme.Text

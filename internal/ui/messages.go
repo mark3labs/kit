@@ -9,6 +9,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // MessageType represents different categories of messages displayed in the UI,
@@ -138,7 +140,7 @@ func newMessageRenderer(width int, debug bool) *MessageRenderer {
 	return &MessageRenderer{
 		width: width,
 		debug: debug,
-		ty:    createTypography(GetTheme()),
+		ty:    createTypography(style.GetTheme()),
 	}
 }
 
@@ -176,7 +178,7 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 	}
 
 	// Use markdown rendering with Chroma syntax highlighting
-	rendered := toMarkdown(content, r.width-4)
+	rendered := style.ToMarkdown(content, r.width-4)
 	rendered = styleMarginBottom1.Render(rendered)
 
 	return UIMessage{
@@ -200,7 +202,7 @@ func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Ti
 		}
 	}
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 	// Match live streaming styling: muted italic text
 	// Same as stream.go renderReasoningBlock()
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
@@ -323,16 +325,16 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	}
 
 	var icon string
-	iconColor := GetTheme().Success
+	iconColor := style.GetTheme().Success
 	if isError {
 		icon = "×"
-		iconColor = GetTheme().Error
+		iconColor = style.GetTheme().Error
 	} else {
 		icon = "✓"
 	}
 
 	// Style the tool name with color
-	theme := GetTheme()
+	theme := style.GetTheme()
 	nameColor := theme.Info
 	if isError {
 		nameColor = theme.Error
@@ -351,7 +353,7 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	if extRd != nil && extRd.RenderBody != nil {
 		body = extRd.RenderBody(toolResult, isError, r.width-8)
 		if body != "" && extRd.BodyMarkdown {
-			body = strings.TrimSuffix(toMarkdown(body, r.width-8), "\n")
+			body = strings.TrimSuffix(style.ToMarkdown(body, r.width-8), "\n")
 		}
 	}
 	if body == "" {
@@ -397,7 +399,7 @@ func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 	if strings.Contains(toolName, "bash") || strings.Contains(toolName, "command") ||
 		strings.Contains(toolName, "shell") {
 		if strings.Contains(result, "<stdout>") || strings.Contains(result, "<stderr>") {
-			return parseBashOutput(result, GetTheme())
+			return parseBashOutput(result, style.GetTheme())
 		}
 	}
 
@@ -405,7 +407,7 @@ func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 }
 
 // createTypography creates a typography instance from theme
-func createTypography(theme Theme) *herald.Typography {
+func createTypography(theme style.Theme) *herald.Typography {
 	return herald.New(
 		herald.WithPalette(herald.ColorPalette{
 			Primary:   theme.Primary,
@@ -437,5 +439,5 @@ func createTypography(theme Theme) *herald.Typography {
 // UpdateTheme refreshes the renderer's typography instance with colors from
 // the current theme. This is called when the user changes themes via /theme.
 func (r *MessageRenderer) UpdateTheme() {
-	r.ty = createTypography(GetTheme())
+	r.ty = createTypography(style.GetTheme())
 }

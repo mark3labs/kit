@@ -4,6 +4,9 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/clipboard"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // highlightStyle is lazily initialized to avoid creating it on every render
@@ -12,7 +15,7 @@ var highlightStyle lipgloss.Style
 // initHighlightStyle creates the highlight style with proper colors
 func initHighlightStyle() lipgloss.Style {
 	if highlightStyle.String() == "" {
-		theme := GetTheme()
+		theme := style.GetTheme()
 		highlightStyle = lipgloss.NewStyle().
 			Background(theme.Secondary).
 			Foreground(theme.Background).
@@ -50,11 +53,11 @@ type ScrollList struct {
 	selectable bool // Whether items can be selected via mouse/keyboard
 
 	// Selection tracking for copy+paste (crush-style)
-	selection     CopySelection // Current text selection
-	mouseDown     bool          // Whether mouse button is currently down
-	mouseDownX    int           // X coordinate where mouse was pressed
-	mouseDownY    int           // Y coordinate where mouse was pressed
-	mouseDownItem int           // Item index where mouse was pressed
+	selection     clipboard.CopySelection // Current text selection
+	mouseDown     bool                    // Whether mouse button is currently down
+	mouseDownX    int                     // X coordinate where mouse was pressed
+	mouseDownY    int                     // Y coordinate where mouse was pressed
+	mouseDownItem int                     // Item index where mouse was pressed
 }
 
 // NewScrollList creates a new ScrollList with the given dimensions.
@@ -174,7 +177,7 @@ func (s *ScrollList) HandleMouseDown(x, y int) bool {
 
 	// Start a new selection at click position
 	if itemIdx >= 0 {
-		s.selection = CopySelection{
+		s.selection = clipboard.CopySelection{
 			StartItemIdx: itemIdx,
 			StartLine:    lineIdx,
 			StartCol:     x,
@@ -262,13 +265,13 @@ func (s *ScrollList) HandleMouseUp(x, y int) bool {
 }
 
 // GetSelection returns the current text selection.
-func (s *ScrollList) GetSelection() CopySelection {
+func (s *ScrollList) GetSelection() clipboard.CopySelection {
 	return s.selection
 }
 
 // ClearSelection clears the current text selection.
 func (s *ScrollList) ClearSelection() {
-	s.selection = CopySelection{}
+	s.selection = clipboard.CopySelection{}
 	s.mouseDown = false
 }
 

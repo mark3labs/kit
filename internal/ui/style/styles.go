@@ -1,4 +1,4 @@
-package ui
+package style
 
 import (
 	"charm.land/lipgloss/v2"
@@ -85,10 +85,10 @@ func GetMarkdownTypography() *herald.Typography {
 	return ty
 }
 
-// toMarkdown renders markdown content using herald-md.
+// ToMarkdown renders markdown content using herald-md.
 // The width parameter is currently unused as herald handles wrapping
 // based on terminal width internally.
-func toMarkdown(content string, width int) string {
+func ToMarkdown(content string, width int) string {
 	ty := GetMarkdownTypography()
 	rendered := heraldmd.Render(ty, []byte(content))
 	return rendered

@@ -1,4 +1,4 @@
-package ui
+package style
 
 import (
 	"encoding/json"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mark3labs/kit/internal/ui/prefs"
 )
 
 // ---------------------------------------------------------------------------
@@ -410,10 +412,10 @@ func initThemeRegistry() {
 	}
 
 	// 2. User themes from ~/.config/kit/themes/
-	scanThemesDir(userThemesDir())
+	scanThemesDir(UserThemesDir())
 
 	// 3. Project-local themes from .kit/themes/
-	scanThemesDir(projectThemesDir())
+	scanThemesDir(ProjectThemesDir())
 
 	sortRegistry()
 }
@@ -461,7 +463,7 @@ func removeFromRegistry(name string) {
 }
 
 // userThemesDir returns ~/.config/kit/themes, creating it if needed.
-func userThemesDir() string {
+func UserThemesDir() string {
 	cfgDir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
@@ -473,7 +475,7 @@ func userThemesDir() string {
 
 // projectThemesDir returns .kit/themes/ relative to the working directory.
 // Returns "" if the directory doesn't exist (does NOT create it).
-func projectThemesDir() string {
+func ProjectThemesDir() string {
 	dir := filepath.Join(".kit", "themes")
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -525,7 +527,7 @@ func ApplyTheme(name string) error {
 		return err
 	}
 	SetTheme(t)
-	_ = SaveThemePreference(name)
+	_ = prefs.SaveThemePreference(name)
 	return nil
 }
 

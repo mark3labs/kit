@@ -10,6 +10,9 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/clipboard"
+	"github.com/mark3labs/kit/internal/ui/commands"
+	"github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // InputComponent is the interactive text input field for the parent AppModel.
@@ -29,7 +32,7 @@ import (
 // app.Run().
 type InputComponent struct {
 	textarea    textarea.Model
-	commands    []SlashCommand
+	commands    []commands.SlashCommand
 	showPopup   bool
 	filtered    []FuzzyMatch
 	selected    int
@@ -42,17 +45,17 @@ type InputComponent struct {
 	// Argument completion state. When the user types "/cmd " followed by
 	// a partial argument and the command has a Complete function, the popup
 	// switches to argument-completion mode showing suggestions from Complete.
-	argMode      bool           // true when showing arg completions
-	argCommand   string         // command prefix for arg mode (e.g. "/bookmark")
-	argSynthCmds []SlashCommand // backing storage for synthetic arg entries
+	argMode      bool                    // true when showing arg completions
+	argCommand   string                  // command prefix for arg mode (e.g. "/bookmark")
+	argSynthCmds []commands.SlashCommand // backing storage for synthetic arg entries
 
 	// File completion state. When the user types @ followed by a partial
 	// file path, the popup shows file/directory suggestions from the cwd.
-	fileMode        bool             // true when showing @file completions
-	filePrefix      string           // current text after @ being matched
-	fileAtStartIdx  int              // byte offset of @ in the textarea value
-	fileSuggestions []FileSuggestion // backing storage for file entries
-	fileSynthCmds   []SlashCommand   // synthetic SlashCommands wrapping file entries
+	fileMode        bool                    // true when showing @file completions
+	filePrefix      string                  // current text after @ being matched
+	fileAtStartIdx  int                     // byte offset of @ in the textarea value
+	fileSuggestions []FileSuggestion        // backing storage for file entries
+	fileSynthCmds   []commands.SlashCommand // synthetic commands.SlashCommands wrapping file entries
 
 	// cwd is the working directory used for @file path resolution and
 	// autocomplete suggestions. Set by the parent via SetCwd.
@@ -71,7 +74,7 @@ type InputComponent struct {
 
 	// pendingImages holds clipboard images attached to the next submission.
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
-	pendingImages []ImageAttachment
+	pendingImages []core.ImageAttachment
 
 	// history stores previously submitted prompts (most recent last).
 	// Limited to maxHistory entries; duplicates of the previous entry are
@@ -94,7 +97,7 @@ const maxHistory = 100
 
 // clipboardImageMsg is the result of an async clipboard image read.
 type clipboardImageMsg struct {
-	image *ImageAttachment
+	image *core.ImageAttachment
 	err   error
 }
 
@@ -119,7 +122,7 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 	)
 
 	// Style the textarea using theme colors.
-	theme := GetTheme()
+	theme := style.GetTheme()
 	styles := ta.Styles()
 	styles.Focused.Base = lipgloss.NewStyle()
 	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(theme.VeryMuted)
@@ -130,7 +133,7 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 
 	return &InputComponent{
 		textarea:    ta,
-		commands:    SlashCommands,
+		commands:    commands.SlashCommands,
 		width:       width,
 		popupHeight: 7,
 		title:       title,
@@ -329,7 +332,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					s.filePrefix = prefix
 					s.fileAtStartIdx = atIdx
 					s.fileSuggestions = suggestions
-					s.fileSynthCmds = make([]SlashCommand, len(suggestions))
+					s.fileSynthCmds = make([]commands.SlashCommand, len(suggestions))
 					s.filtered = make([]FuzzyMatch, len(suggestions))
 					for i, fs := range suggestions {
 						name := fs.RelPath
@@ -337,7 +340,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if fs.IsDir {
 							desc = "directory"
 						}
-						s.fileSynthCmds[i] = SlashCommand{Name: name, Description: desc}
+						s.fileSynthCmds[i] = commands.SlashCommand{Name: name, Description: desc}
 						s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
 					}
 					s.selected = 0
@@ -396,14 +399,14 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 		cmd := strings.TrimSpace(trimmed[2:])
 		if cmd != "" {
 			return func() tea.Msg {
-				return shellCommandMsg{Command: cmd, ExcludeFromContext: true}
+				return core.ShellCommandMsg{Command: cmd, ExcludeFromContext: true}
 			}
 		}
 	} else if strings.HasPrefix(trimmed, "!") {
 		cmd := strings.TrimSpace(trimmed[1:])
 		if cmd != "" {
 			return func() tea.Msg {
-				return shellCommandMsg{Command: cmd, ExcludeFromContext: false}
+				return core.ShellCommandMsg{Command: cmd, ExcludeFromContext: false}
 			}
 		}
 	}
@@ -413,7 +416,7 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	// /clear and /clear-queue) are forwarded to the parent model via
 	// submitMsg so the parent can update its own state (ScrollList, queue
 	// counts, etc.) in one place.
-	if sc := GetCommandByName(trimmed); sc != nil {
+	if sc := commands.GetCommandByName(trimmed); sc != nil {
 		switch sc.Name {
 		case "/quit":
 			return tea.Quit
@@ -426,7 +429,7 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	images := s.pendingImages
 	s.pendingImages = nil
 	return func() tea.Msg {
-		return submitMsg{Text: trimmed, Images: images}
+		return core.SubmitMsg{Text: trimmed, Images: images}
 	}
 }
 
@@ -463,7 +466,7 @@ func (s *InputComponent) resetHistoryBrowsing() {
 func (s *InputComponent) View() tea.View {
 	containerStyle := lipgloss.NewStyle()
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 
 	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
 	titleStyle := lipgloss.NewStyle().
@@ -558,7 +561,7 @@ func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 
 // renderPopupWithOptions renders the popup content with optional center styling.
 func (s *InputComponent) renderPopupWithOptions(centered bool) string {
-	theme := GetTheme()
+	theme := style.GetTheme()
 	popupWidth := max(s.width-4, 20)
 
 	// Use the theme background for the popup - the full-width item backgrounds
@@ -729,10 +732,10 @@ func (s *InputComponent) completeArgs(line string) []FuzzyMatch {
 
 	s.argMode = true
 	s.argCommand = cmdName
-	s.argSynthCmds = make([]SlashCommand, len(suggestions))
+	s.argSynthCmds = make([]commands.SlashCommand, len(suggestions))
 	s.filtered = make([]FuzzyMatch, len(suggestions))
 	for i, sug := range suggestions {
-		s.argSynthCmds[i] = SlashCommand{Name: sug}
+		s.argSynthCmds[i] = commands.SlashCommand{Name: sug}
 		s.filtered[i] = FuzzyMatch{Command: &s.argSynthCmds[i]}
 	}
 	return s.filtered
@@ -740,7 +743,7 @@ func (s *InputComponent) completeArgs(line string) []FuzzyMatch {
 
 // findCommandWithComplete looks up a command by name that has a non-nil
 // Complete function.
-func (s *InputComponent) findCommandWithComplete(name string) *SlashCommand {
+func (s *InputComponent) findCommandWithComplete(name string) *commands.SlashCommand {
 	for i := range s.commands {
 		if s.commands[i].Name == name && s.commands[i].Complete != nil {
 			return &s.commands[i]
@@ -758,7 +761,7 @@ func readClipboardImageCmd() tea.Cmd {
 			return clipboardImageMsg{err: err}
 		}
 		return clipboardImageMsg{
-			image: &ImageAttachment{
+			image: &core.ImageAttachment{
 				Data:      img.Data,
 				MediaType: img.MediaType,
 			},
@@ -768,7 +771,7 @@ func readClipboardImageCmd() tea.Cmd {
 
 // ClearPendingImages removes all pending image attachments and returns them.
 // Used by the parent model when consuming images for submission.
-func (s *InputComponent) ClearPendingImages() []ImageAttachment {
+func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
 	images := s.pendingImages
 	s.pendingImages = nil
 	return images

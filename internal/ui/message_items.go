@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // --------------------------------------------------------------------------
@@ -149,9 +151,9 @@ func (s *StreamingMessageItem) Render(width int) string {
 	var rendered string
 	if s.role == "reasoning" {
 		// Render as reasoning/thinking block with live duration counter
-		theme := GetTheme()
+		theme := style.GetTheme()
 		mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		ty := createTypography(theme)
+		ty := createTypography(style.Theme(theme))
 		content := strings.TrimLeft(s.content, " \t\n")
 
 		var parts []string
@@ -255,7 +257,7 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 		return m.cachedRender
 	}
 
-	theme := GetTheme()
+	theme := style.GetTheme()
 	var parts []string
 
 	// Header with command

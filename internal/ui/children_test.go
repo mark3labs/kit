@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/ui/core"
 )
 
 // ==========================================================================
@@ -59,7 +60,7 @@ func TestInputComponent_SubmitEmitsSubmitMsg(t *testing.T) {
 		t.Fatal("expected a cmd from pressing enter on non-empty input")
 	}
 
-	sm, ok := msg.(submitMsg)
+	sm, ok := msg.(core.SubmitMsg)
 	if !ok {
 		t.Fatalf("expected submitMsg, got %T", msg)
 	}
@@ -83,7 +84,7 @@ func TestInputComponent_CtrlD_SubmitEmitsSubmitMsg(t *testing.T) {
 	if msg == nil {
 		t.Fatal("expected a cmd from ctrl+d on non-empty input")
 	}
-	sm, ok := msg.(submitMsg)
+	sm, ok := msg.(core.SubmitMsg)
 	if !ok {
 		t.Fatalf("expected submitMsg from ctrl+d, got %T", msg)
 	}
@@ -175,7 +176,7 @@ func TestInputComponent_ClearForwardsAsSubmitMsg(t *testing.T) {
 				t.Fatalf("%s: expected submitMsg cmd, got nil", alias)
 			}
 			msg := runCmd(cmd)
-			sm, ok := msg.(submitMsg)
+			sm, ok := msg.(core.SubmitMsg)
 			if !ok {
 				t.Fatalf("%s: expected submitMsg, got %T", alias, msg)
 			}
@@ -230,7 +231,7 @@ func TestInputComponent_ClearQueue_ForwardsAsSubmitMsg(t *testing.T) {
 				t.Fatalf("%s: expected submitMsg cmd, got nil", alias)
 			}
 			msg := runCmd(cmd)
-			sm, ok := msg.(submitMsg)
+			sm, ok := msg.(core.SubmitMsg)
 			if !ok {
 				t.Fatalf("%s: expected submitMsg, got %T", alias, msg)
 			}
@@ -258,7 +259,7 @@ func TestInputComponent_UnknownSlashCommand_ForwardsAsSubmit(t *testing.T) {
 	if msg == nil {
 		t.Fatal("expected submitMsg for unknown slash command")
 	}
-	sm, ok := msg.(submitMsg)
+	sm, ok := msg.(core.SubmitMsg)
 	if !ok {
 		t.Fatalf("expected submitMsg for unknown slash command, got %T", msg)
 	}
