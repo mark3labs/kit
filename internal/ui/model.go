@@ -3202,6 +3202,8 @@ func (m *AppModel) handleTreeCommand() tea.Cmd {
 
 // handleForkCommand creates a branch from the current position. Like /tree
 // but opens the selector directly for fork semantics.
+// Unlike /tree which shows the full tree, /fork shows only user messages
+// (matching Pi's behavior) and creates a new session file when a message is selected.
 func (m *AppModel) handleForkCommand() tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
@@ -3213,7 +3215,8 @@ func (m *AppModel) handleForkCommand() tea.Cmd {
 		return nil
 	}
 
-	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
+	// Use the fork-specific selector that shows only user messages.
+	m.treeSelector = NewTreeSelectorForFork(ts, m.width, m.height)
 	m.state = stateTreeSelector
 	return nil
 }
@@ -3280,8 +3283,11 @@ func (m *AppModel) performNewSession() tea.Cmd {
 	return nil
 }
 
-// performFork performs the actual tree branch. Called either directly (when no
-// before-hook exists) or after the async before-fork hook completes.
+// performFork creates a new session by forking from the target entry.
+// This matches Pi's /fork behavior: it creates a completely new session file
+// with the history up to the target point, then switches to that session.
+// Called either directly (when no before-hook exists) or after the async
+// before-fork hook completes.
 func (m *AppModel) performFork(targetID string, isUser bool, userText string) tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
@@ -3289,12 +3295,25 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 		return nil
 	}
 
-	// Branch the tree session to the target entry. We must NOT call
-	// ClearMessages() here because it resets the leaf pointer back to "",
-	// undoing the branch we just set. Instead, branch first and then
-	// reload the in-memory store from the tree session's current branch.
-	_ = ts.Branch(targetID)
-	m.appCtrl.ReloadMessagesFromTree()
+	// Create a new session by forking from the target entry.
+	// This creates a new session file with the history up to the target point.
+	newTs, err := ts.ForkToNewSession(m.cwd, targetID)
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to fork session: %v", err))
+		return nil
+	}
+
+	// Switch to the new forked session.
+	m.appCtrl.SwitchTreeSession(newTs)
+
+	// Reset usage statistics for the new session.
+	if m.usageTracker != nil {
+		m.usageTracker.Reset()
+	}
+
+	// Clear the scroll list and populate all messages from the forked history.
+	m.messages = []MessageItem{}
+	m.renderSessionHistory()
 
 	// If it was a user message, populate the input with the text.
 	if isUser && userText != "" {
@@ -3304,14 +3323,7 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 		}
 	}
 
-	m.printSystemMessage(
-		fmt.Sprintf("Navigated to branch point. %s",
-			func() string {
-				if isUser {
-					return "Edit and resubmit to create a new branch."
-				}
-				return "Continue from this point."
-			}()))
+	m.printSystemMessage("Forked to new session. Edit and resubmit to continue.")
 	return nil
 }
 

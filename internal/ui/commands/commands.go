@@ -134,7 +134,7 @@ var SlashCommands = []SlashCommand{
 	},
 	{
 		Name:        "/fork",
-		Description: "Branch from an earlier message",
+		Description: "Fork to new session from an earlier message",
 		Category:    "Navigation",
 	},
 	{

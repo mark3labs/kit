@@ -477,7 +477,7 @@ During an interactive session, use these slash commands:
 | `/import <path>` | Import and switch to a session from a JSONL file |
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
-| `/fork` | Branch from an earlier message |
+| `/fork` | Fork to new session from an earlier message |
 | `/new` | Start a fresh session |
 
 ## Go SDK

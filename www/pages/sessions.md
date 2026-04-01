@@ -80,7 +80,7 @@ These slash commands are available during an interactive session:
 | `/import <path>` | Import and switch to a session from a JSONL file |
 | `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
 | `/tree` | Navigate the session tree |
-| `/fork` | Branch from an earlier message |
+| `/fork` | Fork to new session from an earlier message (creates new session file) |
 | `/new` | Start a new session (creates new session file) |
 
 ## Ephemeral mode

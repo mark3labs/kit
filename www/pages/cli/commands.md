@@ -73,7 +73,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/usage` | Show token usage |
 | `/reset-usage` | Reset usage statistics |
 | `/tree` | Navigate session tree |
-| `/fork` | Branch from an earlier message |
+| `/fork` | Fork to new session from an earlier message |
 | `/new` | Start a new session (creates new session file) |
 | `/name [name]` | Set or show session display name |
 | `/resume` | Open session picker to switch sessions (alias: `/r`) |

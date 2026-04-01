@@ -89,6 +89,28 @@ func NewTreeSelector(tm *session.TreeManager, width, height int) *TreeSelectorCo
 	return ts
 }
 
+// NewTreeSelectorForFork creates a tree selector for the /fork command.
+// It shows only user messages (flat list) matching Pi's fork behavior.
+func NewTreeSelectorForFork(tm *session.TreeManager, width, height int) *TreeSelectorComponent {
+	ts := &TreeSelectorComponent{
+		tm:     tm,
+		filter: TreeFilterUserOnly,
+		leafID: tm.GetLeafID(),
+		width:  width,
+		height: height,
+		active: true,
+	}
+	ts.rebuildFlatList()
+	// Position cursor at the last user message before the leaf.
+	for i := len(ts.flatNodes) - 1; i >= 0; i-- {
+		if ts.isUserMessage(ts.flatNodes[i].Entry) {
+			ts.cursor = i
+			break
+		}
+	}
+	return ts
+}
+
 // Init implements tea.Model.
 func (ts *TreeSelectorComponent) Init() tea.Cmd {
 	return nil

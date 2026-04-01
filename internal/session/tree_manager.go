@@ -114,6 +114,187 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 	return tm, nil
 }
 
+// ForkToNewSession creates a new session file containing the history up to and
+// including the target entry ID. This matches Pi's /fork behavior: it creates
+// a completely new session file with a parent_session reference, copying all
+// entries from the root to the target point.
+func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManager, error) {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	// Get the branch from root to target (root-to-leaf order).
+	branch := tm.getBranchLocked(targetID)
+	if len(branch) == 0 {
+		return nil, fmt.Errorf("target entry %q not found", targetID)
+	}
+
+	// Create a new session file.
+	newTm, err := CreateTreeSession(cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the parent session reference in the header.
+	newTm.header.ParentSession = tm.filePath
+	newTm.header.ParentSessionID = tm.header.ID
+
+	// Rewrite the header with the parent reference.
+	// We need to close and recreate the file to rewrite the header.
+	if err := newTm.file.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close new session file: %w", err)
+	}
+
+	// Recreate the file and write the updated header.
+	f, err := os.Create(newTm.filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to recreate session file: %w", err)
+	}
+	newTm.file = f
+
+	if err := newTm.writeEntry(&newTm.header); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("failed to write session header: %w", err)
+	}
+
+	// Copy entries from the branch to the new session.
+	// We need to remap IDs since the new session is independent.
+	idMap := make(map[string]string) // old ID -> new ID
+	var prevNewID string
+
+	for _, entry := range branch {
+		oldID := tm.EntryID(entry)
+		newID := GenerateEntryID()
+		idMap[oldID] = newID
+
+		// Create a copy of the entry with the new ID and remapped parent.
+		var newEntry any
+		switch e := entry.(type) {
+		case *MessageEntry:
+			newEntry = &MessageEntry{
+				Entry: Entry{
+					Type:      EntryTypeMessage,
+					ID:        newID,
+					ParentID:  prevNewID, // Chain sequentially in new session
+					Timestamp: e.Timestamp,
+				},
+				Role:     e.Role,
+				Parts:    e.Parts,
+				Model:    e.Model,
+				Provider: e.Provider,
+			}
+			// Copy label if present.
+			if label, ok := tm.labels[oldID]; ok {
+				newTm.labels[newID] = label
+			}
+
+		case *ModelChangeEntry:
+			newEntry = &ModelChangeEntry{
+				Entry: Entry{
+					Type:      EntryTypeModelChange,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				Provider: e.Provider,
+				ModelID:  e.ModelID,
+			}
+
+		case *LabelEntry:
+			// Remap the target ID if it's in our copied branch.
+			newTargetID := e.TargetID
+			if mapped, ok := idMap[e.TargetID]; ok {
+				newTargetID = mapped
+			}
+			newEntry = &LabelEntry{
+				Entry: Entry{
+					Type:      EntryTypeLabel,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				TargetID: newTargetID,
+				Label:    e.Label,
+			}
+
+		case *SessionInfoEntry:
+			newEntry = &SessionInfoEntry{
+				Entry: Entry{
+					Type:      EntryTypeSessionInfo,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				Name: e.Name,
+			}
+			newTm.sessionName = e.Name
+
+		case *ExtensionDataEntry:
+			newEntry = &ExtensionDataEntry{
+				Entry: Entry{
+					Type:      EntryTypeExtensionData,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				ExtType: e.ExtType,
+				Data:    e.Data,
+			}
+
+		case *BranchSummaryEntry:
+			// Remap the from ID if it's in our copied branch.
+			newFromID := e.FromID
+			if mapped, ok := idMap[e.FromID]; ok {
+				newFromID = mapped
+			}
+			newEntry = &BranchSummaryEntry{
+				Entry: Entry{
+					Type:      EntryTypeBranchSummary,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				FromID:  newFromID,
+				Summary: e.Summary,
+			}
+
+		case *CompactionEntry:
+			// Remap the first kept entry ID if it's in our copied branch.
+			newFirstKeptID := e.FirstKeptEntryID
+			if mapped, ok := idMap[e.FirstKeptEntryID]; ok {
+				newFirstKeptID = mapped
+			}
+			newEntry = &CompactionEntry{
+				Entry: Entry{
+					Type:      EntryTypeCompaction,
+					ID:        newID,
+					ParentID:  prevNewID,
+					Timestamp: e.Timestamp,
+				},
+				Summary:          e.Summary,
+				FirstKeptEntryID: newFirstKeptID,
+				TokensBefore:     e.TokensBefore,
+				TokensAfter:      e.TokensAfter,
+				MessagesRemoved:  e.MessagesRemoved,
+				ReadFiles:        e.ReadFiles,
+				ModifiedFiles:    e.ModifiedFiles,
+			}
+		}
+
+		if newEntry != nil {
+			if err := newTm.appendAndPersist(newEntry); err != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("failed to copy entry: %w", err)
+			}
+			prevNewID = newID
+		}
+	}
+
+	// Set the leaf to the last entry in the new session.
+	newTm.leafID = prevNewID
+
+	return newTm, nil
+}
+
 // OpenTreeSession opens an existing JSONL session file.
 func OpenTreeSession(path string) (*TreeManager, error) {
 	data, err := os.ReadFile(path)
