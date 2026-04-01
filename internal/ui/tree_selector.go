@@ -103,12 +103,12 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
 			if ts.cursor > 0 {
 				ts.cursor--
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
 			if ts.cursor < len(ts.flatNodes)-1 {
 				ts.cursor++
 			}

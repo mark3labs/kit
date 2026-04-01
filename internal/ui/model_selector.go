@@ -115,12 +115,12 @@ func (ms *ModelSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
 			if ms.cursor > 0 {
 				ms.cursor--
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
 			if ms.cursor < len(ms.filtered)-1 {
 				ms.cursor++
 			}

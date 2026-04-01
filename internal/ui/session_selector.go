@@ -158,12 +158,12 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
 			if ss.cursor > 0 {
 				ss.cursor--
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
+		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
 			if ss.cursor < len(ss.filtered)-1 {
 				ss.cursor++
 			}
