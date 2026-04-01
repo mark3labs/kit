@@ -668,6 +668,7 @@ func TestToolOutputEvent_accumulatesBashOutput(t *testing.T) {
 	}
 	if bashItem == nil {
 		t.Fatal("expected StreamingBashOutputItem in messages after ToolOutputEvent")
+		return
 	}
 	if len(bashItem.stdoutLines) != 1 || bashItem.stdoutLines[0] != "line one\n" {
 		t.Fatalf("expected stdout=['line one\\n'], got %v", bashItem.stdoutLines)

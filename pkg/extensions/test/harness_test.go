@@ -202,6 +202,7 @@ func Init(api ext.API) {
 	footer := harness.Context().GetFooter()
 	if footer == nil {
 		t.Fatal("expected footer to be set")
+		return
 	}
 	if footer.Content.Text != "Status: OK" {
 		t.Errorf("expected footer text 'Status: OK', got %q", footer.Content.Text)
@@ -258,6 +259,7 @@ func Init(api ext.API) {
 
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 
 	if !result.Block {
