@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
 
+	"github.com/mark3labs/kit/internal/ui/render"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -151,12 +152,7 @@ func (r *MessageRenderer) SetWidth(width int) {
 
 // RenderUserMessage renders a user's input message using herald Tip alert
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
-	if strings.TrimSpace(content) == "" {
-		content = "(empty message)"
-	}
-
-	rendered := r.ty.Tip(content)
-	rendered = styleMarginBottom1.Render(rendered)
+	rendered := render.UserBlock(content, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      UserMessage,
@@ -168,18 +164,7 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 
 // RenderAssistantMessage renders an AI assistant's response
 func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.Time, modelName string) UIMessage {
-	if strings.TrimSpace(content) == "" {
-		return UIMessage{
-			Type:      AssistantMessage,
-			Content:   "",
-			Height:    0,
-			Timestamp: timestamp,
-		}
-	}
-
-	// Use markdown rendering with Chroma syntax highlighting
-	rendered := style.ToMarkdown(content, r.width-4)
-	rendered = styleMarginBottom1.Render(rendered)
+	rendered := render.AssistantBlock(content, r.width, style.GetTheme())
 
 	return UIMessage{
 		Type:      AssistantMessage,
@@ -193,23 +178,7 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 // as live streaming: muted italic text with margin. This is used when resuming
 // sessions to display saved reasoning content.
 func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Time) UIMessage {
-	if strings.TrimSpace(content) == "" {
-		return UIMessage{
-			Type:      AssistantMessage,
-			Content:   "",
-			Height:    0,
-			Timestamp: timestamp,
-		}
-	}
-
-	theme := style.GetTheme()
-	// Match live streaming styling: muted italic text
-	// Same as stream.go renderReasoningBlock()
-	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-	contentStr := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
-	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	rendered := mutedStyle.Render(r.ty.Italic(contentStr))
-	rendered = styleMarginBottom1.Render(rendered)
+	rendered := render.ReasoningBlock(content, 0, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      AssistantMessage,
@@ -221,12 +190,7 @@ func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Ti
 
 // RenderSystemMessage renders KIT system messages using herald Note alert
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
-	if strings.TrimSpace(content) == "" {
-		content = "No content available"
-	}
-
-	rendered := r.ty.Note(content)
-	rendered = styleMarginBottom1.Render(rendered)
+	rendered := render.SystemBlock(content, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      SystemMessage,
@@ -292,8 +256,7 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 
 // RenderErrorMessage renders error notifications
 func (r *MessageRenderer) RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage {
-	rendered := r.ty.Caution(errorMsg)
-	rendered = styleMarginBottom1.Render(rendered)
+	rendered := render.ErrorBlock(errorMsg, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      ErrorMessage,

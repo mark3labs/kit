@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/mark3labs/kit/internal/ui/render"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -145,47 +146,20 @@ func (s *StreamingMessageItem) Render(width int) string {
 		return s.cachedRender
 	}
 
-	// Get renderer from context
-	renderer := newMessageRenderer(width, false)
-
 	var rendered string
 	if s.role == "reasoning" {
-		// Render as reasoning/thinking block with live duration counter
-		theme := style.GetTheme()
-		mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		ty := createTypography(style.Theme(theme))
-		content := strings.TrimLeft(s.content, " \t\n")
-
-		var parts []string
-		parts = append(parts, mutedStyle.Render(ty.Italic(content)))
-
-		// Add live duration counter (updates on each render)
-		var duration time.Duration
+		// Calculate duration in milliseconds for render.ReasoningBlock
+		var durationMs int64
 		if s.finalDuration > 0 {
-			// Streaming complete, show frozen duration
-			duration = s.finalDuration
+			durationMs = s.finalDuration.Milliseconds()
 		} else if !s.startTime.IsZero() {
-			// Still streaming, show live duration
-			duration = time.Since(s.startTime)
+			durationMs = time.Since(s.startTime).Milliseconds()
 		}
-
-		if duration > 0 {
-			var durationStr string
-			if duration < time.Second {
-				durationStr = fmt.Sprintf("%dms", duration.Milliseconds())
-			} else {
-				durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
-			}
-			label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
-			durationStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
-			parts = append(parts, label+durationStyled)
-		}
-
-		rendered = styleMarginBottom1.Render(strings.Join(parts, "\n"))
+		ty := createTypography(style.GetTheme())
+		rendered = render.ReasoningBlock(s.content, durationMs, ty, style.GetTheme())
 	} else {
 		// Render as assistant message
-		msg := renderer.RenderAssistantMessage(s.content, s.timestamp, s.modelName)
-		rendered = msg.Content
+		rendered = render.AssistantBlock(s.content, width, style.GetTheme())
 	}
 
 	// Cache and return (but reasoning is never cached due to live duration)
