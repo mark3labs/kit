@@ -3580,7 +3580,7 @@ func (m *AppModel) renderSessionHistory() {
 
 		switch msg.Role {
 		case message.RoleUser:
-			text := msg.Content()
+			text := strings.TrimSpace(msg.Content())
 			if text != "" {
 				styledMsg := m.renderer.RenderUserMessage(text, msg.CreatedAt)
 				item := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
@@ -3596,7 +3596,7 @@ func (m *AppModel) renderSessionHistory() {
 				m.messages = append(m.messages, item)
 			}
 			// Then render the text content
-			text := msg.Content()
+			text := strings.TrimSpace(msg.Content())
 			if text != "" {
 				modelName := m.modelName
 				if msg.Model != "" {
