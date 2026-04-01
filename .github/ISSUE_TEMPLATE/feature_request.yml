@@ -1,0 +1,64 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Kit
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: What would you like to see added or changed?
+      placeholder: |
+        I'd like to be able to customize the border color of tool result blocks 
+        dynamically based on the tool type or result status.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / Use Case
+      description: Why is this feature needed? What problem does it solve?
+      placeholder: |
+        When running multiple tools in sequence, it's hard to visually distinguish 
+        between file reads (blue), shell commands (green), and errors (red) 
+        without custom border colors.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Implementation
+      description: How do you think this should work? (optional)
+      placeholder: |
+        Extend `ToolRenderConfig` to accept a function that receives the tool 
+        result and returns a color based on the content:
+        
+        ```go
+        BorderColorFunc: func(result string, isError bool) string {
+            if isError {
+                return "#f38ba8"
+            }
+            return "#89b4fa"
+        }
+        ```
+      render: go
+
+  - type: checkboxes
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      options:
+        - label: I've considered workarounds or alternative approaches
+          required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I've searched existing issues and this hasn't been requested yet
+          required: true
+        - label: This feature aligns with Kit's design philosophy (TUI-first, extension-based)
+          required: false

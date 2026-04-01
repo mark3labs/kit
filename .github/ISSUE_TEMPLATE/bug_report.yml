@@ -1,0 +1,79 @@
+name: Bug Report
+description: Report a bug or issue with Kit
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened? What did you expect to happen?
+      placeholder: |
+        The BorderColor field in ToolRenderConfig is documented but never applied 
+        during tool rendering. I expected the tool block to render with my custom 
+        color, but it uses the default styling instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide clear steps to reproduce the issue
+      placeholder: |
+        1. Create an extension with `api.RegisterToolRenderer(ext.ToolRenderConfig{...})`
+        2. Set `BorderColor: "#89b4fa"` in the config
+        3. Run a tool that uses this renderer
+        4. Observe the border color is not applied
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Relevant Code / Configuration
+      description: Paste any code, configuration, or error messages
+      placeholder: |
+        ```go
+        api.RegisterToolRenderer(ext.ToolRenderConfig{
+            ToolName:    "bash",
+            DisplayName: "Shell",
+            BorderColor: "#a6e3a1",  // This is ignored!
+            Background:  "#1e1e2e",  // This is ignored!
+        })
+        ```
+      render: go
+
+  - type: input
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which part of Kit is affected?
+      placeholder: e.g., extensions, ui, tool rendering, session management
+
+  - type: input
+    id: version
+    attributes:
+      label: Kit Version
+      description: What version of Kit are you running?
+      placeholder: e.g., v0.1.0, commit hash, or "main"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context, proposed fixes, or related issues
+      placeholder: |
+        The issue appears to be in `internal/ui/messages.go:RenderToolMessage()` 
+        which ignores the BorderColor and Background fields from ToolRendererData.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I've searched existing issues and this hasn't been reported yet
+          required: true
+        - label: I've tested with the latest version of Kit
+          required: false

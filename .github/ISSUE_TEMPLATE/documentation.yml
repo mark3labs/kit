@@ -1,0 +1,40 @@
+name: Documentation Issue
+description: Report missing, incorrect, or unclear documentation
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Documentation Issue
+      description: What's wrong or missing in the documentation?
+      placeholder: |
+        The ToolRenderConfig documentation mentions BorderColor and Background fields,
+        but the code doesn't actually use them. The docs should either be updated 
+        to reflect reality, or the bug should be fixed.
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Where is the affected documentation?
+      placeholder: e.g., README.md, examples/extensions/tool-renderer-demo.go, pkg/kit docs
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Improvement
+      description: How should the documentation be improved?
+      placeholder: |
+        Add a note that BorderColor and Background are not yet implemented, 
+        or fix the bug and document the correct behavior.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I've checked that this documentation issue still exists in the latest version
+          required: true
