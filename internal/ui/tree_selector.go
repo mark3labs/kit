@@ -226,46 +226,92 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (ts *TreeSelectorComponent) View() tea.View {
 	theme := GetTheme()
 
+	// Full-screen bordered container - uses entire terminal width and height
+	maxWidth := ts.width - 2 // Small margin on each side
+	if maxWidth < 20 {
+		maxWidth = ts.width
+	}
+	maxHeight := ts.height - 2 // Small margin top/bottom to prevent overflow
+	if maxHeight < 10 {
+		maxHeight = ts.height
+	}
+	horizontalPadding := 1
+	innerWidth := maxWidth - 4   // Account for border (2) + padding (2)
+	innerHeight := maxHeight - 4 // Account for border (2) + padding (2)
+
+	// Container style with border - full width/height like a framed panel
+	containerStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Primary).
+		Background(theme.Background).
+		Padding(1, horizontalPadding).
+		Width(maxWidth).
+		Height(maxHeight)
+
+	// Header style with background highlight (like PopupList title)
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(theme.Accent).
-		PaddingLeft(2)
+		Background(theme.Background)
 
+	// Help text style
 	helpStyle := lipgloss.NewStyle().
 		Foreground(theme.Muted).
-		PaddingLeft(2)
+		Background(theme.Background)
 
-	var b strings.Builder
+	var contentBuilder strings.Builder
 
-	// Header.
-	b.WriteString(headerStyle.Render("Session Tree"))
-	b.WriteString("\n")
-	// Adapt help text to terminal width.
+	// Header row with title and help
+	headerRow := headerStyle.Render("Session Tree")
+	contentBuilder.WriteString(headerRow)
+	contentBuilder.WriteString("\n")
+
+	// Help text - adapt to terminal width
+	var helpText string
 	if ts.width >= 70 {
-		b.WriteString(helpStyle.Render("↑/↓: move  ←/→: page  enter: select  esc: cancel  ^O: cycle filter"))
+		helpText = "↑/↓: move  ←/→: page  enter: select  esc: cancel  ^O: cycle filter"
 	} else if ts.width >= 45 {
-		b.WriteString(helpStyle.Render("↑↓ move  ↵ select  esc cancel  ^O filter"))
+		helpText = "↑↓ move  ↵ select  esc cancel  ^O filter"
 	} else {
-		b.WriteString(helpStyle.Render("↑↓ ↵ esc ^O"))
+		helpText = "↑↓ ↵ esc ^O"
 	}
-	b.WriteString("\n")
+	contentBuilder.WriteString(helpStyle.Render(helpText))
+	contentBuilder.WriteString("\n")
 
+	// Search display (if active)
 	if ts.search != "" {
-		searchStyle := lipgloss.NewStyle().Foreground(theme.Info).PaddingLeft(2)
-		b.WriteString(searchStyle.Render(fmt.Sprintf("Search: %s", ts.search)))
-		b.WriteString("\n")
+		searchStyle := lipgloss.NewStyle().
+			Foreground(theme.Info).
+			Background(theme.Background)
+		contentBuilder.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ts.search)))
+		contentBuilder.WriteString("\n")
 	}
 
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(strings.Repeat("─", ts.width)))
-	b.WriteString("\n")
+	// Separator line - full width
+	sepWidth := innerWidth
+	contentBuilder.WriteString(
+		lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background).
+			Render(strings.Repeat("─", sepWidth)))
+	contentBuilder.WriteString("\n")
 
+	// Tree content
 	if len(ts.flatNodes) == 0 {
-		emptyStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
-		b.WriteString(emptyStyle.Render("No entries in session"))
-		b.WriteString("\n")
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background)
+		contentBuilder.WriteString(emptyStyle.Render("No entries in session"))
+		contentBuilder.WriteString("\n")
 	} else {
-		// Compute visible window.
-		visH := ts.visibleHeight()
+		// Compute visible window based on inner container height
+		// Chrome: header(2) + separator(1) + footer separator(1) + footer(1) = 5
+		chromeLines := 5
+		if ts.search != "" {
+			chromeLines++
+		}
+		visH := max(innerHeight-chromeLines, 3)
+
 		startIdx := 0
 		if ts.cursor >= visH {
 			startIdx = ts.cursor - visH + 1
@@ -274,21 +320,32 @@ func (ts *TreeSelectorComponent) View() tea.View {
 
 		for i := startIdx; i < endIdx; i++ {
 			node := ts.flatNodes[i]
-			line := ts.renderNode(node, i == ts.cursor, node.ID == ts.leafID)
-			b.WriteString(line)
-			b.WriteString("\n")
+			line := ts.renderNode(node, i == ts.cursor, node.ID == ts.leafID, innerWidth)
+			contentBuilder.WriteString(line)
+			contentBuilder.WriteString("\n")
 		}
 	}
 
-	// Footer.
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(strings.Repeat("─", ts.width)))
-	b.WriteString("\n")
+	// Footer separator
+	contentBuilder.WriteString(
+		lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background).
+			Render(strings.Repeat("─", sepWidth)))
+	contentBuilder.WriteString("\n")
 
-	footerStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
+	// Footer with count and filter
+	footerStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Background(theme.Background)
 	footer := fmt.Sprintf("(%d/%d) [%s]", ts.cursor+1, len(ts.flatNodes), ts.filter)
-	b.WriteString(footerStyle.Render(footer))
+	contentBuilder.WriteString(footerStyle.Render(footer))
 
-	v := tea.NewView(b.String())
+	// Apply the bordered container - full width, no centering
+	content := contentBuilder.String()
+	borderedContent := containerStyle.Render(content)
+
+	v := tea.NewView(borderedContent)
 	v.AltScreen = true
 	return v
 }
@@ -420,21 +477,23 @@ func (ts *TreeSelectorComponent) passesFilter(node *session.TreeNode) bool {
 	}
 }
 
-func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool) string {
+func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool, innerWidth int) string {
 	theme := GetTheme()
-	maxWidth := max(ts.width-4, 10)
 
-	// Cursor indicator.
+	// Cursor indicator - use ">" for selected (like PopupList)
 	var cursor string
 	if isCursor {
-		cursor = lipgloss.NewStyle().Foreground(theme.Accent).Render("› ")
+		cursor = lipgloss.NewStyle().Foreground(theme.Accent).Render("> ")
 	} else {
 		cursor = "  "
 	}
 
-	// Role-colored content.
+	// Role-colored content with background support for selection
 	text := ts.entryDisplayText(node.Entry)
-	available := maxWidth - len(node.Prefix) - 10
+
+	// Calculate available width accounting for cursor, prefix, and markers
+	prefixLen := len(node.Prefix)
+	available := innerWidth - prefixLen - 4 // 4 for cursor and some padding
 	if available > 3 && len(text) > available {
 		trimLen := max(available-3, 1)
 		if trimLen < len(text) {
@@ -442,48 +501,88 @@ func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool
 		}
 	}
 
-	var style lipgloss.Style
+	// Build the full line style
+	var lineStyle lipgloss.Style
+	var textStyle lipgloss.Style
+
+	// Base text color based on role
 	switch e := node.Entry.(type) {
 	case *session.MessageEntry:
 		switch e.Role {
 		case "user":
-			style = lipgloss.NewStyle().Foreground(theme.Accent)
+			textStyle = lipgloss.NewStyle().Foreground(theme.Accent)
 		case "assistant":
-			style = lipgloss.NewStyle().Foreground(theme.Success)
+			textStyle = lipgloss.NewStyle().Foreground(theme.Success)
 		default:
-			style = lipgloss.NewStyle().Foreground(theme.Muted)
+			textStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 		}
 	case *session.BranchSummaryEntry:
-		style = lipgloss.NewStyle().Foreground(theme.Warning).Italic(true)
+		textStyle = lipgloss.NewStyle().Foreground(theme.Warning).Italic(true)
 	case *session.CompactionEntry:
-		style = lipgloss.NewStyle().Foreground(theme.Info).Italic(true)
+		textStyle = lipgloss.NewStyle().Foreground(theme.Info).Italic(true)
 	default:
-		style = lipgloss.NewStyle().Foreground(theme.Muted)
+		textStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	}
 
+	// Apply selection highlighting (like PopupList)
 	if isCursor {
-		style = style.Bold(true)
+		// Inverted colors for selected item - matches PopupList style
+		lineStyle = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.Background).
+			Bold(true)
+		textStyle = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.Background).
+			Bold(true)
 	}
 
-	content := style.Render(text)
+	// Render components
+	content := textStyle.Render(text)
 
 	// Label badge.
 	var labelBadge string
 	if node.Label != "" {
-		labelBadge = " " + lipgloss.NewStyle().Foreground(theme.Warning).Render("["+node.Label+"]")
+		labelStyle := lipgloss.NewStyle().Foreground(theme.Warning)
+		if isCursor {
+			labelStyle = lipgloss.NewStyle().
+				Background(theme.Primary).
+				Foreground(theme.Warning)
+		}
+		labelBadge = " " + labelStyle.Render("["+node.Label+"]")
 	}
 
-	// Active marker.
+	// Active marker - use Success color for better visibility
 	var activeMarker string
 	if isLeaf {
-		activeMarker = lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render(" ← active")
+		markerStyle := lipgloss.NewStyle().Foreground(theme.Success).Bold(true)
+		if isCursor {
+			markerStyle = lipgloss.NewStyle().
+				Background(theme.Primary).
+				Foreground(theme.Success).
+				Bold(true)
+		}
+		activeMarker = markerStyle.Render(" ← active")
 	}
 
-	// Prefix (tree lines).
-	prefixStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	// Prefix (tree lines) - use MutedBorder for subtler appearance
+	prefixStyle := lipgloss.NewStyle().Foreground(theme.MutedBorder)
+	if isCursor {
+		prefixStyle = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.MutedBorder)
+	}
 	renderedPrefix := prefixStyle.Render(node.Prefix)
 
-	return cursor + renderedPrefix + content + labelBadge + activeMarker
+	// Combine all parts
+	line := cursor + renderedPrefix + content + labelBadge + activeMarker
+
+	// If selected, apply the background to the entire line
+	if isCursor {
+		return lineStyle.Render(line)
+	}
+
+	return line
 }
 
 func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
