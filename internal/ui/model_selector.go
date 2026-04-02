@@ -5,12 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/models"
-	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // ModelEntry holds display metadata for a single model in the selector.
@@ -30,16 +27,14 @@ type ModelSelectedMsg struct {
 // ModelSelectorCancelledMsg is sent when the user cancels the selector.
 type ModelSelectorCancelledMsg struct{}
 
-// ModelSelectorComponent is a full-screen Bubble Tea component that displays
-// a filterable list of available models. It follows the same pattern as
-// TreeSelectorComponent: inline text search, scrolling list, and custom
-// messages for result delivery.
+// ModelSelectorComponent is a Bubble Tea component that displays a filterable
+// list of available models as a centered overlay popup. It delegates rendering
+// and keyboard navigation to PopupList and converts results into the
+// ModelSelectedMsg / ModelSelectorCancelledMsg messages expected by AppModel.
 type ModelSelectorComponent struct {
-	allModels    []ModelEntry // all available models (pre-sorted)
-	filtered     []ModelEntry // subset matching the current search
-	cursor       int
-	search       string
-	currentModel string // "provider/model" of the active model (for checkmark)
+	popup        *PopupList
+	allModels    []ModelEntry // kept for the custom filter callback
+	currentModel string       // "provider/model" of the active model
 	width        int
 	height       int
 	active       bool
@@ -81,24 +76,31 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 		return allModels[i].ModelID < allModels[j].ModelID
 	})
 
-	ms := &ModelSelectorComponent{
+	// Build PopupItems from model entries.
+	items := make([]PopupItem, len(allModels))
+	for i, m := range allModels {
+		items[i] = PopupItem{
+			Label:       m.ModelID,
+			Description: fmt.Sprintf("[%s]", m.Provider),
+			Active:      m.Provider+"/"+m.ModelID == currentModel,
+			Meta:        m,
+		}
+	}
+
+	popup := NewPopupList("Model Selector", items, width, height)
+	popup.Subtitle = "Only showing models with configured API keys"
+	popup.FilterFunc = func(query string, allItems []PopupItem) []PopupItem {
+		return filterModels(query, allItems)
+	}
+
+	return &ModelSelectorComponent{
+		popup:        popup,
 		allModels:    allModels,
-		filtered:     allModels,
 		currentModel: currentModel,
 		width:        width,
 		height:       height,
 		active:       true,
 	}
-
-	// Position cursor on the current model if found.
-	for i, m := range ms.filtered {
-		if m.Provider+"/"+m.ModelID == currentModel {
-			ms.cursor = i
-			break
-		}
-	}
-
-	return ms
 }
 
 // Init implements tea.Model.
@@ -112,179 +114,43 @@ func (ms *ModelSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		ms.width = msg.Width
 		ms.height = msg.Height
+		ms.popup.SetSize(msg.Width, msg.Height)
 		return ms, nil
 
 	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
-			if ms.cursor > 0 {
-				ms.cursor--
-			}
+		result := ms.popup.HandleKey(msg.String(), msg.Text)
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
-			if ms.cursor < len(ms.filtered)-1 {
-				ms.cursor++
+		if result.Selected != nil {
+			ms.active = false
+			entry := result.Selected.Meta.(ModelEntry)
+			modelStr := entry.Provider + "/" + entry.ModelID
+			return ms, func() tea.Msg {
+				return ModelSelectedMsg{ModelString: modelStr}
 			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup"))):
-			ms.cursor -= ms.visibleHeight()
-			if ms.cursor < 0 {
-				ms.cursor = 0
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown"))):
-			ms.cursor += ms.visibleHeight()
-			if ms.cursor >= len(ms.filtered) {
-				ms.cursor = len(ms.filtered) - 1
-			}
-			if ms.cursor < 0 {
-				ms.cursor = 0
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-			ms.cursor = 0
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-			ms.cursor = max(len(ms.filtered)-1, 0)
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			if ms.cursor < len(ms.filtered) {
-				entry := ms.filtered[ms.cursor]
-				ms.active = false
-				return ms, func() tea.Msg {
-					return ModelSelectedMsg{
-						ModelString: entry.Provider + "/" + entry.ModelID,
-					}
-				}
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			if ms.search != "" {
-				ms.search = ""
-				ms.rebuildFiltered()
-			} else {
-				ms.active = false
-				return ms, func() tea.Msg {
-					return ModelSelectorCancelledMsg{}
-				}
-			}
-
-		default:
-			// Inline text search.
-			if msg.Text != "" && len(msg.Text) == 1 {
-				ch := msg.Text[0]
-				if ch >= 32 && ch < 127 {
-					ms.search += string(ch)
-					ms.rebuildFiltered()
-				}
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))) && len(ms.search) > 0 {
-				ms.search = ms.search[:len(ms.search)-1]
-				ms.rebuildFiltered()
+		}
+		if result.Cancelled {
+			ms.active = false
+			return ms, func() tea.Msg {
+				return ModelSelectorCancelledMsg{}
 			}
 		}
 	}
 	return ms, nil
 }
 
-// View implements tea.Model.
+// View implements tea.Model — not used for overlay rendering.
+// Use RenderOverlay for the centered overlay approach.
 func (ms *ModelSelectorComponent) View() tea.View {
-	theme := style.GetTheme()
-
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(theme.Accent).
-		PaddingLeft(2)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		PaddingLeft(2)
-
-	infoStyle := lipgloss.NewStyle().
-		Foreground(theme.Warning).
-		PaddingLeft(2)
-
-	var b strings.Builder
-
-	// Header.
-	b.WriteString(headerStyle.Render("Model Selector"))
-	b.WriteString("\n")
-	// Adapt help text to terminal width.
-	if ms.width >= 56 {
-		b.WriteString(helpStyle.Render("↑/↓: move  enter: select  esc: cancel  type to filter"))
-	} else if ms.width >= 35 {
-		b.WriteString(helpStyle.Render("↑↓ move  ↵ select  esc  type"))
-	} else {
-		b.WriteString(helpStyle.Render("↑↓ ↵ esc"))
-	}
-	b.WriteString("\n")
-	if ms.width >= 48 {
-		b.WriteString(infoStyle.Render("Only showing models with configured API keys"))
-	} else {
-		b.WriteString(infoStyle.Render("Models with API keys"))
-	}
-	b.WriteString("\n")
-
-	// Search input.
-	searchStyle := lipgloss.NewStyle().Foreground(theme.Info).PaddingLeft(2)
-	if ms.search != "" {
-		b.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ms.search)))
-	} else {
-		b.WriteString(searchStyle.Render("> "))
-	}
-	b.WriteString("\n")
-
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(strings.Repeat("─", ms.width)))
-	b.WriteString("\n")
-
-	if len(ms.filtered) == 0 {
-		emptyStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
-		if ms.search != "" {
-			b.WriteString(emptyStyle.Render("No models matching \"" + ms.search + "\""))
-		} else {
-			b.WriteString(emptyStyle.Render("No models available (check API keys)"))
-		}
-		b.WriteString("\n")
-	} else {
-		// Visible window.
-		visH := ms.visibleHeight()
-		startIdx := 0
-		if ms.cursor >= visH {
-			startIdx = ms.cursor - visH + 1
-		}
-		endIdx := min(startIdx+visH, len(ms.filtered))
-
-		for i := startIdx; i < endIdx; i++ {
-			entry := ms.filtered[i]
-			line := ms.renderEntry(entry, i == ms.cursor)
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-	}
-
-	// Footer.
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(strings.Repeat("─", ms.width)))
-	b.WriteString("\n")
-
-	footerParts := []string{
-		fmt.Sprintf("(%d/%d)", ms.cursor+1, len(ms.filtered)),
-	}
-	if ms.cursor < len(ms.filtered) {
-		entry := ms.filtered[ms.cursor]
-		if entry.Name != "" {
-			footerParts = append(footerParts, fmt.Sprintf("Model Name: %s", entry.Name))
-		}
-		if entry.ContextLimit > 0 {
-			footerParts = append(footerParts, fmt.Sprintf("Context: %dK", entry.ContextLimit/1000))
-		}
-	}
-
-	footerStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
-	b.WriteString(footerStyle.Render(strings.Join(footerParts, "  ")))
-
-	v := tea.NewView(b.String())
+	// Fallback full-screen rendering (unused when rendered as overlay).
+	v := tea.NewView(ms.popup.RenderCentered(ms.width, ms.height))
 	v.AltScreen = true
 	return v
+}
+
+// RenderOverlay returns the popup as a centered overlay string, ready to be
+// composited on top of the main content via overlayContent().
+func (ms *ModelSelectorComponent) RenderOverlay(termWidth, termHeight int) string {
+	return ms.popup.RenderCentered(termWidth, termHeight)
 }
 
 // IsActive returns whether the selector is still accepting input.
@@ -292,56 +158,50 @@ func (ms *ModelSelectorComponent) IsActive() bool {
 	return ms.active
 }
 
-// --- Internal helpers ---
+// --- Model-specific fuzzy filter ---
 
-func (ms *ModelSelectorComponent) visibleHeight() int {
-	// Reserve: header(1) + help(1) + info(1) + search(1) + separator(1) + footer(2) = 7.
-	// Minimum 3 entries so the selector is still usable on short terminals.
-	return max(ms.height-7, 3)
-}
+// filterModels scores and filters PopupItems whose Meta is a ModelEntry.
+func filterModels(query string, items []PopupItem) []PopupItem {
+	if query == "" {
+		return items
+	}
+	q := strings.ToLower(query)
 
-func (ms *ModelSelectorComponent) rebuildFiltered() {
-	if ms.search == "" {
-		ms.filtered = ms.allModels
-	} else {
-		query := strings.ToLower(ms.search)
-		ms.filtered = ms.filtered[:0]
+	type scored struct {
+		item  PopupItem
+		score int
+	}
+	var matches []scored
 
-		type scored struct {
-			entry ModelEntry
-			score int
+	for _, item := range items {
+		entry, ok := item.Meta.(ModelEntry)
+		if !ok {
+			continue
 		}
-		var matches []scored
-
-		for _, entry := range ms.allModels {
-			s := ms.fuzzyScoreModel(query, entry)
-			if s > 0 {
-				matches = append(matches, scored{entry: entry, score: s})
-			}
-		}
-
-		// Sort by score descending, then alphabetically.
-		sort.Slice(matches, func(i, j int) bool {
-			if matches[i].score != matches[j].score {
-				return matches[i].score > matches[j].score
-			}
-			return matches[i].entry.ModelID < matches[j].entry.ModelID
-		})
-
-		ms.filtered = make([]ModelEntry, len(matches))
-		for i, m := range matches {
-			ms.filtered[i] = m.entry
+		s := fuzzyScoreModelEntry(q, entry)
+		if s > 0 {
+			matches = append(matches, scored{item: item, score: s})
 		}
 	}
 
-	// Clamp cursor.
-	if ms.cursor >= len(ms.filtered) {
-		ms.cursor = max(len(ms.filtered)-1, 0)
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		a := matches[i].item.Meta.(ModelEntry)
+		b := matches[j].item.Meta.(ModelEntry)
+		return a.ModelID < b.ModelID
+	})
+
+	result := make([]PopupItem, len(matches))
+	for i, m := range matches {
+		result[i] = m.item
 	}
+	return result
 }
 
-// fuzzyScoreModel scores a model entry against the search query.
-func (ms *ModelSelectorComponent) fuzzyScoreModel(query string, entry ModelEntry) int {
+// fuzzyScoreModelEntry scores a model entry against the search query.
+func fuzzyScoreModelEntry(query string, entry ModelEntry) int {
 	modelID := strings.ToLower(entry.ModelID)
 	provider := strings.ToLower(entry.Provider)
 	name := strings.ToLower(entry.Name)
@@ -393,68 +253,4 @@ func (ms *ModelSelectorComponent) fuzzyScoreModel(query string, entry ModelEntry
 	}
 
 	return 0
-}
-
-func (ms *ModelSelectorComponent) renderEntry(entry ModelEntry, isCursor bool) string {
-	theme := style.GetTheme()
-	modelStr := entry.ModelID
-	providerStr := fmt.Sprintf("[%s]", entry.Provider)
-
-	// Cursor indicator.
-	var cursor string
-	if isCursor {
-		cursor = lipgloss.NewStyle().Foreground(theme.Accent).Render("-> ")
-	} else {
-		cursor = "   "
-	}
-
-	// Active model checkmark.
-	var active string
-	activeWidth := 0
-	if entry.Provider+"/"+entry.ModelID == ms.currentModel {
-		active = lipgloss.NewStyle().Foreground(theme.Success).Render(" \u2713")
-		activeWidth = 2 // " ✓"
-	}
-
-	// Truncate model ID and provider tag to fit terminal width.
-	// Layout: cursor(3) + model + " " + provider + active.
-	// Use rune length for display-width accuracy (the "…" suffix is 1 rune / 1 column).
-	const cursorWidth = 3
-	available := max(ms.width-cursorWidth-activeWidth-1, 10) // 1 for space between model and provider
-	provDisplayLen := len([]rune(providerStr))
-	modelDisplayLen := len([]rune(modelStr))
-
-	if modelDisplayLen+1+provDisplayLen > available {
-		// Prioritize model name — truncate it, but keep provider visible.
-		maxModel := max(available-provDisplayLen-1, 6)
-		if maxModel < modelDisplayLen {
-			if maxModel > 3 {
-				runes := []rune(modelStr)
-				modelStr = string(runes[:maxModel-1]) + "…"
-			} else {
-				runes := []rune(modelStr)
-				modelStr = string(runes[:maxModel])
-			}
-		}
-		// If provider itself is too long, drop it.
-		modelDisplayLen = len([]rune(modelStr))
-		if modelDisplayLen+1+provDisplayLen > available {
-			providerStr = ""
-		}
-	}
-
-	// Style the model ID.
-	modelStyle := lipgloss.NewStyle().Foreground(theme.Text)
-	if isCursor {
-		modelStyle = modelStyle.Bold(true).Foreground(theme.Accent)
-	}
-
-	// Style the provider tag.
-	providerStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-
-	result := cursor + modelStyle.Render(modelStr)
-	if providerStr != "" {
-		result += " " + providerStyle.Render(providerStr)
-	}
-	return result + active
 }

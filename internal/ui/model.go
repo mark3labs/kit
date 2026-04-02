@@ -1919,10 +1919,7 @@ func (m *AppModel) View() tea.View {
 		return m.treeSelector.View()
 	}
 
-	// Model selector overlay replaces the normal layout.
-	if m.state == stateModelSelector && m.modelSelector != nil {
-		return m.modelSelector.View()
-	}
+	// Model selector is rendered as a centered overlay later (see below).
 
 	// Session selector overlay replaces the normal layout.
 	if m.state == stateSessionSelector && m.sessionSelector != nil {
@@ -2044,6 +2041,12 @@ func (m *AppModel) View() tea.View {
 			// Overlay popup content on top of main content
 			finalContent = overlayContent(content, popupContent, m.width, m.height)
 		}
+	}
+
+	// Render model selector as centered overlay if active
+	if m.state == stateModelSelector && m.modelSelector != nil {
+		popupContent := m.modelSelector.RenderOverlay(m.width, m.height)
+		finalContent = overlayContent(finalContent, popupContent, m.width, m.height)
 	}
 
 	v := tea.NewView(finalContent)
