@@ -400,6 +400,52 @@ func (r *ModelsRegistry) GetProviderInfo(provider string) *ProviderInfo {
 	return &info
 }
 
+// ValidateModelString checks whether a model string is well-formed and refers
+// to a known provider. It returns a user-friendly error with suggestions when
+// the model or provider is unrecognised. Passing validation does not guarantee
+// that API authentication will succeed — it only catches obvious mistakes
+// (typos, missing provider prefix, non-existent provider names) early so that
+// callers such as subagent spawning can return fast feedback.
+//
+// Unknown models under a known provider are allowed (the provider API is the
+// authority), but a completely unknown provider is rejected.
+func (r *ModelsRegistry) ValidateModelString(modelString string) error {
+	provider, modelName, err := ParseModelString(modelString)
+	if err != nil {
+		return err
+	}
+
+	// Ollama and custom are always valid — model names are user-defined.
+	if provider == "ollama" || provider == "custom" {
+		return nil
+	}
+
+	// Check if the provider exists in the registry.
+	providerInfo := r.GetProviderInfo(provider)
+	if providerInfo == nil {
+		known := r.GetSupportedProviders()
+		return fmt.Errorf(
+			"unknown provider %q in model string %q. Known providers: %s",
+			provider, modelString, strings.Join(known, ", "),
+		)
+	}
+
+	// Provider exists — check if the model is known. An unknown model is
+	// only a warning (the provider API decides), but we surface suggestions
+	// so the caller can self-correct.
+	if r.LookupModel(provider, modelName) == nil {
+		if suggestions := r.SuggestModels(provider, modelName); len(suggestions) > 0 {
+			return fmt.Errorf(
+				"model %q not found for provider %s. Did you mean one of: %s",
+				modelName, provider, strings.Join(suggestions, ", "),
+			)
+		}
+		// No suggestions — let it through; the provider API is the authority.
+	}
+
+	return nil
+}
+
 // Global registry instance
 var globalRegistry = NewModelsRegistry()
 

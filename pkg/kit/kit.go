@@ -920,6 +920,17 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		}
 	}
 
+	// Early validation: check model format and provider before doing any
+	// expensive work (MCP init, system prompt composition, etc.). This
+	// gives the calling agent immediate feedback it can act on — e.g.
+	// correcting a typo — instead of waiting for a full Kit.New() cycle
+	// that silently falls back to the parent model.
+	if model != m.modelString {
+		if err := models.GetGlobalRegistry().ValidateModelString(model); err != nil {
+			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
+		}
+	}
+
 	// Default system prompt.
 	systemPrompt := cfg.SystemPrompt
 	if systemPrompt == "" {
@@ -932,9 +943,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		tools = SubagentTools()
 	}
 
-	// Create child Kit instance. If the requested model fails (bad name,
-	// unsupported provider, etc.), fall back to the parent's model so the
-	// agent gets a useful error message instead of a hard failure.
+	// Create child Kit instance.
 	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
@@ -943,19 +952,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Quiet:        true,
 	}
 	child, err := New(ctx, childOpts)
-	if err != nil && model != m.modelString {
-		// Model-specific failure — retry with parent's model.
-		childOpts.Model = m.modelString
-		child, err = New(ctx, childOpts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create subagent: %w", err)
-		}
-		// Prepend a note so the agent knows which model is actually running.
-		cfg.Prompt = fmt.Sprintf(
-			"[Note: requested model %q was not available, using %s instead.]\n\n%s",
-			model, m.modelString, cfg.Prompt,
-		)
-	} else if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to create subagent: %w", err)
 	}
 	defer func() { _ = child.Close() }()
