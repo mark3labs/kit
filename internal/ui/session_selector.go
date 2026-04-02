@@ -252,57 +252,107 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements tea.Model.
 func (ss *SessionSelectorComponent) View() tea.View {
 	theme := style.GetTheme()
-	w := ss.width
-	var b strings.Builder
+
+	// Full-screen bordered container - uses entire terminal width and height
+	maxWidth := ss.width - 2 // Small margin on each side
+	if maxWidth < 20 {
+		maxWidth = ss.width
+	}
+	maxHeight := ss.height - 2 // Small margin top/bottom to prevent overflow
+	if maxHeight < 10 {
+		maxHeight = ss.height
+	}
+	horizontalPadding := 1
+	innerWidth := maxWidth - 4   // Account for border (2) + padding (2)
+	innerHeight := maxHeight - 4 // Account for border (2) + padding (2)
+
+	// Container style with border - full width/height like a framed panel
+	containerStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Primary).
+		Background(theme.Background).
+		Padding(1, horizontalPadding).
+		Width(maxWidth).
+		Height(maxHeight)
+
+	var contentBuilder strings.Builder
 
 	// ── Header: title + scope badges ─────────────────────────────
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Accent).PaddingLeft(1)
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Resume Session (%s)", ss.scope)))
-	b.WriteString("\n")
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(theme.Accent).
+		Background(theme.Background)
+	contentBuilder.WriteString(titleStyle.Render(fmt.Sprintf("Resume Session (%s)", ss.scope)))
+	contentBuilder.WriteString("\n")
 
 	// ── Help / keybindings ───────────────────────────────────────
-	helpStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(1)
-	if w >= 75 {
-		b.WriteString(helpStyle.Render("tab: scope  N: named  D: delete  R: rename  type to search  esc: cancel"))
-	} else if w >= 50 {
-		b.WriteString(helpStyle.Render("tab scope  N named  D del  type to search  esc"))
+	helpStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Background(theme.Background)
+	if innerWidth >= 75 {
+		contentBuilder.WriteString(helpStyle.Render("tab: scope  N: named  D: delete  R: rename  type to search  esc: cancel"))
+	} else if innerWidth >= 50 {
+		contentBuilder.WriteString(helpStyle.Render("tab scope  N named  D del  type to search  esc"))
 	} else {
-		b.WriteString(helpStyle.Render("tab N D esc"))
+		contentBuilder.WriteString(helpStyle.Render("tab N D esc"))
 	}
-	b.WriteString("\n")
+	contentBuilder.WriteString("\n")
 
 	// ── Search (only shown when active) ──────────────────────────
 	if ss.search != "" {
-		searchStyle := lipgloss.NewStyle().Foreground(theme.Info).PaddingLeft(1)
-		b.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ss.search)))
-		b.WriteString("\n")
+		searchStyle := lipgloss.NewStyle().
+			Foreground(theme.Info).
+			Background(theme.Background)
+		contentBuilder.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ss.search)))
+		contentBuilder.WriteString("\n")
 	}
 
-	b.WriteString("\n")
+	// Separator line
+	sepWidth := innerWidth
+	contentBuilder.WriteString(
+		lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background).
+			Render(strings.Repeat("─", sepWidth)))
+	contentBuilder.WriteString("\n")
 
 	// ── Delete confirmation ──────────────────────────────────────
 	if ss.confirmDelete >= 0 && ss.confirmDelete < len(ss.filtered) {
-		warnStyle := lipgloss.NewStyle().Foreground(theme.Error).Bold(true).PaddingLeft(1)
+		warnStyle := lipgloss.NewStyle().
+			Foreground(theme.Error).
+			Bold(true).
+			Background(theme.Background)
 		name := sessionDisplayName(ss.filtered[ss.confirmDelete])
-		b.WriteString(warnStyle.Render(fmt.Sprintf("Delete %q? (y/N)", truncateRunes(name, 40))))
-		b.WriteString("\n")
+		contentBuilder.WriteString(warnStyle.Render(fmt.Sprintf("Delete %q? (y/N)", truncateRunes(name, 40))))
+		contentBuilder.WriteString("\n")
 	}
 
 	// ── Session list ─────────────────────────────────────────────
 	if len(ss.filtered) == 0 {
-		emptyStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background)
 		if ss.search != "" {
-			b.WriteString(emptyStyle.Render(fmt.Sprintf("No sessions matching %q", ss.search)))
+			contentBuilder.WriteString(emptyStyle.Render(fmt.Sprintf("No sessions matching %q", ss.search)))
 		} else if ss.filter == SessionFilterNamed {
-			b.WriteString(emptyStyle.Render("No named sessions. Press N to show all."))
+			contentBuilder.WriteString(emptyStyle.Render("No named sessions. Press N to show all."))
 		} else if ss.scope == SessionScopeCwd {
-			b.WriteString(emptyStyle.Render("No sessions in current folder. Press tab to view all."))
+			contentBuilder.WriteString(emptyStyle.Render("No sessions in current folder. Press tab to view all."))
 		} else {
-			b.WriteString(emptyStyle.Render("No sessions found"))
+			contentBuilder.WriteString(emptyStyle.Render("No sessions found"))
 		}
-		b.WriteString("\n")
+		contentBuilder.WriteString("\n")
 	} else {
-		visH := ss.visibleHeight()
+		// Compute visible window based on inner container height
+		// Chrome: header(2) + separator(1) + footer separator(1) + footer(1) = 5
+		chromeLines := 5
+		if ss.search != "" {
+			chromeLines++
+		}
+		if ss.confirmDelete >= 0 {
+			chromeLines++
+		}
+		visH := max(innerHeight-chromeLines, 3)
 
 		// Center the cursor in the visible window.
 		startIdx := max(0, min(ss.cursor-visH/2, len(ss.filtered)-visH))
@@ -313,20 +363,40 @@ func (ss *SessionSelectorComponent) View() tea.View {
 			isCursor := i == ss.cursor
 			isCurrent := info.Path == ss.currentPath
 			isDeleting := i == ss.confirmDelete
-			line := ss.renderEntry(info, isCursor, isCurrent, isDeleting, w)
-			b.WriteString(line)
-			b.WriteString("\n")
+			line := ss.renderEntry(info, isCursor, isCurrent, isDeleting, innerWidth)
+			contentBuilder.WriteString(line)
+			contentBuilder.WriteString("\n")
 		}
 
 		// Scroll position indicator.
 		if len(ss.filtered) > visH {
-			posStyle := lipgloss.NewStyle().Foreground(theme.Muted).PaddingLeft(2)
-			b.WriteString(posStyle.Render(fmt.Sprintf("(%d/%d)", ss.cursor+1, len(ss.filtered))))
-			b.WriteString("\n")
+			posStyle := lipgloss.NewStyle().
+				Foreground(theme.Muted).
+				Background(theme.Background)
+			contentBuilder.WriteString(posStyle.Render(fmt.Sprintf("(%d/%d)", ss.cursor+1, len(ss.filtered))))
+			contentBuilder.WriteString("\n")
 		}
 	}
 
-	v := tea.NewView(b.String())
+	// Footer separator
+	contentBuilder.WriteString(
+		lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.Background).
+			Render(strings.Repeat("─", sepWidth)))
+	contentBuilder.WriteString("\n")
+
+	// Footer with filter info
+	footerStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Background(theme.Background)
+	contentBuilder.WriteString(footerStyle.Render(fmt.Sprintf("Filter: %s", ss.filter)))
+
+	// Apply the bordered container
+	content := contentBuilder.String()
+	borderedContent := containerStyle.Render(content)
+
+	v := tea.NewView(borderedContent)
 	v.AltScreen = true
 	return v
 }
@@ -411,7 +481,7 @@ func (ss *SessionSelectorComponent) renderEntry(info session.SessionInfo, isCurs
 	// ── Cursor indicator (2 chars) ───────────────────────────────
 	cursorStr := "  "
 	if isCursor {
-		cursorStr = lipgloss.NewStyle().Foreground(theme.Accent).Render("› ")
+		cursorStr = lipgloss.NewStyle().Foreground(theme.Accent).Render("> ")
 	}
 	const cursorW = 2
 
@@ -439,44 +509,49 @@ func (ss *SessionSelectorComponent) renderEntry(info session.SessionInfo, isCurs
 	msgW := utf8.RuneCountInString(displayText)
 
 	// ── Style the message ────────────────────────────────────────
-	msgStyle := lipgloss.NewStyle()
+	var msgStyle lipgloss.Style
 	switch {
 	case isDeleting:
-		msgStyle = msgStyle.Foreground(theme.Error)
+		msgStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	case isCurrent:
-		msgStyle = msgStyle.Foreground(theme.Accent)
+		msgStyle = lipgloss.NewStyle().Foreground(theme.Accent)
 	case info.Name != "":
-		msgStyle = msgStyle.Foreground(theme.Warning)
+		msgStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	default:
-		msgStyle = msgStyle.Foreground(theme.Text)
+		msgStyle = lipgloss.NewStyle().Foreground(theme.Text)
 	}
-	if isCursor {
-		msgStyle = msgStyle.Bold(true)
-	}
-
-	styledMsg := msgStyle.Render(displayText)
 
 	// ── Style the right part ─────────────────────────────────────
 	rightColor := theme.Muted
 	if isDeleting {
 		rightColor = theme.Error
 	}
-	styledRight := lipgloss.NewStyle().Foreground(rightColor).Render(rightPart)
+	var styledRight string
 
 	// ── Assemble with spacing ────────────────────────────────────
 	spacing := max(width-cursorW-msgW-rightW, 1)
 
-	line := cursorStr + styledMsg + strings.Repeat(" ", spacing) + styledRight
-
-	// ── Background highlight for selected row ────────────────────
+	// If selected, use inverted colors like PopupList
 	if isCursor {
-		// Use a subtle background highlight. We apply it by wrapping the
-		// full line in a style with a background color.
-		bgStyle := lipgloss.NewStyle().
-			Background(theme.Highlight).
-			Width(width)
-		line = bgStyle.Render(line)
+		// Inverted colors for selected item
+		msgStyle = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.Background).
+			Bold(true)
+		styledRight = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(rightColor).
+			Render(rightPart)
+		cursorStr = lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.Accent).
+			Render("> ")
+	} else {
+		styledRight = lipgloss.NewStyle().Foreground(rightColor).Render(rightPart)
 	}
+
+	styledMsg := msgStyle.Render(displayText)
+	line := cursorStr + styledMsg + strings.Repeat(" ", spacing) + styledRight
 
 	return line
 }
