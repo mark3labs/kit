@@ -91,7 +91,11 @@ api.OnAgentStart(func(e ext.AgentStartEvent, ctx ext.Context) {
 // Agent finished responding.
 api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
     // e.Response string
-    // e.StopReason string — "completed", "cancelled", "error"
+    // e.StopReason string — "error" (on failure), "completed" (when LLM returns
+    //   empty stop reason), or the raw LLM provider value passed through
+    //   (e.g. "stop", "end_turn", "max_tokens", "tool_use").
+    //   To detect errors, check e.StopReason == "error".
+    //   Do NOT compare against "completed" for success — instead check != "error".
 })
 ```
 
