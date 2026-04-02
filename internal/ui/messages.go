@@ -334,6 +334,12 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		body = r.ty.Italic("(no output)")
 	}
 
+	// Wrap all tool errors in a herald Caution alert so the error text
+	// renders inside a contained block instead of spilling into the layout.
+	if isError && strings.TrimSpace(body) != "" {
+		body = r.ty.Alert(herald.AlertCaution, body)
+	}
+
 	// Compose: icon + name + params, then body
 	fullContent := r.ty.Compose(
 		headerLine,
