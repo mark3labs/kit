@@ -401,6 +401,17 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, streamFlushTickCmd(s.flushGeneration)
 		}
 
+	case app.ReasoningCompleteEvent:
+		// Freeze reasoning duration when reasoning finishes (before text streaming starts).
+		if s.reasoningDuration == 0 && !s.reasoningStartTime.IsZero() {
+			s.reasoningDuration = time.Since(s.reasoningStartTime)
+		}
+		// Flush any remaining pending reasoning content.
+		if s.pendingReasoning.Len() > 0 {
+			s.reasoningContent.WriteString(s.pendingReasoning.String())
+			s.pendingReasoning.Reset()
+		}
+
 	case app.StreamChunkEvent:
 		s.phase = streamPhaseActive
 		if s.timestamp.IsZero() {

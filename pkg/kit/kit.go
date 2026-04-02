@@ -1099,6 +1099,9 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(delta string) {
 			m.events.emit(ReasoningDeltaEvent{Delta: delta})
 		},
+		func() {
+			m.events.emit(ReasoningCompleteEvent{})
+		},
 		func(toolCallID, toolName, chunk string, isStderr bool) {
 			// Emit tool output chunk event for streaming bash output
 			m.events.emit(ToolOutputEvent{

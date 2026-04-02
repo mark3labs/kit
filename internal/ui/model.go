@@ -1471,6 +1471,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Also update/create StreamingMessageItem in ScrollList for live display
 		m.appendStreamingChunk("reasoning", msg.Delta)
 
+	case app.ReasoningCompleteEvent:
+		// Forward to stream component to freeze reasoning duration
+		if m.stream != nil {
+			updated, cmd := m.stream.Update(msg)
+			m.stream, _ = updated.(streamComponentIface)
+			cmds = append(cmds, cmd)
+		}
+
+		// Mark the reasoning StreamingMessageItem as complete to freeze its counter
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok && streamMsg.role == "reasoning" {
+				streamMsg.MarkComplete()
+			}
+		}
+
 	case app.StreamChunkEvent:
 		// Forward to stream component for display rendering
 		if m.stream != nil {

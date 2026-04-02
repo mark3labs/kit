@@ -39,6 +39,9 @@ const (
 	EventCompaction EventType = "compaction"
 	// EventReasoningDelta fires for each streaming reasoning/thinking chunk.
 	EventReasoningDelta EventType = "reasoning_delta"
+	// EventReasoningComplete fires when reasoning/thinking is finished,
+	// after the last reasoning token has been processed.
+	EventReasoningComplete EventType = "reasoning_complete"
 	// EventToolOutput fires when a tool produces streaming output chunks.
 	EventToolOutput EventType = "tool_output"
 	EventStepUsage  EventType = "step_usage"
@@ -148,6 +151,13 @@ type ReasoningDeltaEvent struct {
 
 // EventType implements Event.
 func (e ReasoningDeltaEvent) EventType() EventType { return EventReasoningDelta }
+
+// ReasoningCompleteEvent fires when reasoning/thinking is finished, after the
+// last reasoning token has been processed.
+type ReasoningCompleteEvent struct{}
+
+// EventType implements Event.
+func (e ReasoningCompleteEvent) EventType() EventType { return EventReasoningComplete }
 
 // ToolOutputEvent fires when a tool produces streaming output chunks (e.g., bash output).
 type ToolOutputEvent struct {

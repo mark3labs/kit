@@ -16,6 +16,11 @@ type ReasoningChunkEvent struct {
 	Delta string
 }
 
+// ReasoningCompleteEvent is sent when reasoning/thinking is finished, after
+// the last reasoning token has been processed. The TUI uses this to freeze
+// the reasoning duration counter.
+type ReasoningCompleteEvent struct{}
+
 // ToolCallStartedEvent is sent when a tool call has been parsed and is about to execute.
 // It carries the tool name and its arguments for display purposes.
 type ToolCallStartedEvent struct {

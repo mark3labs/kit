@@ -63,6 +63,10 @@ type ToolCallContentHandler func(content string)
 // ReasoningDeltaHandler is a function type for handling streaming reasoning/thinking deltas.
 type ReasoningDeltaHandler func(delta string)
 
+// ReasoningCompleteHandler is a function type for handling reasoning/thinking completion.
+// Called when the last reasoning token has been processed, before text streaming starts.
+type ReasoningCompleteHandler func()
+
 // ToolOutputHandler is a function type for handling streaming tool output chunks.
 // Used by tools like bash to stream output as it arrives rather than waiting
 // for the command to complete. The isStderr flag indicates if the chunk
@@ -231,7 +235,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
@@ -242,6 +246,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 	onStreamingResponse StreamingResponseHandler,
 	onReasoningDelta ReasoningDeltaHandler,
+	onReasoningComplete ReasoningCompleteHandler,
 	onToolOutput ToolOutputHandler,
 	onStepUsage StepUsageHandler,
 ) (*GenerateWithLoopResult, error) {
@@ -291,6 +296,17 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				}
 				if onReasoningDelta != nil {
 					onReasoningDelta(delta)
+				}
+				return nil
+			},
+
+			// Reasoning/thinking complete callback
+			OnReasoningEnd: func(id string, _ fantasy.ReasoningContent) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if onReasoningComplete != nil {
+					onReasoningComplete()
 				}
 				return nil
 			},

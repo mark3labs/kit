@@ -788,6 +788,8 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 			sendFn(StreamChunkEvent{Content: ev.Chunk})
 		case kit.ReasoningDeltaEvent:
 			sendFn(ReasoningChunkEvent{Delta: ev.Delta})
+		case kit.ReasoningCompleteEvent:
+			sendFn(ReasoningCompleteEvent{})
 		case kit.ToolOutputEvent:
 			sendFn(ToolOutputEvent{
 				ToolCallID: ev.ToolCallID,

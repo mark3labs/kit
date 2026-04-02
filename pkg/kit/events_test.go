@@ -177,6 +177,7 @@ func TestEventTypes(t *testing.T) {
 		{ResponseEvent{}, EventResponse},
 		{CompactionEvent{}, EventCompaction},
 		{ReasoningDeltaEvent{}, EventReasoningDelta},
+		{ReasoningCompleteEvent{}, EventReasoningComplete},
 		{ToolOutputEvent{}, EventToolOutput},
 		{StepUsageEvent{}, EventStepUsage},
 		{SteerConsumedEvent{}, EventSteerConsumed},
@@ -224,6 +225,7 @@ func TestEventOrdering(t *testing.T) {
 		EventMessageStart,
 		EventMessageUpdate,
 		EventReasoningDelta,
+		EventReasoningComplete,
 		EventToolOutput,
 		EventToolCall,
 		EventToolExecutionStart,
@@ -242,6 +244,7 @@ func TestEventOrdering(t *testing.T) {
 	bus.emit(MessageStartEvent{})
 	bus.emit(MessageUpdateEvent{Chunk: "hello"})
 	bus.emit(ReasoningDeltaEvent{Delta: "thinking..."})
+	bus.emit(ReasoningCompleteEvent{})
 	bus.emit(ToolOutputEvent{ToolName: "bash", Chunk: "output"})
 	bus.emit(ToolCallEvent{ToolName: "bash"})
 	bus.emit(ToolExecutionStartEvent{ToolName: "bash"})

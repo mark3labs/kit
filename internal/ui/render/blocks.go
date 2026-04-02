@@ -47,7 +47,6 @@ func ReasoningBlock(content string, duration int64, ty *herald.Typography, theme
 	contentRendered := mutedStyle.Render(ty.Italic(contentStr))
 
 	// Build label based on duration
-	var labelText string
 	if duration > 0 {
 		var durationStr string
 		if duration < 1000 {
@@ -55,12 +54,14 @@ func ReasoningBlock(content string, duration int64, ty *herald.Typography, theme
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", float64(duration)/1000)
 		}
-		labelText = "Thought for " + durationStr
-	} else {
-		labelText = "Thought"
+		labelPart := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
+		durationPart := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
+		label := labelPart + durationPart
+		rendered := contentRendered + "\n" + label
+		return styleMarginBottom(theme, rendered)
 	}
 
-	label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(labelText)
+	label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought")
 	rendered := contentRendered + "\n" + label
 
 	return styleMarginBottom(theme, rendered)
