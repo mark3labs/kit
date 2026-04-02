@@ -56,7 +56,7 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 			return body
 		}
 	case isShellTool(toolName):
-		if body := renderBashBody(toolResult, width); body != "" {
+		if body := renderBashBody(toolArgs, toolResult, width); body != "" {
 			return body
 		}
 	case toolName == "subagent":
@@ -461,19 +461,42 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	)
 
 	// Render the code block
-	result := ty.CodeBlock(codeContent, lang)
+	codeBlock := ty.CodeBlock(codeContent, lang)
 
-	// Add truncation hint if needed
+	// Parse total lines from footer if available (e.g., "[showing lines 1-100 of 407 total...]")
+	totalLines := totalCodeLines
+	for _, footer := range footerLines {
+		if matches := regexp.MustCompile(`of (\d+) total`).FindStringSubmatch(footer); len(matches) > 1 {
+			if t, _ := strconv.Atoi(matches[1]); t > totalLines {
+				totalLines = t
+			}
+		}
+	}
+
+	// Build caption with file metadata
+	var captionParts []string
+	if fileName != "" {
+		captionParts = append(captionParts, filepath.Base(fileName))
+	}
+	if len(codeLines) > 0 {
+		endLine := offset + len(codeLines) - 1
+		captionParts = append(captionParts, fmt.Sprintf("lines %d-%d of %d", offset, endLine, totalLines))
+	}
 	if codeHiddenCount > 0 {
-		hint := fmt.Sprintf("...(%d more lines)", codeHiddenCount)
-		result += "\n" + lipgloss.NewStyle().Foreground(GetTheme().Muted).Italic(true).Render(hint)
+		nextOffset := offset + len(codeLines)
+		captionParts = append(captionParts, fmt.Sprintf("offset=%d to continue", nextOffset))
 	}
 
-	// Add any footer lines
-	if len(footerLines) > 0 {
-		footer := strings.Join(footerLines, "\n")
-		result += "\n" + lipgloss.NewStyle().Foreground(GetTheme().Muted).Render(footer)
+	caption := strings.Join(captionParts, " • ")
+
+	// Use Figure with caption below content (default behavior)
+	// Apply theme to ensure caption is positioned below
+	figTheme := herald.Theme{
+		FigureCaption:         lipgloss.NewStyle().Foreground(GetTheme().Muted),
+		FigureCaptionPosition: herald.CaptionBottom,
 	}
+	tyFig := herald.New(herald.WithTheme(figTheme))
+	result := tyFig.Figure(codeBlock, caption)
 
 	// Indent entire block to match Write/Edit tools (2 spaces)
 	const blockIndent = "  "
@@ -582,7 +605,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 
 // renderBashBody renders bash output with per-line background and stderr
 // in error color.
-func renderBashBody(toolResult string, width int) string {
+func renderBashBody(toolArgs, toolResult string, width int) string {
 	if strings.TrimSpace(toolResult) == "" {
 		return ""
 	}
@@ -609,6 +632,7 @@ func renderBashBody(toolResult string, width int) string {
 	maxLineChars := lineWidth - 1
 
 	var rendered []string
+	exitCode := -1 // -1 means not found
 	inStderr := false
 	for _, line := range lines {
 		line = truncateLine(line, maxLineChars)
@@ -617,30 +641,55 @@ func renderBashBody(toolResult string, width int) string {
 			inStderr = true
 			continue
 		}
-		// Exit code line
+		// Exit code line - extract it for caption
 		if strings.HasPrefix(line, "Exit code:") {
-			styled := stderrStyle.Width(width - len(lineIndent)).Render(line)
-			rendered = append(rendered, lineIndent+styled)
-			continue
+			_, _ = fmt.Sscanf(line, "Exit code: %d", &exitCode)
+			continue // Don't render exit code inline, it goes in caption
 		}
 
 		if inStderr {
 			styled := stderrStyle.Width(width - len(lineIndent)).Render(line)
-			rendered = append(rendered, lineIndent+styled)
+			rendered = append(rendered, styled)
 		} else {
 			styled := outputStyle.Width(width - len(lineIndent)).Render(line)
-			rendered = append(rendered, lineIndent+styled)
+			rendered = append(rendered, styled)
 		}
 	}
 
+	// Build caption with status info
+	var captionParts []string
 	if hiddenCount > 0 {
-		truncMsg := fmt.Sprintf("...(%d more lines)", hiddenCount)
-		hint := outputStyle.Width(width - len(lineIndent)).
-			Foreground(theme.Muted).Italic(true).Render(truncMsg)
-		rendered = append(rendered, lineIndent+hint)
+		captionParts = append(captionParts, fmt.Sprintf("%d more lines", hiddenCount))
+	}
+	if exitCode >= 0 {
+		captionParts = append(captionParts, fmt.Sprintf("exit code %d", exitCode))
 	}
 
-	return strings.Join(rendered, "\n")
+	content := strings.Join(rendered, "\n")
+	if len(captionParts) > 0 {
+		ty := herald.New(herald.WithTheme(herald.Theme{
+			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
+			FigureCaptionPosition: herald.CaptionBottom,
+		}))
+		caption := strings.Join(captionParts, " • ")
+		result := ty.Figure(content, caption)
+
+		// Indent entire block (content + caption) to match other tools
+		const blockIndent = "  "
+		lines := strings.Split(result, "\n")
+		for i, line := range lines {
+			lines[i] = blockIndent + line
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// No caption - just return indented content
+	const blockIndent = "  "
+	contentLines := strings.Split(content, "\n")
+	for i, line := range contentLines {
+		contentLines[i] = blockIndent + line
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 // ---------------------------------------------------------------------------
