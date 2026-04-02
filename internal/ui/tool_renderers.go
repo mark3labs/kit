@@ -354,28 +354,47 @@ func renderLsBody(toolResult string, width int) string {
 		lines = lines[:maxLsLines]
 	}
 
-	const indent = "  "
-	codeWidth := max(width-len(indent), 20)
+	const lineIndent = "  "
+	codeWidth := max(width-len(lineIndent), 20)
 
 	theme := GetTheme()
 	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
 
-	var result []string
+	var rendered []string
 	for _, line := range lines {
 		// Truncate before styling to prevent wrapping.
 		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
 		styled := codeStyle.Width(codeWidth).Render(line)
-		result = append(result, indent+styled)
+		rendered = append(rendered, styled)
 	}
 
+	content = strings.Join(rendered, "\n")
+
+	// Build caption with hidden entries info
 	if hiddenCount > 0 {
-		hint := fmt.Sprintf("...(%d more entries)", hiddenCount)
-		hintContent := codeStyle.Width(codeWidth).
-			Foreground(theme.Muted).Italic(true).Render(hint)
-		result = append(result, indent+hintContent)
+		ty := herald.New(herald.WithTheme(herald.Theme{
+			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
+			FigureCaptionPosition: herald.CaptionBottom,
+		}))
+		caption := fmt.Sprintf("%d more entries", hiddenCount)
+		result := ty.Figure(content, caption)
+
+		// Indent entire block (content + caption) to match other tools
+		const blockIndent = "  "
+		resultLines := strings.Split(result, "\n")
+		for i, line := range resultLines {
+			resultLines[i] = blockIndent + line
+		}
+		return strings.Join(resultLines, "\n")
 	}
 
-	return strings.Join(result, "\n")
+	// No caption - just return indented content
+	const blockIndent = "  "
+	contentLines := strings.Split(content, "\n")
+	for i, line := range contentLines {
+		contentLines[i] = blockIndent + line
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 // ---------------------------------------------------------------------------
