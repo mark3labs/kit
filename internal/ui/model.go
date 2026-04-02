@@ -118,6 +118,10 @@ type AppController interface {
 	// message starts executing immediately. Returns 0 if started
 	// immediately, >0 if injected/pending.
 	Steer(prompt string) int
+	// SteerWithFiles injects a steering message with optional file
+	// attachments (e.g. pasted images) into the currently running agent
+	// turn. Behaves like Steer but includes file parts alongside the text.
+	SteerWithFiles(prompt string, files []kit.LLMFilePart) int
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -1255,10 +1259,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					text = strings.TrimSpace(ic.textarea.Value())
 				}
 				if text != "" {
-					// Clear the input and push to history.
+					// Clear the input, collect pending images, and push to history.
+					var images []uicore.ImageAttachment
 					if ic, ok := m.input.(*InputComponent); ok {
 						ic.pushHistory(text)
 						ic.textarea.SetValue("")
+						images = ic.ClearPendingImages()
 					}
 
 					// Preprocess @file references.
@@ -1267,14 +1273,29 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						processedText = fileutil.ProcessFileAttachments(text, m.cwd)
 					}
 
+					// Convert image attachments to kit.LLMFilePart for the app layer.
+					var fileParts []kit.LLMFilePart
+					for _, img := range images {
+						fileParts = append(fileParts, kit.LLMFilePart{
+							Data:      img.Data,
+							MediaType: img.MediaType,
+						})
+					}
+
+					// Build display text (include image count if any).
+					displayText := text
+					if len(images) > 0 {
+						displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
+					}
+
 					// Inject the steer message.
-					sLen := m.appCtrl.Steer(processedText)
+					sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
 					if sLen > 0 {
-						m.steeringMessages = append(m.steeringMessages, text)
+						m.steeringMessages = append(m.steeringMessages, displayText)
 						m.layoutDirty = true
 					} else {
 						// Started immediately (agent was idle).
-						m.pendingUserPrints = append(m.pendingUserPrints, text)
+						m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 						m.flushStreamAndPendingUserMessages()
 						if m.state != stateWorking {
 							m.state = stateWorking

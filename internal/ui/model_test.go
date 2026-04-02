@@ -81,6 +81,11 @@ func (s *stubAppController) Steer(prompt string) int {
 	return s.queueLen
 }
 
+func (s *stubAppController) SteerWithFiles(prompt string, _ []kit.LLMFilePart) int {
+	s.runCalls = append(s.runCalls, prompt)
+	return s.queueLen
+}
+
 // --------------------------------------------------------------------------
 // Stub child components
 // --------------------------------------------------------------------------

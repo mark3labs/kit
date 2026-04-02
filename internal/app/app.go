@@ -187,6 +187,15 @@ func (a *App) QueueLength() int {
 //
 // Satisfies ui.AppController.
 func (a *App) Steer(prompt string) int {
+	return a.SteerWithFiles(prompt, nil)
+}
+
+// SteerWithFiles injects a steering message with optional file attachments
+// (e.g. pasted images) into the currently running agent turn. Behaves like
+// Steer but includes file parts alongside the text.
+//
+// Satisfies ui.AppController.
+func (a *App) SteerWithFiles(prompt string, files []kit.LLMFilePart) int {
 	a.mu.Lock()
 
 	if a.closed {
@@ -195,8 +204,8 @@ func (a *App) Steer(prompt string) int {
 	}
 
 	if !a.busy {
-		// Not busy — start immediately, same as Run().
-		item := queueItem{Prompt: prompt}
+		// Not busy — start immediately, same as RunWithFiles().
+		item := queueItem{Prompt: prompt, Files: files}
 		a.busy = true
 		a.wg.Add(1)
 		a.mu.Unlock()
@@ -211,7 +220,7 @@ func (a *App) Steer(prompt string) int {
 	// execution, before next LLM call). If PrepareStep doesn't fire
 	// (text-only response), drainQueue will pick it up after the turn.
 	if a.opts.Kit != nil {
-		a.opts.Kit.InjectSteer(prompt)
+		a.opts.Kit.InjectSteerWithFiles(prompt, files)
 	}
 	return 1
 }
@@ -530,8 +539,8 @@ func (a *App) drainQueue(first queueItem) {
 			if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
 				a.mu.Lock()
 				steerItems := make([]queueItem, len(leftover))
-				for i, text := range leftover {
-					steerItems[i] = queueItem{Prompt: text}
+				for i, sm := range leftover {
+					steerItems[i] = queueItem{Prompt: sm.Text, Files: sm.Files}
 				}
 				a.queue = append(steerItems, a.queue...)
 				a.mu.Unlock()

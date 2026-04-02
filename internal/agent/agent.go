@@ -397,7 +397,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				opts fantasy.PrepareStepFunctionOptions,
 			) (context.Context, fantasy.PrepareStepResult, error) {
 				// Drain all pending steer messages (non-blocking).
-				var steered []string
+				var steered []SteerMessage
 				for {
 					select {
 					case msg := <-steerCh:
@@ -414,9 +414,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if len(steered) > 0 {
 					// Inject each steer message as a user message so the
 					// LLM sees the redirection on the next step.
-					for _, text := range steered {
+					for _, sm := range steered {
 						result.Messages = append(result.Messages,
-							fantasy.NewUserMessage(text))
+							fantasy.NewUserMessage(sm.Text, sm.Files...))
 					}
 					// Notify that steer messages were consumed.
 					if onConsumed != nil {

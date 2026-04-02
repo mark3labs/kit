@@ -1,6 +1,17 @@
 package agent
 
-import "context"
+import (
+	"context"
+
+	"charm.land/fantasy"
+)
+
+// SteerMessage carries a steering prompt and optional file attachments
+// (e.g. clipboard images) through the steer channel.
+type SteerMessage struct {
+	Text  string
+	Files []fantasy.FilePart
+}
 
 // steerChKey is the context key for the steer channel.
 type steerChKey struct{}
@@ -11,7 +22,7 @@ type steerConsumedKey struct{}
 // ContextWithSteerCh returns a new context with the steer channel attached.
 // The agent's PrepareStep function checks this channel between steps and
 // injects any pending steer messages as user messages before the next LLM call.
-func ContextWithSteerCh(ctx context.Context, ch <-chan string) context.Context {
+func ContextWithSteerCh(ctx context.Context, ch <-chan SteerMessage) context.Context {
 	return context.WithValue(ctx, steerChKey{}, ch)
 }
 
@@ -23,8 +34,8 @@ func ContextWithSteerConsumed(ctx context.Context, fn func(count int)) context.C
 }
 
 // steerChFromContext extracts the steer channel from the context, or nil.
-func steerChFromContext(ctx context.Context) <-chan string {
-	ch, _ := ctx.Value(steerChKey{}).(<-chan string)
+func steerChFromContext(ctx context.Context) <-chan SteerMessage {
+	ch, _ := ctx.Value(steerChKey{}).(<-chan SteerMessage)
 	return ch
 }
 

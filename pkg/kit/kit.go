@@ -80,8 +80,8 @@ type Kit struct {
 	// the running agent turn via the LLM library's PrepareStep. Created fresh for
 	// each generate() call and set to nil when idle. Protected by steerMu.
 	steerMu       sync.Mutex
-	steerCh       chan string
-	leftoverSteer []string // unconsumed steer messages from the last turn
+	steerCh       chan agent.SteerMessage
+	leftoverSteer []agent.SteerMessage // unconsumed steer messages from the last turn
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -1056,14 +1056,14 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
 	// Create a per-turn steer channel and attach it to the context so the
 	// agent's PrepareStep can inject steering messages between steps.
-	steerCh := make(chan string, 16)
+	steerCh := make(chan agent.SteerMessage, 16)
 	m.steerMu.Lock()
 	m.steerCh = steerCh
 	m.steerMu.Unlock()
 	defer func() {
 		// Drain any unconsumed steer messages before nilling the channel.
 		// These are stored in leftoverSteer so DrainSteer() can return them.
-		var leftover []string
+		var leftover []agent.SteerMessage
 		for {
 			select {
 			case msg := <-steerCh:
@@ -1407,6 +1407,13 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 // This is the preferred way to redirect an agent mid-turn without cancelling
 // in-progress tool execution.
 func (m *Kit) InjectSteer(message string) {
+	m.InjectSteerWithFiles(message, nil)
+}
+
+// InjectSteerWithFiles sends a steering message with optional file attachments
+// (e.g. pasted images) into the currently active agent turn. Behaves like
+// InjectSteer but includes file parts in the injected user message.
+func (m *Kit) InjectSteerWithFiles(message string, files []LLMFilePart) {
 	m.steerMu.Lock()
 	ch := m.steerCh
 	m.steerMu.Unlock()
@@ -1414,7 +1421,7 @@ func (m *Kit) InjectSteer(message string) {
 		return
 	}
 	select {
-	case ch <- message:
+	case ch <- agent.SteerMessage{Text: message, Files: files}:
 	default:
 		// Channel full — extremely unlikely with buffer of 16, but don't block.
 	}
@@ -1432,7 +1439,7 @@ func (m *Kit) IsGenerating() bool {
 // a turn completes so the app layer can process any steer messages that
 // arrived after the last PrepareStep fired (e.g. during a text-only response
 // with no tool calls, or after the agent finished its last step).
-func (m *Kit) DrainSteer() []string {
+func (m *Kit) DrainSteer() []agent.SteerMessage {
 	m.steerMu.Lock()
 	defer m.steerMu.Unlock()
 
@@ -1445,7 +1452,7 @@ func (m *Kit) DrainSteer() []string {
 
 	// If a turn is still active, drain from the live channel.
 	if m.steerCh != nil {
-		var msgs []string
+		var msgs []agent.SteerMessage
 		for {
 			select {
 			case msg := <-m.steerCh:
