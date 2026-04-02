@@ -7,10 +7,12 @@
 // development: edit your extension source, then type /reload to pick up
 // changes immediately.
 //
-// Event handlers, slash commands, tool renderers, message renderers, and
-// keyboard shortcuts update immediately. Extension-defined tools are NOT
-// updated (they are baked into the agent at creation time and require a
-// restart).
+// Note: Extensions in autoloaded directories (~/.config/kit/extensions/
+// and .kit/extensions/) are automatically reloaded on save. The /reload
+// command is useful for extensions loaded via -e from other locations.
+//
+// Event handlers, slash commands, tool definitions, tool renderers,
+// message renderers, and keyboard shortcuts all update immediately.
 //
 // Commands:
 //   /reload   — hot-reload all extensions from disk

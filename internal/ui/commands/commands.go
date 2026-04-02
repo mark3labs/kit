@@ -120,6 +120,12 @@ var SlashCommands = []SlashCommand{
 		},
 	},
 	{
+		Name:        "/reload-ext",
+		Description: "Hot-reload all extensions from disk",
+		Category:    "System",
+		Aliases:     []string{"/re"},
+	},
+	{
 		Name:        "/quit",
 		Description: "Exit the application",
 		Category:    "System",

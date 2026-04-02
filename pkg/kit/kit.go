@@ -268,8 +268,8 @@ func (m *Kit) GetAvailableModels() []extensions.ModelInfoEntry {
 }
 
 // ReloadExtensions hot-reloads all extensions from disk. Event handlers,
-// commands, renderers, and shortcuts update immediately. Extension-defined
-// tools are NOT updated (they are baked into the agent at creation time).
+// commands, renderers, shortcuts, and extension-defined tools all update
+// immediately.
 func (m *Kit) ReloadExtensions() error {
 	if m.extRunner == nil {
 		return fmt.Errorf("no extensions loaded")
@@ -289,6 +289,12 @@ func (m *Kit) ReloadExtensions() error {
 
 	// Swap extensions on the runner (clears dynamic state).
 	m.extRunner.Reload(loaded)
+
+	// Update extension tools on the agent so the LLM sees changes.
+	if m.agent != nil {
+		extTools := extensions.ExtensionToolsAsFantasy(m.extRunner.RegisteredTools(), m.extRunner)
+		m.agent.SetExtraTools(extTools)
+	}
 
 	// Re-set context and emit SessionStart.
 	ctx := m.extRunner.GetContext()
@@ -904,6 +910,16 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	if timeout == 0 {
 		timeout = 5 * time.Minute
 	}
+
+	// Pre-flight check: if the incoming context is already dead, don't
+	// waste time attempting init. This catches the case where the parent
+	// generation loop's context was cancelled (e.g. user ESC, step cancel)
+	// between when the LLM requested the subagent tool and when this code
+	// runs. We replace it with a fresh context carrying only the timeout,
+	// since the subagent should be independently bounded.
+	if ctx.Err() != nil {
+		ctx = context.Background()
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -953,7 +969,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 	child, err := New(ctx, childOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create subagent: %w", err)
+		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
 	}
 	defer func() { _ = child.Close() }()
 
@@ -967,7 +983,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return nil, err
+		return &SubagentResult{Elapsed: elapsed}, err
 	}
 
 	subResult := &SubagentResult{

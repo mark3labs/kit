@@ -639,6 +639,43 @@ func (a *Agent) GetExtensionToolCount() int {
 	return len(a.extraTools)
 }
 
+// SetExtraTools replaces the agent's extra tools (e.g. extension-registered
+// tools) and rebuilds the internal agent with the updated tool list. The
+// model, system prompt, and all other configuration are preserved.
+func (a *Agent) SetExtraTools(tools []fantasy.AgentTool) {
+	a.extraTools = tools
+
+	// Rebuild tool list (same as NewAgent / SetModel).
+	allTools := make([]fantasy.AgentTool, len(a.coreTools))
+	copy(allTools, a.coreTools)
+	if a.toolManager != nil {
+		allTools = append(allTools, a.toolManager.GetTools()...)
+	}
+	if len(a.extraTools) > 0 {
+		allTools = append(allTools, a.extraTools...)
+	}
+	if a.toolWrapper != nil {
+		allTools = a.toolWrapper(allTools)
+	}
+
+	// Rebuild agent options with the existing model.
+	var agentOpts []fantasy.AgentOption
+	if a.systemPrompt != "" {
+		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(a.systemPrompt))
+	}
+	if len(allTools) > 0 {
+		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
+	}
+	if a.maxSteps > 0 {
+		agentOpts = append(agentOpts, fantasy.WithStopConditions(
+			fantasy.StepCountIs(a.maxSteps),
+		))
+	}
+
+	// Swap the fantasy agent (model and provider are unchanged).
+	a.fantasyAgent = fantasy.NewAgent(a.model, agentOpts...)
+}
+
 // GetLoadingMessage returns the loading message from provider creation.
 func (a *Agent) GetLoadingMessage() string {
 	return a.loadingMessage

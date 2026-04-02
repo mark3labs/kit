@@ -388,6 +388,11 @@ type AppModelOptions struct {
 	// initialization. They are displayed in the ScrollList at startup.
 	StartupExtensionMessages []string
 
+	// ReloadExtensions hot-reloads all extensions from disk. Called by
+	// the /reload-ext command and the automatic file watcher. May be nil
+	// if no extensions are loaded.
+	ReloadExtensions func() error
+
 	// ThinkingLevel is the initial thinking level (e.g. "off", "medium").
 	ThinkingLevel string
 	// IsReasoningModel is true when the current model supports reasoning.
@@ -563,6 +568,9 @@ type AppModel struct {
 	// sessionSelector is the session picker overlay, active in stateSessionSelector.
 	sessionSelector *SessionSelectorComponent
 
+	// reloadExtensions hot-reloads all extensions from disk. May be nil.
+	reloadExtensions func() error
+
 	// switchSession opens a session by JSONL path, replacing the active session.
 	// Wired from cmd/root.go.
 	switchSession func(path string) error
@@ -728,6 +736,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.isReasoningModel = opts.IsReasoningModel
 	m.setThinkingLevel = opts.SetThinkingLevel
 	m.switchSession = opts.SwitchSession
+	m.reloadExtensions = opts.ReloadExtensions
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
@@ -1841,6 +1850,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.printSystemMessage(msg.output)
 		}
 
+	case extReloadResultMsg:
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
+		} else {
+			m.printSystemMessage("Extensions reloaded.")
+		}
+
 	case beforeSessionSwitchResultMsg:
 		// Async before-session-switch hook completed. Proceed with the
 		// session reset if the hook did not cancel.
@@ -2490,6 +2506,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleThinkingCommand(args)
 	case "/compact":
 		return m.handleCompactCommand(args)
+	case "/reload-ext":
+		return m.handleReloadExtCommand()
 	case "/clear":
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
@@ -2775,6 +2793,22 @@ func (m *AppModel) printResetUsage() {
 // the app controller rejects the request (busy, closed) it prints an error
 // instead. customInstructions is optional text appended to the summary
 // prompt (e.g. "Focus on the API design decisions").
+// handleReloadExtCommand reloads all extensions from disk asynchronously.
+// It returns a tea.Cmd to avoid calling prog.Send() from inside Update()
+// which would deadlock if any extension handler calls ctx.Print() during
+// SessionShutdown or SessionStart events.
+func (m *AppModel) handleReloadExtCommand() tea.Cmd {
+	if m.reloadExtensions == nil {
+		m.printSystemMessage("No extensions loaded.")
+		return nil
+	}
+	reload := m.reloadExtensions
+	return func() tea.Msg {
+		err := reload()
+		return extReloadResultMsg{err: err}
+	}
+}
+
 func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 	if m.appCtrl == nil {
 		m.printSystemMessage("Compaction is not available.")
@@ -3710,6 +3744,13 @@ type shareResultMsg struct {
 	err       error
 	gistURL   string
 	viewerURL string
+}
+
+// extReloadResultMsg carries the result of an asynchronously executed
+// /reload-ext command. The reload runs async to avoid deadlocking the
+// TUI event loop (extension handlers may call prog.Send via ctx.Print).
+type extReloadResultMsg struct {
+	err error
 }
 
 // extensionCmdResultMsg carries the result of an asynchronously executed
