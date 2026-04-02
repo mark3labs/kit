@@ -28,10 +28,10 @@ const (
 	maxLsLines    = 20 // lines for Ls directory listings
 )
 
-// isShellTool reports if the tool name matches a shell-like tool (bash, grep, or
+// isShellTool reports if the tool name matches a shell-like tool (bash or
 // tools with "shell"/"command" in the name). Used by renderToolBody.
 func isShellTool(toolName string) bool {
-	return toolName == "bash" || toolName == "grep" ||
+	return toolName == "bash" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command")
 }
 
@@ -57,6 +57,10 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 		}
 	case toolName == "find":
 		if body := renderFindBody(toolResult, width); body != "" {
+			return body
+		}
+	case toolName == "grep":
+		if body := renderGrepBody(toolResult, width); body != "" {
 			return body
 		}
 	case isShellTool(toolName):
@@ -404,6 +408,77 @@ func renderFindBody(toolResult string, width int) string {
 	}
 
 	// Single result with no truncation - just return indented content
+	const blockIndent = "  "
+	contentLines := strings.Split(content, "\n")
+	for i, line := range contentLines {
+		contentLines[i] = blockIndent + line
+	}
+	return strings.Join(contentLines, "\n")
+}
+
+// renderGrepBody renders grep output as a plain list with code background.
+// Similar to find but with match-specific caption terminology.
+func renderGrepBody(toolResult string, width int) string {
+	content := strings.TrimSpace(toolResult)
+	if content == "" {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	totalMatches := len(lines)
+
+	// Truncate to maxLsLines for display
+	var hiddenCount int
+	if len(lines) > maxLsLines {
+		hiddenCount = len(lines) - maxLsLines
+		lines = lines[:maxLsLines]
+	}
+
+	const lineIndent = "  "
+	codeWidth := max(width-len(lineIndent), 20)
+
+	theme := GetTheme()
+	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+
+	var rendered []string
+	for _, line := range lines {
+		// Truncate before styling to prevent wrapping.
+		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
+		styled := codeStyle.Width(codeWidth).Render(line)
+		rendered = append(rendered, styled)
+	}
+
+	content = strings.Join(rendered, "\n")
+
+	// Build caption with match info
+	var captionParts []string
+	if totalMatches == 1 {
+		captionParts = append(captionParts, "1 match")
+	} else {
+		captionParts = append(captionParts, fmt.Sprintf("%d matches", totalMatches))
+	}
+	if hiddenCount > 0 {
+		captionParts = append(captionParts, fmt.Sprintf("%d more", hiddenCount))
+	}
+
+	if len(captionParts) > 1 || hiddenCount > 0 {
+		ty := herald.New(herald.WithTheme(herald.Theme{
+			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
+			FigureCaptionPosition: herald.CaptionBottom,
+		}))
+		caption := strings.Join(captionParts, " • ")
+		result := ty.Figure(content, caption)
+
+		// Indent entire block (content + caption) to match other tools
+		const blockIndent = "  "
+		resultLines := strings.Split(result, "\n")
+		for i, line := range resultLines {
+			resultLines[i] = blockIndent + line
+		}
+		return strings.Join(resultLines, "\n")
+	}
+
+	// Single match with no truncation - just return indented content
 	const blockIndent = "  "
 	contentLines := strings.Split(content, "\n")
 	for i, line := range contentLines {
