@@ -632,6 +632,14 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	// Render the code block
 	codeBlock := ty.CodeBlock(codeContent, lang)
 
+	// Herald's codeBlockWithLineNumbers() hardcodes PaddingTop(1) and
+	// PaddingBottom(1), adding invisible blank lines with background color
+	// above and below the code. These interfere with mouse selection
+	// (off-by-one) because the padding line looks blank but occupies a
+	// line index in the rendered item. Strip them since the Compose
+	// separator above and Figure caption below already provide spacing.
+	codeBlock = stripCodeBlockPadding(codeBlock)
+
 	// Parse total lines from footer if available (e.g., "[showing lines 1-100 of 407 total...]")
 	totalLines := totalCodeLines
 	for _, footer := range footerLines {
@@ -940,6 +948,25 @@ func padRight(s string, width int) string {
 		return xansi.Truncate(s, width, "")
 	}
 	return s + strings.Repeat(" ", width-w)
+}
+
+// stripCodeBlockPadding removes the top and bottom padding lines that herald's
+// codeBlockWithLineNumbers() hardcodes via PaddingTop(1)/PaddingBottom(1).
+// These padding lines are blank lines with background color that look invisible
+// but occupy line indices, causing mouse selection to be off by one row.
+func stripCodeBlockPadding(block string) string {
+	lines := strings.Split(block, "\n")
+	if len(lines) < 3 {
+		return block
+	}
+	// The first and last lines are padding (blank with bg color).
+	// Strip them only if they contain no visible text.
+	first := xansi.Strip(lines[0])
+	last := xansi.Strip(lines[len(lines)-1])
+	if strings.TrimSpace(first) == "" && strings.TrimSpace(last) == "" {
+		return strings.Join(lines[1:len(lines)-1], "\n")
+	}
+	return block
 }
 
 // truncateLine truncates a line to maxWidth visual characters, adding "…"
