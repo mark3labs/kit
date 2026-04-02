@@ -505,85 +505,125 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		opts = &Options{}
 	}
 
-	viperInitMu.Lock()
-	defer viperInitMu.Unlock()
+	// All viper writes (SetSDKDefaults, InitConfig, Set calls, system-prompt
+	// composition) happen under viperInitMu. We also call BuildProviderConfig
+	// here — it's fast (just reads) — so we can capture the full config
+	// snapshot before releasing the lock. The expensive work (MCP loading,
+	// provider creation, session init) then runs outside the lock, allowing
+	// parallel subagent spawns to proceed concurrently.
+	var (
+		providerConfig *models.ProviderConfig
+		modelString    string
+		cwd            string
+		contextFiles   []*ContextFile
+		loadedSkills   []*Skill
+		mcpConfig      *config.Config
+		debug          bool
+		noExtensions   bool
+		maxSteps       int
+		streaming      bool
+	)
 
-	// Set CLI-equivalent defaults for viper. When used as an SDK (without
-	// cobra), these defaults are not registered via flag bindings.
-	setSDKDefaults()
+	if err := func() error {
+		viperInitMu.Lock()
+		defer viperInitMu.Unlock()
 
-	// Initialize config (loads config files and env vars).
-	// Only initialize if not already done (e.g., by CLI's cobra.OnInitialize).
-	// Check if model is already set, which indicates config was loaded.
-	if viper.GetString("model") == "" {
-		if err := InitConfig(opts.ConfigFile, false); err != nil {
-			return nil, fmt.Errorf("failed to initialize config: %w", err)
-		}
-	}
+		// Set CLI-equivalent defaults for viper. When used as an SDK (without
+		// cobra), these defaults are not registered via flag bindings.
+		setSDKDefaults()
 
-	// Handle CLI debug mode.
-	if opts.Debug {
-		viper.Set("debug", true)
-	}
-
-	// Override viper settings with options.
-	if opts.Model != "" {
-		viper.Set("model", opts.Model)
-	}
-	if opts.SystemPrompt != "" {
-		viper.Set("system-prompt", opts.SystemPrompt)
-	}
-	if opts.MaxSteps > 0 {
-		viper.Set("max-steps", opts.MaxSteps)
-	}
-	viper.Set("stream", opts.Streaming)
-
-	// Resolve working directory for context/skill discovery.
-	cwd := opts.SessionDir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-
-	// Load context files (AGENTS.md) from the project root.
-	contextFiles := loadContextFiles(cwd)
-
-	// Load skills — either from explicit paths or via auto-discovery.
-	loadedSkills, err := loadSkills(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load skills: %w", err)
-	}
-
-	// Always compose the system prompt with runtime context: base prompt +
-	// AGENTS.md context + skills metadata + date/cwd.
-	{
-		basePrompt := viper.GetString("system-prompt")
-		pb := skills.NewPromptBuilder(basePrompt)
-
-		// Inject AGENTS.md content as project context.
-		for _, cf := range contextFiles {
-			pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
+		// Initialize config (loads config files and env vars).
+		// Only initialize if not already done (e.g., by CLI's cobra.OnInitialize).
+		// Check if model is already set, which indicates config was loaded.
+		if viper.GetString("model") == "" {
+			if err := InitConfig(opts.ConfigFile, false); err != nil {
+				return fmt.Errorf("failed to initialize config: %w", err)
+			}
 		}
 
-		// Inject skills metadata (name + description + location).
-		if len(loadedSkills) > 0 {
-			pb.WithSkills(loadedSkills)
+		// Handle CLI debug mode.
+		if opts.Debug {
+			viper.Set("debug", true)
 		}
 
-		// Append current date/time and working directory.
-		pb.WithSection("", fmt.Sprintf(
-			"Current date and time: %s\nCurrent working directory: %s",
-			time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
-		))
+		// Override viper settings with options.
+		if opts.Model != "" {
+			viper.Set("model", opts.Model)
+		}
+		if opts.SystemPrompt != "" {
+			viper.Set("system-prompt", opts.SystemPrompt)
+		}
+		if opts.MaxSteps > 0 {
+			viper.Set("max-steps", opts.MaxSteps)
+		}
+		viper.Set("stream", opts.Streaming)
 
-		viper.Set("system-prompt", pb.Build())
+		// Resolve working directory for context/skill discovery.
+		cwd = opts.SessionDir
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+
+		// Load context files (AGENTS.md) from the project root.
+		contextFiles = loadContextFiles(cwd)
+
+		// Load skills — either from explicit paths or via auto-discovery.
+		var err error
+		loadedSkills, err = loadSkills(opts)
+		if err != nil {
+			return fmt.Errorf("failed to load skills: %w", err)
+		}
+
+		// Always compose the system prompt with runtime context: base prompt +
+		// AGENTS.md context + skills metadata + date/cwd.
+		{
+			basePrompt := viper.GetString("system-prompt")
+			pb := skills.NewPromptBuilder(basePrompt)
+
+			// Inject AGENTS.md content as project context.
+			for _, cf := range contextFiles {
+				pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
+			}
+
+			// Inject skills metadata (name + description + location).
+			if len(loadedSkills) > 0 {
+				pb.WithSkills(loadedSkills)
+			}
+
+			// Append current date/time and working directory.
+			pb.WithSection("", fmt.Sprintf(
+				"Current date and time: %s\nCurrent working directory: %s",
+				time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+			))
+
+			viper.Set("system-prompt", pb.Build())
+		}
+
+		// Snapshot all viper-derived values now, while the lock is held.
+		// BuildProviderConfig is fast (pure reads), so we do it here.
+		var pcErr error
+		providerConfig, _, pcErr = kitsetup.BuildProviderConfig()
+		if pcErr != nil {
+			return fmt.Errorf("failed to build provider config: %w", pcErr)
+		}
+		modelString = viper.GetString("model")
+		debug = viper.GetBool("debug")
+		noExtensions = viper.GetBool("no-extensions")
+		maxSteps = viper.GetInt("max-steps")
+		streaming = viper.GetBool("stream")
+
+		return nil
+	}(); err != nil {
+		return nil, err
 	}
+	// ---- viperInitMu released — heavy I/O below runs concurrently ----
 
 	// Load MCP configuration. Use pre-loaded config if provided via CLI options.
-	var mcpConfig *config.Config
-	if opts.CLI != nil {
+	if opts.CLI != nil && opts.CLI.MCPConfig != nil {
 		mcpConfig = opts.CLI.MCPConfig
 	}
 	if mcpConfig == nil {
+		var err error
 		mcpConfig, err = config.LoadAndValidateConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load MCP config: %w", err)
@@ -601,12 +641,19 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	beforeCompact := newHookRegistry[BeforeCompactHook, BeforeCompactResult]()
 
 	// Build agent setup options, pulling CLI-specific fields when available.
+	// Pass the pre-built ProviderConfig and scalar viper snapshots so
+	// SetupAgent doesn't need to re-read viper (which would require the lock).
 	setupOpts := kitsetup.AgentSetupOptions{
-		MCPConfig:   mcpConfig,
-		Quiet:       opts.Quiet,
-		CoreTools:   opts.Tools,
-		ExtraTools:  opts.ExtraTools,
-		ToolWrapper: hookToolWrapper(beforeToolCall, afterToolResult),
+		MCPConfig:        mcpConfig,
+		Quiet:            opts.Quiet,
+		CoreTools:        opts.Tools,
+		ExtraTools:       opts.ExtraTools,
+		ToolWrapper:      hookToolWrapper(beforeToolCall, afterToolResult),
+		ProviderConfig:   providerConfig,
+		Debug:            debug,
+		NoExtensions:     noExtensions,
+		MaxSteps:         maxSteps,
+		StreamingEnabled: streaming,
 	}
 	if opts.CLI != nil {
 		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
@@ -630,7 +677,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	k := &Kit{
 		agent:           agentResult.Agent,
 		treeSession:     treeSession,
-		modelString:     viper.GetString("model"),
+		modelString:     modelString,
 		events:          newEventBus(),
 		autoCompact:     opts.AutoCompact,
 		compactionOpts:  opts.CompactionOptions,

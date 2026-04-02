@@ -40,6 +40,24 @@ type AgentSetupOptions struct {
 	// wrapping. Used by the SDK hook system. Both wrappers compose:
 	// extension wrapper runs first (inner), then this wrapper (outer).
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
+
+	// ProviderConfig, when non-nil, is used directly instead of calling
+	// BuildProviderConfig(). Callers that already hold viperInitMu can
+	// pre-build this and release the lock before calling SetupAgent, so the
+	// slow agent/MCP initialisation runs concurrently with other New() calls.
+	ProviderConfig *models.ProviderConfig
+	// Debug enables debug logging. When zero-value, viper is consulted.
+	// Only meaningful when ProviderConfig is also set.
+	Debug bool
+	// NoExtensions skips extension loading. When false, viper is consulted.
+	// Only meaningful when ProviderConfig is also set.
+	NoExtensions bool
+	// MaxSteps overrides the agent step limit. 0 means use viper value.
+	// Only meaningful when ProviderConfig is also set.
+	MaxSteps int
+	// StreamingEnabled controls streaming. Only meaningful when ProviderConfig
+	// is also set.
+	StreamingEnabled bool
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -88,15 +106,36 @@ func BuildProviderConfig() (*models.ProviderConfig, string, error) {
 // SetupAgent creates an agent from the current viper state + the provided
 // options. It wraps BuildProviderConfig and agent.CreateAgent.
 func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult, error) {
-	modelConfig, systemPrompt, err := BuildProviderConfig()
-	if err != nil {
-		return nil, err
+	var modelConfig *models.ProviderConfig
+	var systemPrompt string
+
+	if opts.ProviderConfig != nil {
+		// Pre-built config supplied by caller (e.g. Kit.New after releasing
+		// viperInitMu). Use it directly — no viper reads needed here.
+		modelConfig = opts.ProviderConfig
+		systemPrompt = modelConfig.SystemPrompt
+	} else {
+		var err error
+		modelConfig, systemPrompt, err = BuildProviderConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	// Resolve debug / no-extensions / max-steps / streaming: prefer explicit
+	// fields (set when ProviderConfig was pre-built) over viper fallback.
+	debugEnabled := opts.Debug || viper.GetBool("debug")
+	noExtensions := opts.NoExtensions || viper.GetBool("no-extensions")
+	maxSteps := opts.MaxSteps
+	if maxSteps == 0 {
+		maxSteps = viper.GetInt("max-steps")
+	}
+	streamingEnabled := opts.StreamingEnabled || viper.GetBool("stream")
 
 	// Create the appropriate debug logger.
 	var debugLogger tools.DebugLogger
 	var bufferedLogger *tools.BufferedDebugLogger
-	if viper.GetBool("debug") {
+	if debugEnabled {
 		if opts.UseBufferedLogger {
 			bufferedLogger = tools.NewBufferedDebugLogger(true)
 			debugLogger = bufferedLogger
@@ -108,7 +147,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	// Load extensions unless --no-extensions is set.
 	var extRunner *extensions.Runner
 	var extCreationOpts extensionCreationOpts
-	if !viper.GetBool("no-extensions") {
+	if !noExtensions {
 		var extErr error
 		extRunner, extCreationOpts, extErr = loadExtensions()
 		if extErr != nil {
@@ -140,8 +179,8 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		ModelConfig:      modelConfig,
 		MCPConfig:        opts.MCPConfig,
 		SystemPrompt:     systemPrompt,
-		MaxSteps:         viper.GetInt("max-steps"),
-		StreamingEnabled: viper.GetBool("stream"),
+		MaxSteps:         maxSteps,
+		StreamingEnabled: streamingEnabled,
 		ShowSpinner:      opts.ShowSpinner,
 		Quiet:            opts.Quiet,
 		SpinnerFunc:      opts.SpinnerFunc,

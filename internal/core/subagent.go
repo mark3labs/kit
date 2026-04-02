@@ -130,13 +130,22 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		), fmt.Errorf("no subagent spawner in context")
 	}
 
-	// Detach from the parent's deadline so the subagent gets its own
-	// independent timeout (applied downstream in Kit.Subagent). The parent
-	// context may carry a tight deadline from the LLM generation loop or
-	// other tool timeouts that would prematurely kill the subagent.
-	// We preserve context values (spawner, etc.) and propagate parent
-	// cancellation (e.g. user hits Ctrl-C) without inheriting the deadline.
-	spawnCtx := detachedWithCancel(ctx)
+	// Build a clean context for the subagent that inherits values (e.g. the
+	// spawner callback) but is completely detached from the parent's
+	// deadline AND cancellation. The subagent gets its own independent
+	// timeout (applied downstream in Kit.Subagent).
+	//
+	// Why full detachment instead of propagating parent cancellation?
+	// The parent context may already be done (deadline exceeded or
+	// cancelled) by the time this tool handler executes — for example when
+	// the generation loop context carries a deadline, when the user
+	// double-ESC cancels mid-turn, or when parallel tool execution
+	// encounters a race between stream completion and tool dispatch. Using
+	// context.WithoutCancel (Go 1.21+) ensures the subagent always starts
+	// cleanly with a fresh timeout, following the pattern used by crush for
+	// shutdown-resilient child work. The subagent's own timeout
+	// (defaultSubagentTimeout / user-specified) provides the safety net.
+	spawnCtx := context.WithoutCancel(valuesContext{parent: ctx})
 
 	// Spawn in-process subagent.
 	result, err := spawner(spawnCtx, call.ID, args.Task, args.Model, args.SystemPrompt, timeout)
@@ -173,37 +182,21 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 }
 
 // ---------------------------------------------------------------------------
-// Context detachment
+// Context helpers
 // ---------------------------------------------------------------------------
 
-// detachedContext wraps a parent context, preserving its values but removing
-// its deadline and cancellation. This allows the subagent to have its own
-// independent timeout while still accessing context-stored values (e.g. the
-// subagent spawner function).
-type detachedContext struct {
+// valuesContext preserves a parent context's values (e.g. the subagent
+// spawner callback) while stripping its deadline and cancellation. Combined
+// with context.WithoutCancel() this gives the subagent a completely clean
+// context that only inherits value-based dependencies.
+type valuesContext struct {
 	parent context.Context
 }
 
-func (d detachedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
-func (d detachedContext) Done() <-chan struct{}       { return nil }
-func (d detachedContext) Err() error                  { return nil }
-func (d detachedContext) Value(key any) any           { return d.parent.Value(key) }
-
-// detachedWithCancel creates a new context that inherits values from the
-// parent but has no deadline. Cancellation of the parent is propagated: when
-// the parent is cancelled the returned context is also cancelled, but the
-// parent's deadline does not apply to the child.
-func detachedWithCancel(parent context.Context) context.Context {
-	child, cancel := context.WithCancel(detachedContext{parent: parent})
-	go func() {
-		select {
-		case <-parent.Done():
-			cancel()
-		case <-child.Done():
-		}
-	}()
-	return child
-}
+func (v valuesContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (v valuesContext) Done() <-chan struct{}       { return nil }
+func (v valuesContext) Err() error                  { return nil }
+func (v valuesContext) Value(key any) any           { return v.parent.Value(key) }
 
 // truncateResponse limits the response length to avoid overwhelming context windows.
 func truncateResponse(s string, maxLen int) string {
