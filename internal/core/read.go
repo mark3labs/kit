@@ -67,7 +67,7 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	if info.IsDir() {
-		return readDirectory(absPath)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("'%s' is a directory, not a file. Use the ls tool to list directory contents.", args.Path)), nil
 	}
 
 	content, err := os.ReadFile(absPath)
@@ -113,25 +113,6 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 			offset+1, offset+len(lines), totalLines, offset+len(lines)+1)
 	}
 
-	return fantasy.NewTextResponse(tr.Content), nil
-}
-
-func readDirectory(absPath string) (fantasy.ToolResponse, error) {
-	entries, err := os.ReadDir(absPath)
-	if err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read directory: %v", err)), nil
-	}
-
-	var result strings.Builder
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			name += "/"
-		}
-		result.WriteString(name + "\n")
-	}
-
-	tr := truncateHead(result.String(), 500, defaultMaxBytes)
 	return fantasy.NewTextResponse(tr.Content), nil
 }
 
