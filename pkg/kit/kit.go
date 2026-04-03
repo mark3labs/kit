@@ -1153,9 +1153,46 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(content string) {
 			m.events.emit(ToolCallContentEvent{Content: content})
 		},
-		func(chunk string) {
-			m.events.emit(MessageUpdateEvent{Chunk: chunk})
-		},
+		// <think> tag filtering: models like Qwen/DeepSeek wrap reasoning inside
+		// <think>...</think> tags in the regular text stream. We intercept those
+		// spans here and re-route them as ReasoningDeltaEvent/ReasoningCompleteEvent
+		// so callers always receive clean, tag-free text and structured reasoning.
+		func() func(chunk string) {
+			const (
+				thinkOpen  = "<think>"
+				thinkClose = "</think>"
+			)
+			var inThinkTag bool
+			return func(chunk string) {
+				remaining := chunk
+				for remaining != "" {
+					if inThinkTag {
+						i := strings.Index(remaining, thinkClose)
+						if i == -1 {
+							m.events.emit(ReasoningDeltaEvent{Delta: remaining})
+							return
+						}
+						if i > 0 {
+							m.events.emit(ReasoningDeltaEvent{Delta: remaining[:i]})
+						}
+						inThinkTag = false
+						m.events.emit(ReasoningCompleteEvent{})
+						remaining = remaining[i+len(thinkClose):]
+					} else {
+						i := strings.Index(remaining, thinkOpen)
+						if i == -1 {
+							m.events.emit(MessageUpdateEvent{Chunk: remaining})
+							return
+						}
+						if i > 0 {
+							m.events.emit(MessageUpdateEvent{Chunk: remaining[:i]})
+						}
+						inThinkTag = true
+						remaining = remaining[i+len(thinkOpen):]
+					}
+				}
+			}
+		}(),
 		func(delta string) {
 			m.events.emit(ReasoningDeltaEvent{Delta: delta})
 		},
