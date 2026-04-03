@@ -162,6 +162,8 @@ type Theme struct {
 // and merged into the custom provider in the model registry.
 type CustomModelConfig struct {
 	Name        string      `json:"name" yaml:"name"`
+	BaseURL     string      `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey      string      `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 	Family      string      `json:"family,omitempty" yaml:"family,omitempty"`
 	Attachment  bool        `json:"attachment,omitempty" yaml:"attachment,omitempty"`
 	Reasoning   bool        `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`

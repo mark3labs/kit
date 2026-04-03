@@ -104,6 +104,8 @@ Define custom models in your `.kit.yml` for use with the `custom` provider. This
 customModels:
   my-model:
     name: "My Custom Model"
+    baseUrl: "http://localhost:8080/v1"
+    apiKey: "my-secret-key"
     reasoning: true
     temperature: true
     cost:
@@ -119,6 +121,8 @@ customModels:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Display name for the model |
+| `baseUrl` | string | No | Per-model base URL override; when set, `--provider-url` is not required |
+| `apiKey` | string | No | Per-model API key override |
 | `reasoning` | bool | No | Whether the model supports reasoning/thinking |
 | `temperature` | bool | No | Whether the model supports temperature adjustment |
 | `cost.input` | float | No | Cost per 1K input tokens |
@@ -126,7 +130,13 @@ customModels:
 | `limit.context` | int | Yes | Maximum context window in tokens |
 | `limit.output` | int | No | Maximum output tokens |
 
-Use with a custom provider URL:
+Use with a per-model `baseUrl` (no `--provider-url` needed):
+
+```bash
+kit --model custom/my-model "Hello"
+```
+
+Or override the base URL at runtime:
 
 ```bash
 kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"

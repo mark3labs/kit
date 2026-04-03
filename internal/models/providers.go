@@ -1128,11 +1128,23 @@ func customToPromptFunc(prompt fantasy.Prompt, systemPrompt, user string) ([]ope
 }
 
 func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	if config.ProviderURL == "" {
-		return nil, fmt.Errorf("custom provider requires --provider-url")
+	// Resolve base URL: per-model override > global provider-url flag/config
+	registry := GetGlobalRegistry()
+	modelInfo := registry.LookupModel("custom", modelName)
+
+	baseURL := config.ProviderURL
+	if modelInfo != nil && modelInfo.BaseURL != "" {
+		baseURL = modelInfo.BaseURL
+	}
+
+	if baseURL == "" {
+		return nil, fmt.Errorf("custom provider requires --provider-url or a baseUrl in the model config")
 	}
 
 	apiKey := config.ProviderAPIKey
+	if modelInfo != nil && modelInfo.APIKey != "" {
+		apiKey = modelInfo.APIKey
+	}
 	if apiKey == "" {
 		apiKey = os.Getenv("CUSTOM_API_KEY")
 	}
@@ -1144,7 +1156,7 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 	// Use the openai provider directly with custom hooks to handle <think> tags
 	// from models like Qwen and DeepSeek that wrap reasoning in XML tags.
 	var opts []openai.Option
-	opts = append(opts, openai.WithBaseURL(config.ProviderURL))
+	opts = append(opts, openai.WithBaseURL(baseURL))
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithName("custom"))
 	opts = append(opts, openai.WithLanguageModelOptions(

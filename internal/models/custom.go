@@ -37,6 +37,8 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 		Attachment:  cfg.Attachment,
 		Reasoning:   cfg.Reasoning,
 		Temperature: cfg.Temperature,
+		BaseURL:     cfg.BaseURL,
+		APIKey:      cfg.APIKey,
 		Cost: Cost{
 			Input:  cfg.Cost.Input,
 			Output: cfg.Cost.Output,
@@ -52,6 +54,8 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 // This is a duplicate here to avoid circular dependencies with internal/config.
 type CustomModelConfig struct {
 	Name        string      `json:"name" yaml:"name"`
+	BaseURL     string      `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey      string      `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
 	Family      string      `json:"family,omitempty" yaml:"family,omitempty"`
 	Attachment  bool        `json:"attachment,omitempty" yaml:"attachment,omitempty"`
 	Reasoning   bool        `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`

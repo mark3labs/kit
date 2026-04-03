@@ -57,7 +57,22 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 			continue
 		}
 
+		// For the custom provider, skip the built-in "custom" stub when
+		// user-defined models are present — the stub is a fallback for
+		// --provider-url usage and would just clutter the list.
+		userDefinedCustomModels := 0
+		if providerID == "custom" {
+			for modelID := range modelsMap {
+				if modelID != "custom" {
+					userDefinedCustomModels++
+				}
+			}
+		}
+
 		for modelID, info := range modelsMap {
+			if providerID == "custom" && modelID == "custom" && userDefinedCustomModels > 0 {
+				continue
+			}
 			allModels = append(allModels, ModelEntry{
 				Provider:     providerID,
 				ModelID:      modelID,

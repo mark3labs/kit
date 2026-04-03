@@ -154,6 +154,9 @@ func InitConfig() {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
+	// Rebuild the model registry now that viper has the config loaded,
+	// so customModels defined in the config file are picked up.
+	models.ReloadGlobalRegistry()
 }
 
 // LoadConfigWithEnvSubstitution loads a config file with environment variable

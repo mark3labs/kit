@@ -24,6 +24,8 @@ type ModelInfo struct {
 	Cost        Cost
 	Limit       Limit
 	ProviderNPM string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	BaseURL     string // Per-model base URL override (custom models only)
+	APIKey      string // Per-model API key override (custom models only)
 }
 
 // SupportsCaching returns true if this model family supports prompt caching.
@@ -367,8 +369,8 @@ func (r *ModelsRegistry) GetFantasyProviders() []string {
 
 // isProviderLLMSupported checks if a provider can be used with the LLM layer.
 func isProviderLLMSupported(providerID string, info *ProviderInfo) bool {
-	// Ollama is always supported (via openaicompat pointed at localhost)
-	if providerID == "ollama" {
+	// Ollama and custom are always supported (model names are user-defined).
+	if providerID == "ollama" || providerID == "custom" {
 		return true
 	}
 
