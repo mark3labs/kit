@@ -31,6 +31,7 @@ func Symbols() interp.Exports {
 			// Session types
 			"SessionMessage": reflect.ValueOf((*SessionMessage)(nil)),
 			"ExtensionEntry": reflect.ValueOf((*ExtensionEntry)(nil)),
+			"SessionUsage":   reflect.ValueOf((*SessionUsage)(nil)),
 
 			// Option types
 			"OptionDef": reflect.ValueOf((*OptionDef)(nil)),
@@ -44,6 +45,8 @@ func Symbols() interp.Exports {
 			// LLM completion types
 			"CompleteRequest":  reflect.ValueOf((*CompleteRequest)(nil)),
 			"CompleteResponse": reflect.ValueOf((*CompleteResponse)(nil)),
+			"CompactConfig":    reflect.ValueOf((*CompactConfig)(nil)),
+			"FilePart":         reflect.ValueOf((*FilePart)(nil)),
 
 			// Status bar types
 			"StatusBarEntry": reflect.ValueOf((*StatusBarEntry)(nil)),

@@ -819,7 +819,37 @@ func runNormalMode(ctx context.Context) error {
 			PrintBlock:    appInstance.PrintBlockFromExtension,
 			SendMessage:   func(text string) { appInstance.Run(text) },
 			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
-			Exit:          func() { appInstance.QuitFromExtension() },
+			Abort:         func() { appInstance.Abort() },
+			IsIdle:        func() bool { return !appInstance.IsBusy() },
+			Compact: func(cfg extensions.CompactConfig) error {
+				return appInstance.CompactAsync(cfg.CustomInstructions, cfg.OnComplete, cfg.OnError)
+			},
+			SendMultimodalMessage: func(text string, files []extensions.FilePart) {
+				parts := make([]kit.LLMFilePart, len(files))
+				for i, f := range files {
+					parts[i] = kit.LLMFilePart{
+						Filename:  f.Filename,
+						Data:      f.Data,
+						MediaType: f.MediaType,
+					}
+				}
+				appInstance.RunWithFiles(text, parts)
+			},
+			GetSessionUsage: func() extensions.SessionUsage {
+				if usageTracker == nil {
+					return extensions.SessionUsage{}
+				}
+				stats := usageTracker.GetSessionStats()
+				return extensions.SessionUsage{
+					TotalInputTokens:      stats.TotalInputTokens,
+					TotalOutputTokens:     stats.TotalOutputTokens,
+					TotalCacheReadTokens:  stats.TotalCacheReadTokens,
+					TotalCacheWriteTokens: stats.TotalCacheWriteTokens,
+					TotalCost:             stats.TotalCost,
+					RequestCount:          stats.RequestCount,
+				}
+			},
+			Exit: func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.Extensions().SetWidget(config)
 				go appInstance.NotifyWidgetUpdate()
@@ -1240,7 +1270,37 @@ func runNormalMode(ctx context.Context) error {
 			PrintBlock:    appInstance.PrintBlockFromExtension,
 			SendMessage:   func(text string) { appInstance.Run(text) },
 			CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
-			Exit:          func() { appInstance.QuitFromExtension() },
+			Abort:         func() { appInstance.Abort() },
+			IsIdle:        func() bool { return !appInstance.IsBusy() },
+			Compact: func(cfg extensions.CompactConfig) error {
+				return appInstance.CompactAsync(cfg.CustomInstructions, cfg.OnComplete, cfg.OnError)
+			},
+			SendMultimodalMessage: func(text string, files []extensions.FilePart) {
+				parts := make([]kit.LLMFilePart, len(files))
+				for i, f := range files {
+					parts[i] = kit.LLMFilePart{
+						Filename:  f.Filename,
+						Data:      f.Data,
+						MediaType: f.MediaType,
+					}
+				}
+				appInstance.RunWithFiles(text, parts)
+			},
+			GetSessionUsage: func() extensions.SessionUsage {
+				if usageTracker == nil {
+					return extensions.SessionUsage{}
+				}
+				stats := usageTracker.GetSessionStats()
+				return extensions.SessionUsage{
+					TotalInputTokens:      stats.TotalInputTokens,
+					TotalOutputTokens:     stats.TotalOutputTokens,
+					TotalCacheReadTokens:  stats.TotalCacheReadTokens,
+					TotalCacheWriteTokens: stats.TotalCacheWriteTokens,
+					TotalCost:             stats.TotalCost,
+					RequestCount:          stats.RequestCount,
+				}
+			},
+			Exit: func() { appInstance.QuitFromExtension() },
 			SetWidget: func(config extensions.WidgetConfig) {
 				kitInstance.Extensions().SetWidget(config)
 				go appInstance.NotifyWidgetUpdate()

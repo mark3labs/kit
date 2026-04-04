@@ -77,6 +77,64 @@ type Context struct {
 	//   ctx.CancelAndSend("Stop what you're doing and focus on the tests")
 	CancelAndSend func(string)
 
+	// Abort cancels the current agent turn (if running) and clears the
+	// message queue. Unlike CancelAndSend, no new message is injected —
+	// the agent simply stops. Safe to call when idle (no-op).
+	//
+	// Example:
+	//
+	//   ctx.Abort()  // stop whatever the agent is doing
+	Abort func()
+
+	// IsIdle returns true when the agent is not processing a turn.
+	// Extensions can use this to decide whether to dispatch immediately
+	// or queue work for later.
+	//
+	// Example:
+	//
+	//   if ctx.IsIdle() {
+	//       ctx.SendMessage("start new task")
+	//   }
+	IsIdle func() bool
+
+	// Compact triggers context compaction, summarising older messages to
+	// free context window space. Returns an error if compaction cannot
+	// start (e.g. agent is busy or app is closed). The actual compaction
+	// runs asynchronously; use OnComplete/OnError callbacks in
+	// CompactConfig to observe the result.
+	//
+	// Example:
+	//
+	//   err := ctx.Compact(ext.CompactConfig{
+	//       OnComplete: func() { ctx.PrintInfo("Compaction done") },
+	//       OnError:    func(errMsg string) { ctx.PrintError("Compact failed: " + errMsg) },
+	//   })
+	Compact func(CompactConfig) error
+
+	// SendMultimodalMessage injects a message with file attachments (images,
+	// documents) into the conversation and triggers a new agent turn. Files
+	// are described by FilePart structs containing the raw bytes, filename,
+	// and MIME type. If the agent is busy the message is queued.
+	//
+	// Example:
+	//
+	//   data, _ := os.ReadFile("photo.jpg")
+	//   ctx.SendMultimodalMessage("Describe this image", []ext.FilePart{
+	//       {Filename: "photo.jpg", Data: data, MediaType: "image/jpeg"},
+	//   })
+	SendMultimodalMessage func(text string, files []FilePart)
+
+	// GetSessionUsage returns aggregated token usage and cost statistics
+	// for the current session. This includes total input/output tokens,
+	// cache read/write tokens, total cost, and request count.
+	//
+	// Example:
+	//
+	//   usage := ctx.GetSessionUsage()
+	//   fmt.Sprintf("Tokens: ↑%d ↓%d Cost: $%.3f",
+	//       usage.TotalInputTokens, usage.TotalOutputTokens, usage.TotalCost)
+	GetSessionUsage func() SessionUsage
+
 	// SetWidget places or updates a persistent widget in the TUI. Widgets
 	// remain visible across agent turns until explicitly removed. The
 	// widget is identified by WidgetConfig.ID; calling SetWidget with the
@@ -935,6 +993,48 @@ type StatusBarEntry struct {
 	// Priority controls ordering. Lower values render further left.
 	// Built-in entries (model, usage) have implicit priority 100-110.
 	Priority int
+}
+
+// CompactConfig configures a programmatic context compaction request.
+type CompactConfig struct {
+	// CustomInstructions is optional text appended to the summary prompt
+	// (e.g. "Focus on the API design decisions"). Empty uses the default.
+	CustomInstructions string
+	// OnComplete is called when compaction finishes successfully.
+	// May be nil if the caller doesn't need notification.
+	OnComplete func()
+	// OnError is called when compaction fails. The argument is the error message.
+	// May be nil if the caller doesn't need notification.
+	OnError func(errMsg string)
+}
+
+// FilePart describes a file attachment for multimodal messages. Extensions
+// use this with SendMultimodalMessage to attach images or documents.
+type FilePart struct {
+	// Filename is the name of the file (e.g. "photo.jpg").
+	Filename string
+	// Data is the raw file content.
+	Data []byte
+	// MediaType is the MIME type (e.g. "image/jpeg", "application/pdf").
+	MediaType string
+}
+
+// SessionUsage contains aggregated token usage and cost statistics for
+// the current session. Extensions use this with GetSessionUsage() to
+// report usage information.
+type SessionUsage struct {
+	// TotalInputTokens is the sum of input tokens across all requests.
+	TotalInputTokens int
+	// TotalOutputTokens is the sum of output tokens across all requests.
+	TotalOutputTokens int
+	// TotalCacheReadTokens is the sum of cache read tokens.
+	TotalCacheReadTokens int
+	// TotalCacheWriteTokens is the sum of cache write tokens.
+	TotalCacheWriteTokens int
+	// TotalCost is the total cost in USD across all requests.
+	TotalCost float64
+	// RequestCount is the number of LLM requests made in this session.
+	RequestCount int
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.

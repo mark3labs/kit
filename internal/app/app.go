@@ -162,6 +162,24 @@ func (a *App) CancelCurrentStep() {
 	cancel()
 }
 
+// IsBusy returns true when the agent is currently processing a turn.
+func (a *App) IsBusy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.busy
+}
+
+// Abort cancels the current agent step (if running) and clears the queue.
+// Unlike InterruptAndSend, no new message is injected — the agent simply
+// stops. Safe to call when idle (no-op).
+func (a *App) Abort() {
+	a.mu.Lock()
+	a.queue = a.queue[:0]
+	cancel := a.cancelStep
+	a.mu.Unlock()
+	cancel()
+}
+
 // QueueLength returns the number of prompts currently waiting in the queue.
 //
 // Satisfies ui.AppController.
@@ -395,6 +413,78 @@ func (a *App) CompactConversation(customInstructions string) error {
 			CompactedTokens: result.CompactedTokens,
 			MessagesRemoved: result.MessagesRemoved,
 		})
+	}()
+	return nil
+}
+
+// CompactAsync is like CompactConversation but calls onComplete/onError
+// callbacks instead of sending TUI events. Used by the extension API's
+// ctx.Compact() which needs callback-based notification.
+func (a *App) CompactAsync(customInstructions string, onComplete func(), onError func(string)) error {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return fmt.Errorf("app is closed")
+	}
+	if a.busy {
+		a.mu.Unlock()
+		return fmt.Errorf("cannot compact while the agent is working")
+	}
+	if a.opts.Kit == nil {
+		a.mu.Unlock()
+		return fmt.Errorf("SDK instance not available")
+	}
+	a.busy = true
+	a.wg.Add(1)
+	a.mu.Unlock()
+
+	go func() {
+		defer a.wg.Done()
+		defer func() {
+			a.mu.Lock()
+			a.busy = false
+			a.mu.Unlock()
+		}()
+
+		// Subscribe to SDK events for streaming compaction summary to the TUI.
+		sendFn := func(msg tea.Msg) {
+			if a.program != nil {
+				a.program.Send(msg)
+			}
+		}
+		unsub := a.subscribeSDKEvents(sendFn, nil)
+		defer unsub()
+
+		result, err := a.opts.Kit.Compact(a.rootCtx, nil, customInstructions)
+		if err != nil {
+			a.sendEvent(CompactErrorEvent{Err: err})
+			if onError != nil {
+				onError(err.Error())
+			}
+			return
+		}
+		if result == nil {
+			a.sendEvent(CompactErrorEvent{Err: fmt.Errorf("nothing to compact")})
+			if onError != nil {
+				onError("nothing to compact")
+			}
+			return
+		}
+
+		// Sync in-memory store with the compacted session.
+		if a.opts.TreeSession != nil {
+			a.store.Replace(a.opts.TreeSession.GetLLMMessages())
+		}
+
+		a.sendEvent(CompactCompleteEvent{
+			Summary:         result.Summary,
+			OriginalTokens:  result.OriginalTokens,
+			CompactedTokens: result.CompactedTokens,
+			MessagesRemoved: result.MessagesRemoved,
+		})
+		if onComplete != nil {
+			onComplete()
+		}
 	}()
 	return nil
 }

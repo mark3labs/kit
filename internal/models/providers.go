@@ -524,13 +524,13 @@ func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantas
 func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort {
 	switch level {
 	case ThinkingMinimal:
-		return openai.ReasoningEffortOption(openai.ReasoningEffortMinimal)
+		return new(openai.ReasoningEffortMinimal)
 	case ThinkingLow:
-		return openai.ReasoningEffortOption(openai.ReasoningEffortLow)
+		return new(openai.ReasoningEffortLow)
 	case ThinkingMedium:
-		return openai.ReasoningEffortOption(openai.ReasoningEffortMedium)
+		return new(openai.ReasoningEffortMedium)
 	case ThinkingHigh:
-		return openai.ReasoningEffortOption(openai.ReasoningEffortHigh)
+		return new(openai.ReasoningEffortHigh)
 	default:
 		return nil
 	}

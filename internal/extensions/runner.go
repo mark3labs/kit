@@ -86,6 +86,21 @@ func normalizeContext(ctx Context) Context {
 	if ctx.CancelAndSend == nil {
 		ctx.CancelAndSend = func(string) {}
 	}
+	if ctx.Abort == nil {
+		ctx.Abort = func() {}
+	}
+	if ctx.IsIdle == nil {
+		ctx.IsIdle = func() bool { return true }
+	}
+	if ctx.Compact == nil {
+		ctx.Compact = func(CompactConfig) error { return fmt.Errorf("compact not available") }
+	}
+	if ctx.SendMultimodalMessage == nil {
+		ctx.SendMultimodalMessage = func(string, []FilePart) {}
+	}
+	if ctx.GetSessionUsage == nil {
+		ctx.GetSessionUsage = func() SessionUsage { return SessionUsage{} }
+	}
 	if ctx.SetWidget == nil {
 		ctx.SetWidget = func(WidgetConfig) {}
 	}
