@@ -87,6 +87,12 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 <p>The <code>/share</code> command uploads your session JSONL to GitHub Gist (via the <code>gh</code> CLI) and prints a shareable viewer URL:</p>
 <pre><code>/share
 </code></pre>
+<p>The shared session includes:</p>
+<ul>
+<li>The <strong>system prompt</strong> that was active during the conversation</li>
+<li>The <strong>model</strong> used (e.g., <code>anthropic/claude-sonnet-4-5</code>)</li>
+</ul>
+<p>The viewer displays this information in a collapsible "System Prompt" section at the top of the session, with the model shown as a badge in the header.</p>
 <p>The viewer is available at <code>https://go-kit.dev/session/#GIST_ID</code> and supports all message types including text, reasoning blocks, tool calls, images, and model changes.</p>
 <p>You can also load any JSONL session via URL parameter: <code>https://go-kit.dev/session/?url=https://example.com/session.jsonl</code></p>
 <h2 id="preferences-persistence"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#preferences-persistence"><span class="icon icon-link"></span></a>Preferences persistence</h2>
@@ -194,6 +200,12 @@ The \`/share\` command uploads your session JSONL to GitHub Gist (via the \`gh\`
 \`\`\`
 /share
 \`\`\`
+
+The shared session includes:
+- The **system prompt** that was active during the conversation
+- The **model** used (e.g., \`anthropic/claude-sonnet-4-5\`)
+
+The viewer displays this information in a collapsible "System Prompt" section at the top of the session, with the model shown as a badge in the header.
 
 The viewer is available at \`https://go-kit.dev/session/#GIST_ID\` and supports all message types including text, reasoning blocks, tool calls, images, and model changes.
 

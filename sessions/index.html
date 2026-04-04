@@ -7,7 +7,7 @@
 <meta name="description" content="How Kit persists and manages conversation sessions.">
 <link rel="canonical" href="/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DmQdMSwE.js"></script>
+<script type="module" src="/assets/index-D-_b5BGt.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Session Management","description":"How Kit persists and manages conversation sessions.","url":"https://go-kit.dev/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -110,6 +110,12 @@ The `/share` command uploads your session JSONL to GitHub Gist (via the `gh` CLI
 ```
 /share
 ```
+
+The shared session includes:
+- The **system prompt** that was active during the conversation
+- The **model** used (e.g., `anthropic/claude-sonnet-4-5`)
+
+The viewer displays this information in a collapsible "System Prompt" section at the top of the session, with the model shown as a badge in the header.
 
 The viewer is available at `https://go-kit.dev/session/#GIST_ID` and supports all message types including text, reasoning blocks, tool calls, images, and model changes.
 

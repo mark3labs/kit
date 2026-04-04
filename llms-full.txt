@@ -2823,6 +2823,12 @@ The `/share` command uploads your session JSONL to GitHub Gist (via the `gh` CLI
 /share
 ```
 
+The shared session includes:
+- The **system prompt** that was active during the conversation
+- The **model** used (e.g., `anthropic/claude-sonnet-4-5`)
+
+The viewer displays this information in a collapsible "System Prompt" section at the top of the session, with the model shown as a badge in the header.
+
 The viewer is available at `https://go-kit.dev/session/#GIST_ID` and supports all message types including text, reasoning blocks, tool calls, images, and model changes.
 
 You can also load any JSONL session via URL parameter: `https://go-kit.dev/session/?url=https://example.com/session.jsonl`
