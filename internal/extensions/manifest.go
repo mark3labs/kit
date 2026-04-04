@@ -253,27 +253,18 @@ func ScanForExtensions(dir string) ([]ExtensionPreview, error) {
 			isExtDir := base == "extensions" || base == "ext" ||
 				strings.HasSuffix(base, "-extensions") || strings.HasSuffix(base, "-ext")
 
-			// Or check if it's a subdirectory of examples/ that might contain extensions
-			isExamplesSubdir := relPath == "examples" || strings.HasPrefix(relPath, "examples/")
+			// Allow walking into examples/ so we can reach examples/extensions/ etc,
+			// but don't treat examples/ itself or non-extension subdirs as extension locations.
+			if relPath == "examples" {
+				return nil
+			}
 
-			if !isExtDir && !isExamplesSubdir {
+			if !isExtDir {
 				// Check for main.go before skipping
 				mainPath := filepath.Join(path, "main.go")
 				if _, err := os.Stat(mainPath); err == nil {
 					// This is a package with main.go at root level
 					if relPath == base { // Top-level directory
-						if !multiFileDirs[relPath] {
-							multiFileDirs[relPath] = true
-							previews = append(previews, ExtensionPreview{
-								Path:   "./" + relPath + "/main.go",
-								Name:   deriveExtensionName(relPath+"/main.go", true),
-								IsMain: true,
-							})
-						}
-						return filepath.SkipDir
-					}
-					// Inside a valid extensions directory
-					if isExamplesSubdir || isExtDir {
 						if !multiFileDirs[relPath] {
 							multiFileDirs[relPath] = true
 							previews = append(previews, ExtensionPreview{
@@ -309,7 +300,7 @@ func ScanForExtensions(dir string) ([]ExtensionPreview, error) {
 		}
 
 		// It's a file - check if it's a valid extension
-		if !strings.HasSuffix(info.Name(), ".go") {
+		if !strings.HasSuffix(info.Name(), ".go") || strings.HasSuffix(info.Name(), "_test.go") {
 			return nil
 		}
 

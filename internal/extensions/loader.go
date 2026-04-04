@@ -133,7 +133,7 @@ func findExtensionsInDir(dir string) []string {
 
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
 			results = append(results, full)
 		} else if entry.IsDir() {
 			main := filepath.Join(full, "main.go")
@@ -190,19 +190,16 @@ func findExtensionsInRepo(repoPath string) []string {
 			isExtDir := base == "extensions" || base == "ext" ||
 				strings.HasSuffix(base, "-extensions") || strings.HasSuffix(base, "-ext")
 
-			isExamplesSubdir := relPath == "examples" || strings.HasPrefix(relPath, "examples/")
+			// Allow walking into examples/ so we can reach examples/extensions/ etc,
+			// but don't treat examples/ itself or non-extension subdirs as extension locations.
+			if relPath == "examples" {
+				return nil
+			}
 
-			if !isExtDir && !isExamplesSubdir {
+			if !isExtDir {
 				mainPath := filepath.Join(path, "main.go")
 				if _, err := os.Stat(mainPath); err == nil {
 					if relPath == base { // Top-level directory
-						if !multiFileDirs[relPath] {
-							multiFileDirs[relPath] = true
-							results = append(results, mainPath)
-						}
-						return filepath.SkipDir
-					}
-					if isExamplesSubdir || isExtDir {
 						if !multiFileDirs[relPath] {
 							multiFileDirs[relPath] = true
 							results = append(results, mainPath)
@@ -227,7 +224,7 @@ func findExtensionsInRepo(repoPath string) []string {
 		}
 
 		// It's a file
-		if !strings.HasSuffix(info.Name(), ".go") {
+		if !strings.HasSuffix(info.Name(), ".go") || strings.HasSuffix(info.Name(), "_test.go") {
 			return nil
 		}
 
