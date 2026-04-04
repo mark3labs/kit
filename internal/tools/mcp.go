@@ -22,6 +22,7 @@ type MCPToolManager struct {
 	tools          []fantasy.AgentTool
 	toolMap        map[string]*toolMapping // maps prefixed tool names to their server and original name
 	model          fantasy.LanguageModel   // LLM model for sampling
+	authHandler    MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
 	config         *config.Config
 	debug          bool
 	debugLogger    DebugLogger
@@ -53,6 +54,14 @@ func (m *MCPToolManager) SetModel(model fantasy.LanguageModel) {
 	m.model = model
 }
 
+// SetAuthHandler sets the OAuth handler for remote MCP server authentication.
+// When set, remote transports (streamable HTTP, SSE) are configured with OAuth
+// support, enabling automatic authorization flows when servers require authentication.
+// This method should be called before LoadTools.
+func (m *MCPToolManager) SetAuthHandler(handler MCPAuthHandler) {
+	m.authHandler = handler
+}
+
 // SetDebugLogger sets the debug logger for the tool manager.
 // The logger will be used to output detailed debugging information about MCP connections,
 // tool loading, and execution. If a connection pool exists, it will also be configured
@@ -76,7 +85,7 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, config *config.Config) e
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(config.Debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, config.Debug)
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, config.Debug, m.authHandler)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 
 	var loadErrors []string

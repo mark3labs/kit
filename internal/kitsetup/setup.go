@@ -58,6 +58,9 @@ type AgentSetupOptions struct {
 	// StreamingEnabled controls streaming. Only meaningful when ProviderConfig
 	// is also set.
 	StreamingEnabled bool
+	// AuthHandler handles OAuth authorization for remote MCP servers.
+	// When set, remote transports are configured with OAuth support.
+	AuthHandler tools.MCPAuthHandler
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -185,6 +188,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		Quiet:            opts.Quiet,
 		SpinnerFunc:      opts.SpinnerFunc,
 		DebugLogger:      debugLogger,
+		AuthHandler:      opts.AuthHandler,
 		CoreTools:        opts.CoreTools,
 		ToolWrapper:      toolWrapper,
 		ExtraTools:       extraTools,

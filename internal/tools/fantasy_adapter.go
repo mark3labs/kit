@@ -59,9 +59,30 @@ func (t *mcpFantasyTool) Run(ctx context.Context, call fantasy.ToolCall) (fantas
 		},
 	})
 	if err != nil {
-		// Mark connection as unhealthy for automatic recovery
-		t.mapping.manager.connectionPool.HandleConnectionError(t.mapping.serverName, err)
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to call mcp tool: %w", err)
+		// Handle OAuth re-authorization: token may have expired mid-session.
+		if t.mapping.manager.connectionPool.oauthFlow != nil && IsOAuthError(err) {
+			if flowErr := t.mapping.manager.connectionPool.oauthFlow.RunAuthFlow(ctx, t.mapping.serverName, err); flowErr != nil {
+				return fantasy.ToolResponse{}, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", t.mapping.originalName, flowErr)
+			}
+			// Retry the tool call after successful re-auth.
+			result, err = conn.client.CallTool(ctx, mcp.CallToolRequest{
+				Request: mcp.Request{
+					Method: "tools/call",
+				},
+				Params: mcp.CallToolParams{
+					Name:      t.mapping.originalName,
+					Arguments: arguments,
+				},
+			})
+			if err != nil {
+				t.mapping.manager.connectionPool.HandleConnectionError(t.mapping.serverName, err)
+				return fantasy.ToolResponse{}, fmt.Errorf("failed to call mcp tool after re-auth: %w", err)
+			}
+		} else {
+			// Mark connection as unhealthy for automatic recovery
+			t.mapping.manager.connectionPool.HandleConnectionError(t.mapping.serverName, err)
+			return fantasy.ToolResponse{}, fmt.Errorf("failed to call mcp tool: %w", err)
+		}
 	}
 
 	// Marshal the MCP result to JSON string

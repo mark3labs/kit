@@ -25,6 +25,11 @@ type AgentConfig struct {
 	StreamingEnabled bool
 	DebugLogger      tools.DebugLogger
 
+	// AuthHandler handles OAuth authorization for remote MCP servers.
+	// When set, remote transports are configured with OAuth support.
+	// If nil, remote MCP servers that require OAuth will fail to connect.
+	AuthHandler tools.MCPAuthHandler
+
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used. This allows SDK users to provide a custom tool set (e.g.
 	// CodingTools or tools with a custom WorkDir).
@@ -138,6 +143,10 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
 		toolManager = tools.NewMCPToolManager()
 		toolManager.SetModel(providerResult.Model)
+
+		if agentConfig.AuthHandler != nil {
+			toolManager.SetAuthHandler(agentConfig.AuthHandler)
+		}
 
 		if agentConfig.DebugLogger != nil {
 			toolManager.SetDebugLogger(agentConfig.DebugLogger)

@@ -36,6 +36,8 @@ type AgentCreationOptions struct {
 	SpinnerFunc SpinnerFunc // Function to show spinner (provided by caller)
 	// DebugLogger is an optional logger for debugging MCP communications
 	DebugLogger tools.DebugLogger // Optional debug logger
+	// AuthHandler handles OAuth authorization for remote MCP servers
+	AuthHandler tools.MCPAuthHandler
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used.
 	CoreTools []fantasy.AgentTool
@@ -56,6 +58,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		MaxSteps:         opts.MaxSteps,
 		StreamingEnabled: opts.StreamingEnabled,
 		DebugLogger:      opts.DebugLogger,
+		AuthHandler:      opts.AuthHandler,
 		CoreTools:        opts.CoreTools,
 		ToolWrapper:      opts.ToolWrapper,
 		ExtraTools:       opts.ExtraTools,

@@ -48,6 +48,7 @@ type Kit struct {
 	skills         []*skills.Skill
 	extRunner      *extensions.Runner
 	bufferedLogger *tools.BufferedDebugLogger
+	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -439,6 +440,18 @@ type Options struct {
 	// Debug enables debug logging for the SDK.
 	Debug bool
 
+	// MCPAuthHandler handles OAuth authorization for remote MCP servers.
+	// When set, remote transports (streamable HTTP, SSE) are configured with
+	// OAuth support. If the server returns a 401, the handler is invoked to
+	// let the user authorize via browser.
+	//
+	// If nil, a [DefaultMCPAuthHandler] is created automatically — opening the
+	// system browser and listening on a local callback server.
+	//
+	// Set to a custom implementation to control the authorization UX (e.g.
+	// display a URL in a custom UI, redirect to a web app, etc.).
+	MCPAuthHandler MCPAuthHandler
+
 	// CLI is optional CLI-specific configuration. SDK users leave this nil.
 	CLI *CLIOptions
 }
@@ -655,6 +668,23 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		MaxSteps:         maxSteps,
 		StreamingEnabled: streaming,
 	}
+
+	// Set up OAuth handler for remote MCP servers.
+	// The SDK MCPAuthHandler interface is structurally identical to
+	// tools.MCPAuthHandler, so any implementation satisfies both.
+	if opts.MCPAuthHandler != nil {
+		setupOpts.AuthHandler = opts.MCPAuthHandler
+	} else {
+		// Create a default handler that opens the system browser.
+		defaultHandler, authErr := NewDefaultMCPAuthHandler()
+		if authErr != nil {
+			// Non-fatal: OAuth just won't be available for remote servers.
+			charmlog.Warn("Failed to create OAuth handler; remote MCP servers requiring auth will fail", "error", authErr)
+		} else {
+			setupOpts.AuthHandler = defaultHandler
+		}
+	}
+
 	if opts.CLI != nil {
 		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
 		setupOpts.SpinnerFunc = opts.CLI.SpinnerFunc
@@ -685,6 +715,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		skills:          loadedSkills,
 		extRunner:       agentResult.ExtRunner,
 		bufferedLogger:  agentResult.BufferedLogger,
+		authHandler:     setupOpts.AuthHandler,
 		beforeToolCall:  beforeToolCall,
 		afterToolResult: afterToolResult,
 		beforeTurn:      beforeTurn,
@@ -1644,6 +1675,10 @@ func (m *Kit) Close() error {
 	}
 	if m.treeSession != nil {
 		_ = m.treeSession.Close()
+	}
+	// Release the OAuth callback port if we own the handler.
+	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
+		_ = closer.Close()
 	}
 	return m.agent.Close()
 }

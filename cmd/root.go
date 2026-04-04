@@ -717,13 +717,20 @@ func runNormalMode(ctx context.Context) error {
 
 	// Build Kit options from CLI flags and create the SDK instance.
 	// kit.New() handles: config → skills → agent → session → extension bridge.
+	authHandler, authErr := kit.NewCLIMCPAuthHandler()
+	if authErr != nil {
+		// Non-fatal: OAuth just won't be available for remote MCP servers.
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create OAuth handler: %v\n", authErr)
+	}
+
 	kitOpts := &kit.Options{
-		Quiet:       quietFlag,
-		Debug:       debugMode,
-		NoSession:   noSessionFlag,
-		Continue:    continueFlag,
-		SessionPath: sessionPath,
-		AutoCompact: autoCompactFlag,
+		Quiet:          quietFlag,
+		Debug:          debugMode,
+		NoSession:      noSessionFlag,
+		Continue:       continueFlag,
+		SessionPath:    sessionPath,
+		AutoCompact:    autoCompactFlag,
+		MCPAuthHandler: authHandler,
 		CLI: &kit.CLIOptions{
 			MCPConfig:         mcpConfig,
 			ShowSpinner:       true,
@@ -795,6 +802,13 @@ func runNormalMode(ctx context.Context) error {
 
 	appInstance := app.New(appOpts, messages)
 	defer appInstance.Close()
+
+	// Wire OAuth handler to route messages through the TUI once it's running.
+	if authHandler != nil {
+		authHandler.NotifyFunc = func(serverName, message string) {
+			appInstance.PrintFromExtension("info", message)
+		}
+	}
 
 	// Buffer for extension messages during startup (printed after startup banner).
 	var startupExtensionMessages []string

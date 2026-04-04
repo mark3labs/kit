@@ -68,6 +68,7 @@ type MCPConnectionPool struct {
 	cancel      context.CancelFunc
 	debug       bool
 	debugLogger DebugLogger
+	oauthFlow   *OAuthFlowRunner
 }
 
 // NewMCPConnectionPool creates a new MCP connection pool with the specified configuration.
@@ -75,7 +76,7 @@ type MCPConnectionPool struct {
 // goroutine for periodic health checks that runs until Close is called.
 // The model parameter is used for MCP servers that require sampling support.
 // Thread-safe for concurrent use immediately after creation.
-func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool) *MCPConnectionPool {
+func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool, authHandler MCPAuthHandler) *MCPConnectionPool {
 	if config == nil {
 		config = DefaultConnectionPoolConfig()
 	}
@@ -90,6 +91,10 @@ func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageMo
 		debug:       debug,
 	}
 
+	if authHandler != nil {
+		pool.oauthFlow = NewOAuthFlowRunner(authHandler)
+	}
+
 	go pool.startHealthCheck()
 	return pool
 }
@@ -101,6 +106,15 @@ func (p *MCPConnectionPool) SetDebugLogger(logger DebugLogger) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.debugLogger = logger
+}
+
+// SetOAuthFlow sets the OAuth flow runner for the connection pool.
+// When set, the pool can trigger OAuth re-authorization when a tool call fails
+// with an OAuth error (e.g. expired token). Thread-safe and can be called at any time.
+func (p *MCPConnectionPool) SetOAuthFlow(flow *OAuthFlowRunner) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.oauthFlow = flow
 }
 
 // GetConnection retrieves or creates a connection for the specified MCP server.
@@ -230,18 +244,43 @@ func (p *MCPConnectionPool) performHealthCheck(ctx context.Context, conn *MCPCon
 
 // createConnection creates a new connection
 func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (*MCPConnection, error) {
-	client, err := p.createMCPClient(ctx, serverName, serverConfig)
+	mcpClient, err := p.createMCPClient(ctx, serverName, serverConfig)
 	if err != nil {
-		return nil, err
+		// SSE transport can return OAuth error during Start()
+		if p.oauthFlow != nil && IsOAuthError(err) {
+			if flowErr := p.oauthFlow.RunAuthFlow(ctx, serverName, err); flowErr != nil {
+				return nil, fmt.Errorf("OAuth authorization failed: %w", flowErr)
+			}
+			// Retry after successful auth
+			mcpClient, err = p.createMCPClient(ctx, serverName, serverConfig)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 
-	if err := p.initializeClient(ctx, client); err != nil {
-		_ = client.Close()
-		return nil, err
+	if err := p.initializeClient(ctx, mcpClient); err != nil {
+		// Streamable HTTP transport returns OAuth error during Initialize()
+		if p.oauthFlow != nil && IsOAuthError(err) {
+			if flowErr := p.oauthFlow.RunAuthFlow(ctx, serverName, err); flowErr != nil {
+				_ = mcpClient.Close()
+				return nil, fmt.Errorf("OAuth authorization failed: %w", flowErr)
+			}
+			// Retry initialization after successful auth
+			if err := p.initializeClient(ctx, mcpClient); err != nil {
+				_ = mcpClient.Close()
+				return nil, err
+			}
+		} else {
+			_ = mcpClient.Close()
+			return nil, err
+		}
 	}
 
 	conn := &MCPConnection{
-		client:       client,
+		client:       mcpClient,
 		serverName:   serverName,
 		serverConfig: serverConfig,
 		lastUsed:     time.Now(),
@@ -323,13 +362,29 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 		}
 	}
 
+	// Enable OAuth for remote transports when an auth handler is configured.
+	// The OAuthConfig uses PKCE and the handler's redirect URI. Client ID and
+	// scopes are discovered automatically via dynamic client registration and
+	// server metadata (RFC 9728).
+	if p.oauthFlow != nil {
+		tokenStore, tsErr := NewFileTokenStore(serverConfig.URL)
+		if tsErr != nil {
+			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
+		}
+		options = append(options, transport.WithOAuth(transport.OAuthConfig{
+			RedirectURI: p.oauthFlow.handler.RedirectURI(),
+			PKCEEnabled: true,
+			TokenStore:  tokenStore,
+		}))
+	}
+
 	sseClient, err := client.NewSSEMCPClient(serverConfig.URL, options...)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := sseClient.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start SSE client: %v", err)
+		return nil, fmt.Errorf("failed to start SSE client: %w", err)
 	}
 
 	return sseClient, nil
@@ -354,13 +409,29 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 		}
 	}
 
+	// Enable OAuth for remote transports when an auth handler is configured.
+	// The OAuthConfig uses PKCE and the handler's redirect URI. Client ID and
+	// scopes are discovered automatically via dynamic client registration and
+	// server metadata (RFC 9728).
+	if p.oauthFlow != nil {
+		tokenStore, tsErr := NewFileTokenStore(serverConfig.URL)
+		if tsErr != nil {
+			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
+		}
+		options = append(options, transport.WithHTTPOAuth(transport.OAuthConfig{
+			RedirectURI: p.oauthFlow.handler.RedirectURI(),
+			PKCEEnabled: true,
+			TokenStore:  tokenStore,
+		}))
+	}
+
 	streamableClient, err := client.NewStreamableHttpClient(serverConfig.URL, options...)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := streamableClient.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start streamable HTTP client: %v", err)
+		return nil, fmt.Errorf("failed to start streamable HTTP client: %w", err)
 	}
 
 	return streamableClient, nil
@@ -381,7 +452,7 @@ func (p *MCPConnectionPool) initializeClient(ctx context.Context, client client.
 
 	_, err := client.Initialize(initCtx, initRequest)
 	if err != nil {
-		return fmt.Errorf("initialization timeout or failed: %v", err)
+		return fmt.Errorf("initialization timeout or failed: %w", err)
 	}
 
 	if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
@@ -539,6 +610,9 @@ func (p *MCPConnectionPool) Close() error {
 
 // isConnectionError checks if the error is connection-related
 func isConnectionError(err error) bool {
+	if IsOAuthError(err) {
+		return false // OAuth errors are recoverable, not connection failures
+	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "Connection not found") ||
 		strings.Contains(errStr, "transport error") ||
