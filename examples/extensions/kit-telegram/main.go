@@ -168,6 +168,10 @@ var (
 	// Test
 	pendingTest *PendingTest
 
+	// Typing indicator
+	typingTicker *time.Ticker
+	typingStop   chan struct{}
+
 	// Latest context for background goroutines
 	latestCtx    ext.Context
 	latestCtxSet bool
@@ -203,8 +207,23 @@ func configDir() string {
 	return filepath.Join(home, ".config", "kit")
 }
 
+func globalConfigDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "kit")
+}
+
 func configPath() string {
-	return filepath.Join(configDir(), "kit-telegram.json")
+	// Prefer project-local config, fall back to global config.
+	local := filepath.Join(configDir(), "kit-telegram.json")
+	if _, err := os.Stat(local); err == nil {
+		return local
+	}
+	global := filepath.Join(globalConfigDir(), "kit-telegram.json")
+	if _, err := os.Stat(global); err == nil {
+		return global
+	}
+	// Neither exists — return local path (will be created on connect).
+	return local
 }
 
 func failureLogDir() string {
@@ -385,6 +404,14 @@ func tgEditMessageText(token string, chatID int64, messageID int, text string) (
 		return nil, err
 	}
 	return &msg, nil
+}
+
+func tgSendChatAction(token string, chatID int64, action string) error {
+	_, err := telegramRequest(token, "sendChatAction", map[string]any{
+		"chat_id": chatID,
+		"action":  action,
+	}, 15)
+	return err
 }
 
 // ──────────────────────────────────────────────
@@ -634,6 +661,48 @@ func clearHealthTimer() {
 		healthTicker.Stop()
 		close(healthStop)
 		healthTicker = nil
+	}
+}
+
+// ──────────────────────────────────────────────
+// Typing indicator
+// ──────────────────────────────────────────────
+
+func startTypingLoop() {
+	mu.Lock()
+	defer mu.Unlock()
+	if typingTicker != nil {
+		return
+	}
+	cfg := config
+	if cfg == nil || !cfg.Enabled {
+		return
+	}
+	token := cfg.BotToken
+	chatID := cfg.ChatID
+	typingTicker = time.NewTicker(4 * time.Second)
+	typingStop = make(chan struct{})
+	// Send immediately, then every 4 seconds.
+	go func() {
+		tgSendChatAction(token, chatID, "typing")
+		for {
+			select {
+			case <-typingTicker.C:
+				tgSendChatAction(token, chatID, "typing")
+			case <-typingStop:
+				return
+			}
+		}
+	}()
+}
+
+func stopTypingLoop() {
+	mu.Lock()
+	defer mu.Unlock()
+	if typingTicker != nil {
+		typingTicker.Stop()
+		close(typingStop)
+		typingTicker = nil
 	}
 }
 
@@ -2105,6 +2174,7 @@ func Init(api ext.API) {
 		mu.Unlock()
 
 		sendShutdownDisconnectedMessage()
+		stopTypingLoop()
 		stopPolling()
 		clearHealthTimer()
 		clearFooter()
@@ -2128,6 +2198,7 @@ func Init(api ext.API) {
 		mu.Unlock()
 
 		report("run.start", fmt.Sprintf("runId=%d", run.ID))
+		startTypingLoop()
 		ensureProgressMessage()
 		updateProgressMessage()
 	})
@@ -2139,6 +2210,8 @@ func Init(api ext.API) {
 		latestCtxSet = true
 		run := activeRun
 		mu.Unlock()
+
+		stopTypingLoop()
 
 		if run != nil {
 			// Capture final response from event
