@@ -154,6 +154,11 @@ func NewInstaller(projectDir string) *Installer {
 
 // Install clones a git repository to the appropriate scope.
 func (i *Installer) Install(source *GitSource, scope InstallScope) error {
+	return i.install(source, scope, nil)
+}
+
+// install is the internal implementation that supports optional include paths.
+func (i *Installer) install(source *GitSource, scope InstallScope, includePaths []string) error {
 	targetDir := i.getInstallPath(source, scope)
 
 	// Check if already installed
@@ -199,6 +204,7 @@ func (i *Installer) Install(source *GitSource, scope InstallScope) error {
 		Pinned:    source.Pinned,
 		Scope:     scope,
 		Installed: time.Now(),
+		Include:   includePaths,
 	}
 	if err := i.addToManifest(entry, scope); err != nil {
 		// Don't fail the install, just log the error
@@ -268,7 +274,22 @@ func (i *Installer) Update(source *GitSource, scope InstallScope) error {
 	cleanCmd.Dir = targetDir
 	_ = cleanCmd.Run() // Ignore errors - clean is best effort
 
-	// Update manifest timestamp
+	// Update manifest timestamp, preserving existing fields like Include
+	existing, _ := i.loadManifest(scope)
+	var include []string
+	var installed time.Time
+	if existing != nil {
+		for _, p := range existing.Packages {
+			if p.Host+"/"+p.Path == source.Identity() {
+				include = p.Include
+				installed = p.Installed
+				break
+			}
+		}
+	}
+	if installed.IsZero() {
+		installed = time.Now()
+	}
 	entry := ManifestEntry{
 		Source:    source.String(),
 		Repo:      source.Repo,
@@ -277,8 +298,9 @@ func (i *Installer) Update(source *GitSource, scope InstallScope) error {
 		Ref:       "",
 		Pinned:    false,
 		Scope:     scope,
-		Installed: time.Now(),
+		Installed: installed,
 		Updated:   time.Now(),
+		Include:   include,
 	}
 	_ = i.addToManifest(entry, scope) // Best effort - don't fail update if manifest fails
 
@@ -503,30 +525,7 @@ func (i *Installer) PreviewExtensions(source *GitSource) ([]ExtensionPreview, st
 // InstallWithInclude clones a repo and installs only the specified extensions.
 // includePaths are relative paths like "./git/main.go" - if empty, installs all.
 func (i *Installer) InstallWithInclude(source *GitSource, scope InstallScope, includePaths []string) error {
-	// First, do a regular install
-	if err := i.Install(source, scope); err != nil {
-		return err
-	}
-
-	// If specific includes were requested, update the manifest
-	if len(includePaths) > 0 {
-		entry := ManifestEntry{
-			Source:  source.String(),
-			Repo:    source.Repo,
-			Host:    source.Host,
-			Path:    source.Path,
-			Ref:     source.Ref,
-			Pinned:  source.Pinned,
-			Scope:   scope,
-			Include: includePaths,
-		}
-
-		if err := addEntryToManifest(entry, scope); err != nil {
-			return fmt.Errorf("updating manifest with includes: %w", err)
-		}
-	}
-
-	return nil
+	return i.install(source, scope, includePaths)
 }
 
 // CleanupTempDir removes a temporary directory used for preview.
