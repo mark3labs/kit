@@ -24,6 +24,7 @@ const (
 	EntryTypeSessionInfo   EntryType = "session_info"
 	EntryTypeExtensionData EntryType = "extension_data"
 	EntryTypeCompaction    EntryType = "compaction"
+	EntryTypeSystemPrompt  EntryType = "system_prompt"
 )
 
 // CurrentVersion is the session format version for JSONL tree sessions.
@@ -115,6 +116,19 @@ type CompactionEntry struct {
 	MessagesRemoved  int      `json:"messages_removed"`
 	ReadFiles        []string `json:"read_files,omitempty"`
 	ModifiedFiles    []string `json:"modified_files,omitempty"`
+}
+
+// SystemPromptEntry records the system prompt and model used for the session.
+// This is primarily for sharing/debugging to see what instructions were
+// active during the conversation. It does NOT participate in the tree
+// structure (no ParentID) and is not used when building LLM context.
+type SystemPromptEntry struct {
+	Type      EntryType `json:"type"`      // always "system_prompt"
+	ID        string    `json:"id"`        // unique entry ID
+	Timestamp time.Time `json:"timestamp"` // when captured
+	Content   string    `json:"content"`   // the system prompt text
+	Model     string    `json:"model"`     // the model used (e.g., "claude-sonnet-4-5")
+	Provider  string    `json:"provider"`  // the provider used (e.g., "anthropic")
 }
 
 // GenerateEntryID creates a unique entry identifier (16 hex chars).
@@ -217,6 +231,18 @@ func NewCompactionEntry(parentID, summary, firstKeptEntryID string, tokensBefore
 	}
 }
 
+// NewSystemPromptEntry creates a SystemPromptEntry.
+func NewSystemPromptEntry(content, model, provider string) *SystemPromptEntry {
+	return &SystemPromptEntry{
+		Type:      EntryTypeSystemPrompt,
+		ID:        GenerateEntryID(),
+		Timestamp: time.Now(),
+		Content:   content,
+		Model:     model,
+		Provider:  provider,
+	}
+}
+
 // --- JSONL marshaling helpers ---
 
 // MarshalEntry serializes any entry to a JSON line (no trailing newline).
@@ -292,6 +318,13 @@ func UnmarshalEntry(data []byte) (any, error) {
 		var e CompactionEntry
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal compaction entry: %w", err)
+		}
+		return &e, nil
+
+	case EntryTypeSystemPrompt:
+		var e SystemPromptEntry
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal system_prompt entry: %w", err)
 		}
 		return &e, nil
 

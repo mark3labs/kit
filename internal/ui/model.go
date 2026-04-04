@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/core"
@@ -3502,10 +3503,26 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		return nil
 	}
 
-	// Copy session to a temp file with a clean name.
+	// Read the original session file.
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to read session file: %v", err))
+		return nil
+	}
+
+	// Capture the current system prompt and model info.
+	systemPrompt := viper.GetString("system-prompt")
+	_, provider, modelID := ts.BuildContext()
+	if modelID == "" {
+		// Fallback to viper if no model change recorded in session
+		modelID = viper.GetString("model")
+	}
+
+	// Create a SystemPromptEntry with both prompt and model info.
+	sysPromptEntry := session.NewSystemPromptEntry(systemPrompt, modelID, provider)
+	sysPromptJSON, err := session.MarshalEntry(sysPromptEntry)
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to marshal system prompt: %v", err))
 		return nil
 	}
 
@@ -3528,12 +3545,53 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 	}
 	tmpPath := tmpFile.Name()
 
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
-		m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-		return nil
+	// Write the session data with the system prompt entry inserted after the header.
+	// The header is the first line, so we write:
+	// 1. First line (header) from original data
+	// 2. System prompt entry
+	// 3. Remaining lines from original data
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // Remove trailing empty line
 	}
+
+	if len(lines) > 0 {
+		// Write header (first line)
+		if _, err := tmpFile.WriteString(lines[0] + "\n"); err != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
+			return nil
+		}
+
+		// Write system prompt entry
+		if _, err := tmpFile.Write(sysPromptJSON); err != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			m.printSystemMessage(fmt.Sprintf("Failed to write system prompt: %v", err))
+			return nil
+		}
+		if _, err := tmpFile.WriteString("\n"); err != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
+			return nil
+		}
+
+		// Write remaining lines
+		for i := 1; i < len(lines); i++ {
+			if lines[i] == "" {
+				continue // Skip empty lines
+			}
+			if _, err := tmpFile.WriteString(lines[i] + "\n"); err != nil {
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpPath)
+				m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
+				return nil
+			}
+		}
+	}
+
 	_ = tmpFile.Close()
 
 	m.printSystemMessage("Uploading session to GitHub Gist...")

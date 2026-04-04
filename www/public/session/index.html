@@ -902,6 +902,93 @@ a:hover { text-decoration: underline; }
 }
 
 /* ============================================================
+   System Prompt Display
+   ============================================================ */
+.system-prompt-container {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.system-prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.system-prompt-header:hover {
+  background: var(--surface-raised);
+}
+
+.system-prompt-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.system-prompt-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.system-prompt-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+
+.system-prompt-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.system-prompt-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--transition);
+  border-top: 1px solid transparent;
+}
+
+.system-prompt-content.expanded {
+  max-height: 600px;
+  overflow-y: auto;
+  border-top-color: var(--border);
+}
+
+.system-prompt-text {
+  margin: 0;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-raised);
+}
+
+.system-prompt-model {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-right: 8px;
+}
+
+/* ============================================================
    Stats Bar
    ============================================================ */
 .stats-bar {
@@ -1262,15 +1349,20 @@ a:hover { text-decoration: underline; }
   //  Tree Building — extract active path from root to latest leaf
   // ============================================================
   function buildActivePath(entries) {
-    if (entries.length === 0) return { header: null, path: [] };
+    if (entries.length === 0) return { header: null, path: [], systemPrompt: null };
 
     let header = null;
+    let systemPrompt = null;
     const nodeMap = new Map(); // id -> entry
     const childrenMap = new Map(); // parentId -> [entry, ...]
 
     for (const entry of entries) {
       if (entry.type === 'session') {
         header = entry;
+        continue;
+      }
+      if (entry.type === 'system_prompt') {
+        systemPrompt = entry;
         continue;
       }
       if (entry.id) {
@@ -1299,14 +1391,14 @@ a:hover { text-decoration: underline; }
       return path;
     }
 
-    return { header, path: findActivePath() };
+    return { header, path: findActivePath(), systemPrompt };
   }
 
   // ============================================================
   //  Rendering — Main entry point
   // ============================================================
   function renderSession(entries) {
-    const { header, path } = buildActivePath(entries);
+    const { header, path, systemPrompt } = buildActivePath(entries);
     $conversation.innerHTML = '';
 
     // Update header
@@ -1327,6 +1419,11 @@ a:hover { text-decoration: underline; }
       $headerSessionName.textContent = 'Session ' + header.id.slice(0, 8);
     } else {
       $headerSessionName.textContent = 'Session';
+    }
+
+    // Render system prompt if present (collapsible)
+    if (systemPrompt && systemPrompt.content) {
+      renderSystemPrompt(systemPrompt);
     }
 
     // Track the current model for assistant messages
@@ -1932,6 +2029,51 @@ a:hover { text-decoration: underline; }
       <div class="system-notice-line"></div>`;
     $conversation.appendChild(el);
   }
+
+  // ============================================================
+  //  System Prompt Display (collapsible)
+  // ============================================================
+  function renderSystemPrompt(entry) {
+    const el = document.createElement('div');
+    el.className = 'system-prompt-container fade-in';
+    
+    const promptId = 'sys-prompt-' + Math.random().toString(36).substr(2, 9);
+    
+    // Build model badge if model info is available
+    let modelBadge = '';
+    if (entry.model || entry.provider) {
+      const modelText = entry.provider && entry.model 
+        ? `${entry.provider}/${entry.model}`
+        : (entry.model || entry.provider);
+      modelBadge = `<span class="system-prompt-model">${escapeHtml(modelText)}</span>`;
+    }
+    
+    el.innerHTML = `
+      <div class="system-prompt-header" onclick="toggleSystemPrompt('${promptId}')">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="system-prompt-icon">
+          <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .707.707l3-3a.5.5 0 0 0 0-.707l-3-3a.5.5 0 1 0-.707.707L10.293 7.5H4.5Z"/>
+        </svg>
+        <span class="system-prompt-label">System Prompt</span>
+        ${modelBadge}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="system-prompt-chevron" id="${promptId}-chevron">
+          <path d="M4.427 9.427a.25.25 0 0 0 0 .353l3 3a.25.25 0 0 0 .353 0l3-3a.25.25 0 0 0-.353-.353L8 11.646V4.75a.75.75 0 0 0-1.5 0v6.896L4.78 9.427a.25.25 0 0 0-.353 0Z"/>
+        </svg>
+      </div>
+      <div id="${promptId}" class="system-prompt-content">
+        <pre class="system-prompt-text">${escapeHtml(entry.content)}</pre>
+      </div>
+    `;
+    $conversation.appendChild(el);
+  }
+
+  window.toggleSystemPrompt = function(id) {
+    const content = document.getElementById(id);
+    const chevron = document.getElementById(id + '-chevron');
+    if (!content) return;
+    const isExpanded = content.classList.contains('expanded');
+    content.classList.toggle('expanded');
+    if (chevron) chevron.classList.toggle('expanded');
+  };
 
   // ============================================================
   //  Interactive Handlers (global scope)
