@@ -84,23 +84,27 @@ func BuildProviderConfig() (*models.ProviderConfig, string, error) {
 	temperature := float32(viper.GetFloat64("temperature"))
 	topP := float32(viper.GetFloat64("top-p"))
 	topK := int32(viper.GetInt("top-k"))
+	frequencyPenalty := float32(viper.GetFloat64("frequency-penalty"))
+	presencePenalty := float32(viper.GetFloat64("presence-penalty"))
 	numGPU := int32(viper.GetInt("num-gpu-layers"))
 	mainGPU := int32(viper.GetInt("main-gpu"))
 
 	cfg := &models.ProviderConfig{
-		ModelString:    viper.GetString("model"),
-		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: viper.GetString("provider-api-key"),
-		ProviderURL:    viper.GetString("provider-url"),
-		MaxTokens:      viper.GetInt("max-tokens"),
-		Temperature:    &temperature,
-		TopP:           &topP,
-		TopK:           &topK,
-		StopSequences:  viper.GetStringSlice("stop-sequences"),
-		NumGPU:         &numGPU,
-		MainGPU:        &mainGPU,
-		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
-		ThinkingLevel:  models.ParseThinkingLevel(viper.GetString("thinking-level")),
+		ModelString:      viper.GetString("model"),
+		SystemPrompt:     systemPrompt,
+		ProviderAPIKey:   viper.GetString("provider-api-key"),
+		ProviderURL:      viper.GetString("provider-url"),
+		MaxTokens:        viper.GetInt("max-tokens"),
+		Temperature:      &temperature,
+		TopP:             &topP,
+		TopK:             &topK,
+		FrequencyPenalty: &frequencyPenalty,
+		PresencePenalty:  &presencePenalty,
+		StopSequences:    viper.GetStringSlice("stop-sequences"),
+		NumGPU:           &numGPU,
+		MainGPU:          &mainGPU,
+		TLSSkipVerify:    viper.GetBool("tls-skip-verify"),
+		ThinkingLevel:    models.ParseThinkingLevel(viper.GetString("thinking-level")),
 	}
 
 	return cfg, systemPrompt, nil

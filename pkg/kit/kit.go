@@ -225,6 +225,10 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	config.TopP = &topP
 	topK := int32(viper.GetInt("top-k"))
 	config.TopK = &topK
+	frequencyPenalty := float32(viper.GetFloat64("frequency-penalty"))
+	config.FrequencyPenalty = &frequencyPenalty
+	presencePenalty := float32(viper.GetFloat64("presence-penalty"))
+	config.PresencePenalty = &presencePenalty
 
 	if err := m.agent.SetModel(ctx, config); err != nil {
 		return err

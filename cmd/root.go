@@ -48,12 +48,14 @@ var (
 	noSessionFlag bool // --no-session: ephemeral mode, no persistence
 
 	// Model generation parameters
-	maxTokens     int
-	temperature   float32
-	topP          float32
-	topK          int32
-	stopSequences []string
-	thinkingLevel string
+	maxTokens        int
+	temperature      float32
+	topP             float32
+	topK             int32
+	frequencyPenalty float32
+	presencePenalty  float32
+	stopSequences    []string
+	thinkingLevel    string
 
 	// Ollama-specific parameters
 	numGPU  int32
@@ -291,6 +293,8 @@ func init() {
 	flags.Float32Var(&temperature, "temperature", 0.7, "controls randomness in responses (0.0-1.0)")
 	flags.Float32Var(&topP, "top-p", 0.95, "controls diversity via nucleus sampling (0.0-1.0)")
 	flags.Int32Var(&topK, "top-k", 40, "controls diversity by limiting top K tokens to sample from")
+	flags.Float32Var(&frequencyPenalty, "frequency-penalty", 0.0, "penalizes tokens based on frequency of appearance (0.0-2.0)")
+	flags.Float32Var(&presencePenalty, "presence-penalty", 0.0, "penalizes tokens based on whether they have appeared (0.0-2.0)")
 	flags.StringSliceVar(&stopSequences, "stop-sequences", nil, "custom stop sequences (comma-separated)")
 	flags.StringVar(&thinkingLevel, "thinking-level", "off", "extended thinking level: off, minimal, low, medium, high")
 
@@ -313,6 +317,8 @@ func init() {
 	_ = viper.BindPFlag("temperature", rootCmd.PersistentFlags().Lookup("temperature"))
 	_ = viper.BindPFlag("top-p", rootCmd.PersistentFlags().Lookup("top-p"))
 	_ = viper.BindPFlag("top-k", rootCmd.PersistentFlags().Lookup("top-k"))
+	_ = viper.BindPFlag("frequency-penalty", rootCmd.PersistentFlags().Lookup("frequency-penalty"))
+	_ = viper.BindPFlag("presence-penalty", rootCmd.PersistentFlags().Lookup("presence-penalty"))
 	_ = viper.BindPFlag("stop-sequences", rootCmd.PersistentFlags().Lookup("stop-sequences"))
 	_ = viper.BindPFlag("thinking-level", rootCmd.PersistentFlags().Lookup("thinking-level"))
 	_ = viper.BindPFlag("num-gpu-layers", rootCmd.PersistentFlags().Lookup("num-gpu-layers"))

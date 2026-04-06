@@ -199,11 +199,13 @@ type Config struct {
 	Stream         *bool                      `json:"stream,omitempty" yaml:"stream,omitempty"`
 	Theme          any                        `json:"theme" yaml:"theme"`
 	// Model generation parameters
-	MaxTokens     int      `json:"max-tokens,omitempty" yaml:"max-tokens,omitempty"`
-	Temperature   *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	TopP          *float32 `json:"top-p,omitempty" yaml:"top-p,omitempty"`
-	TopK          *int32   `json:"top-k,omitempty" yaml:"top-k,omitempty"`
-	StopSequences []string `json:"stop-sequences,omitempty" yaml:"stop-sequences,omitempty"`
+	MaxTokens        int      `json:"max-tokens,omitempty" yaml:"max-tokens,omitempty"`
+	Temperature      *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	TopP             *float32 `json:"top-p,omitempty" yaml:"top-p,omitempty"`
+	TopK             *int32   `json:"top-k,omitempty" yaml:"top-k,omitempty"`
+	FrequencyPenalty *float32 `json:"frequency-penalty,omitempty" yaml:"frequency-penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence-penalty,omitempty" yaml:"presence-penalty,omitempty"`
+	StopSequences    []string `json:"stop-sequences,omitempty" yaml:"stop-sequences,omitempty"`
 
 	// Thinking / extended reasoning
 	ThinkingLevel string `json:"thinking-level,omitempty" yaml:"thinking-level,omitempty"`
@@ -370,6 +372,8 @@ mcpServers:
 # temperature: 0.7                             # Randomness (0.0-1.0)
 # top-p: 0.95                                  # Nucleus sampling (0.0-1.0)
 # top-k: 40                                    # Top K sampling
+# frequency-penalty: 0.0                        # Penalize frequent tokens (0.0-2.0)
+# presence-penalty: 0.0                         # Penalize present tokens (0.0-2.0)
 # stop-sequences: ["Human:", "Assistant:"]     # Custom stop sequences
 
 # API Configuration (can also use environment variables)

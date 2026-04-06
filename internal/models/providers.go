@@ -143,20 +143,22 @@ func ParseThinkingLevel(s string) ThinkingLevel {
 
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
-	ModelString    string
-	SystemPrompt   string
-	ProviderAPIKey string
-	ProviderURL    string
-	MaxTokens      int
-	Temperature    *float32
-	TopP           *float32
-	TopK           *int32
-	StopSequences  []string
-	NumGPU         *int32
-	MainGPU        *int32
-	TLSSkipVerify  bool
-	ThinkingLevel  ThinkingLevel
-	DisableCaching bool // Opt-out: set to true to disable automatic prompt caching
+	ModelString      string
+	SystemPrompt     string
+	ProviderAPIKey   string
+	ProviderURL      string
+	MaxTokens        int
+	Temperature      *float32
+	TopP             *float32
+	TopK             *int32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
+	StopSequences    []string
+	NumGPU           *int32
+	MainGPU          *int32
+	TLSSkipVerify    bool
+	ThinkingLevel    ThinkingLevel
+	DisableCaching   bool // Opt-out: set to true to disable automatic prompt caching
 }
 
 // ProviderResult contains the result of provider creation.
@@ -1163,6 +1165,12 @@ func buildOllamaOptions(config *ProviderConfig) map[string]any {
 	}
 	if config.TopK != nil {
 		options["top_k"] = int(*config.TopK)
+	}
+	if config.FrequencyPenalty != nil {
+		options["frequency_penalty"] = *config.FrequencyPenalty
+	}
+	if config.PresencePenalty != nil {
+		options["presence_penalty"] = *config.PresencePenalty
 	}
 	if len(config.StopSequences) > 0 {
 		options["stop"] = config.StopSequences

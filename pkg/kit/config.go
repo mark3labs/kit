@@ -48,6 +48,8 @@ func setSDKDefaults() {
 	viper.SetDefault("temperature", 0.7)
 	viper.SetDefault("top-p", 0.95)
 	viper.SetDefault("top-k", 40)
+	viper.SetDefault("frequency-penalty", 0.0)
+	viper.SetDefault("presence-penalty", 0.0)
 	viper.SetDefault("stream", true)
 	viper.SetDefault("thinking-level", "off")
 	viper.SetDefault("num-gpu-layers", -1)

@@ -209,6 +209,12 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		if agentConfig.ModelConfig.TopK != nil {
 			agentOpts = append(agentOpts, fantasy.WithTopK(int64(*agentConfig.ModelConfig.TopK)))
 		}
+		if agentConfig.ModelConfig.FrequencyPenalty != nil {
+			agentOpts = append(agentOpts, fantasy.WithFrequencyPenalty(float64(*agentConfig.ModelConfig.FrequencyPenalty)))
+		}
+		if agentConfig.ModelConfig.PresencePenalty != nil {
+			agentOpts = append(agentOpts, fantasy.WithPresencePenalty(float64(*agentConfig.ModelConfig.PresencePenalty)))
+		}
 	}
 
 	// Create the agent
@@ -752,6 +758,12 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	}
 	if config.TopK != nil {
 		agentOpts = append(agentOpts, fantasy.WithTopK(int64(*config.TopK)))
+	}
+	if config.FrequencyPenalty != nil {
+		agentOpts = append(agentOpts, fantasy.WithFrequencyPenalty(float64(*config.FrequencyPenalty)))
+	}
+	if config.PresencePenalty != nil {
+		agentOpts = append(agentOpts, fantasy.WithPresencePenalty(float64(*config.PresencePenalty)))
 	}
 
 	newFantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
