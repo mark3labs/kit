@@ -997,6 +997,19 @@ func (a *App) NotifyWidgetUpdate() {
 	}
 }
 
+// NotifyContentReload sends a ContentReloadEvent to the TUI so it refreshes
+// prompt templates and skills from their provider callbacks. Called by file
+// watchers when .md/.txt files change in prompt or skill directories.
+// In non-interactive mode this is a no-op.
+func (a *App) NotifyContentReload() {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(ContentReloadEvent{})
+	}
+}
+
 // SendEvent sends a tea.Msg to the registered program. Safe to call from
 // any goroutine. No-op when no program is registered.
 //

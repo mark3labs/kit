@@ -167,6 +167,11 @@ type ModelChangedEvent struct {
 // from its WidgetProvider on the next render cycle.
 type WidgetUpdateEvent struct{}
 
+// ContentReloadEvent is sent when prompt templates or skills are reloaded
+// from disk (e.g. by a file watcher detecting changes). The TUI refreshes
+// its autocomplete entries and internal state from the provider callbacks.
+type ContentReloadEvent struct{}
+
 // EditorTextSetEvent is sent when an extension calls ctx.SetEditorText to
 // pre-fill the input editor with text. The TUI handles this by setting the
 // textarea content and moving the cursor to the end.

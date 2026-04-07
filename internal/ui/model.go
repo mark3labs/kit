@@ -294,12 +294,22 @@ type AppModelOptions struct {
 	// and are expanded when submitted (e.g., /review → full prompt text).
 	PromptTemplates []*prompts.PromptTemplate
 
+	// GetPromptTemplates, if non-nil, returns the current prompt templates.
+	// Called on ContentReloadEvent to refresh the template list after a file
+	// watcher detects changes. May be nil if prompt hot-reload is not needed.
+	GetPromptTemplates func() []*prompts.PromptTemplate
+
 	// ContextPaths lists absolute paths of loaded context files (e.g.
 	// AGENTS.md). Displayed in the [Context] startup section.
 	ContextPaths []string
 
 	// SkillItems lists loaded skills for the [Skills] startup section.
 	SkillItems []SkillItem
+
+	// GetSkillItems, if non-nil, returns the current skill items.
+	// Called on ContentReloadEvent to refresh the skill list after a file
+	// watcher detects changes. May be nil if skill hot-reload is not needed.
+	GetSkillItems func() []SkillItem
 
 	// MCPToolCount is the number of tools loaded from external MCP servers.
 	MCPToolCount int
@@ -500,6 +510,10 @@ type AppModel struct {
 	// They appear in autocomplete and are expanded when submitted.
 	promptTemplates []*prompts.PromptTemplate
 
+	// getPromptTemplates returns the current prompt templates. Used to
+	// refresh the template list after content hot-reload. May be nil.
+	getPromptTemplates func() []*prompts.PromptTemplate
+
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
 
@@ -507,6 +521,10 @@ type AppModel struct {
 	// [Context] and [Skills] sections.
 	contextPaths []string
 	skillItems   []SkillItem
+
+	// getSkillItems returns the current skill items. Used to refresh the
+	// skill list after content hot-reload. May be nil.
+	getSkillItems func() []SkillItem
 
 	// mcpToolCount and extensionToolCount track tool counts by source for
 	// the startup info display.
@@ -721,6 +739,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Store extension commands for dispatch.
 	m.extensionCommands = opts.ExtensionCommands
 	m.promptTemplates = opts.PromptTemplates
+	m.getPromptTemplates = opts.GetPromptTemplates
 	m.getWidgets = opts.GetWidgets
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
@@ -746,6 +765,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
 	m.skillItems = opts.SkillItems
+	m.getSkillItems = opts.GetSkillItems
 	m.mcpToolCount = opts.MCPToolCount
 	m.extensionToolCount = opts.ExtensionToolCount
 	m.startupExtensionMessages = opts.StartupExtensionMessages
@@ -1817,6 +1837,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case app.ContentReloadEvent:
+		// Prompt templates or skills changed on disk — refresh from providers.
+		m.refreshPromptTemplates()
+		m.refreshSkillItems()
+		m.printSystemMessage("Prompts and skills reloaded.")
+
 	case app.EditorTextSetEvent:
 		// Extension wants to pre-fill the input editor with text.
 		if ic, ok := m.input.(*InputComponent); ok {
@@ -2708,6 +2734,43 @@ func (m *AppModel) expandPromptTemplate(text string) (string, bool) {
 	}
 
 	return text, false
+}
+
+// refreshPromptTemplates reloads prompt templates from the provider callback
+// and updates the autocomplete entries. Called on ContentReloadEvent.
+func (m *AppModel) refreshPromptTemplates() {
+	if m.getPromptTemplates == nil {
+		return
+	}
+	newTemplates := m.getPromptTemplates()
+	m.promptTemplates = newTemplates
+
+	if ic, ok := m.input.(*InputComponent); ok {
+		// Remove old prompt commands and add fresh ones.
+		var kept []commands.SlashCommand
+		for _, sc := range ic.commands {
+			if sc.Category != "Prompts" {
+				kept = append(kept, sc)
+			}
+		}
+		for _, tpl := range newTemplates {
+			kept = append(kept, commands.SlashCommand{
+				Name:        "/" + tpl.Name,
+				Description: tpl.Description,
+				Category:    "Prompts",
+			})
+		}
+		ic.commands = kept
+	}
+}
+
+// refreshSkillItems reloads skill items from the provider callback.
+// Called on ContentReloadEvent.
+func (m *AppModel) refreshSkillItems() {
+	if m.getSkillItems == nil {
+		return
+	}
+	m.skillItems = m.getSkillItems()
 }
 
 // printHelpMessage renders the help text listing all available slash commands.

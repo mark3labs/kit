@@ -49,6 +49,7 @@ type Kit struct {
 	extRunner      *extensions.Runner
 	bufferedLogger *tools.BufferedDebugLogger
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
+	opts           *Options       // stored for reload operations (skills, etc.)
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -737,6 +738,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		extRunner:       agentResult.ExtRunner,
 		bufferedLogger:  agentResult.BufferedLogger,
 		authHandler:     setupOpts.AuthHandler,
+		opts:            opts,
 		beforeToolCall:  beforeToolCall,
 		afterToolResult: afterToolResult,
 		beforeTurn:      beforeTurn,

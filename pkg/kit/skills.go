@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -135,4 +136,16 @@ func (m *Kit) ClearSkillCache() {
 	m.skillCache.mu.Lock()
 	defer m.skillCache.mu.Unlock()
 	m.skillCache.skills = nil
+}
+
+// ReloadSkills re-discovers skills from disk, replacing the current set.
+// This is called by file watchers when skill files change.
+func (m *Kit) ReloadSkills() error {
+	newSkills, err := loadSkills(m.opts)
+	if err != nil {
+		return fmt.Errorf("reloading skills: %w", err)
+	}
+	m.skills = newSkills
+	m.ClearSkillCache()
+	return nil
 }
