@@ -329,10 +329,15 @@
       "headings": [
         "Event-based monitoring",
         "Hook system",
+        "BeforeToolCall — block tool execution",
+        "AfterToolResult — modify tool output",
+        "BeforeTurn — modify prompt, inject messages",
+        "AfterTurn — observation only",
+        "Hook priorities",
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 281
+      "wordCount": 342
     },
     {
       "id": "sdk/options",
@@ -341,10 +346,11 @@
       "description": "Configuration options for the Kit Go SDK.",
       "headings": [
         "Full options reference",
-        "Options fields"
+        "Options fields",
+        "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 363
+      "wordCount": 456
     },
     {
       "id": "sdk/overview",
@@ -356,12 +362,13 @@
         "Basic usage",
         "Multi-turn conversations",
         "Additional prompt methods",
+        "Custom tools",
         "Event system",
         "Model management",
         "Context and compaction"
       ],
       "tags": [],
-      "wordCount": 275
+      "wordCount": 439
     },
     {
       "id": "sdk/sessions",
