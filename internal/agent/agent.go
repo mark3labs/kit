@@ -576,9 +576,12 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			return nil, err
 		}
 
-		// Fire the response callback for callers that use it (e.g. non-streaming
-		// callers that still want the final response notification).
-		if onResponse != nil && result.Response.Content.Text() != "" {
+		// Fire the response callback so callers (e.g. the TUI) can reset
+		// streaming state. This must fire even when the response text is
+		// empty (e.g. reasoning-only responses) so the UI properly resets
+		// the stream component and avoids duplicate content on the next
+		// flush.
+		if onResponse != nil {
 			onResponse(result.Response.Content.Text())
 		}
 
@@ -595,8 +598,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		return nil, err
 	}
 
-	// For non-streaming, fire the response callback with the final text
-	if onResponse != nil && result.Response.Content.Text() != "" {
+	// For non-streaming, fire the response callback so callers can reset
+	// streaming state (see streaming path comment above).
+	if onResponse != nil {
 		onResponse(result.Response.Content.Text())
 	}
 

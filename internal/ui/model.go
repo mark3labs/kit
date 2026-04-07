@@ -1700,6 +1700,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+		// Mark any trailing StreamingMessageItem as complete so its live
+		// timer freezes and it is not left in a dangling streaming state.
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
+		}
 		m.state = stateInput
 		m.canceling = false
 
@@ -1710,6 +1717,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
+		}
+		// Mark any trailing StreamingMessageItem as complete (see StepCompleteEvent).
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
 		}
 		m.state = stateInput
 		m.canceling = false
@@ -1722,6 +1735,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
+		}
+		// Mark any trailing StreamingMessageItem as complete (see StepCompleteEvent).
+		if len(m.messages) > 0 {
+			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+				streamMsg.MarkComplete()
+			}
 		}
 		if msg.Err != nil {
 			m.printErrorResponse(msg)
@@ -2886,12 +2905,27 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 		if content := m.stream.GetRenderedContent(); content != "" {
 			m.stream.Reset()
 
-			// Render styled content using MessageRenderer
-			styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+			// Check whether the content is already in the ScrollList as a
+			// StreamingMessageItem (created by appendStreamingChunk during
+			// ReasoningChunkEvent / StreamChunkEvent). If so, just mark it
+			// complete — creating a second StyledMessageItem would duplicate
+			// the rendered block and shift mouse hit-testing coordinates.
+			alreadyInList := false
+			if len(m.messages) > 0 {
+				if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+					streamMsg.MarkComplete()
+					alreadyInList = true
+				}
+			}
 
-			// Add to in-memory scrollList with styled content
-			msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
-			m.messages = append(m.messages, msg)
+			if !alreadyInList {
+				// Render styled content using MessageRenderer
+				styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+
+				// Add to in-memory scrollList with styled content
+				msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
+				m.messages = append(m.messages, msg)
+			}
 		}
 	}
 
