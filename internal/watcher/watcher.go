@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -63,7 +62,6 @@ func New(opts Options) (*ContentWatcher, error) {
 
 	for _, dir := range opts.Dirs {
 		if err := fsw.Add(dir); err != nil {
-			log.Debug("watcher: skipping directory", "label", opts.Label, "dir", dir, "err", err)
 			continue
 		}
 
@@ -75,9 +73,7 @@ func New(opts Options) (*ContentWatcher, error) {
 		for _, entry := range entries {
 			if entry.IsDir() {
 				subdir := filepath.Join(dir, entry.Name())
-				if err := fsw.Add(subdir); err != nil {
-					log.Debug("watcher: skipping subdirectory", "label", opts.Label, "dir", subdir, "err", err)
-				}
+				_ = fsw.Add(subdir)
 			}
 		}
 	}
@@ -129,10 +125,8 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 					if addErr := w.watcher.Add(event.Name); addErr == nil {
-						log.Debug("watcher: now watching new subdirectory", "label", w.label, "dir", event.Name)
 						// Check if the new directory already contains matching files.
 						if w.dirContainsMatchingFiles(event.Name) {
-							log.Debug("watcher: new subdirectory has matching files", "label", w.label, "dir", event.Name)
 							if timer != nil {
 								timer.Stop()
 							}
@@ -154,8 +148,6 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 				continue
 			}
 
-			log.Debug("watcher: file changed", "label", w.label, "file", event.Name, "op", event.Op)
-
 			// Debounce: reset timer on each event.
 			if timer != nil {
 				timer.Stop()
@@ -166,14 +158,13 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 		case <-timerC:
 			timerC = nil
 			timer = nil
-			log.Debug("watcher: reloading", "label", w.label)
 			w.onReload()
 
 		case err, ok := <-w.watcher.Errors:
 			if !ok {
 				return
 			}
-			log.Warn("watcher: error", "label", w.label, "err", err)
+			_ = err
 		}
 	}
 }
