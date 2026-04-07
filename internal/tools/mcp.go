@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/config"
@@ -21,6 +23,7 @@ type MCPToolManager struct {
 	connectionPool *MCPConnectionPool
 	tools          []fantasy.AgentTool
 	toolMap        map[string]*toolMapping // maps prefixed tool names to their server and original name
+	mu             sync.Mutex              // protects tools and toolMap during parallel loading
 	model          fantasy.LanguageModel   // LLM model for sampling
 	authHandler    MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
 	config         *config.Config
@@ -78,35 +81,62 @@ func (m *MCPToolManager) SetDebugLogger(logger DebugLogger) {
 // Tools from different servers are prefixed with the server name to avoid naming conflicts.
 // Returns an error only if all configured servers fail to load; partial failures are logged as warnings.
 // This method is thread-safe and idempotent.
-func (m *MCPToolManager) LoadTools(ctx context.Context, config *config.Config) error {
+func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) error {
 	// Initialize connection pool
-	m.config = config
-	m.debug = config.Debug
+	m.config = cfg
+	m.debug = cfg.Debug
 	if m.debugLogger == nil {
-		m.debugLogger = NewSimpleDebugLogger(config.Debug)
+		m.debugLogger = NewSimpleDebugLogger(cfg.Debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, config.Debug, m.authHandler)
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, cfg.Debug, m.authHandler)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 
-	var loadErrors []string
+	// Load all servers in parallel. Each server connection (subprocess
+	// spawn, MCP initialize handshake, ListTools) is independent and
+	// typically dominated by process startup latency. Running them
+	// concurrently reduces total wall-clock time from O(n * avg) to
+	// O(max).
+	type serverResult struct {
+		name string
+		err  error
+	}
 
-	for serverName, serverConfig := range config.MCPServers {
-		if err := m.loadServerTools(ctx, serverName, serverConfig); err != nil {
-			loadErrors = append(loadErrors, fmt.Sprintf("server %s: %v", serverName, err))
-			fmt.Printf("Warning: Failed to load MCP server '%s': %v\n", serverName, err)
-			continue
+	results := make(chan serverResult, len(cfg.MCPServers))
+	var wg sync.WaitGroup
+
+	for serverName, serverConfig := range cfg.MCPServers {
+		wg.Add(1)
+		go func(name string, sc config.MCPServerConfig) {
+			defer wg.Done()
+			err := m.loadServerTools(ctx, name, sc)
+			results <- serverResult{name: name, err: err}
+		}(serverName, serverConfig)
+	}
+
+	// Close results channel once all goroutines finish.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var loadErrors []string
+	for r := range results {
+		if r.err != nil {
+			loadErrors = append(loadErrors, fmt.Sprintf("server %s: %v", r.name, r.err))
+			fmt.Printf("Warning: Failed to load MCP server '%s': %v\n", r.name, r.err)
 		}
 	}
 
 	// If all servers failed to load, return an error
-	if len(loadErrors) == len(config.MCPServers) && len(config.MCPServers) > 0 {
+	if len(loadErrors) == len(cfg.MCPServers) && len(cfg.MCPServers) > 0 {
 		return fmt.Errorf("all MCP servers failed to load: %s", strings.Join(loadErrors, "; "))
 	}
 
 	return nil
 }
 
-// loadServerTools loads tools from a single MCP server
+// loadServerTools loads tools from a single MCP server.
+// Thread-safe: may be called concurrently for different servers.
 func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) error {
 	// Add debug logging
 	m.debugLogConnectionInfo(serverName, serverConfig)
@@ -133,6 +163,10 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 			nameSet[name] = struct{}{}
 		}
 	}
+
+	// Build tools locally before acquiring the lock.
+	var localTools []fantasy.AgentTool
+	localMap := make(map[string]*toolMapping)
 
 	// Convert MCP tools to fantasy AgentTools with prefixed names
 	for _, mcpTool := range listResults.Tools {
@@ -193,7 +227,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 			serverConfig: serverConfig,
 			manager:      m,
 		}
-		m.toolMap[prefixedName] = mapping
+		localMap[prefixedName] = mapping
 
 		// Create fantasy AgentTool
 		fantasyTool := &mcpFantasyTool{
@@ -206,8 +240,14 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 			mapping: mapping,
 		}
 
-		m.tools = append(m.tools, fantasyTool)
+		localTools = append(localTools, fantasyTool)
 	}
+
+	// Merge into the manager under the lock.
+	m.mu.Lock()
+	maps.Copy(m.toolMap, localMap)
+	m.tools = append(m.tools, localTools...)
+	m.mu.Unlock()
 
 	return nil
 }

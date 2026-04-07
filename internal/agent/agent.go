@@ -88,6 +88,10 @@ type StepUsageHandler func(inputTokens, outputTokens, cacheReadTokens, cacheCrea
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
 // AgentTool implementations — no MCP layer, no serialization overhead.
 // Additional tools from external MCP servers can be loaded alongside core tools.
+//
+// When MCP servers are configured, tool loading happens in the background so the
+// agent (and UI) can start immediately. The first LLM call automatically waits
+// for MCP tools to finish loading before proceeding.
 type Agent struct {
 	toolManager      *tools.MCPToolManager
 	fantasyAgent     fantasy.Agent
@@ -101,6 +105,18 @@ type Agent struct {
 	coreTools        []fantasy.AgentTool
 	extraTools       []fantasy.AgentTool
 	toolWrapper      func([]fantasy.AgentTool) []fantasy.AgentTool // stored for SetModel rebuild
+
+	// providerOptions and modelConfig are stored for rebuilding the fantasy
+	// agent when MCP tools arrive asynchronously or on SetModel.
+	providerOptions     fantasy.ProviderOptions
+	skipMaxOutputTokens bool
+	modelConfig         *models.ProviderConfig
+
+	// mcpReady is closed when background MCP tool loading completes (success
+	// or failure). nil when no MCP servers are configured.
+	mcpReady chan struct{}
+	// mcpErr holds any error from background MCP loading.
+	mcpErr error
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -119,7 +135,10 @@ type GenerateWithLoopResult struct {
 
 // NewAgent creates a new Agent with core tools and optional MCP tool integration.
 // Core tools (bash, read, write, edit, grep, find, ls) are always registered.
-// External MCP tools are loaded from the config if any MCP servers are configured.
+// If MCP servers are configured, their tools are loaded in the background —
+// the agent returns immediately and is usable with core tools only. The first
+// LLM call (GenerateWithLoop) automatically waits for MCP tools to finish
+// loading and rebuilds the agent with the full tool set.
 func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// Create the LLM provider
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
@@ -134,33 +153,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		coreTools = core.AllTools()
 	}
 
-	// Build the combined tool list: core tools + any external MCP tools
+	// Build the initial tool list: core tools + extension tools (no MCP yet).
 	allTools := make([]fantasy.AgentTool, len(coreTools))
 	copy(allTools, coreTools)
-
-	// Load external MCP tools if configured
-	var toolManager *tools.MCPToolManager
-	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
-		toolManager = tools.NewMCPToolManager()
-		toolManager.SetModel(providerResult.Model)
-
-		if agentConfig.AuthHandler != nil {
-			toolManager.SetAuthHandler(agentConfig.AuthHandler)
-		}
-
-		if agentConfig.DebugLogger != nil {
-			toolManager.SetDebugLogger(agentConfig.DebugLogger)
-		}
-
-		if err := toolManager.LoadTools(ctx, agentConfig.MCPConfig); err != nil {
-			// MCP tool loading failures are non-fatal; core tools still work
-			fmt.Printf("Warning: Failed to load MCP tools: %v\n", err)
-		} else {
-			mcpTools := toolManager.GetTools()
-			allTools = append(allTools, mcpTools...)
-		}
-	}
-
 	// Append any extra tools provided by extensions.
 	if len(agentConfig.ExtraTools) > 0 {
 		allTools = append(allTools, agentConfig.ExtraTools...)
@@ -172,6 +167,140 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	// Build agent options
+	agentOpts := buildAgentOptions(agentConfig, providerResult, allTools)
+
+	// Create the agent
+	fantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
+
+	// Determine provider type from model string
+	providerType := "default"
+	if agentConfig.ModelConfig != nil && agentConfig.ModelConfig.ModelString != "" {
+		if p, _, err := models.ParseModelString(agentConfig.ModelConfig.ModelString); err == nil {
+			providerType = p
+		}
+	}
+
+	a := &Agent{
+		fantasyAgent:        fantasyAgent,
+		model:               providerResult.Model,
+		providerCloser:      providerResult.Closer,
+		maxSteps:            agentConfig.MaxSteps,
+		systemPrompt:        agentConfig.SystemPrompt,
+		loadingMessage:      providerResult.Message,
+		providerType:        providerType,
+		streamingEnabled:    agentConfig.StreamingEnabled,
+		coreTools:           coreTools,
+		extraTools:          agentConfig.ExtraTools,
+		toolWrapper:         agentConfig.ToolWrapper,
+		providerOptions:     providerResult.ProviderOptions,
+		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
+		modelConfig:         agentConfig.ModelConfig,
+	}
+
+	// Start MCP tool loading in the background if servers are configured.
+	// The mcpReady channel is closed when loading completes (success or failure).
+	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
+		toolManager := tools.NewMCPToolManager()
+		toolManager.SetModel(providerResult.Model)
+		if agentConfig.AuthHandler != nil {
+			toolManager.SetAuthHandler(agentConfig.AuthHandler)
+		}
+		if agentConfig.DebugLogger != nil {
+			toolManager.SetDebugLogger(agentConfig.DebugLogger)
+		}
+		a.toolManager = toolManager
+		a.mcpReady = make(chan struct{})
+
+		go func() {
+			defer close(a.mcpReady)
+			if err := toolManager.LoadTools(ctx, agentConfig.MCPConfig); err != nil {
+				a.mcpErr = err
+				fmt.Printf("Warning: Failed to load MCP tools: %v\n", err)
+			}
+		}()
+	}
+
+	return a, nil
+}
+
+// WaitForMCPTools blocks until background MCP tool loading completes.
+// Returns nil if no MCP servers are configured or if loading succeeded.
+// Returns the loading error if all servers failed. Safe to call multiple times.
+func (a *Agent) WaitForMCPTools() error {
+	if a.mcpReady == nil {
+		return nil
+	}
+	<-a.mcpReady
+	return a.mcpErr
+}
+
+// MCPToolsReady returns true if MCP tool loading has completed (or was never
+// started). This is a non-blocking check useful for UI status display.
+func (a *Agent) MCPToolsReady() bool {
+	if a.mcpReady == nil {
+		return true
+	}
+	select {
+	case <-a.mcpReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// ensureMCPTools waits for MCP tools to load and rebuilds the fantasy agent
+// with the full tool set. Called lazily before the first LLM call.
+// This is idempotent — subsequent calls after the first rebuild are no-ops.
+func (a *Agent) ensureMCPTools() {
+	if a.mcpReady == nil {
+		return
+	}
+	<-a.mcpReady
+
+	// If there are MCP tools, rebuild the fantasy agent to include them.
+	if a.toolManager != nil && len(a.toolManager.GetTools()) > 0 {
+		a.rebuildFantasyAgent()
+	}
+
+	// Nil out the channel so future calls are instant no-ops and we
+	// don't rebuild again.
+	a.mcpReady = nil
+}
+
+// rebuildFantasyAgent reconstructs the fantasy agent with the current full
+// tool set (core + MCP + extension tools). Used after MCP tools arrive
+// asynchronously and by SetModel.
+func (a *Agent) rebuildFantasyAgent() {
+	allTools := make([]fantasy.AgentTool, len(a.coreTools))
+	copy(allTools, a.coreTools)
+	if a.toolManager != nil {
+		allTools = append(allTools, a.toolManager.GetTools()...)
+	}
+	if len(a.extraTools) > 0 {
+		allTools = append(allTools, a.extraTools...)
+	}
+	if a.toolWrapper != nil {
+		allTools = a.toolWrapper(allTools)
+	}
+
+	providerResult := &models.ProviderResult{
+		Model:               a.model,
+		ProviderOptions:     a.providerOptions,
+		SkipMaxOutputTokens: a.skipMaxOutputTokens,
+	}
+	agentOpts := buildAgentOptions(&AgentConfig{
+		ModelConfig:  a.modelConfig,
+		SystemPrompt: a.systemPrompt,
+		MaxSteps:     a.maxSteps,
+	}, providerResult, allTools)
+
+	a.fantasyAgent = fantasy.NewAgent(a.model, agentOpts...)
+}
+
+// buildAgentOptions constructs the fantasy.AgentOption slice from config,
+// provider result, and the combined tool list. Shared by NewAgent,
+// rebuildFantasyAgent, and SetModel.
+func buildAgentOptions(agentConfig *AgentConfig, providerResult *models.ProviderResult, allTools []fantasy.AgentTool) []fantasy.AgentOption {
 	var agentOpts []fantasy.AgentOption
 
 	if agentConfig.SystemPrompt != "" {
@@ -217,31 +346,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		}
 	}
 
-	// Create the agent
-	fantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
-
-	// Determine provider type from model string
-	providerType := "default"
-	if agentConfig.ModelConfig != nil && agentConfig.ModelConfig.ModelString != "" {
-		if p, _, err := models.ParseModelString(agentConfig.ModelConfig.ModelString); err == nil {
-			providerType = p
-		}
-	}
-
-	return &Agent{
-		toolManager:      toolManager,
-		fantasyAgent:     fantasyAgent,
-		model:            providerResult.Model,
-		providerCloser:   providerResult.Closer,
-		maxSteps:         agentConfig.MaxSteps,
-		systemPrompt:     agentConfig.SystemPrompt,
-		loadingMessage:   providerResult.Message,
-		providerType:     providerType,
-		streamingEnabled: agentConfig.StreamingEnabled,
-		coreTools:        coreTools,
-		extraTools:       agentConfig.ExtraTools,
-		toolWrapper:      agentConfig.ToolWrapper,
-	}, nil
+	return agentOpts
 }
 
 // GenerateWithLoop processes messages with a custom loop that displays tool calls in real-time.
@@ -265,6 +370,11 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onToolOutput ToolOutputHandler,
 	onStepUsage StepUsageHandler,
 ) (*GenerateWithLoopResult, error) {
+
+	// Wait for background MCP tool loading to complete and rebuild the
+	// fantasy agent with the full tool set. This is a no-op when no MCP
+	// servers are configured or tools have already been integrated.
+	a.ensureMCPTools()
 
 	// Inject tool output handler into context for use by core tools (e.g., bash).
 	if onToolOutput != nil {
@@ -657,38 +767,9 @@ func (a *Agent) GetExtensionToolCount() int {
 // SetExtraTools replaces the agent's extra tools (e.g. extension-registered
 // tools) and rebuilds the internal agent with the updated tool list. The
 // model, system prompt, and all other configuration are preserved.
-func (a *Agent) SetExtraTools(tools []fantasy.AgentTool) {
-	a.extraTools = tools
-
-	// Rebuild tool list (same as NewAgent / SetModel).
-	allTools := make([]fantasy.AgentTool, len(a.coreTools))
-	copy(allTools, a.coreTools)
-	if a.toolManager != nil {
-		allTools = append(allTools, a.toolManager.GetTools()...)
-	}
-	if len(a.extraTools) > 0 {
-		allTools = append(allTools, a.extraTools...)
-	}
-	if a.toolWrapper != nil {
-		allTools = a.toolWrapper(allTools)
-	}
-
-	// Rebuild agent options with the existing model.
-	var agentOpts []fantasy.AgentOption
-	if a.systemPrompt != "" {
-		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(a.systemPrompt))
-	}
-	if len(allTools) > 0 {
-		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
-	}
-	if a.maxSteps > 0 {
-		agentOpts = append(agentOpts, fantasy.WithStopConditions(
-			fantasy.StepCountIs(a.maxSteps),
-		))
-	}
-
-	// Swap the fantasy agent (model and provider are unchanged).
-	a.fantasyAgent = fantasy.NewAgent(a.model, agentOpts...)
+func (a *Agent) SetExtraTools(extraTools []fantasy.AgentTool) {
+	a.extraTools = extraTools
+	a.rebuildFantasyAgent()
 }
 
 // GetLoadingMessage returns the loading message from provider creation.
@@ -708,66 +789,14 @@ func (a *Agent) GetLoadedServerNames() []string {
 // system prompt, and configuration are preserved. The old provider is closed
 // if it has a closer. Returns the previous model string for notification.
 func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) error {
+	// Ensure MCP tools are loaded before rebuilding (SetModel may be called
+	// before the first LLM call).
+	a.ensureMCPTools()
+
 	providerResult, err := models.CreateProvider(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to create model provider: %v", err)
 	}
-
-	// Rebuild tool list (same as NewAgent).
-	allTools := make([]fantasy.AgentTool, len(a.coreTools))
-	copy(allTools, a.coreTools)
-	if a.toolManager != nil {
-		allTools = append(allTools, a.toolManager.GetTools()...)
-	}
-	if len(a.extraTools) > 0 {
-		allTools = append(allTools, a.extraTools...)
-	}
-	if a.toolWrapper != nil {
-		allTools = a.toolWrapper(allTools)
-	}
-
-	// Rebuild agent options.
-	var agentOpts []fantasy.AgentOption
-	if a.systemPrompt != "" {
-		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(a.systemPrompt))
-	}
-	if len(allTools) > 0 {
-		agentOpts = append(agentOpts, fantasy.WithTools(allTools...))
-	}
-	if a.maxSteps > 0 {
-		agentOpts = append(agentOpts, fantasy.WithStopConditions(
-			fantasy.StepCountIs(a.maxSteps),
-		))
-	}
-
-	// Pass provider-specific options (e.g. OpenAI Responses API reasoning settings).
-	if providerResult.ProviderOptions != nil {
-		agentOpts = append(agentOpts, fantasy.WithProviderOptions(providerResult.ProviderOptions))
-	}
-
-	// Pass generation parameters when available.
-	// Skip max_output_tokens for providers that don't support it (e.g., Codex OAuth)
-	if config.MaxTokens > 0 && !providerResult.SkipMaxOutputTokens {
-		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(config.MaxTokens)))
-	}
-	if config.Temperature != nil {
-		agentOpts = append(agentOpts, fantasy.WithTemperature(float64(*config.Temperature)))
-	}
-	if config.TopP != nil {
-		agentOpts = append(agentOpts, fantasy.WithTopP(float64(*config.TopP)))
-	}
-	if config.TopK != nil {
-		agentOpts = append(agentOpts, fantasy.WithTopK(int64(*config.TopK)))
-	}
-	if config.FrequencyPenalty != nil {
-		agentOpts = append(agentOpts, fantasy.WithFrequencyPenalty(float64(*config.FrequencyPenalty)))
-	}
-	if config.PresencePenalty != nil {
-		agentOpts = append(agentOpts, fantasy.WithPresencePenalty(float64(*config.PresencePenalty)))
-	}
-
-	newFantasyAgent := fantasy.NewAgent(providerResult.Model, agentOpts...)
-
 	// Close old provider.
 	if a.providerCloser != nil {
 		_ = a.providerCloser.Close()
@@ -779,9 +808,11 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	}
 
 	// Swap fields.
-	a.fantasyAgent = newFantasyAgent
 	a.model = providerResult.Model
 	a.providerCloser = providerResult.Closer
+	a.providerOptions = providerResult.ProviderOptions
+	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
+	a.modelConfig = config
 
 	// Update provider type.
 	if config.ModelString != "" {
@@ -789,6 +820,9 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 			a.providerType = p
 		}
 	}
+
+	// Rebuild the fantasy agent with the new model and current tool set.
+	a.rebuildFantasyAgent()
 
 	return nil
 }
@@ -799,7 +833,13 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 }
 
 // Close closes the agent and cleans up resources.
+// If MCP tools are still loading in the background, Close waits for them
+// to finish before closing connections to avoid resource leaks.
 func (a *Agent) Close() error {
+	// Wait for background MCP loading to finish before closing connections.
+	if a.mcpReady != nil {
+		<-a.mcpReady
+	}
 	var toolErr error
 	if a.toolManager != nil {
 		toolErr = a.toolManager.Close()

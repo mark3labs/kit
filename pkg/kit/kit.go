@@ -113,13 +113,30 @@ func (m *Kit) GetLoadingMessage() string {
 }
 
 // GetLoadedServerNames returns the names of successfully loaded MCP servers.
+// If MCP servers are still loading in the background, this returns only the
+// servers that have completed loading so far.
 func (m *Kit) GetLoadedServerNames() []string {
 	return m.agent.GetLoadedServerNames()
 }
 
 // GetMCPToolCount returns the number of tools loaded from external MCP servers.
+// If MCP servers are still loading in the background, this returns the count
+// of tools loaded so far (may be 0).
 func (m *Kit) GetMCPToolCount() int {
 	return m.agent.GetMCPToolCount()
+}
+
+// WaitForMCPTools blocks until background MCP tool loading completes.
+// Returns nil if no MCP servers are configured or if loading succeeded.
+// Returns the loading error if all servers failed. Safe to call multiple times.
+func (m *Kit) WaitForMCPTools() error {
+	return m.agent.WaitForMCPTools()
+}
+
+// MCPToolsReady returns true if MCP tool loading has completed (or was never
+// started). This is a non-blocking check useful for UI status display.
+func (m *Kit) MCPToolsReady() bool {
+	return m.agent.MCPToolsReady()
 }
 
 // GetExtensionToolCount returns the number of tools registered by extensions.
