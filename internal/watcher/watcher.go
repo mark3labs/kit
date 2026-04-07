@@ -122,6 +122,28 @@ func (w *ContentWatcher) Start(ctx context.Context) {
 				return
 			}
 
+			// When a new subdirectory is created, start watching it so
+			// that files added inside (e.g. new-skill/SKILL.md) trigger
+			// reload events. Also schedule a reload in case the directory
+			// was created with matching files already inside.
+			if event.Op&fsnotify.Create != 0 {
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					if addErr := w.watcher.Add(event.Name); addErr == nil {
+						log.Debug("watcher: now watching new subdirectory", "label", w.label, "dir", event.Name)
+						// Check if the new directory already contains matching files.
+						if w.dirContainsMatchingFiles(event.Name) {
+							log.Debug("watcher: new subdirectory has matching files", "label", w.label, "dir", event.Name)
+							if timer != nil {
+								timer.Stop()
+							}
+							timer = time.NewTimer(w.debounce)
+							timerC = timer.C
+						}
+					}
+					continue
+				}
+			}
+
 			// Only care about files matching our extensions.
 			if !w.matchesExtension(event.Name) {
 				continue
@@ -176,6 +198,22 @@ func (w *ContentWatcher) Close() error {
 func (w *ContentWatcher) matchesExtension(name string) bool {
 	for _, ext := range w.extensions {
 		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// dirContainsMatchingFiles returns true if the directory contains at least
+// one file matching the watched extensions. Used to detect cases where a
+// directory is created with files already inside (e.g. cp -r).
+func (w *ContentWatcher) dirContainsMatchingFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && w.matchesExtension(entry.Name()) {
 			return true
 		}
 	}
