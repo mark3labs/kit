@@ -68,8 +68,12 @@ host, err := kit.New(ctx, &kit.Options{
     NoSession:    true,                       // Ephemeral mode
 
     // Tool options
-    Tools:        []kit.Tool{kit.NewBashTool()}, // Replace default tool set
-    ExtraTools:   []kit.Tool{myTool},            // Add alongside defaults
+    Tools:            []kit.Tool{kit.NewBashTool()}, // Replace default tool set
+    ExtraTools:       []kit.Tool{myTool},            // Add alongside defaults
+    DisableCoreTools: true,                        // Use no core tools (0 tools)
+
+    // Configuration
+    SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)
 
     // Compaction
     AutoCompact:  true,                       // Auto-compact near context limit
@@ -171,6 +175,24 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `GetSessionPath()` - Get session file path
 - `GetSessionID()` - Get session UUID
 - `Close()` - Clean up resources
+
+### Options
+
+Key `Options` fields for SDK usage:
+
+| Field | Description |
+|-------|-------------|
+| `Model` | Override model (e.g., "anthropic/claude-sonnet-4-5-20250929") |
+| `SystemPrompt` | Override system prompt |
+| `ConfigFile` | Load specific config file (empty = search defaults) |
+| `SkipConfig` | Skip `.kit.yml` loading (defaults + env vars still apply) |
+| `Tools` | Replace core tools with custom set |
+| `ExtraTools` | Add tools alongside defaults |
+| `DisableCoreTools` | Use no core tools (0 tools, for chat-only) |
+| `NoSession` | Ephemeral mode (no session persistence) |
+| `SessionPath` | Open specific session file |
+| `Continue` | Resume most recent session |
+| `Debug` | Enable debug logging |
 
 ## Environment Variables
 

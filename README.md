@@ -531,7 +531,12 @@ host, err := kit.New(ctx, &kit.Options{
     NoSession:    true,                // Ephemeral mode
 
     // Tool options
-    ExtraTools:   []kit.Tool{...},     // Additional tools alongside defaults
+    Tools:            []kit.Tool{...},     // Replace default tool set entirely
+    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
+    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+
+    // Configuration
+    SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
 
     // Compaction
     AutoCompact:  true,                // Auto-compact near context limit

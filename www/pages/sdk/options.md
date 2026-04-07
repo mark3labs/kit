@@ -29,8 +29,12 @@ host, err := kit.New(ctx, &kit.Options{
     NoSession:    true,
 
     // Tools
-    Tools:        []kit.Tool{...},     // Replace default tool set entirely
-    ExtraTools:   []kit.Tool{...},     // Add tools alongside defaults
+    Tools:            []kit.Tool{...},     // Replace default tool set entirely
+    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
+    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+
+    // Configuration
+    SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
 
     // Compaction
     AutoCompact:  true,
@@ -58,6 +62,8 @@ host, err := kit.New(ctx, &kit.Options{
 | `NoSession` | `bool` | `false` | Ephemeral mode (no persistence) |
 | `Tools` | `[]Tool` | — | Replace the entire default tool set |
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
+| `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
+| `SkipConfig` | `bool` | `false` | Skip .kit.yml file loading |
 | `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |

@@ -87,8 +87,12 @@ host, err := kit.New(ctx, &kit.Options{
     NoSession:   true,                // ephemeral in-memory session, no disk persistence
 
     // Tools
-    Tools:      []kit.Tool{kit.NewBashTool()}, // REPLACES entire default tool set
-    ExtraTools: []kit.Tool{myTool},            // ADDS alongside core/MCP/extension tools
+    Tools:            []kit.Tool{kit.NewBashTool()}, // REPLACES entire default tool set
+    ExtraTools:       []kit.Tool{myTool},            // ADDS alongside core/MCP/extension tools
+    DisableCoreTools: true,                        // Use no core tools (0 tools, for chat-only)
+
+    // Configuration
+    SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)
 
     // Skills
     Skills:    []string{"/path/to/skill.md"}, // explicit skill files (empty = auto-discover)

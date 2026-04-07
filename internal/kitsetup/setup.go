@@ -33,6 +33,10 @@ type AgentSetupOptions struct {
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used. Allows SDK users to pass custom tools (e.g. with WithWorkDir).
 	CoreTools []fantasy.AgentTool
+	// DisableCoreTools, when true, prevents loading any core tools.
+	// If both DisableCoreTools is true and CoreTools is empty, the agent
+	// will have no tools (useful for simple chat completions).
+	DisableCoreTools bool
 	// ExtraTools are additional tools added alongside core, MCP, and extension
 	// tools. They do not replace the defaults — they extend them.
 	ExtraTools []fantasy.AgentTool
@@ -197,6 +201,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		DebugLogger:       debugLogger,
 		AuthHandler:       opts.AuthHandler,
 		CoreTools:         opts.CoreTools,
+		DisableCoreTools:  opts.DisableCoreTools,
 		ToolWrapper:       toolWrapper,
 		ExtraTools:        extraTools,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,

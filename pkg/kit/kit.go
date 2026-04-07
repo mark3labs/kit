@@ -445,6 +445,17 @@ type Options struct {
 	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
 	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
 
+	// SkipConfig, when true, skips loading .kit.yml configuration files.
+	// Viper defaults (setSDKDefaults) and environment variables (KIT_*)
+	// are still applied. Use this for fully programmatic configuration.
+	SkipConfig bool
+
+	// DisableCoreTools, when true, prevents loading any core tools.
+	// Use with Tools or ExtraTools to provide only custom tools.
+	// If both DisableCoreTools is true and Tools is empty, the agent
+	// will have no tools (useful for simple chat completions).
+	DisableCoreTools bool
+
 	// Session configuration
 	SessionDir  string // Base directory for session discovery (default: cwd)
 	SessionPath string // Open a specific session file by path
@@ -577,7 +588,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// Initialize config (loads config files and env vars).
 		// Only initialize if not already done (e.g., by CLI's cobra.OnInitialize).
 		// Check if model is already set, which indicates config was loaded.
-		if viper.GetString("model") == "" {
+		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
+		if !opts.SkipConfig && viper.GetString("model") == "" {
 			if err := InitConfig(opts.ConfigFile, false); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
@@ -689,6 +701,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		MCPConfig:         mcpConfig,
 		Quiet:             opts.Quiet,
 		CoreTools:         opts.Tools,
+		DisableCoreTools:  opts.DisableCoreTools,
 		ExtraTools:        opts.ExtraTools,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
