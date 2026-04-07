@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/mark3labs/kit/internal/extensions"
-	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/session"
 )
 
@@ -47,49 +46,73 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 
 // --- Instance methods on Kit ---
 
+// GetSessionManager returns the session manager, or nil if not configured.
+func (m *Kit) GetSessionManager() SessionManager {
+	return m.session
+}
+
 // GetTreeSession returns the tree session manager, or nil if not configured.
+// Deprecated: Use GetSessionManager instead.
 func (m *Kit) GetTreeSession() *TreeManager {
-	return m.treeSession
+	// Try to unwrap the adapter if using default implementation
+	if adapter, ok := m.session.(*treeManagerAdapter); ok {
+		return adapter.inner
+	}
+	return nil
+}
+
+// SetSessionManager replaces the session manager on a Kit instance.
+func (m *Kit) SetSessionManager(sm SessionManager) {
+	m.session = sm
 }
 
 // SetTreeSession replaces the tree session on a Kit instance. This is used by
 // the CLI when it handles session creation externally (e.g. --resume with a
 // TUI picker) and needs to inject the result into a Kit-like workflow.
+// Deprecated: Use SetSessionManager instead.
 func (m *Kit) SetTreeSession(ts *TreeManager) {
-	m.treeSession = ts
+	m.session = NewTreeManagerAdapter(ts)
 }
 
-// GetSessionPath returns the file path of the active tree session, or empty
-// for in-memory sessions or when no tree session is configured.
+// GetSessionPath returns the file path of the active session, or empty
+// for in-memory sessions or when no file-based session is configured.
 func (m *Kit) GetSessionPath() string {
-	if m.treeSession != nil {
-		return m.treeSession.GetFilePath()
+	// Only file-based sessions have a path
+	// Try to get it from the underlying TreeManager if using default adapter
+	if m.session == nil {
+		return ""
+	}
+	// Check if it's the default adapter
+	if adapter, ok := m.session.(*treeManagerAdapter); ok {
+		return adapter.inner.GetFilePath()
 	}
 	return ""
 }
 
-// GetSessionID returns the UUID of the active tree session, or empty when no
-// tree session is configured.
+// GetSessionID returns the UUID of the active session, or empty when no
+// session is configured.
 func (m *Kit) GetSessionID() string {
-	if m.treeSession != nil {
-		return m.treeSession.GetSessionID()
+	if m.session == nil {
+		return ""
 	}
-	return ""
+	return m.session.GetSessionID()
 }
 
-// Branch moves the tree session's leaf pointer to the given entry ID, creating
+// Branch moves the session's leaf pointer to the given entry ID, creating
 // a branch point. Subsequent Prompt() calls will extend from the new position.
 func (m *Kit) Branch(entryID string) error {
-	return m.treeSession.Branch(entryID)
+	if m.session == nil {
+		return fmt.Errorf("no session available")
+	}
+	return m.session.Branch(entryID)
 }
 
-// SetSessionName sets a user-defined display name for the active tree session.
+// SetSessionName sets a user-defined display name for the active session.
 func (m *Kit) SetSessionName(name string) error {
-	if m.treeSession == nil {
-		return fmt.Errorf("session naming requires a tree session")
+	if m.session == nil {
+		return fmt.Errorf("session naming requires a session")
 	}
-	_, err := m.treeSession.AppendSessionInfo(name)
-	return err
+	return m.session.SetSessionName(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -97,27 +120,27 @@ func (m *Kit) SetSessionName(name string) error {
 // ---------------------------------------------------------------------------
 
 // GetTreeNode returns a node by ID with full metadata and children.
-// Returns nil if entry not found or no tree session.
+// Returns nil if entry not found or no session.
 func (m *Kit) GetTreeNode(entryID string) *TreeNode {
-	if m.treeSession == nil {
+	if m.session == nil {
 		return nil
 	}
-	entry := m.treeSession.GetEntry(entryID)
+	entry := m.session.GetEntry(entryID)
 	if entry == nil {
 		return nil
 	}
-	return m.entryToTreeNode(entry)
+	return m.branchEntryToTreeNode(entry)
 }
 
 // GetCurrentBranch returns the path from root to current leaf as TreeNodes.
 func (m *Kit) GetCurrentBranch() []TreeNode {
-	if m.treeSession == nil {
+	if m.session == nil {
 		return nil
 	}
-	branch := m.treeSession.GetBranch("")
+	branch := m.session.GetCurrentBranch()
 	var nodes []TreeNode
 	for _, entry := range branch {
-		node := m.entryToTreeNode(entry)
+		node := m.branchEntryToTreeNode(&entry)
 		if node != nil {
 			nodes = append(nodes, *node)
 		}
@@ -127,34 +150,34 @@ func (m *Kit) GetCurrentBranch() []TreeNode {
 
 // GetChildren returns direct child IDs of an entry.
 func (m *Kit) GetChildren(parentID string) []string {
-	if m.treeSession == nil {
+	if m.session == nil {
 		return nil
 	}
-	return m.treeSession.GetChildren(parentID)
+	return m.session.GetChildren(parentID)
 }
 
 // NavigateTo branches/forks the session to the specified entry ID.
 // Returns an error if the session is unavailable or the entry ID is not found.
 func (m *Kit) NavigateTo(entryID string) error {
-	if m.treeSession == nil {
-		return fmt.Errorf("no tree session available")
+	if m.session == nil {
+		return fmt.Errorf("no session available")
 	}
-	return m.treeSession.Branch(entryID)
+	return m.session.Branch(entryID)
 }
 
 // SummarizeBranch uses the LLM to summarize the conversation between two
 // entry IDs. Returns the summary text, or an error if the range is invalid,
 // the session is unavailable, or the LLM call fails.
 func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
-	if m.treeSession == nil {
-		return "", fmt.Errorf("no tree session available")
+	if m.session == nil {
+		return "", fmt.Errorf("no session available")
 	}
 
 	// Get the branch and find the range
-	branch := m.treeSession.GetBranch("")
+	branch := m.session.GetCurrentBranch()
 	var startIdx, endIdx = -1, -1
 	for i, entry := range branch {
-		id := m.treeSession.EntryID(entry)
+		id := entry.ID
 		if id == fromID {
 			startIdx = i
 		}
@@ -170,7 +193,7 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 	// Build text to summarize
 	var content strings.Builder
 	for i := startIdx; i <= endIdx; i++ {
-		node := m.entryToTreeNode(branch[i])
+		node := m.branchEntryToTreeNode(&branch[i])
 		if node != nil && node.Content != "" {
 			fmt.Fprintf(&content, "[%s] %s\n\n", node.Role, node.Content)
 		}
@@ -195,73 +218,81 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 // CollapseBranch replaces a branch range with a summary entry.
 // Returns an error if the session is unavailable or the operation fails.
 func (m *Kit) CollapseBranch(fromID, toID, summary string) error {
-	if m.treeSession == nil {
-		return fmt.Errorf("no tree session available")
+	if m.session == nil {
+		return fmt.Errorf("no session available")
 	}
-	_, err := m.treeSession.AppendBranchSummary(fromID, summary)
-	return err
+	// Note: This operation is not directly supported by SessionManager interface
+	// as it requires AppendBranchSummary which is TreeManager-specific.
+	// For custom SessionManagers, this would need to be implemented differently.
+	// For now, we try to use the underlying TreeManager if available.
+	if adapter, ok := m.session.(*treeManagerAdapter); ok {
+		_, err := adapter.inner.AppendBranchSummary(fromID, summary)
+		return err
+	}
+	return fmt.Errorf("CollapseBranch not supported by custom session manager")
 }
 
-// entryToTreeNode converts a session entry to a TreeNode.
-func (m *Kit) entryToTreeNode(entry any) *TreeNode {
-	switch e := entry.(type) {
-	case *session.MessageEntry:
-		msg, err := e.ToMessage()
-		if err != nil {
-			return nil
-		}
+// branchEntryToTreeNode converts a BranchEntry to a TreeNode.
+func (m *Kit) branchEntryToTreeNode(entry *BranchEntry) *TreeNode {
+	if entry == nil {
+		return nil
+	}
+
+	switch entry.Type {
+	case EntryTypeMessage:
+		// Build content from RawParts
 		var content strings.Builder
-		for _, p := range msg.Parts {
+		for _, p := range entry.RawParts {
 			switch pt := p.(type) {
-			case message.TextContent:
+			case TextContent:
 				content.WriteString(pt.Text)
-			case message.ReasoningContent:
+			case ReasoningContent:
 				content.WriteString(pt.Thinking)
-			case message.ToolCall:
+			case ToolCall:
 				fmt.Fprintf(&content, "[tool_call: %s]", pt.Name)
-			case message.ToolResult:
+			case ToolResult:
 				fmt.Fprintf(&content, "[tool_result: %s]", pt.Content)
 			}
 		}
 		return &TreeNode{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
+			ID:        entry.ID,
+			ParentID:  entry.ParentID,
 			Type:      "message",
-			Role:      string(msg.Role),
+			Role:      entry.Role,
 			Content:   content.String(),
-			Model:     msg.Model,
-			Provider:  msg.Provider,
-			Timestamp: e.Timestamp.Format(time.RFC3339),
-			Children:  m.treeSession.GetChildren(e.ID),
+			Model:     entry.Model,
+			Provider:  entry.Provider,
+			Timestamp: entry.Timestamp.Format(time.RFC3339),
+			Children:  m.session.GetChildren(entry.ID),
 		}
-	case *session.BranchSummaryEntry:
+	case EntryTypeBranchSummary:
 		return &TreeNode{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
+			ID:        entry.ID,
+			ParentID:  entry.ParentID,
 			Type:      "branch_summary",
-			Content:   e.Summary,
-			Timestamp: e.Timestamp.Format(time.RFC3339),
-			Children:  m.treeSession.GetChildren(e.ID),
+			Content:   entry.Content,
+			Timestamp: entry.Timestamp.Format(time.RFC3339),
+			Children:  m.session.GetChildren(entry.ID),
 		}
-	case *session.ModelChangeEntry:
+	case EntryTypeModelChange:
 		return &TreeNode{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
+			ID:        entry.ID,
+			ParentID:  entry.ParentID,
 			Type:      "model_change",
-			Content:   fmt.Sprintf("Model changed to %s/%s", e.Provider, e.ModelID),
-			Model:     e.Provider + "/" + e.ModelID,
-			Provider:  e.Provider,
-			Timestamp: e.Timestamp.Format(time.RFC3339),
-			Children:  m.treeSession.GetChildren(e.ID),
+			Content:   entry.Content,
+			Model:     entry.Model,
+			Provider:  entry.Provider,
+			Timestamp: entry.Timestamp.Format(time.RFC3339),
+			Children:  m.session.GetChildren(entry.ID),
 		}
-	case *session.ExtensionDataEntry:
+	case EntryTypeExtensionData:
 		return &TreeNode{
-			ID:        e.ID,
-			ParentID:  e.ParentID,
+			ID:        entry.ID,
+			ParentID:  entry.ParentID,
 			Type:      "extension_data",
-			Content:   fmt.Sprintf("Extension data: %s", e.ExtType),
-			Timestamp: e.Timestamp.Format(time.RFC3339),
-			Children:  m.treeSession.GetChildren(e.ID),
+			Content:   entry.Content,
+			Timestamp: entry.Timestamp.Format(time.RFC3339),
+			Children:  m.session.GetChildren(entry.ID),
 		}
 	default:
 		return nil

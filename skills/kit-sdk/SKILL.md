@@ -85,6 +85,7 @@ host, err := kit.New(ctx, &kit.Options{
     SessionPath: "/path/to/session.jsonl", // open specific session file
     Continue:    true,                // resume most recent session for SessionDir
     NoSession:   true,                // ephemeral in-memory session, no disk persistence
+    SessionManager: myCustomSession,  // custom SessionManager implementation (advanced)
 
     // Tools
     Tools:            []kit.Tool{kit.NewBashTool()}, // REPLACES entire default tool set
@@ -434,6 +435,72 @@ sessions, _ := kit.ListAllSessions()                  // all sessions everywhere
 kit.DeleteSession("/path/to/session.jsonl")
 tm, _ := kit.OpenTreeSession("/path/to/session.jsonl") // open for direct access
 ```
+
+### Custom Session Manager (Advanced)
+
+You can provide a custom session manager to store conversation history in your own backend (database, cloud storage, etc.) instead of the default JSONL files.
+
+```go
+// Implement the SessionManager interface
+type MyDatabaseSessionManager struct {
+    db *sql.DB
+    // ... other fields
+}
+
+func (s *MyDatabaseSessionManager) AppendMessage(msg kit.LLMMessage) (string, error) {
+    // Store message in your database
+}
+
+func (s *MyDatabaseSessionManager) GetMessages() []kit.LLMMessage {
+    // Retrieve messages from your database
+}
+
+// ... implement all other SessionManager methods
+
+// Use with Kit
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,  // Your custom implementation
+    Model: "anthropic/claude-sonnet-latest",
+})
+```
+
+**SessionManager Interface:**
+
+```go
+type SessionManager interface {
+    AppendMessage(msg kit.LLMMessage) (entryID string, err error)
+    GetMessages() []kit.LLMMessage
+    BuildContext() (messages []kit.LLMMessage, provider string, modelID string)
+    Branch(entryID string) error
+    GetCurrentBranch() []kit.BranchEntry
+    GetChildren(parentID string) []string
+    GetEntry(entryID string) *kit.BranchEntry
+    GetSessionID() string
+    GetSessionName() string
+    SetSessionName(name string) error
+    GetCreatedAt() time.Time
+    IsPersisted() bool
+    AppendCompaction(summary string, firstKeptEntryID string,
+        tokensBefore, tokensAfter int, messagesRemoved int, readFiles, modifiedFiles []string) (string, error)
+    GetLastCompaction() *kit.CompactionEntry
+    AppendExtensionData(extType, data string) (string, error)
+    GetExtensionData(extType string) []kit.ExtensionDataEntry
+    AppendModelChange(provider, modelID string) (string, error)
+    GetContextEntryIDs() []string
+    Close() error
+}
+```
+
+**Use Cases:**
+- **PocketBase integration**: Store sessions as PocketBase records
+- **Cloud storage**: Persist sessions to S3, GCS, or Azure Blob
+- **Multi-user apps**: Store sessions per user in a database
+- **Custom retention**: Implement your own session cleanup policies
+
+**Note:** When using a custom SessionManager, the following Options are ignored:
+- `SessionPath` - your manager handles its own storage
+- `Continue` - your manager handles session selection
+- `NoSession` - use an in-memory implementation instead
 
 ---
 

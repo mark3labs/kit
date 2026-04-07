@@ -227,28 +227,51 @@ func (e *extensionAPI) GetMessageRenderer(name string) *extensions.MessageRender
 // Session data
 
 func (e *extensionAPI) GetSessionMessages() []extensions.SessionMessage {
-	return iterBranchMessages(e.kit.treeSession, func(me *session.MessageEntry, msg message.Message) extensions.SessionMessage {
-		return extensions.SessionMessage{
-			ID:        me.ID,
-			Role:      string(msg.Role),
-			Content:   msg.Content(),
-			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+	if e.kit.session == nil {
+		return nil
+	}
+
+	// Try to use the legacy iterBranchMessages for backward compatibility
+	// with the default TreeManager adapter
+	if adapter, ok := e.kit.session.(*treeManagerAdapter); ok {
+		return iterBranchMessages(adapter.inner, func(me *session.MessageEntry, msg message.Message) extensions.SessionMessage {
+			return extensions.SessionMessage{
+				ID:        me.ID,
+				Role:      string(msg.Role),
+				Content:   msg.Content(),
+				Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			}
+		})
+	}
+
+	// For custom SessionManagers, use the public interface
+	branch := e.kit.session.GetCurrentBranch()
+	var result []extensions.SessionMessage
+	for _, entry := range branch {
+		if entry.Type == EntryTypeMessage {
+			result = append(result, extensions.SessionMessage{
+				ID:        entry.ID,
+				Role:      entry.Role,
+				Content:   entry.Content,
+				Timestamp: entry.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			})
 		}
-	})
+	}
+	return result
 }
 
 func (e *extensionAPI) AppendEntry(extType, data string) (string, error) {
-	if e.kit.treeSession == nil {
+	if e.kit.session == nil {
 		return "", fmt.Errorf("no session available")
 	}
-	return e.kit.treeSession.AppendExtensionData(extType, data)
+	return e.kit.session.AppendExtensionData(extType, data)
 }
 
 func (e *extensionAPI) GetEntries(extType string) []extensions.ExtensionEntry {
-	if e.kit.treeSession == nil {
+	if e.kit.session == nil {
 		return nil
 	}
-	entries := e.kit.treeSession.GetExtensionData(extType)
+	entries := e.kit.session.GetExtensionData(extType)
 	result := make([]extensions.ExtensionEntry, 0, len(entries))
 	for _, e := range entries {
 		result = append(result, extensions.ExtensionEntry{

@@ -39,7 +39,7 @@ type ContextFile struct {
 // agents, sessions, and model configurations.
 type Kit struct {
 	agent          *agent.Agent
-	treeSession    *session.TreeManager
+	session        SessionManager
 	modelString    string
 	events         *eventBus
 	autoCompact    bool
@@ -172,27 +172,39 @@ type StructuredMessage struct {
 // flattens all content to a single text string, this preserves tool calls,
 // tool results, reasoning blocks, and finish markers as distinct typed parts.
 func (m *Kit) GetStructuredMessages() []StructuredMessage {
-	return iterBranchMessages(m.treeSession, func(me *session.MessageEntry, msg message.Message) StructuredMessage {
-		return StructuredMessage{
-			ID:        me.ID,
-			ParentID:  me.ParentID,
-			Role:      msg.Role,
-			Parts:     msg.Parts,
-			Model:     msg.Model,
-			Provider:  msg.Provider,
-			Timestamp: me.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+	if m.session == nil {
+		return nil
+	}
+
+	branch := m.session.GetCurrentBranch()
+	var results []StructuredMessage
+	for _, entry := range branch {
+		if entry.Type != EntryTypeMessage {
+			continue
 		}
-	})
+		results = append(results, StructuredMessage{
+			ID:        entry.ID,
+			ParentID:  entry.ParentID,
+			Role:      MessageRole(entry.Role),
+			Parts:     entry.RawParts,
+			Model:     entry.Model,
+			Provider:  entry.Provider,
+			Timestamp: entry.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return results
 }
 
 // iterBranchMessages iterates over the current branch's MessageEntry items,
 // converting each to a message.Message and calling fn to build the result.
-// Returns nil if there is no tree session. Skips entries that are not
+// Returns nil if there is no session. Skips entries that are not
 // MessageEntry or that fail conversion.
+// Deprecated: Use SessionManager.GetCurrentBranch() directly.
 func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.MessageEntry, message.Message) T) []T {
 	if tm == nil {
 		return nil
 	}
+
 	branch := tm.GetBranch("")
 	var results []T
 	for _, entry := range branch {
@@ -494,6 +506,11 @@ type Options struct {
 
 	// CLI is optional CLI-specific configuration. SDK users leave this nil.
 	CLI *CLIOptions
+
+	// SessionManager allows custom session storage backends.
+	// If nil (default), Kit uses the built-in file-based TreeManager.
+	// When provided, SessionPath, Continue, and NoSession options are ignored.
+	SessionManager SessionManager
 }
 
 // CLIOptions holds fields only relevant to the CLI binary. SDK users should
@@ -740,16 +757,25 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, err
 	}
 
-	// Initialize tree session.
-	treeSession, err := InitTreeSession(opts)
-	if err != nil {
-		_ = agentResult.Agent.Close()
-		return nil, fmt.Errorf("failed to initialize session: %w", err)
+	// Initialize session manager.
+	var sessionManager SessionManager
+	if opts.SessionManager != nil {
+		// Use custom session manager provided by user.
+		sessionManager = opts.SessionManager
+	} else {
+		// DEFAULT: Use built-in TreeManager (existing behavior).
+		treeSession, err := InitTreeSession(opts)
+		if err != nil {
+			_ = agentResult.Agent.Close()
+			return nil, fmt.Errorf("failed to initialize session: %w", err)
+		}
+		// Wrap TreeManager in adapter to satisfy SessionManager interface.
+		sessionManager = NewTreeManagerAdapter(treeSession)
 	}
 
 	k := &Kit{
 		agent:           agentResult.Agent,
-		treeSession:     treeSession,
+		session:         sessionManager,
 		modelString:     modelString,
 		events:          newEventBus(),
 		autoCompact:     opts.AutoCompact,
@@ -1357,9 +1383,9 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		}
 	}
 
-	// Persist pre-generation messages to tree session.
+	// Persist pre-generation messages to session.
 	for _, msg := range preMessages {
-		_, _ = m.treeSession.AppendLLMMessage(msg)
+		_, _ = m.session.AppendMessage(msg)
 	}
 
 	// Auto-compact if enabled and conversation is near the context limit.
@@ -1367,8 +1393,8 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		_, _ = m.compactInternal(ctx, m.compactionOpts, "", true) // best-effort, automatic
 	}
 
-	// Build context from the tree so only the current branch is sent.
-	messages := m.treeSession.GetLLMMessages()
+	// Build context from the session so only the current branch is sent.
+	messages, _, _ := m.session.BuildContext()
 
 	// Run ContextPrepare hooks — extensions can filter, reorder, or inject messages.
 	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
@@ -1391,7 +1417,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		// (pending) message or tool call is discarded.
 		if result != nil && len(result.ConversationMessages) > sentCount {
 			for _, msg := range result.ConversationMessages[sentCount:] {
-				_, _ = m.treeSession.AppendLLMMessage(msg)
+				_, _ = m.session.AppendMessage(msg)
 			}
 		}
 		m.events.emit(TurnEndEvent{Error: err})
@@ -1407,7 +1433,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// GetContextStats() see up-to-date token counts.
 	if len(result.ConversationMessages) > sentCount {
 		for _, msg := range result.ConversationMessages[sentCount:] {
-			_, _ = m.treeSession.AppendLLMMessage(msg)
+			_, _ = m.session.AppendMessage(msg)
 		}
 	}
 
@@ -1489,7 +1515,7 @@ func (m *Kit) Steer(ctx context.Context, instruction string) (string, error) {
 // Returns an error if there are no previous messages in the session.
 func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 	// Verify there is conversation history to follow up on.
-	if len(m.treeSession.GetLLMMessages()) == 0 {
+	if len(m.session.GetMessages()) == 0 {
 		return "", fmt.Errorf("cannot follow up: no previous messages")
 	}
 
@@ -1645,10 +1671,12 @@ func (m *Kit) PromptResultWithMessages(ctx context.Context, messages []string) (
 	return m.runTurn(ctx, promptLabel, messages[len(messages)-1], preMessages)
 }
 
-// ClearSession resets the tree session's leaf pointer to the root, starting
+// ClearSession resets the session's leaf pointer to the root, starting
 // a fresh conversation branch.
 func (m *Kit) ClearSession() {
-	m.treeSession.ResetLeaf()
+	if m.session != nil {
+		_ = m.session.Branch("")
+	}
 }
 
 // GetModelString returns the current model string identifier (e.g.,
@@ -1717,8 +1745,8 @@ func (m *Kit) Close() error {
 	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
 		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
 	}
-	if m.treeSession != nil {
-		_ = m.treeSession.Close()
+	if m.session != nil {
+		_ = m.session.Close()
 	}
 	// Release the OAuth callback port if we own the handler.
 	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
@@ -1726,3 +1754,5 @@ func (m *Kit) Close() error {
 	}
 	return m.agent.Close()
 }
+
+// Conversion helpers are defined in adapter.go.

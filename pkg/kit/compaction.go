@@ -21,9 +21,9 @@ type ContextStats struct {
 const defaultReserveTokens = 16384
 
 // EstimateContextTokens returns the estimated token count of the current
-// conversation based on tree session messages.
+// conversation based on session messages.
 func (m *Kit) EstimateContextTokens() int {
-	messages := m.treeSession.GetLLMMessages()
+	messages := m.session.GetMessages()
 	return compaction.EstimateMessageTokens(messages)
 }
 
@@ -42,8 +42,8 @@ func (m *Kit) ShouldCompact() bool {
 		reserveTokens = m.compactionOpts.ReserveTokens
 	}
 
-	messages := m.treeSession.GetLLMMessages()
-	return compaction.ShouldCompact(messages, info.Limit.Context, reserveTokens)
+	messages := m.session.GetMessages()
+	return compaction.ShouldCompact(convertKitMessagesToFantasy(messages), info.Limit.Context, reserveTokens)
 }
 
 // GetContextStats returns current context usage statistics including
@@ -55,7 +55,7 @@ func (m *Kit) ShouldCompact() bool {
 // because it includes system prompts, tool definitions, and other overhead
 // that the heuristic cannot account for.
 func (m *Kit) GetContextStats() ContextStats {
-	messages := m.treeSession.GetLLMMessages()
+	messages := m.session.GetMessages()
 
 	// Prefer the real API-reported input token count when available.
 	m.lastInputTokensMu.RLock()
@@ -114,7 +114,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 		}
 	}
 
-	messages := m.treeSession.GetLLMMessages()
+	messages := m.session.GetMessages()
 	if len(messages) < 2 {
 		return nil, fmt.Errorf("cannot compact: need at least 2 messages")
 	}
@@ -145,7 +145,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 
 	// Carry forward file tracking from previous compaction.
 	var prev *compaction.PreviousCompaction
-	if lastCompaction := m.treeSession.GetLastCompaction(); lastCompaction != nil {
+	if lastCompaction := m.session.GetLastCompaction(); lastCompaction != nil {
 		prev = &compaction.PreviousCompaction{
 			ReadFiles:     lastCompaction.ReadFiles,
 			ModifiedFiles: lastCompaction.ModifiedFiles,
@@ -171,7 +171,7 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 
 	// Non-destructive: append a CompactionEntry to the session tree instead
 	// of clearing and rewriting messages.
-	entryIDs := m.treeSession.GetContextEntryIDs()
+	entryIDs := m.session.GetContextEntryIDs()
 	firstKeptEntryID := ""
 	if result.CutPoint >= 0 && result.CutPoint < len(entryIDs) {
 		firstKeptEntryID = entryIDs[result.CutPoint]
@@ -188,9 +188,9 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 // custom summary. It still determines the cut point and persists a
 // CompactionEntry.
 func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts *CompactionOptions) (*CompactionResult, error) {
-	originalTokens := compaction.EstimateMessageTokens(messages)
+	originalTokens := compaction.EstimateMessageTokens(convertKitMessagesToFantasy(messages))
 
-	cutPoint := compaction.FindCutPoint(messages, opts.KeepRecentTokens)
+	cutPoint := compaction.FindCutPoint(convertKitMessagesToFantasy(messages), opts.KeepRecentTokens)
 	if cutPoint == 0 {
 		cutPoint = len(messages) - 1
 		if cutPoint < 1 {
@@ -198,7 +198,7 @@ func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts 
 		}
 	}
 
-	entryIDs := m.treeSession.GetContextEntryIDs()
+	entryIDs := m.session.GetContextEntryIDs()
 	firstKeptEntryID := ""
 	if cutPoint >= 0 && cutPoint < len(entryIDs) {
 		firstKeptEntryID = entryIDs[cutPoint]
@@ -234,7 +234,7 @@ func (m *Kit) persistAndEmitCompaction(
 	originalTokens, compactedTokens, messagesRemoved int,
 	readFiles, modifiedFiles []string,
 ) error {
-	if _, err := m.treeSession.AppendCompaction(
+	if _, err := m.session.AppendCompaction(
 		summary,
 		firstKeptEntryID,
 		originalTokens,
