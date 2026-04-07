@@ -68,6 +68,44 @@ The SDK provides several prompt variants:
 | `Steer(ctx, instruction)` | System-level steering without user message |
 | `FollowUp(ctx, text)` | Continue without new user input |
 
+## Custom tools
+
+Create custom tools with `kit.NewTool`. The JSON schema is auto-generated from the input struct — no external dependencies required:
+
+```go
+type WeatherInput struct {
+    City string `json:"city" description:"City name"`
+}
+
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{weatherTool},
+})
+```
+
+Struct tags control the schema:
+
+- `json:"name"` — parameter name
+- `description:"..."` — description shown to the LLM
+- `enum:"a,b,c"` — restrict valid values
+- `omitempty` — marks the parameter as optional
+
+Return values:
+
+| Helper | Description |
+|--------|-------------|
+| `kit.TextResult(s)` | Successful text result |
+| `kit.ErrorResult(s)` | Error result (LLM sees it as a tool error) |
+
+For advanced use, return a `kit.ToolOutput` struct directly with `Data`, `MediaType`, and `Metadata` fields.
+
+Use `kit.NewParallelTool` for tools that are safe to run concurrently. Use `kit.ToolCallIDFromContext(ctx)` to retrieve the LLM-assigned call ID for logging or tracing.
+
 ## Event system
 
 Subscribe to events for monitoring:

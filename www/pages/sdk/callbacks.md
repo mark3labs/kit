@@ -7,17 +7,16 @@ description: Monitor tool calls and streaming output with the Kit Go SDK.
 
 ## Event-based monitoring
 
-For more granular control, use the event subscription API:
+Subscribe to events for real-time monitoring. Each method returns an unsubscribe function:
 
 ```go
-// Subscribe returns an unsubscribe function
 unsub := host.OnToolCall(func(event kit.ToolCallEvent) {
-    fmt.Printf("Tool: %s, Args: %s\n", event.Name, event.Args)
+    fmt.Printf("Tool: %s, Args: %s\n", event.ToolName, event.ToolArgs)
 })
 defer unsub()
 
 unsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {
-    fmt.Printf("Result: %s (error: %v)\n", event.Name, event.IsError)
+    fmt.Printf("Result: %s (error: %v)\n", event.ToolName, event.IsError)
 })
 defer unsub2()
 
@@ -44,33 +43,62 @@ defer unsub6()
 
 ## Hook system
 
-Hooks allow you to intercept and modify behavior. Unlike events, hooks can modify or cancel operations:
+Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.
+
+### BeforeToolCall — block tool execution
 
 ```go
-// Intercept tool calls before execution
-host.OnBeforeToolCall(0, func(ctx context.Context, name string, args string) (string, error) {
-    if name == "bash" {
-        log.Println("Bash command:", args)
+host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
+    // h.ToolCallID, h.ToolName, h.ToolArgs
+    if h.ToolName == "bash" && strings.Contains(h.ToolArgs, "rm -rf") {
+        return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
-    return args, nil // return modified args or error to cancel
+    return nil // allow
 })
+```
 
-// Process results after tool execution
-host.OnAfterToolResult(0, func(ctx context.Context, name string, result string) (string, error) {
-    return result, nil
-})
+### AfterToolResult — modify tool output
 
-// Before/after each agent turn
-host.OnBeforeTurn(0, func(ctx context.Context) error {
-    return nil
-})
-
-host.OnAfterTurn(0, func(ctx context.Context) error {
+```go
+host.OnAfterToolResult(kit.HookPriorityNormal, func(h kit.AfterToolResultHook) *kit.AfterToolResultResult {
+    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError
+    if h.ToolName == "read" {
+        filtered := redactSecrets(h.Result)
+        return &kit.AfterToolResultResult{Result: &filtered}
+    }
     return nil
 })
 ```
 
-The first argument is a priority (lower = runs first).
+### BeforeTurn — modify prompt, inject messages
+
+```go
+host.OnBeforeTurn(kit.HookPriorityNormal, func(h kit.BeforeTurnHook) *kit.BeforeTurnResult {
+    // h.Prompt
+    newPrompt := h.Prompt + "\nAlways respond in JSON."
+    return &kit.BeforeTurnResult{Prompt: &newPrompt}
+    // Also available: SystemPrompt *string, InjectText *string
+})
+```
+
+### AfterTurn — observation only
+
+```go
+host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
+    // h.Response, h.Error
+    log.Printf("Turn completed: %d chars", len(h.Response))
+})
+```
+
+### Hook priorities
+
+```go
+kit.HookPriorityHigh   = 0   // runs first
+kit.HookPriorityNormal = 50  // default
+kit.HookPriorityLow    = 100 // runs last
+```
+
+Lower values run first. First non-nil result wins.
 
 ## Subagent event monitoring
 

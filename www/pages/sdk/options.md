@@ -68,3 +68,28 @@ host, err := kit.New(ctx, &kit.Options{
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Override default skills directory |
+
+## Tool configuration
+
+**`Tools`** replaces ALL default tools (core + MCP + extension). **`ExtraTools`** adds tools alongside the defaults. Use `Tools` to restrict capabilities; use `ExtraTools` to extend them.
+
+Create custom tools with `kit.NewTool` — no external dependencies needed:
+
+```go
+type LookupInput struct {
+    ID string `json:"id" description:"Record ID to look up"`
+}
+
+lookupTool := kit.NewTool("lookup", "Look up a record by ID",
+    func(ctx context.Context, input LookupInput) (kit.ToolOutput, error) {
+        record := db.Find(input.ID)
+        return kit.TextResult(record.String()), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{lookupTool},
+})
+```
+
+See [Overview](/sdk/overview#custom-tools) for full custom tool documentation.

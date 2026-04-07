@@ -347,6 +347,77 @@ Lower values run first. Within the same priority, registration order applies. Fi
 
 ## Tools
 
+### Creating custom tools
+
+Use `kit.NewTool` to create custom tools. The JSON schema is auto-generated from the input struct — no external dependencies required:
+
+```go
+type WeatherInput struct {
+    City string `json:"city" description:"City name, e.g. 'San Francisco'"`
+}
+
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        // Your logic here (API calls, database lookups, etc.)
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{weatherTool},
+})
+```
+
+**Struct tags** control the generated schema:
+
+| Tag | Purpose | Example |
+|-----|---------|---------|
+| `json:"name"` | Parameter name | `json:"city"` |
+| `description:"..."` | Description shown to the LLM | `description:"City name"` |
+| `enum:"a,b,c"` | Restrict valid values | `enum:"json,text,csv"` |
+| `omitempty` | Marks parameter as optional | `json:"limit,omitempty"` |
+
+**Return helpers:**
+
+| Function | Description |
+|----------|-------------|
+| `kit.TextResult(content)` | Successful text result |
+| `kit.ErrorResult(content)` | Error result (LLM sees it as a tool error) |
+
+**ToolOutput fields** (for advanced use):
+
+```go
+kit.ToolOutput{
+    Content:   "result text",     // text returned to the LLM
+    IsError:   false,             // true = LLM sees this as an error
+    Data:      pngBytes,          // optional binary data (images, audio)
+    MediaType: "image/png",       // MIME type for binary Data
+    Metadata:  map[string]any{},  // opaque metadata for hooks/UI (not sent to LLM)
+}
+```
+
+**Parallel tools** — mark as safe for concurrent execution:
+
+```go
+searchTool := kit.NewParallelTool("search", "Search the web",
+    func(ctx context.Context, input SearchInput) (kit.ToolOutput, error) {
+        return kit.TextResult("results..."), nil
+    },
+)
+```
+
+**Tool call ID** — available in context for logging/tracing:
+
+```go
+tool := kit.NewTool("my_tool", "...",
+    func(ctx context.Context, input MyInput) (kit.ToolOutput, error) {
+        callID := kit.ToolCallIDFromContext(ctx) // correlation ID from the LLM
+        log.Printf("[%s] my_tool called", callID)
+        return kit.TextResult("ok"), nil
+    },
+)
+```
+
 ### Built-in tool constructors
 
 ```go

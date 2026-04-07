@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
@@ -171,33 +170,6 @@ func (c *CLI) DisplayDebugMessage(message string) {
 // configuration options that will be displayed for debugging purposes.
 func (c *CLI) DisplayDebugConfig(config map[string]any) {
 	fmt.Println(c.renderer.RenderDebugConfigMessage(config, time.Now()).Content)
-}
-
-// UpdateUsageFromResponse records token usage using metadata from the fantasy
-// response. Only actual API-reported tokens are used for cost tracking.
-// If the provider doesn't report token counts, no usage is recorded.
-func (c *CLI) UpdateUsageFromResponse(response *fantasy.Response, inputText string) {
-	if c.usageTracker == nil {
-		return
-	}
-
-	usage := response.Usage
-	inputTokens := int(usage.InputTokens)
-	outputTokens := int(usage.OutputTokens)
-
-	// Only use actual API-reported tokens for cost tracking.
-	// We intentionally do NOT estimate tokens - estimation is inaccurate
-	// and should never be used for cost calculations.
-	if inputTokens > 0 {
-		cacheReadTokens := int(usage.CacheReadTokens)
-		cacheWriteTokens := int(usage.CacheCreationTokens)
-		c.usageTracker.UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
-		// Per-response usage is a single API call, so it represents the
-		// actual context window fill level.
-		c.usageTracker.SetContextTokens(inputTokens + outputTokens)
-	}
-	// If inputTokens is 0, the provider didn't report usage - we skip recording
-	// rather than estimating, to ensure cost accuracy.
 }
 
 // DisplayUsageAfterResponse renders and displays token usage information immediately

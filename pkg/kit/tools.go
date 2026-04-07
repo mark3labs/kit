@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"context"
+
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/core"
@@ -15,6 +17,123 @@ type ToolOption = core.ToolOption
 // WithWorkDir sets the working directory for file-based tools.
 // If empty, os.Getwd() is used at execution time.
 var WithWorkDir = core.WithWorkDir
+
+// --- Custom tool creation ---
+
+// ToolOutput is the return value from custom tool handlers created with
+// [NewTool] or [NewParallelTool]. It provides a dependency-free way to
+// return results without importing the underlying LLM framework.
+type ToolOutput struct {
+	// Content is the text content returned to the LLM.
+	Content string
+
+	// IsError, when true, signals to the LLM that the tool call failed.
+	IsError bool
+
+	// Data contains optional binary data (images, audio, etc.).
+	Data []byte
+
+	// MediaType is the MIME type for binary Data (e.g. "image/png").
+	MediaType string
+
+	// Metadata is optional opaque metadata attached to the response.
+	// It is not sent to the LLM but may be consumed by hooks or the UI.
+	Metadata any
+}
+
+// TextResult creates a successful text [ToolOutput].
+func TextResult(content string) ToolOutput {
+	return ToolOutput{Content: content}
+}
+
+// ErrorResult creates an error [ToolOutput]. The LLM will see the content
+// as a tool error, allowing it to retry or adjust its approach.
+func ErrorResult(content string) ToolOutput {
+	return ToolOutput{Content: content, IsError: true}
+}
+
+// toolCallIDKey is the context key for the tool call ID.
+type toolCallIDKey struct{}
+
+// ToolCallIDFromContext extracts the tool call ID from the context.
+// The call ID is set automatically by [NewTool] and [NewParallelTool]
+// before invoking the handler. Returns an empty string if no ID is present.
+func ToolCallIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(toolCallIDKey{}).(string)
+	return s
+}
+
+// NewTool creates a custom [Tool] with automatic JSON schema generation from
+// the TInput struct type. The handler receives a typed input (deserialized
+// from the LLM's JSON arguments) and returns a [ToolResult].
+//
+// Struct tags on TInput control the generated schema:
+//
+//	json:"name"         → parameter name
+//	description:"..."   → parameter description shown to the LLM
+//	enum:"a,b,c"        → restrict valid values
+//	omitempty            → marks the parameter as optional
+//
+// The tool call ID is injected into the context and can be retrieved with
+// [ToolCallIDFromContext].
+//
+// Example:
+//
+//	type WeatherInput struct {
+//	    City string `json:"city" description:"City name"`
+//	}
+//
+//	tool := kit.NewTool("get_weather", "Get weather for a city",
+//	    func(ctx context.Context, input WeatherInput) (kit.ToolResult, error) {
+//	        return kit.TextResult("72°F, sunny in " + input.City), nil
+//	    },
+//	)
+func NewTool[TInput any](name, description string, fn func(ctx context.Context, input TInput) (ToolOutput, error)) Tool {
+	return fantasy.NewAgentTool(name, description,
+		func(ctx context.Context, input TInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx = context.WithValue(ctx, toolCallIDKey{}, call.ID)
+			result, err := fn(ctx, input)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+			resp := fantasy.ToolResponse{
+				Content:   result.Content,
+				IsError:   result.IsError,
+				Data:      result.Data,
+				MediaType: result.MediaType,
+			}
+			if result.Metadata != nil {
+				resp = fantasy.WithResponseMetadata(resp, result.Metadata)
+			}
+			return resp, nil
+		},
+	)
+}
+
+// NewParallelTool is like [NewTool] but marks the tool as safe for concurrent
+// execution alongside other tools. Use this when the tool has no side effects
+// or when concurrent calls are safe.
+func NewParallelTool[TInput any](name, description string, fn func(ctx context.Context, input TInput) (ToolOutput, error)) Tool {
+	return fantasy.NewParallelAgentTool(name, description,
+		func(ctx context.Context, input TInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx = context.WithValue(ctx, toolCallIDKey{}, call.ID)
+			result, err := fn(ctx, input)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+			resp := fantasy.ToolResponse{
+				Content:   result.Content,
+				IsError:   result.IsError,
+				Data:      result.Data,
+				MediaType: result.MediaType,
+			}
+			if result.Metadata != nil {
+				resp = fantasy.WithResponseMetadata(resp, result.Metadata)
+			}
+			return resp, nil
+		},
+	)
+}
 
 // --- Individual tool constructors ---
 

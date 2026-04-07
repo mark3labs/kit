@@ -545,6 +545,28 @@ host, err := kit.New(ctx, &kit.Options{
 })
 ```
 
+### Custom Tools
+
+Create custom tools with automatic schema generation — no external dependencies needed:
+
+```go
+type SearchInput struct {
+    Query string `json:"query" description:"Search query"`
+}
+
+searchTool := kit.NewTool("search", "Search the codebase",
+    func(ctx context.Context, input SearchInput) (kit.ToolOutput, error) {
+        return kit.TextResult("Found: ..."), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{searchTool}, // adds alongside built-in tools
+})
+```
+
+Use `kit.NewParallelTool` for tools safe to run concurrently. See the [SDK docs](/sdk/overview) for full details on struct tags, `ToolOutput` fields, and `ToolCallIDFromContext`.
+
 ### With Callbacks
 
 ```go
