@@ -2,11 +2,11 @@ package extensions
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 	"github.com/traefik/yaegi/stdlib/unrestricted"
@@ -34,11 +34,10 @@ func LoadExtensions(extraPaths []string) ([]LoadedExtension, error) {
 	for _, p := range paths {
 		ext, err := loadSingleExtension(p)
 		if err != nil {
-			log.Printf("WARN skipping extension: path=%s err=%v", p, err)
 			continue
 		}
 		loaded = append(loaded, *ext)
-		log.Printf("DEBUG loaded extension: path=%s handlers=%d tools=%d commands=%d tool_renderers=%d", p, countHandlers(ext), len(ext.Tools), len(ext.Commands), len(ext.ToolRenderers))
+		log.Debug("loaded extension", "path", p, "handlers", countHandlers(ext), "tools", len(ext.Tools), "commands", len(ext.Commands), "tool_renderers", len(ext.ToolRenderers))
 	}
 	return loaded, nil
 }
