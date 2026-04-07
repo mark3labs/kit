@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-Bq3_kR7S.js"></script>
+<script type="module" src="/assets/index-Bga1rsIp.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -39,8 +39,12 @@ host, err := kit.New(ctx, &kit.Options{
     NoSession:    true,
 
     // Tools
-    Tools:        []kit.Tool{...},     // Replace default tool set entirely
-    ExtraTools:   []kit.Tool{...},     // Add tools alongside defaults
+    Tools:            []kit.Tool{...},     // Replace default tool set entirely
+    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
+    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+
+    // Configuration
+    SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
 
     // Compaction
     AutoCompact:  true,
@@ -68,6 +72,8 @@ host, err := kit.New(ctx, &kit.Options{
 | `NoSession` | `bool` | `false` | Ephemeral mode (no persistence) |
 | `Tools` | `[]Tool` | — | Replace the entire default tool set |
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
+| `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
+| `SkipConfig` | `bool` | `false` | Skip .kit.yml file loading |
 | `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
