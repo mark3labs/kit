@@ -1010,6 +1010,34 @@ func (a *App) NotifyContentReload() {
 	}
 }
 
+// NotifyMCPToolsReady sends an MCPToolsReadyEvent to the TUI so it refreshes
+// tool names and MCP tool count from provider callbacks. Called when background
+// MCP tool loading completes. In non-interactive mode this is a no-op.
+func (a *App) NotifyMCPToolsReady() {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(MCPToolsReadyEvent{})
+	}
+}
+
+// NotifyMCPServerLoaded sends an MCPServerLoadedEvent to the TUI so it can
+// display a system message when a single MCP server finishes loading. Called
+// per server as background MCP tool loading progresses.
+func (a *App) NotifyMCPServerLoaded(serverName string, toolCount int, err error) {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(MCPServerLoadedEvent{
+			ServerName: serverName,
+			ToolCount:  toolCount,
+			Error:      err,
+		})
+	}
+}
+
 // SendEvent sends a tea.Msg to the registered program. Safe to call from
 // any goroutine. No-op when no program is registered.
 //

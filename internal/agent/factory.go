@@ -45,6 +45,9 @@ type AgentCreationOptions struct {
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 	// ExtraTools are additional tools to include (e.g. from extensions).
 	ExtraTools []fantasy.AgentTool
+	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
+	// loading (successfully or with error). Called from the background goroutine.
+	OnMCPServerLoaded func(serverName string, toolCount int, err error)
 }
 
 // CreateAgent creates an agent with optional spinner for Ollama models.
@@ -52,16 +55,17 @@ type AgentCreationOptions struct {
 // Returns the created agent or an error if creation fails.
 func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error) {
 	agentConfig := &AgentConfig{
-		ModelConfig:      opts.ModelConfig,
-		MCPConfig:        opts.MCPConfig,
-		SystemPrompt:     opts.SystemPrompt,
-		MaxSteps:         opts.MaxSteps,
-		StreamingEnabled: opts.StreamingEnabled,
-		DebugLogger:      opts.DebugLogger,
-		AuthHandler:      opts.AuthHandler,
-		CoreTools:        opts.CoreTools,
-		ToolWrapper:      opts.ToolWrapper,
-		ExtraTools:       opts.ExtraTools,
+		ModelConfig:       opts.ModelConfig,
+		MCPConfig:         opts.MCPConfig,
+		SystemPrompt:      opts.SystemPrompt,
+		MaxSteps:          opts.MaxSteps,
+		StreamingEnabled:  opts.StreamingEnabled,
+		DebugLogger:       opts.DebugLogger,
+		AuthHandler:       opts.AuthHandler,
+		CoreTools:         opts.CoreTools,
+		ToolWrapper:       opts.ToolWrapper,
+		ExtraTools:        opts.ExtraTools,
+		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 	}
 
 	var agent *Agent

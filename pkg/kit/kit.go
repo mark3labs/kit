@@ -474,6 +474,13 @@ type Options struct {
 	// display a URL in a custom UI, redirect to a web app, etc.).
 	MCPAuthHandler MCPAuthHandler
 
+	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
+	// loading during Kit initialization. The callback receives the server name,
+	// tool count, and any error. Called from a background goroutine; safe to
+	// call app.NotifyMCPServerLoaded() from within the callback to display
+	// real-time progress in the TUI.
+	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+
 	// CLI is optional CLI-specific configuration. SDK users leave this nil.
 	CLI *CLIOptions
 }
@@ -679,16 +686,17 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	// Pass the pre-built ProviderConfig and scalar viper snapshots so
 	// SetupAgent doesn't need to re-read viper (which would require the lock).
 	setupOpts := kitsetup.AgentSetupOptions{
-		MCPConfig:        mcpConfig,
-		Quiet:            opts.Quiet,
-		CoreTools:        opts.Tools,
-		ExtraTools:       opts.ExtraTools,
-		ToolWrapper:      hookToolWrapper(beforeToolCall, afterToolResult),
-		ProviderConfig:   providerConfig,
-		Debug:            debug,
-		NoExtensions:     noExtensions,
-		MaxSteps:         maxSteps,
-		StreamingEnabled: streaming,
+		MCPConfig:         mcpConfig,
+		Quiet:             opts.Quiet,
+		CoreTools:         opts.Tools,
+		ExtraTools:        opts.ExtraTools,
+		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
+		ProviderConfig:    providerConfig,
+		Debug:             debug,
+		NoExtensions:      noExtensions,
+		MaxSteps:          maxSteps,
+		StreamingEnabled:  streaming,
+		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 	}
 
 	// Set up OAuth handler for remote MCP servers.

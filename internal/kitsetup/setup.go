@@ -61,6 +61,9 @@ type AgentSetupOptions struct {
 	// AuthHandler handles OAuth authorization for remote MCP servers.
 	// When set, remote transports are configured with OAuth support.
 	AuthHandler tools.MCPAuthHandler
+	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
+	// loading (successfully or with error). Called from the background goroutine.
+	OnMCPServerLoaded func(serverName string, toolCount int, err error)
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -183,19 +186,20 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	}
 
 	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
-		ModelConfig:      modelConfig,
-		MCPConfig:        opts.MCPConfig,
-		SystemPrompt:     systemPrompt,
-		MaxSteps:         maxSteps,
-		StreamingEnabled: streamingEnabled,
-		ShowSpinner:      opts.ShowSpinner,
-		Quiet:            opts.Quiet,
-		SpinnerFunc:      opts.SpinnerFunc,
-		DebugLogger:      debugLogger,
-		AuthHandler:      opts.AuthHandler,
-		CoreTools:        opts.CoreTools,
-		ToolWrapper:      toolWrapper,
-		ExtraTools:       extraTools,
+		ModelConfig:       modelConfig,
+		MCPConfig:         opts.MCPConfig,
+		SystemPrompt:      systemPrompt,
+		MaxSteps:          maxSteps,
+		StreamingEnabled:  streamingEnabled,
+		ShowSpinner:       opts.ShowSpinner,
+		Quiet:             opts.Quiet,
+		SpinnerFunc:       opts.SpinnerFunc,
+		DebugLogger:       debugLogger,
+		AuthHandler:       opts.AuthHandler,
+		CoreTools:         opts.CoreTools,
+		ToolWrapper:       toolWrapper,
+		ExtraTools:        extraTools,
+		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent: %w", err)

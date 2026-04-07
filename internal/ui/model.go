@@ -281,6 +281,16 @@ type AppModelOptions struct {
 	// ToolNames holds available tool names for the /tools command.
 	ToolNames []string
 
+	// GetToolNames, if non-nil, returns the current tool names. Called on
+	// MCPToolsReadyEvent to refresh the tool list after background MCP tool
+	// loading completes. May be nil if dynamic tool refresh is not needed.
+	GetToolNames func() []string
+
+	// GetMCPToolCount, if non-nil, returns the current MCP tool count.
+	// Called on MCPToolsReadyEvent to refresh the startup info bar.
+	// May be nil if dynamic tool refresh is not needed.
+	GetMCPToolCount func() int
+
 	// UsageTracker provides token usage statistics for /usage and /reset-usage.
 	// May be nil if usage tracking is unavailable for the current model.
 	UsageTracker *UsageTracker
@@ -495,8 +505,12 @@ type AppModel struct {
 	loadingMessage string
 
 	// serverNames, toolNames are used by /servers and /tools commands.
-	serverNames []string
-	toolNames   []string
+	serverNames  []string
+	toolNames    []string
+	getToolNames func() []string // dynamic tool name provider (for MCP refresh)
+
+	// getMCPToolCount returns the current MCP tool count dynamically.
+	getMCPToolCount func() int
 
 	// usageTracker provides token usage stats for /usage and /reset-usage.
 	// May be nil when usage tracking is unavailable.
@@ -722,18 +736,20 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	rdr := mr
 
 	m := &AppModel{
-		state:          stateInput,
-		appCtrl:        appCtrl,
-		renderer:       rdr,
-		modelName:      opts.ModelName,
-		providerName:   opts.ProviderName,
-		loadingMessage: opts.LoadingMessage,
-		serverNames:    opts.ServerNames,
-		toolNames:      opts.ToolNames,
-		usageTracker:   opts.UsageTracker,
-		cwd:            opts.Cwd,
-		width:          width,
-		height:         height,
+		state:           stateInput,
+		appCtrl:         appCtrl,
+		renderer:        rdr,
+		modelName:       opts.ModelName,
+		providerName:    opts.ProviderName,
+		loadingMessage:  opts.LoadingMessage,
+		serverNames:     opts.ServerNames,
+		toolNames:       opts.ToolNames,
+		getToolNames:    opts.GetToolNames,
+		getMCPToolCount: opts.GetMCPToolCount,
+		usageTracker:    opts.UsageTracker,
+		cwd:             opts.Cwd,
+		width:           width,
+		height:          height,
 	}
 
 	// Store extension commands for dispatch.
@@ -1843,6 +1859,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshSkillItems()
 		m.printSystemMessage("Prompts and skills reloaded.")
 
+	case app.MCPToolsReadyEvent:
+		// Background MCP tool loading completed — refresh tool names and count.
+		m.refreshToolNames()
+		m.refreshMCPToolCount()
+
+	case app.MCPServerLoadedEvent:
+		// A single MCP server finished loading — display a system message.
+		if msg.Error != nil {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' failed to load: %v", msg.ServerName, msg.Error))
+		} else if msg.ToolCount > 0 {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded with %d tools", msg.ServerName, msg.ToolCount))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("MCP server '%s' loaded (no tools)", msg.ServerName))
+		}
+
 	case app.EditorTextSetEvent:
 		// Extension wants to pre-fill the input editor with text.
 		if ic, ok := m.input.(*InputComponent); ok {
@@ -2771,6 +2802,24 @@ func (m *AppModel) refreshSkillItems() {
 		return
 	}
 	m.skillItems = m.getSkillItems()
+}
+
+// refreshToolNames reloads tool names from the provider callback.
+// Called on MCPToolsReadyEvent when background MCP tool loading completes.
+func (m *AppModel) refreshToolNames() {
+	if m.getToolNames == nil {
+		return
+	}
+	m.toolNames = m.getToolNames()
+}
+
+// refreshMCPToolCount reloads the MCP tool count from the provider callback.
+// Called on MCPToolsReadyEvent when background MCP tool loading completes.
+func (m *AppModel) refreshMCPToolCount() {
+	if m.getMCPToolCount == nil {
+		return
+	}
+	m.mcpToolCount = m.getMCPToolCount()
 }
 
 // printHelpMessage renders the help text listing all available slash commands.

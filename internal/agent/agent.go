@@ -43,6 +43,11 @@ type AgentConfig struct {
 	// ExtraTools are additional tools to include alongside core and MCP tools.
 	// Used by extensions to register custom tools.
 	ExtraTools []fantasy.AgentTool
+
+	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
+	// loading (successfully or with error). The callback receives the server
+	// name, tool count, and any error. Called from the background goroutine.
+	OnMCPServerLoaded func(serverName string, toolCount int, err error)
 }
 
 // ToolCallHandler is a function type for handling tool calls as they happen.
@@ -207,6 +212,10 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		}
 		if agentConfig.DebugLogger != nil {
 			toolManager.SetDebugLogger(agentConfig.DebugLogger)
+		}
+		// Set per-server loaded callback if provided.
+		if agentConfig.OnMCPServerLoaded != nil {
+			toolManager.SetOnServerLoaded(agentConfig.OnMCPServerLoaded)
 		}
 		a.toolManager = toolManager
 		a.mcpReady = make(chan struct{})

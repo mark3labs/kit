@@ -172,6 +172,20 @@ type WidgetUpdateEvent struct{}
 // its autocomplete entries and internal state from the provider callbacks.
 type ContentReloadEvent struct{}
 
+// MCPToolsReadyEvent is sent when background MCP tool loading completes.
+// The TUI refreshes its tool names and MCP tool count from provider callbacks
+// so that /tools and the startup info bar reflect the loaded MCP tools.
+type MCPToolsReadyEvent struct{}
+
+// MCPServerLoadedEvent is sent when a single MCP server finishes loading
+// (successfully or with error). The TUI displays a system message so users
+// see real-time progress as each server initializes.
+type MCPServerLoadedEvent struct {
+	ServerName string
+	ToolCount  int
+	Error      error // nil on success
+}
+
 // EditorTextSetEvent is sent when an extension calls ctx.SetEditorText to
 // pre-fill the input editor with text. The TUI handles this by setting the
 // textarea content and moving the cursor to the end.

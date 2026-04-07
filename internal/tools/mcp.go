@@ -29,6 +29,10 @@ type MCPToolManager struct {
 	config         *config.Config
 	debug          bool
 	debugLogger    DebugLogger
+
+	// onServerLoaded, if non-nil, is called when each server finishes loading.
+	// Called with server name, tool count, and error (nil on success).
+	onServerLoaded func(serverName string, toolCount int, err error)
 }
 
 // toolMapping stores the mapping between prefixed tool names and their original details
@@ -76,6 +80,13 @@ func (m *MCPToolManager) SetDebugLogger(logger DebugLogger) {
 	}
 }
 
+// SetOnServerLoaded sets the callback that's invoked when each MCP server finishes
+// loading. The callback receives the server name, tool count, and any error.
+// Call this before LoadTools to receive per-server notifications.
+func (m *MCPToolManager) SetOnServerLoaded(cb func(serverName string, toolCount int, err error)) {
+	m.onServerLoaded = cb
+}
+
 // LoadTools loads tools from all configured MCP servers based on the provided configuration.
 // It initializes the connection pool, connects to each configured server, and loads their tools.
 // Tools from different servers are prefixed with the server name to avoid naming conflicts.
@@ -108,8 +119,12 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 		wg.Add(1)
 		go func(name string, sc config.MCPServerConfig) {
 			defer wg.Done()
-			err := m.loadServerTools(ctx, name, sc)
+			count, err := m.loadServerTools(ctx, name, sc)
 			results <- serverResult{name: name, err: err}
+			// Notify callback if set (for real-time UI updates).
+			if m.onServerLoaded != nil {
+				m.onServerLoaded(name, count, err)
+			}
 		}(serverName, serverConfig)
 	}
 
@@ -137,14 +152,15 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 
 // loadServerTools loads tools from a single MCP server.
 // Thread-safe: may be called concurrently for different servers.
-func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) error {
+// Returns the number of tools loaded from this server, or -1 on error.
+func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (int, error) {
 	// Add debug logging
 	m.debugLogConnectionInfo(serverName, serverConfig)
 
 	// Get connection from pool
 	conn, err := m.connectionPool.GetConnection(ctx, serverName, serverConfig)
 	if err != nil {
-		return fmt.Errorf("failed to get connection from pool: %v", err)
+		return -1, fmt.Errorf("failed to get connection from pool: %v", err)
 	}
 
 	// Get tools from this server
@@ -152,7 +168,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	if err != nil {
 		// Handle connection error
 		m.connectionPool.HandleConnectionError(serverName, err)
-		return fmt.Errorf("failed to list tools: %v", err)
+		return -1, fmt.Errorf("failed to list tools: %v", err)
 	}
 
 	// Create name set for allowed tools
@@ -185,7 +201,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		// Convert MCP InputSchema to map[string]any for fantasy ToolInfo
 		marshaledSchema, err := json.Marshal(mcpTool.InputSchema)
 		if err != nil {
-			return fmt.Errorf("conv mcp tool input schema fail(marshal): %w, tool name: %s", err, mcpTool.Name)
+			return -1, fmt.Errorf("conv mcp tool input schema fail(marshal): %w, tool name: %s", err, mcpTool.Name)
 		}
 
 		// Fix for JSON Schema draft-07 vs draft-04 compatibility
@@ -194,7 +210,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		// Parse into map[string]any for fantasy's parameters format
 		var schemaMap map[string]any
 		if err := json.Unmarshal(marshaledSchema, &schemaMap); err != nil {
-			return fmt.Errorf("conv mcp tool input schema fail(unmarshal): %w, tool name: %s", err, mcpTool.Name)
+			return -1, fmt.Errorf("conv mcp tool input schema fail(unmarshal): %w, tool name: %s", err, mcpTool.Name)
 		}
 
 		// Extract properties and required from the schema
@@ -249,7 +265,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	m.tools = append(m.tools, localTools...)
 	m.mu.Unlock()
 
-	return nil
+	return len(localTools), nil
 }
 
 // GetTools returns all loaded tools as fantasy AgentTools from all configured MCP servers.
