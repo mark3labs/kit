@@ -2003,6 +2003,18 @@ func writeJSONError(err error) {
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
 func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getToolNames func() []string, getMCPToolCount func() int, getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error, startupExtensionMessages []string) error {
+	// Redirect all log output (stdlib and charm) to a file so that log
+	// messages don't write to stderr and corrupt the TUI. Bubble Tea
+	// captures stdout for rendering; any stray stderr output from
+	// background goroutines (watchers, extension handlers, SDK internals)
+	// will visually corrupt the terminal.
+	logDir := filepath.Join(os.TempDir(), "kit")
+	_ = os.MkdirAll(logDir, 0o700)
+	logFile, logErr := tea.LogToFile(filepath.Join(logDir, "kit.log"), "kit")
+	if logErr == nil {
+		defer func() { _ = logFile.Close() }()
+	}
+
 	// Determine terminal size; fall back gracefully.
 	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || termWidth == 0 {

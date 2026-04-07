@@ -2,11 +2,10 @@ package prompts
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/charmbracelet/log"
 )
 
 // LoadOptions configures how templates are discovered and loaded.
@@ -74,10 +73,7 @@ func LoadAll(opts LoadOptions) ([]*PromptTemplate, []Diagnostic, error) {
 					DroppedPath: tpl.FilePath,
 					Reason:      fmt.Sprintf("template from %s overridden by %s", source, existing.Source),
 				})
-				log.Debug("template collision",
-					"name", tpl.Name,
-					"dropped", tpl.FilePath,
-					"kept", existing.FilePath)
+				log.Printf("DEBUG template collision: name=%s dropped=%s kept=%s", tpl.Name, tpl.FilePath, existing.FilePath)
 			} else {
 				tpl.Source = source
 				seen[tpl.Name] = tpl

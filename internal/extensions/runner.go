@@ -2,12 +2,12 @@ package extensions
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/log"
 	"github.com/spf13/viper"
 )
 
@@ -370,10 +370,7 @@ func (r *Runner) Emit(event Event) (Result, error) {
 		for _, handler := range handlers {
 			result, err := safeCall(handler, event, ctx)
 			if err != nil {
-				log.Warn("extension handler error",
-					"path", ext.Path,
-					"event", event.Type(),
-					"err", err)
+				log.Printf("WARN extension handler error: path=%s event=%s err=%v", ext.Path, event.Type(), err)
 				continue
 			}
 			if result == nil {
@@ -707,9 +704,7 @@ func (r *Runner) EmitCustomEvent(name, data string) {
 	safeInvoke := func(h func(string)) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Warn("custom event handler panicked",
-					"event", name,
-					"err", fmt.Sprintf("%v", rec))
+				log.Printf("WARN custom event handler panicked: event=%s err=%v", name, rec)
 			}
 		}()
 		h(data)

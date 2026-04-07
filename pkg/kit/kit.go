@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	charmlog "github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
@@ -739,7 +739,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		defaultHandler, authErr := NewDefaultMCPAuthHandler()
 		if authErr != nil {
 			// Non-fatal: OAuth just won't be available for remote servers.
-			charmlog.Warn("Failed to create OAuth handler; remote MCP servers requiring auth will fail", "error", authErr)
+			log.Printf("WARN Failed to create OAuth handler; remote MCP servers requiring auth will fail: %v", authErr)
 		} else {
 			setupOpts.AuthHandler = defaultHandler
 		}
@@ -1312,11 +1312,8 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			// Emit step usage event for real-time cost tracking
 			if viper.GetBool("debug") {
-				charmlog.Debug("Kit.generate emitting StepUsageEvent",
-					"input", inputTokens,
-					"output", outputTokens,
-					"cacheRead", cacheReadTokens,
-					"cacheCreate", cacheCreationTokens,
+				log.Printf("DEBUG Kit.generate emitting StepUsageEvent: input=%d output=%d cacheRead=%d cacheCreate=%d",
+					inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
 				)
 			}
 			m.events.emit(StepUsageEvent{

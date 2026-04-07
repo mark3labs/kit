@@ -3,13 +3,13 @@ package extensions
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -39,7 +39,7 @@ func NewWatcher(dirs []string, onReload func()) (*Watcher, error) {
 	for _, dir := range dirs {
 		// Watch the directory itself.
 		if err := fsw.Add(dir); err != nil {
-			log.Debug("watcher: skipping directory", "dir", dir, "err", err)
+			log.Printf("DEBUG watcher: skipping directory: dir=%s err=%v", dir, err)
 			continue
 		}
 
@@ -52,7 +52,7 @@ func NewWatcher(dirs []string, onReload func()) (*Watcher, error) {
 			if entry.IsDir() {
 				subdir := filepath.Join(dir, entry.Name())
 				if err := fsw.Add(subdir); err != nil {
-					log.Debug("watcher: skipping subdirectory", "dir", subdir, "err", err)
+					log.Printf("DEBUG watcher: skipping subdirectory: dir=%s err=%v", subdir, err)
 				}
 			}
 		}
@@ -101,7 +101,7 @@ func (w *Watcher) Start(ctx context.Context) {
 				continue
 			}
 
-			log.Debug("watcher: file changed", "file", event.Name, "op", event.Op)
+			log.Printf("DEBUG watcher: file changed: file=%s op=%s", event.Name, event.Op)
 
 			// Debounce: reset timer on each event.
 			if timer != nil {
@@ -113,14 +113,14 @@ func (w *Watcher) Start(ctx context.Context) {
 		case <-timerC:
 			timerC = nil
 			timer = nil
-			log.Debug("watcher: reloading extensions")
+			log.Printf("DEBUG watcher: reloading extensions")
 			w.onReload()
 
 		case err, ok := <-w.watcher.Errors:
 			if !ok {
 				return
 			}
-			log.Warn("watcher: error", "err", err)
+			log.Printf("WARN watcher: error: %v", err)
 		}
 	}
 }
