@@ -1309,6 +1309,17 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				IsStderr:   isStderr,
 			})
 		},
+		// Persist step messages incrementally so that progress survives
+		// crashes and long-running turns don't lose work. Each step's
+		// messages are persisted as a unit: for tool-calling steps this is
+		// the assistant message (with tool_use parts) + tool-role message
+		// (with tool_result parts) as a pair; for the final step it's the
+		// assistant text/reasoning message alone.
+		func(stepMessages []fantasy.Message) {
+			for _, msg := range stepMessages {
+				_, _ = m.session.AppendMessage(msg)
+			}
+		},
 		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			// Emit step usage event for real-time cost tracking
 			if viper.GetBool("debug") {
@@ -1331,10 +1342,16 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 //  2. Persist pre-generation messages to the tree session.
 //  3. Build context from the tree (walks leaf-to-root for current branch).
 //  4. Emit turn/message start events.
-//  5. Run generation.
-//  6. Emit turn/message end events.
-//  7. Persist post-generation messages (tool calls, results, assistant).
+//  5. Run generation (messages are persisted incrementally per step).
+//  6. Persist any remaining messages not covered by incremental persistence.
+//  7. Emit turn/message end events.
 //  8. Run AfterTurn hooks.
+//
+// During generation, each completed step's messages are persisted immediately
+// via the onStepMessages callback. Tool calls are always persisted as
+// call/response pairs (assistant + tool messages together). Reasoning and
+// text-only assistant messages are persisted as soon as their step completes.
+// This ensures long-running turns don't lose progress on crash or cancellation.
 //
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
 // prompt is the raw user text passed to BeforeTurn hooks.
@@ -1405,16 +1422,18 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	result, err := m.generate(ctx, messages)
 	if err != nil {
-		// Persist any messages from completed steps (tool call/result
-		// pairs) so partial progress is not lost. The agent layer only
-		// includes fully-paired tool_use + tool_result messages in
-		// completedStepMessages, so there are no orphaned entries that
-		// would break subsequent API requests. The user message and any
-		// completed work remain in the session; only the in-progress
-		// (pending) message or tool call is discarded.
-		if result != nil && len(result.ConversationMessages) > sentCount {
-			for _, msg := range result.ConversationMessages[sentCount:] {
-				_, _ = m.session.AppendMessage(msg)
+		// Persist any messages from completed steps that were NOT already
+		// persisted incrementally by the onStepMessages callback. The agent
+		// layer only includes fully-paired tool_use + tool_result messages
+		// in completedStepMessages, so there are no orphaned entries that
+		// would break subsequent API requests.
+		if result != nil {
+			newMessages := result.ConversationMessages[sentCount:]
+			alreadyPersisted := result.PersistedMessageCount
+			if alreadyPersisted < len(newMessages) {
+				for _, msg := range newMessages[alreadyPersisted:] {
+					_, _ = m.session.AppendMessage(msg)
+				}
 			}
 		}
 		m.events.emit(TurnEndEvent{Error: err})
@@ -1425,12 +1444,17 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	responseText := result.FinalResponse.Content.Text()
 
-	// Persist new messages (tool calls, tool results, assistant response)
-	// BEFORE emitting events so that extension handlers calling
-	// GetContextStats() see up-to-date token counts.
+	// Persist any new messages that were NOT already persisted incrementally
+	// by the onStepMessages callback during generation. This handles the
+	// non-streaming path (where onStepMessages is not called) and any edge
+	// cases where the final response messages weren't covered by step callbacks.
 	if len(result.ConversationMessages) > sentCount {
-		for _, msg := range result.ConversationMessages[sentCount:] {
-			_, _ = m.session.AppendMessage(msg)
+		newMessages := result.ConversationMessages[sentCount:]
+		alreadyPersisted := result.PersistedMessageCount
+		if alreadyPersisted < len(newMessages) {
+			for _, msg := range newMessages[alreadyPersisted:] {
+				_, _ = m.session.AppendMessage(msg)
+			}
 		}
 	}
 

@@ -89,6 +89,14 @@ type ReasoningCompleteHandler func()
 // Note: This is an alias for core.ToolOutputCallback to avoid import cycles.
 type ToolOutputHandler = core.ToolOutputCallback
 
+// StepMessagesHandler is a function type for persisting messages after each
+// complete step in a multi-step agent turn. The handler receives the messages
+// produced by the step (typically an assistant message with tool calls followed
+// by a tool-role message with results, or a final assistant message with text).
+// This enables incremental session persistence so that progress is saved as
+// it happens rather than only at the end of the turn.
+type StepMessagesHandler func(stepMessages []fantasy.Message)
+
 // StepUsageHandler is a function type for handling token usage after each
 // complete step in a multi-step agent turn. This enables real-time cost
 // tracking during long-running tool-calling conversations.
@@ -141,6 +149,11 @@ type GenerateWithLoopResult struct {
 	TotalUsage fantasy.Usage
 	// StopReason is the LLM provider's finish reason for the final response.
 	StopReason string
+	// PersistedMessageCount is the number of new messages (beyond the original
+	// input) that were already persisted incrementally via OnStepMessages during
+	// generation. The caller should skip these when doing post-generation
+	// persistence to avoid duplicates.
+	PersistedMessageCount int
 }
 
 // NewAgent creates a new Agent with core tools and optional MCP tool integration.
@@ -377,7 +390,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
@@ -390,6 +403,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onReasoningDelta ReasoningDeltaHandler,
 	onReasoningComplete ReasoningCompleteHandler,
 	onToolOutput ToolOutputHandler,
+	onStepMessages StepMessagesHandler,
 	onStepUsage StepUsageHandler,
 ) (*GenerateWithLoopResult, error) {
 
@@ -429,6 +443,10 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		// when it returns an error, but the OnStepFinish callback fires
 		// for every step that completed before the error occurred.
 		var completedStepMessages []fantasy.Message
+		// persistedCount tracks how many new messages (beyond the original
+		// input) were persisted incrementally via onStepMessages, so the
+		// caller can skip them during post-generation persistence.
+		var persistedCount int
 
 		// Use the streaming agent
 		streamCall := fantasy.AgentStreamCall{
@@ -514,6 +532,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				// persisted even if a later step is cancelled.
 				completedStepMessages = append(completedStepMessages, step.Messages...)
 
+				// Persist step messages incrementally so progress is saved
+				// as it happens rather than only at the end of the turn.
+				if onStepMessages != nil && len(step.Messages) > 0 {
+					onStepMessages(step.Messages)
+					persistedCount += len(step.Messages)
+				}
+
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
@@ -592,7 +617,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				partialMessages = append(partialMessages, messages...)
 				partialMessages = append(partialMessages, completedStepMessages...)
 				return &GenerateWithLoopResult{
-					ConversationMessages: partialMessages,
+					ConversationMessages:  partialMessages,
+					PersistedMessageCount: persistedCount,
 				}, err
 			}
 			return nil, err
@@ -607,7 +633,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			onResponse(result.Response.Content.Text())
 		}
 
-		return convertAgentResult(result, messages), nil
+		r := convertAgentResult(result, messages)
+		r.PersistedMessageCount = persistedCount
+		return r, nil
 	}
 
 	// Non-streaming path with no callbacks — use the simpler Generate call.

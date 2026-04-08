@@ -6,9 +6,21 @@ import (
 
 // SessionManager defines the contract for conversation storage backends.
 // Implementations can use files (default), databases, cloud storage, etc.
+//
+// Implementations must be safe for concurrent use. During generation,
+// AppendMessage is called incrementally from the agent's step-completion
+// callback while read methods (GetMessages, GetCurrentBranch, etc.) may be
+// called concurrently from the UI or extension goroutines.
 type SessionManager interface {
 	// AppendMessage adds a message to the current branch and returns its entry ID.
 	// The entry ID is used for tree navigation and must be unique within the session.
+	//
+	// During generation, AppendMessage is called incrementally after each
+	// completed agent step rather than in a batch at the end of the turn.
+	// For tool-calling steps, the assistant message (containing tool_use parts)
+	// and the tool-role message (containing tool_result parts) are appended
+	// together as a pair. This ensures the session never contains an orphaned
+	// tool call without its result, which would break subsequent LLM requests.
 	AppendMessage(msg LLMMessage) (entryID string, err error)
 
 	// GetMessages returns all messages on the current branch (from root to leaf),
