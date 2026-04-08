@@ -23,7 +23,7 @@ func NewToolApprovalInput(toolName, toolArgs string, width int) *ToolApprovalInp
 	ta := textarea.New()
 	ta.Placeholder = ""
 	ta.ShowLineNumbers = false
-	ta.CharLimit = 1000
+	ta.CharLimit = 0
 	ta.SetWidth(width - 8) // Account for container padding, border and internal padding
 	ta.SetHeight(4)        // Default to 3 lines like huh
 	ta.Focus()

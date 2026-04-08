@@ -109,7 +109,7 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 	ta.Placeholder = "Type your message..."
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	ta.CharLimit = 5000
+	ta.CharLimit = 0
 	ta.SetWidth(width - 8) // Account for container padding, border and internal padding
 	ta.SetHeight(3)        // Default to 3 lines like huh
 	ta.Focus()

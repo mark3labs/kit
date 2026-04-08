@@ -78,7 +78,7 @@ func newInputPrompt(message, placeholder, defaultValue string, width, height int
 	ta.Placeholder = placeholder
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	ta.CharLimit = 1000
+	ta.CharLimit = 0
 	ta.SetWidth(width - 12) // account for border + padding
 	ta.SetHeight(1)
 	ta.Focus()
