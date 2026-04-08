@@ -902,6 +902,126 @@ a:hover { text-decoration: underline; }
 }
 
 /* ============================================================
+   Compaction Card
+   ============================================================ */
+.compaction-card {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.compaction-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+  background: var(--surface-raised);
+}
+
+.compaction-header:hover {
+  background: var(--surface-overlay);
+}
+
+.compaction-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--yellow);
+  flex-shrink: 0;
+}
+
+.compaction-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.compaction-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.compaction-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+
+.compaction-card.expanded .compaction-chevron {
+  transform: rotate(180deg);
+}
+
+.compaction-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--transition);
+  border-top: 1px solid transparent;
+}
+
+.compaction-card.expanded .compaction-content {
+  max-height: 2000px;
+  overflow-y: auto;
+  border-top-color: var(--border);
+}
+
+.compaction-summary {
+  padding: 16px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.compaction-summary .md-content h1,
+.compaction-summary .md-content h2,
+.compaction-summary .md-content h3 {
+  color: var(--text);
+  margin: 16px 0 8px;
+}
+
+.compaction-summary .md-content h1 { font-size: 1.3em; }
+.compaction-summary .md-content h2 { font-size: 1.15em; }
+.compaction-summary .md-content h3 { font-size: 1.05em; }
+
+.compaction-summary .md-content ul,
+.compaction-summary .md-content ol {
+  padding-left: 20px;
+}
+
+.compaction-stats {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.compaction-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compaction-stat strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ============================================================
    System Prompt Display
    ============================================================ */
 .system-prompt-container {
@@ -1460,6 +1580,7 @@ a:hover { text-decoration: underline; }
     let userMsgCount = 0;
     let assistantMsgCount = 0;
     let toolCallCount = 0;
+    let compactionCount = 0;
 
     // Render each entry
     for (const entry of path) {
@@ -1491,6 +1612,9 @@ a:hover { text-decoration: underline; }
         renderSystemNotice('Label', entry.label || '', 'label');
       } else if (entry.type === 'session_info') {
         // Already handled above for header
+      } else if (entry.type === 'compaction') {
+        compactionCount++;
+        renderCompaction(entry);
       }
     }
 
@@ -1501,6 +1625,7 @@ a:hover { text-decoration: underline; }
           <div class="stat-item"><strong>${userMsgCount}</strong> user message${userMsgCount !== 1 ? 's' : ''}</div>
           <div class="stat-item"><strong>${assistantMsgCount}</strong> assistant message${assistantMsgCount !== 1 ? 's' : ''}</div>
           ${toolCallCount > 0 ? `<div class="stat-item"><strong>${toolCallCount}</strong> tool call${toolCallCount !== 1 ? 's' : ''}</div>` : ''}
+          ${compactionCount > 0 ? `<div class="stat-item"><strong>${compactionCount}</strong> compaction${compactionCount !== 1 ? 's' : ''}</div>` : ''}
           ${header && header.cwd ? `<div class="stat-item">📁 ${escapeHtml(header.cwd)}</div>` : ''}
         </div>`;
       $conversation.insertAdjacentHTML('beforeend', statsHtml);
@@ -2029,6 +2154,60 @@ a:hover { text-decoration: underline; }
       <div class="system-notice-line"></div>`;
     $conversation.appendChild(el);
   }
+
+  // ============================================================
+  //  Compaction Display
+  // ============================================================
+  function renderCompaction(entry) {
+    const el = document.createElement('div');
+    el.className = 'compaction-card fade-in';
+    
+    const cardId = 'compaction-' + Math.random().toString(36).substr(2, 9);
+    
+    // Build stats
+    const stats = [];
+    if (entry.messages_removed > 0) {
+      stats.push(`<div class="compaction-stat"><strong>${entry.messages_removed}</strong> messages compacted</div>`);
+    }
+    if (entry.tokens_before > 0 && entry.tokens_after > 0) {
+      const saved = entry.tokens_before - entry.tokens_after;
+      stats.push(`<div class="compaction-stat"><strong>${saved}</strong> tokens saved</div>`);
+    }
+    
+    // Format timestamp
+    const timeStr = formatTime(entry.timestamp);
+    
+    el.innerHTML = `
+      <div class="compaction-header" onclick="toggleCompaction('${cardId}')">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="compaction-icon">
+          <path d="M2.5 3.5a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-1Z"/>
+        </svg>
+        <span class="compaction-title">Context Compacted</span>
+        ${timeStr ? `<span class="compaction-badge">${timeStr}</span>` : ''}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="compaction-chevron" id="${cardId}-chevron">
+          <path d="M4.427 9.427a.25.25 0 0 0 0 .353l3 3a.25.25 0 0 0 .353 0l3-3a.25.25 0 0 0-.353-.353L8 11.646V4.75a.75.75 0 0 0-1.5 0v6.896L4.78 9.427a.25.25 0 0 0-.353 0Z"/>
+        </svg>
+      </div>
+      <div class="compaction-content" id="${cardId}">
+        ${entry.summary ? `<div class="compaction-summary"><div class="md-content">${renderMarkdown(entry.summary)}</div></div>` : ''}
+        ${stats.length > 0 ? `<div class="compaction-stats">${stats.join('')}</div>` : ''}
+      </div>`;
+    
+    $conversation.appendChild(el);
+  }
+
+  // Toggle compaction card expansion
+  window.toggleCompaction = function(cardId) {
+    const card = document.getElementById(cardId).closest('.compaction-card');
+    const chevron = document.getElementById(cardId + '-chevron');
+    const isExpanded = card.classList.contains('expanded');
+    
+    if (isExpanded) {
+      card.classList.remove('expanded');
+    } else {
+      card.classList.add('expanded');
+    }
+  };
 
   // ============================================================
   //  System Prompt Display (collapsible)
