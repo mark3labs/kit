@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -890,5 +891,109 @@ func TestSubmit_duringWorking_stays(t *testing.T) {
 	}
 	if len(ctrl.runCalls) != 1 || ctrl.runCalls[0] != "queued prompt" {
 		t.Fatalf("expected Run('queued prompt') called, got %v", ctrl.runCalls)
+	}
+}
+
+// --------------------------------------------------------------------------
+// truncateMessageForBlock
+// --------------------------------------------------------------------------
+
+// TestTruncateMessageForBlock_shortMessage verifies that short messages are
+// returned unchanged.
+func TestTruncateMessageForBlock_shortMessage(t *testing.T) {
+	msg := "hello world"
+	got := truncateMessageForBlock(msg, 3, 80)
+	if got != msg {
+		t.Fatalf("expected unchanged message, got %q", got)
+	}
+}
+
+// TestTruncateMessageForBlock_exactLines verifies that a message with exactly
+// maxLines hard lines is returned unchanged.
+func TestTruncateMessageForBlock_exactLines(t *testing.T) {
+	msg := "line1\nline2\nline3"
+	got := truncateMessageForBlock(msg, 3, 80)
+	if got != msg {
+		t.Fatalf("expected unchanged message, got %q", got)
+	}
+}
+
+// TestTruncateMessageForBlock_tooManyLines verifies that messages exceeding
+// maxLines are truncated with an ellipsis.
+func TestTruncateMessageForBlock_tooManyLines(t *testing.T) {
+	msg := "line1\nline2\nline3\nline4\nline5"
+	got := truncateMessageForBlock(msg, 3, 80)
+	want := "line1\nline2\nline3…"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+// TestTruncateMessageForBlock_longWrappingLine verifies that a single long
+// line that would wrap beyond maxLines is truncated.
+func TestTruncateMessageForBlock_longWrappingLine(t *testing.T) {
+	// 100 chars at width 20 = 5 visual lines, exceeds maxLines=3
+	msg := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	got := truncateMessageForBlock(msg, 3, 20)
+	// Should be truncated to 3*20=60 runes + "…"
+	if len([]rune(got)) != 61 { // 60 runes + "…"
+		t.Fatalf("expected 61 runes (60 + ellipsis), got %d runes: %q", len([]rune(got)), got)
+	}
+	if got[len(got)-3:] != "…" { // "…" is 3 bytes in UTF-8
+		t.Fatal("expected trailing ellipsis")
+	}
+}
+
+// TestTruncateMessageForBlock_emptyMessage verifies that empty messages are
+// returned unchanged.
+func TestTruncateMessageForBlock_emptyMessage(t *testing.T) {
+	got := truncateMessageForBlock("", 3, 80)
+	if got != "" {
+		t.Fatalf("expected empty string, got %q", got)
+	}
+}
+
+// TestTruncateMessageForBlock_mixedWrapAndHardLines verifies truncation when
+// some hard lines wrap and the total exceeds maxLines.
+func TestTruncateMessageForBlock_mixedWrapAndHardLines(t *testing.T) {
+	// First line: 40 chars at width 20 = 2 visual lines
+	// Second line: "short" = 1 visual line (total: 3, exactly at limit)
+	// Third line: would exceed
+	msg := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nshort\nextra"
+	got := truncateMessageForBlock(msg, 3, 20)
+	want := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nshort…"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+// TestRenderQueuedMessages_truncatesLongMessages verifies that the rendered
+// queued message view truncates long messages instead of showing them in full.
+func TestRenderQueuedMessages_truncatesLongMessages(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.width = 80
+
+	// Queue a very long message (20 lines).
+	var b strings.Builder
+	for i := range 20 {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("This is a long line of text for testing purposes")
+	}
+	m.queuedMessages = []string{b.String()}
+
+	rendered := m.renderQueuedMessages()
+	if rendered == "" {
+		t.Fatal("expected non-empty rendered output")
+	}
+
+	// The full message would be ~20+ lines. With truncation to 3 content
+	// lines + badge + padding, it should be much shorter.
+	lines := len(strings.Split(rendered, "\n"))
+	// 3 content lines + 1 badge + 2 padding + border overhead ≈ ~7 lines max
+	if lines > 10 {
+		t.Fatalf("expected truncated output to be ≤10 lines, got %d lines", lines)
 	}
 }

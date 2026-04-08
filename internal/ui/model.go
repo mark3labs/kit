@@ -2462,14 +2462,25 @@ func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
 	return renderContentBlock(data.Text, m.width, opts...)
 }
 
+// maxQueuedMessageLines is the maximum number of visible content lines
+// rendered for each queued or steering message block. Messages exceeding
+// this limit are truncated with an ellipsis to prevent large pastes from
+// overflowing the screen and squeezing the stream region to zero.
+const maxQueuedMessageLines = 3
+
 // renderQueuedMessages renders queued and steering prompts as styled content
 // blocks with badges, anchored between the separator and input. Steering
 // messages use a distinct "STEERING" badge to differentiate from queued ones.
+// Long messages are visually truncated to maxQueuedMessageLines.
 func (m *AppModel) renderQueuedMessages() string {
 	if len(m.queuedMessages) == 0 && len(m.steeringMessages) == 0 {
 		return ""
 	}
 	theme := style.GetTheme()
+
+	// Available content width inside the block: container minus border (1)
+	// minus left padding (2). Used to estimate line wrapping for truncation.
+	contentWidth := max(m.width-3, 10)
 
 	var blocks []string
 
@@ -2477,7 +2488,8 @@ func (m *AppModel) renderQueuedMessages() string {
 	if len(m.steeringMessages) > 0 {
 		badge := style.CreateBadge("STEERING", theme.Warning)
 		for _, msg := range m.steeringMessages {
-			content := msg + "\n" + badge
+			display := truncateMessageForBlock(msg, maxQueuedMessageLines, contentWidth)
+			content := display + "\n" + badge
 			rendered := renderContentBlock(
 				content,
 				m.width,
@@ -2492,7 +2504,8 @@ func (m *AppModel) renderQueuedMessages() string {
 	if len(m.queuedMessages) > 0 {
 		badge := style.CreateBadge("QUEUED", theme.Accent)
 		for _, msg := range m.queuedMessages {
-			content := msg + "\n" + badge
+			display := truncateMessageForBlock(msg, maxQueuedMessageLines, contentWidth)
+			content := display + "\n" + badge
 			rendered := renderContentBlock(
 				content,
 				m.width,
@@ -2504,6 +2517,58 @@ func (m *AppModel) renderQueuedMessages() string {
 	}
 
 	return strings.Join(blocks, "\n")
+}
+
+// truncateMessageForBlock truncates a message to at most maxLines visible
+// lines, accounting for soft-wrapping at the given width. If the message is
+// truncated, the last visible line is replaced with an ellipsis ("…").
+func truncateMessageForBlock(msg string, maxLines, width int) string {
+	if width <= 0 {
+		width = 1
+	}
+
+	lines := strings.Split(msg, "\n")
+
+	// Count visible lines (each hard line may wrap into multiple visual lines).
+	var kept []string
+	visibleCount := 0
+	truncated := false
+
+	for _, line := range lines {
+		// Calculate how many visual lines this hard line occupies.
+		lineWidth := lipgloss.Width(line)
+		wrapped := 1
+		if lineWidth > width {
+			wrapped = (lineWidth + width - 1) / width // ceil division
+		}
+
+		if visibleCount+wrapped > maxLines {
+			// This line would exceed the limit. Keep a partial if we
+			// still have room for at least one more visual line.
+			remaining := maxLines - visibleCount
+			if remaining > 0 {
+				// Truncate the line to fit the remaining visual lines.
+				runes := []rune(line)
+				maxRunes := remaining * width
+				if maxRunes < len(runes) {
+					kept = append(kept, string(runes[:maxRunes]))
+				} else {
+					kept = append(kept, line)
+				}
+			}
+			truncated = true
+			break
+		}
+
+		kept = append(kept, line)
+		visibleCount += wrapped
+	}
+
+	if !truncated {
+		return msg
+	}
+
+	return strings.Join(kept, "\n") + "…"
 }
 
 // --------------------------------------------------------------------------
