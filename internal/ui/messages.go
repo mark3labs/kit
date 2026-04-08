@@ -152,7 +152,7 @@ func (r *MessageRenderer) SetWidth(width int) {
 
 // RenderUserMessage renders a user's input message using herald Tip alert
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
-	rendered := render.UserBlock(content, r.ty, style.GetTheme())
+	rendered := render.UserBlock(content, r.width, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      UserMessage,

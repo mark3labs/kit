@@ -14,9 +14,17 @@ import (
 )
 
 // UserBlock renders a user message with herald Tip styling.
-func UserBlock(content string, ty *herald.Typography, theme style.Theme) string {
+// The width parameter controls line wrapping so long messages don't overflow.
+func UserBlock(content string, width int, ty *herald.Typography, theme style.Theme) string {
 	if strings.TrimSpace(content) == "" {
 		content = "(empty message)"
+	}
+
+	// Wrap content before passing to herald Alert so long lines break
+	// inside the alert box. Subtract 4 to account for the alert bar
+	// prefix ("│ ") and a small margin.
+	if width > 4 {
+		content = lipgloss.Wrap(content, width-4, "")
 	}
 
 	rendered := ty.Tip(content)
