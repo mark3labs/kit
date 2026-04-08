@@ -477,7 +477,7 @@ type AppModel struct {
 	queuedMessages []string
 
 	// steeringMessages stores the text of prompts that were sent as steer
-	// messages (injected mid-turn via Ctrl+S). Rendered with a "STEERING"
+	// messages (injected mid-turn via Ctrl+X s). Rendered with a "STEERING"
 	// badge above the input. Cleared when the steer is consumed.
 	steeringMessages []string
 
@@ -497,6 +497,11 @@ type AppModel struct {
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
+
+	// leaderKeyActive tracks whether the Ctrl+X leader key prefix has been
+	// pressed. The next keypress is interpreted as a chord suffix (e.g. "s"
+	// for steer). Cleared on any subsequent keypress.
+	leaderKeyActive bool
 
 	// providerName is the LLM provider for the startup message.
 	providerName string
@@ -1268,6 +1273,71 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// ── Leader key chord handling (Ctrl+X prefix) ──────────────
+		// If the leader key was previously pressed, the current key
+		// completes the chord. We consume it regardless of match so
+		// the prefix doesn't leak to child components.
+		if m.leaderKeyActive {
+			m.leaderKeyActive = false
+			switch msg.String() {
+			case "s":
+				// Ctrl+X s → Steer: inject the current input as a steering
+				// message into the running agent turn.
+				if m.state == stateWorking && m.appCtrl != nil {
+					var text string
+					if ic, ok := m.input.(*InputComponent); ok {
+						text = strings.TrimSpace(ic.textarea.Value())
+					}
+					if text != "" {
+						// Clear the input, collect pending images, and push to history.
+						var images []uicore.ImageAttachment
+						if ic, ok := m.input.(*InputComponent); ok {
+							ic.pushHistory(text)
+							ic.textarea.SetValue("")
+							images = ic.ClearPendingImages()
+						}
+
+						// Preprocess @file references.
+						processedText := text
+						if m.cwd != "" {
+							processedText = fileutil.ProcessFileAttachments(text, m.cwd)
+						}
+
+						// Convert image attachments to kit.LLMFilePart for the app layer.
+						var fileParts []kit.LLMFilePart
+						for _, img := range images {
+							fileParts = append(fileParts, kit.LLMFilePart{
+								Data:      img.Data,
+								MediaType: img.MediaType,
+							})
+						}
+
+						// Build display text (include image count if any).
+						displayText := text
+						if len(images) > 0 {
+							displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
+						}
+
+						// Inject the steer message.
+						sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
+						if sLen > 0 {
+							m.steeringMessages = append(m.steeringMessages, displayText)
+							m.layoutDirty = true
+						} else {
+							// Started immediately (agent was idle).
+							m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+							m.flushStreamAndPendingUserMessages()
+							if m.state != stateWorking {
+								m.state = stateWorking
+							}
+						}
+					}
+				}
+			}
+			// Chord consumed — don't propagate to children.
+			return m, tea.Batch(cmds...)
+		}
+
 		switch msg.String() {
 		case "esc":
 			if m.state == stateWorking {
@@ -1286,61 +1356,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// In other states pass ESC through to children below.
 
-		case "ctrl+s":
-			// Steer: inject the current input as a steering message into the
-			// running agent turn. Only active during stateWorking — in input
-			// state, Ctrl+S is passed through to children (no-op by default).
-			if m.state == stateWorking && m.appCtrl != nil {
-				var text string
-				if ic, ok := m.input.(*InputComponent); ok {
-					text = strings.TrimSpace(ic.textarea.Value())
-				}
-				if text != "" {
-					// Clear the input, collect pending images, and push to history.
-					var images []uicore.ImageAttachment
-					if ic, ok := m.input.(*InputComponent); ok {
-						ic.pushHistory(text)
-						ic.textarea.SetValue("")
-						images = ic.ClearPendingImages()
-					}
-
-					// Preprocess @file references.
-					processedText := text
-					if m.cwd != "" {
-						processedText = fileutil.ProcessFileAttachments(text, m.cwd)
-					}
-
-					// Convert image attachments to kit.LLMFilePart for the app layer.
-					var fileParts []kit.LLMFilePart
-					for _, img := range images {
-						fileParts = append(fileParts, kit.LLMFilePart{
-							Data:      img.Data,
-							MediaType: img.MediaType,
-						})
-					}
-
-					// Build display text (include image count if any).
-					displayText := text
-					if len(images) > 0 {
-						displayText = fmt.Sprintf("%s\n[%d image(s) attached]", text, len(images))
-					}
-
-					// Inject the steer message.
-					sLen := m.appCtrl.SteerWithFiles(processedText, fileParts)
-					if sLen > 0 {
-						m.steeringMessages = append(m.steeringMessages, displayText)
-						m.layoutDirty = true
-					} else {
-						// Started immediately (agent was idle).
-						m.pendingUserPrints = append(m.pendingUserPrints, displayText)
-						m.flushStreamAndPendingUserMessages()
-						if m.state != stateWorking {
-							m.state = stateWorking
-						}
-					}
-				}
-				return m, tea.Batch(cmds...)
-			}
+		case "ctrl+x":
+			// Activate leader key prefix — the next keypress completes the chord.
+			m.leaderKeyActive = true
+			return m, tea.Batch(cmds...)
 		}
 
 		// Route key events to the focused child. Check for editor
@@ -2941,7 +2960,7 @@ func (m *AppModel) printHelpMessage() {
 		"**Keys:**\n" +
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
-		"- `Ctrl+S`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
+		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
 		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
 		"You can also just type your message to chat with the AI assistant."
 	m.printSystemMessage(help)
