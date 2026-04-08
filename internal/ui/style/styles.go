@@ -85,11 +85,13 @@ func GetMarkdownTypography() *herald.Typography {
 	return ty
 }
 
-// ToMarkdown renders markdown content using herald-md.
-// The width parameter is currently unused as herald handles wrapping
-// based on terminal width internally.
+// ToMarkdown renders markdown content using herald-md and wraps the result
+// to the given width so that long lines do not overflow the terminal.
 func ToMarkdown(content string, width int) string {
 	ty := GetMarkdownTypography()
 	rendered := heraldmd.Render(ty, []byte(content))
+	if width > 0 {
+		rendered = lipgloss.Wrap(rendered, width, "")
+	}
 	return rendered
 }
