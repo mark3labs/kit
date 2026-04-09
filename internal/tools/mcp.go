@@ -34,6 +34,11 @@ type MCPToolManager struct {
 	// onServerLoaded, if non-nil, is called when each server finishes loading.
 	// Called with server name, tool count, and error (nil on success).
 	onServerLoaded func(serverName string, toolCount int, err error)
+
+	// onToolsChanged, if non-nil, is called after AddServer or RemoveServer
+	// mutates the tool list. The agent layer uses this to trigger a
+	// rebuildFantasyAgent so the LLM sees the updated tools.
+	onToolsChanged func()
 }
 
 // toolMapping stores the mapping between prefixed tool names and their original details
@@ -94,6 +99,126 @@ func (m *MCPToolManager) SetDebugLogger(logger DebugLogger) {
 // Call this before LoadTools to receive per-server notifications.
 func (m *MCPToolManager) SetOnServerLoaded(cb func(serverName string, toolCount int, err error)) {
 	m.onServerLoaded = cb
+}
+
+// SetOnToolsChanged sets the callback that's invoked after AddServer or
+// RemoveServer mutates the tool list. The agent layer uses this to trigger
+// a rebuild of the fantasy agent so the LLM sees the updated tool set.
+func (m *MCPToolManager) SetOnToolsChanged(cb func()) {
+	m.onToolsChanged = cb
+}
+
+// AddServer connects to a new MCP server at runtime and loads its tools.
+// The server's tools are immediately available to the agent after this call.
+// Returns the number of tools loaded from the server.
+//
+// If the connection pool has not been initialised yet (i.e. LoadTools was never
+// called), AddServer creates one automatically using the manager's current
+// configuration.
+//
+// Returns an error if a server with the same name is already loaded, or if
+// the connection or tool loading fails.
+func (m *MCPToolManager) AddServer(ctx context.Context, name string, cfg config.MCPServerConfig) (int, error) {
+	m.mu.Lock()
+	// Check for duplicate.
+	if _, exists := m.toolMap[name+"__"]; exists {
+		m.mu.Unlock()
+		return 0, fmt.Errorf("MCP server %q is already loaded", name)
+	}
+	// More thorough duplicate check: scan toolMap for any key with the server prefix.
+	prefix := name + "__"
+	for k := range m.toolMap {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			m.mu.Unlock()
+			return 0, fmt.Errorf("MCP server %q is already loaded", name)
+		}
+	}
+	m.mu.Unlock()
+
+	// Lazily create the connection pool if LoadTools was never called.
+	m.ensureConnectionPool()
+
+	count, err := m.loadServerTools(ctx, name, cfg)
+	if err != nil {
+		return 0, fmt.Errorf("failed to add MCP server %q: %w", name, err)
+	}
+
+	// Notify listeners.
+	if m.onServerLoaded != nil {
+		m.onServerLoaded(name, count, nil)
+	}
+	if m.onToolsChanged != nil {
+		m.onToolsChanged()
+	}
+
+	return count, nil
+}
+
+// RemoveServer disconnects an MCP server and removes all its tools.
+// After this call the agent will no longer see or be able to call tools from
+// the named server. Returns an error if the server is not loaded.
+func (m *MCPToolManager) RemoveServer(name string) error {
+	prefix := name + "__"
+
+	m.mu.Lock()
+
+	// Check the server actually has tools loaded.
+	found := false
+	for k := range m.toolMap {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.mu.Unlock()
+		return fmt.Errorf("MCP server %q is not loaded", name)
+	}
+
+	// Remove tools belonging to this server.
+	newTools := make([]fantasy.AgentTool, 0, len(m.tools))
+	for _, t := range m.tools {
+		if len(t.Info().Name) < len(prefix) || t.Info().Name[:len(prefix)] != prefix {
+			newTools = append(newTools, t)
+		}
+	}
+	m.tools = newTools
+
+	// Remove tool mappings.
+	for k := range m.toolMap {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			delete(m.toolMap, k)
+		}
+	}
+	m.mu.Unlock()
+
+	// Close the connection in the pool (best-effort).
+	if m.connectionPool != nil {
+		_ = m.connectionPool.RemoveConnection(name)
+	}
+
+	if m.onToolsChanged != nil {
+		m.onToolsChanged()
+	}
+
+	return nil
+}
+
+// ensureConnectionPool lazily creates a connection pool if one does not exist.
+// This allows AddServer to work even if LoadTools was never called.
+func (m *MCPToolManager) ensureConnectionPool() {
+	if m.connectionPool != nil {
+		return
+	}
+	debug := false
+	if m.config != nil {
+		debug = m.config.Debug
+	}
+	if m.debugLogger == nil {
+		m.debugLogger = NewSimpleDebugLogger(debug)
+	}
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, debug, m.authHandler, m.tokenStoreFactory)
+	m.connectionPool.SetDebugLogger(m.debugLogger)
 }
 
 // LoadTools loads tools from all configured MCP servers based on the provided configuration.
@@ -299,6 +424,9 @@ func (m *MCPToolManager) GetLoadedServerNames() []string {
 // proper cleanup of stdio processes, network connections, and other resources.
 // It is safe to call Close multiple times.
 func (m *MCPToolManager) Close() error {
+	if m.connectionPool == nil {
+		return nil
+	}
 	return m.connectionPool.Close()
 }
 

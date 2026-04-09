@@ -146,6 +146,79 @@ func (m *Kit) MCPToolsReady() bool {
 	return m.agent.MCPToolsReady()
 }
 
+// MCPServerStatus describes the runtime state of a loaded MCP server.
+type MCPServerStatus struct {
+	// Name is the configured server name.
+	Name string
+	// ToolCount is the number of tools loaded from this server.
+	ToolCount int
+}
+
+// AddMCPServer connects to a new MCP server at runtime and makes its tools
+// available to the agent immediately. The server's tools are prefixed with the
+// server name (e.g. "myserver__tool_name") to avoid naming conflicts, matching
+// the behaviour of servers loaded at initialization.
+//
+// Returns the number of tools loaded from the server.
+//
+// AddMCPServer is safe to call while the agent is idle. If a turn is in
+// progress ([Kit.IsGenerating] returns true), the new tools will be visible
+// starting from the next LLM step.
+//
+// Example:
+//
+//	n, err := k.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+//	    Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
+//	    Environment: map[string]string{"GITHUB_TOKEN": os.Getenv("GITHUB_TOKEN")},
+//	})
+func (m *Kit) AddMCPServer(ctx context.Context, name string, cfg MCPServerConfig) (int, error) {
+	return m.agent.AddMCPServer(ctx, name, cfg)
+}
+
+// RemoveMCPServer disconnects an MCP server and removes all its tools from
+// the agent. After this call the agent will no longer see or be able to call
+// tools from the named server.
+//
+// RemoveMCPServer is safe to call while the agent is idle. If a turn is in
+// progress, the tools are removed at the next LLM step. Any in-flight tool
+// calls to the removed server will fail gracefully.
+//
+// Returns an error if the named server is not currently loaded.
+func (m *Kit) RemoveMCPServer(name string) error {
+	return m.agent.RemoveMCPServer(name)
+}
+
+// ListMCPServers returns the status of all currently loaded MCP servers.
+// The returned slice is a snapshot; it is safe to read concurrently.
+func (m *Kit) ListMCPServers() []MCPServerStatus {
+	names := m.agent.GetLoadedServerNames()
+	if len(names) == 0 {
+		return nil
+	}
+
+	// Build a tool count per server by scanning tool names for the prefix.
+	toolNames := m.GetToolNames()
+	countByServer := make(map[string]int, len(names))
+	for _, tn := range toolNames {
+		for _, sn := range names {
+			prefix := sn + "__"
+			if len(tn) > len(prefix) && tn[:len(prefix)] == prefix {
+				countByServer[sn]++
+				break
+			}
+		}
+	}
+
+	result := make([]MCPServerStatus, 0, len(names))
+	for _, n := range names {
+		result = append(result, MCPServerStatus{
+			Name:      n,
+			ToolCount: countByServer[n],
+		})
+	}
+	return result
+}
+
 // GetExtensionToolCount returns the number of tools registered by extensions.
 func (m *Kit) GetExtensionToolCount() int {
 	return m.agent.GetExtensionToolCount()

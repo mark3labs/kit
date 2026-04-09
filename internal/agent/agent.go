@@ -834,6 +834,59 @@ func (a *Agent) SetExtraTools(extraTools []fantasy.AgentTool) {
 	a.rebuildFantasyAgent()
 }
 
+// AddMCPServer connects to a new MCP server at runtime and makes its tools
+// available to the agent. Returns the number of tools loaded.
+// If the agent has no tool manager (no MCP servers were configured at init),
+// one is created automatically.
+func (a *Agent) AddMCPServer(ctx context.Context, name string, cfg config.MCPServerConfig) (int, error) {
+	// Ensure MCP tools from initial load are settled first.
+	a.ensureMCPTools()
+
+	if a.toolManager == nil {
+		a.toolManager = tools.NewMCPToolManager()
+		a.toolManager.SetModel(a.model)
+		a.toolManager.SetOnToolsChanged(func() {
+			a.rebuildFantasyAgent()
+		})
+	}
+
+	count, err := a.toolManager.AddServer(ctx, name, cfg)
+	if err != nil {
+		return 0, err
+	}
+
+	// AddServer's onToolsChanged callback triggers rebuildFantasyAgent,
+	// but only if it was wired. Ensure rebuild happens regardless.
+	a.rebuildFantasyAgent()
+	return count, nil
+}
+
+// RemoveMCPServer disconnects an MCP server and removes its tools from the agent.
+func (a *Agent) RemoveMCPServer(name string) error {
+	if a.toolManager == nil {
+		return fmt.Errorf("no MCP servers loaded")
+	}
+
+	// Ensure MCP tools from initial load are settled first.
+	a.ensureMCPTools()
+
+	err := a.toolManager.RemoveServer(name)
+	if err != nil {
+		return err
+	}
+
+	// RemoveServer's onToolsChanged callback triggers rebuildFantasyAgent,
+	// but ensure rebuild happens regardless.
+	a.rebuildFantasyAgent()
+	return nil
+}
+
+// GetMCPToolManager returns the underlying MCP tool manager.
+// Returns nil if no MCP servers have been configured.
+func (a *Agent) GetMCPToolManager() *tools.MCPToolManager {
+	return a.toolManager
+}
+
 // GetLoadingMessage returns the loading message from provider creation.
 func (a *Agent) GetLoadingMessage() string {
 	return a.loadingMessage

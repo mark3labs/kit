@@ -595,6 +595,27 @@ func (p *MCPConnectionPool) GetClients() map[string]client.MCPClient {
 	return clients
 }
 
+// RemoveConnection closes and removes a single connection from the pool.
+// Returns an error if the connection does not exist or if closing fails.
+// Thread-safe for concurrent use.
+func (p *MCPConnectionPool) RemoveConnection(serverName string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	conn, exists := p.connections[serverName]
+	if !exists {
+		return fmt.Errorf("connection %q not found in pool", serverName)
+	}
+
+	err := conn.client.Close()
+	delete(p.connections, serverName)
+
+	if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
+		p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Removed connection %s", serverName))
+	}
+	return err
+}
+
 // Close gracefully shuts down the connection pool, closing all client connections
 // and stopping the background health check goroutine. It attempts to close all
 // connections even if some fail, logging any errors encountered.
