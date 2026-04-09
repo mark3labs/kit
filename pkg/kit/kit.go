@@ -617,6 +617,14 @@ type Options struct {
 	// Skills
 	Skills    []string // Explicit skill files/dirs to load (empty = auto-discover)
 	SkillsDir string   // Override default project-local skills directory
+	NoSkills  bool     // Disable skill loading entirely (auto-discovery and explicit)
+
+	// NoExtensions disables Yaegi extension loading entirely.
+	NoExtensions bool
+
+	// NoContextFiles disables automatic loading of project context files
+	// (e.g. AGENTS.md) from the working directory.
+	NoContextFiles bool
 
 	// Compaction
 	AutoCompact       bool               // Auto-compact when near context limit
@@ -788,13 +796,17 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 
 		// Load context files (AGENTS.md) from the project root.
-		contextFiles = loadContextFiles(cwd)
+		if !opts.NoContextFiles {
+			contextFiles = loadContextFiles(cwd)
+		}
 
 		// Load skills — either from explicit paths or via auto-discovery.
-		var err error
-		loadedSkills, err = loadSkills(opts)
-		if err != nil {
-			return fmt.Errorf("failed to load skills: %w", err)
+		if !opts.NoSkills {
+			var err error
+			loadedSkills, err = loadSkills(opts)
+			if err != nil {
+				return fmt.Errorf("failed to load skills: %w", err)
+			}
 		}
 
 		// Always compose the system prompt with runtime context: base prompt +
@@ -864,7 +876,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 		modelString = viper.GetString("model")
 		debug = viper.GetBool("debug")
-		noExtensions = viper.GetBool("no-extensions")
+		noExtensions = opts.NoExtensions || viper.GetBool("no-extensions")
 		maxSteps = viper.GetInt("max-steps")
 		streaming = viper.GetBool("stream")
 
