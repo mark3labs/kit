@@ -109,9 +109,7 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 		}
 	}
 
-	fmt.Println("")
-
-	// Display model info
+	// Display model info (the system message block provides its own spacing).
 	if provider != "unknown" && model != "unknown" {
 		cli.DisplayInfo(fmt.Sprintf("Model loaded: %s (%s)", provider, model))
 	}

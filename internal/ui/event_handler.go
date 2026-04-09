@@ -139,7 +139,9 @@ func (h *CLIEventHandler) Handle(msg tea.Msg) {
 		case "block":
 			h.cli.DisplayExtensionBlock(e.Text, e.BorderColor, e.Subtitle)
 		default:
-			fmt.Println(e.Text)
+			// Route unstyled extension prints through the system message
+			// renderer so they get consistent formatting and timestamps.
+			h.cli.DisplayInfo(e.Text)
 		}
 
 	case app.StepCompleteEvent:

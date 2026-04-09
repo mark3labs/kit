@@ -930,7 +930,8 @@ func (a *App) QuitFromExtension() {
 // controls styling: "" for plain text, "info" for a system message block,
 // "error" for an error block. In interactive mode it sends an
 // ExtensionPrintEvent through the program so the TUI can render it with the
-// appropriate renderer. In non-interactive mode it falls back to stdout.
+// appropriate renderer. In non-interactive mode it falls back to stderr with
+// a level prefix so errors are distinguishable from plain output.
 func (a *App) PrintFromExtension(level, text string) {
 	a.mu.Lock()
 	prog := a.program
@@ -939,8 +940,16 @@ func (a *App) PrintFromExtension(level, text string) {
 		prog.Send(ExtensionPrintEvent{Text: text, Level: level})
 		return
 	}
-	// Non-interactive fallback: write directly to stdout.
-	fmt.Println(text)
+	// Non-interactive fallback: write to stderr with a level prefix so that
+	// errors and info messages are distinguishable from plain output.
+	switch level {
+	case "error":
+		fmt.Fprintf(os.Stderr, "[ERROR] %s\n", text)
+	case "info":
+		fmt.Fprintf(os.Stderr, "[INFO] %s\n", text)
+	default:
+		fmt.Println(text)
+	}
 }
 
 // SetEditorTextFromExtension sends an EditorTextSetEvent to the TUI to
@@ -1122,11 +1131,12 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 		})
 		return
 	}
-	// Non-interactive fallback.
+	// Non-interactive fallback: render a simple framed block to stderr so
+	// it is visually distinct from plain stdout output.
 	if opts.Subtitle != "" {
-		fmt.Printf("%s\n  — %s\n", opts.Text, opts.Subtitle)
+		fmt.Fprintf(os.Stderr, "--- %s ---\n%s\n", opts.Subtitle, opts.Text)
 	} else {
-		fmt.Println(opts.Text)
+		fmt.Fprintf(os.Stderr, "---\n%s\n---\n", opts.Text)
 	}
 }
 
