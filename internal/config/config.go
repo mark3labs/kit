@@ -169,6 +169,7 @@ type GenerationParams struct {
 	PresencePenalty  *float32 `json:"presencePenalty,omitempty" yaml:"presencePenalty,omitempty"`
 	StopSequences    []string `json:"stopSequences,omitempty" yaml:"stopSequences,omitempty"`
 	ThinkingLevel    string   `json:"thinkingLevel,omitempty" yaml:"thinkingLevel,omitempty"`
+	SystemPrompt     string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`
 }
 
 // CustomModelConfig defines a custom model that can be used with custom/custom
@@ -417,6 +418,7 @@ mcpServers:
 #   anthropic/claude-opus-4-6:
 #     thinkingLevel: "high"
 #     maxTokens: 16384
+#     systemPrompt: "You are a deep reasoning assistant."  # or a file path
 
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google
@@ -439,6 +441,7 @@ mcpServers:
 #       temperature: 0.8
 #       topP: 0.95
 #       topK: 40
+#       systemPrompt: "You are a helpful local assistant."
 `
 
 	_, err = file.WriteString(content)

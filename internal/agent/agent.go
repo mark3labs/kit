@@ -839,9 +839,11 @@ func (a *Agent) GetLoadedServerNames() []string {
 	return a.toolManager.GetLoadedServerNames()
 }
 
-// SetModel swaps the agent's LLM provider to a new model. The existing tools,
-// system prompt, and configuration are preserved. The old provider is closed
-// if it has a closer. Returns the previous model string for notification.
+// SetModel swaps the agent's LLM provider to a new model. The existing tools
+// and configuration are preserved. When the new model's ProviderConfig carries
+// a system prompt (from per-model settings), it replaces the agent's stored
+// prompt so the rebuilt fantasy agent uses it. The old provider is closed if
+// it has a closer.
 func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) error {
 	// Ensure MCP tools are loaded before rebuilding (SetModel may be called
 	// before the first LLM call).
@@ -867,6 +869,13 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.providerOptions = providerResult.ProviderOptions
 	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
 	a.modelConfig = config
+
+	// Update system prompt when the config carries one (from per-model
+	// settings or the global config). This allows model-specific system
+	// prompts to take effect on model switch.
+	if config.SystemPrompt != "" {
+		a.systemPrompt = config.SystemPrompt
+	}
 
 	// Update provider type.
 	if config.ModelString != "" {

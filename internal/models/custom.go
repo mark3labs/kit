@@ -2,6 +2,8 @@ package models
 
 import (
 	"log"
+	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -57,10 +59,10 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 	return info
 }
 
-// loadModelSettingsFromConfig loads per-model generation parameter overrides
+// LoadModelSettingsFromConfig loads per-model generation parameter overrides
 // from the config file. Keys are "provider/model" strings. Returns nil if
 // no model settings are configured.
-func loadModelSettingsFromConfig() map[string]*GenerationParams {
+func LoadModelSettingsFromConfig() map[string]*GenerationParams {
 	if !viper.IsSet("modelSettings") {
 		return nil
 	}
@@ -119,6 +121,10 @@ func convertGenerationParams(cfg GenerationParamsConfig) *GenerationParams {
 		p.ThinkingLevel = ParseThinkingLevel(cfg.ThinkingLevel)
 		any = true
 	}
+	if cfg.SystemPrompt != "" {
+		p.SystemPrompt = cfg.SystemPrompt
+		any = true
+	}
 
 	if !any {
 		return nil
@@ -147,7 +153,7 @@ func ApplyModelSettings(config *ProviderConfig, modelInfo *ModelInfo) {
 	var params *GenerationParams
 
 	// First check modelSettings from config.
-	if settings := loadModelSettingsFromConfig(); settings != nil {
+	if settings := LoadModelSettingsFromConfig(); settings != nil {
 		modelKey := provider + "/" + modelName
 		if p, ok := settings[modelKey]; ok {
 			params = p
@@ -191,6 +197,32 @@ func ApplyModelSettings(config *ProviderConfig, modelInfo *ModelInfo) {
 	if params.ThinkingLevel != "" && !isExplicitlySet("thinking-level") {
 		config.ThinkingLevel = params.ThinkingLevel
 	}
+	if params.SystemPrompt != "" && config.SystemPrompt == "" {
+		// Resolve file paths: if the value points to an existing file, read it.
+		// We check config.SystemPrompt == "" rather than isExplicitlySet because
+		// viper.BindPFlag causes IsSet to return true even for unset flags.
+		config.SystemPrompt = LoadSystemPromptValue(params.SystemPrompt)
+	}
+}
+
+// LoadSystemPromptValue resolves a system prompt value that may be either
+// inline text or a file path. If the value is a path to an existing file,
+// its contents are read and returned. Otherwise the string is returned as-is.
+// This mirrors config.LoadSystemPrompt but lives in the models package to
+// avoid circular dependencies.
+func LoadSystemPromptValue(input string) string {
+	if input == "" {
+		return ""
+	}
+	if info, err := os.Stat(input); err == nil && !info.IsDir() {
+		content, err := os.ReadFile(input)
+		if err != nil {
+			log.Printf("Warning: failed to read system prompt file %q: %v", input, err)
+			return input
+		}
+		return strings.TrimSpace(string(content))
+	}
+	return input
 }
 
 // isExplicitlySet returns true when the user has explicitly set a config key
@@ -223,6 +255,7 @@ type GenerationParams struct {
 	PresencePenalty  *float32
 	StopSequences    []string
 	ThinkingLevel    ThinkingLevel
+	SystemPrompt     string // Per-model system prompt (inline text or file path)
 }
 
 // CustomModelConfig defines a custom model configuration loaded from the config file.
@@ -252,6 +285,7 @@ type GenerationParamsConfig struct {
 	PresencePenalty  *float32 `json:"presencePenalty,omitempty" yaml:"presencePenalty,omitempty"`
 	StopSequences    []string `json:"stopSequences,omitempty" yaml:"stopSequences,omitempty"`
 	ThinkingLevel    string   `json:"thinkingLevel,omitempty" yaml:"thinkingLevel,omitempty"`
+	SystemPrompt     string   `json:"systemPrompt,omitempty" yaml:"systemPrompt,omitempty"`
 }
 
 // CostConfig defines the pricing for a custom model.

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"os"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -85,6 +86,16 @@ func TestConvertGenerationParams(t *testing.T) {
 		}
 		if p.ThinkingLevel != ThinkingMedium {
 			t.Errorf("expected thinking level medium, got %v", p.ThinkingLevel)
+		}
+	})
+	t.Run("system prompt only", func(t *testing.T) {
+		cfg := GenerationParamsConfig{SystemPrompt: "You are helpful."}
+		p := convertGenerationParams(cfg)
+		if p == nil {
+			t.Fatal("expected non-nil")
+		}
+		if p.SystemPrompt != "You are helpful." {
+			t.Errorf("expected system prompt, got %q", p.SystemPrompt)
 		}
 	})
 }
@@ -302,6 +313,110 @@ func TestApplyModelSettings(t *testing.T) {
 
 		if config.ThinkingLevel != ThinkingHigh {
 			t.Errorf("expected thinking level high, got %v", config.ThinkingLevel)
+		}
+	})
+
+	t.Run("system prompt applied from model params", func(t *testing.T) {
+		viper.Reset()
+
+		modelInfo := &ModelInfo{
+			ID: "test-model",
+			Params: &GenerationParams{
+				SystemPrompt: "You are a coding assistant.",
+			},
+		}
+
+		config := &ProviderConfig{
+			ModelString: "custom/test-model",
+		}
+
+		ApplyModelSettings(config, modelInfo)
+
+		if config.SystemPrompt != "You are a coding assistant." {
+			t.Errorf("expected system prompt to be set, got %q", config.SystemPrompt)
+		}
+	})
+
+	t.Run("explicit system prompt takes precedence", func(t *testing.T) {
+		viper.Reset()
+
+		modelInfo := &ModelInfo{
+			ID: "test-model",
+			Params: &GenerationParams{
+				SystemPrompt: "Model-specific prompt",
+			},
+		}
+
+		config := &ProviderConfig{
+			ModelString:  "custom/test-model",
+			SystemPrompt: "Global prompt",
+		}
+
+		ApplyModelSettings(config, modelInfo)
+
+		// Global system prompt should NOT be overridden because config
+		// already has a non-empty SystemPrompt.
+		if config.SystemPrompt != "Global prompt" {
+			t.Errorf("expected global prompt preserved, got %q", config.SystemPrompt)
+		}
+	})
+
+	t.Run("system prompt from file path", func(t *testing.T) {
+		viper.Reset()
+
+		// Create a temp file with a system prompt
+		tmpFile, err := os.CreateTemp("", "kit-test-prompt-*.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+		if _, err := tmpFile.WriteString("  Prompt from file  "); err != nil {
+			t.Fatal(err)
+		}
+		_ = tmpFile.Close()
+
+		modelInfo := &ModelInfo{
+			ID: "test-model",
+			Params: &GenerationParams{
+				SystemPrompt: tmpFile.Name(),
+			},
+		}
+
+		config := &ProviderConfig{
+			ModelString: "custom/test-model",
+		}
+
+		ApplyModelSettings(config, modelInfo)
+
+		if config.SystemPrompt != "Prompt from file" {
+			t.Errorf("expected trimmed file content, got %q", config.SystemPrompt)
+		}
+	})
+
+	t.Run("modelSettings system prompt overrides custom model params", func(t *testing.T) {
+		viper.Reset()
+
+		viper.Set("modelSettings", map[string]any{
+			"custom/test-model": map[string]any{
+				"systemPrompt": "From modelSettings",
+			},
+		})
+
+		modelInfo := &ModelInfo{
+			ID: "test-model",
+			Params: &GenerationParams{
+				SystemPrompt: "From custom model",
+			},
+		}
+
+		config := &ProviderConfig{
+			ModelString: "custom/test-model",
+		}
+
+		ApplyModelSettings(config, modelInfo)
+
+		if config.SystemPrompt != "From modelSettings" {
+			t.Errorf("expected modelSettings prompt, got %q", config.SystemPrompt)
 		}
 	})
 }

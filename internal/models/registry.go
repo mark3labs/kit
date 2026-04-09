@@ -241,6 +241,18 @@ func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 	return &modelInfo
 }
 
+// LookupModelForSettings is a convenience function that parses a
+// "provider/model" string and looks up the ModelInfo in the global registry.
+// Returns nil when the model string is invalid or the model is unknown.
+// Used by Kit.SetModel to pre-apply per-model settings before CreateProvider.
+func LookupModelForSettings(modelString string) *ModelInfo {
+	provider, modelName, err := ParseModelString(modelString)
+	if err != nil {
+		return nil
+	}
+	return GetGlobalRegistry().LookupModel(provider, modelName)
+}
+
 // getRequiredEnvVars returns the required environment variables for a provider.
 func (r *ModelsRegistry) getRequiredEnvVars(provider string) ([]string, error) {
 	providerInfo, exists := r.providers[provider]

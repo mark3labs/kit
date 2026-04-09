@@ -51,6 +51,12 @@ type Kit struct {
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
 	opts           *Options       // stored for reload operations (skills, etc.)
 
+	// hasCustomSystemPrompt is true when the user explicitly configured a
+	// system prompt (via --system-prompt flag, config file, or SDK option).
+	// When false, per-model system prompts from modelSettings/customModels
+	// can replace the default prompt on model switch.
+	hasCustomSystemPrompt bool
+
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
@@ -221,9 +227,12 @@ func iterBranchMessages[T any](tm *session.TreeManager, fn func(*session.Message
 	return results
 }
 
-// SetModel changes the active model at runtime. The existing tools, system
-// prompt, and session are preserved. The model string should be in
-// "provider/model" format (e.g. "anthropic/claude-sonnet-4-5-20250929").
+// SetModel changes the active model at runtime. The existing tools and
+// session are preserved. When the new model has a per-model system prompt
+// (from modelSettings or customModels params), it is composed with the
+// current AGENTS.md context and skills before being applied.
+// The model string should be in "provider/model" format
+// (e.g. "anthropic/claude-sonnet-4-5-20250929").
 // Returns an error if the model string is invalid or the provider cannot
 // be created.
 func (m *Kit) SetModel(ctx context.Context, modelString string) error {
@@ -274,6 +283,24 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		cfg.PresencePenalty = &v
 	}
 
+	// When the user hasn't set a custom global system prompt, check for a
+	// per-model system prompt. Pre-apply model settings to discover it,
+	// then compose with AGENTS.md context and skills if found.
+	if !m.hasCustomSystemPrompt {
+		// Temporarily clear the system prompt so ApplyModelSettings can
+		// detect that no explicit prompt is set and apply the per-model one.
+		cfg.SystemPrompt = ""
+		models.ApplyModelSettings(cfg, models.LookupModelForSettings(modelString))
+
+		if cfg.SystemPrompt != "" {
+			// Per-model system prompt found — compose with runtime context.
+			cfg.SystemPrompt = m.composeSystemPrompt(cfg.SystemPrompt)
+		} else {
+			// No per-model prompt — restore the global composed prompt.
+			cfg.SystemPrompt = systemPrompt
+		}
+	}
+
 	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
@@ -288,6 +315,32 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	}
 
 	return nil
+}
+
+// composeSystemPrompt takes a base system prompt and composes it with the
+// current runtime context: AGENTS.md content, skills metadata, and date/cwd.
+// This mirrors the composition done during Kit.New() initialization.
+func (m *Kit) composeSystemPrompt(basePrompt string) string {
+	cwd, _ := os.Getwd()
+	pb := skills.NewPromptBuilder(basePrompt)
+
+	// Inject AGENTS.md content as project context.
+	for _, cf := range m.contextFiles {
+		pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
+	}
+
+	// Inject skills metadata.
+	if len(m.skills) > 0 {
+		pb.WithSkills(m.skills)
+	}
+
+	// Append current date/time and working directory.
+	pb.WithSection("", fmt.Sprintf(
+		"Current date and time: %s\nCurrent working directory: %s",
+		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+	))
+
+	return pb.Build()
 }
 
 // GetAvailableModels returns a list of known models from the registry. Each
@@ -596,16 +649,17 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	// provider creation, session init) then runs outside the lock, allowing
 	// parallel subagent spawns to proceed concurrently.
 	var (
-		providerConfig *models.ProviderConfig
-		modelString    string
-		cwd            string
-		contextFiles   []*ContextFile
-		loadedSkills   []*Skill
-		mcpConfig      *config.Config
-		debug          bool
-		noExtensions   bool
-		maxSteps       int
-		streaming      bool
+		providerConfig        *models.ProviderConfig
+		modelString           string
+		cwd                   string
+		contextFiles          []*ContextFile
+		loadedSkills          []*Skill
+		mcpConfig             *config.Config
+		debug                 bool
+		noExtensions          bool
+		maxSteps              int
+		streaming             bool
+		hasCustomSystemPrompt bool
 	)
 
 	if err := func() error {
@@ -661,8 +715,41 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 
 		// Always compose the system prompt with runtime context: base prompt +
 		// AGENTS.md context + skills metadata + date/cwd.
+		//
+		// If the configured model has a per-model system prompt (via
+		// modelSettings or customModels params) and the user hasn't
+		// explicitly set system-prompt, use the per-model prompt as the
+		// base instead of the global default.
 		{
 			basePrompt := viper.GetString("system-prompt")
+
+			// Track whether the user explicitly configured a custom system
+			// prompt. When they haven't (basePrompt is the built-in default
+			// or empty), per-model system prompts can replace it on switch.
+			userSetSystemPrompt := basePrompt != "" && basePrompt != defaultSystemPrompt
+			hasCustomSystemPrompt = userSetSystemPrompt
+
+			// Check for per-model system prompt override when no explicit
+			// global system-prompt was configured by the user.
+			if !userSetSystemPrompt {
+				modelStr := viper.GetString("model")
+				if modelStr != "" {
+					if mi := models.LookupModelForSettings(modelStr); mi != nil {
+						var perModelParams *models.GenerationParams
+						// modelSettings takes priority over custom model params.
+						if ms := models.LoadModelSettingsFromConfig(); ms != nil {
+							perModelParams = ms[modelStr]
+						}
+						if perModelParams == nil && mi.Params != nil {
+							perModelParams = mi.Params
+						}
+						if perModelParams != nil && perModelParams.SystemPrompt != "" {
+							basePrompt = models.LoadSystemPromptValue(perModelParams.SystemPrompt)
+						}
+					}
+				}
+			}
+
 			pb := skills.NewPromptBuilder(basePrompt)
 
 			// Inject AGENTS.md content as project context.
@@ -788,24 +875,25 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 
 	k := &Kit{
-		agent:           agentResult.Agent,
-		session:         sessionManager,
-		modelString:     modelString,
-		events:          newEventBus(),
-		autoCompact:     opts.AutoCompact,
-		compactionOpts:  opts.CompactionOptions,
-		contextFiles:    contextFiles,
-		skills:          loadedSkills,
-		extRunner:       agentResult.ExtRunner,
-		bufferedLogger:  agentResult.BufferedLogger,
-		authHandler:     setupOpts.AuthHandler,
-		opts:            opts,
-		beforeToolCall:  beforeToolCall,
-		afterToolResult: afterToolResult,
-		beforeTurn:      beforeTurn,
-		afterTurn:       afterTurn,
-		contextPrepare:  contextPrepare,
-		beforeCompact:   beforeCompact,
+		agent:                 agentResult.Agent,
+		session:               sessionManager,
+		modelString:           modelString,
+		events:                newEventBus(),
+		autoCompact:           opts.AutoCompact,
+		compactionOpts:        opts.CompactionOptions,
+		contextFiles:          contextFiles,
+		skills:                loadedSkills,
+		extRunner:             agentResult.ExtRunner,
+		bufferedLogger:        agentResult.BufferedLogger,
+		authHandler:           setupOpts.AuthHandler,
+		opts:                  opts,
+		hasCustomSystemPrompt: hasCustomSystemPrompt,
+		beforeToolCall:        beforeToolCall,
+		afterToolResult:       afterToolResult,
+		beforeTurn:            beforeTurn,
+		afterTurn:             afterTurn,
+		contextPrepare:        contextPrepare,
+		beforeCompact:         beforeCompact,
 	}
 
 	// Bridge extension events to SDK hooks.
