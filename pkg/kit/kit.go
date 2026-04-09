@@ -239,7 +239,7 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 
 	// With message-level caching, thinking and caching can work together.
 	// No need to disable caching when thinking is enabled.
-	config := &models.ProviderConfig{
+	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
 		ProviderAPIKey: viper.GetString("provider-api-key"),
@@ -249,18 +249,32 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		ThinkingLevel:  thinkingLevel,
 		DisableCaching: false, // Caching enabled by default, works with thinking
 	}
-	temperature := float32(viper.GetFloat64("temperature"))
-	config.Temperature = &temperature
-	topP := float32(viper.GetFloat64("top-p"))
-	config.TopP = &topP
-	topK := int32(viper.GetInt("top-k"))
-	config.TopK = &topK
-	frequencyPenalty := float32(viper.GetFloat64("frequency-penalty"))
-	config.FrequencyPenalty = &frequencyPenalty
-	presencePenalty := float32(viper.GetFloat64("presence-penalty"))
-	config.PresencePenalty = &presencePenalty
 
-	if err := m.agent.SetModel(ctx, config); err != nil {
+	// Only set generation parameter pointers when the user has explicitly
+	// provided a value. This leaves nil pointers for unset params, allowing
+	// per-model defaults (modelSettings / customModels params) to apply.
+	if viper.IsSet("temperature") {
+		v := float32(viper.GetFloat64("temperature"))
+		cfg.Temperature = &v
+	}
+	if viper.IsSet("top-p") {
+		v := float32(viper.GetFloat64("top-p"))
+		cfg.TopP = &v
+	}
+	if viper.IsSet("top-k") {
+		v := int32(viper.GetInt("top-k"))
+		cfg.TopK = &v
+	}
+	if viper.IsSet("frequency-penalty") {
+		v := float32(viper.GetFloat64("frequency-penalty"))
+		cfg.FrequencyPenalty = &v
+	}
+	if viper.IsSet("presence-penalty") {
+		v := float32(viper.GetFloat64("presence-penalty"))
+		cfg.PresencePenalty = &v
+	}
+
+	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
 

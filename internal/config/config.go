@@ -157,6 +157,20 @@ type Theme struct {
 	Markdown MarkdownThemeConfig `json:"markdown,omitzero" yaml:"markdown,omitempty"`
 }
 
+// GenerationParams defines generation parameter defaults that can be attached
+// to individual models. These act as model-level defaults — CLI flags and
+// global config values take precedence when explicitly set.
+type GenerationParams struct {
+	MaxTokens        *int     `json:"maxTokens,omitempty" yaml:"maxTokens,omitempty"`
+	Temperature      *float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	TopP             *float32 `json:"topP,omitempty" yaml:"topP,omitempty"`
+	TopK             *int32   `json:"topK,omitempty" yaml:"topK,omitempty"`
+	FrequencyPenalty *float32 `json:"frequencyPenalty,omitempty" yaml:"frequencyPenalty,omitempty"`
+	PresencePenalty  *float32 `json:"presencePenalty,omitempty" yaml:"presencePenalty,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty" yaml:"stopSequences,omitempty"`
+	ThinkingLevel    string   `json:"thinkingLevel,omitempty" yaml:"thinkingLevel,omitempty"`
+}
+
 // CustomModelConfig defines a custom model that can be used with custom/custom
 // or other custom/ prefixed models. These models are loaded from the config file
 // and merged into the custom provider in the model registry.
@@ -171,6 +185,11 @@ type CustomModelConfig struct {
 	Knowledge   string      `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 	Cost        CostConfig  `json:"cost" yaml:"cost"`
 	Limit       LimitConfig `json:"limit" yaml:"limit"`
+
+	// Generation parameter defaults for this model.
+	// These are applied when the user hasn't explicitly set the corresponding
+	// CLI flag or global config value.
+	Params GenerationParams `json:"params,omitzero" yaml:"params,omitempty"`
 }
 
 // CostConfig defines the pricing for a custom model.
@@ -219,6 +238,12 @@ type Config struct {
 
 	// Custom model definitions (under custom/ provider)
 	CustomModels map[string]CustomModelConfig `json:"customModels,omitempty" yaml:"customModels,omitempty"`
+
+	// Per-model generation parameter overrides. Keys are "provider/model" strings
+	// (e.g. "anthropic/claude-sonnet-4-5-20250929", "openai/gpt-4o"). These
+	// settings act as model-level defaults — CLI flags and global config values
+	// take precedence when explicitly set.
+	ModelSettings map[string]GenerationParams `json:"modelSettings,omitempty" yaml:"modelSettings,omitempty"`
 }
 
 // GetTransportType returns the transport type for the server config, mapping
@@ -367,7 +392,7 @@ mcpServers:
 # debug: false                                 # Enable debug logging
 # system-prompt: "/path/to/system-prompt.txt" # System prompt text file
 
-# Model generation parameters (all optional)
+# Model generation parameters (all optional, apply globally to all models)
 # max-tokens: 4096                             # Maximum tokens in response
 # temperature: 0.7                             # Randomness (0.0-1.0)
 # top-p: 0.95                                  # Nucleus sampling (0.0-1.0)
@@ -376,9 +401,44 @@ mcpServers:
 # presence-penalty: 0.0                         # Penalize present tokens (0.0-2.0)
 # stop-sequences: ["Human:", "Assistant:"]     # Custom stop sequences
 
+# Per-model generation parameter overrides (apply to specific models)
+# These act as model-level defaults — CLI flags and global settings above take precedence.
+# Keys are "provider/model" strings matching the model you use.
+# modelSettings:
+#   anthropic/claude-sonnet-4-5-20250929:
+#     temperature: 0.3
+#     maxTokens: 8192
+#   openai/gpt-4o:
+#     temperature: 0.7
+#     topP: 0.95
+#     topK: 40
+#     frequencyPenalty: 0.1
+#     presencePenalty: 0.1
+#   anthropic/claude-opus-4-6:
+#     thinkingLevel: "high"
+#     maxTokens: 16384
+
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google
 # provider-url: "https://api.openai.com/v1" # Base URL for OpenAI, Anthropic, or Ollama
+
+# Custom model definitions (under custom/ provider)
+# customModels:
+#   my-local-llama:
+#     name: "Local Llama 3"
+#     baseUrl: "http://localhost:8080/v1"
+#     family: "llama"
+#     temperature: true
+#     cost:
+#       input: 0.0
+#       output: 0.0
+#     limit:
+#       context: 131072
+#       output: 8192
+#     params:                              # Generation parameter defaults for this model
+#       temperature: 0.8
+#       topP: 0.95
+#       topK: 40
 `
 
 	_, err = file.WriteString(content)

@@ -241,6 +241,11 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		validateModelConfig(config, modelInfo)
 	}
 
+	// Apply per-model generation parameter defaults. Model-level params are
+	// only applied for fields where the user hasn't explicitly set a value
+	// via CLI flag or global config.
+	ApplyModelSettings(config, modelInfo)
+
 	// Create the base provider
 	var result *ProviderResult
 	var createErr error

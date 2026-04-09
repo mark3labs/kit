@@ -26,6 +26,11 @@ type ModelInfo struct {
 	ProviderNPM string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
 	BaseURL     string // Per-model base URL override (custom models only)
 	APIKey      string // Per-model API key override (custom models only)
+
+	// Params holds per-model generation parameter defaults. These are applied
+	// when the user hasn't explicitly set the corresponding CLI flag or global
+	// config value. Nil pointer fields mean "no model-level default".
+	Params *GenerationParams
 }
 
 // SupportsCaching returns true if this model family supports prompt caching.

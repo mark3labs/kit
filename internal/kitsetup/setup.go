@@ -82,36 +82,55 @@ type AgentSetupResult struct {
 
 // BuildProviderConfig creates a *models.ProviderConfig from the current viper
 // state. All entry points (root, script, SDK) converge through this function.
+//
+// Generation parameter pointers (Temperature, TopP, etc.) are only set when
+// the user has explicitly configured them via CLI flag, environment variable,
+// or global config file. This allows per-model defaults from modelSettings
+// and customModels to fill in unset parameters downstream.
 func BuildProviderConfig() (*models.ProviderConfig, string, error) {
 	systemPrompt, err := config.LoadSystemPrompt(viper.GetString("system-prompt"))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load system prompt: %w", err)
 	}
 
-	temperature := float32(viper.GetFloat64("temperature"))
-	topP := float32(viper.GetFloat64("top-p"))
-	topK := int32(viper.GetInt("top-k"))
-	frequencyPenalty := float32(viper.GetFloat64("frequency-penalty"))
-	presencePenalty := float32(viper.GetFloat64("presence-penalty"))
 	numGPU := int32(viper.GetInt("num-gpu-layers"))
 	mainGPU := int32(viper.GetInt("main-gpu"))
 
 	cfg := &models.ProviderConfig{
-		ModelString:      viper.GetString("model"),
-		SystemPrompt:     systemPrompt,
-		ProviderAPIKey:   viper.GetString("provider-api-key"),
-		ProviderURL:      viper.GetString("provider-url"),
-		MaxTokens:        viper.GetInt("max-tokens"),
-		Temperature:      &temperature,
-		TopP:             &topP,
-		TopK:             &topK,
-		FrequencyPenalty: &frequencyPenalty,
-		PresencePenalty:  &presencePenalty,
-		StopSequences:    viper.GetStringSlice("stop-sequences"),
-		NumGPU:           &numGPU,
-		MainGPU:          &mainGPU,
-		TLSSkipVerify:    viper.GetBool("tls-skip-verify"),
-		ThinkingLevel:    models.ParseThinkingLevel(viper.GetString("thinking-level")),
+		ModelString:    viper.GetString("model"),
+		SystemPrompt:   systemPrompt,
+		ProviderAPIKey: viper.GetString("provider-api-key"),
+		ProviderURL:    viper.GetString("provider-url"),
+		MaxTokens:      viper.GetInt("max-tokens"),
+		StopSequences:  viper.GetStringSlice("stop-sequences"),
+		NumGPU:         &numGPU,
+		MainGPU:        &mainGPU,
+		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
+		ThinkingLevel:  models.ParseThinkingLevel(viper.GetString("thinking-level")),
+	}
+
+	// Only set generation parameter pointers when the user has explicitly
+	// provided a value. This leaves nil pointers for unset params, allowing
+	// per-model defaults (modelSettings / customModels params) to apply.
+	if viper.IsSet("temperature") {
+		v := float32(viper.GetFloat64("temperature"))
+		cfg.Temperature = &v
+	}
+	if viper.IsSet("top-p") {
+		v := float32(viper.GetFloat64("top-p"))
+		cfg.TopP = &v
+	}
+	if viper.IsSet("top-k") {
+		v := int32(viper.GetInt("top-k"))
+		cfg.TopK = &v
+	}
+	if viper.IsSet("frequency-penalty") {
+		v := float32(viper.GetFloat64("frequency-penalty"))
+		cfg.FrequencyPenalty = &v
+	}
+	if viper.IsSet("presence-penalty") {
+		v := float32(viper.GetFloat64("presence-penalty"))
+		cfg.PresencePenalty = &v
 	}
 
 	return cfg, systemPrompt, nil
