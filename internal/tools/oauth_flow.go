@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 )
 
 // MCPAuthHandler is the internal interface for handling MCP OAuth flows.
@@ -20,6 +21,12 @@ type MCPAuthHandler interface {
 	// after the user completes authorization.
 	HandleAuth(ctx context.Context, serverName string, authURL string) (callbackURL string, err error)
 }
+
+// TokenStoreFactory creates a transport.TokenStore for a given MCP server URL.
+// When provided to the connection pool, it is called once per remote MCP server
+// instead of using the default file-based token store. Implementations can
+// return any transport.TokenStore — in-memory, database-backed, encrypted, etc.
+type TokenStoreFactory func(serverURL string) (transport.TokenStore, error)
 
 // OAuthFlowRunner handles the OAuth authorization flow when an MCP server
 // returns an OAuthAuthorizationRequiredError. It coordinates dynamic client

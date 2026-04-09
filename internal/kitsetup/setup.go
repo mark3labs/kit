@@ -65,6 +65,10 @@ type AgentSetupOptions struct {
 	// AuthHandler handles OAuth authorization for remote MCP servers.
 	// When set, remote transports are configured with OAuth support.
 	AuthHandler tools.MCPAuthHandler
+	// TokenStoreFactory, if non-nil, creates a custom token store for each
+	// remote MCP server's OAuth tokens. When nil, the default file-based
+	// token store is used.
+	TokenStoreFactory tools.TokenStoreFactory
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
@@ -219,6 +223,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		SpinnerFunc:       opts.SpinnerFunc,
 		DebugLogger:       debugLogger,
 		AuthHandler:       opts.AuthHandler,
+		TokenStoreFactory: opts.TokenStoreFactory,
 		CoreTools:         opts.CoreTools,
 		DisableCoreTools:  opts.DisableCoreTools,
 		ToolWrapper:       toolWrapper,

@@ -38,6 +38,10 @@ type AgentCreationOptions struct {
 	DebugLogger tools.DebugLogger // Optional debug logger
 	// AuthHandler handles OAuth authorization for remote MCP servers
 	AuthHandler tools.MCPAuthHandler
+	// TokenStoreFactory, if non-nil, creates a custom token store for each
+	// remote MCP server's OAuth tokens. When nil, the default file-based
+	// token store is used.
+	TokenStoreFactory tools.TokenStoreFactory
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used.
 	CoreTools []fantasy.AgentTool
@@ -66,6 +70,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		StreamingEnabled:  opts.StreamingEnabled,
 		DebugLogger:       opts.DebugLogger,
 		AuthHandler:       opts.AuthHandler,
+		TokenStoreFactory: opts.TokenStoreFactory,
 		CoreTools:         opts.CoreTools,
 		DisableCoreTools:  opts.DisableCoreTools,
 		ToolWrapper:       opts.ToolWrapper,

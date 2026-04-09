@@ -30,6 +30,11 @@ type AgentConfig struct {
 	// If nil, remote MCP servers that require OAuth will fail to connect.
 	AuthHandler tools.MCPAuthHandler
 
+	// TokenStoreFactory, if non-nil, creates a custom token store for each
+	// remote MCP server's OAuth tokens. When nil, the default file-based
+	// token store is used.
+	TokenStoreFactory tools.TokenStoreFactory
+
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used. This allows SDK users to provide a custom tool set (e.g.
 	// CodingTools or tools with a custom WorkDir).
@@ -235,6 +240,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		toolManager.SetModel(providerResult.Model)
 		if agentConfig.AuthHandler != nil {
 			toolManager.SetAuthHandler(agentConfig.AuthHandler)
+		}
+		if agentConfig.TokenStoreFactory != nil {
+			toolManager.SetTokenStoreFactory(agentConfig.TokenStoreFactory)
 		}
 		if agentConfig.DebugLogger != nil {
 			toolManager.SetDebugLogger(agentConfig.DebugLogger)

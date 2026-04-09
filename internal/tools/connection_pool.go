@@ -60,15 +60,16 @@ type MCPConnection struct {
 // creation, health monitoring, and cleanup. The pool runs background health checks
 // to proactively identify and remove unhealthy connections.
 type MCPConnectionPool struct {
-	connections map[string]*MCPConnection
-	config      *ConnectionPoolConfig
-	mu          sync.RWMutex
-	model       fantasy.LanguageModel
-	ctx         context.Context
-	cancel      context.CancelFunc
-	debug       bool
-	debugLogger DebugLogger
-	oauthFlow   *OAuthFlowRunner
+	connections       map[string]*MCPConnection
+	config            *ConnectionPoolConfig
+	mu                sync.RWMutex
+	model             fantasy.LanguageModel
+	ctx               context.Context
+	cancel            context.CancelFunc
+	debug             bool
+	debugLogger       DebugLogger
+	oauthFlow         *OAuthFlowRunner
+	tokenStoreFactory TokenStoreFactory // custom factory for per-server token stores (nil = default FileTokenStore)
 }
 
 // NewMCPConnectionPool creates a new MCP connection pool with the specified configuration.
@@ -76,19 +77,20 @@ type MCPConnectionPool struct {
 // goroutine for periodic health checks that runs until Close is called.
 // The model parameter is used for MCP servers that require sampling support.
 // Thread-safe for concurrent use immediately after creation.
-func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool, authHandler MCPAuthHandler) *MCPConnectionPool {
+func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool, authHandler MCPAuthHandler, tokenStoreFactory TokenStoreFactory) *MCPConnectionPool {
 	if config == nil {
 		config = DefaultConnectionPoolConfig()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pool := &MCPConnectionPool{
-		connections: make(map[string]*MCPConnection),
-		config:      config,
-		model:       model,
-		ctx:         ctx,
-		cancel:      cancel,
-		debug:       debug,
+		connections:       make(map[string]*MCPConnection),
+		config:            config,
+		model:             model,
+		ctx:               ctx,
+		cancel:            cancel,
+		debug:             debug,
+		tokenStoreFactory: tokenStoreFactory,
 	}
 
 	if authHandler != nil {
@@ -367,7 +369,7 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 	// scopes are discovered automatically via dynamic client registration and
 	// server metadata (RFC 9728).
 	if p.oauthFlow != nil {
-		tokenStore, tsErr := NewFileTokenStore(serverConfig.URL)
+		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
 		}
@@ -414,7 +416,7 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 	// scopes are discovered automatically via dynamic client registration and
 	// server metadata (RFC 9728).
 	if p.oauthFlow != nil {
-		tokenStore, tsErr := NewFileTokenStore(serverConfig.URL)
+		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
 		}
@@ -435,6 +437,16 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 	}
 
 	return streamableClient, nil
+}
+
+// createTokenStore creates a token store for the given server URL.
+// If a custom TokenStoreFactory is configured, it is used; otherwise the
+// default file-backed token store is created.
+func (p *MCPConnectionPool) createTokenStore(serverURL string) (transport.TokenStore, error) {
+	if p.tokenStoreFactory != nil {
+		return p.tokenStoreFactory(serverURL)
+	}
+	return NewFileTokenStore(serverURL)
 }
 
 // initializeClient initializes the client

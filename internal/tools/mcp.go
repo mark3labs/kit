@@ -20,15 +20,16 @@ import (
 // pooling, health checks, tool name prefixing to avoid conflicts, and sampling support for LLM interactions.
 // Thread-safe for concurrent tool invocations.
 type MCPToolManager struct {
-	connectionPool *MCPConnectionPool
-	tools          []fantasy.AgentTool
-	toolMap        map[string]*toolMapping // maps prefixed tool names to their server and original name
-	mu             sync.Mutex              // protects tools and toolMap during parallel loading
-	model          fantasy.LanguageModel   // LLM model for sampling
-	authHandler    MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
-	config         *config.Config
-	debug          bool
-	debugLogger    DebugLogger
+	connectionPool    *MCPConnectionPool
+	tools             []fantasy.AgentTool
+	toolMap           map[string]*toolMapping // maps prefixed tool names to their server and original name
+	mu                sync.Mutex              // protects tools and toolMap during parallel loading
+	model             fantasy.LanguageModel   // LLM model for sampling
+	authHandler       MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
+	tokenStoreFactory TokenStoreFactory       // factory for creating per-server token stores (nil = default FileTokenStore)
+	config            *config.Config
+	debug             bool
+	debugLogger       DebugLogger
 
 	// onServerLoaded, if non-nil, is called when each server finishes loading.
 	// Called with server name, tool count, and error (nil on success).
@@ -69,6 +70,14 @@ func (m *MCPToolManager) SetAuthHandler(handler MCPAuthHandler) {
 	m.authHandler = handler
 }
 
+// SetTokenStoreFactory sets a custom factory for creating per-server OAuth token
+// stores. When set, the factory is called for each remote MCP server instead of
+// using the default file-based token store. This method should be called before
+// LoadTools.
+func (m *MCPToolManager) SetTokenStoreFactory(factory TokenStoreFactory) {
+	m.tokenStoreFactory = factory
+}
+
 // SetDebugLogger sets the debug logger for the tool manager.
 // The logger will be used to output detailed debugging information about MCP connections,
 // tool loading, and execution. If a connection pool exists, it will also be configured
@@ -99,7 +108,7 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(cfg.Debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, cfg.Debug, m.authHandler)
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, cfg.Debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 
 	// Load all servers in parallel. Each server connection (subprocess

@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/mcp-go/client/transport"
 )
 
 // ==== Message Types (internal/message/content.go) ====
@@ -203,6 +204,29 @@ type CompactionResult = compaction.CompactionResult
 
 // CompactionOptions configures compaction behaviour.
 type CompactionOptions = compaction.CompactionOptions
+
+// ==== MCP OAuth Types ====
+
+// MCPTokenStore persists OAuth tokens for a single MCP server. Implementations
+// must be safe for concurrent use.
+//
+// This is a type alias for the mcp-go transport.TokenStore interface. SDK
+// consumers can implement this interface to provide custom storage backends
+// (database, encrypted file, in-memory, etc.).
+type MCPTokenStore = transport.TokenStore
+
+// MCPToken represents an OAuth token for an MCP server, containing access
+// and refresh tokens along with expiration metadata.
+type MCPToken = transport.Token
+
+// MCPTokenStoreFactory creates an [MCPTokenStore] for a given MCP server URL.
+// It is called once per remote MCP server during connection setup.
+type MCPTokenStoreFactory func(serverURL string) (MCPTokenStore, error)
+
+// ErrMCPNoToken is the sentinel error that [MCPTokenStore] implementations
+// should return from GetToken when no token is stored for the server.
+// Callers can check for this with errors.Is.
+var ErrMCPNoToken = transport.ErrNoToken
 
 // ==== Constructor & Helper Functions ====
 

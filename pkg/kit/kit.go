@@ -564,6 +564,17 @@ type Options struct {
 	// display a URL in a custom UI, redirect to a web app, etc.).
 	MCPAuthHandler MCPAuthHandler
 
+	// MCPTokenStoreFactory, if non-nil, is called to create a token store for
+	// each remote MCP server that requires OAuth. The factory receives the
+	// server's URL and returns a [MCPTokenStore] implementation.
+	//
+	// When nil (default), tokens are persisted to a JSON file at
+	// $XDG_CONFIG_HOME/.kit/mcp_tokens.json (or ~/.config/.kit/mcp_tokens.json).
+	//
+	// Use this to store tokens in a database, encrypt them, keep them
+	// in-memory, or write them to a custom file path.
+	MCPTokenStoreFactory MCPTokenStoreFactory
+
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading during Kit initialization. The callback receives the server name,
 	// tool count, and any error. Called from a background goroutine; safe to
@@ -844,6 +855,13 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		} else {
 			setupOpts.AuthHandler = defaultHandler
 		}
+	}
+
+	// Set up custom token store factory for MCP OAuth tokens.
+	// The SDK MCPTokenStoreFactory is structurally identical to
+	// tools.TokenStoreFactory, so it can be assigned directly.
+	if opts.MCPTokenStoreFactory != nil {
+		setupOpts.TokenStoreFactory = tools.TokenStoreFactory(opts.MCPTokenStoreFactory)
 	}
 
 	if opts.CLI != nil {
