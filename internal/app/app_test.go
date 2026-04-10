@@ -630,10 +630,12 @@ func TestUpdateUsageFromTurnResult_recordsWhenInputTokensZero(t *testing.T) {
 	}
 }
 
-// TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly verifies that context
-// window fill uses InputTokens only (not input+output). The API's InputTokens
-// already includes the full conversation history; adding output would double-count.
-func TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly(t *testing.T) {
+// TestUpdateUsageFromTurnResult_contextTokensUsesAllCategories verifies that
+// context window fill uses all token categories from the final API call:
+// InputTokens + CacheReadTokens + CacheCreationTokens + OutputTokens.
+// With Anthropic prompt caching, InputTokens can be near-zero while
+// CacheReadTokens holds the bulk of the context.
+func TestUpdateUsageFromTurnResult_contextTokensUsesAllCategories(t *testing.T) {
 	usage := &usageUpdaterStub{}
 	app := New(Options{UsageTracker: usage}, nil)
 	defer app.Close()
@@ -641,22 +643,26 @@ func TestUpdateUsageFromTurnResult_contextTokensUsesInputOnly(t *testing.T) {
 	app.updateUsageFromTurnResult(&kit.TurnResult{
 		Response: "ok",
 		TotalUsage: &kit.LLMUsage{
-			InputTokens:  1000,
-			OutputTokens: 200,
+			InputTokens:         3,
+			OutputTokens:        5,
+			CacheReadTokens:     0,
+			CacheCreationTokens: 4317,
 		},
 		FinalUsage: &kit.LLMUsage{
-			InputTokens:  1000, // Full context including history
-			OutputTokens: 200,
+			InputTokens:         3,    // Non-cached input (small with caching)
+			OutputTokens:        5,    // Assistant output
+			CacheReadTokens:     0,    // No cache reads on first call
+			CacheCreationTokens: 4317, // System prompt + tools written to cache
 		},
 	}, "prompt", false)
 
 	usage.mu.Lock()
 	defer usage.mu.Unlock()
 
-	// Context tokens should be InputTokens only (1000), not input+output (1200)
-	// because InputTokens already includes the full conversation history
-	if usage.contextCalls != 1 || usage.lastContextTokens != 1000 {
-		t.Fatalf("expected context tokens=1000 (InputTokens only), got calls=%d tokens=%d",
-			usage.contextCalls, usage.lastContextTokens)
+	// Context tokens should be Input + CacheRead + CacheCreate + Output = 4325
+	expected := 3 + 0 + 4317 + 5
+	if usage.contextCalls != 1 || usage.lastContextTokens != expected {
+		t.Fatalf("expected context tokens=%d (all categories), got calls=%d tokens=%d",
+			expected, usage.contextCalls, usage.lastContextTokens)
 	}
 }

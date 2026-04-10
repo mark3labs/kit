@@ -1183,9 +1183,11 @@ type TurnResult struct {
 	// report usage.
 	TotalUsage *LLMUsage
 
-	// FinalUsage is the token usage from the last API call only. Use this
-	// for context window fill estimation (InputTokens + OutputTokens ≈
-	// current context size). Nil if unavailable.
+	// FinalUsage is the token usage from the last API call only. For context
+	// window fill, sum all categories: InputTokens + CacheReadTokens +
+	// CacheCreationTokens + OutputTokens. With prompt caching, InputTokens
+	// alone understates the context (cached tokens are reported separately).
+	// Nil if unavailable.
 	FinalUsage *LLMUsage
 
 	// Messages is the full updated conversation after the turn, including
@@ -1664,12 +1666,14 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Store the API-reported token count so GetContextStats() matches the
-	// built-in status bar (which uses input + output tokens). The
-	// text-based heuristic misses system prompts, tool definitions, etc.
+	// built-in status bar. The context window is filled by all token
+	// categories: non-cached input, cache reads, cache writes, and output.
+	// With Anthropic prompt caching, InputTokens can be near-zero while
+	// CacheReadTokens/CacheCreationTokens hold the bulk of the context.
 	if result.FinalResponse != nil {
 		u := result.FinalResponse.Usage
 		m.lastInputTokensMu.Lock()
-		m.lastInputTokens = int(u.InputTokens) + int(u.OutputTokens)
+		m.lastInputTokens = int(u.InputTokens) + int(u.CacheReadTokens) + int(u.CacheCreationTokens) + int(u.OutputTokens)
 		m.lastInputTokensMu.Unlock()
 	}
 

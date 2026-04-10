@@ -31,6 +31,11 @@ func (m *Kit) EstimateContextTokens() int {
 // limit and should be compacted.
 // Formula: contextTokens > contextWindow − reserveTokens.
 // Returns false if the model's context limit is unknown.
+//
+// When API-reported token counts are available (after at least one turn),
+// the real count is used instead of the text-based heuristic. This is
+// significantly more accurate because it includes system prompts, tool
+// definitions, and other overhead that the heuristic cannot account for.
 func (m *Kit) ShouldCompact() bool {
 	info := m.GetModelInfo()
 	if info == nil || info.Limit.Context <= 0 {
@@ -42,6 +47,16 @@ func (m *Kit) ShouldCompact() bool {
 		reserveTokens = m.compactionOpts.ReserveTokens
 	}
 
+	// Prefer the real API-reported token count when available.
+	m.lastInputTokensMu.RLock()
+	realTokens := m.lastInputTokens
+	m.lastInputTokensMu.RUnlock()
+
+	if realTokens > 0 {
+		return realTokens > info.Limit.Context-reserveTokens
+	}
+
+	// Fall back to text-based heuristic before first turn completes.
 	messages := m.session.GetMessages()
 	return compaction.ShouldCompact(convertKitMessagesToFantasy(messages), info.Limit.Context, reserveTokens)
 }
@@ -245,6 +260,14 @@ func (m *Kit) persistAndEmitCompaction(
 	); err != nil {
 		return fmt.Errorf("failed to persist compaction entry: %w", err)
 	}
+
+	// Reset the API-reported token count so GetContextStats() and
+	// ShouldCompact() don't use stale pre-compaction values. The next
+	// API call will set the accurate post-compaction count.
+	m.lastInputTokensMu.Lock()
+	m.lastInputTokens = 0
+	m.lastInputTokensMu.Unlock()
+
 	m.events.emit(CompactionEvent{
 		Summary:         summary,
 		OriginalTokens:  originalTokens,

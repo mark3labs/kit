@@ -21,8 +21,10 @@ type UsageUpdater interface {
 	// the provider does not return exact counts.
 	EstimateAndUpdateUsage(inputText, outputText string)
 	// SetContextTokens records the approximate current context window fill
-	// level. This should be the final API call's input+output tokens (from
-	// FinalResponse.Usage), NOT the aggregate TotalUsage.
+	// level. This should be the sum of ALL token categories from the last
+	// API call: InputTokens + CacheReadTokens + CacheCreationTokens +
+	// OutputTokens. With Anthropic prompt caching, InputTokens can be
+	// near-zero while CacheReadTokens holds the bulk of the context.
 	SetContextTokens(tokens int)
 }
 

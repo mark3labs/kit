@@ -1820,6 +1820,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh content to show the finalized message.
 		m.refreshContent()
 
+		// Reset context token display — the pre-compaction count is stale.
+		// The next API call will set the accurate post-compaction value.
+		if m.usageTracker != nil {
+			m.usageTracker.SetContextTokens(0)
+		}
+
 		// Print stats as a separate system message.
 		saved := msg.OriginalTokens - msg.CompactedTokens
 		statsMsg := fmt.Sprintf(

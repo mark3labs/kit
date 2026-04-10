@@ -134,23 +134,28 @@ func (ut *UsageTracker) EstimateAndUpdateUsage(inputText, outputText string) {
 }
 
 // SetContextTokens records the approximate current context window utilization.
-// This should be set from FinalUsage.InputTokens, which already includes the
-// full conversation history (system prompt + all previous messages). Do NOT
-// add OutputTokens as that would double-count (output becomes input next turn).
-// Use FinalResponse.Usage rather than aggregate TotalUsage, because TotalUsage
-// sums across all tool-calling steps and overstates the actual window fill level.
+//
+// The value should include ALL token categories from the last API call:
+//
+//	InputTokens + CacheReadTokens + CacheCreationTokens + OutputTokens
+//
+// With Anthropic prompt caching, InputTokens can be near-zero while
+// CacheReadTokens holds the bulk of the context. All four must be summed
+// to get the true context window fill level.
+//
+// OutputTokens is included because the assistant's output becomes part of
+// the context on the next turn.
+//
+// Use FinalResponse.Usage (last step only) rather than aggregate TotalUsage,
+// because TotalUsage sums across all tool-calling steps and overstates the
+// actual window fill level.
+//
+// The value is set unconditionally (not max-only) so that context shrinks
+// correctly after compaction.
 func (ut *UsageTracker) SetContextTokens(tokens int) {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
-	// Track the maximum context seen so far. In multi-step tool calls,
-	// FinalUsage.InputTokens may reflect only the last step's input, which
-	// can be smaller than previous steps. We want to show the largest context
-	// the model has processed in this session.
-	if tokens > ut.contextTokens {
-		ut.contextTokens = tokens
-	}
-	// If tokens < current, we keep the larger value (no-op)
-	// This prevents the display from dropping during multi-step tool calls.
+	ut.contextTokens = tokens
 }
 
 // RenderUsageInfo generates a formatted string displaying current usage statistics

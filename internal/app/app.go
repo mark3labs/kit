@@ -1165,9 +1165,10 @@ func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool)
 		int(ev.CacheWriteTokens),
 	)
 	// NOTE: We do NOT call SetContextTokens here. Context fill is set once
-	// at turn completion via updateUsageFromTurnResult using FinalUsage.InputTokens,
-	// which reflects the full accumulated context. Per-step context tokens would
-	// cause the display to jump around during multi-step tool calls.
+	// at turn completion via updateUsageFromTurnResult, which sums all token
+	// categories (Input + CacheRead + CacheCreate + Output) from FinalUsage.
+	// Per-step context tokens would cause the display to jump around during
+	// multi-step tool calls.
 }
 
 // updateUsageFromTurnResult records token usage from an SDK TurnResult into the
@@ -1231,15 +1232,30 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 	}
 
 	// --- Context window fill (drives the % bar) ---
-	// Use FinalUsage.InputTokens as the context window fill. The API's InputTokens
-	// already includes the full conversation history (system prompt + all previous
-	// messages + current user message). Adding OutputTokens would double-count since
-	// the output becomes part of the input for the next turn.
-	if result.FinalUsage != nil && result.FinalUsage.InputTokens > 0 {
-		if a.opts.Debug {
-			log.Printf("[DEBUG] updateUsageFromTurnResult: calling SetContextTokens=%d (FinalUsage.InputTokens)",
-				result.FinalUsage.InputTokens)
+	// Calculate context fill from the LAST API call's usage. The context
+	// window is filled by everything sent to and received from the model:
+	//
+	//   InputTokens       — non-cached input (may be small with prompt caching)
+	//   CacheReadTokens   — input tokens served from cache
+	//   CacheCreationTokens — input tokens written to cache this call
+	//   OutputTokens      — assistant output (becomes input next turn)
+	//
+	// With Anthropic prompt caching, InputTokens can drop to near-zero while
+	// CacheReadTokens holds the bulk of the context. We must sum all four to
+	// get the true context window utilization.
+	//
+	// We use FinalUsage (last step only), NOT TotalUsage, because TotalUsage
+	// sums across all tool-calling steps — and each step re-sends the full
+	// conversation, so TotalUsage massively overstates the actual window fill.
+	if result.FinalUsage != nil {
+		u := result.FinalUsage
+		contextFill := int(u.InputTokens) + int(u.CacheReadTokens) + int(u.CacheCreationTokens) + int(u.OutputTokens)
+		if contextFill > 0 {
+			if a.opts.Debug {
+				log.Printf("[DEBUG] updateUsageFromTurnResult: SetContextTokens=%d (Input=%d + CacheRead=%d + CacheCreate=%d + Output=%d)",
+					contextFill, u.InputTokens, u.CacheReadTokens, u.CacheCreationTokens, u.OutputTokens)
+			}
+			a.opts.UsageTracker.SetContextTokens(contextFill)
 		}
-		a.opts.UsageTracker.SetContextTokens(int(result.FinalUsage.InputTokens))
 	}
 }
