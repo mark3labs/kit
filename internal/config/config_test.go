@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMCPServerConfig_NewFormat(t *testing.T) {
@@ -540,5 +542,88 @@ func TestEnsureConfigExistsWhenFileExists(t *testing.T) {
 
 	if string(content) != existingContent {
 		t.Error("Existing config file was modified when it shouldn't have been")
+	}
+}
+
+func TestMCPServerConfig_OAuthFields_JSON(t *testing.T) {
+	jsonData := `{
+		"type": "remote",
+		"url": "https://api.githubcopilot.com/mcp/",
+		"oauthClientId": "Ov23liXXXXXXXXXXXXXX",
+		"oauthClientSecret": "secret123",
+		"oauthScopes": ["read:user", "repo"]
+	}`
+
+	var cfg MCPServerConfig
+	err := json.Unmarshal([]byte(jsonData), &cfg)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if cfg.Type != "remote" {
+		t.Errorf("Expected type 'remote', got %q", cfg.Type)
+	}
+	if cfg.URL != "https://api.githubcopilot.com/mcp/" {
+		t.Errorf("Expected URL, got %q", cfg.URL)
+	}
+	if cfg.OAuthClientID != "Ov23liXXXXXXXXXXXXXX" {
+		t.Errorf("Expected OAuthClientID 'Ov23liXXXXXXXXXXXXXX', got %q", cfg.OAuthClientID)
+	}
+	if cfg.OAuthClientSecret != "secret123" {
+		t.Errorf("Expected OAuthClientSecret 'secret123', got %q", cfg.OAuthClientSecret)
+	}
+	if len(cfg.OAuthScopes) != 2 || cfg.OAuthScopes[0] != "read:user" || cfg.OAuthScopes[1] != "repo" {
+		t.Errorf("Expected OAuthScopes [read:user, repo], got %v", cfg.OAuthScopes)
+	}
+}
+
+func TestMCPServerConfig_OAuthFields_YAML(t *testing.T) {
+	yamlData := `
+type: remote
+url: https://api.githubcopilot.com/mcp/
+oauthClientId: "Ov23liXXXXXXXXXXXXXX"
+oauthScopes:
+  - read:user
+  - repo
+`
+
+	var cfg MCPServerConfig
+	err := yaml.Unmarshal([]byte(yamlData), &cfg)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal YAML: %v", err)
+	}
+
+	if cfg.Type != "remote" {
+		t.Errorf("Expected type 'remote', got %q", cfg.Type)
+	}
+	if cfg.OAuthClientID != "Ov23liXXXXXXXXXXXXXX" {
+		t.Errorf("Expected OAuthClientID 'Ov23liXXXXXXXXXXXXXX', got %q", cfg.OAuthClientID)
+	}
+	if len(cfg.OAuthScopes) != 2 || cfg.OAuthScopes[0] != "read:user" || cfg.OAuthScopes[1] != "repo" {
+		t.Errorf("Expected OAuthScopes [read:user, repo], got %v", cfg.OAuthScopes)
+	}
+}
+
+func TestMCPServerConfig_OAuthFields_Omitted(t *testing.T) {
+	// Verify that omitting OAuth fields still works (backward compat).
+	jsonData := `{
+		"type": "remote",
+		"url": "https://example.com/mcp"
+	}`
+
+	var cfg MCPServerConfig
+	err := json.Unmarshal([]byte(jsonData), &cfg)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if cfg.OAuthClientID != "" {
+		t.Errorf("Expected empty OAuthClientID, got %q", cfg.OAuthClientID)
+	}
+	if cfg.OAuthClientSecret != "" {
+		t.Errorf("Expected empty OAuthClientSecret, got %q", cfg.OAuthClientSecret)
+	}
+	if len(cfg.OAuthScopes) != 0 {
+		t.Errorf("Expected empty OAuthScopes, got %v", cfg.OAuthScopes)
 	}
 }

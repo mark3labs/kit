@@ -55,6 +55,17 @@ func echoServerConfig(t *testing.T) config.MCPServerConfig {
 	}
 }
 
+// mockAuthHandler is a minimal MCPAuthHandler for testing that auth handler
+// propagation works without requiring a real OAuth server.
+type mockAuthHandler struct {
+	redirectURI string
+}
+
+func (h *mockAuthHandler) RedirectURI() string { return h.redirectURI }
+func (h *mockAuthHandler) HandleAuth(_ context.Context, _ string, _ string) (string, error) {
+	return "", nil
+}
+
 // newTestAgent creates a minimal Agent with a mock model and no core tools,
 // suitable for testing MCP server management without an API key.
 func newTestAgent() *Agent {
@@ -238,5 +249,54 @@ func TestAgent_AddRemoveAdd_MCP(t *testing.T) {
 	}
 	if a.GetMCPToolCount() != 2 {
 		t.Errorf("Expected 2 MCP tools after re-add, got %d", a.GetMCPToolCount())
+	}
+}
+
+// TestAgent_AddMCPServer_InheritsAuthHandler verifies that AddMCPServer()
+// propagates the agent's authHandler and tokenStoreFactory to a newly created
+// MCPToolManager (fix for issue #3).
+func TestAgent_AddMCPServer_InheritsAuthHandler(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	handler := &mockAuthHandler{redirectURI: "http://localhost:9999/oauth/callback"}
+
+	model := &mockModel{}
+	a := &Agent{
+		model:             model,
+		coreTools:         nil,
+		extraTools:        nil,
+		maxSteps:          10,
+		systemPrompt:      "test",
+		fantasyAgent:      fantasy.NewAgent(model),
+		authHandler:       handler,
+		tokenStoreFactory: nil, // nil is fine; we just test authHandler propagation
+	}
+	defer func() { _ = a.Close() }()
+
+	// Initially no tool manager.
+	if a.GetMCPToolManager() != nil {
+		t.Fatal("Expected nil tool manager initially")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cfg := echoServerConfig(t)
+	_, err := a.AddMCPServer(ctx, "echo", cfg)
+	if err != nil {
+		t.Fatalf("AddMCPServer failed: %v", err)
+	}
+
+	// Tool manager should now exist and have the auth handler set.
+	tm := a.GetMCPToolManager()
+	if tm == nil {
+		t.Fatal("Expected tool manager to be created by AddMCPServer")
+	}
+
+	// Verify the auth handler was propagated by checking the field directly.
+	if tm.GetAuthHandler() == nil {
+		t.Fatal("Expected auth handler to be propagated to tool manager")
 	}
 }

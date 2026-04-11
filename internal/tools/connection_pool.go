@@ -365,19 +365,29 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 	}
 
 	// Enable OAuth for remote transports when an auth handler is configured.
-	// The OAuthConfig uses PKCE and the handler's redirect URI. Client ID and
-	// scopes are discovered automatically via dynamic client registration and
-	// server metadata (RFC 9728).
+	// The OAuthConfig uses PKCE and the handler's redirect URI. If the server
+	// config provides a pre-registered ClientID (for servers that don't support
+	// dynamic client registration, e.g. GitHub), it is passed through directly.
 	if p.oauthFlow != nil {
 		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
 		}
-		options = append(options, transport.WithOAuth(transport.OAuthConfig{
+		oauthCfg := transport.OAuthConfig{
 			RedirectURI: p.oauthFlow.handler.RedirectURI(),
 			PKCEEnabled: true,
 			TokenStore:  tokenStore,
-		}))
+		}
+		if serverConfig.OAuthClientID != "" {
+			oauthCfg.ClientID = serverConfig.OAuthClientID
+		}
+		if serverConfig.OAuthClientSecret != "" {
+			oauthCfg.ClientSecret = serverConfig.OAuthClientSecret
+		}
+		if len(serverConfig.OAuthScopes) > 0 {
+			oauthCfg.Scopes = serverConfig.OAuthScopes
+		}
+		options = append(options, transport.WithOAuth(oauthCfg))
 	}
 
 	sseClient, err := client.NewSSEMCPClient(serverConfig.URL, options...)
@@ -412,19 +422,29 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 	}
 
 	// Enable OAuth for remote transports when an auth handler is configured.
-	// The OAuthConfig uses PKCE and the handler's redirect URI. Client ID and
-	// scopes are discovered automatically via dynamic client registration and
-	// server metadata (RFC 9728).
+	// The OAuthConfig uses PKCE and the handler's redirect URI. If the server
+	// config provides a pre-registered ClientID (for servers that don't support
+	// dynamic client registration, e.g. GitHub), it is passed through directly.
 	if p.oauthFlow != nil {
 		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
 		}
-		options = append(options, transport.WithHTTPOAuth(transport.OAuthConfig{
+		oauthCfg := transport.OAuthConfig{
 			RedirectURI: p.oauthFlow.handler.RedirectURI(),
 			PKCEEnabled: true,
 			TokenStore:  tokenStore,
-		}))
+		}
+		if serverConfig.OAuthClientID != "" {
+			oauthCfg.ClientID = serverConfig.OAuthClientID
+		}
+		if serverConfig.OAuthClientSecret != "" {
+			oauthCfg.ClientSecret = serverConfig.OAuthClientSecret
+		}
+		if len(serverConfig.OAuthScopes) > 0 {
+			oauthCfg.Scopes = serverConfig.OAuthScopes
+		}
+		options = append(options, transport.WithHTTPOAuth(oauthCfg))
 	}
 
 	streamableClient, err := client.NewStreamableHttpClient(serverConfig.URL, options...)

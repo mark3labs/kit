@@ -135,6 +135,12 @@ type Agent struct {
 	skipMaxOutputTokens bool
 	modelConfig         *models.ProviderConfig
 
+	// authHandler and tokenStoreFactory are stored from AgentConfig so that
+	// AddMCPServer() can propagate them when creating a new MCPToolManager
+	// at runtime (i.e. when no MCP servers were configured at init time).
+	authHandler       tools.MCPAuthHandler
+	tokenStoreFactory tools.TokenStoreFactory
+
 	// mcpReady is closed when background MCP tool loading completes (success
 	// or failure). nil when no MCP servers are configured.
 	mcpReady chan struct{}
@@ -231,6 +237,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		providerOptions:     providerResult.ProviderOptions,
 		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
 		modelConfig:         agentConfig.ModelConfig,
+		authHandler:         agentConfig.AuthHandler,
+		tokenStoreFactory:   agentConfig.TokenStoreFactory,
 	}
 
 	// Start MCP tool loading in the background if servers are configured.
@@ -845,6 +853,12 @@ func (a *Agent) AddMCPServer(ctx context.Context, name string, cfg config.MCPSer
 	if a.toolManager == nil {
 		a.toolManager = tools.NewMCPToolManager()
 		a.toolManager.SetModel(a.model)
+		if a.authHandler != nil {
+			a.toolManager.SetAuthHandler(a.authHandler)
+		}
+		if a.tokenStoreFactory != nil {
+			a.toolManager.SetTokenStoreFactory(a.tokenStoreFactory)
+		}
 		a.toolManager.SetOnToolsChanged(func() {
 			a.rebuildFantasyAgent()
 		})

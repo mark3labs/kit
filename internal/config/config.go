@@ -22,6 +22,14 @@ type MCPServerConfig struct {
 	AllowedTools  []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 	ExcludedTools []string          `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
 
+	// OAuth configuration for remote servers that don't support dynamic
+	// client registration (e.g. GitHub). When OAuthClientID is set, it is
+	// passed directly to the transport's OAuthConfig instead of relying on
+	// dynamic registration.
+	OAuthClientID     string   `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
+	OAuthClientSecret string   `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
+	OAuthScopes       []string `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
+
 	// Legacy fields for backward compatibility
 	Transport string         `json:"transport,omitempty"`
 	Args      []string       `json:"args,omitempty"`
@@ -35,13 +43,16 @@ type MCPServerConfig struct {
 func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	// First try to unmarshal as the new format
 	type newFormat struct {
-		Type          string            `json:"type"`
-		Command       []string          `json:"command,omitempty"`
-		Environment   map[string]string `json:"environment,omitempty"`
-		URL           string            `json:"url,omitempty"`
-		Headers       []string          `json:"headers,omitempty"`
-		AllowedTools  []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
-		ExcludedTools []string          `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
+		Type              string            `json:"type"`
+		Command           []string          `json:"command,omitempty"`
+		Environment       map[string]string `json:"environment,omitempty"`
+		URL               string            `json:"url,omitempty"`
+		Headers           []string          `json:"headers,omitempty"`
+		AllowedTools      []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
+		ExcludedTools     []string          `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
+		OAuthClientID     string            `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
+		OAuthClientSecret string            `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
+		OAuthScopes       []string          `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
 	}
 
 	// Also try legacy format
@@ -66,6 +77,9 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		s.Headers = newConfig.Headers
 		s.AllowedTools = newConfig.AllowedTools
 		s.ExcludedTools = newConfig.ExcludedTools
+		s.OAuthClientID = newConfig.OAuthClientID
+		s.OAuthClientSecret = newConfig.OAuthClientSecret
+		s.OAuthScopes = newConfig.OAuthScopes
 		return nil
 	}
 

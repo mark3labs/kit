@@ -75,6 +75,12 @@ func (m *MCPToolManager) SetAuthHandler(handler MCPAuthHandler) {
 	m.authHandler = handler
 }
 
+// GetAuthHandler returns the OAuth handler for remote MCP server authentication.
+// Returns nil if no handler is configured.
+func (m *MCPToolManager) GetAuthHandler() MCPAuthHandler {
+	return m.authHandler
+}
+
 // SetTokenStoreFactory sets a custom factory for creating per-server OAuth token
 // stores. When set, the factory is called for each remote MCP server instead of
 // using the default file-based token store. This method should be called before
