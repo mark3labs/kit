@@ -98,10 +98,20 @@ host, err := kit.New(ctx, &kit.Options{
     // Skills
     Skills:    []string{"/path/to/skill.md"}, // explicit skill files (empty = auto-discover)
     SkillsDir: "/path/to/skills",             // override project-local skills dir
+    NoSkills:  true,                          // disable skill loading entirely
+
+    // Feature toggles
+    NoExtensions:   true,                     // disable Yaegi extension loading entirely
+    NoContextFiles: true,                     // disable automatic AGENTS.md loading
 
     // Compaction
     AutoCompact:       true,                        // auto-compact near context limit
     CompactionOptions: &kit.CompactionOptions{...}, // nil = defaults
+
+    // MCP OAuth
+    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
+        return myCustomStore(serverURL), nil  // custom OAuth token storage
+    },
 })
 ```
 
@@ -125,8 +135,12 @@ result, err := host.PromptResult(ctx, "Analyze this file")
 // result.StopReason   — "stop", "length", "tool-calls", "error", etc.
 // result.SessionID    — session UUID
 // result.TotalUsage   — aggregate tokens across all steps (*kit.LLMUsage)
-//                        LLMUsage{InputTokens, OutputTokens, TotalTokens, ...}
+//                        LLMUsage{InputTokens, OutputTokens, TotalTokens,
+//                                 ReasoningTokens, CacheCreationTokens, CacheReadTokens}
 // result.FinalUsage   — tokens from last API call only (*kit.LLMUsage)
+//                        For context window fill, sum: InputTokens + CacheReadTokens +
+//                        CacheCreationTokens + OutputTokens (with prompt caching,
+//                        InputTokens alone understates the context)
 // result.Messages     — full updated conversation ([]kit.LLMMessage)
 //                        LLMMessage{Role kit.LLMMessageRole, Content string}
 ```
@@ -466,6 +480,7 @@ names := host.GetToolNames()       // []string of all tool names
 tools := host.GetTools()           // []kit.Tool (full tool objects)
 mcpCount := host.GetMCPToolCount() // tools from MCP servers
 extCount := host.GetExtensionToolCount() // tools from extensions
+ready := host.MCPToolsReady()      // true when async MCP tool loading is complete
 ```
 
 ---
@@ -618,6 +633,56 @@ Always `"provider/model"`: `"anthropic/claude-sonnet-4-5-20250929"`, `"openai/gp
 provider, modelID, err := kit.ParseModelString("anthropic/claude-sonnet-4-5-20250929")
 ```
 
+### Per-model system prompts
+
+Models can have per-model system prompts configured via `modelSettings` or `customModels` in `.kit.yml`. When the user hasn't explicitly set a system prompt (via `--system-prompt`, config, or `Options.SystemPrompt`), the per-model prompt is used as the base and composed with AGENTS.md context and skills.
+
+On `SetModel()`, if the new model has a per-model system prompt and no custom global prompt was set, the per-model prompt automatically replaces the previous one.
+
+### Per-model generation parameters
+
+Models can define default generation parameters (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`) via `modelSettings` or `customModels` `params` in `.kit.yml`. These defaults apply when the user hasn't explicitly set the parameter. Explicit CLI flags or config values always take priority.
+
+---
+
+## Dynamic MCP Server Management
+
+Add, remove, and inspect MCP servers at runtime without restarting Kit:
+
+```go
+// Add a new MCP server — tools become available immediately
+n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+    Command:     []string{"npx", "-y", "@modelcontextprotocol/server-github"},
+    Environment: map[string]string{"GITHUB_TOKEN": os.Getenv("GITHUB_TOKEN")},
+})
+fmt.Printf("Loaded %d tools from github server\n", n)
+
+// Remove an MCP server — its tools are no longer available
+err = host.RemoveMCPServer("github")
+
+// List all currently loaded MCP servers
+servers := host.ListMCPServers()
+for _, s := range servers {
+    fmt.Printf("Server %s: %d tools\n", s.Name, s.ToolCount)
+}
+```
+
+`AddMCPServer` is safe to call while the agent is idle. If a turn is in progress, new tools are visible starting from the next LLM step. Tool names are prefixed with the server name (e.g. `"github__create_issue"`).
+
+### MCP OAuth Token Storage
+
+For remote MCP servers that use OAuth, you can provide a custom token store:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
+        return &MyDatabaseTokenStore{serverURL: serverURL}, nil
+    },
+})
+```
+
+The `MCPTokenStore` interface requires `GetToken`/`SetToken`/`DeleteToken` methods. Return `kit.ErrMCPNoToken` from `GetToken` when no token is stored. When nil (default), tokens are persisted to `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`.
+
 ---
 
 ## Context & Compaction
@@ -625,9 +690,12 @@ provider, modelID, err := kit.ParseModelString("anthropic/claude-sonnet-4-5-2025
 ```go
 tokens := host.EstimateContextTokens()  // heuristic token count
 shouldCompact := host.ShouldCompact()    // true if near context limit
+// ShouldCompact() uses API-reported token counts (including cache tokens)
+// when available, falling back to text-based heuristic before the first turn.
 
 stats := host.GetContextStats()
-// stats.EstimatedTokens — uses API-reported count when available (more accurate)
+// stats.EstimatedTokens — uses API-reported count when available (more accurate;
+//                          includes system prompts, tool definitions, cache tokens)
 // stats.ContextLimit    — model's context window size
 // stats.UsagePercent    — fraction used (0.0–1.0)
 // stats.MessageCount    — number of messages
@@ -787,12 +855,20 @@ kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelL
 // LLM types — concrete Kit-owned structs (no external library dependency)
 kit.LLMMessage      // {Role LLMMessageRole, Content string}
 kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
-kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ReasoningTokens, ...}
+kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ReasoningTokens,
+                     //  CacheCreationTokens, CacheReadTokens}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions
+
+// MCP OAuth types
+kit.MCPTokenStore        // interface for custom OAuth token storage
+kit.MCPToken             // OAuth token struct (access, refresh, expiry)
+kit.MCPTokenStoreFactory // func(serverURL string) (MCPTokenStore, error)
+kit.ErrMCPNoToken        // sentinel error for "no token stored"
+kit.MCPServerStatus      // {Name string, ToolCount int}
 
 // Conversion helpers
 msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message  → []LLMMessage
