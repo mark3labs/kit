@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mark3labs/kit/internal/fences"
 )
 
 // fileTokenPattern matches @file references in user text. Supports:
@@ -20,6 +22,14 @@ var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 //
 // Returns the original text unchanged if no valid @file references are found.
 func ProcessFileAttachments(text string, cwd string) string {
+	return fences.ReplaceOutside(text, func(segment string) string {
+		return processFileTokens(segment, cwd)
+	})
+}
+
+// processFileTokens handles @file replacement in a single text segment
+// that is known to be outside fenced code blocks.
+func processFileTokens(text string, cwd string) string {
 	tokens := fileTokenPattern.FindAllString(text, -1)
 	if len(tokens) == 0 {
 		return text

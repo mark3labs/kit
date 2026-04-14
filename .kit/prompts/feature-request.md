@@ -2,7 +2,7 @@
 description: Create a feature request using the GitHub template
 ---
 
-Create a feature request for the Kit repository. The user wants to request: $@
+Create a feature request for the Kit repository. The user wants to request: $+
 
 ## Feature Request Template
 
@@ -16,7 +16,7 @@ This prompt uses the `feature_request` GitHub template which requires:
 
 ## Steps
 
-1. **Understand the request** from `$@`
+1. **Understand the request** from `$+`
    - What capability is missing?
    - What would the ideal behavior look like?
 

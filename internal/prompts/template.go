@@ -7,10 +7,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mark3labs/kit/internal/fences"
 )
 
 // PromptTemplate is a named prompt template with shell-style argument placeholders.
-// It supports Pi-style $1, $2, $@, $ARGUMENTS, ${@:N}, ${@:N:L} syntax.
+// It supports Pi-style $1, $2, $@, $+, $ARGUMENTS, ${@:N}, ${@:N:L} syntax.
 type PromptTemplate struct {
 	// Name is the human-readable identifier for this template.
 	Name string
@@ -120,19 +122,28 @@ func ParseCommandArgs(input string) []string {
 
 // argPlaceholder matches shell-style argument placeholders:
 //   - $1, $2, etc. - positional arguments
-//   - $@ - all arguments
+//   - $@ - all arguments (zero or more)
+//   - $+ - all arguments (one or more required)
 //   - $ARGUMENTS - all arguments (alias for $@)
 //   - ${@:N} - arguments from N onwards
 //   - ${@:N:L} - L arguments starting from N
-var argPlaceholder = regexp.MustCompile(`\$\{(\d+)\}|\$\{(\d+):(\d+)\}|\$\{ARGUMENTS\}|\$\{@(:\d+)?(:\d+)?\}|\$(\d+)|\$@|\$ARGUMENTS`)
+var argPlaceholder = regexp.MustCompile(`\$\{(\d+)\}|\$\{(\d+):(\d+)\}|\$\{ARGUMENTS\}|\$\{@(:\d+)?(:\d+)?\}|\$(\d+)|\$@|\$\+|\$ARGUMENTS`)
 
 // SubstituteArgs replaces argument placeholders in content with values from args.
 // Supported placeholders:
 //   - $N, ${N} - the Nth argument (1-indexed)
-//   - $@, $ARGUMENTS, ${ARGUMENTS} - all arguments joined with spaces
+//   - $@, $+, $ARGUMENTS, ${ARGUMENTS} - all arguments joined with spaces
 //   - ${@:N} - arguments from index N onwards (0-indexed)
 //   - ${@:N:L} - L arguments starting from index N (0-indexed)
 func SubstituteArgs(content string, args []string) string {
+	return fences.ReplaceOutside(content, func(segment string) string {
+		return substituteArgsInSegment(segment, args)
+	})
+}
+
+// substituteArgsInSegment performs argument substitution on a single text
+// segment that is known to be outside fenced code blocks.
+func substituteArgsInSegment(content string, args []string) string {
 	return argPlaceholder.ReplaceAllStringFunc(content, func(match string) string {
 		// Check for ${N} or ${N:M} format
 		if strings.HasPrefix(match, "${") && strings.Contains(match, "}") {
@@ -191,8 +202,8 @@ func SubstituteArgs(content string, args []string) string {
 		if strings.HasPrefix(match, "$") && !strings.HasPrefix(match, "${") {
 			suffix := match[1:]
 
-			// $@ or $ARGUMENTS
-			if suffix == "@" || suffix == "ARGUMENTS" {
+			// $@, $+, or $ARGUMENTS
+			if suffix == "@" || suffix == "+" || suffix == "ARGUMENTS" {
 				return strings.Join(args, " ")
 			}
 
@@ -268,8 +279,44 @@ func joinArgsRange(args []string, start, length int) string {
 
 // HasArgPlaceholders reports whether the template content contains any
 // argument placeholders ($1, $@, $ARGUMENTS, ${@:...}, etc.).
+// Placeholders inside fenced code blocks and inline code spans are ignored.
 func (t *PromptTemplate) HasArgPlaceholders() bool {
-	return argPlaceholder.MatchString(t.Content)
+	return argPlaceholder.MatchString(fences.StripCode(t.Content))
+}
+
+// RequiredArgs returns the number of positional arguments the template
+// expects. This is determined by the highest $N or ${N} placeholder found
+// in the content (1-indexed, so $2 means 2 args required). The $+
+// placeholder (required variadic) ensures at least 1. Optional wildcards
+// ($@, $ARGUMENTS) do not contribute to the count.
+func (t *PromptTemplate) RequiredArgs() int {
+	content := fences.StripCode(t.Content)
+	maxN := 0
+	hasRequiredVariadic := strings.Contains(content, "$+")
+	for _, match := range argPlaceholder.FindAllStringSubmatch(content, -1) {
+		// Group 1: ${N} format — the N value.
+		if match[1] != "" {
+			if n, err := strconv.Atoi(match[1]); err == nil && n > maxN {
+				maxN = n
+			}
+		}
+		// Group 2: ${N:M} format — the N value (start index).
+		if match[2] != "" {
+			if n, err := strconv.Atoi(match[2]); err == nil && n > maxN {
+				maxN = n
+			}
+		}
+		// Group 6: $N format (no braces) — the N value.
+		if match[6] != "" {
+			if n, err := strconv.Atoi(match[6]); err == nil && n > maxN {
+				maxN = n
+			}
+		}
+	}
+	if hasRequiredVariadic && maxN < 1 {
+		maxN = 1
+	}
+	return maxN
 }
 
 // Expand substitutes arguments into the template content and returns the result.

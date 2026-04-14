@@ -2,7 +2,7 @@
 description: Scaffold a new prompt template in .kit/prompts/
 ---
 
-Create a new kit prompt template. The user wants a prompt that does: $@
+Create a new kit prompt template. The user wants a prompt that does: $+
 
 ## What a prompt template is
 
@@ -23,19 +23,21 @@ $1 $2 etc. for positional arguments.
 - **Filename** → slug: `commit-push.md` becomes `/commit-push`
 - **Frontmatter**: only `description` is recognised; keep it under ~80 chars
 - **Body**: plain markdown; the full text is submitted as the user's message when the template fires
-- **Arguments**: `$@` expands to everything the user typed after the slash command name;
+- **Arguments**: `$+` expands to everything the user typed after the slash command name
+  (requires at least one argument); `$@` is the same but allows zero arguments;
   `$1`, `$2` for individual positional args; omit entirely if no arguments are needed
 
 ## Steps
 
-1. **Understand the workflow** the user described in `$@` — ask a clarifying question if the intent is ambiguous
+1. **Understand the workflow** the user described in `$+` — ask a clarifying question if the intent is ambiguous
 2. **Choose a filename**: short, lowercase, hyphen-separated, descriptive (e.g. `code-review.md`)
 3. **Write the description**: one sentence, imperative, fits in autocomplete
 4. **Draft the body**:
    - Open with a single sentence stating the goal
    - Use `## Steps` for multi-step workflows; use plain prose for simple prompts
    - Be specific: name commands, flags, and file paths where relevant
-   - End with `$@` on its own line if the user might want to pass context or a hint; omit if the prompt is self-contained
+   - End with `$+` on its own line if the user must pass context; use `$@` if arguments
+     are optional; omit if the prompt is self-contained
 5. **Write the file** to `.kit/prompts/<slug>.md`
 6. **Confirm** by showing the final file content and the slash command that activates it
 

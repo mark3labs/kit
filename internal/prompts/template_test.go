@@ -129,6 +129,48 @@ func TestSubstituteArgs(t *testing.T) {
 			args:     []string{},
 			expected: "Args: ",
 		},
+		{
+			name:     "$1 inside code block preserved",
+			content:  "Use $1 here\n```bash\necho $1\n```\ndone",
+			args:     []string{"foo"},
+			expected: "Use foo here\n```bash\necho $1\n```\ndone",
+		},
+		{
+			name:     "$@ inside code block preserved",
+			content:  "Run $@\n```\necho $@\n```\n",
+			args:     []string{"a", "b"},
+			expected: "Run a b\n```\necho $@\n```\n",
+		},
+		{
+			name:     "all placeholders inside code block",
+			content:  "Prompt\n```\n$1 $2 $@\n```\n",
+			args:     []string{"x"},
+			expected: "Prompt\n```\n$1 $2 $@\n```\n",
+		},
+		{
+			name:     "$1 inside inline code preserved",
+			content:  "Use `$1` here and $1 outside",
+			args:     []string{"foo"},
+			expected: "Use `$1` here and foo outside",
+		},
+		{
+			name:     "$+ required variadic",
+			content:  "Args: $+",
+			args:     []string{"a", "b", "c"},
+			expected: "Args: a b c",
+		},
+		{
+			name:     "$+ with empty args",
+			content:  "Args: $+",
+			args:     []string{},
+			expected: "Args: ",
+		},
+		{
+			name:     "all placeholders in inline code",
+			content:  "Use `$1` and `$@` for args",
+			args:     []string{"x"},
+			expected: "Use `$1` and `$@` for args",
+		},
 	}
 
 	for _, tt := range tests {
@@ -230,6 +272,14 @@ func TestHasArgPlaceholders(t *testing.T) {
 		{"${@:1:2} placeholder", "Slice: ${@:1:2}", true},
 		{"dollar in text", "Cost is one hundred dollars", false},
 		{"empty content", "", false},
+		{"$1 inside code block only", "Prompt\n```\necho $1\n```\n", false},
+		{"$1 outside and inside code block", "Use $1 here\n```\necho $1\n```\n", true},
+		{"$@ inside code block only", "Prompt\n```bash\necho $@\n```\n", false},
+		{"$+ placeholder", "Run with args: $+", true},
+		{"$+ inside inline code only", "Use `$+` for required args", false},
+		{"$1 inside inline code only", "Use `$1` for positional args", false},
+		{"$1 outside and in inline code", "Create $1 (see `$1` syntax)", true},
+		{"$@ outside $1 in inline code", "Run $@ with `$1` syntax", true},
 	}
 
 	for _, tt := range tests {
@@ -237,6 +287,45 @@ func TestHasArgPlaceholders(t *testing.T) {
 			tpl := &PromptTemplate{Content: tt.content}
 			if got := tpl.HasArgPlaceholders(); got != tt.want {
 				t.Errorf("HasArgPlaceholders() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequiredArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{"no placeholders", "Just a plain prompt", 0},
+		{"$1 only", "Create a $1 component", 1},
+		{"$1 and $2", "Create $1 with $2", 2},
+		{"$3 skipping $2", "Use $1 and $3", 3},
+		{"${1} braced", "Name: ${1}", 1},
+		{"${2} braced", "Name: ${1} Desc: ${2}", 2},
+		{"$@ only", "Run with: $@", 0},
+		{"$ARGUMENTS only", "Features: $ARGUMENTS", 0},
+		{"${ARGUMENTS} only", "All: ${ARGUMENTS}", 0},
+		{"$1 and $@", "Create $1 with extras: $@", 1},
+		{"${@:1} slice only", "Rest: ${@:1}", 0},
+		{"${@:1:2} slice only", "Slice: ${@:1:2}", 0},
+		{"mixed $1 $2 and $@", "Create $1 named $2: $@", 2},
+		{"empty content", "", 0},
+		{"$2 inside code block only", "Prompt\n```\n$1 $2\n```\n", 0},
+		{"$1 outside $2 inside code block", "Use $1\n```\n$2 inside\n```\n", 1},
+		{"$+ only", "Run with: $+", 1},
+		{"$+ and $2", "Create $2 with: $+", 2},
+		{"$+ inside inline code only", "Use `$+` for required args", 0},
+		{"$1 and $2 in inline code only", "Use `$1` and `$2` for args", 0},
+		{"$1 outside $2 in inline code", "Create $1 (see `$2`)", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpl := &PromptTemplate{Content: tt.content}
+			if got := tpl.RequiredArgs(); got != tt.want {
+				t.Errorf("RequiredArgs() = %d, want %d", got, tt.want)
 			}
 		})
 	}

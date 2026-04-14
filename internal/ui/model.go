@@ -1485,7 +1485,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Expand prompt templates. If the input matches a template name,
 		// substitute arguments and use the expanded content as the prompt.
-		if expanded, ok := m.expandPromptTemplate(msg.Text); ok {
+		if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
+			// Validation failed — re-populate the input so the user can
+			// append the missing arguments without retyping.
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.textarea.SetValue(msg.Text + " ")
+				ic.textarea.CursorEnd()
+			}
+			return m, tea.Batch(cmds...)
+		} else if ok {
 			msg.Text = expanded
 		}
 
@@ -2886,15 +2894,20 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 
 // expandPromptTemplate checks if the submitted text matches a prompt template
 // and returns the expanded content with arguments substituted.
-// Returns (expanded, true) if a template was found and expanded, (text, false) otherwise.
-func (m *AppModel) expandPromptTemplate(text string) (string, bool) {
+//
+// Return values:
+//   - (expanded, true, "") — template matched and expanded successfully
+//   - (text, false, "")   — no template matched; caller should treat text as-is
+//   - ("", false, reason) — template matched but validation failed; reason
+//     contains a user-facing error message (already printed to ScrollList)
+func (m *AppModel) expandPromptTemplate(text string) (string, bool, string) {
 	if len(m.promptTemplates) == 0 {
-		return text, false
+		return text, false, ""
 	}
 
 	// Only consider inputs that look like slash commands.
 	if !strings.HasPrefix(text, "/") {
-		return text, false
+		return text, false, ""
 	}
 
 	// Split: "/templatename arg1 arg2" → name="/templatename", args="arg1 arg2"
@@ -2904,11 +2917,24 @@ func (m *AppModel) expandPromptTemplate(text string) (string, bool) {
 	// Find matching template
 	for _, tpl := range m.promptTemplates {
 		if tpl.Name == name {
-			return tpl.Expand(args), true
+			// Validate that enough positional arguments were provided.
+			required := tpl.RequiredArgs()
+			if required > 0 {
+				provided := len(prompts.ParseCommandArgs(args))
+				if provided < required {
+					reason := fmt.Sprintf(
+						"/%s requires %d argument(s), got %d",
+						name, required, provided,
+					)
+					m.printSystemMessage(reason)
+					return "", false, reason
+				}
+			}
+			return tpl.Expand(args), true, ""
 		}
 	}
 
-	return text, false
+	return text, false, ""
 }
 
 // refreshPromptTemplates reloads prompt templates from the provider callback

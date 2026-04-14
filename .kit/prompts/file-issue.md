@@ -2,7 +2,7 @@
 description: File a GitHub issue using the appropriate template
 ---
 
-File a GitHub issue for the Kit repository. The user wants to create an issue about: $@
+File a GitHub issue for the Kit repository. The user wants to create an issue about: $+
 
 ## Issue Templates Available
 
@@ -16,7 +16,7 @@ This repository has structured issue templates. You MUST use the appropriate tem
 
 ## Steps
 
-1. **Determine the issue type** from `$@`:
+1. **Determine the issue type** from `$+`:
    - Bug → use `--template bug_report`
    - Feature → use `--template feature_request`  
    - Documentation → use `--template documentation`
