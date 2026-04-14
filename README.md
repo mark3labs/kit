@@ -317,39 +317,39 @@ kit -e examples/extensions/minimal.go
 
 See the `examples/extensions/` directory:
 
-- `minimal.go` - Clean UI with custom footer
-- `auto-commit.go` - Auto-commit on shutdown
-- `bookmark.go` - Bookmark conversations
-- `branded-output.go` - Branded output rendering
-- `compact-notify.go` - Notification on compaction
-- `confirm-destructive.go` - Confirm destructive operations
-- `context-inject.go` - Inject context into conversations
-- `conversation-manager.go` - **NEW** Tree navigation, branch summarization, and fresh context loops
-- `custom-editor-demo.go` - Vim-like modal editor
-- `dev-reload.go` - Development live-reload
-- `header-footer-demo.go` - Custom headers and footers
-- `inline-bash.go` - Inline bash execution
-- `interactive-shell.go` - Interactive shell integration
-- `kit-kit.go` - Kit-in-Kit (sub-agent spawning)
-- `lsp-diagnostics.go` - LSP diagnostic integration
-- `notify.go` - Desktop notifications
-- `overlay-demo.go` - Modal dialogs
-- `permission-gate.go` - Permission gating for tools
-- `pirate.go` - Pirate-themed personality
-- `plan-mode.go` - Read-only planning mode
-- `project-rules.go` - Project-specific rules
-- `prompt-demo.go` - Interactive prompts (select/confirm/input)
-- `prompt-templates.go` - **NEW** Frontmatter-driven templates with model switching and skill injection
-- `protected-paths.go` - Path protection for sensitive files
-- `subagent-widget.go` - Multi-agent orchestration with status widget
-- `subagent-test.go` - Subagent testing utilities
-- `summarize.go` - Conversation summarization
-- `tool-logger.go` - Log all tool calls
-- `neon-theme.go` - Custom theme registration and switching
-- `tool-renderer-demo.go` - Custom tool call rendering
-- `widget-status.go` - Persistent status widgets
+- [`minimal.go`](examples/extensions/minimal.go) - Clean UI with custom footer
+- [`auto-commit.go`](examples/extensions/auto-commit.go) - Auto-commit on shutdown
+- [`bookmark.go`](examples/extensions/bookmark.go) - Bookmark conversations
+- [`branded-output.go`](examples/extensions/branded-output.go) - Branded output rendering
+- [`compact-notify.go`](examples/extensions/compact-notify.go) - Notification on compaction
+- [`confirm-destructive.go`](examples/extensions/confirm-destructive.go) - Confirm destructive operations
+- [`context-inject.go`](examples/extensions/context-inject.go) - Inject context into conversations
+- [`conversation-manager.go`](examples/extensions/conversation-manager.go) - **NEW** Tree navigation, branch summarization, and fresh context loops
+- [`custom-editor-demo.go`](examples/extensions/custom-editor-demo.go) - Vim-like modal editor
+- [`dev-reload.go`](examples/extensions/dev-reload.go) - Development live-reload
+- [`header-footer-demo.go`](examples/extensions/header-footer-demo.go) - Custom headers and footers
+- [`inline-bash.go`](examples/extensions/inline-bash.go) - Inline bash execution
+- [`interactive-shell.go`](examples/extensions/interactive-shell.go) - Interactive shell integration
+- [`kit-kit.go`](examples/extensions/kit-kit.go) - Kit-in-Kit (sub-agent spawning)
+- [`lsp-diagnostics.go`](examples/extensions/lsp-diagnostics.go) - LSP diagnostic integration
+- [`notify.go`](examples/extensions/notify.go) - Desktop notifications
+- [`overlay-demo.go`](examples/extensions/overlay-demo.go) - Modal dialogs
+- [`permission-gate.go`](examples/extensions/permission-gate.go) - Permission gating for tools
+- [`pirate.go`](examples/extensions/pirate.go) - Pirate-themed personality
+- [`plan-mode.go`](examples/extensions/plan-mode.go) - Read-only planning mode
+- [`project-rules.go`](examples/extensions/project-rules.go) - Project-specific rules
+- [`prompt-demo.go`](examples/extensions/prompt-demo.go) - Interactive prompts (select/confirm/input)
+- [`prompt-templates.go`](examples/extensions/prompt-templates.go) - **NEW** Frontmatter-driven templates with model switching and skill injection
+- [`protected-paths.go`](examples/extensions/protected-paths.go) - Path protection for sensitive files
+- [`subagent-widget.go`](examples/extensions/subagent-widget.go) - Multi-agent orchestration with status widget
+- [`subagent-test.go`](examples/extensions/subagent-test.go) - Subagent testing utilities
+- [`summarize.go`](examples/extensions/summarize.go) - Conversation summarization
+- [`tool-logger.go`](examples/extensions/tool-logger.go) - Log all tool calls
+- [`neon-theme.go`](examples/extensions/neon-theme.go) - Custom theme registration and switching
+- [`tool-renderer-demo.go`](examples/extensions/tool-renderer-demo.go) - Custom tool call rendering
+- [`widget-status.go`](examples/extensions/widget-status.go) - Persistent status widgets
 
-Also see `.kit/extensions/go-edit-lint.go` (in this repo) for a project-local extension example that runs gopls and golangci-lint on Go file edits.
+Also see [`.kit/extensions/go-edit-lint.go`](.kit/extensions/go-edit-lint.go) (in this repo) for a project-local extension example that runs gopls and golangci-lint on Go file edits.
 
 ### Loading Extensions
 
@@ -406,7 +406,7 @@ func TestMyExtension(t *testing.T) {
 - `AssertPrinted()`, `AssertPrintedContains()` — Verify output
 - `AssertToolRegistered()`, `AssertCommandRegistered()` — Verify registration
 
-See `examples/extensions/tool-logger_test.go` for a complete example with 14 test cases covering tool calls, input handling, and session lifecycle.
+See [`examples/extensions/tool-logger_test.go`](examples/extensions/tool-logger_test.go) for a complete example with 14 test cases covering tool calls, input handling, and session lifecycle.
 
 ### Prompt Templates
 
