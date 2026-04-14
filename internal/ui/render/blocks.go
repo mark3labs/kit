@@ -5,6 +5,7 @@ package render
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -13,8 +14,14 @@ import (
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
+// fileTokenPattern matches @file references in user text. Supports:
+//   - @"path with spaces.txt" (quoted)
+//   - @path/to/file.txt      (unquoted, no spaces)
+var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
+
 // UserBlock renders a user message with herald Tip styling.
 // The width parameter controls line wrapping so long messages don't overflow.
+// Any @file tokens in the content are highlighted with the theme accent color.
 func UserBlock(content string, width int, ty *herald.Typography, theme style.Theme) string {
 	if strings.TrimSpace(content) == "" {
 		content = "(empty message)"
@@ -27,8 +34,21 @@ func UserBlock(content string, width int, ty *herald.Typography, theme style.The
 		content = lipgloss.Wrap(content, width-4, "")
 	}
 
+	// Highlight @file tokens with accent color so file references are
+	// visually distinct from surrounding prompt text.
+	content = highlightFileTokens(content, theme)
+
 	rendered := ty.Tip(content)
 	return styleMarginBottom(theme, rendered)
+}
+
+// highlightFileTokens wraps @file tokens in the given text with the theme
+// accent color so they stand out visually in rendered user messages.
+func highlightFileTokens(text string, theme style.Theme) string {
+	accentStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
+	return fileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
+		return accentStyle.Render(token)
+	})
 }
 
 // AssistantBlock renders an assistant message with markdown styling.
