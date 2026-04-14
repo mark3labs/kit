@@ -213,3 +213,31 @@ func TestPromptTemplateExpand(t *testing.T) {
 		})
 	}
 }
+
+func TestHasArgPlaceholders(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"no placeholders", "Just a plain prompt with no args", false},
+		{"$1 placeholder", "Create a $1 component", true},
+		{"$@ placeholder", "Run with args: $@", true},
+		{"$ARGUMENTS placeholder", "Features: $ARGUMENTS", true},
+		{"${1} placeholder", "Name: ${1}", true},
+		{"${ARGUMENTS} placeholder", "All: ${ARGUMENTS}", true},
+		{"${@:1} placeholder", "Rest: ${@:1}", true},
+		{"${@:1:2} placeholder", "Slice: ${@:1:2}", true},
+		{"dollar in text", "Cost is one hundred dollars", false},
+		{"empty content", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tpl := &PromptTemplate{Content: tt.content}
+			if got := tpl.HasArgPlaceholders(); got != tt.want {
+				t.Errorf("HasArgPlaceholders() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

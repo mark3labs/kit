@@ -827,6 +827,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 				Name:        "/" + tpl.Name,
 				Description: tpl.Description,
 				Category:    "Prompts",
+				HasArgs:     tpl.HasArgPlaceholders(),
 			})
 		}
 	}
@@ -2932,6 +2933,7 @@ func (m *AppModel) refreshPromptTemplates() {
 				Name:        "/" + tpl.Name,
 				Description: tpl.Description,
 				Category:    "Prompts",
+				HasArgs:     tpl.HasArgPlaceholders(),
 			})
 		}
 		ic.commands = kept

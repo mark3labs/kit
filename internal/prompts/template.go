@@ -266,6 +266,12 @@ func joinArgsRange(args []string, start, length int) string {
 	return strings.Join(args[start:end], " ")
 }
 
+// HasArgPlaceholders reports whether the template content contains any
+// argument placeholders ($1, $@, $ARGUMENTS, ${@:...}, etc.).
+func (t *PromptTemplate) HasArgPlaceholders() bool {
+	return argPlaceholder.MatchString(t.Content)
+}
+
 // Expand substitutes arguments into the template content and returns the result.
 // It first parses args from the input string, then substitutes them into the template.
 func (t *PromptTemplate) Expand(argsInput string) string {

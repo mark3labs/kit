@@ -20,6 +20,7 @@ type SlashCommand struct {
 	Aliases     []string
 	Category    string                       // e.g., "Navigation", "System", "Info"
 	Complete    func(prefix string) []string // optional argument tab-completion
+	HasArgs     bool                         // true when the command expects arguments (e.g. prompt templates with placeholders)
 }
 
 // SlashCommands provides the global registry of all available slash commands

@@ -285,16 +285,25 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						s.textarea.CursorEnd()
 						return s, nil
 					}
+					selectedCmd := s.filtered[s.selected].Command
 					// Populate textarea with selected item and submit on next tick.
 					if s.argMode {
-						s.textarea.SetValue(s.argCommand + " " + s.filtered[s.selected].Command.Name)
+						s.textarea.SetValue(s.argCommand + " " + selectedCmd.Name)
 					} else {
-						s.textarea.SetValue(s.filtered[s.selected].Command.Name)
+						s.textarea.SetValue(selectedCmd.Name)
 					}
 					s.textarea.CursorEnd()
 					s.showPopup = false
 					s.selected = 0
-					s.submitNext = true
+					// If the selected command expects arguments, populate
+					// the input with the command + trailing space so the
+					// user can type args, instead of auto-submitting.
+					if !s.argMode && selectedCmd.HasArgs {
+						s.textarea.SetValue(selectedCmd.Name + " ")
+						s.textarea.CursorEnd()
+					} else {
+						s.submitNext = true
+					}
 					return s, nil
 				}
 				return s, nil
