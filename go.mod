@@ -15,6 +15,7 @@ require (
 	github.com/charmbracelet/log v1.0.0
 	github.com/charmbracelet/openai-go v0.0.0-20260319145158-d0740cc34266
 	github.com/charmbracelet/ultraviolet v0.0.0-20260414011438-8c69ec811b1e
+	github.com/charmbracelet/x/editor v0.2.0
 	github.com/clipperhouse/displaywidth v0.11.0
 	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/coder/acp-go-sdk v0.6.3

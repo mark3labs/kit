@@ -521,12 +521,14 @@ func (s *InputComponent) View() tea.View {
 			} else {
 				hint = "^X s steer"
 			}
+		} else if availableHintWidth >= 80 {
+			hint = "enter submit • ctrl+j / shift+enter new line • ctrl+x e editor • ctrl+v paste image"
 		} else if availableHintWidth >= 67 {
-			hint = "enter submit • ctrl+j / shift+enter new line • ctrl+v paste image"
+			hint = "enter submit • ctrl+j new line • ctrl+x e editor • ctrl+v image"
 		} else if availableHintWidth >= 40 {
-			hint = "↵ submit • ctrl+j newline • ctrl+v image"
+			hint = "↵ submit • ctrl+j newline • ^X e editor"
 		} else if availableHintWidth >= 20 {
-			hint = "↵ submit • ctrl+j"
+			hint = "↵ submit • ^X e editor"
 		} else {
 			hint = "↵ submit"
 		}

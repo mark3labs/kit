@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/editor"
 	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/app"
@@ -1333,6 +1334,45 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+			case "e":
+				// Ctrl+X e → open $EDITOR to compose/edit the prompt.
+				editorApp := os.Getenv("VISUAL")
+				if editorApp == "" {
+					editorApp = os.Getenv("EDITOR")
+				}
+				if editorApp == "" {
+					m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use external editor")
+				} else {
+					var currentText string
+					if ic, ok := m.input.(*InputComponent); ok {
+						currentText = ic.textarea.Value()
+					}
+					tmpFile, err := os.CreateTemp("", "kit_prompt_*.md")
+					if err == nil {
+						if currentText != "" {
+							_, _ = tmpFile.WriteString(currentText)
+						}
+						_ = tmpFile.Close()
+						editorCmd, cmdErr := editor.Command(editorApp, tmpFile.Name())
+						if cmdErr != nil {
+							_ = os.Remove(tmpFile.Name())
+							m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
+						} else {
+							cmds = append(cmds, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+								if err != nil {
+									_ = os.Remove(tmpFile.Name())
+									return externalEditorMsg{err: err}
+								}
+								content, readErr := os.ReadFile(tmpFile.Name())
+								_ = os.Remove(tmpFile.Name())
+								if readErr != nil {
+									return externalEditorMsg{err: readErr}
+								}
+								return externalEditorMsg{text: string(content)}
+							}))
+						}
+					}
+				}
 			}
 			// Chord consumed — don't propagate to children.
 			return m, tea.Batch(cmds...)
@@ -1971,6 +2011,19 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
 		} else if msg.output != "" {
 			m.printSystemMessage(msg.output)
+		}
+
+	case externalEditorMsg:
+		// User returned from $EDITOR. Replace input textarea content with
+		// whatever they saved in the temp file. On error (e.g. :cq in vim)
+		// the original input is silently preserved.
+		if msg.err == nil {
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.textarea.SetValue(msg.text)
+				// Move cursor to the end of the inserted text.
+				ic.textarea.CursorEnd()
+			}
+			m.layoutDirty = true
 		}
 
 	case extReloadResultMsg:
@@ -2967,6 +3020,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `Ctrl+C`: Exit at any time\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
 		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
+		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
 		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
 		"You can also just type your message to chat with the AI assistant."
 	m.printSystemMessage(help)
@@ -4053,6 +4107,13 @@ func cancelTimerCmd() tea.Cmd {
 // --------------------------------------------------------------------------
 // Interactive prompt support
 // --------------------------------------------------------------------------
+
+// externalEditorMsg is sent when the user returns from $EDITOR after
+// composing a prompt via the Ctrl+X e chord.
+type externalEditorMsg struct {
+	text string
+	err  error
+}
 
 // shareResultMsg carries the result of an async gist upload.
 type shareResultMsg struct {
