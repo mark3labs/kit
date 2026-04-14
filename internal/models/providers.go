@@ -25,7 +25,6 @@ import (
 	openaisdk "github.com/charmbracelet/openai-go"
 
 	"github.com/mark3labs/kit/internal/auth"
-	"github.com/mark3labs/kit/internal/ui/progress"
 )
 
 const (
@@ -159,6 +158,12 @@ type ProviderConfig struct {
 	TLSSkipVerify    bool
 	ThinkingLevel    ThinkingLevel
 	DisableCaching   bool // Opt-out: set to true to disable automatic prompt caching
+
+	// ProgressReaderFunc, when set, wraps an io.Reader with progress display
+	// for long operations like Ollama model pulls. The returned io.ReadCloser
+	// must be closed when done. When nil, the raw reader is consumed directly
+	// with no progress UI.
+	ProgressReaderFunc func(io.Reader) io.ReadCloser
 }
 
 // ProviderResult contains the result of provider creation.
@@ -1128,7 +1133,7 @@ func loadOllamaModelWithFallback(ctx context.Context, baseURL, modelName string,
 	// Phase 1: Check if model exists locally
 	if err := checkOllamaModelExists(client, baseURL, modelName); err != nil {
 		// Phase 2: Pull model if not found
-		if err := pullOllamaModel(ctx, client, baseURL, modelName); err != nil {
+		if err := pullOllamaModel(ctx, client, baseURL, modelName, config.ProgressReaderFunc); err != nil {
 			return nil, fmt.Errorf("failed to pull model %s: %v", modelName, err)
 		}
 	}
@@ -1217,11 +1222,7 @@ func checkOllamaModelExists(client *http.Client, baseURL, modelName string) erro
 	return nil
 }
 
-func pullOllamaModel(ctx context.Context, client *http.Client, baseURL, modelName string) error {
-	return pullOllamaModelWithProgress(ctx, client, baseURL, modelName, true)
-}
-
-func pullOllamaModelWithProgress(ctx context.Context, client *http.Client, baseURL, modelName string, showProgress bool) error {
+func pullOllamaModel(ctx context.Context, client *http.Client, baseURL, modelName string, progressFn func(io.Reader) io.ReadCloser) error {
 	reqBody := map[string]string{"name": modelName}
 	jsonBody, _ := json.Marshal(reqBody)
 
@@ -1245,10 +1246,10 @@ func pullOllamaModelWithProgress(ctx context.Context, client *http.Client, baseU
 		return fmt.Errorf("failed to pull model (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	if showProgress {
-		progressReader := progress.NewProgressReader(resp.Body)
-		defer func() { _ = progressReader.Close() }()
-		_, err = io.ReadAll(progressReader)
+	if progressFn != nil {
+		pr := progressFn(resp.Body)
+		defer func() { _ = pr.Close() }()
+		_, err = io.ReadAll(pr)
 	} else {
 		_, err = io.ReadAll(resp.Body)
 	}

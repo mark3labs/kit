@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -684,6 +685,11 @@ type CLIOptions struct {
 	SpinnerFunc SpinnerFunc
 	// UseBufferedLogger buffers debug messages for later display.
 	UseBufferedLogger bool
+	// ProgressReaderFunc wraps an io.Reader with a progress display for
+	// long-running operations such as Ollama model pulls. The returned
+	// io.ReadCloser must be closed when done. When nil, progress is not
+	// displayed.
+	ProgressReaderFunc func(io.Reader) io.ReadCloser
 }
 
 // InitTreeSession creates or opens a tree session based on the given options.
@@ -953,6 +959,9 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
 		setupOpts.SpinnerFunc = opts.CLI.SpinnerFunc
 		setupOpts.UseBufferedLogger = opts.CLI.UseBufferedLogger
+		if opts.CLI.ProgressReaderFunc != nil {
+			providerConfig.ProgressReaderFunc = opts.CLI.ProgressReaderFunc
+		}
 	}
 
 	// Create agent using shared setup with the hook tool wrapper.

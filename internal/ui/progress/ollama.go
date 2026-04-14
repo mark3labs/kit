@@ -288,3 +288,9 @@ func (pr *ProgressReader) Close() error {
 
 	return nil
 }
+
+// NewProgressReadCloser is a convenience wrapper around NewProgressReader that
+// returns an io.ReadCloser, suitable for use as a ProgressReaderFunc callback.
+func NewProgressReadCloser(r io.Reader) io.ReadCloser {
+	return NewProgressReader(r)
+}

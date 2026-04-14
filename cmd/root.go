@@ -19,6 +19,7 @@ import (
 	"github.com/mark3labs/kit/internal/prompts"
 	"github.com/mark3labs/kit/internal/ui"
 	"github.com/mark3labs/kit/internal/ui/commands"
+	"github.com/mark3labs/kit/internal/ui/progress"
 	"github.com/mark3labs/kit/internal/watcher"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -753,10 +754,11 @@ func runNormalMode(ctx context.Context) error {
 			}
 		},
 		CLI: &kit.CLIOptions{
-			MCPConfig:         mcpConfig,
-			ShowSpinner:       true,
-			SpinnerFunc:       spinnerFunc,
-			UseBufferedLogger: true,
+			MCPConfig:          mcpConfig,
+			ShowSpinner:        true,
+			SpinnerFunc:        spinnerFunc,
+			UseBufferedLogger:  true,
+			ProgressReaderFunc: progress.NewProgressReadCloser,
 		},
 	}
 	if resumeFlag {
