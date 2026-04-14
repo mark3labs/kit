@@ -17,7 +17,7 @@ import time
 import os
 
 KIT_BIN = os.path.join(os.path.dirname(__file__), "..", "output", "kit")
-MODEL   = "opencode/kimi-k2.5"
+MODEL   = os.environ.get("MODEL", "opencode/kimi-k2.5")
 CWD     = os.path.expanduser("~")
 TIMEOUT = 60  # seconds to wait for the prompt to complete
 
