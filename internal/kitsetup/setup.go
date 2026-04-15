@@ -267,7 +267,7 @@ func loadExtensions() (*extensions.Runner, extensionCreationOpts, error) {
 		return extensions.WrapToolsWithExtensions(tools, runner)
 	}
 
-	extTools := extensions.ExtensionToolsAsFantasy(runner.RegisteredTools(), runner)
+	extTools := extensions.ExtensionToolsAsLLMTools(runner.RegisteredTools(), runner)
 
 	return runner, extensionCreationOpts{
 		toolWrapper: wrapper,

@@ -918,7 +918,7 @@ type ExtensionEntry struct {
 type ContextMessage struct {
 	// Index is the position of this message in the original context array
 	// (0-based). When returning messages from a ContextPrepareResult,
-	// messages with Index >= 0 reuse the original fantasy.Message at that
+	// messages with Index >= 0 reuse the original LLM message at that
 	// position (preserving tool calls, reasoning, and other complex parts).
 	// Set Index to -1 for newly injected messages (created from Role + Content).
 	Index int

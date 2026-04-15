@@ -325,12 +325,6 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 // mixed TextPart and ToolCallPart content. Tool-role messages produce
 // ToolResultPart entries.
 func (m *Message) ToLLMMessages() []fantasy.Message {
-	return m.ToFantasyMessages()
-}
-
-// Deprecated: Use ToLLMMessages instead.
-// ToFantasyMessages converts a Message to one or more LLM message values.
-func (m *Message) ToFantasyMessages() []fantasy.Message {
 	switch m.Role {
 	case RoleAssistant:
 		var parts []fantasy.MessagePart
@@ -431,13 +425,6 @@ func (m *Message) ToFantasyMessages() []fantasy.Message {
 // FromLLMMessage converts an LLM message into our Message type,
 // extracting all content parts into the appropriate block types.
 func FromLLMMessage(msg fantasy.Message) Message {
-	return FromFantasyMessage(msg)
-}
-
-// Deprecated: Use FromLLMMessage instead.
-// FromFantasyMessage converts an LLM message into our Message type,
-// extracting all content parts into the appropriate block types.
-func FromFantasyMessage(msg fantasy.Message) Message {
 	m := Message{
 		Role:      MessageRole(msg.Role),
 		Parts:     make([]ContentPart, 0),

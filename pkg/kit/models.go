@@ -22,11 +22,6 @@ func GetLLMProviders() []string {
 	return models.GetGlobalRegistry().GetLLMProviders()
 }
 
-// Deprecated: Use GetLLMProviders instead.
-func GetFantasyProviders() []string {
-	return GetLLMProviders()
-}
-
 // GetModelsForProvider returns all known models for a provider.
 func GetModelsForProvider(provider string) (map[string]ModelInfo, error) {
 	return models.GetGlobalRegistry().GetModelsForProvider(provider)

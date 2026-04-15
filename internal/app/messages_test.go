@@ -3,24 +3,21 @@ package app
 import (
 	"testing"
 
-	"charm.land/fantasy"
-
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
-// makeTextMsg builds a minimal kit.LLMMessage using fantasy.NewUserMessage
-// or constructing with the given role.
+// makeTextMsg builds a minimal kit.LLMMessage with the given role and text.
 func makeTextMsg(role, text string) kit.LLMMessage {
 	return kit.LLMMessage{
 		Role:    kit.LLMMessageRole(role),
-		Content: []fantasy.MessagePart{fantasy.TextPart{Text: text}},
+		Content: []kit.LLMMessagePart{kit.LLMTextPart{Text: text}},
 	}
 }
 
 // textOf extracts the plain text from an LLMMessage for assertions.
 func textOf(msg kit.LLMMessage) string {
 	for _, part := range msg.Content {
-		if tp, ok := part.(fantasy.TextPart); ok {
+		if tp, ok := part.(kit.LLMTextPart); ok {
 			return tp.Text
 		}
 	}

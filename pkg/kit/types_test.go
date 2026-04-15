@@ -77,8 +77,8 @@ func TestLLMRoleConstants(t *testing.T) {
 	}
 }
 
-// TestLLMMessageAlias verifies LLMMessage is a type alias for fantasy.Message
-// and can be used interchangeably.
+// TestLLMMessageAlias verifies LLMMessage is a type alias for the underlying
+// LLM provider message type and can be used interchangeably.
 func TestLLMMessageAlias(t *testing.T) {
 	// Construct an LLMMessage using alias types.
 	msg := kit.LLMMessage{
@@ -132,8 +132,8 @@ func TestNewLLMSystemMessage(t *testing.T) {
 	}
 }
 
-// TestLLMUsageAlias verifies LLMUsage is a type alias for fantasy.Usage
-// and carries the correct fields.
+// TestLLMUsageAlias verifies LLMUsage is a type alias for the underlying
+// LLM provider usage type and carries the correct fields.
 func TestLLMUsageAlias(t *testing.T) {
 	u := kit.LLMUsage{
 		InputTokens:         100,
@@ -150,7 +150,7 @@ func TestLLMUsageAlias(t *testing.T) {
 		t.Errorf("LLMUsage.TotalTokens = %d, want 150", u.TotalTokens)
 	}
 
-	// Verify JSON marshaling uses snake_case (inherited from fantasy.Usage tags).
+	// Verify JSON marshaling uses snake_case (inherited from the provider's tags).
 	data, err := json.Marshal(u)
 	if err != nil {
 		t.Fatalf("LLMUsage.MarshalJSON: %v", err)
@@ -165,7 +165,8 @@ func TestLLMUsageAlias(t *testing.T) {
 	}
 }
 
-// TestLLMFilePartAlias verifies LLMFilePart is a type alias for fantasy.FilePart.
+// TestLLMFilePartAlias verifies LLMFilePart is a type alias for the underlying
+// LLM provider file part type.
 func TestLLMFilePartAlias(t *testing.T) {
 	fp := kit.LLMFilePart{
 		Filename:  "screenshot.png",

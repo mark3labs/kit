@@ -58,7 +58,7 @@ func (m *Kit) ShouldCompact() bool {
 
 	// Fall back to text-based heuristic before first turn completes.
 	messages := m.session.GetMessages()
-	return compaction.ShouldCompact(convertKitMessagesToFantasy(messages), info.Limit.Context, reserveTokens)
+	return compaction.ShouldCompact(convertToLLMMessages(messages), info.Limit.Context, reserveTokens)
 }
 
 // GetContextStats returns current context usage statistics including
@@ -203,9 +203,9 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 // custom summary. It still determines the cut point and persists a
 // CompactionEntry.
 func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts *CompactionOptions) (*CompactionResult, error) {
-	originalTokens := compaction.EstimateMessageTokens(convertKitMessagesToFantasy(messages))
+	originalTokens := compaction.EstimateMessageTokens(convertToLLMMessages(messages))
 
-	cutPoint := compaction.FindCutPoint(convertKitMessagesToFantasy(messages), opts.KeepRecentTokens)
+	cutPoint := compaction.FindCutPoint(convertToLLMMessages(messages), opts.KeepRecentTokens)
 	if cutPoint == 0 {
 		cutPoint = len(messages) - 1
 		if cutPoint < 1 {

@@ -129,9 +129,9 @@ type SpinnerFunc = agent.SpinnerFunc
 
 // ==== LLM Types ====
 //
-// These are type aliases for the corresponding charm.land/fantasy types,
-// giving them clean LLM-prefixed names without leaking the dependency name.
-// SDK consumers can use these types without importing charm.land/fantasy directly.
+// These are type aliases for the underlying LLM provider types, giving them
+// clean LLM-prefixed names without leaking the dependency name. SDK consumers
+// can use these types without importing the provider package directly.
 
 // LLMMessage represents a message in an LLM conversation, carrying a role
 // and a slice of typed content parts (text, tool calls, reasoning, etc.).
@@ -177,7 +177,7 @@ type LLMMessageRole = fantasy.MessageRole
 // LLMFinishReason indicates why the LLM stopped generating.
 type LLMFinishReason = fantasy.FinishReason
 
-// LLM role constants mirror fantasy.MessageRole* values under clean LLM-prefixed names.
+// LLM role constants mirror the provider's role values under clean LLM-prefixed names.
 const (
 	// LLMRoleUser identifies a user message.
 	LLMRoleUser = fantasy.MessageRoleUser
@@ -190,11 +190,11 @@ const (
 )
 
 // NewLLMUserMessage constructs a user-role LLMMessage with optional file
-// attachments. It is equivalent to fantasy.NewUserMessage.
+// attachments.
 var NewLLMUserMessage = fantasy.NewUserMessage
 
 // NewLLMSystemMessage constructs a system-role LLMMessage from one or more
-// prompt strings. It is equivalent to fantasy.NewSystemMessage.
+// prompt strings.
 var NewLLMSystemMessage = fantasy.NewSystemMessage
 
 // ==== Compaction Types (internal/compaction/) ====

@@ -562,7 +562,7 @@ func (m *Kit) ReloadExtensions() error {
 
 	// Update extension tools on the agent so the LLM sees changes.
 	if m.agent != nil {
-		extTools := extensions.ExtensionToolsAsFantasy(m.extRunner.RegisteredTools(), m.extRunner)
+		extTools := extensions.ExtensionToolsAsLLMTools(m.extRunner.RegisteredTools(), m.extRunner)
 		m.agent.SetExtraTools(extTools)
 	}
 

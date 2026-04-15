@@ -28,11 +28,11 @@ func WrapToolsWithExtensions(tools []fantasy.AgentTool, runner *Runner) []fantas
 	return wrapped
 }
 
-// ExtensionToolsAsFantasy converts ToolDef values registered by extensions
-// into fantasy.AgentTool implementations so the LLM can invoke them.
+// ExtensionToolsAsLLMTools converts ToolDef values registered by extensions
+// into LLM agent tool implementations so the LLM can invoke them.
 // The runner is optional; if provided, ToolContext.OnProgress routes
 // progress messages through the runner's Print function.
-func ExtensionToolsAsFantasy(defs []ToolDef, runner *Runner) []fantasy.AgentTool {
+func ExtensionToolsAsLLMTools(defs []ToolDef, runner *Runner) []fantasy.AgentTool {
 	tools := make([]fantasy.AgentTool, 0, len(defs))
 	for _, def := range defs {
 		tools = append(tools, &extensionTool{def: def, runner: runner})
@@ -154,7 +154,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 }
 
 // ---------------------------------------------------------------------------
-// extensionTool — wraps a ToolDef into a fantasy.AgentTool
+// extensionTool — wraps a ToolDef into an LLM agent tool
 // ---------------------------------------------------------------------------
 
 type extensionTool struct {
@@ -182,7 +182,7 @@ func (t *extensionTool) Info() fantasy.ToolInfo {
 				info.Parameters = props
 			} else {
 				// Schema doesn't have "properties" — use as-is (may be
-				// a flat property map already matching fantasy's format).
+				// a flat property map already matching the expected format).
 				info.Parameters = schema
 			}
 			// Extract required fields if present.

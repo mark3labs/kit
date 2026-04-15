@@ -22,13 +22,13 @@ func NewTreeManagerAdapter(tm *session.TreeManager) SessionManager {
 
 // AppendMessage implements SessionManager.
 func (a *treeManagerAdapter) AppendMessage(msg LLMMessage) (string, error) {
-	// LLMMessage is just an alias for fantasy.Message, so no conversion needed
+	// LLMMessage is a type alias, so no conversion needed.
 	return a.inner.AppendLLMMessage(msg)
 }
 
 // GetMessages implements SessionManager.
 func (a *treeManagerAdapter) GetMessages() []LLMMessage {
-	// LLMMessage is just an alias for fantasy.Message
+	// LLMMessage is a type alias, so no conversion needed.
 	return a.inner.GetLLMMessages()
 }
 
@@ -223,9 +223,8 @@ func (a *treeManagerAdapter) convertEntry(entry any) *BranchEntry {
 	}
 }
 
-// convertKitMessagesToFantasy converts kit LLM messages to fantasy messages.
-// Since LLMMessage is an alias for fantasy.Message, this is a no-op.
-func convertKitMessagesToFantasy(msgs []LLMMessage) []fantasy.Message {
-	// LLMMessage is just an alias for fantasy.Message, so we can type convert
+// convertToLLMMessages converts kit LLM messages to the underlying provider
+// message type. Since LLMMessage is a type alias, this is a no-op.
+func convertToLLMMessages(msgs []LLMMessage) []fantasy.Message {
 	return msgs
 }

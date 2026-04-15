@@ -192,7 +192,7 @@ func TestWrappedTool_ExecutionStartEnd(t *testing.T) {
 	}
 }
 
-func TestExtensionToolsAsFantasy(t *testing.T) {
+func TestExtensionToolsAsLLMTools(t *testing.T) {
 	defs := []ToolDef{
 		{
 			Name:        "greet",
@@ -202,7 +202,7 @@ func TestExtensionToolsAsFantasy(t *testing.T) {
 		},
 	}
 
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(tools))
 	}
@@ -232,7 +232,7 @@ func TestExtensionTool_Error(t *testing.T) {
 		},
 	}
 
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 	resp, err := tools[0].Run(context.Background(), fantasy.ToolCall{Input: "x"})
 	if err == nil {
 		t.Error("expected error")
@@ -259,7 +259,7 @@ func TestExtensionTool_ExecuteWithContext(t *testing.T) {
 	}
 
 	// Without runner, OnProgress is a no-op.
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 	resp, err := tools[0].Run(context.Background(), fantasy.ToolCall{Input: "test"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -285,7 +285,7 @@ func TestExtensionTool_ExecuteWithContext(t *testing.T) {
 			},
 		},
 	}
-	tools2 := ExtensionToolsAsFantasy(defs2, runner)
+	tools2 := ExtensionToolsAsLLMTools(defs2, runner)
 	_, err = tools2[0].Run(context.Background(), fantasy.ToolCall{Input: ""})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -306,7 +306,7 @@ func TestExtensionTool_ExecuteWithContextPriority(t *testing.T) {
 			},
 		},
 	}
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 	resp, err := tools[0].Run(context.Background(), fantasy.ToolCall{Input: ""})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -330,7 +330,7 @@ func TestExtensionTool_CancelledContext(t *testing.T) {
 			},
 		},
 	}
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 	_, _ = tools[0].Run(ctx, fantasy.ToolCall{Input: ""})
 	if !sawCancelled {
 		t.Error("expected IsCancelled=true for cancelled context")
@@ -339,7 +339,7 @@ func TestExtensionTool_CancelledContext(t *testing.T) {
 
 func TestExtensionTool_ProviderOptions(t *testing.T) {
 	defs := []ToolDef{{Name: "test", Execute: func(string) (string, error) { return "", nil }}}
-	tools := ExtensionToolsAsFantasy(defs, nil)
+	tools := ExtensionToolsAsLLMTools(defs, nil)
 
 	// Initially nil.
 	opts := tools[0].ProviderOptions()

@@ -379,11 +379,6 @@ func (r *ModelsRegistry) GetLLMProviders() []string {
 	return providers
 }
 
-// Deprecated: Use GetLLMProviders instead.
-func (r *ModelsRegistry) GetFantasyProviders() []string {
-	return r.GetLLMProviders()
-}
-
 // isProviderLLMSupported checks if a provider can be used with the LLM layer.
 func isProviderLLMSupported(providerID string, info *ProviderInfo) bool {
 	// Ollama and custom are always supported (model names are user-defined).
