@@ -34,13 +34,18 @@ var (
 	providerURL      string
 	providerAPIKey   string
 	debugMode        bool
-	positionalPrompt string // set by processPositionalArgs from CLI positional args
-	quietFlag        bool
-	jsonFlag         bool
-	noExitFlag       bool
-	maxSteps         int
-	streamFlag       bool // Enable streaming output
-	autoCompactFlag  bool // Enable auto-compaction near context limit
+	positionalPrompt string        // set by processPositionalArgs from CLI positional args
+	positionalFiles  []ui.FilePart // binary @file parts from processPositionalArgs
+
+	// MCP resource callbacks, set in runNormalMode, consumed by runInteractiveModeBubbleTea.
+	mcpGetResources   func() []ui.FileSuggestion
+	mcpResourceReader ui.MCPResourceReader
+	quietFlag         bool
+	jsonFlag          bool
+	noExitFlag        bool
+	maxSteps          int
+	streamFlag        bool // Enable streaming output
+	autoCompactFlag   bool // Enable auto-compaction near context limit
 
 	// Session management
 	sessionPath string
@@ -339,12 +344,14 @@ func init() {
 }
 
 // processPositionalArgs separates positional CLI arguments into @file
-// attachments and prompt text. File content is read and prepended to
-// positionalPrompt so the agent receives it. Positional args are the primary
-// way to run non-interactive mode:
+// attachments and prompt text. Text file content is read and prepended to
+// positionalPrompt; binary files (images, audio) are stored in positionalFiles
+// for multimodal submission. Positional args are the primary way to run
+// non-interactive mode:
 //
 //	kit "Explain this codebase"
 //	kit @code.ts @test.ts "Review these files"
+//	kit @screenshot.png "What's in this image?"
 func processPositionalArgs(args []string) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -363,14 +370,17 @@ func processPositionalArgs(args []string) {
 	}
 
 	// Build file content prefix from @file arguments.
+	// Text files are XML-wrapped inline; binary files become multimodal parts.
 	var fileContent strings.Builder
 	for _, token := range fileTokens {
-		expanded := ui.ProcessFileAttachments(token, cwd)
-		if expanded != token {
-			// File was resolved — add it.
-			fileContent.WriteString(expanded)
+		result := ui.ProcessFileAttachments(token, cwd)
+		if result.ProcessedText != token {
+			// Text file was resolved — add it.
+			fileContent.WriteString(result.ProcessedText)
 			fileContent.WriteString("\n\n")
 		}
+		// Collect binary file parts for multimodal submission.
+		positionalFiles = append(positionalFiles, result.FileParts...)
 	}
 
 	// Combine: positional prompt text is appended to any existing --prompt
@@ -1751,6 +1761,35 @@ func runNormalMode(ctx context.Context) error {
 		return &ui.MCPPromptExpandResult{Messages: msgs}, nil
 	}
 
+	// MCP resource callbacks for @ autocomplete and submit-time resolution.
+	getMCPResources := func() []ui.FileSuggestion {
+		resources := kitInstance.ListMCPResources()
+		suggestions := make([]ui.FileSuggestion, len(resources))
+		for i, r := range resources {
+			suggestions[i] = ui.FileSuggestion{
+				RelPath:        r.Name,
+				IsMCPResource:  true,
+				MCPServerName:  r.ServerName,
+				MCPResourceURI: r.URI,
+				MCPMIMEType:    r.MIMEType,
+				Score:          100, // default score, filtered later
+			}
+		}
+		return suggestions
+	}
+	mcpResourceReaderFn := func(serverName, uri string) (string, []byte, string, bool, error) {
+		content, err := kitInstance.ReadMCPResource(context.Background(), serverName, uri)
+		if err != nil {
+			return "", nil, "", false, err
+		}
+		return content.Text, content.BlobData, content.MIMEType, content.IsBlob, nil
+	}
+
+	// Store MCP resource callbacks at package level for consumption by
+	// runInteractiveModeBubbleTea and runNonInteractiveModeApp.
+	mcpGetResources = getMCPResources
+	mcpResourceReader = mcpResourceReaderFn
+
 	// Start a goroutine that waits for background MCP tool loading to
 	// complete and notifies the TUI so it can refresh tool names and counts.
 	if len(mcpConfig.MCPServers) > 0 {
@@ -1910,13 +1949,31 @@ func runNormalMode(ctx context.Context) error {
 // TUI is started so the user can continue the conversation.
 func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error) error {
 	// Expand @file references in the prompt before sending to the agent.
+	// Text files are XML-inlined; binary files are extracted as multimodal parts.
+	var fileParts []kit.LLMFilePart
 	if cwd, err := os.Getwd(); err == nil {
-		prompt = ui.ProcessFileAttachments(prompt, cwd)
+		result := ui.ProcessFileAttachments(prompt, cwd, mcpResourceReader)
+		prompt = result.ProcessedText
+		for _, fp := range result.FileParts {
+			fileParts = append(fileParts, kit.LLMFilePart{
+				Filename:  fp.Filename,
+				Data:      fp.Data,
+				MediaType: fp.MediaType,
+			})
+		}
+	}
+	// Also include binary files from processPositionalArgs (CLI @file args).
+	for _, fp := range positionalFiles {
+		fileParts = append(fileParts, kit.LLMFilePart{
+			Filename:  fp.Filename,
+			Data:      fp.Data,
+			MediaType: fp.MediaType,
+		})
 	}
 
 	if jsonOutput {
 		// JSON mode: no intermediate display, structured JSON output.
-		result, err := appInstance.RunOnceResult(ctx, prompt)
+		result, err := appInstance.RunOnceResultWithFiles(ctx, prompt, fileParts)
 		if err != nil {
 			writeJSONError(err)
 			return err
@@ -1928,7 +1985,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 		fmt.Println(string(data))
 	} else if quiet {
 		// Quiet mode: no intermediate display, just print final response.
-		if err := appInstance.RunOnce(ctx, prompt); err != nil {
+		if err := appInstance.RunOnceWithFiles(ctx, prompt, fileParts); err != nil {
 			return err
 		}
 	} else if cli != nil {
@@ -1937,14 +1994,14 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 		// Route events through the shared CLI event handler.
 		eventHandler := ui.NewCLIEventHandler(cli, modelName)
-		err := appInstance.RunOnceWithDisplay(ctx, prompt, eventHandler.Handle)
+		err := appInstance.RunOnceWithDisplayAndFiles(ctx, prompt, eventHandler.Handle, fileParts)
 		eventHandler.Cleanup()
 		if err != nil {
 			return err
 		}
 	} else {
 		// No CLI available (shouldn't happen in non-quiet mode, but be safe).
-		if err := appInstance.RunOnce(ctx, prompt); err != nil {
+		if err := appInstance.RunOnceWithFiles(ctx, prompt, fileParts); err != nil {
 			return err
 		}
 	}
@@ -2114,6 +2171,8 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		SwitchSession:            switchSession,
 		ReloadExtensions:         reloadExtensions,
 		ShowSessionPicker:        resumeFlag,
+		GetMCPResources:          mcpGetResources,
+		MCPResourceReader:        mcpResourceReader,
 	})
 
 	program := tea.NewProgram(appModel)

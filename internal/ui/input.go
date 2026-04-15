@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -60,6 +61,10 @@ type InputComponent struct {
 	// cwd is the working directory used for @file path resolution and
 	// autocomplete suggestions. Set by the parent via SetCwd.
 	cwd string
+
+	// mcpResources is a callback that returns available MCP resources for
+	// the @ autocomplete popup. Set by the parent via SetMCPResourceProvider.
+	mcpResources func() []FileSuggestion
 
 	// appCtrl is used for slash commands that mutate app state.
 	// May be nil in tests; nil-safe.
@@ -145,6 +150,12 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 // and path resolution. Should be called by the parent after construction.
 func (s *InputComponent) SetCwd(cwd string) {
 	s.cwd = cwd
+}
+
+// SetMCPResourceProvider sets a callback that returns MCP resource suggestions
+// for the @ autocomplete popup. Called by the parent after construction.
+func (s *InputComponent) SetMCPResourceProvider(fn func() []FileSuggestion) {
+	s.mcpResources = fn
 }
 
 // Init implements tea.Model. Starts the cursor blink animation.
@@ -332,9 +343,46 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for @file trigger first.
 			cursorCol := len(line) // approximate: cursor is at end after typing
-			if hasAt, prefix, atIdx := ExtractAtPrefix(line, cursorCol); hasAt && s.cwd != "" {
-				suggestions := GetFileSuggestions(prefix, s.cwd)
+			if hasAt, prefix, atIdx := ExtractAtPrefix(line, cursorCol); hasAt {
+				var suggestions []FileSuggestion
+
+				// Local file suggestions (only if cwd is set).
+				if s.cwd != "" {
+					suggestions = GetFileSuggestions(prefix, s.cwd)
+				}
+
+				// MCP resource suggestions — merge with file suggestions.
+				if s.mcpResources != nil {
+					mcpSuggestions := s.mcpResources()
+					if prefix != "" {
+						// Fuzzy-filter MCP resources against the typed prefix.
+						queryLower := strings.ToLower(prefix)
+						var filtered []FileSuggestion
+						for _, r := range mcpSuggestions {
+							score := scoreFilePath(queryLower, r.RelPath)
+							if score <= 0 {
+								// Also try matching against the resource name without prefix.
+								score = scoreFilePath(queryLower, r.MCPServerName+"/"+r.RelPath)
+							}
+							if score > 0 {
+								r.Score = score
+								filtered = append(filtered, r)
+							}
+						}
+						mcpSuggestions = filtered
+					}
+					suggestions = append(suggestions, mcpSuggestions...)
+				}
+
 				if len(suggestions) > 0 {
+					// Sort by score descending, cap at maxFileSuggestions.
+					sort.Slice(suggestions, func(i, j int) bool {
+						return suggestions[i].Score > suggestions[j].Score
+					})
+					if len(suggestions) > maxFileSuggestions {
+						suggestions = suggestions[:maxFileSuggestions]
+					}
+
 					s.showPopup = true
 					s.fileMode = true
 					s.argMode = false
@@ -348,6 +396,8 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						desc := ""
 						if fs.IsDir {
 							desc = "directory"
+						} else if fs.IsMCPResource {
+							desc = "mcp:" + fs.MCPServerName
 						}
 						s.fileSynthCmds[i] = commands.SlashCommand{Name: name, Description: desc}
 						s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
@@ -794,8 +844,9 @@ func (s *InputComponent) PendingImageCount() int {
 }
 
 // applyFileCompletion replaces the @prefix in the textarea with the selected
-// file suggestion. For directories, it keeps the popup open for further
-// drilling. For files, it closes the popup and adds a trailing space.
+// file or MCP resource suggestion. For directories, it keeps the popup open
+// for further drilling. For files and resources, it closes the popup and adds
+// a trailing space.
 func (s *InputComponent) applyFileCompletion(idx int) {
 	if idx >= len(s.fileSuggestions) {
 		return
@@ -812,19 +863,30 @@ func (s *InputComponent) applyFileCompletion(idx int) {
 
 	// Reconstruct: everything before the @ on the last line + @<path>
 	beforeAt := lastLine[:s.fileAtStartIdx]
-	needsQuote := strings.Contains(suggestion.RelPath, " ")
 
 	var replacement string
-	if needsQuote {
-		replacement = `@"` + suggestion.RelPath + `"`
-	} else {
-		replacement = "@" + suggestion.RelPath
-	}
-
-	// For files, add a trailing space. For directories, don't — allow
-	// continued drilling into the directory.
-	if !suggestion.IsDir {
+	if suggestion.IsMCPResource {
+		// MCP resources use @mcp:server:uri format.
+		// Quote if the URI contains spaces.
+		ref := "mcp:" + suggestion.MCPServerName + ":" + suggestion.MCPResourceURI
+		if strings.Contains(ref, " ") {
+			replacement = `@"` + ref + `"`
+		} else {
+			replacement = "@" + ref
+		}
 		replacement += " "
+	} else {
+		needsQuote := strings.Contains(suggestion.RelPath, " ")
+		if needsQuote {
+			replacement = `@"` + suggestion.RelPath + `"`
+		} else {
+			replacement = "@" + suggestion.RelPath
+		}
+		// For files, add a trailing space. For directories, don't — allow
+		// continued drilling into the directory.
+		if !suggestion.IsDir {
+			replacement += " "
+		}
 	}
 
 	newLastLine := beforeAt + replacement
@@ -836,7 +898,7 @@ func (s *InputComponent) applyFileCompletion(idx int) {
 	s.textarea.SetValue(newValue)
 	s.textarea.CursorEnd()
 
-	if suggestion.IsDir {
+	if suggestion.IsDir && !suggestion.IsMCPResource {
 		// Keep popup open — trigger a refresh for the new directory.
 		s.lastValue = "" // force re-evaluation on next update tick
 	} else {

@@ -8,15 +8,24 @@ import (
 	"strings"
 )
 
-// FileSuggestion represents a single file or directory suggestion for the @
-// autocomplete popup.
+// FileSuggestion represents a single file, directory, or MCP resource
+// suggestion for the @ autocomplete popup.
 type FileSuggestion struct {
-	// RelPath is the path relative to the search base (e.g. "cmd/kit/main.go").
+	// RelPath is the path relative to the search base (e.g. "cmd/kit/main.go")
+	// or a display name for MCP resources (e.g. "mcp:server/resource-name").
 	RelPath string
 	// IsDir is true when the entry is a directory.
 	IsDir bool
 	// Score is the fuzzy match score (higher is better).
 	Score int
+	// IsMCPResource is true for MCP resource entries.
+	IsMCPResource bool
+	// MCPServerName is the MCP server name (set when IsMCPResource is true).
+	MCPServerName string
+	// MCPResourceURI is the MCP resource URI (set when IsMCPResource is true).
+	MCPResourceURI string
+	// MCPMIMEType is the MIME type hint from the MCP server.
+	MCPMIMEType string
 }
 
 // maxFileSuggestions is the maximum number of file suggestions returned.

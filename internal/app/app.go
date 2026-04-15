@@ -497,6 +497,12 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 // response text to stdout. No intermediate events are emitted. Blocks until
 // the step completes or ctx is cancelled.
 func (a *App) RunOnce(ctx context.Context, prompt string) error {
+	return a.RunOnceWithFiles(ctx, prompt, nil)
+}
+
+// RunOnceWithFiles executes a single agent step synchronously with optional
+// multimodal file attachments. Prints the response to stdout and returns.
+func (a *App) RunOnceWithFiles(ctx context.Context, prompt string, files []kit.LLMFilePart) error {
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -504,7 +510,7 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, nil, nil)
+	result, err := a.executeStep(stepCtx, prompt, nil, files)
 	if err != nil {
 		return err
 	}
@@ -519,6 +525,12 @@ func (a *App) RunOnce(ctx context.Context, prompt string) error {
 // full TurnResult without printing anything. This is used by --json mode to
 // capture structured output for serialization.
 func (a *App) RunOnceResult(ctx context.Context, prompt string) (*kit.TurnResult, error) {
+	return a.RunOnceResultWithFiles(ctx, prompt, nil)
+}
+
+// RunOnceResultWithFiles executes a single agent step synchronously with
+// optional multimodal file attachments and returns the full TurnResult.
+func (a *App) RunOnceResultWithFiles(ctx context.Context, prompt string, files []kit.LLMFilePart) (*kit.TurnResult, error) {
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -526,7 +538,7 @@ func (a *App) RunOnceResult(ctx context.Context, prompt string) (*kit.TurnResult
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	return a.executeStep(stepCtx, prompt, nil, nil)
+	return a.executeStep(stepCtx, prompt, nil, files)
 }
 
 // RunOnceWithDisplay executes a single agent step synchronously, sending
@@ -540,6 +552,12 @@ func (a *App) RunOnceResult(ctx context.Context, prompt string) (*kit.TurnResult
 //
 // Blocks until the step completes or ctx is cancelled.
 func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn func(tea.Msg)) error {
+	return a.RunOnceWithDisplayAndFiles(ctx, prompt, eventFn, nil)
+}
+
+// RunOnceWithDisplayAndFiles executes a single agent step synchronously with
+// optional multimodal file attachments, sending intermediate display events.
+func (a *App) RunOnceWithDisplayAndFiles(ctx context.Context, prompt string, eventFn func(tea.Msg), files []kit.LLMFilePart) error {
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -547,7 +565,7 @@ func (a *App) RunOnceWithDisplay(ctx context.Context, prompt string, eventFn fun
 	a.cancelStep = cancel
 	a.mu.Unlock()
 
-	result, err := a.executeStep(stepCtx, prompt, eventFn, nil)
+	result, err := a.executeStep(stepCtx, prompt, eventFn, files)
 	if err != nil {
 		return err
 	}

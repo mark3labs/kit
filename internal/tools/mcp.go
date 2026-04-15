@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -77,6 +78,34 @@ type MCPPromptResult struct {
 	Messages []MCPPromptMessage
 }
 
+// MCPResource represents a resource discovered from an MCP server.
+type MCPResource struct {
+	// URI is the unique resource identifier (e.g. "file:///path" or custom scheme).
+	URI string
+	// Name is a human-readable name for the resource.
+	Name string
+	// Description is an optional description of the resource.
+	Description string
+	// MIMEType is the MIME type of the resource, if known.
+	MIMEType string
+	// ServerName is the MCP server this resource belongs to.
+	ServerName string
+}
+
+// MCPResourceContent is the result of reading an MCP resource via ReadResource.
+type MCPResourceContent struct {
+	// URI is the resource URI that was read.
+	URI string
+	// MIMEType is the MIME type of the content.
+	MIMEType string
+	// Text is the text content (non-empty for text resources).
+	Text string
+	// BlobData is the decoded binary content (non-empty for blob resources).
+	BlobData []byte
+	// IsBlob is true when the content is binary (BlobData is set).
+	IsBlob bool
+}
+
 // MCPToolManager manages MCP (Model Context Protocol) tools and clients across multiple servers.
 // It provides a unified interface for loading, managing, and executing tools from various MCP servers,
 // including stdio, SSE, streamable HTTP, and built-in server types. The manager handles connection
@@ -87,7 +116,9 @@ type MCPToolManager struct {
 	tools             []MCPTool
 	toolMap           map[string]*toolMapping // maps prefixed tool names to their server and original name
 	prompts           []MCPPrompt             // prompts discovered from all servers
-	mu                sync.Mutex              // protects tools, toolMap, and prompts during parallel loading
+	resources         []MCPResource           // resources discovered from all servers
+	subscriptions     map[string]string       // resource URI → server name for active subscriptions
+	mu                sync.Mutex              // protects tools, toolMap, prompts, resources during parallel loading
 	authHandler       MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
 	tokenStoreFactory TokenStoreFactory       // factory for creating per-server token stores (nil = default FileTokenStore)
 	config            *config.Config
@@ -102,6 +133,10 @@ type MCPToolManager struct {
 	// mutates the tool list. The agent layer uses this to trigger a rebuild
 	// so the LLM sees the updated tools.
 	onToolsChanged func()
+
+	// onResourcesChanged, if non-nil, is called when a subscribed resource
+	// is updated by the server.
+	onResourcesChanged func()
 }
 
 // toolMapping stores the mapping between prefixed tool names and their original details
@@ -116,8 +151,9 @@ type toolMapping struct {
 // The manager must be configured with LoadTools before use.
 func NewMCPToolManager() *MCPToolManager {
 	return &MCPToolManager{
-		tools:   make([]MCPTool, 0),
-		toolMap: make(map[string]*toolMapping),
+		tools:         make([]MCPTool, 0),
+		toolMap:       make(map[string]*toolMapping),
+		subscriptions: make(map[string]string),
 	}
 }
 
@@ -268,6 +304,18 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 		}
 	}
 	m.prompts = newPrompts
+
+	// Remove resources belonging to this server.
+	newResources := make([]MCPResource, 0, len(m.resources))
+	for _, r := range m.resources {
+		if r.ServerName != name {
+			newResources = append(newResources, r)
+		} else {
+			// Clean up any active subscription for this resource.
+			delete(m.subscriptions, r.URI)
+		}
+	}
+	m.resources = newResources
 
 	m.mu.Unlock()
 
@@ -477,6 +525,9 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	// Also load prompts from this server (best-effort, non-blocking).
 	m.loadServerPrompts(ctx, serverName, conn)
 
+	// Also load resources from this server (best-effort, non-blocking).
+	m.loadServerResources(ctx, serverName, conn)
+
 	return len(localTools), nil
 }
 
@@ -667,6 +718,225 @@ func (m *MCPToolManager) loadServerPrompts(ctx context.Context, serverName strin
 	m.mu.Lock()
 	m.prompts = append(m.prompts, localPrompts...)
 	m.mu.Unlock()
+}
+
+// loadServerResources loads resources from a single MCP server connection.
+// Called inside loadServerTools after a successful connection is established.
+// Thread-safe: acquires m.mu to merge results.
+func (m *MCPToolManager) loadServerResources(ctx context.Context, serverName string, conn *MCPConnection) {
+	listResult, err := conn.client.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		// Resources are optional — servers may not support them.
+		return
+	}
+
+	if len(listResult.Resources) == 0 {
+		return
+	}
+
+	var localResources []MCPResource
+	for _, r := range listResult.Resources {
+		localResources = append(localResources, MCPResource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: r.Description,
+			MIMEType:    r.MIMEType,
+			ServerName:  serverName,
+		})
+	}
+
+	m.mu.Lock()
+	m.resources = append(m.resources, localResources...)
+	m.mu.Unlock()
+}
+
+// GetResources returns all resources discovered from connected MCP servers.
+func (m *MCPToolManager) GetResources() []MCPResource {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]MCPResource, len(m.resources))
+	copy(result, m.resources)
+	return result
+}
+
+// SetOnResourcesChanged sets the callback invoked when a subscribed resource
+// changes. Used by the UI layer to refresh autocomplete or re-read content.
+func (m *MCPToolManager) SetOnResourcesChanged(cb func()) {
+	m.onResourcesChanged = cb
+}
+
+// ReadResource reads a specific resource from an MCP server by URI.
+// Returns the resource content (text or binary blob).
+func (m *MCPToolManager) ReadResource(ctx context.Context, serverName, uri string) (*MCPResourceContent, error) {
+	if m.connectionPool == nil {
+		return nil, fmt.Errorf("no connection pool available")
+	}
+
+	clients := m.connectionPool.GetClients()
+	mcpClient, ok := clients[serverName]
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	}
+
+	req := mcp.ReadResourceRequest{}
+	req.Params.URI = uri
+
+	result, err := mcpClient.ReadResource(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource %q from server %q: %w", uri, serverName, err)
+	}
+
+	if len(result.Contents) == 0 {
+		return nil, fmt.Errorf("resource %q returned no content", uri)
+	}
+
+	// Process the first content item (most resources return exactly one).
+	content := result.Contents[0]
+	switch c := content.(type) {
+	case mcp.TextResourceContents:
+		return &MCPResourceContent{
+			URI:      c.URI,
+			MIMEType: c.MIMEType,
+			Text:     c.Text,
+			IsBlob:   false,
+		}, nil
+	case *mcp.TextResourceContents:
+		if c == nil {
+			return nil, fmt.Errorf("resource %q returned nil text content", uri)
+		}
+		return &MCPResourceContent{
+			URI:      c.URI,
+			MIMEType: c.MIMEType,
+			Text:     c.Text,
+			IsBlob:   false,
+		}, nil
+	case mcp.BlobResourceContents:
+		decoded, err := base64.StdEncoding.DecodeString(c.Blob)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode blob resource %q: %w", uri, err)
+		}
+		return &MCPResourceContent{
+			URI:      c.URI,
+			MIMEType: c.MIMEType,
+			BlobData: decoded,
+			IsBlob:   true,
+		}, nil
+	case *mcp.BlobResourceContents:
+		if c == nil {
+			return nil, fmt.Errorf("resource %q returned nil blob content", uri)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(c.Blob)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode blob resource %q: %w", uri, err)
+		}
+		return &MCPResourceContent{
+			URI:      c.URI,
+			MIMEType: c.MIMEType,
+			BlobData: decoded,
+			IsBlob:   true,
+		}, nil
+	default:
+		return nil, fmt.Errorf("resource %q returned unknown content type %T", uri, content)
+	}
+}
+
+// SubscribeResource subscribes to change notifications for a resource.
+// When the resource changes on the server, onResourcesChanged is called
+// and the resource list is refreshed automatically.
+func (m *MCPToolManager) SubscribeResource(ctx context.Context, serverName, uri string) error {
+	if m.connectionPool == nil {
+		return fmt.Errorf("no connection pool available")
+	}
+
+	clients := m.connectionPool.GetClients()
+	mcpClient, ok := clients[serverName]
+	if !ok {
+		return fmt.Errorf("MCP server %q not found", serverName)
+	}
+
+	req := mcp.SubscribeRequest{}
+	req.Params.URI = uri
+
+	if err := mcpClient.Subscribe(ctx, req); err != nil {
+		return fmt.Errorf("failed to subscribe to resource %q on server %q: %w", uri, serverName, err)
+	}
+
+	m.mu.Lock()
+	m.subscriptions[uri] = serverName
+	m.mu.Unlock()
+
+	return nil
+}
+
+// UnsubscribeResource cancels change notifications for a resource.
+func (m *MCPToolManager) UnsubscribeResource(ctx context.Context, serverName, uri string) error {
+	if m.connectionPool == nil {
+		return fmt.Errorf("no connection pool available")
+	}
+
+	clients := m.connectionPool.GetClients()
+	mcpClient, ok := clients[serverName]
+	if !ok {
+		return fmt.Errorf("MCP server %q not found", serverName)
+	}
+
+	req := mcp.UnsubscribeRequest{}
+	req.Params.URI = uri
+
+	if err := mcpClient.Unsubscribe(ctx, req); err != nil {
+		return fmt.Errorf("failed to unsubscribe from resource %q on server %q: %w", uri, serverName, err)
+	}
+
+	m.mu.Lock()
+	delete(m.subscriptions, uri)
+	m.mu.Unlock()
+
+	return nil
+}
+
+// RefreshServerResources re-fetches resources from a specific server.
+// Called when a resource change notification is received.
+func (m *MCPToolManager) RefreshServerResources(ctx context.Context, serverName string) {
+	if m.connectionPool == nil {
+		return
+	}
+
+	clients := m.connectionPool.GetClients()
+	mcpClient, ok := clients[serverName]
+	if !ok {
+		return
+	}
+
+	listResult, err := mcpClient.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return
+	}
+
+	var newResources []MCPResource
+	for _, r := range listResult.Resources {
+		newResources = append(newResources, MCPResource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: r.Description,
+			MIMEType:    r.MIMEType,
+			ServerName:  serverName,
+		})
+	}
+
+	m.mu.Lock()
+	// Remove old resources from this server, add new ones.
+	filtered := make([]MCPResource, 0, len(m.resources))
+	for _, r := range m.resources {
+		if r.ServerName != serverName {
+			filtered = append(filtered, r)
+		}
+	}
+	m.resources = append(filtered, newResources...)
+	m.mu.Unlock()
+
+	if m.onResourcesChanged != nil {
+		m.onResourcesChanged()
+	}
 }
 
 // GetLoadedServerNames returns the names of all successfully loaded MCP servers.

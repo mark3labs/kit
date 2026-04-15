@@ -319,6 +319,86 @@ func (m *Kit) GetMCPPrompt(ctx context.Context, serverName, promptName string, a
 	}, nil
 }
 
+// --------------------------------------------------------------------------
+// MCP Resources
+// --------------------------------------------------------------------------
+
+// MCPResource describes a resource exposed by an MCP server.
+type MCPResource struct {
+	// URI is the unique resource identifier (e.g. "file:///path" or custom scheme).
+	URI string
+	// Name is a human-readable name for the resource.
+	Name string
+	// Description is an optional description of the resource.
+	Description string
+	// MIMEType is the MIME type of the resource, if known.
+	MIMEType string
+	// ServerName is the MCP server that provides this resource.
+	ServerName string
+}
+
+// MCPResourceContent is the result of reading an MCP resource.
+type MCPResourceContent struct {
+	// URI is the resource URI that was read.
+	URI string
+	// MIMEType is the MIME type of the content.
+	MIMEType string
+	// Text is the text content (non-empty for text resources).
+	Text string
+	// BlobData is the decoded binary content (non-empty for blob resources).
+	BlobData []byte
+	// IsBlob is true when the content is binary (BlobData is set).
+	IsBlob bool
+}
+
+// ListMCPResources returns all resources discovered from connected MCP servers.
+// If MCP servers are still loading in the background, this returns only the
+// resources discovered so far. Returns nil if no resources are available.
+func (m *Kit) ListMCPResources() []MCPResource {
+	internal := m.agent.GetMCPResources()
+	if len(internal) == 0 {
+		return nil
+	}
+	result := make([]MCPResource, len(internal))
+	for i, r := range internal {
+		result[i] = MCPResource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: r.Description,
+			MIMEType:    r.MIMEType,
+			ServerName:  r.ServerName,
+		}
+	}
+	return result
+}
+
+// ReadMCPResource reads a specific resource from an MCP server by URI.
+// Returns the resource content (text or binary blob).
+func (m *Kit) ReadMCPResource(ctx context.Context, serverName, uri string) (*MCPResourceContent, error) {
+	internal, err := m.agent.ReadMCPResource(ctx, serverName, uri)
+	if err != nil {
+		return nil, err
+	}
+	return &MCPResourceContent{
+		URI:      internal.URI,
+		MIMEType: internal.MIMEType,
+		Text:     internal.Text,
+		BlobData: internal.BlobData,
+		IsBlob:   internal.IsBlob,
+	}, nil
+}
+
+// SubscribeMCPResource subscribes to change notifications for a resource.
+// When the resource changes on the server, the resource list is refreshed.
+func (m *Kit) SubscribeMCPResource(ctx context.Context, serverName, uri string) error {
+	return m.agent.SubscribeMCPResource(ctx, serverName, uri)
+}
+
+// UnsubscribeMCPResource cancels change notifications for a resource.
+func (m *Kit) UnsubscribeMCPResource(ctx context.Context, serverName, uri string) error {
+	return m.agent.UnsubscribeMCPResource(ctx, serverName, uri)
+}
+
 // GetBufferedDebugMessages returns any debug messages that were buffered
 // during initialization, then clears the buffer. Returns nil if no messages
 // were buffered or if buffered logging was not configured.

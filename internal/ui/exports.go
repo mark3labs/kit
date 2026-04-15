@@ -29,8 +29,15 @@ type (
 	ExtensionCommand = commands.ExtensionCommand
 )
 
-// Re-export functions from fileutil package
+// Re-export functions and types from fileutil package
 var ProcessFileAttachments = fileutil.ProcessFileAttachments
+
+// Re-export types from fileutil
+type (
+	FileAttachmentResult = fileutil.FileAttachmentResult
+	FilePart             = fileutil.FilePart
+	MCPResourceReader    = fileutil.MCPResourceReader
+)
 
 // Re-export from prefs package
 var (

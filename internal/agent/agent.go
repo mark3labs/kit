@@ -930,6 +930,38 @@ func (a *Agent) GetMCPPrompt(ctx context.Context, serverName, promptName string,
 	return a.toolManager.GetPrompt(ctx, serverName, promptName, args)
 }
 
+// GetMCPResources returns all resources discovered from connected MCP servers.
+func (a *Agent) GetMCPResources() []tools.MCPResource {
+	if a.toolManager == nil {
+		return nil
+	}
+	return a.toolManager.GetResources()
+}
+
+// ReadMCPResource reads a specific resource from an MCP server by URI.
+func (a *Agent) ReadMCPResource(ctx context.Context, serverName, uri string) (*tools.MCPResourceContent, error) {
+	if a.toolManager == nil {
+		return nil, fmt.Errorf("no MCP servers configured")
+	}
+	return a.toolManager.ReadResource(ctx, serverName, uri)
+}
+
+// SubscribeMCPResource subscribes to change notifications for a resource.
+func (a *Agent) SubscribeMCPResource(ctx context.Context, serverName, uri string) error {
+	if a.toolManager == nil {
+		return fmt.Errorf("no MCP servers configured")
+	}
+	return a.toolManager.SubscribeResource(ctx, serverName, uri)
+}
+
+// UnsubscribeMCPResource cancels change notifications for a resource.
+func (a *Agent) UnsubscribeMCPResource(ctx context.Context, serverName, uri string) error {
+	if a.toolManager == nil {
+		return fmt.Errorf("no MCP servers configured")
+	}
+	return a.toolManager.UnsubscribeResource(ctx, serverName, uri)
+}
+
 // SetModel swaps the agent's LLM provider to a new model. The existing tools
 // and configuration are preserved. When the new model's ProviderConfig carries
 // a system prompt (from per-model settings), it replaces the agent's stored

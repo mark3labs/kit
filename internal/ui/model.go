@@ -465,6 +465,15 @@ type AppModelOptions struct {
 	IsReasoningModel bool
 	// SetThinkingLevel changes the thinking level on the agent/provider.
 	SetThinkingLevel func(level string) error
+
+	// GetMCPResources, if non-nil, returns FileSuggestion entries for all
+	// MCP resources available from connected servers. Used by the @
+	// autocomplete popup to merge resource suggestions with local files.
+	GetMCPResources func() []FileSuggestion
+
+	// MCPResourceReader, if non-nil, reads an MCP resource by server name
+	// and URI. Used at submit time to resolve @mcp:server:uri tokens.
+	MCPResourceReader fileutil.MCPResourceReader
 }
 
 // AppModel is the root Bubble Tea model for the interactive TUI. It owns the
@@ -698,6 +707,10 @@ type AppModel struct {
 	// cwd is the working directory for @file path resolution.
 	cwd string
 
+	// mcpResourceReader is an optional callback to read MCP resources when
+	// processing @mcp:server:uri tokens at submit time. Set by the parent.
+	mcpResourceReader fileutil.MCPResourceReader
+
 	// width and height track the terminal dimensions.
 	width  int
 	height int
@@ -861,6 +874,14 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
 		ic.SetCwd(opts.Cwd)
 	}
+
+	// Wire up MCP resource provider for @ autocomplete.
+	if ic, ok := m.input.(*InputComponent); ok && opts.GetMCPResources != nil {
+		ic.SetMCPResourceProvider(opts.GetMCPResources)
+	}
+
+	// Wire up MCP resource reader for @mcp: token processing at submit time.
+	m.mcpResourceReader = opts.MCPResourceReader
 
 	// Merge extension commands into the InputComponent's autocomplete source.
 	if ic, ok := m.input.(*InputComponent); ok && len(opts.ExtensionCommands) > 0 {
@@ -1372,14 +1393,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							images = ic.ClearPendingImages()
 						}
 
-						// Preprocess @file references.
+						// Preprocess @file references (text files are XML-inlined,
+						// binary files are extracted as multimodal parts).
 						processedText := text
+						var fileParts []kit.LLMFilePart
 						if m.cwd != "" {
-							processedText = fileutil.ProcessFileAttachments(text, m.cwd)
+							result := fileutil.ProcessFileAttachments(text, m.cwd, m.mcpResourceReader)
+							processedText = result.ProcessedText
+							for _, fp := range result.FileParts {
+								fileParts = append(fileParts, kit.LLMFilePart{
+									Filename:  fp.Filename,
+									Data:      fp.Data,
+									MediaType: fp.MediaType,
+								})
+							}
 						}
 
-						// Convert image attachments to kit.LLMFilePart for the app layer.
-						var fileParts []kit.LLMFilePart
+						// Convert clipboard image attachments to kit.LLMFilePart.
 						for _, img := range images {
 							fileParts = append(fileParts, kit.LLMFilePart{
 								Data:      img.Data,
@@ -1577,16 +1607,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Regular prompt — forward to the app layer.
-		// Preprocess @file references: expand them into XML-wrapped file
-		// content before sending to the agent. The display text (shown in
-		// ScrollList) uses the original user text so the UI stays clean.
+		// Preprocess @file references: text files are XML-inlined, binary files
+		// (images, audio, etc.) are extracted as multimodal parts. The display
+		// text (shown in ScrollList) uses the original user text so the UI stays clean.
 		processedText := msg.Text
+		var fileParts []kit.LLMFilePart
 		if m.cwd != "" {
-			processedText = fileutil.ProcessFileAttachments(msg.Text, m.cwd)
+			result := fileutil.ProcessFileAttachments(msg.Text, m.cwd, m.mcpResourceReader)
+			processedText = result.ProcessedText
+			for _, fp := range result.FileParts {
+				fileParts = append(fileParts, kit.LLMFilePart{
+					Filename:  fp.Filename,
+					Data:      fp.Data,
+					MediaType: fp.MediaType,
+				})
+			}
 		}
 
-		// Convert image attachments to kit.LLMFilePart for the app layer.
-		var fileParts []kit.LLMFilePart
+		// Convert clipboard image attachments to kit.LLMFilePart.
+		fileOnlyCount := len(fileParts) // binary @file parts (before clipboard images)
 		for _, img := range msg.Images {
 			fileParts = append(fileParts, kit.LLMFilePart{
 				Data:      img.Data,
@@ -1594,10 +1633,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
-		// Build display text for ScrollList (include image count if any).
+		// Build display text for ScrollList (include attachment counts).
 		displayText := msg.Text
-		if len(msg.Images) > 0 {
-			displayText = fmt.Sprintf("%s\n[%d image(s) attached]", msg.Text, len(msg.Images))
+		if len(msg.Images) > 0 || fileOnlyCount > 0 {
+			var badges []string
+			if len(msg.Images) > 0 {
+				badges = append(badges, fmt.Sprintf("%d image(s) pasted", len(msg.Images)))
+			}
+			if fileOnlyCount > 0 {
+				badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
+			}
+			displayText = fmt.Sprintf("%s\n[%s]", msg.Text, strings.Join(badges, ", "))
 		}
 
 		if m.appCtrl != nil {
@@ -2110,11 +2156,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.text != "" {
 			// Process @file references and submit.
 			processedText := msg.text
+			var fileParts []kit.LLMFilePart
 			if m.cwd != "" {
-				processedText = fileutil.ProcessFileAttachments(msg.text, m.cwd)
+				result := fileutil.ProcessFileAttachments(msg.text, m.cwd, m.mcpResourceReader)
+				processedText = result.ProcessedText
+				for _, fp := range result.FileParts {
+					fileParts = append(fileParts, kit.LLMFilePart{
+						Filename:  fp.Filename,
+						Data:      fp.Data,
+						MediaType: fp.MediaType,
+					})
+				}
 			}
 			if m.appCtrl != nil {
-				qLen := m.appCtrl.Run(processedText)
+				var qLen int
+				if len(fileParts) > 0 {
+					qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+				} else {
+					qLen = m.appCtrl.Run(processedText)
+				}
 				if qLen > 0 {
 					m.queuedMessages = append(m.queuedMessages, msg.text)
 					m.layoutDirty = true

@@ -2,6 +2,8 @@ package fileutil
 
 import (
 	"fmt"
+	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,35 +12,116 @@ import (
 	"github.com/mark3labs/kit/internal/fences"
 )
 
+// FilePart represents a binary file attachment (image, audio, etc.) extracted
+// from an @file reference. Callers convert this to kit.LLMFilePart before
+// sending to the LLM. Defined here to avoid a circular dependency on pkg/kit.
+type FilePart struct {
+	// Filename is the basename of the file (e.g. "photo.png").
+	Filename string
+	// Data is the raw file bytes.
+	Data []byte
+	// MediaType is the MIME type (e.g. "image/png", "audio/wav").
+	MediaType string
+}
+
+// MCPResourceReader is a callback function that reads an MCP resource by
+// server name and URI. Returns text content, binary data, MIME type, and error.
+// Used by ProcessFileAttachments to resolve @mcp:server:uri tokens.
+type MCPResourceReader func(serverName, uri string) (text string, blobData []byte, mimeType string, isBlob bool, err error)
+
+// FileAttachmentResult is the result of processing @file references in user
+// input. Text files are inlined as XML in ProcessedText; binary files (images,
+// audio, video, PDFs) are returned as FileParts for multimodal submission.
+type FileAttachmentResult struct {
+	// ProcessedText is the user's text with @file tokens replaced:
+	// text files become XML-wrapped content, binary file tokens are removed.
+	ProcessedText string
+	// FileParts contains binary file attachments extracted from @file
+	// references. Empty when all referenced files are text.
+	FileParts []FilePart
+}
+
 // fileTokenPattern matches @file references in user text. Supports:
 //   - @"path with spaces.txt" (quoted)
 //   - @path/to/file.txt      (unquoted, no spaces)
 var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 
 // ProcessFileAttachments scans the user's input text for @file references,
-// reads each referenced file, and returns the text with @tokens replaced by
-// XML-wrapped file content. Non-file @ tokens (like email addresses) are left
-// unchanged.
+// reads each referenced file, and returns a result containing the processed
+// text and any binary file attachments. Text files are XML-wrapped inline;
+// binary files (images, audio, etc.) are extracted as FileParts for multimodal
+// submission. Non-file @ tokens (like email addresses) are left unchanged.
 //
-// Returns the original text unchanged if no valid @file references are found.
-func ProcessFileAttachments(text string, cwd string) string {
-	return fences.ReplaceOutside(text, func(segment string) string {
-		return processFileTokens(segment, cwd)
+// MCP resources are supported via @mcp:server:uri tokens. The optional
+// mcpReader callback is used to resolve them; pass nil to skip MCP resources.
+func ProcessFileAttachments(text string, cwd string, mcpReader ...MCPResourceReader) FileAttachmentResult {
+	var reader MCPResourceReader
+	if len(mcpReader) > 0 {
+		reader = mcpReader[0]
+	}
+	var allParts []FilePart
+	processed := fences.ReplaceOutside(text, func(segment string) string {
+		result, parts := processFileTokens(segment, cwd, reader)
+		allParts = append(allParts, parts...)
+		return result
 	})
+	return FileAttachmentResult{
+		ProcessedText: processed,
+		FileParts:     allParts,
+	}
 }
 
 // processFileTokens handles @file replacement in a single text segment
-// that is known to be outside fenced code blocks.
-func processFileTokens(text string, cwd string) string {
+// that is known to be outside fenced code blocks. Returns the processed
+// text and any binary file parts extracted.
+func processFileTokens(text string, cwd string, mcpReader MCPResourceReader) (string, []FilePart) {
 	tokens := fileTokenPattern.FindAllString(text, -1)
 	if len(tokens) == 0 {
-		return text
+		return text, nil
 	}
 
+	var parts []FilePart
 	result := text
 	for _, token := range tokens {
 		path := tokenToPath(token)
 		if path == "" {
+			continue
+		}
+
+		// Check for MCP resource reference: @mcp:server:uri
+		if strings.HasPrefix(path, "mcp:") {
+			if mcpReader == nil {
+				continue
+			}
+			mcpRef := path[4:] // strip "mcp:"
+			// Split into server:uri (first colon separates server from URI)
+			serverName, uri, ok := strings.Cut(mcpRef, ":")
+			if !ok || serverName == "" || uri == "" {
+				continue // invalid format
+			}
+
+			textContent, blobData, mimeType, isBlob, err := mcpReader(serverName, uri)
+			if err != nil {
+				continue // skip on error, leave token as-is
+			}
+
+			if isBlob {
+				// Binary MCP resource → extract as FilePart.
+				filename := filepath.Base(uri)
+				if filename == "." || filename == "/" {
+					filename = serverName + "_resource"
+				}
+				parts = append(parts, FilePart{
+					Filename:  filename,
+					Data:      blobData,
+					MediaType: mimeType,
+				})
+				result = strings.Replace(result, token, "", 1)
+			} else {
+				// Text MCP resource → inline as XML.
+				wrapped := fmt.Sprintf("<resource uri=\"%s\" server=\"%s\">\n%s\n</resource>", uri, serverName, textContent)
+				result = strings.Replace(result, token, wrapped, 1)
+			}
 			continue
 		}
 
@@ -69,12 +152,28 @@ func processFileTokens(text string, cwd string) string {
 			continue
 		}
 
-		// Build the XML-wrapped replacement.
-		wrapped := wrapFileContent(absPath, content)
-		result = strings.Replace(result, token, wrapped, 1)
+		mediaType := detectMediaType(absPath, content)
+
+		if isBinaryMediaType(mediaType) {
+			// Binary file → extract as a FilePart for multimodal submission.
+			// Remove the @token from the text.
+			parts = append(parts, FilePart{
+				Filename:  filepath.Base(absPath),
+				Data:      content,
+				MediaType: mediaType,
+			})
+			result = strings.Replace(result, token, "", 1)
+		} else {
+			// Text file → inline as XML-wrapped content.
+			wrapped := wrapFileContent(absPath, content)
+			result = strings.Replace(result, token, wrapped, 1)
+		}
 	}
 
-	return result
+	// Clean up any extra whitespace left by removed binary tokens.
+	result = strings.TrimSpace(result)
+
+	return result, parts
 }
 
 // tokenToPath strips the @ prefix and optional quotes from a token,
@@ -136,4 +235,87 @@ func resolvePath(path string, cwd string) (string, error) {
 // wrapFileContent wraps file content in XML tags for LLM consumption.
 func wrapFileContent(absPath string, content []byte) string {
 	return fmt.Sprintf("<file path=\"%s\">\n%s\n</file>", absPath, string(content))
+}
+
+// detectMediaType determines the MIME type of a file using extension-based
+// lookup first (more reliable for known types), then falls back to content
+// sniffing via net/http.DetectContentType.
+func detectMediaType(path string, content []byte) string {
+	// Extension-based detection is more reliable for well-known types.
+	ext := strings.ToLower(filepath.Ext(path))
+	if mt := mime.TypeByExtension(ext); mt != "" {
+		// mime.TypeByExtension returns types like "image/png; charset=utf-8"
+		// — strip parameters.
+		if base, _, ok := strings.Cut(mt, ";"); ok {
+			return strings.TrimSpace(base)
+		}
+		return mt
+	}
+
+	// Known extensions that mime package may miss.
+	switch ext {
+	case ".webp":
+		return "image/webp"
+	case ".avif":
+		return "image/avif"
+	case ".heic", ".heif":
+		return "image/heif"
+	case ".opus":
+		return "audio/opus"
+	case ".flac":
+		return "audio/flac"
+	case ".m4a":
+		return "audio/mp4"
+	case ".wasm":
+		return "application/wasm"
+	}
+
+	// Content sniffing fallback.
+	if len(content) > 0 {
+		detected := http.DetectContentType(content)
+		if detected != "" && detected != "application/octet-stream" {
+			if base, _, ok := strings.Cut(detected, ";"); ok {
+				return strings.TrimSpace(base)
+			}
+			return detected
+		}
+	}
+
+	// Default: treat as plain text so it gets XML-wrapped.
+	return "text/plain"
+}
+
+// isBinaryMediaType returns true if the MIME type represents a binary file
+// that should be sent as a multimodal FilePart rather than XML-wrapped text.
+func isBinaryMediaType(mediaType string) bool {
+	// Image types — always binary.
+	if strings.HasPrefix(mediaType, "image/") {
+		return true
+	}
+	// Audio types — always binary.
+	if strings.HasPrefix(mediaType, "audio/") {
+		return true
+	}
+	// Video types — always binary.
+	if strings.HasPrefix(mediaType, "video/") {
+		return true
+	}
+	// Specific application types that are binary.
+	switch mediaType {
+	case "application/pdf",
+		"application/zip",
+		"application/gzip",
+		"application/x-tar",
+		"application/octet-stream",
+		"application/wasm",
+		"application/x-executable",
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return true
+	}
+	return false
 }
