@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
@@ -383,30 +385,307 @@ func TestLoadServerPrompts_NoPromptCapability(t *testing.T) {
 	}
 }
 
-func TestExtractContentText(t *testing.T) {
-	tests := []struct {
-		name    string
-		content mcp.Content
-		want    string
-	}{
-		{
-			name:    "TextContent",
-			content: mcp.TextContent{Type: "text", Text: "hello world"},
-			want:    "hello world",
-		},
-		{
-			name:    "ImageContent",
-			content: mcp.ImageContent{Type: "image", Data: "base64data", MIMEType: "image/png"},
-			want:    "",
-		},
-	}
+func TestExtractPromptContent(t *testing.T) {
+	t.Run("TextContent", func(t *testing.T) {
+		text, parts := extractPromptContent(mcp.TextContent{Type: "text", Text: "hello world"})
+		if text != "hello world" {
+			t.Errorf("text = %q, want %q", text, "hello world")
+		}
+		if len(parts) != 0 {
+			t.Errorf("expected 0 file parts, got %d", len(parts))
+		}
+	})
 
+	t.Run("ImageContent", func(t *testing.T) {
+		// base64 of "fake image"
+		encoded := base64.StdEncoding.EncodeToString([]byte("fake image"))
+		text, parts := extractPromptContent(mcp.ImageContent{
+			Type:     "image",
+			Data:     encoded,
+			MIMEType: "image/png",
+		})
+		if text != "" {
+			t.Errorf("expected empty text, got %q", text)
+		}
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 file part, got %d", len(parts))
+		}
+		if parts[0].MediaType != "image/png" {
+			t.Errorf("media type = %q, want %q", parts[0].MediaType, "image/png")
+		}
+		if parts[0].Filename != "image.png" {
+			t.Errorf("filename = %q, want %q", parts[0].Filename, "image.png")
+		}
+		if string(parts[0].Data) != "fake image" {
+			t.Errorf("data = %q, want %q", string(parts[0].Data), "fake image")
+		}
+	})
+
+	t.Run("ImageContent_DefaultMIME", func(t *testing.T) {
+		encoded := base64.StdEncoding.EncodeToString([]byte("img"))
+		_, parts := extractPromptContent(mcp.ImageContent{
+			Type: "image",
+			Data: encoded,
+			// no MIMEType → should default to image/png
+		})
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 file part, got %d", len(parts))
+		}
+		if parts[0].MediaType != "image/png" {
+			t.Errorf("default MIME = %q, want %q", parts[0].MediaType, "image/png")
+		}
+	})
+
+	t.Run("AudioContent", func(t *testing.T) {
+		encoded := base64.StdEncoding.EncodeToString([]byte("fake audio"))
+		text, parts := extractPromptContent(mcp.AudioContent{
+			Type:     "audio",
+			Data:     encoded,
+			MIMEType: "audio/mp3",
+		})
+		if text != "" {
+			t.Errorf("expected empty text, got %q", text)
+		}
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 file part, got %d", len(parts))
+		}
+		if parts[0].MediaType != "audio/mp3" {
+			t.Errorf("media type = %q, want %q", parts[0].MediaType, "audio/mp3")
+		}
+		if parts[0].Filename != "audio.wav" {
+			t.Errorf("filename = %q, want %q", parts[0].Filename, "audio.wav")
+		}
+	})
+
+	t.Run("EmbeddedResource_Text", func(t *testing.T) {
+		text, parts := extractPromptContent(mcp.EmbeddedResource{
+			Type: "resource",
+			Resource: mcp.TextResourceContents{
+				URI:      "file:///project/main.go",
+				MIMEType: "text/x-go",
+				Text:     "package main",
+			},
+		})
+		if text == "" {
+			t.Fatal("expected non-empty text for text resource")
+		}
+		if !strings.Contains(text, "package main") {
+			t.Errorf("text should contain resource content, got %q", text)
+		}
+		if !strings.Contains(text, "file:///project/main.go") {
+			t.Errorf("text should contain URI, got %q", text)
+		}
+		if len(parts) != 0 {
+			t.Errorf("expected 0 file parts for text resource, got %d", len(parts))
+		}
+	})
+
+	t.Run("EmbeddedResource_Blob", func(t *testing.T) {
+		blobData := []byte("binary content")
+		encoded := base64.StdEncoding.EncodeToString(blobData)
+		text, parts := extractPromptContent(mcp.EmbeddedResource{
+			Type: "resource",
+			Resource: mcp.BlobResourceContents{
+				URI:      "file:///project/data.bin",
+				MIMEType: "application/octet-stream",
+				Blob:     encoded,
+			},
+		})
+		if text != "" {
+			t.Errorf("expected empty text for blob resource, got %q", text)
+		}
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 file part for blob resource, got %d", len(parts))
+		}
+		if parts[0].Filename != "data.bin" {
+			t.Errorf("filename = %q, want %q", parts[0].Filename, "data.bin")
+		}
+		if parts[0].MediaType != "application/octet-stream" {
+			t.Errorf("media type = %q, want %q", parts[0].MediaType, "application/octet-stream")
+		}
+		if string(parts[0].Data) != "binary content" {
+			t.Errorf("data = %q, want %q", string(parts[0].Data), "binary content")
+		}
+	})
+
+	t.Run("ResourceLink", func(t *testing.T) {
+		text, parts := extractPromptContent(mcp.ResourceLink{
+			Type: "resource_link",
+			URI:  "file:///docs/readme.md",
+			Name: "readme.md",
+		})
+		if text == "" {
+			t.Fatal("expected non-empty text for resource link")
+		}
+		if !strings.Contains(text, "file:///docs/readme.md") {
+			t.Errorf("text should contain URI, got %q", text)
+		}
+		if !strings.Contains(text, "readme.md") {
+			t.Errorf("text should contain name, got %q", text)
+		}
+		if len(parts) != 0 {
+			t.Errorf("expected 0 file parts for resource link, got %d", len(parts))
+		}
+	})
+
+	t.Run("InvalidBase64", func(t *testing.T) {
+		_, parts := extractPromptContent(mcp.ImageContent{
+			Type:     "image",
+			Data:     "not-valid-base64!!!",
+			MIMEType: "image/png",
+		})
+		if len(parts) != 0 {
+			t.Errorf("expected 0 file parts for invalid base64, got %d", len(parts))
+		}
+	})
+
+	t.Run("NilContent", func(t *testing.T) {
+		text, parts := extractPromptContent((*mcp.TextContent)(nil))
+		if text != "" {
+			t.Errorf("expected empty text for nil, got %q", text)
+		}
+		if len(parts) != 0 {
+			t.Errorf("expected 0 parts for nil, got %d", len(parts))
+		}
+	})
+}
+
+func TestFilenameFromURI(t *testing.T) {
+	tests := []struct {
+		uri  string
+		want string
+	}{
+		{"file:///path/to/image.png", "image.png"},
+		{"file:///single.txt", "single.txt"},
+		{"resource://server/data.json", "data.json"},
+		{"nopath", "nopath"},
+		{"", "resource"},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractContentText(tt.content)
+		t.Run(tt.uri, func(t *testing.T) {
+			got := filenameFromURI(tt.uri)
 			if got != tt.want {
-				t.Errorf("extractContentText() = %q, want %q", got, tt.want)
+				t.Errorf("filenameFromURI(%q) = %q, want %q", tt.uri, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetPrompt_EmbeddedResources(t *testing.T) {
+	ctx := context.Background()
+
+	imgData := base64.StdEncoding.EncodeToString([]byte("fake-png"))
+	blobData := base64.StdEncoding.EncodeToString([]byte("binary-blob"))
+
+	client := newTestPromptServer(t,
+		server.ServerPrompt{
+			Prompt: mcp.NewPrompt("review-with-files",
+				mcp.WithPromptDescription("Review with embedded resources"),
+			),
+			Handler: func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+				return &mcp.GetPromptResult{
+					Description: "Review prompt with embedded files",
+					Messages: []mcp.PromptMessage{
+						{
+							Role:    mcp.RoleUser,
+							Content: mcp.TextContent{Type: "text", Text: "Please review these files:"},
+						},
+						{
+							Role: mcp.RoleUser,
+							Content: mcp.EmbeddedResource{
+								Type: "resource",
+								Resource: mcp.TextResourceContents{
+									URI:      "file:///src/main.go",
+									MIMEType: "text/x-go",
+									Text:     "package main\n\nfunc main() {}",
+								},
+							},
+						},
+						{
+							Role: mcp.RoleUser,
+							Content: mcp.ImageContent{
+								Type:     "image",
+								Data:     imgData,
+								MIMEType: "image/png",
+							},
+						},
+						{
+							Role: mcp.RoleUser,
+							Content: mcp.EmbeddedResource{
+								Type: "resource",
+								Resource: mcp.BlobResourceContents{
+									URI:      "file:///data/model.bin",
+									MIMEType: "application/octet-stream",
+									Blob:     blobData,
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		},
+	)
+
+	m := injectClientIntoManager(t, "test", client)
+
+	result, err := m.GetPrompt(ctx, "test", "review-with-files", nil)
+	if err != nil {
+		t.Fatalf("GetPrompt error: %v", err)
+	}
+	if result.Description != "Review prompt with embedded files" {
+		t.Errorf("unexpected description: %q", result.Description)
+	}
+
+	// Should have 4 messages: text, embedded text resource, image, embedded blob
+	if len(result.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(result.Messages))
+	}
+
+	// Message 0: plain text
+	msg0 := result.Messages[0]
+	if msg0.Content != "Please review these files:" {
+		t.Errorf("msg[0] content = %q", msg0.Content)
+	}
+	if len(msg0.FileParts) != 0 {
+		t.Errorf("msg[0] expected 0 file parts, got %d", len(msg0.FileParts))
+	}
+
+	// Message 1: embedded text resource → inlined as text
+	msg1 := result.Messages[1]
+	if !strings.Contains(msg1.Content, "package main") {
+		t.Errorf("msg[1] should contain resource text, got %q", msg1.Content)
+	}
+	if len(msg1.FileParts) != 0 {
+		t.Errorf("msg[1] expected 0 file parts (text resource), got %d", len(msg1.FileParts))
+	}
+
+	// Message 2: image → file part
+	msg2 := result.Messages[2]
+	if msg2.Content != "" {
+		t.Errorf("msg[2] expected empty text for image, got %q", msg2.Content)
+	}
+	if len(msg2.FileParts) != 1 {
+		t.Fatalf("msg[2] expected 1 file part, got %d", len(msg2.FileParts))
+	}
+	if msg2.FileParts[0].MediaType != "image/png" {
+		t.Errorf("msg[2] file part MIME = %q", msg2.FileParts[0].MediaType)
+	}
+	if string(msg2.FileParts[0].Data) != "fake-png" {
+		t.Errorf("msg[2] file part data = %q", string(msg2.FileParts[0].Data))
+	}
+
+	// Message 3: embedded blob resource → file part
+	msg3 := result.Messages[3]
+	if msg3.Content != "" {
+		t.Errorf("msg[3] expected empty text for blob resource, got %q", msg3.Content)
+	}
+	if len(msg3.FileParts) != 1 {
+		t.Fatalf("msg[3] expected 1 file part, got %d", len(msg3.FileParts))
+	}
+	if msg3.FileParts[0].Filename != "model.bin" {
+		t.Errorf("msg[3] filename = %q, want %q", msg3.FileParts[0].Filename, "model.bin")
+	}
+	if string(msg3.FileParts[0].Data) != "binary-blob" {
+		t.Errorf("msg[3] file part data = %q", string(msg3.FileParts[0].Data))
 	}
 }

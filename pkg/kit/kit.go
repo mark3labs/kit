@@ -257,6 +257,10 @@ type MCPPromptMessage struct {
 	Role string
 	// Content is the text content of the message.
 	Content string
+	// FileParts contains binary attachments extracted from embedded resources,
+	// images, or audio content blocks within the prompt message. Empty for
+	// text-only messages.
+	FileParts []LLMFilePart
 }
 
 // MCPPromptResult is the result of expanding an MCP prompt.
@@ -308,9 +312,18 @@ func (m *Kit) GetMCPPrompt(ctx context.Context, serverName, promptName string, a
 	}
 	msgs := make([]MCPPromptMessage, len(internal.Messages))
 	for i, msg := range internal.Messages {
+		var fileParts []LLMFilePart
+		for _, fp := range msg.FileParts {
+			fileParts = append(fileParts, LLMFilePart{
+				Filename:  fp.Filename,
+				Data:      fp.Data,
+				MediaType: fp.MediaType,
+			})
+		}
 		msgs[i] = MCPPromptMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
+			Role:      msg.Role,
+			Content:   msg.Content,
+			FileParts: fileParts,
 		}
 	}
 	return &MCPPromptResult{

@@ -157,8 +157,9 @@ type MCPPromptExpandResult struct {
 
 // MCPPromptMessageInfo is a single message from an expanded MCP prompt.
 type MCPPromptMessageInfo struct {
-	Role    string // "user" or "assistant"
-	Content string
+	Role      string // "user" or "assistant"
+	Content   string
+	FileParts []kit.LLMFilePart
 }
 
 // ToolRendererData holds extension-provided rendering functions for a specific
@@ -2153,7 +2154,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// as a user message (same behavior as local prompt templates).
 		if msg.err != nil {
 			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
-		} else if msg.text != "" {
+		} else if msg.text != "" || len(msg.fileParts) > 0 {
 			// Process @file references and submit.
 			processedText := msg.text
 			var fileParts []kit.LLMFilePart
@@ -2168,6 +2169,35 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					})
 				}
 			}
+			// Merge file parts from embedded resources (images, audio, blobs)
+			// with any @file/@mcp: file parts extracted from the text.
+			fileParts = append(fileParts, msg.fileParts...)
+
+			// Build display text with attachment badges (matches the
+			// normal submit path so embedded resources look like pasted
+			// images / attached files).
+			displayText := msg.text
+			if len(msg.fileParts) > 0 {
+				var imageCount, fileCount int
+				for _, fp := range msg.fileParts {
+					if strings.HasPrefix(fp.MediaType, "image/") {
+						imageCount++
+					} else {
+						fileCount++
+					}
+				}
+				var badges []string
+				if imageCount > 0 {
+					badges = append(badges, fmt.Sprintf("%d image(s) attached", imageCount))
+				}
+				if fileCount > 0 {
+					badges = append(badges, fmt.Sprintf("%d file(s) attached", fileCount))
+				}
+				if len(badges) > 0 {
+					displayText = fmt.Sprintf("%s\n[%s]", msg.text, strings.Join(badges, ", "))
+				}
+			}
+
 			if m.appCtrl != nil {
 				var qLen int
 				if len(fileParts) > 0 {
@@ -2176,10 +2206,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					qLen = m.appCtrl.Run(processedText)
 				}
 				if qLen > 0 {
-					m.queuedMessages = append(m.queuedMessages, msg.text)
+					m.queuedMessages = append(m.queuedMessages, displayText)
 					m.layoutDirty = true
 				} else {
-					m.pendingUserPrints = append(m.pendingUserPrints, msg.text)
+					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 					m.flushStreamAndPendingUserMessages()
 				}
 				if m.state != stateWorking {
@@ -3125,14 +3155,22 @@ func (m *AppModel) handleMCPPromptCommand(text string) tea.Cmd {
 			ctrl.SendEvent(mcpPromptResultMsg{err: err})
 			return
 		}
-		// Concatenate user-role messages as the prompt text.
+		// Concatenate user-role messages as the prompt text and collect
+		// any binary attachments from embedded resources.
 		var parts []string
+		var allFileParts []kit.LLMFilePart
 		for _, msg := range result.Messages {
 			if msg.Role == "user" {
-				parts = append(parts, msg.Content)
+				if msg.Content != "" {
+					parts = append(parts, msg.Content)
+				}
+				allFileParts = append(allFileParts, msg.FileParts...)
 			}
 		}
-		ctrl.SendEvent(mcpPromptResultMsg{text: strings.Join(parts, "\n\n")})
+		ctrl.SendEvent(mcpPromptResultMsg{
+			text:      strings.Join(parts, "\n\n"),
+			fileParts: allFileParts,
+		})
 	}()
 
 	return noopCmd
@@ -4472,8 +4510,9 @@ type extensionCmdResultMsg struct {
 // mcpPromptResultMsg carries the result of an asynchronously expanded MCP
 // prompt. The expansion runs in a goroutine since it contacts the MCP server.
 type mcpPromptResultMsg struct {
-	text string // concatenated user messages to submit as the prompt
-	err  error  // error from the server
+	text      string            // concatenated user messages to submit as the prompt
+	fileParts []kit.LLMFilePart // binary attachments from embedded resources
+	err       error             // error from the server
 }
 
 // beforeSessionSwitchResultMsg carries the result of an asynchronously

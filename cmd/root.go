@@ -1754,8 +1754,9 @@ func runNormalMode(ctx context.Context) error {
 		msgs := make([]ui.MCPPromptMessageInfo, len(result.Messages))
 		for i, m := range result.Messages {
 			msgs[i] = ui.MCPPromptMessageInfo{
-				Role:    m.Role,
-				Content: m.Content,
+				Role:      m.Role,
+				Content:   m.Content,
+				FileParts: m.FileParts,
 			}
 		}
 		return &ui.MCPPromptExpandResult{Messages: msgs}, nil

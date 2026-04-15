@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/charmbracelet/log"
+
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -68,6 +70,20 @@ type MCPPromptMessage struct {
 	Role string
 	// Content is the text content of the message.
 	Content string
+	// FileParts contains binary attachments extracted from embedded resources,
+	// images, or audio content blocks. Empty for text-only messages.
+	FileParts []MCPFilePart
+}
+
+// MCPFilePart represents a binary file attachment extracted from an MCP prompt
+// content block (ImageContent, AudioContent, or EmbeddedResource with blob data).
+type MCPFilePart struct {
+	// Filename is a best-effort name derived from the resource URI or content type.
+	Filename string
+	// Data is the raw binary content (already base64-decoded).
+	Data []byte
+	// MediaType is the MIME type (e.g. "image/png", "audio/wav").
+	MediaType string
 }
 
 // MCPPromptResult is the result of expanding an MCP prompt via GetPrompt.
@@ -650,14 +666,15 @@ func (m *MCPToolManager) GetPrompt(ctx context.Context, serverName, promptName s
 		return nil, fmt.Errorf("failed to get prompt %q from server %q: %w", promptName, serverName, err)
 	}
 
-	// Convert MCP messages to our types, extracting text content.
+	// Convert MCP messages to our types, extracting all content types.
 	var messages []MCPPromptMessage
 	for _, msg := range result.Messages {
-		text := extractContentText(msg.Content)
-		if text != "" {
+		text, fileParts := extractPromptContent(msg.Content)
+		if text != "" || len(fileParts) > 0 {
 			messages = append(messages, MCPPromptMessage{
-				Role:    string(msg.Role),
-				Content: text,
+				Role:      string(msg.Role),
+				Content:   text,
+				FileParts: fileParts,
 			})
 		}
 	}
@@ -668,18 +685,110 @@ func (m *MCPToolManager) GetPrompt(ctx context.Context, serverName, promptName s
 	}, nil
 }
 
-// extractContentText extracts text from an MCP Content value.
-// Content can be TextContent, ImageContent, AudioContent, or EmbeddedResource.
-// We only extract text content; other types are skipped.
-func extractContentText(content mcp.Content) string {
-	if tc, ok := content.(mcp.TextContent); ok {
-		return tc.Text
+// extractPromptContent extracts text and binary attachments from an MCP Content value.
+// Handles all MCP content types: TextContent, ImageContent, AudioContent,
+// EmbeddedResource (text and blob), and ResourceLink.
+func extractPromptContent(content mcp.Content) (string, []MCPFilePart) {
+	switch c := content.(type) {
+	case mcp.TextContent:
+		return c.Text, nil
+	case *mcp.TextContent:
+		if c != nil {
+			return c.Text, nil
+		}
+		return "", nil
+
+	case mcp.ImageContent:
+		return "", decodeBase64FilePart(c.Data, c.MIMEType, "image/png", "image.png")
+	case *mcp.ImageContent:
+		if c != nil {
+			return "", decodeBase64FilePart(c.Data, c.MIMEType, "image/png", "image.png")
+		}
+		return "", nil
+
+	case mcp.AudioContent:
+		return "", decodeBase64FilePart(c.Data, c.MIMEType, "audio/wav", "audio.wav")
+	case *mcp.AudioContent:
+		if c != nil {
+			return "", decodeBase64FilePart(c.Data, c.MIMEType, "audio/wav", "audio.wav")
+		}
+		return "", nil
+
+	case mcp.EmbeddedResource:
+		return extractEmbeddedResourceContent(c.Resource)
+	case *mcp.EmbeddedResource:
+		if c != nil {
+			return extractEmbeddedResourceContent(c.Resource)
+		}
+		return "", nil
+
+	case mcp.ResourceLink:
+		// ResourceLink is a reference without inline content — include as a
+		// text annotation so the LLM knows about it.
+		return fmt.Sprintf("[Referenced resource: %s (%s)]", c.URI, c.Name), nil
+	case *mcp.ResourceLink:
+		if c != nil {
+			return fmt.Sprintf("[Referenced resource: %s (%s)]", c.URI, c.Name), nil
+		}
+		return "", nil
+
+	default:
+		return "", nil
 	}
-	// Try pointer form as well.
-	if tc, ok := content.(*mcp.TextContent); ok && tc != nil {
-		return tc.Text
+}
+
+// extractEmbeddedResourceContent handles the two variants of embedded resource
+// content: text resources are inlined as fenced code blocks, blob resources
+// are base64-decoded into MCPFilePart attachments.
+func extractEmbeddedResourceContent(res mcp.ResourceContents) (string, []MCPFilePart) {
+	switch r := res.(type) {
+	case mcp.TextResourceContents:
+		return fmt.Sprintf("[File: %s]\n```\n%s\n```", r.URI, r.Text), nil
+	case *mcp.TextResourceContents:
+		if r != nil {
+			return fmt.Sprintf("[File: %s]\n```\n%s\n```", r.URI, r.Text), nil
+		}
+		return "", nil
+	case mcp.BlobResourceContents:
+		return "", decodeBase64FilePart(r.Blob, r.MIMEType, "application/octet-stream", filenameFromURI(r.URI))
+	case *mcp.BlobResourceContents:
+		if r != nil {
+			return "", decodeBase64FilePart(r.Blob, r.MIMEType, "application/octet-stream", filenameFromURI(r.URI))
+		}
+		return "", nil
+	default:
+		return "", nil
 	}
-	return ""
+}
+
+// decodeBase64FilePart decodes base64-encoded data into an MCPFilePart.
+// Returns nil on decode failure (logged as a warning).
+func decodeBase64FilePart(data, mimeType, defaultMIME, filename string) []MCPFilePart {
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		log.Warn("mcp prompt: failed to decode base64 content", "filename", filename, "error", err)
+		return nil
+	}
+	if mimeType == "" {
+		mimeType = defaultMIME
+	}
+	return []MCPFilePart{{
+		Filename:  filename,
+		Data:      decoded,
+		MediaType: mimeType,
+	}}
+}
+
+// filenameFromURI extracts a filename from a URI (e.g. "file:///path/to/img.png" → "img.png").
+func filenameFromURI(uri string) string {
+	uri = strings.TrimPrefix(uri, "file://")
+	if idx := strings.LastIndex(uri, "/"); idx >= 0 {
+		return uri[idx+1:]
+	}
+	if uri == "" {
+		return "resource"
+	}
+	return uri
 }
 
 // loadServerPrompts loads prompts from a single MCP server connection.
