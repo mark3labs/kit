@@ -225,6 +225,100 @@ func (m *Kit) GetExtensionToolCount() int {
 	return m.agent.GetExtensionToolCount()
 }
 
+// --------------------------------------------------------------------------
+// MCP Prompts
+// --------------------------------------------------------------------------
+
+// MCPPrompt describes a prompt exposed by an MCP server.
+type MCPPrompt struct {
+	// Name is the prompt name on the MCP server.
+	Name string
+	// Description is a human-readable description.
+	Description string
+	// Arguments lists the prompt's expected arguments.
+	Arguments []MCPPromptArgument
+	// ServerName is the MCP server that provides this prompt.
+	ServerName string
+}
+
+// MCPPromptArgument describes a single argument for an MCP prompt.
+type MCPPromptArgument struct {
+	// Name is the argument name.
+	Name string
+	// Description is a human-readable description.
+	Description string
+	// Required indicates whether this argument must be provided.
+	Required bool
+}
+
+// MCPPromptMessage is a single message returned by a prompt expansion.
+type MCPPromptMessage struct {
+	// Role is "user" or "assistant".
+	Role string
+	// Content is the text content of the message.
+	Content string
+}
+
+// MCPPromptResult is the result of expanding an MCP prompt.
+type MCPPromptResult struct {
+	// Description is an optional description returned by the server.
+	Description string
+	// Messages contains the expanded prompt messages.
+	Messages []MCPPromptMessage
+}
+
+// ListMCPPrompts returns all prompts discovered from connected MCP servers.
+// If MCP servers are still loading in the background, this returns only the
+// prompts discovered so far. Returns nil if no prompts are available.
+func (m *Kit) ListMCPPrompts() []MCPPrompt {
+	internal := m.agent.GetMCPPrompts()
+	if len(internal) == 0 {
+		return nil
+	}
+	result := make([]MCPPrompt, len(internal))
+	for i, p := range internal {
+		args := make([]MCPPromptArgument, len(p.Arguments))
+		for j, a := range p.Arguments {
+			args[j] = MCPPromptArgument{
+				Name:        a.Name,
+				Description: a.Description,
+				Required:    a.Required,
+			}
+		}
+		result[i] = MCPPrompt{
+			Name:        p.Name,
+			Description: p.Description,
+			Arguments:   args,
+			ServerName:  p.ServerName,
+		}
+	}
+	return result
+}
+
+// GetMCPPrompt retrieves and expands a specific prompt from an MCP server.
+// This is a lazy call — the server is contacted each time to get the latest
+// prompt content. Arguments are passed as key=value pairs to the server for
+// template substitution.
+//
+// Returns an error if the server is not found or the prompt expansion fails.
+func (m *Kit) GetMCPPrompt(ctx context.Context, serverName, promptName string, args map[string]string) (*MCPPromptResult, error) {
+	internal, err := m.agent.GetMCPPrompt(ctx, serverName, promptName, args)
+	if err != nil {
+		return nil, err
+	}
+	msgs := make([]MCPPromptMessage, len(internal.Messages))
+	for i, msg := range internal.Messages {
+		msgs[i] = MCPPromptMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+	return &MCPPromptResult{
+		Description: internal.Description,
+		Messages:    msgs,
+	}, nil
+}
+
 // GetBufferedDebugMessages returns any debug messages that were buffered
 // during initialization, then clears the buffer. Returns nil if no messages
 // were buffered or if buffered logging was not configured.

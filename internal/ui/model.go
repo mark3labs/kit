@@ -134,6 +134,33 @@ type SkillItem struct {
 	Source string // "project" or "user" (global).
 }
 
+// MCPPromptInfo describes an MCP prompt for display in the TUI (autocomplete,
+// help). This is a pure UI type — it carries no MCP client dependencies.
+type MCPPromptInfo struct {
+	Name        string             // Prompt name on the MCP server.
+	Description string             // Human-readable description.
+	Arguments   []MCPPromptArgInfo // Expected arguments.
+	ServerName  string             // Owning MCP server name.
+}
+
+// MCPPromptArgInfo describes an argument for an MCP prompt.
+type MCPPromptArgInfo struct {
+	Name        string
+	Description string
+	Required    bool
+}
+
+// MCPPromptExpandResult is the result of lazily expanding an MCP prompt.
+type MCPPromptExpandResult struct {
+	Messages []MCPPromptMessageInfo
+}
+
+// MCPPromptMessageInfo is a single message from an expanded MCP prompt.
+type MCPPromptMessageInfo struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
 // ToolRendererData holds extension-provided rendering functions for a specific
 // tool. The UI layer uses this to override the default tool header/body
 // rendering without depending on the extensions package directly.
@@ -309,6 +336,19 @@ type AppModelOptions struct {
 	// Called on ContentReloadEvent to refresh the template list after a file
 	// watcher detects changes. May be nil if prompt hot-reload is not needed.
 	GetPromptTemplates func() []*prompts.PromptTemplate
+
+	// MCPPrompts are prompts discovered from MCP servers at startup.
+	// They appear in autocomplete as /<server>:<prompt> commands.
+	MCPPrompts []MCPPromptInfo
+
+	// GetMCPPrompts, if non-nil, returns the current MCP prompts.
+	// Called on MCPToolsReadyEvent to refresh after background loading.
+	GetMCPPrompts func() []MCPPromptInfo
+
+	// ExpandMCPPrompt, if non-nil, lazily expands an MCP prompt by
+	// calling the MCP server's GetPrompt. Called asynchronously when the
+	// user invokes an MCP prompt slash command.
+	ExpandMCPPrompt func(serverName, promptName string, args map[string]string) (*MCPPromptExpandResult, error)
 
 	// ContextPaths lists absolute paths of loaded context files (e.g.
 	// AGENTS.md). Displayed in the [Context] startup section.
@@ -533,6 +573,17 @@ type AppModel struct {
 	// getPromptTemplates returns the current prompt templates. Used to
 	// refresh the template list after content hot-reload. May be nil.
 	getPromptTemplates func() []*prompts.PromptTemplate
+
+	// mcpPrompts are prompts discovered from MCP servers, shown as
+	// /<server>:<prompt> slash commands.
+	mcpPrompts []MCPPromptInfo
+
+	// getMCPPrompts returns the current MCP prompts. Called on
+	// MCPToolsReadyEvent to refresh after background loading.
+	getMCPPrompts func() []MCPPromptInfo
+
+	// expandMCPPrompt lazily expands an MCP prompt via the server.
+	expandMCPPrompt func(serverName, promptName string, args map[string]string) (*MCPPromptExpandResult, error)
 
 	// treeSelector is the tree navigation overlay, active in stateTreeSelector.
 	treeSelector *TreeSelectorComponent
@@ -762,6 +813,9 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.extensionCommands = opts.ExtensionCommands
 	m.promptTemplates = opts.PromptTemplates
 	m.getPromptTemplates = opts.GetPromptTemplates
+	m.mcpPrompts = opts.MCPPrompts
+	m.getMCPPrompts = opts.GetMCPPrompts
+	m.expandMCPPrompt = opts.ExpandMCPPrompt
 	m.getWidgets = opts.GetWidgets
 	m.getHeader = opts.GetHeader
 	m.getFooter = opts.GetFooter
@@ -828,6 +882,25 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 				Description: tpl.Description,
 				Category:    "Prompts",
 				HasArgs:     tpl.HasArgPlaceholders(),
+			})
+		}
+	}
+
+	// Merge MCP prompts into autocomplete as /<server>:<prompt> commands.
+	if ic, ok := m.input.(*InputComponent); ok && len(opts.MCPPrompts) > 0 {
+		for _, p := range opts.MCPPrompts {
+			hasArgs := false
+			for _, a := range p.Arguments {
+				if a.Required {
+					hasArgs = true
+					break
+				}
+			}
+			ic.commands = append(ic.commands, commands.SlashCommand{
+				Name:        fmt.Sprintf("/%s:%s", p.ServerName, p.Name),
+				Description: p.Description,
+				Category:    "MCP Prompts",
+				HasArgs:     hasArgs,
 			})
 		}
 	}
@@ -1483,6 +1556,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Check MCP prompt commands (/<server>:<prompt> [args]).
+		if cmd := m.handleMCPPromptCommand(msg.Text); cmd != nil {
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		// Expand prompt templates. If the input matches a template name,
 		// substitute arguments and use the expanded content as the prompt.
 		if expanded, ok, validationErr := m.expandPromptTemplate(msg.Text); validationErr != "" {
@@ -1934,9 +2013,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.printSystemMessage("Prompts and skills reloaded.")
 
 	case app.MCPToolsReadyEvent:
-		// Background MCP tool loading completed — refresh tool names and count.
+		// Background MCP tool loading completed — refresh tool names, count, and prompts.
 		m.refreshToolNames()
 		m.refreshMCPToolCount()
+		m.refreshMCPPrompts()
 
 	case app.MCPServerLoadedEvent:
 		// A single MCP server finished loading — display a system message.
@@ -2020,6 +2100,32 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.printSystemMessage(fmt.Sprintf("Command %s error: %v", msg.name, msg.err))
 		} else if msg.output != "" {
 			m.printSystemMessage(msg.output)
+		}
+
+	case mcpPromptResultMsg:
+		// Async MCP prompt expansion completed. Submit the expanded text
+		// as a user message (same behavior as local prompt templates).
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("MCP prompt error: %v", msg.err))
+		} else if msg.text != "" {
+			// Process @file references and submit.
+			processedText := msg.text
+			if m.cwd != "" {
+				processedText = fileutil.ProcessFileAttachments(msg.text, m.cwd)
+			}
+			if m.appCtrl != nil {
+				qLen := m.appCtrl.Run(processedText)
+				if qLen > 0 {
+					m.queuedMessages = append(m.queuedMessages, msg.text)
+					m.layoutDirty = true
+				} else {
+					m.pendingUserPrints = append(m.pendingUserPrints, msg.text)
+					m.flushStreamAndPendingUserMessages()
+				}
+				if m.state != stateWorking {
+					m.state = stateWorking
+				}
+			}
 		}
 
 	case externalEditorMsg:
@@ -2892,6 +2998,107 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 	return noopCmd
 }
 
+// handleMCPPromptCommand checks if the submitted text matches an MCP prompt
+// command (/<server>:<prompt> [args]) and returns a tea.Cmd that expands it
+// asynchronously. Returns nil if no MCP prompt matches.
+//
+// Arguments are parsed as key=value pairs. Positional arguments are mapped
+// to prompt argument names by order.
+func (m *AppModel) handleMCPPromptCommand(text string) tea.Cmd {
+	if len(m.mcpPrompts) == 0 || m.expandMCPPrompt == nil {
+		return nil
+	}
+
+	if !strings.HasPrefix(text, "/") {
+		return nil
+	}
+
+	// Split: "/<server>:<prompt> key=val ..." → command, args
+	cmdPart, argStr, _ := strings.Cut(text, " ")
+	cmdPart = strings.TrimPrefix(cmdPart, "/")
+
+	// Must contain a colon to be an MCP prompt command.
+	serverName, promptName, ok := strings.Cut(cmdPart, ":")
+	if !ok || serverName == "" || promptName == "" {
+		return nil
+	}
+
+	// Find matching MCP prompt.
+	var matched *MCPPromptInfo
+	for i := range m.mcpPrompts {
+		if m.mcpPrompts[i].ServerName == serverName && m.mcpPrompts[i].Name == promptName {
+			matched = &m.mcpPrompts[i]
+			break
+		}
+	}
+	if matched == nil {
+		return nil
+	}
+
+	// Parse arguments: support key=value pairs, with positional fallback.
+	args := parseMCPPromptArgs(argStr, matched.Arguments)
+
+	// Validate required arguments.
+	for _, a := range matched.Arguments {
+		if a.Required {
+			if _, exists := args[a.Name]; !exists {
+				m.printSystemMessage(fmt.Sprintf(
+					"/%s:%s requires argument '%s'",
+					serverName, promptName, a.Name,
+				))
+				// Re-populate input for the user to add missing args.
+				if ic, ok := m.input.(*InputComponent); ok {
+					ic.textarea.SetValue(text + " ")
+					ic.textarea.CursorEnd()
+				}
+				return noopCmd
+			}
+		}
+	}
+
+	// Expand asynchronously.
+	expand := m.expandMCPPrompt
+	ctrl := m.appCtrl
+	go func() {
+		result, err := expand(serverName, promptName, args)
+		if err != nil {
+			ctrl.SendEvent(mcpPromptResultMsg{err: err})
+			return
+		}
+		// Concatenate user-role messages as the prompt text.
+		var parts []string
+		for _, msg := range result.Messages {
+			if msg.Role == "user" {
+				parts = append(parts, msg.Content)
+			}
+		}
+		ctrl.SendEvent(mcpPromptResultMsg{text: strings.Join(parts, "\n\n")})
+	}()
+
+	return noopCmd
+}
+
+// parseMCPPromptArgs parses "key=value" pairs from a space-separated arg
+// string. Tokens without "=" are assigned to prompt arguments positionally.
+func parseMCPPromptArgs(argStr string, argDefs []MCPPromptArgInfo) map[string]string {
+	result := make(map[string]string)
+	if strings.TrimSpace(argStr) == "" {
+		return result
+	}
+
+	tokens := strings.Fields(argStr)
+	positionalIdx := 0
+	for _, tok := range tokens {
+		if k, v, ok := strings.Cut(tok, "="); ok && k != "" {
+			result[k] = v
+		} else if positionalIdx < len(argDefs) {
+			result[argDefs[positionalIdx].Name] = tok
+			positionalIdx++
+		}
+	}
+	return result
+}
+
 // expandPromptTemplate checks if the submitted text matches a prompt template
 // and returns the expanded content with arguments substituted.
 //
@@ -2973,6 +3180,42 @@ func (m *AppModel) refreshSkillItems() {
 		return
 	}
 	m.skillItems = m.getSkillItems()
+}
+
+// refreshMCPPrompts reloads MCP prompts from the provider callback and
+// updates the autocomplete entries. Called on MCPToolsReadyEvent.
+func (m *AppModel) refreshMCPPrompts() {
+	if m.getMCPPrompts == nil {
+		return
+	}
+	newPrompts := m.getMCPPrompts()
+	m.mcpPrompts = newPrompts
+
+	if ic, ok := m.input.(*InputComponent); ok {
+		// Remove old MCP Prompts commands and add fresh ones.
+		var kept []commands.SlashCommand
+		for _, sc := range ic.commands {
+			if sc.Category != "MCP Prompts" {
+				kept = append(kept, sc)
+			}
+		}
+		for _, p := range newPrompts {
+			hasArgs := false
+			for _, a := range p.Arguments {
+				if a.Required {
+					hasArgs = true
+					break
+				}
+			}
+			kept = append(kept, commands.SlashCommand{
+				Name:        fmt.Sprintf("/%s:%s", p.ServerName, p.Name),
+				Description: p.Description,
+				Category:    "MCP Prompts",
+				HasArgs:     hasArgs,
+			})
+		}
+		ic.commands = kept
+	}
 }
 
 // refreshToolNames reloads tool names from the provider callback.
@@ -4164,6 +4407,13 @@ type extensionCmdResultMsg struct {
 	name   string
 	output string
 	err    error
+}
+
+// mcpPromptResultMsg carries the result of an asynchronously expanded MCP
+// prompt. The expansion runs in a goroutine since it contacts the MCP server.
+type mcpPromptResultMsg struct {
+	text string // concatenated user messages to submit as the prompt
+	err  error  // error from the server
 }
 
 // beforeSessionSwitchResultMsg carries the result of an asynchronously

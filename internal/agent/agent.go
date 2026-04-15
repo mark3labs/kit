@@ -912,6 +912,24 @@ func (a *Agent) GetLoadedServerNames() []string {
 	return a.toolManager.GetLoadedServerNames()
 }
 
+// GetMCPPrompts returns all prompts discovered from connected MCP servers.
+// Returns nil if no MCP servers are configured or no prompts were found.
+func (a *Agent) GetMCPPrompts() []tools.MCPPrompt {
+	if a.toolManager == nil {
+		return nil
+	}
+	return a.toolManager.GetPrompts()
+}
+
+// GetMCPPrompt retrieves and expands a specific prompt from an MCP server.
+// This is a lazy call — the server is contacted each time.
+func (a *Agent) GetMCPPrompt(ctx context.Context, serverName, promptName string, args map[string]string) (*tools.MCPPromptResult, error) {
+	if a.toolManager == nil {
+		return nil, fmt.Errorf("no MCP servers configured")
+	}
+	return a.toolManager.GetPrompt(ctx, serverName, promptName, args)
+}
+
 // SetModel swaps the agent's LLM provider to a new model. The existing tools
 // and configuration are preserved. When the new model's ProviderConfig carries
 // a system prompt (from per-model settings), it replaces the agent's stored

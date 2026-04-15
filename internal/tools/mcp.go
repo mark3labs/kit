@@ -39,6 +39,44 @@ type MCPToolResult struct {
 	IsError bool
 }
 
+// MCPPrompt represents a prompt discovered from an MCP server.
+type MCPPrompt struct {
+	// Name is the prompt name on the MCP server.
+	Name string
+	// Description is the human-readable prompt description.
+	Description string
+	// Arguments lists the prompt's expected arguments.
+	Arguments []MCPPromptArgument
+	// ServerName is the MCP server this prompt belongs to.
+	ServerName string
+}
+
+// MCPPromptArgument describes an argument that a prompt template can accept.
+type MCPPromptArgument struct {
+	// Name is the argument name.
+	Name string
+	// Description is a human-readable description.
+	Description string
+	// Required indicates whether this argument must be provided.
+	Required bool
+}
+
+// MCPPromptMessage is a single message returned by a prompt expansion.
+type MCPPromptMessage struct {
+	// Role is "user" or "assistant".
+	Role string
+	// Content is the text content of the message.
+	Content string
+}
+
+// MCPPromptResult is the result of expanding an MCP prompt via GetPrompt.
+type MCPPromptResult struct {
+	// Description is an optional description returned by the server.
+	Description string
+	// Messages contains the expanded prompt messages.
+	Messages []MCPPromptMessage
+}
+
 // MCPToolManager manages MCP (Model Context Protocol) tools and clients across multiple servers.
 // It provides a unified interface for loading, managing, and executing tools from various MCP servers,
 // including stdio, SSE, streamable HTTP, and built-in server types. The manager handles connection
@@ -48,7 +86,8 @@ type MCPToolManager struct {
 	connectionPool    *MCPConnectionPool
 	tools             []MCPTool
 	toolMap           map[string]*toolMapping // maps prefixed tool names to their server and original name
-	mu                sync.Mutex              // protects tools and toolMap during parallel loading
+	prompts           []MCPPrompt             // prompts discovered from all servers
+	mu                sync.Mutex              // protects tools, toolMap, and prompts during parallel loading
 	authHandler       MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
 	tokenStoreFactory TokenStoreFactory       // factory for creating per-server token stores (nil = default FileTokenStore)
 	config            *config.Config
@@ -175,7 +214,7 @@ func (m *MCPToolManager) AddServer(ctx context.Context, name string, cfg config.
 	return count, nil
 }
 
-// RemoveServer disconnects an MCP server and removes all its tools.
+// RemoveServer disconnects an MCP server and removes all its tools and prompts.
 // After this call the agent will no longer see or be able to call tools from
 // the named server. Returns an error if the server is not loaded.
 func (m *MCPToolManager) RemoveServer(name string) error {
@@ -183,12 +222,21 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 
 	m.mu.Lock()
 
-	// Check the server actually has tools loaded.
+	// Check the server actually has tools or prompts loaded.
 	found := false
 	for k := range m.toolMap {
 		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
 			found = true
 			break
+		}
+	}
+	if !found {
+		// Also check prompts — a server might expose only prompts.
+		for _, p := range m.prompts {
+			if p.ServerName == name {
+				found = true
+				break
+			}
 		}
 	}
 	if !found {
@@ -211,6 +259,16 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 			delete(m.toolMap, k)
 		}
 	}
+
+	// Remove prompts belonging to this server.
+	newPrompts := make([]MCPPrompt, 0, len(m.prompts))
+	for _, p := range m.prompts {
+		if p.ServerName != name {
+			newPrompts = append(newPrompts, p)
+		}
+	}
+	m.prompts = newPrompts
+
 	m.mu.Unlock()
 
 	// Close the connection in the pool (best-effort).
@@ -416,6 +474,9 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	m.tools = append(m.tools, localTools...)
 	m.mu.Unlock()
 
+	// Also load prompts from this server (best-effort, non-blocking).
+	m.loadServerPrompts(ctx, serverName, conn)
+
 	return len(localTools), nil
 }
 
@@ -501,6 +562,111 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 // Tools are returned with their prefixed names (serverName__toolName) to ensure uniqueness.
 func (m *MCPToolManager) GetTools() []MCPTool {
 	return m.tools
+}
+
+// GetPrompts returns all prompts discovered from connected MCP servers.
+func (m *MCPToolManager) GetPrompts() []MCPPrompt {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]MCPPrompt, len(m.prompts))
+	copy(result, m.prompts)
+	return result
+}
+
+// GetPrompt retrieves and expands a specific prompt from an MCP server.
+// The serverName identifies which server to query, promptName is the prompt's
+// name on that server, and args are the template arguments to substitute.
+// This call is lazy — it contacts the MCP server on each invocation.
+func (m *MCPToolManager) GetPrompt(ctx context.Context, serverName, promptName string, args map[string]string) (*MCPPromptResult, error) {
+	if m.connectionPool == nil {
+		return nil, fmt.Errorf("no connection pool available")
+	}
+
+	clients := m.connectionPool.GetClients()
+	mcpClient, ok := clients[serverName]
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	}
+
+	req := mcp.GetPromptRequest{}
+	req.Params.Name = promptName
+	if len(args) > 0 {
+		req.Params.Arguments = args
+	}
+
+	result, err := mcpClient.GetPrompt(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prompt %q from server %q: %w", promptName, serverName, err)
+	}
+
+	// Convert MCP messages to our types, extracting text content.
+	var messages []MCPPromptMessage
+	for _, msg := range result.Messages {
+		text := extractContentText(msg.Content)
+		if text != "" {
+			messages = append(messages, MCPPromptMessage{
+				Role:    string(msg.Role),
+				Content: text,
+			})
+		}
+	}
+
+	return &MCPPromptResult{
+		Description: result.Description,
+		Messages:    messages,
+	}, nil
+}
+
+// extractContentText extracts text from an MCP Content value.
+// Content can be TextContent, ImageContent, AudioContent, or EmbeddedResource.
+// We only extract text content; other types are skipped.
+func extractContentText(content mcp.Content) string {
+	if tc, ok := content.(mcp.TextContent); ok {
+		return tc.Text
+	}
+	// Try pointer form as well.
+	if tc, ok := content.(*mcp.TextContent); ok && tc != nil {
+		return tc.Text
+	}
+	return ""
+}
+
+// loadServerPrompts loads prompts from a single MCP server connection.
+// Called inside loadServerTools after a successful connection is established.
+// Thread-safe: acquires m.mu to merge results.
+func (m *MCPToolManager) loadServerPrompts(ctx context.Context, serverName string, conn *MCPConnection) {
+	listResult, err := conn.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err != nil {
+		// Prompts are optional — servers may not support them.
+		// Silently skip.
+		return
+	}
+
+	if len(listResult.Prompts) == 0 {
+		return
+	}
+
+	var localPrompts []MCPPrompt
+	for _, p := range listResult.Prompts {
+		var args []MCPPromptArgument
+		for _, a := range p.Arguments {
+			args = append(args, MCPPromptArgument{
+				Name:        a.Name,
+				Description: a.Description,
+				Required:    a.Required,
+			})
+		}
+		localPrompts = append(localPrompts, MCPPrompt{
+			Name:        p.Name,
+			Description: p.Description,
+			Arguments:   args,
+			ServerName:  serverName,
+		})
+	}
+
+	m.mu.Lock()
+	m.prompts = append(m.prompts, localPrompts...)
+	m.mu.Unlock()
 }
 
 // GetLoadedServerNames returns the names of all successfully loaded MCP servers.
