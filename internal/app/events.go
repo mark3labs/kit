@@ -79,6 +79,24 @@ type ToolCallContentEvent struct {
 	Content string
 }
 
+// PasswordPromptEvent is sent when a sudo command needs a password.
+// The TUI should display a password prompt overlay and send the result back.
+type PasswordPromptEvent struct {
+	// Prompt is the message to display to the user.
+	Prompt string
+	// ResponseCh receives the password from the TUI.
+	// The TUI must send exactly one value.
+	ResponseCh chan<- PasswordPromptResponse
+}
+
+// PasswordPromptResponse carries the user's password input.
+type PasswordPromptResponse struct {
+	// Password is the entered password.
+	Password string
+	// Cancelled is true if the user cancelled the prompt.
+	Cancelled bool
+}
+
 // ResponseCompleteEvent is sent when the LLM produces a final (non-streaming) response.
 // In streaming mode, this may be empty if all content was delivered via StreamChunkEvents.
 type ResponseCompleteEvent struct {

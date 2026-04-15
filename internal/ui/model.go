@@ -2082,6 +2082,39 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ic.textarea.CursorEnd()
 		}
 
+	case app.PasswordPromptEvent:
+		// Sudo password prompt - show a modal input prompt
+		// If already in prompt state, cancel the new request
+		if m.state == statePrompt {
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+			}
+			return m, tea.Batch(cmds...)
+		}
+		m.prePromptState = m.state
+		m.state = statePrompt
+		// Create a custom response channel that converts PasswordPromptResponse
+		passwordResponseCh := make(chan app.PromptResponse, 1)
+		m.promptResponseCh = passwordResponseCh
+
+		// Create password input prompt (masked input)
+		m.prompt = newPasswordPrompt(msg.Prompt, m.width, m.height)
+
+		// Handle the response conversion
+		go func() {
+			resp := <-passwordResponseCh
+			if msg.ResponseCh != nil {
+				msg.ResponseCh <- app.PasswordPromptResponse{
+					Password:  resp.Value,
+					Cancelled: resp.Cancelled,
+				}
+			}
+		}()
+
+		if m.prompt != nil {
+			cmds = append(cmds, m.prompt.Init())
+		}
+
 	case app.PromptRequestEvent:
 		// Extension wants to show an interactive prompt. Enter prompt state.
 		// If already in prompt state (concurrent prompt from another

@@ -918,6 +918,20 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 			sendFn(SteerConsumedEvent{})
 		case kit.StepUsageEvent:
 			a.recordStepUsage(ev, stepUsageSeen)
+		case kit.PasswordPromptEvent:
+			// Convert SDK PasswordPromptEvent to app PasswordPromptEvent
+			// The TUI will handle this and send the response back
+			responseCh := make(chan PasswordPromptResponse, 1)
+			sendFn(PasswordPromptEvent{
+				Prompt:     ev.Prompt,
+				ResponseCh: responseCh,
+			})
+			// Wait for TUI response and forward to SDK
+			resp := <-responseCh
+			ev.ResponseCh <- kit.PasswordPromptResponse{
+				Password:  resp.Password,
+				Cancelled: resp.Cancelled,
+			}
 		}
 	}))
 

@@ -94,6 +94,12 @@ type ReasoningCompleteHandler func()
 // Note: This is an alias for core.ToolOutputCallback to avoid import cycles.
 type ToolOutputHandler = core.ToolOutputCallback
 
+// PasswordPromptHandler is a function type for password prompts.
+// Used by the bash tool when sudo requires a password. The handler receives
+// a prompt message and returns the password and whether it was cancelled.
+// Note: This is an alias for core.PasswordPromptCallback.
+type PasswordPromptHandler = core.PasswordPromptCallback
+
 // StepMessagesHandler is a function type for persisting messages after each
 // complete step in a multi-step agent turn. The handler receives the messages
 // produced by the step (typically an assistant message with tool calls followed
@@ -405,7 +411,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
@@ -420,6 +426,7 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onToolOutput ToolOutputHandler,
 	onStepMessages StepMessagesHandler,
 	onStepUsage StepUsageHandler,
+	onPasswordPrompt PasswordPromptHandler,
 ) (*GenerateWithLoopResult, error) {
 
 	// Wait for background MCP tool loading to complete and rebuild the
@@ -430,6 +437,11 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// Inject tool output handler into context for use by core tools (e.g., bash).
 	if onToolOutput != nil {
 		ctx = core.ContextWithToolOutputCallback(ctx, onToolOutput)
+	}
+
+	// Inject password prompt handler into context for use by bash tool.
+	if onPasswordPrompt != nil {
+		ctx = core.ContextWithPasswordPrompt(ctx, onPasswordPrompt)
 	}
 
 	// The agent requires the current user input as Prompt, with prior messages as history.

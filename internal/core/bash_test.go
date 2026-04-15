@@ -127,3 +127,72 @@ func TestBash_EmptyCommand(t *testing.T) {
 		t.Fatal("expected error for empty command")
 	}
 }
+
+func TestRewriteSudoForStdin(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple sudo",
+			input:    "sudo apt update",
+			expected: "sudo -S -p '' apt update",
+		},
+		{
+			name:     "sudo with env var",
+			input:    "DEBIAN_FRONTEND=noninteractive sudo apt update",
+			expected: "DEBIAN_FRONTEND=noninteractive sudo -S -p '' apt update",
+		},
+		{
+			name:     "sudo in pipeline",
+			input:    "echo test | sudo tee /etc/test.conf",
+			expected: "echo test | sudo -S -p '' tee /etc/test.conf",
+		},
+		{
+			name:     "sudo after &&",
+			input:    "apt update && sudo apt upgrade",
+			expected: "apt update && sudo -S -p '' apt upgrade",
+		},
+		{
+			name:     "already has -S flag",
+			input:    "sudo -S apt update",
+			expected: "sudo -S apt update",
+		},
+		{
+			name:     "no sudo",
+			input:    "apt update && apt upgrade",
+			expected: "apt update && apt upgrade",
+		},
+		{
+			name:     "sudo in string (should not match)",
+			input:    "echo 'use sudo carefully'",
+			expected: "echo 'use sudo carefully'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rewriteSudoForStdin(tt.input)
+			if result != tt.expected {
+				t.Errorf("rewriteSudoForStdin(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSudoPasswordFromContext(t *testing.T) {
+	// Test with password in context
+	ctx := ContextWithSudoPassword(context.Background(), "secret123")
+	pw := sudoPasswordFromContext(ctx)
+	if pw != "secret123" {
+		t.Errorf("expected password 'secret123', got %q", pw)
+	}
+
+	// Test without password
+	ctx = context.Background()
+	pw = sudoPasswordFromContext(ctx)
+	if pw != "" {
+		t.Errorf("expected empty password, got %q", pw)
+	}
+}

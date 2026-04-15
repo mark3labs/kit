@@ -45,6 +45,8 @@ const (
 	// EventToolOutput fires when a tool produces streaming output chunks.
 	EventToolOutput EventType = "tool_output"
 	EventStepUsage  EventType = "step_usage"
+	// EventPasswordPrompt fires when a sudo command needs a password.
+	EventPasswordPrompt EventType = "password_prompt"
 	// EventSteerConsumed fires when one or more steering messages have been
 	// injected into the agent turn via PrepareStep.
 	EventSteerConsumed EventType = "steer_consumed"
@@ -298,6 +300,26 @@ type SteerConsumedEvent struct {
 
 // EventType implements Event.
 func (e SteerConsumedEvent) EventType() EventType { return EventSteerConsumed }
+
+// PasswordPromptEvent fires when a sudo command needs a password.
+// The TUI should display a password prompt and send the result back via ResponseCh.
+type PasswordPromptEvent struct {
+	// Prompt is the message to display to the user.
+	Prompt string
+	// ResponseCh receives the password from the TUI.
+	// The TUI must send exactly one value: (password, false) for submit
+	// or ("", true) for cancel.
+	ResponseCh chan<- PasswordPromptResponse
+}
+
+// PasswordPromptResponse carries the password prompt result.
+type PasswordPromptResponse struct {
+	Password  string
+	Cancelled bool
+}
+
+// EventType implements Event.
+func (e PasswordPromptEvent) EventType() EventType { return EventPasswordPrompt }
 
 // ---------------------------------------------------------------------------
 // EventBus

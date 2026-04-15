@@ -19,9 +19,10 @@ import (
 type promptMode string
 
 const (
-	promptModeSelect  promptMode = "select"
-	promptModeConfirm promptMode = "confirm"
-	promptModeInput   promptMode = "input"
+	promptModeSelect   promptMode = "select"
+	promptModeConfirm  promptMode = "confirm"
+	promptModeInput    promptMode = "input"
+	promptModePassword promptMode = "password"
 )
 
 // promptResult carries the synchronous outcome of a prompt overlay update.
@@ -102,10 +103,38 @@ func newInputPrompt(message, placeholder, defaultValue string, width, height int
 	}
 }
 
-// Init returns the initial command for the prompt overlay. For input mode
-// this starts the cursor blink animation.
+// newPasswordPrompt creates a prompt overlay for password input (masked).
+func newPasswordPrompt(message string, width, height int) *promptOverlay {
+	ta := textarea.New()
+	ta.Placeholder = "Enter password"
+	ta.ShowLineNumbers = false
+	ta.Prompt = ""
+	ta.CharLimit = 0
+	ta.SetWidth(width - 12) // account for border + padding
+	ta.SetHeight(1)
+	ta.Focus()
+
+	// Prevent Enter from inserting a newline — we intercept it for submit.
+	ta.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("ctrl+j", "shift+enter"),
+	)
+
+	// Enable password masking - the textarea will show dots instead of characters
+	// Note: textarea doesn't have built-in password masking, so we handle it in View()
+
+	return &promptOverlay{
+		mode:    promptModePassword,
+		message: message,
+		inputTA: ta,
+		width:   width,
+		height:  height,
+	}
+}
+
+// Init returns the initial command for the prompt overlay. For input/password
+// modes this starts the cursor blink animation.
 func (p *promptOverlay) Init() tea.Cmd {
-	if p.mode == promptModeInput {
+	if p.mode == promptModeInput || p.mode == promptModePassword {
 		return textarea.Blink
 	}
 	return nil
@@ -113,13 +142,13 @@ func (p *promptOverlay) Init() tea.Cmd {
 
 // Update handles messages for the prompt overlay. It returns a non-nil
 // *promptResult when the user completes or cancels the prompt. The returned
-// tea.Cmd is for textarea blink ticks (input mode only).
+// tea.Cmd is for textarea blink ticks (input/password modes only).
 func (p *promptOverlay) Update(msg tea.Msg) (*promptResult, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
-		if p.mode == promptModeInput {
+		if p.mode == promptModeInput || p.mode == promptModePassword {
 			p.inputTA.SetWidth(p.width - 12)
 		}
 		return nil, nil
@@ -132,11 +161,13 @@ func (p *promptOverlay) Update(msg tea.Msg) (*promptResult, tea.Cmd) {
 			return p.updateConfirm(msg)
 		case promptModeInput:
 			return p.updateInput(msg)
+		case promptModePassword:
+			return p.updatePassword(msg)
 		}
 	}
 
 	// Pass non-key messages to textarea for blink animation.
-	if p.mode == promptModeInput {
+	if p.mode == promptModeInput || p.mode == promptModePassword {
 		var cmd tea.Cmd
 		p.inputTA, cmd = p.inputTA.Update(msg)
 		return nil, cmd
@@ -202,6 +233,20 @@ func (p *promptOverlay) updateInput(msg tea.KeyPressMsg) (*promptResult, tea.Cmd
 	}
 }
 
+func (p *promptOverlay) updatePassword(msg tea.KeyPressMsg) (*promptResult, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		return &promptResult{completed: true, value: p.inputTA.Value()}, nil
+	case "esc":
+		return &promptResult{cancelled: true}, nil
+	default:
+		// Delegate character input, backspace, cursor movement, etc.
+		var cmd tea.Cmd
+		p.inputTA, cmd = p.inputTA.Update(msg)
+		return nil, cmd
+	}
+}
+
 // Render returns the prompt as a styled string for inline composition in the
 // AppModel layout. The prompt replaces the normal input area (below the
 // separator and above the status bar) rather than taking over the full screen.
@@ -216,6 +261,8 @@ func (p *promptOverlay) Render() string {
 		content = p.viewConfirm(theme)
 	case promptModeInput:
 		content = p.viewInput(theme)
+	case promptModePassword:
+		content = p.viewPassword(theme)
 	}
 
 	return renderContentBlock(content, p.width,
@@ -283,6 +330,28 @@ func (p *promptOverlay) viewInput(theme style.Theme) string {
 	lines = append(lines, lipgloss.NewStyle().
 		Foreground(theme.Muted).
 		Render("  Enter submit  Esc cancel"))
+
+	return strings.Join(lines, "\n")
+}
+
+func (p *promptOverlay) viewPassword(theme style.Theme) string {
+	var lines []string
+	// Add 🔐 icon to message for password prompt
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render("🔐 "+p.message))
+	lines = append(lines, "")
+
+	// Mask the password input with dots
+	passwordValue := p.inputTA.Value()
+	masked := strings.Repeat("•", len([]rune(passwordValue)))
+	// Render the masked password in a style that looks like input
+	maskedStyle := lipgloss.NewStyle().Foreground(theme.Text)
+	cursor := lipgloss.NewStyle().Foreground(theme.Accent).Render("█")
+	lines = append(lines, maskedStyle.Render(masked)+cursor)
+
+	lines = append(lines, "")
+	lines = append(lines, lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Render("  Enter submit  Esc cancel  (input is hidden)"))
 
 	return strings.Join(lines, "\n")
 }

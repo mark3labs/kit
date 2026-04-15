@@ -1809,6 +1809,18 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				CacheWriteTokens: uint64(cacheCreationTokens),
 			})
 		},
+		// Password prompt handler for sudo commands
+		func(prompt string) (string, bool) {
+			// Emit event to TUI and wait for response via channel
+			responseCh := make(chan PasswordPromptResponse, 1)
+			m.events.emit(PasswordPromptEvent{
+				Prompt:     prompt,
+				ResponseCh: responseCh,
+			})
+			// Wait for response (TUI will send password or cancel)
+			resp := <-responseCh
+			return resp.Password, resp.Cancelled
+		},
 	)
 }
 
