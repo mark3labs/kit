@@ -353,7 +353,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 560
+      "wordCount": 586
     },
     {
       "id": "sdk/overview",
@@ -369,12 +369,13 @@
         "Event system",
         "Model management",
         "Dynamic MCP servers",
+        "In-process MCP servers",
         "MCP prompts and resources",
         "Context and compaction",
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 552
+      "wordCount": 613
     },
     {
       "id": "sdk/sessions",
