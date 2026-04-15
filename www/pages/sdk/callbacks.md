@@ -100,6 +100,19 @@ kit.HookPriorityLow    = 100 // runs last
 
 Lower values run first. First non-nil result wins.
 
+## All event types
+
+| Event | Description |
+|-------|-------------|
+| `ToolCallEvent` | Tool call parsed and about to execute |
+| `ToolResultEvent` | Tool execution completed with result |
+| `ToolOutputEvent` | Streaming output chunk from tool (e.g., bash stdout/stderr) |
+| `MessageUpdateEvent` | Streaming text chunk from LLM |
+| `ResponseEvent` | Final response received |
+| `TurnStartEvent` | Agent turn started |
+| `TurnEndEvent` | Agent turn completed |
+| `PasswordPromptEvent` | Sudo command needs password (respond via `ResponseCh`) |
+
 ## Subagent event monitoring
 
 Monitor real-time events from LLM-initiated subagents (when the model uses the `subagent` tool):

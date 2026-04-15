@@ -270,6 +270,27 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `reasoning_delta` | `ReasoningDeltaEvent` | `Delta` |
 | `step_usage` | `StepUsageEvent` | `InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens` |
 | `steer_consumed` | `SteerConsumedEvent` | `Count` |
+| `password_prompt` | `PasswordPromptEvent` | `Prompt`, `ResponseCh` |
+
+**PasswordPromptEvent** (for sudo password handling):
+```go
+// PasswordPromptEvent fires when a sudo command needs a password.
+// The TUI should display a password prompt and send the result back via ResponseCh.
+type PasswordPromptEvent struct {
+    // Prompt is the message to display to the user.
+    Prompt string
+    // ResponseCh receives the password from the TUI.
+    // The TUI must send exactly one value: (password, false) for submit
+    // or ("", true) for cancel.
+    ResponseCh chan<- PasswordPromptResponse
+}
+
+// PasswordPromptResponse carries the password prompt result.
+type PasswordPromptResponse struct {
+    Password  string
+    Cancelled bool
+}
+```
 
 ### Tool kind constants
 

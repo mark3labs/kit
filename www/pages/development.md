@@ -37,7 +37,7 @@ internal/acpserver/  - ACP (Agent Client Protocol) server
 internal/clipboard/  - Cross-platform clipboard operations
 internal/compaction/ - Conversation compaction and summarization
 internal/config/     - Configuration management
-internal/core/       - Built-in tools (bash, read, write, edit, grep, find, ls)
+internal/core/       - Built-in tools (bash with sudo password prompt, read, write, edit, grep, find, ls)
 internal/extensions/ - Yaegi extension system
 internal/kitsetup/   - Initial setup wizard
 internal/message/    - Message content types and structured content blocks
