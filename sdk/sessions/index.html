@@ -7,7 +7,7 @@
 <meta name="description" content="Session management in the Kit Go SDK.">
 <link rel="canonical" href="/sdk/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-Ok0F7U7y.js"></script>
+<script type="module" src="/assets/index-ezvHt1cH.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Sessions","description":"Session management in the Kit Go SDK.","url":"https://go-kit.dev/sdk/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -97,6 +97,20 @@ all := kit.ListAllSessions()
 
 // Delete a session file
 kit.DeleteSession("/path/to/session.jsonl")
-```</div>
+```
+
+## Custom session manager
+
+For advanced use cases (databases, cloud storage, multi-user apps), implement the `SessionManager` interface to replace the default JSONL file backend:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,
+})
+```
+
+The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+
+When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.</div>
 </body>
 </html>

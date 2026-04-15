@@ -1,4 +1,4 @@
-const n={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.",hidden:!1,toc:!1,draft:!1},html:`<div style="text-align: center; margin: 2rem 0;">
+const t={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.",hidden:!1,toc:!1,draft:!1},html:`<div style="text-align: center; margin: 2rem 0;">
   <img src="/logo.jpg" alt="KIT" style="max-width: 400px; width: 100%; margin: 0 auto; display: block;">
 </div>
 <p>A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.</p>
@@ -6,7 +6,8 @@ const n={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
 <ul>
 <li><strong>Multi-Provider LLM Support</strong> — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more</li>
 <li><strong>Built-in Core Tools</strong> — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead</li>
-<li><strong>MCP Integration</strong> — Connect external MCP servers for expanded capabilities</li>
+<li><strong>Smart @ Attachments</strong> — Binary files auto-detected via MIME type, MCP resources via <code>@mcp:server:uri</code></li>
+<li><strong>MCP Integration</strong> — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)</li>
 <li><strong>Extension System</strong> — Write custom tools, commands, widgets, and UI modifications in Go</li>
 <li><strong>Interactive TUI</strong> — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering</li>
 <li><strong>Session Management</strong> — Tree-based conversation history with branching support</li>
@@ -55,7 +56,8 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead
-- **MCP Integration** — Connect external MCP servers for expanded capabilities
+- **Smart @ Attachments** — Binary files auto-detected via MIME type, MCP resources via \`@mcp:server:uri\`
+- **MCP Integration** — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support
@@ -72,4 +74,4 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 | [Configuration](/configuration) | Customize Kit for your workflow |
 | [Extensions](/extensions/overview) | Build custom tools and UI components |
 | [Go SDK](/sdk/overview) | Embed Kit in your applications |
-`};export{n as default};
+`};export{t as default};

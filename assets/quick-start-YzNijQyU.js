@@ -6,6 +6,8 @@ const s={frontmatter:{title:"Quick Start",description:"Get up and running with K
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "List files in src/"</span></span></code></pre>
 <p>Attach files as context using the <code>@</code> prefix:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @main.go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @test.go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Review these files"</span></span></code></pre>
+<p>Binary files (images, audio, PDFs) are automatically detected via MIME type and sent as multimodal attachments. You can also reference MCP resources:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> @mcp:myserver:file:///data/report.csv</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Summarize this data"</span></span></code></pre>
 <p>Use a specific model:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic/claude-sonnet-latest</span></span></code></pre>
 <h2 id="non-interactive-mode"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#non-interactive-mode"><span class="icon icon-link"></span></a>Non-interactive mode</h2>
@@ -53,6 +55,12 @@ Attach files as context using the \`@\` prefix:
 
 \`\`\`bash
 kit @main.go @test.go "Review these files"
+\`\`\`
+
+Binary files (images, audio, PDFs) are automatically detected via MIME type and sent as multimodal attachments. You can also reference MCP resources:
+
+\`\`\`bash
+kit @mcp:myserver:file:///data/report.csv "Summarize this data"
 \`\`\`
 
 Use a specific model:

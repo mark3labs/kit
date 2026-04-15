@@ -66,6 +66,7 @@
         "Interactive slash commands",
         "Prompt history",
         "Cancelling operations",
+        "External editor",
         "Mid-turn steering",
         "Prompt templates",
         "Creating templates",
@@ -75,7 +76,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 760
+      "wordCount": 843
     },
     {
       "id": "cli/flags",
@@ -91,7 +92,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 461
+      "wordCount": 485
     },
     {
       "id": "configuration",
@@ -106,11 +107,13 @@
         "MCP server fields",
         "Custom models",
         "Custom model fields",
+        "Per-model settings",
+        "Per-model fields",
         "Theme configuration",
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 823
+      "wordCount": 1033
     },
     {
       "id": "development",
@@ -184,7 +187,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 462
+      "wordCount": 480
     },
     {
       "id": "extensions/loading",
@@ -268,7 +271,7 @@
         "Quick links"
       ],
       "tags": [],
-      "wordCount": 216
+      "wordCount": 235
     },
     {
       "id": "installation",
@@ -319,7 +322,7 @@
         "ACP server mode"
       ],
       "tags": [],
-      "wordCount": 212
+      "wordCount": 241
     },
     {
       "id": "sdk/callbacks",
@@ -350,7 +353,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 456
+      "wordCount": 560
     },
     {
       "id": "sdk/overview",
@@ -365,10 +368,13 @@
         "Custom tools",
         "Event system",
         "Model management",
-        "Context and compaction"
+        "Dynamic MCP servers",
+        "MCP prompts and resources",
+        "Context and compaction",
+        "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 439
+      "wordCount": 552
     },
     {
       "id": "sdk/sessions",
@@ -381,10 +387,11 @@
         "Configuring sessions via Options",
         "Clearing history",
         "Tree-based sessions",
-        "Listing and managing sessions"
+        "Listing and managing sessions",
+        "Custom session manager"
       ],
       "tags": [],
-      "wordCount": 241
+      "wordCount": 322
     },
     {
       "id": "sessions",

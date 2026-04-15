@@ -436,15 +436,19 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
+### External editor
+
+Press **Ctrl+X e** to open your `$VISUAL` or `$EDITOR` in a temporary file pre-populated with the current input text. On save and quit, the edited content replaces the input textarea. On error exit (e.g., `:cq` in Vim), the original input is preserved.
+
 ### Mid-turn steering
 
-Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+Press **Ctrl+X s** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
 
 - Works during streaming output
 - Sends a steering instruction as a system message
 - Model continues from the interruption point with the new guidance
 
-Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
 
 ## Prompt templates
 
@@ -475,9 +479,12 @@ Templates appear as slash commands:
 | Placeholder | Description |
 |-------------|-------------|
 | `$1`, `$2`, etc. | Individual arguments by position |
-| `$@`, `$ARGUMENTS` | All arguments joined with spaces |
+| `$@`, `$ARGUMENTS` | All arguments joined with spaces (zero or more) |
+| `$+` | All arguments joined with spaces (one or more required) |
 | `${@:N}` | Arguments from position N onwards |
 | `${@:N:L}` | L arguments starting at position N |
+
+Placeholders inside fenced code blocks (`` ``` ``) and inline code spans are ignored, so documentation examples won't be substituted.
 
 ### CLI flags
 
@@ -556,6 +563,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--top-p` | — | `0.95` | Nucleus sampling 0.0–1.0 |
 | `--top-k` | — | `40` | Limit top K tokens |
 | `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
+| `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
 | `--thinking-level` | — | `off` | Extended thinking level: off, minimal, low, medium, high |
 
 ## System
@@ -608,6 +617,8 @@ stream: true
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
+| `frequency-penalty` | float | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `presence-penalty` | float | `0.0` | Penalize present tokens (0.0–2.0) |
 | `stop-sequences` | list | — | Custom stop sequences |
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 | `prompt-templates` | bool | `true` | Enable prompt template loading |
@@ -710,6 +721,39 @@ kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"
 ```
 
 When `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.
+
+## Per-model settings
+
+Override generation parameters and system prompt on a per-model basis using `modelSettings`:
+
+```yaml
+modelSettings:
+  anthropic/claude-sonnet-4-5-20250929:
+    temperature: 0.3
+    maxTokens: 8192
+    systemPrompt: "You are a concise coding assistant."
+  openai/gpt-4o:
+    temperature: 0.7
+    frequencyPenalty: 0.5
+```
+
+### Per-model fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `temperature` | float | Temperature override for this model |
+| `maxTokens` | int | Max output tokens override |
+| `topP` | float | Top-p override |
+| `topK` | int | Top-k override |
+| `frequencyPenalty` | float | Frequency penalty override |
+| `presencePenalty` | float | Presence penalty override |
+| `stopSequences` | list | Stop sequences override |
+| `thinkingLevel` | string | Thinking level override |
+| `systemPrompt` | string | Per-model system prompt (used when no explicit prompt is set) |
+
+Settings from `modelSettings` and `customModels.params` act as model-level defaults — explicit CLI flags and global config values always take precedence.
+
+When switching models via `/model` or `SetModel()`, if the new model has a per-model system prompt and no custom global prompt was set, the per-model prompt automatically replaces the previous one.
 
 ## Theme configuration
 
@@ -1343,8 +1387,9 @@ These examples demonstrate the new bridged SDK APIs that give extensions access 
 
 | Extension | Description |
 |-----------|-------------|
-| [`conversation-manager.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/conversation-manager.go) | **NEW** Tree navigation (`GetTreeNode`, `GetCurrentBranch`, `NavigateTo`), branch summarization (`SummarizeBranch`), and fresh context loops (`CollapseBranch`) |
-| [`prompt-templates.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/prompt-templates.go) | **NEW** Frontmatter-driven templates with model fallback chains (`ResolveModelChain`), skill injection (`InjectSkillAsContext`), and template parsing (`ParseTemplate`, `RenderTemplate`) |
+| [`bridge-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bridge_demo.go) | Comprehensive demo of all bridged APIs — tree navigation, skill loading, template parsing, and model resolution |
+| [`conversation-manager.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/conversation-manager.go) | Tree navigation (`GetTreeNode`, `GetCurrentBranch`, `NavigateTo`), branch summarization (`SummarizeBranch`), and fresh context loops (`CollapseBranch`) |
+| [`prompt-templates.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/prompt-templates.go) | Frontmatter-driven templates with model fallback chains (`ResolveModelChain`), skill injection (`InjectSkillAsContext`), and template parsing (`ParseTemplate`, `RenderTemplate`) |
 
 ## Themes
 
@@ -2034,7 +2079,8 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead
-- **MCP Integration** — Connect external MCP servers for expanded capabilities
+- **Smart @ Attachments** — Binary files auto-detected via MIME type, MCP resources via `@mcp:server:uri`
+- **MCP Integration** — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support
@@ -2299,6 +2345,12 @@ Attach files as context using the `@` prefix:
 kit @main.go @test.go "Review these files"
 ```
 
+Binary files (images, audio, PDFs) are automatically detected via MIME type and sent as multimodal attachments. You can also reference MCP resources:
+
+```bash
+kit @mcp:myserver:file:///data/report.csv "Summarize this data"
+```
+
 Use a specific model:
 
 ```bash
@@ -2525,6 +2577,19 @@ host, err := kit.New(ctx, &kit.Options{
     // Skills
     Skills:       []string{"/path/to/skill.md"},
     SkillsDir:    "/path/to/skills/",
+    NoSkills:     true,
+
+    // Feature toggles
+    NoExtensions:   true,               // disable Yaegi extension loading
+    NoContextFiles: true,               // disable automatic AGENTS.md loading
+
+    // Session (advanced)
+    SessionManager: myCustomSession,    // custom SessionManager implementation
+
+    // MCP OAuth
+    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
+        return myStore(serverURL), nil
+    },
 })
 ```
 
@@ -2551,6 +2616,11 @@ host, err := kit.New(ctx, &kit.Options{
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Override default skills directory |
+| `NoSkills` | `bool` | `false` | Disable skill loading entirely |
+| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
+| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
+| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers |
 
 ## Tool configuration
 
@@ -2713,6 +2783,34 @@ info := host.GetModelInfo()
 models := host.GetAvailableModels()
 ```
 
+## Dynamic MCP servers
+
+Add and remove MCP servers at runtime:
+
+```go
+n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+    Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
+})
+fmt.Printf("Loaded %d tools\n", n)
+
+err = host.RemoveMCPServer("github")
+servers := host.ListMCPServers() // []kit.MCPServerStatus
+```
+
+## MCP prompts and resources
+
+Query prompts and resources exposed by connected MCP servers:
+
+```go
+// List and expand prompts
+prompts := host.ListMCPPrompts()
+result, _ := host.GetMCPPrompt(ctx, "server", "prompt-name", map[string]string{"key": "value"})
+
+// List and read resources
+resources := host.ListMCPResources()
+content, _ := host.ReadMCPResource(ctx, "server", "file:///path")
+```
+
 ## Context and compaction
 
 Monitor and manage context usage:
@@ -2724,6 +2822,19 @@ stats := host.GetContextStats()
 if host.ShouldCompact() {
     result, err := host.Compact(ctx, nil, "")
 }
+```
+
+## In-process subagents
+
+Spawn child Kit instances without subprocess overhead:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Analyze the test files",
+    Model:     "anthropic/claude-haiku-3-5-20241022",
+    NoSession: true,
+    Timeout:   2 * time.Minute,
+})
 ```
 
 See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.
@@ -2817,6 +2928,20 @@ all := kit.ListAllSessions()
 // Delete a session file
 kit.DeleteSession("/path/to/session.jsonl")
 ```
+
+## Custom session manager
+
+For advanced use cases (databases, cloud storage, multi-user apps), implement the `SessionManager` interface to replace the default JSONL file backend:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,
+})
+```
+
+The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+
+When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.
 
 ---
 

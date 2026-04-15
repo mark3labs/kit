@@ -53,7 +53,14 @@ const s={frontmatter:{title:"SDK Sessions",description:"Session management in th
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">all </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListAllSessions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Delete a session file</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DeleteSession</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/session.jsonl"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>`,headings:[{depth:2,text:"Automatic persistence",id:"automatic-persistence"},{depth:2,text:"Accessing session info",id:"accessing-session-info"},{depth:2,text:"Configuring sessions via Options",id:"configuring-sessions-via-options"},{depth:2,text:"Clearing history",id:"clearing-history"},{depth:2,text:"Tree-based sessions",id:"tree-based-sessions"},{depth:2,text:"Listing and managing sessions",id:"listing-and-managing-sessions"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DeleteSession</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/session.jsonl"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<h2 id="custom-session-manager"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-session-manager"><span class="icon icon-link"></span></a>Custom session manager</h2>
+<p>For advanced use cases (databases, cloud storage, multi-user apps), implement the <code>SessionManager</code> interface to replace the default JSONL file backend:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionManager: myCustomSession,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the <a href="https://github.com/mark3labs/kit">SDK skill reference</a> for the complete interface definition.</p>
+<p>When using a custom <code>SessionManager</code>, the <code>SessionPath</code>, <code>Continue</code>, and <code>NoSession</code> options are ignored — your manager handles its own storage and session selection.</p>`,headings:[{depth:2,text:"Automatic persistence",id:"automatic-persistence"},{depth:2,text:"Accessing session info",id:"accessing-session-info"},{depth:2,text:"Configuring sessions via Options",id:"configuring-sessions-via-options"},{depth:2,text:"Clearing history",id:"clearing-history"},{depth:2,text:"Tree-based sessions",id:"tree-based-sessions"},{depth:2,text:"Listing and managing sessions",id:"listing-and-managing-sessions"},{depth:2,text:"Custom session manager",id:"custom-session-manager"}],raw:`
 # SDK Sessions
 
 ## Automatic persistence
@@ -139,4 +146,18 @@ all := kit.ListAllSessions()
 // Delete a session file
 kit.DeleteSession("/path/to/session.jsonl")
 \`\`\`
+
+## Custom session manager
+
+For advanced use cases (databases, cloud storage, multi-user apps), implement the \`SessionManager\` interface to replace the default JSONL file backend:
+
+\`\`\`go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,
+})
+\`\`\`
+
+The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+
+When using a custom \`SessionManager\`, the \`SessionPath\`, \`Continue\`, and \`NoSession\` options are ignored — your manager handles its own storage and session selection.
 `};export{s as default};

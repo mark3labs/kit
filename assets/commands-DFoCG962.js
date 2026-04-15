@@ -133,14 +133,16 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <li>During streaming: stops the response generation</li>
 </ul>
 <p>This ensures that <code>tool_use</code> and <code>tool_result</code> messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.</p>
+<h3 id="external-editor"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#external-editor"><span class="icon icon-link"></span></a>External editor</h3>
+<p>Press <strong>Ctrl+X e</strong> to open your <code>$VISUAL</code> or <code>$EDITOR</code> in a temporary file pre-populated with the current input text. On save and quit, the edited content replaces the input textarea. On error exit (e.g., <code>:cq</code> in Vim), the original input is preserved.</p>
 <h3 id="mid-turn-steering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mid-turn-steering"><span class="icon icon-link"></span></a>Mid-turn steering</h3>
-<p>Press <strong>Ctrl+S</strong> during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:</p>
+<p>Press <strong>Ctrl+X s</strong> during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:</p>
 <ul>
 <li>Works during streaming output</li>
 <li>Sends a steering instruction as a system message</li>
 <li>Model continues from the interruption point with the new guidance</li>
 </ul>
-<p>Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.</p>
+<p>Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.</p>
 <h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
 <h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
 <p>Templates use YAML frontmatter for metadata and support argument placeholders:</p>
@@ -169,7 +171,11 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 <tr>
 <td><code>$@</code>, <code>$ARGUMENTS</code></td>
-<td>All arguments joined with spaces</td>
+<td>All arguments joined with spaces (zero or more)</td>
+</tr>
+<tr>
+<td><code>$+</code></td>
+<td>All arguments joined with spaces (one or more required)</td>
 </tr>
 <tr>
 <td><code>\${@:N}</code></td>
@@ -181,6 +187,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 </tbody>
 </table>
+<p>Placeholders inside fenced code blocks (<code>\`\`\`</code>) and inline code spans are ignored, so documentation examples won't be substituted.</p>
 <h3 id="cli-flags"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#cli-flags"><span class="icon icon-link"></span></a>CLI flags</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load a specific template by name</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --prompt-template</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> review</span></span>
@@ -190,7 +197,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -283,15 +290,19 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that \`tool_use\` and \`tool_result\` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
+### External editor
+
+Press **Ctrl+X e** to open your \`$VISUAL\` or \`$EDITOR\` in a temporary file pre-populated with the current input text. On save and quit, the edited content replaces the input textarea. On error exit (e.g., \`:cq\` in Vim), the original input is preserved.
+
 ### Mid-turn steering
 
-Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+Press **Ctrl+X s** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
 
 - Works during streaming output
 - Sends a steering instruction as a system message
 - Model continues from the interruption point with the new guidance
 
-Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
 
 ## Prompt templates
 
@@ -322,9 +333,12 @@ Templates appear as slash commands:
 | Placeholder | Description |
 |-------------|-------------|
 | \`$1\`, \`$2\`, etc. | Individual arguments by position |
-| \`$@\`, \`$ARGUMENTS\` | All arguments joined with spaces |
+| \`$@\`, \`$ARGUMENTS\` | All arguments joined with spaces (zero or more) |
+| \`$+\` | All arguments joined with spaces (one or more required) |
 | \`\${@:N}\` | Arguments from position N onwards |
 | \`\${@:N:L}\` | L arguments starting at position N |
+
+Placeholders inside fenced code blocks (\`\` \`\`\` \`\`) and inline code spans are ignored, so documentation examples won't be substituted.
 
 ### CLI flags
 
