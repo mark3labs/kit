@@ -66,6 +66,49 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityNormal </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 50</span><span style="color:#6A737D;--shiki-dark:#6A737D">  // default</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">kit.HookPriorityLow    </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 100</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // runs last</span></span></code></pre>
 <p>Lower values run first. First non-nil result wins.</p>
+<h2 id="all-event-types"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#all-event-types"><span class="icon icon-link"></span></a>All event types</h2>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ToolCallEvent</code></td>
+<td>Tool call parsed and about to execute</td>
+</tr>
+<tr>
+<td><code>ToolResultEvent</code></td>
+<td>Tool execution completed with result</td>
+</tr>
+<tr>
+<td><code>ToolOutputEvent</code></td>
+<td>Streaming output chunk from tool (e.g., bash stdout/stderr)</td>
+</tr>
+<tr>
+<td><code>MessageUpdateEvent</code></td>
+<td>Streaming text chunk from LLM</td>
+</tr>
+<tr>
+<td><code>ResponseEvent</code></td>
+<td>Final response received</td>
+</tr>
+<tr>
+<td><code>TurnStartEvent</code></td>
+<td>Agent turn started</td>
+</tr>
+<tr>
+<td><code>TurnEndEvent</code></td>
+<td>Agent turn completed</td>
+</tr>
+<tr>
+<td><code>PasswordPromptEvent</code></td>
+<td>Sudo command needs password (respond via <code>ResponseCh</code>)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="subagent-event-monitoring"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#subagent-event-monitoring"><span class="icon icon-link"></span></a>Subagent event monitoring</h2>
 <p>Monitor real-time events from LLM-initiated subagents (when the model uses the <code>subagent</code> tool):</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
@@ -81,7 +124,7 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Hook system",id:"hook-system"},{depth:3,text:"BeforeToolCall — block tool execution",id:"beforetoolcall--block-tool-execution"},{depth:3,text:"AfterToolResult — modify tool output",id:"aftertoolresult--modify-tool-output"},{depth:3,text:"BeforeTurn — modify prompt, inject messages",id:"beforeturn--modify-prompt-inject-messages"},{depth:3,text:"AfterTurn — observation only",id:"afterturn--observation-only"},{depth:3,text:"Hook priorities",id:"hook-priorities"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
+<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Hook system",id:"hook-system"},{depth:3,text:"BeforeToolCall — block tool execution",id:"beforetoolcall--block-tool-execution"},{depth:3,text:"AfterToolResult — modify tool output",id:"aftertoolresult--modify-tool-output"},{depth:3,text:"BeforeTurn — modify prompt, inject messages",id:"beforeturn--modify-prompt-inject-messages"},{depth:3,text:"AfterTurn — observation only",id:"afterturn--observation-only"},{depth:3,text:"Hook priorities",id:"hook-priorities"},{depth:2,text:"All event types",id:"all-event-types"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
 # Callbacks
 
 ## Event-based monitoring
@@ -178,6 +221,19 @@ kit.HookPriorityLow    = 100 // runs last
 \`\`\`
 
 Lower values run first. First non-nil result wins.
+
+## All event types
+
+| Event | Description |
+|-------|-------------|
+| \`ToolCallEvent\` | Tool call parsed and about to execute |
+| \`ToolResultEvent\` | Tool execution completed with result |
+| \`ToolOutputEvent\` | Streaming output chunk from tool (e.g., bash stdout/stderr) |
+| \`MessageUpdateEvent\` | Streaming text chunk from LLM |
+| \`ResponseEvent\` | Final response received |
+| \`TurnStartEvent\` | Agent turn started |
+| \`TurnEndEvent\` | Agent turn completed |
+| \`PasswordPromptEvent\` | Sudo command needs password (respond via \`ResponseCh\`) |
 
 ## Subagent event monitoring
 

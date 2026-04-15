@@ -133,7 +133,7 @@
         "Community"
       ],
       "tags": [],
-      "wordCount": 350
+      "wordCount": 354
     },
     {
       "id": "extensions/capabilities",
@@ -271,7 +271,7 @@
         "Quick links"
       ],
       "tags": [],
-      "wordCount": 235
+      "wordCount": 240
     },
     {
       "id": "installation",
@@ -337,10 +337,11 @@
         "BeforeTurn — modify prompt, inject messages",
         "AfterTurn — observation only",
         "Hook priorities",
+        "All event types",
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 342
+      "wordCount": 425
     },
     {
       "id": "sdk/options",
