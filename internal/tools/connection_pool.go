@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // ConnectionPoolConfig defines configuration parameters for the MCP connection pool.
@@ -304,6 +305,8 @@ func (p *MCPConnectionPool) createMCPClient(ctx context.Context, serverName stri
 		return p.createSSEClient(ctx, serverConfig)
 	case "streamable":
 		return p.createStreamableClient(ctx, serverConfig)
+	case "inprocess":
+		return p.createInProcessClient(serverConfig)
 	default:
 		return nil, fmt.Errorf("unsupported transport type '%s' for server %s", transportType, serverName)
 	}
@@ -453,6 +456,22 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 	}
 
 	return streamableClient, nil
+}
+
+// createInProcessClient creates an in-process MCP client that communicates
+// directly with an *server.MCPServer in the same process. No subprocess is
+// spawned and no network I/O occurs — calls go through JSON marshal →
+// MCPServer.HandleMessage → JSON unmarshal, all in-memory.
+func (p *MCPConnectionPool) createInProcessClient(serverConfig config.MCPServerConfig) (client.MCPClient, error) {
+	srv, ok := serverConfig.InProcessServer.(*server.MCPServer)
+	if !ok {
+		return nil, fmt.Errorf("InProcessServer must be *server.MCPServer, got %T", serverConfig.InProcessServer)
+	}
+	inProcessClient, err := client.NewInProcessClient(srv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create in-process client: %w", err)
+	}
+	return inProcessClient, nil
 }
 
 // createTokenStore creates a token store for the given server URL.

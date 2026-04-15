@@ -77,6 +77,11 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Compaction
     AutoCompact:  true,                       // Auto-compact near context limit
+
+    // In-process MCP servers (map name → *kit.MCPServer)
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,
+    },
 })
 ```
 
@@ -112,6 +117,79 @@ response, err := host.Prompt(
 )
 ```
 
+### Dynamic MCP Server Management
+
+Add, remove, and list MCP servers at runtime:
+
+```go
+// Add an MCP server at runtime
+n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+    Command: "npx",
+    Args:    []string{"-y", "@modelcontextprotocol/server-github"},
+})
+fmt.Printf("Loaded %d tools from MCP server\n", n)
+
+// List connected MCP servers
+for _, s := range host.ListMCPServers() {
+    fmt.Printf("%s: %d tools\n", s.Name, s.ToolCount)
+}
+
+// Disconnect a server and remove its tools
+host.RemoveMCPServer("github")
+```
+
+### In-Process MCP Servers
+
+Register mcp-go servers that run in the same process — no subprocess spawning,
+no network I/O. This is ideal for custom tool servers implemented in Go:
+
+```go
+import (
+    "github.com/mark3labs/mcp-go/mcp"
+    "github.com/mark3labs/mcp-go/server"
+)
+
+// Create an mcp-go server with tools
+mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+    server.WithToolCapabilities(true),
+)
+mcpSrv.AddTool(mcp.NewTool("search_docs",
+    mcp.WithDescription("Search documentation"),
+    mcp.WithString("query", mcp.Required()),
+), searchHandler)
+
+// Option 1: At init time via Options
+host, _ := kit.New(ctx, &kit.Options{
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,
+    },
+})
+
+// Option 2: At runtime
+n, err := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
+fmt.Printf("Loaded %d tools from in-process server\n", n)
+```
+
+Kit does not take ownership of the server's lifecycle — the caller is responsible for any cleanup. In-process server tools are prefixed the same way as external MCP servers (e.g. `"docs__search_docs"`).
+
+### MCP Prompts
+
+MCP servers can expose prompt templates via the MCP prompts capability.
+Kit exposes these through the SDK:
+
+```go
+// List prompts from all connected MCP servers
+prompts := host.ListMCPPrompts()
+for _, p := range prompts {
+    fmt.Printf("%s/%s: %s\n", p.Server, p.Name, p.Description)
+}
+
+// Get a specific prompt with arguments
+msg, err := host.GetMCPPrompt(ctx, "server-name", "prompt-name", map[string]string{
+    "topic": "concurrency",
+})
+```
+
 ### Session Management
 
 Maintain conversation context:
@@ -144,6 +222,13 @@ kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
 kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ...}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+
+// MCP OAuth types
+kit.MCPServer        // *server.MCPServer for in-process MCP transport
+kit.MCPServerConfig  // Configuration for an MCP server (stdio, SSE, or in-process)
+kit.MCPTokenStore    // Persists OAuth tokens for a single MCP server
+kit.MCPToken         // OAuth token (access token, refresh token, expiry)
+kit.MCPTokenStoreFactory // Creates an MCPTokenStore for a given server URL
 
 // Conversion helpers
 msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message → []LLMMessage
@@ -192,6 +277,7 @@ Key `Options` fields for SDK usage:
 | `NoSession` | Ephemeral mode (no session persistence) |
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
+| `InProcessMCPServers` | Map of name → `*kit.MCPServer` for in-process MCP servers |
 | `Debug` | Enable debug logging |
 
 ## Environment Variables

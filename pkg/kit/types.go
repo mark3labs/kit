@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // ==== Message Types (internal/message/content.go) ====
@@ -206,6 +207,12 @@ type CompactionResult = compaction.CompactionResult
 type CompactionOptions = compaction.CompactionOptions
 
 // ==== MCP OAuth Types ====
+
+// MCPServer is an in-process MCP server from the mcp-go library.
+// Pass an instance to [Kit.AddInProcessMCPServer] or
+// [Options.InProcessMCPServers] to register tools without spawning a
+// subprocess or making network calls.
+type MCPServer = server.MCPServer
 
 // MCPTokenStore persists OAuth tokens for a single MCP server. Implementations
 // must be safe for concurrent use.

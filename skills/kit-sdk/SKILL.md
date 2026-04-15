@@ -112,10 +112,17 @@ host, err := kit.New(ctx, &kit.Options{
     MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
         return myCustomStore(serverURL), nil  // custom OAuth token storage
     },
+
+    // In-Process MCP Servers
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,  // *server.MCPServer from mcp-go — no subprocess needed
+    },
 })
 ```
 
 **Critical distinction**: `Tools` replaces ALL default tools (core + MCP + extension). `ExtraTools` adds tools alongside the defaults. Use `Tools` to restrict the agent's capabilities; use `ExtraTools` to extend them.
+
+**In-process MCP servers** bypass subprocess spawning entirely. Pass `*server.MCPServer` instances from mcp-go via `InProcessMCPServers` or call `AddInProcessMCPServer()` at runtime.
 
 ---
 
@@ -669,6 +676,38 @@ for _, s := range servers {
 
 `AddMCPServer` is safe to call while the agent is idle. If a turn is in progress, new tools are visible starting from the next LLM step. Tool names are prefixed with the server name (e.g. `"github__create_issue"`).
 
+### In-Process MCP Servers
+
+Register mcp-go servers that run in the same process — no subprocess spawning,
+no network I/O:
+
+```go
+import (
+    "github.com/mark3labs/mcp-go/mcp"
+    "github.com/mark3labs/mcp-go/server"
+)
+
+mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+    server.WithToolCapabilities(true),
+)
+mcpSrv.AddTool(mcp.NewTool("search_docs",
+    mcp.WithDescription("Search documentation"),
+    mcp.WithString("query", mcp.Required()),
+), searchHandler)
+
+// At init time
+host, _ := kit.New(ctx, &kit.Options{
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,
+    },
+})
+
+// Or at runtime
+n, err := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
+```
+
+Kit does not own the server lifecycle — the caller handles cleanup. Tools are prefixed as usual (e.g. `"docs__search_docs"`).
+
 ### MCP Prompts
 
 Query and expand prompts defined by connected MCP servers:
@@ -920,6 +959,7 @@ kit.MCPTokenStore        // interface for custom OAuth token storage
 kit.MCPToken             // OAuth token struct (access, refresh, expiry)
 kit.MCPTokenStoreFactory // func(serverURL string) (MCPTokenStore, error)
 kit.ErrMCPNoToken        // sentinel error for "no token stored"
+kit.MCPServer            // *server.MCPServer for in-process MCP transport
 kit.MCPServerStatus      // {Name string, ToolCount int}
 kit.MCPPrompt            // {Name, Description, Arguments []MCPPromptArgument, ServerName}
 kit.MCPPromptArgument    // {Name, Description string, Required bool}

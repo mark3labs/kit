@@ -55,6 +55,11 @@ host, err := kit.New(ctx, &kit.Options{
     MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
         return myStore(serverURL), nil
     },
+
+    // In-Process MCP Servers
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,  // *server.MCPServer from mcp-go
+    },
 })
 ```
 
@@ -86,6 +91,7 @@ host, err := kit.New(ctx, &kit.Options{
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 | `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers |
+| `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
 
 ## Tool configuration
 

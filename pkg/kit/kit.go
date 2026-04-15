@@ -176,6 +176,41 @@ func (m *Kit) AddMCPServer(ctx context.Context, name string, cfg MCPServerConfig
 	return m.agent.AddMCPServer(ctx, name, cfg)
 }
 
+// AddInProcessMCPServer connects an in-process mcp-go server and makes its
+// tools available to the agent immediately. Unlike [AddMCPServer] with a
+// command/URL config, this uses mcp-go's in-process transport — no subprocess
+// is spawned and no network I/O occurs.
+//
+// The server must be a *[server.MCPServer] from github.com/mark3labs/mcp-go/server.
+// Kit does not take ownership of the server's lifecycle; the caller is responsible
+// for any cleanup when the server is no longer needed.
+//
+// Returns the number of tools loaded from the server.
+//
+// Example:
+//
+//	import (
+//	    "github.com/mark3labs/mcp-go/mcp"
+//	    "github.com/mark3labs/mcp-go/server"
+//	)
+//
+//	mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+//	    server.WithToolCapabilities(true),
+//	)
+//	mcpSrv.AddTool(mcp.NewTool("search_docs",
+//	    mcp.WithDescription("Search documentation"),
+//	    mcp.WithString("query", mcp.Required()),
+//	), searchHandler)
+//
+//	n, err := k.AddInProcessMCPServer(ctx, "docs", mcpSrv)
+func (m *Kit) AddInProcessMCPServer(ctx context.Context, name string, srv *MCPServer) (int, error) {
+	cfg := MCPServerConfig{
+		Type:            "inprocess",
+		InProcessServer: srv,
+	}
+	return m.agent.AddMCPServer(ctx, name, cfg)
+}
+
 // RemoveMCPServer disconnects an MCP server and removes all its tools from
 // the agent. After this call the agent will no longer see or be able to call
 // tools from the named server.
@@ -814,6 +849,28 @@ type Options struct {
 	// (e.g. AGENTS.md) from the working directory.
 	NoContextFiles bool
 
+	// InProcessMCPServers registers mcp-go servers that run in the same
+	// process. Each key is the server name (used to prefix tool names, e.g.
+	// "docs__search"). The value must be a *[server.MCPServer].
+	//
+	// In-process servers bypass subprocess spawning and network I/O entirely.
+	// Kit does not take ownership of the servers — the caller is responsible
+	// for any cleanup after [Kit.Close].
+	//
+	// Example:
+	//
+	//	mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+	//	    server.WithToolCapabilities(true),
+	//	)
+	//	mcpSrv.AddTool(mcp.NewTool("search", ...), handler)
+	//
+	//	host, _ := kit.New(ctx, &kit.Options{
+	//	    InProcessMCPServers: map[string]*kit.MCPServer{
+	//	        "docs": mcpSrv,
+	//	    },
+	//	})
+	InProcessMCPServers map[string]*MCPServer
+
 	// Compaction
 	AutoCompact       bool               // Auto-compact when near context limit
 	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
@@ -1088,6 +1145,21 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		mcpConfig, err = config.LoadAndValidateConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load MCP config: %w", err)
+		}
+	}
+
+	// Merge in-process MCP servers from Options into the MCP config.
+	// These are programmatically-provided *server.MCPServer instances that
+	// bypass subprocess spawning and network I/O.
+	if len(opts.InProcessMCPServers) > 0 {
+		if mcpConfig.MCPServers == nil {
+			mcpConfig.MCPServers = make(map[string]config.MCPServerConfig, len(opts.InProcessMCPServers))
+		}
+		for name, srv := range opts.InProcessMCPServers {
+			mcpConfig.MCPServers[name] = config.MCPServerConfig{
+				Type:            "inprocess",
+				InProcessServer: srv,
+			}
 		}
 	}
 

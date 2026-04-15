@@ -30,6 +30,12 @@ type MCPServerConfig struct {
 	OAuthClientSecret string   `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
 	OAuthScopes       []string `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
 
+	// InProcessServer holds a live *server.MCPServer for in-process transport.
+	// When set (and Type is "inprocess"), the connection pool creates an
+	// in-process client instead of spawning a subprocess or making HTTP calls.
+	// This field is never serialized — it is only used programmatically via the SDK.
+	InProcessServer any `json:"-" yaml:"-"`
+
 	// Legacy fields for backward compatibility
 	Transport string         `json:"transport,omitempty"`
 	Args      []string       `json:"args,omitempty"`
@@ -277,9 +283,16 @@ func (s *MCPServerConfig) GetTransportType() string {
 			return "stdio"
 		case "remote":
 			return "streamable"
+		case "inprocess":
+			return "inprocess"
 		default:
 			return s.Type
 		}
+	}
+
+	// Programmatic in-process server detection.
+	if s.InProcessServer != nil {
+		return "inprocess"
 	}
 
 	// Backward compatibility: infer transport type
@@ -312,8 +325,12 @@ func (c *Config) Validate() error {
 			if serverConfig.URL == "" {
 				return fmt.Errorf("server %s: url is required for %s transport", serverName, transport)
 			}
+		case "inprocess":
+			if serverConfig.InProcessServer == nil {
+				return fmt.Errorf("server %s: InProcessServer is required for inprocess transport", serverName)
+			}
 		default:
-			return fmt.Errorf("server %s: unsupported transport type '%s'. Supported types: stdio, sse, streamable", serverName, transport)
+			return fmt.Errorf("server %s: unsupported transport type '%s'. Supported types: stdio, sse, streamable, inprocess", serverName, transport)
 		}
 	}
 	return nil

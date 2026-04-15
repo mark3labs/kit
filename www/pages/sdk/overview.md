@@ -149,6 +149,35 @@ err = host.RemoveMCPServer("github")
 servers := host.ListMCPServers() // []kit.MCPServerStatus
 ```
 
+### In-process MCP servers
+
+Register mcp-go servers running in the same process — zero subprocess overhead:
+
+```go
+import (
+    "github.com/mark3labs/mcp-go/mcp"
+    "github.com/mark3labs/mcp-go/server"
+)
+
+mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+    server.WithToolCapabilities(true),
+)
+mcpSrv.AddTool(mcp.NewTool("search_docs",
+    mcp.WithDescription("Search documentation"),
+    mcp.WithString("query", mcp.Required()),
+), searchHandler)
+
+// At init time
+host, _ := kit.New(ctx, &kit.Options{
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,
+    },
+})
+
+// Or at runtime
+n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
+```
+
 ## MCP prompts and resources
 
 Query prompts and resources exposed by connected MCP servers:
