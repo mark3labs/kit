@@ -57,6 +57,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--top-p` | — | `0.95` | Nucleus sampling 0.0–1.0 |
 | `--top-k` | — | `40` | Limit top K tokens |
 | `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
+| `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
 | `--thinking-level` | — | `off` | Extended thinking level: off, minimal, low, medium, high |
 
 ## System

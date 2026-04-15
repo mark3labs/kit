@@ -14,7 +14,8 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools** — bash, read, write, edit, grep, find, ls, subagent with no MCP overhead
-- **MCP Integration** — Connect external MCP servers for expanded capabilities
+- **Smart @ Attachments** — Binary files auto-detected via MIME type, MCP resources via `@mcp:server:uri`
+- **MCP Integration** — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support

@@ -88,3 +88,17 @@ all := kit.ListAllSessions()
 // Delete a session file
 kit.DeleteSession("/path/to/session.jsonl")
 ```
+
+## Custom session manager
+
+For advanced use cases (databases, cloud storage, multi-user apps), implement the `SessionManager` interface to replace the default JSONL file backend:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,
+})
+```
+
+The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+
+When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.

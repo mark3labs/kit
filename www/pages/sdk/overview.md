@@ -135,6 +135,34 @@ info := host.GetModelInfo()
 models := host.GetAvailableModels()
 ```
 
+## Dynamic MCP servers
+
+Add and remove MCP servers at runtime:
+
+```go
+n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+    Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
+})
+fmt.Printf("Loaded %d tools\n", n)
+
+err = host.RemoveMCPServer("github")
+servers := host.ListMCPServers() // []kit.MCPServerStatus
+```
+
+## MCP prompts and resources
+
+Query prompts and resources exposed by connected MCP servers:
+
+```go
+// List and expand prompts
+prompts := host.ListMCPPrompts()
+result, _ := host.GetMCPPrompt(ctx, "server", "prompt-name", map[string]string{"key": "value"})
+
+// List and read resources
+resources := host.ListMCPResources()
+content, _ := host.ReadMCPResource(ctx, "server", "file:///path")
+```
+
 ## Context and compaction
 
 Monitor and manage context usage:
@@ -146,6 +174,19 @@ stats := host.GetContextStats()
 if host.ShouldCompact() {
     result, err := host.Compact(ctx, nil, "")
 }
+```
+
+## In-process subagents
+
+Spawn child Kit instances without subprocess overhead:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Analyze the test files",
+    Model:     "anthropic/claude-haiku-3-5-20241022",
+    NoSession: true,
+    Timeout:   2 * time.Minute,
+})
 ```
 
 See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.

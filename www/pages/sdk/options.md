@@ -42,6 +42,19 @@ host, err := kit.New(ctx, &kit.Options{
     // Skills
     Skills:       []string{"/path/to/skill.md"},
     SkillsDir:    "/path/to/skills/",
+    NoSkills:     true,
+
+    // Feature toggles
+    NoExtensions:   true,               // disable Yaegi extension loading
+    NoContextFiles: true,               // disable automatic AGENTS.md loading
+
+    // Session (advanced)
+    SessionManager: myCustomSession,    // custom SessionManager implementation
+
+    // MCP OAuth
+    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
+        return myStore(serverURL), nil
+    },
 })
 ```
 
@@ -68,6 +81,11 @@ host, err := kit.New(ctx, &kit.Options{
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Override default skills directory |
+| `NoSkills` | `bool` | `false` | Disable skill loading entirely |
+| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
+| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
+| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers |
 
 ## Tool configuration
 

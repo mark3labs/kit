@@ -41,6 +41,8 @@ stream: true
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
+| `frequency-penalty` | float | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `presence-penalty` | float | `0.0` | Penalize present tokens (0.0–2.0) |
 | `stop-sequences` | list | — | Custom stop sequences |
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 | `prompt-templates` | bool | `true` | Enable prompt template loading |
@@ -143,6 +145,39 @@ kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"
 ```
 
 When `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.
+
+## Per-model settings
+
+Override generation parameters and system prompt on a per-model basis using `modelSettings`:
+
+```yaml
+modelSettings:
+  anthropic/claude-sonnet-4-5-20250929:
+    temperature: 0.3
+    maxTokens: 8192
+    systemPrompt: "You are a concise coding assistant."
+  openai/gpt-4o:
+    temperature: 0.7
+    frequencyPenalty: 0.5
+```
+
+### Per-model fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `temperature` | float | Temperature override for this model |
+| `maxTokens` | int | Max output tokens override |
+| `topP` | float | Top-p override |
+| `topK` | int | Top-k override |
+| `frequencyPenalty` | float | Frequency penalty override |
+| `presencePenalty` | float | Presence penalty override |
+| `stopSequences` | list | Stop sequences override |
+| `thinkingLevel` | string | Thinking level override |
+| `systemPrompt` | string | Per-model system prompt (used when no explicit prompt is set) |
+
+Settings from `modelSettings` and `customModels.params` act as model-level defaults — explicit CLI flags and global config values always take precedence.
+
+When switching models via `/model` or `SetModel()`, if the new model has a per-model system prompt and no custom global prompt was set, the per-model prompt automatically replaces the previous one.
 
 ## Theme configuration
 

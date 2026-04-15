@@ -95,15 +95,19 @@ Press **ESC twice** to cancel the current operation:
 
 This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
 
+### External editor
+
+Press **Ctrl+X e** to open your `$VISUAL` or `$EDITOR` in a temporary file pre-populated with the current input text. On save and quit, the edited content replaces the input textarea. On error exit (e.g., `:cq` in Vim), the original input is preserved.
+
 ### Mid-turn steering
 
-Press **Ctrl+S** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+Press **Ctrl+X s** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
 
 - Works during streaming output
 - Sends a steering instruction as a system message
 - Model continues from the interruption point with the new guidance
 
-Example: While the model is writing code, press Ctrl+S and type "Use async/await instead" to change the implementation approach.
+Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
 
 ## Prompt templates
 
@@ -134,9 +138,12 @@ Templates appear as slash commands:
 | Placeholder | Description |
 |-------------|-------------|
 | `$1`, `$2`, etc. | Individual arguments by position |
-| `$@`, `$ARGUMENTS` | All arguments joined with spaces |
+| `$@`, `$ARGUMENTS` | All arguments joined with spaces (zero or more) |
+| `$+` | All arguments joined with spaces (one or more required) |
 | `${@:N}` | Arguments from position N onwards |
 | `${@:N:L}` | L arguments starting at position N |
+
+Placeholders inside fenced code blocks (`` ``` ``) and inline code spans are ignored, so documentation examples won't be substituted.
 
 ### CLI flags
 

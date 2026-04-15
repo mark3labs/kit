@@ -25,6 +25,12 @@ Attach files as context using the `@` prefix:
 kit @main.go @test.go "Review these files"
 ```
 
+Binary files (images, audio, PDFs) are automatically detected via MIME type and sent as multimodal attachments. You can also reference MCP resources:
+
+```bash
+kit @mcp:myserver:file:///data/report.csv "Summarize this data"
+```
+
 Use a specific model:
 
 ```bash

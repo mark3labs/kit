@@ -669,6 +669,58 @@ for _, s := range servers {
 
 `AddMCPServer` is safe to call while the agent is idle. If a turn is in progress, new tools are visible starting from the next LLM step. Tool names are prefixed with the server name (e.g. `"github__create_issue"`).
 
+### MCP Prompts
+
+Query and expand prompts defined by connected MCP servers:
+
+```go
+// List all prompts from all connected MCP servers
+prompts := host.ListMCPPrompts()
+for _, p := range prompts {
+    fmt.Printf("%s/%s: %s\n", p.ServerName, p.Name, p.Description)
+    for _, arg := range p.Arguments {
+        fmt.Printf("  arg: %s (required: %v)\n", arg.Name, arg.Required)
+    }
+}
+
+// Expand a specific prompt with arguments
+result, err := host.GetMCPPrompt(ctx, "myserver", "code-review", map[string]string{
+    "language": "go",
+    "style":    "thorough",
+})
+// result.Description — optional server description
+// result.Messages — []MCPPromptMessage with Role, Content, and FileParts
+for _, msg := range result.Messages {
+    fmt.Printf("[%s] %s\n", msg.Role, msg.Content)
+    // msg.FileParts contains binary attachments (images, embedded resources)
+}
+```
+
+### MCP Resources
+
+Read and subscribe to resources exposed by MCP servers:
+
+```go
+// List all resources from connected servers
+resources := host.ListMCPResources()
+for _, r := range resources {
+    fmt.Printf("%s: %s (%s)\n", r.URI, r.Name, r.MIMEType)
+}
+
+// Read a specific resource
+content, err := host.ReadMCPResource(ctx, "myserver", "file:///path/to/file")
+if content.IsBlob {
+    // Binary content in content.BlobData
+} else {
+    // Text content in content.Text
+}
+
+// Subscribe to resource change notifications
+err = host.SubscribeMCPResource(ctx, "myserver", "file:///path/to/file")
+// Unsubscribe later
+err = host.UnsubscribeMCPResource(ctx, "myserver", "file:///path/to/file")
+```
+
 ### MCP OAuth Token Storage
 
 For remote MCP servers that use OAuth, you can provide a custom token store:
@@ -869,6 +921,12 @@ kit.MCPToken             // OAuth token struct (access, refresh, expiry)
 kit.MCPTokenStoreFactory // func(serverURL string) (MCPTokenStore, error)
 kit.ErrMCPNoToken        // sentinel error for "no token stored"
 kit.MCPServerStatus      // {Name string, ToolCount int}
+kit.MCPPrompt            // {Name, Description, Arguments []MCPPromptArgument, ServerName}
+kit.MCPPromptArgument    // {Name, Description string, Required bool}
+kit.MCPPromptMessage     // {Role, Content string, FileParts []LLMFilePart}
+kit.MCPPromptResult      // {Description string, Messages []MCPPromptMessage}
+kit.MCPResource          // {URI, Name, Description, MIMEType, ServerName}
+kit.MCPResourceContent   // {URI, MIMEType, Text string, BlobData []byte, IsBlob bool}
 
 // Conversion helpers
 msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message  → []LLMMessage

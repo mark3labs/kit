@@ -19,6 +19,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools**: bash, read, write, edit, grep, find, ls, subagent - no MCP overhead
+- **Smart @ Attachments**: Binary files auto-detected via MIME type, MCP resources via `@mcp:server:uri`
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
 - **Extension System**: Write custom tools, commands, widgets, and UI modifications in Go
 - **Theming**: 22 built-in color themes (KITT, Catppuccin, Dracula, Nord, etc.) with runtime switching, persistence, and custom theme files
@@ -191,6 +192,8 @@ mcpServers:
 --top-p                  Nucleus sampling 0.0-1.0 (default: 0.95)
 --top-k                  Limit top K tokens (default: 40)
 --stop-sequences         Custom stop sequences (comma-separated)
+--frequency-penalty      Penalize frequent tokens 0.0-2.0 (default: 0.0)
+--presence-penalty       Penalize present tokens 0.0-2.0 (default: 0.0)
 --thinking-level         Extended thinking level: off, minimal, low, medium, high (default: off)
 
 # System
@@ -321,6 +324,7 @@ See the `examples/extensions/` directory:
 - [`auto-commit.go`](examples/extensions/auto-commit.go) - Auto-commit on shutdown
 - [`bookmark.go`](examples/extensions/bookmark.go) - Bookmark conversations
 - [`branded-output.go`](examples/extensions/branded-output.go) - Branded output rendering
+- [`bridge-demo.go`](examples/extensions/bridge_demo.go) - Bridged SDK API demo (tree navigation, skills, templates, model resolution)
 - [`compact-notify.go`](examples/extensions/compact-notify.go) - Notification on compaction
 - [`confirm-destructive.go`](examples/extensions/confirm-destructive.go) - Confirm destructive operations
 - [`context-inject.go`](examples/extensions/context-inject.go) - Inject context into conversations
@@ -428,9 +432,12 @@ Focus on $1 specifically.
 
 **Argument placeholders:**
 - `$1`, `$2`, etc. — Individual arguments
-- `$@` or `$ARGUMENTS` — All arguments
+- `$@` or `$ARGUMENTS` — All arguments (zero or more)
+- `$+` — All arguments (one or more required; error if none given)
 - `${@:2}` — Arguments from position 2 onwards
 - `${@:1:3}` — 3 arguments starting at position 1
+
+Placeholders inside fenced code blocks (```) and inline code spans are ignored.
 
 Disable templates with `--no-prompt-templates` or load a specific template with `--prompt-template <name>`.
 
@@ -479,6 +486,15 @@ During an interactive session, use these slash commands:
 | `/tree` | Navigate the session tree |
 | `/fork` | Fork to new session from an earlier message |
 | `/new` | Start a fresh session |
+
+### Keyboard Shortcuts
+
+| Shortcut | Description |
+|----------|-------------|
+| `Ctrl+X e` | Open `$VISUAL`/`$EDITOR` to compose or edit your prompt |
+| `Ctrl+X s` | Steer — inject a system-level instruction mid-turn |
+| `ESC ESC` | Cancel the current operation (tool call or streaming) |
+| `↑` / `↓` | Navigate prompt history |
 
 ## Go SDK
 
