@@ -245,7 +245,6 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// The mcpReady channel is closed when loading completes (success or failure).
 	if agentConfig.MCPConfig != nil && len(agentConfig.MCPConfig.MCPServers) > 0 {
 		toolManager := tools.NewMCPToolManager()
-		toolManager.SetModel(providerResult.Model)
 		if agentConfig.AuthHandler != nil {
 			toolManager.SetAuthHandler(agentConfig.AuthHandler)
 		}
@@ -325,7 +324,7 @@ func (a *Agent) rebuildFantasyAgent() {
 	allTools := make([]fantasy.AgentTool, len(a.coreTools))
 	copy(allTools, a.coreTools)
 	if a.toolManager != nil {
-		allTools = append(allTools, a.toolManager.GetTools()...)
+		allTools = append(allTools, mcpToolsToAgentTools(a.toolManager.GetTools(), a.toolManager)...)
 	}
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
@@ -808,7 +807,7 @@ func (a *Agent) GetTools() []fantasy.AgentTool {
 	allTools := make([]fantasy.AgentTool, len(a.coreTools))
 	copy(allTools, a.coreTools)
 	if a.toolManager != nil {
-		allTools = append(allTools, a.toolManager.GetTools()...)
+		allTools = append(allTools, mcpToolsToAgentTools(a.toolManager.GetTools(), a.toolManager)...)
 	}
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
@@ -852,7 +851,6 @@ func (a *Agent) AddMCPServer(ctx context.Context, name string, cfg config.MCPSer
 
 	if a.toolManager == nil {
 		a.toolManager = tools.NewMCPToolManager()
-		a.toolManager.SetModel(a.model)
 		if a.authHandler != nil {
 			a.toolManager.SetAuthHandler(a.authHandler)
 		}
@@ -931,11 +929,6 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	// Close old provider.
 	if a.providerCloser != nil {
 		_ = a.providerCloser.Close()
-	}
-
-	// Update model info on MCP tool manager.
-	if a.toolManager != nil {
-		a.toolManager.SetModel(providerResult.Model)
 	}
 
 	// Swap fields.

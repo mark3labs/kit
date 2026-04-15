@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -63,7 +62,6 @@ type MCPConnectionPool struct {
 	connections       map[string]*MCPConnection
 	config            *ConnectionPoolConfig
 	mu                sync.RWMutex
-	model             fantasy.LanguageModel
 	ctx               context.Context
 	cancel            context.CancelFunc
 	debug             bool
@@ -75,9 +73,8 @@ type MCPConnectionPool struct {
 // NewMCPConnectionPool creates a new MCP connection pool with the specified configuration.
 // If config is nil, default configuration values will be used. The pool starts a background
 // goroutine for periodic health checks that runs until Close is called.
-// The model parameter is used for MCP servers that require sampling support.
 // Thread-safe for concurrent use immediately after creation.
-func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageModel, debug bool, authHandler MCPAuthHandler, tokenStoreFactory TokenStoreFactory) *MCPConnectionPool {
+func NewMCPConnectionPool(config *ConnectionPoolConfig, debug bool, authHandler MCPAuthHandler, tokenStoreFactory TokenStoreFactory) *MCPConnectionPool {
 	if config == nil {
 		config = DefaultConnectionPoolConfig()
 	}
@@ -86,7 +83,6 @@ func NewMCPConnectionPool(config *ConnectionPoolConfig, model fantasy.LanguageMo
 	pool := &MCPConnectionPool{
 		connections:       make(map[string]*MCPConnection),
 		config:            config,
-		model:             model,
 		ctx:               ctx,
 		cancel:            cancel,
 		debug:             debug,

@@ -103,14 +103,12 @@ func TestMCPToolManager_EmptyConfig(t *testing.T) {
 
 	// Test that we can get tool info for each tool
 	for _, tool := range tools {
-		info := tool.Info()
-
 		// Check that the tool has a valid name
-		if info.Name == "" {
+		if tool.Name == "" {
 			t.Error("Tool has empty name")
 		}
 
-		t.Logf("Tool: %s, Description: %s", info.Name, info.Description)
+		t.Logf("Tool: %s, Description: %s", tool.Name, tool.Description)
 	}
 }
 

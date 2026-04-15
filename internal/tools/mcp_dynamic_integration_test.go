@@ -101,7 +101,7 @@ func TestMCPToolManager_AddServer_Integration(t *testing.T) {
 	// Verify tool names are prefixed.
 	toolNames := make(map[string]bool)
 	for _, tool := range tools {
-		toolNames[tool.Info().Name] = true
+		toolNames[tool.Name] = true
 	}
 	if !toolNames["echo__echo"] {
 		t.Error("Expected tool 'echo__echo'")
@@ -234,8 +234,8 @@ func TestMCPToolManager_AddRemoveMultiple_Integration(t *testing.T) {
 
 	// Remaining tools should all be from server-b.
 	for _, tool := range tools {
-		if !strings.HasPrefix(tool.Info().Name, "server-b__") {
-			t.Errorf("Expected tool from server-b, got: %s", tool.Info().Name)
+		if !strings.HasPrefix(tool.Name, "server-b__") {
+			t.Errorf("Expected tool from server-b, got: %s", tool.Name)
 		}
 	}
 

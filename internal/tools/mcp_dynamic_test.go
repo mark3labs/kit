@@ -122,7 +122,7 @@ func TestMCPToolManager_Close_NilPool(t *testing.T) {
 // TestMCPConnectionPool_RemoveConnection_NotFound verifies that removing a
 // non-existent connection returns an error.
 func TestMCPConnectionPool_RemoveConnection_NotFound(t *testing.T) {
-	pool := NewMCPConnectionPool(DefaultConnectionPoolConfig(), nil, false, nil, nil)
+	pool := NewMCPConnectionPool(DefaultConnectionPoolConfig(), false, nil, nil)
 	defer func() { _ = pool.Close() }()
 
 	err := pool.RemoveConnection("nonexistent")

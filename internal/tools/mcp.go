@@ -9,22 +9,46 @@ import (
 	"strings"
 	"sync"
 
-	"charm.land/fantasy"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// MCPTool represents a tool discovered from an MCP server. It contains all
+// the metadata needed to present the tool to an LLM (name, description, JSON
+// schema) plus the server origin information needed to execute it.
+type MCPTool struct {
+	// Name is the prefixed tool name: "serverName__toolName".
+	Name string
+	// Description is the human-readable tool description.
+	Description string
+	// Parameters is the JSON Schema properties for the tool's input.
+	Parameters map[string]any
+	// Required lists the required parameter names.
+	Required []string
+	// ServerName is the MCP server this tool belongs to.
+	ServerName string
+	// OriginalName is the unprefixed tool name on the MCP server.
+	OriginalName string
+}
+
+// MCPToolResult is the result of executing an MCP tool via ExecuteTool.
+type MCPToolResult struct {
+	// Content is the JSON-encoded result from the MCP server.
+	Content string
+	// IsError indicates the MCP server reported a tool-level error.
+	IsError bool
+}
+
 // MCPToolManager manages MCP (Model Context Protocol) tools and clients across multiple servers.
 // It provides a unified interface for loading, managing, and executing tools from various MCP servers,
 // including stdio, SSE, streamable HTTP, and built-in server types. The manager handles connection
-// pooling, health checks, tool name prefixing to avoid conflicts, and sampling support for LLM interactions.
+// pooling, health checks, tool name prefixing to avoid conflicts, and OAuth re-authorization.
 // Thread-safe for concurrent tool invocations.
 type MCPToolManager struct {
 	connectionPool    *MCPConnectionPool
-	tools             []fantasy.AgentTool
+	tools             []MCPTool
 	toolMap           map[string]*toolMapping // maps prefixed tool names to their server and original name
 	mu                sync.Mutex              // protects tools and toolMap during parallel loading
-	model             fantasy.LanguageModel   // LLM model for sampling
 	authHandler       MCPAuthHandler          // OAuth handler for remote servers (nil = no OAuth)
 	tokenStoreFactory TokenStoreFactory       // factory for creating per-server token stores (nil = default FileTokenStore)
 	config            *config.Config
@@ -36,8 +60,8 @@ type MCPToolManager struct {
 	onServerLoaded func(serverName string, toolCount int, err error)
 
 	// onToolsChanged, if non-nil, is called after AddServer or RemoveServer
-	// mutates the tool list. The agent layer uses this to trigger a
-	// rebuildFantasyAgent so the LLM sees the updated tools.
+	// mutates the tool list. The agent layer uses this to trigger a rebuild
+	// so the LLM sees the updated tools.
 	onToolsChanged func()
 }
 
@@ -46,25 +70,16 @@ type toolMapping struct {
 	serverName   string
 	originalName string
 	serverConfig config.MCPServerConfig
-	manager      *MCPToolManager
 }
 
 // NewMCPToolManager creates a new MCP tool manager instance.
 // Returns an initialized manager with empty tool collections ready to load tools from MCP servers.
-// The manager must be configured with SetModel and LoadTools before use.
+// The manager must be configured with LoadTools before use.
 func NewMCPToolManager() *MCPToolManager {
 	return &MCPToolManager{
-		tools:   make([]fantasy.AgentTool, 0),
+		tools:   make([]MCPTool, 0),
 		toolMap: make(map[string]*toolMapping),
 	}
-}
-
-// SetModel sets the LLM model for sampling support.
-// The model is used when MCP servers request sampling operations, allowing them to
-// leverage the host's LLM capabilities for text generation tasks.
-// This method should be called before LoadTools if any MCP servers require sampling support.
-func (m *MCPToolManager) SetModel(model fantasy.LanguageModel) {
-	m.model = model
 }
 
 // SetAuthHandler sets the OAuth handler for remote MCP server authentication.
@@ -109,7 +124,7 @@ func (m *MCPToolManager) SetOnServerLoaded(cb func(serverName string, toolCount 
 
 // SetOnToolsChanged sets the callback that's invoked after AddServer or
 // RemoveServer mutates the tool list. The agent layer uses this to trigger
-// a rebuild of the fantasy agent so the LLM sees the updated tool set.
+// a rebuild so the LLM sees the updated tool set.
 func (m *MCPToolManager) SetOnToolsChanged(cb func()) {
 	m.onToolsChanged = cb
 }
@@ -182,9 +197,9 @@ func (m *MCPToolManager) RemoveServer(name string) error {
 	}
 
 	// Remove tools belonging to this server.
-	newTools := make([]fantasy.AgentTool, 0, len(m.tools))
+	newTools := make([]MCPTool, 0, len(m.tools))
 	for _, t := range m.tools {
-		if len(t.Info().Name) < len(prefix) || t.Info().Name[:len(prefix)] != prefix {
+		if len(t.Name) < len(prefix) || t.Name[:len(prefix)] != prefix {
 			newTools = append(newTools, t)
 		}
 	}
@@ -223,7 +238,7 @@ func (m *MCPToolManager) ensureConnectionPool() {
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, debug, m.authHandler, m.tokenStoreFactory)
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 }
 
@@ -239,7 +254,7 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(cfg.Debug)
 	}
-	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), m.model, cfg.Debug, m.authHandler, m.tokenStoreFactory)
+	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), cfg.Debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 
 	// Load all servers in parallel. Each server connection (subprocess
@@ -321,10 +336,10 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	}
 
 	// Build tools locally before acquiring the lock.
-	var localTools []fantasy.AgentTool
+	var localTools []MCPTool
 	localMap := make(map[string]*toolMapping)
 
-	// Convert MCP tools to fantasy AgentTools with prefixed names
+	// Convert MCP tools to MCPTool structs with prefixed names
 	for _, mcpTool := range listResults.Tools {
 		// Filter tools based on allowedTools/excludedTools
 		if len(serverConfig.AllowedTools) > 0 {
@@ -338,7 +353,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 			continue
 		}
 
-		// Convert MCP InputSchema to map[string]any for fantasy ToolInfo
+		// Convert MCP InputSchema to map[string]any
 		marshaledSchema, err := json.Marshal(mcpTool.InputSchema)
 		if err != nil {
 			return -1, fmt.Errorf("conv mcp tool input schema fail(marshal): %w, tool name: %s", err, mcpTool.Name)
@@ -347,7 +362,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 		// Fix for JSON Schema draft-07 vs draft-04 compatibility
 		marshaledSchema = convertExclusiveBoundsToBoolean(marshaledSchema)
 
-		// Parse into map[string]any for fantasy's parameters format
+		// Parse into map[string]any
 		var schemaMap map[string]any
 		if err := json.Unmarshal(marshaledSchema, &schemaMap); err != nil {
 			return -1, fmt.Errorf("conv mcp tool input schema fail(unmarshal): %w, tool name: %s", err, mcpTool.Name)
@@ -363,7 +378,7 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 
 		// Fix for issue #89: Ensure object schemas have a properties field.
 		// When schema type is "object" with no properties, we keep the
-		// empty parameters map — fantasy handles this fine.
+		// empty parameters map.
 
 		if req, ok := schemaMap["required"].([]any); ok {
 			for _, r := range req {
@@ -381,22 +396,18 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 			serverName:   serverName,
 			originalName: mcpTool.Name,
 			serverConfig: serverConfig,
-			manager:      m,
 		}
 		localMap[prefixedName] = mapping
 
-		// Create fantasy AgentTool
-		fantasyTool := &mcpFantasyTool{
-			toolInfo: fantasy.ToolInfo{
-				Name:        prefixedName,
-				Description: mcpTool.Description,
-				Parameters:  parameters,
-				Required:    required,
-			},
-			mapping: mapping,
-		}
-
-		localTools = append(localTools, fantasyTool)
+		// Create MCPTool
+		localTools = append(localTools, MCPTool{
+			Name:         prefixedName,
+			Description:  mcpTool.Description,
+			Parameters:   parameters,
+			Required:     required,
+			ServerName:   serverName,
+			OriginalName: mcpTool.Name,
+		})
 	}
 
 	// Merge into the manager under the lock.
@@ -408,9 +419,87 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 	return len(localTools), nil
 }
 
-// GetTools returns all loaded tools as fantasy AgentTools from all configured MCP servers.
+// ExecuteTool calls an MCP tool through the connection pool, handling health
+// checks, OAuth re-authorization, and connection error tracking.
+// The inputJSON parameter is the raw JSON arguments from the LLM.
+// Returns the result content, error flag, and any execution error.
+func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSON string) (*MCPToolResult, error) {
+	m.mu.Lock()
+	mapping, ok := m.toolMap[prefixedName]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("tool %q not found", prefixedName)
+	}
+
+	// Parse and validate JSON arguments
+	var arguments any
+	if inputJSON == "" || inputJSON == "{}" {
+		arguments = nil
+	} else {
+		var temp any
+		if err := json.Unmarshal([]byte(inputJSON), &temp); err != nil {
+			return &MCPToolResult{
+				Content: fmt.Sprintf("invalid JSON arguments: %v", err),
+				IsError: true,
+			}, nil
+		}
+		arguments = json.RawMessage(inputJSON)
+	}
+
+	// Get connection from pool with health check
+	conn, err := m.connectionPool.GetConnectionWithHealthCheck(
+		ctx, mapping.serverName, mapping.serverConfig,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get healthy connection from pool: %w", err)
+	}
+
+	callRequest := mcp.CallToolRequest{
+		Request: mcp.Request{
+			Method: "tools/call",
+		},
+		Params: mcp.CallToolParams{
+			Name:      mapping.originalName,
+			Arguments: arguments,
+		},
+	}
+
+	// Call the MCP tool using the original (unprefixed) name
+	result, err := conn.client.CallTool(ctx, callRequest)
+	if err != nil {
+		// Handle OAuth re-authorization: token may have expired mid-session.
+		if m.connectionPool.oauthFlow != nil && IsOAuthError(err) {
+			if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, err); flowErr != nil {
+				return nil, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", mapping.originalName, flowErr)
+			}
+			// Retry the tool call after successful re-auth.
+			result, err = conn.client.CallTool(ctx, callRequest)
+			if err != nil {
+				m.connectionPool.HandleConnectionError(mapping.serverName, err)
+				return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", err)
+			}
+		} else {
+			// Mark connection as unhealthy for automatic recovery
+			m.connectionPool.HandleConnectionError(mapping.serverName, err)
+			return nil, fmt.Errorf("failed to call mcp tool: %w", err)
+		}
+	}
+
+	// Marshal the MCP result to JSON string
+	marshaledResult, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", err)
+	}
+
+	return &MCPToolResult{
+		Content: string(marshaledResult),
+		IsError: result.IsError,
+	}, nil
+}
+
+// GetTools returns all loaded MCP tools from all configured MCP servers.
 // Tools are returned with their prefixed names (serverName__toolName) to ensure uniqueness.
-func (m *MCPToolManager) GetTools() []fantasy.AgentTool {
+func (m *MCPToolManager) GetTools() []MCPTool {
 	return m.tools
 }
 
