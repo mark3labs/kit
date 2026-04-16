@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI flags.">
 <link rel="canonical" href="/cli/flags">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CWutR9kb.js"></script>
+<script type="module" src="/assets/index-RVHg-NzH.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Global Flags","description":"Complete reference for all Kit CLI flags.","url":"https://go-kit.dev/cli/flags","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -62,7 +62,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--max-tokens` | — | `4096` | Maximum tokens in response |
+| `--max-tokens` | — | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. |
 | `--temperature` | — | `0.7` | Randomness 0.0–1.0 |
 | `--top-p` | — | `0.95` | Nucleus sampling 0.0–1.0 |
 | `--top-k` | — | `40` | Limit top K tokens |
