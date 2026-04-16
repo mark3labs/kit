@@ -200,10 +200,6 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+l"))):
 			ts.filter = TreeFilterLabelOnly
 			ts.rebuildFlatList()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+a"))):
-			ts.filter = TreeFilterAll
-			ts.rebuildFlatList()
-
 		default:
 			// Typing search.
 			if msg.Text != "" && len(msg.Text) == 1 {

@@ -69,30 +69,6 @@ func TestInputComponent_SubmitEmitsSubmitMsg(t *testing.T) {
 	}
 }
 
-// TestInputComponent_CtrlD_SubmitEmitsSubmitMsg verifies that ctrl+d also
-// submits the text.
-func TestInputComponent_CtrlD_SubmitEmitsSubmitMsg(t *testing.T) {
-	ctrl := &stubAppController{}
-	c := newTestInput(ctrl)
-
-	c.textarea.SetValue("ctrl+d submit")
-	c.lastValue = "ctrl+d submit"
-
-	_, cmd := sendInputMsg(c, tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-
-	msg := runCmd(cmd)
-	if msg == nil {
-		t.Fatal("expected a cmd from ctrl+d on non-empty input")
-	}
-	sm, ok := msg.(core.SubmitMsg)
-	if !ok {
-		t.Fatalf("expected submitMsg from ctrl+d, got %T", msg)
-	}
-	if sm.Text != "ctrl+d submit" {
-		t.Fatalf("expected Text='ctrl+d submit', got %q", sm.Text)
-	}
-}
-
 // TestInputComponent_EmptySubmit_NoCmd verifies that submitting an empty or
 // whitespace-only string produces no cmd.
 func TestInputComponent_EmptySubmit_NoCmd(t *testing.T) {

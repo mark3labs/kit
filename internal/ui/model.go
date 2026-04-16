@@ -1318,11 +1318,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.scrollList.autoScroll = true
 				}
 				return m, tea.Batch(cmds...)
-			case "alt+home":
+			case "ctrl+home":
 				m.scrollList.GotoTop()
 				m.scrollList.autoScroll = false
 				return m, tea.Batch(cmds...)
-			case "alt+end":
+			case "ctrl+end":
 				m.scrollList.GotoBottom()
 				m.scrollList.autoScroll = true
 				return m, tea.Batch(cmds...)
@@ -1330,15 +1330,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Thinking keybindings — only when the model supports reasoning.
+		// Note: thinking visibility toggle is under leader chord (Ctrl+X t)
+		// to avoid conflicts with terminal multiplexers.
 		if m.isReasoningModel {
 			switch msg.String() {
-			case "ctrl+t":
-				// Toggle thinking block visibility.
-				m.thinkingVisible = !m.thinkingVisible
-				if m.stream != nil {
-					m.stream.SetThinkingVisible(m.thinkingVisible)
-				}
-				return m, tea.Batch(cmds...)
 			case "shift+tab":
 				// Cycle thinking level.
 				m.cycleThinkingLevel()
@@ -1437,6 +1432,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								m.state = stateWorking
 							}
 						}
+					}
+				}
+			case "t":
+				// Ctrl+X t → Toggle thinking block visibility.
+				if m.isReasoningModel {
+					m.thinkingVisible = !m.thinkingVisible
+					if m.stream != nil {
+						m.stream.SetThinkingVisible(m.thinkingVisible)
 					}
 				}
 			case "e":

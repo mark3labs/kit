@@ -201,7 +201,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if !s.showPopup {
 			switch msg.String() {
-			case "ctrl+d", "enter":
+			case "enter":
 				value := s.textarea.Value()
 				s.pushHistory(value)
 				s.textarea.SetValue("")
