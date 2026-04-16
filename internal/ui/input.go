@@ -708,9 +708,25 @@ func (s *InputComponent) renderPopupWithOptions(centered bool) string {
 				}
 				content = indicator + displayName
 			} else {
-				nameWidth := 15
-				if innerWidth < 25 {
-					nameWidth = max(innerWidth*2/5+1, 8)
+				// Compute nameWidth from the longest command name in the
+				// visible slice so we never truncate unnecessarily.
+				nameWidth := 0
+				for _, fm := range s.filtered {
+					if n := len([]rune(fm.Command.Name)); n > nameWidth {
+						nameWidth = n
+					}
+				}
+				nameWidth += 3 // account for indicator prefix (2) + gap before description (1)
+				// Ensure descriptions still get at least 20 chars when possible.
+				maxForName := innerWidth - 20
+				if maxForName < 8 {
+					maxForName = innerWidth * 2 / 3
+				}
+				if nameWidth > maxForName {
+					nameWidth = maxForName
+				}
+				if nameWidth < 8 {
+					nameWidth = 8
 				}
 				maxNameChars := nameWidth - 2
 				displayName := sc.Name
