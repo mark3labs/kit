@@ -93,7 +93,7 @@ api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
     // e.Response string
     // e.StopReason string — "error" (on failure), "completed" (when LLM returns
     //   empty stop reason), or the raw LLM provider value passed through
-    //   (e.g. "stop", "end_turn", "max_tokens", "tool_use").
+    //   (e.g. "stop", "length" (max output tokens hit), "tool-calls", "content-filter").
     //   To detect errors, check e.StopReason == "error".
     //   Do NOT compare against "completed" for success — instead check != "error".
 })

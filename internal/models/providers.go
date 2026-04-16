@@ -251,6 +251,11 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// via CLI flag or global config.
 	ApplyModelSettings(config, modelInfo)
 
+	// Auto-raise MaxTokens toward the model's known output ceiling when the
+	// user hasn't explicitly set --max-tokens and no per-model override
+	// applied. Runs after ApplyModelSettings so explicit modelSettings win.
+	rightSizeMaxTokens(config, modelInfo)
+
 	// Create the base provider
 	var result *ProviderResult
 	var createErr error
@@ -486,6 +491,37 @@ func validateModelConfig(config *ProviderConfig, modelInfo *ModelInfo) {
 	if modelInfo.Limit.Output > 0 && config.MaxTokens > modelInfo.Limit.Output {
 		fmt.Fprintf(os.Stderr, "Warning: max_tokens (%d) exceeds model's known output limit (%d) for %s\n",
 			config.MaxTokens, modelInfo.Limit.Output, modelInfo.ID)
+	}
+}
+
+// defaultRightSizeCap bounds auto-raised MaxTokens so that we don't silently
+// allocate enormous output budgets for models with very high ceilings (e.g.
+// Devstral at 262144, Mistral at 128000). Users who genuinely want more can
+// pass --max-tokens explicitly or set modelSettings[...].maxTokens in config.
+const defaultRightSizeCap = 32768
+
+// rightSizeMaxTokens raises config.MaxTokens toward the model's known output
+// ceiling when:
+//   - the user has not explicitly set --max-tokens (or the KIT_MAX_TOKENS env
+//     var, or the top-level max-tokens key in config.yaml), AND
+//   - no per-model override already bumped MaxTokens (ApplyModelSettings runs
+//     before this function), AND
+//   - modelInfo.Limit.Output is known and larger than the current MaxTokens.
+//
+// The raised value is capped at defaultRightSizeCap to keep accidental
+// allocations reasonable on very-large-output models. This prevents the
+// common "ghost" where the agent's reply is silently truncated at the 8192
+// default even though the selected model supports 64k or 262k output tokens.
+func rightSizeMaxTokens(config *ProviderConfig, modelInfo *ModelInfo) {
+	if modelInfo == nil || modelInfo.Limit.Output <= 0 {
+		return
+	}
+	if isExplicitlySet("max-tokens") {
+		return
+	}
+	target := min(modelInfo.Limit.Output, defaultRightSizeCap)
+	if config.MaxTokens < target {
+		config.MaxTokens = target
 	}
 }
 

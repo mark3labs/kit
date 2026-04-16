@@ -297,7 +297,7 @@ func init() {
 	flags.BoolVar(&noPromptTemplates, "no-prompt-templates", false, "disable prompt template discovery")
 
 	// Model generation parameters
-	flags.IntVar(&maxTokens, "max-tokens", 4096, "maximum number of tokens in the response")
+	flags.IntVar(&maxTokens, "max-tokens", 8192, "maximum number of output tokens per response (auto-raised up to 32768 for models with higher known output limits; see internal/models/embedded_models.json)")
 	flags.Float32Var(&temperature, "temperature", 0.7, "controls randomness in responses (0.0-1.0)")
 	flags.Float32Var(&topP, "top-p", 0.95, "controls diversity via nucleus sampling (0.0-1.0)")
 	flags.Int32Var(&topK, "top-k", 40, "controls diversity by limiting top K tokens to sample from")

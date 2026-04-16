@@ -932,6 +932,8 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 				Password:  resp.Password,
 				Cancelled: resp.Cancelled,
 			}
+		case kit.TurnEndEvent:
+			a.handleTurnEnd(ev, sendFn)
 		}
 	}))
 
@@ -940,6 +942,64 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 			unsub()
 		}
 	}
+}
+
+// handleTurnEnd inspects a turn's final StopReason and surfaces actionable
+// feedback to the user when the turn ended in a state they can act on.
+//
+// Today the only surfaced case is FinishReasonLength — the model hit its
+// configured max_output_tokens budget and the reply was truncated. Without
+// this banner the TUI used to swallow the truncation silently, leading to
+// "ghost" cut-offs with no indication of why.
+//
+// Separated from subscribeSDKEvents so tests can exercise it directly via a
+// stubbed sendFn without standing up a full Kit.
+func (a *App) handleTurnEnd(ev kit.TurnEndEvent, sendFn func(tea.Msg)) {
+	if sendFn == nil {
+		return
+	}
+	if ev.StopReason != kit.FinishReasonLength {
+		return
+	}
+	sendFn(ExtensionPrintEvent{
+		Level: "info",
+		Text:  a.formatMaxTokensTruncatedMessage(),
+	})
+}
+
+// formatMaxTokensTruncatedMessage builds the user-facing explanation for a
+// truncated turn. It reports the active max_output_tokens budget and, when
+// known, the model's catalog output ceiling so the user can judge how much
+// headroom is available.
+func (a *App) formatMaxTokensTruncatedMessage() string {
+	k := a.opts.Kit
+	if k == nil {
+		// Extremely early / test-stub case: still emit a useful generic hint.
+		return "⚠ Response truncated: the model hit the configured max_output_tokens limit. " +
+			"Raise it with --max-tokens N, KIT_MAX_TOKENS=N, or per-model " +
+			"modelSettings[provider/model].maxTokens in config."
+	}
+	current := k.MaxTokens()
+	ceiling := k.MaxOutputLimit()
+	model := k.GetModelString()
+
+	msg := "⚠ Response truncated: "
+	if model != "" {
+		msg += fmt.Sprintf("%s hit the configured max_output_tokens limit", model)
+	} else {
+		msg += "the model hit the configured max_output_tokens limit"
+	}
+	if current > 0 {
+		msg += fmt.Sprintf(" (%d)", current)
+	}
+	msg += "."
+	if ceiling > 0 && current > 0 && ceiling > current {
+		msg += fmt.Sprintf(" This model supports up to %d output tokens.", ceiling)
+	}
+	msg += "\n\nRaise it with --max-tokens N, KIT_MAX_TOKENS=N, " +
+		"or per-model modelSettings[provider/model].maxTokens in your config. " +
+		"Re-run the last prompt after raising it to get the full response."
+	return msg
 }
 
 // QuitFromExtension triggers a graceful shutdown. In interactive mode it

@@ -18,7 +18,7 @@ Create `~/.kit.yml`:
 
 ```yaml
 model: anthropic/claude-sonnet-latest
-max-tokens: 4096
+max-tokens: 8192
 temperature: 0.7
 stream: true
 ```
@@ -28,7 +28,7 @@ stream: true
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
-| `max-tokens` | int | `4096` | Maximum tokens in response |
+| `max-tokens` | int | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. Use [`modelSettings[provider/model].maxTokens`](#per-model-settings) to override per-model. |
 | `temperature` | float | `0.7` | Randomness 0.0–1.0 |
 | `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
 | `top-k` | int | `40` | Limit top K tokens |

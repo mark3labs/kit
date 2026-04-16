@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -664,5 +666,96 @@ func TestUpdateUsageFromTurnResult_contextTokensUsesAllCategories(t *testing.T) 
 	if usage.contextCalls != 1 || usage.lastContextTokens != expected {
 		t.Fatalf("expected context tokens=%d (all categories), got calls=%d tokens=%d",
 			expected, usage.contextCalls, usage.lastContextTokens)
+	}
+}
+
+// TestHandleTurnEnd_LengthEmitsWarning verifies that when the SDK reports a
+// FinishReasonLength (max_output_tokens hit), the app surfaces a user-visible
+// ExtensionPrintEvent with Level="info" so the TUI can render a banner
+// instead of silently showing a truncated reply.
+func TestHandleTurnEnd_LengthEmitsWarning(t *testing.T) {
+	app := New(Options{}, nil)
+	defer app.Close()
+
+	var mu sync.Mutex
+	var received []tea.Msg
+	sendFn := func(m tea.Msg) {
+		mu.Lock()
+		defer mu.Unlock()
+		received = append(received, m)
+	}
+
+	app.handleTurnEnd(kit.TurnEndEvent{StopReason: kit.FinishReasonLength}, sendFn)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event on length stop, got %d", len(received))
+	}
+	ev, ok := received[0].(ExtensionPrintEvent)
+	if !ok {
+		t.Fatalf("expected ExtensionPrintEvent, got %T", received[0])
+	}
+	if ev.Level != "info" {
+		t.Errorf("expected Level=info, got %q", ev.Level)
+	}
+	if ev.Text == "" {
+		t.Error("expected non-empty warning text")
+	}
+	if !strings.Contains(ev.Text, "max_output_tokens") {
+		t.Errorf("warning text should mention max_output_tokens, got: %s", ev.Text)
+	}
+}
+
+// TestHandleTurnEnd_NonLengthIgnored verifies that ordinary stop reasons
+// (stop, tool-calls, error, unknown, "") do not produce a warning banner.
+func TestHandleTurnEnd_NonLengthIgnored(t *testing.T) {
+	app := New(Options{}, nil)
+	defer app.Close()
+
+	reasons := []string{
+		kit.FinishReasonStop,
+		kit.FinishReasonToolCalls,
+		kit.FinishReasonError,
+		kit.FinishReasonContentFilter,
+		kit.FinishReasonOther,
+		kit.FinishReasonUnknown,
+		"",
+	}
+	for _, r := range reasons {
+		var called bool
+		app.handleTurnEnd(kit.TurnEndEvent{StopReason: r}, func(m tea.Msg) {
+			called = true
+		})
+		if called {
+			t.Errorf("stop reason %q unexpectedly emitted a warning", r)
+		}
+	}
+}
+
+// TestHandleTurnEnd_NilSendFn guards against panics when no TUI listener is
+// attached (e.g. early init or headless teardown).
+func TestHandleTurnEnd_NilSendFn(t *testing.T) {
+	app := New(Options{}, nil)
+	defer app.Close()
+
+	// Should not panic with a nil sendFn.
+	app.handleTurnEnd(kit.TurnEndEvent{StopReason: kit.FinishReasonLength}, nil)
+}
+
+// TestFormatMaxTokensTruncatedMessage_NoKit verifies the fallback message
+// when Options.Kit is nil (test/stub path).
+func TestFormatMaxTokensTruncatedMessage_NoKit(t *testing.T) {
+	app := New(Options{}, nil)
+	defer app.Close()
+
+	msg := app.formatMaxTokensTruncatedMessage()
+	if msg == "" {
+		t.Fatal("expected non-empty fallback message")
+	}
+	for _, needle := range []string{"max_output_tokens", "--max-tokens", "KIT_MAX_TOKENS", "modelSettings"} {
+		if !strings.Contains(msg, needle) {
+			t.Errorf("fallback message missing %q:\n%s", needle, msg)
+		}
 	}
 }

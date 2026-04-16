@@ -1025,6 +1025,22 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
 }
 
+// GetMaxTokens returns the effective max output tokens the agent currently
+// sends to the LLM provider, after per-model defaults, right-sizing, and any
+// Anthropic thinking-budget adjustments. Returns 0 when no ModelConfig is
+// attached (e.g. early init) or when the provider suppresses the parameter
+// (e.g. Codex OAuth), which allows callers to differentiate "default" from
+// "explicitly capped".
+func (a *Agent) GetMaxTokens() int {
+	if a.skipMaxOutputTokens {
+		return 0
+	}
+	if a.modelConfig == nil {
+		return 0
+	}
+	return a.modelConfig.MaxTokens
+}
+
 // Close closes the agent and cleans up resources.
 // If MCP tools are still loading in the background, Close waits for them
 // to finish before closing connections to avoid resource leaks.

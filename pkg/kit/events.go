@@ -111,6 +111,38 @@ func parseToolArgs(toolArgs string) map[string]any {
 }
 
 // ---------------------------------------------------------------------------
+// Finish reason constants
+// ---------------------------------------------------------------------------
+
+// Finish reasons reported by the LLM provider on a completed turn. These
+// mirror fantasy.FinishReason string values so comparisons against
+// TurnEndEvent.StopReason / TurnResult.StopReason are stable across
+// providers.
+const (
+	// FinishReasonStop: the model produced a natural stop (e.g. stop sequence
+	// or end-of-turn signal).
+	FinishReasonStop = "stop"
+	// FinishReasonLength: the model hit the configured max_output_tokens
+	// budget. The response is truncated. Surface this to the user and
+	// consider raising --max-tokens / KIT_MAX_TOKENS / modelSettings[...]
+	// .maxTokens.
+	FinishReasonLength = "length"
+	// FinishReasonToolCalls: the model stopped to emit tool calls (normal
+	// mid-turn state during agentic loops).
+	FinishReasonToolCalls = "tool-calls"
+	// FinishReasonContentFilter: the provider's safety filter stopped
+	// generation.
+	FinishReasonContentFilter = "content-filter"
+	// FinishReasonError: the model stopped because of an error.
+	FinishReasonError = "error"
+	// FinishReasonOther: provider-specific reason that doesn't map to any of
+	// the above.
+	FinishReasonOther = "other"
+	// FinishReasonUnknown: the provider didn't report a finish reason.
+	FinishReasonUnknown = "unknown"
+)
+
+// ---------------------------------------------------------------------------
 // Concrete event structs
 // ---------------------------------------------------------------------------
 
@@ -124,9 +156,13 @@ func (e TurnStartEvent) EventType() EventType { return EventTurnStart }
 
 // TurnEndEvent fires after the agent finishes processing.
 type TurnEndEvent struct {
-	Response   string
-	Error      error
-	StopReason string // "end_turn", "max_tokens", "tool_use", "error", etc.
+	Response string
+	Error    error
+	// StopReason is the LLM provider's finish reason for the final step of
+	// the turn. Compare against the FinishReason* constants — in particular,
+	// FinishReasonLength indicates the response was truncated because the
+	// agent hit its max_output_tokens budget.
+	StopReason string
 }
 
 // EventType implements Event.

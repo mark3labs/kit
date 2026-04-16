@@ -1451,8 +1451,9 @@ type TurnResult struct {
 	Response string
 
 	// StopReason indicates why the turn ended. Derived from the LLM
-	// provider's finish reason: "stop", "length" (max tokens), "tool-calls",
-	// "content-filter", "error", "other", "unknown".
+	// provider's finish reason: FinishReasonStop, FinishReasonLength (max
+	// output tokens reached), FinishReasonToolCalls, FinishReasonContentFilter,
+	// FinishReasonError, FinishReasonOther, FinishReasonUnknown.
 	StopReason string
 
 	// SessionID is the UUID of the session this turn belongs to.
@@ -2247,6 +2248,35 @@ func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 // GetTools returns all tools available to the agent (core + MCP + extensions).
 func (m *Kit) GetTools() []Tool {
 	return m.agent.GetTools()
+}
+
+// MaxTokens returns the effective max output tokens currently configured for
+// the agent. This is the value actually sent to the LLM provider on each
+// request, after CLI/env/config resolution, per-model overrides, model-aware
+// right-sizing, and any Anthropic thinking-budget adjustments.
+//
+// Returns 0 when the active provider suppresses the max_output_tokens
+// parameter (e.g. OpenAI Codex OAuth) or when no model is configured yet.
+// A non-zero value is the number that will cause a FinishReasonLength
+// truncation if the model tries to generate beyond it.
+func (m *Kit) MaxTokens() int {
+	if m.agent == nil {
+		return 0
+	}
+	return m.agent.GetMaxTokens()
+}
+
+// MaxOutputLimit returns the catalog-reported output ceiling for the current
+// model in tokens, or 0 when the model isn't in the registry (custom models,
+// new releases, Ollama, etc.). Pair with MaxTokens() to detect when the agent
+// is configured well below what the model supports and surface a hint to the
+// user.
+func (m *Kit) MaxOutputLimit() int {
+	info := m.GetModelInfo()
+	if info == nil {
+		return 0
+	}
+	return info.Limit.Output
 }
 
 // extractFileParts returns all FilePart entries from a message's Content.
