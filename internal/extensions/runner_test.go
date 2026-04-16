@@ -1,6 +1,7 @@
 package extensions
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -569,5 +570,144 @@ func TestRunner_ContextPrintNilSafe(t *testing.T) {
 	_, err := r.Emit(InputEvent{Text: "test"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunner_ConcurrentEmitSameExtension(t *testing.T) {
+	// Verify that concurrent Emit calls for the same extension are serialized
+	// and don't cause data races on shared handler state.
+	var counter int
+	ext := makeHandlerExt("shared-state.go", map[EventType][]HandlerFunc{
+		SubagentStart: {
+			func(e Event, c Context) Result {
+				// Read-modify-write: racy without serialization.
+				v := counter
+				counter = v + 1
+				return nil
+			},
+		},
+		SubagentChunk: {
+			func(e Event, c Context) Result {
+				v := counter
+				counter = v + 1
+				return nil
+			},
+		},
+	})
+
+	r := makeRunner(ext)
+	var wg sync.WaitGroup
+	const goroutines = 20
+	const iterations = 50
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				_, _ = r.Emit(SubagentStartEvent{ToolCallID: "x"})
+				_, _ = r.Emit(SubagentChunkEvent{ToolCallID: "x"})
+			}
+		}()
+	}
+	wg.Wait()
+	if counter != goroutines*iterations*2 {
+		t.Errorf("expected counter=%d, got %d (race detected)", goroutines*iterations*2, counter)
+	}
+}
+
+func TestRunner_ConcurrentEmitDifferentExtensions(t *testing.T) {
+	// Two extensions with independent state should not block each other
+	// and should both run correctly under concurrent Emit calls.
+	var counter1, counter2 int
+	ext1 := makeHandlerExt("ext1.go", map[EventType][]HandlerFunc{
+		SubagentStart: {
+			func(e Event, c Context) Result {
+				v := counter1
+				counter1 = v + 1
+				return nil
+			},
+		},
+	})
+	ext2 := makeHandlerExt("ext2.go", map[EventType][]HandlerFunc{
+		SubagentStart: {
+			func(e Event, c Context) Result {
+				v := counter2
+				counter2 = v + 1
+				return nil
+			},
+		},
+	})
+
+	r := makeRunner(ext1, ext2)
+	var wg sync.WaitGroup
+	const goroutines = 20
+	const iterations = 50
+	wg.Add(goroutines)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				_, _ = r.Emit(SubagentStartEvent{ToolCallID: "x"})
+			}
+		}()
+	}
+	wg.Wait()
+	expected := goroutines * iterations
+	if counter1 != expected {
+		t.Errorf("ext1 counter: expected %d, got %d", expected, counter1)
+	}
+	if counter2 != expected {
+		t.Errorf("ext2 counter: expected %d, got %d", expected, counter2)
+	}
+}
+
+func TestRunner_ReentrantEmitCustomEvent(t *testing.T) {
+	// Verify that a handler can call EmitCustomEvent (which dispatches to
+	// the same extension's custom event handlers) without deadlocking.
+	var order []string
+	ext := LoadedExtension{
+		Path: "reentrant.go",
+		Handlers: map[EventType][]HandlerFunc{
+			SessionStart: {
+				func(e Event, c Context) Result {
+					order = append(order, "session_start")
+					// This triggers EmitCustomEvent for the same extension
+					// via a direct runner call (simulating ctx.EmitCustomEvent).
+					return nil
+				},
+			},
+		},
+		CustomEventHandlers: map[string][]func(string){
+			"test-event": {
+				func(data string) {
+					order = append(order, "custom:"+data)
+				},
+			},
+		},
+	}
+
+	r := makeRunner(ext)
+
+	// Wire up the handler to call EmitCustomEvent re-entrantly.
+	ext.Handlers[SessionStart] = []HandlerFunc{
+		func(e Event, c Context) Result {
+			order = append(order, "session_start")
+			r.EmitCustomEvent("test-event", "hello")
+			return nil
+		},
+	}
+	r.extensions[0] = ext
+	// Rebuild mutexes after modifying extensions slice.
+	r.extMu = make([]reentrantMu, len(r.extensions))
+	for i := range r.extMu {
+		r.extMu[i].init()
+	}
+
+	_, err := r.Emit(SessionStartEvent{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(order) != 2 || order[0] != "session_start" || order[1] != "custom:hello" {
+		t.Errorf("expected [session_start, custom:hello], got %v", order)
 	}
 }

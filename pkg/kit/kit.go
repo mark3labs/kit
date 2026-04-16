@@ -51,6 +51,7 @@ type Kit struct {
 	bufferedLogger *tools.BufferedDebugLogger
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
 	opts           *Options       // stored for reload operations (skills, etc.)
+	mcpConfig      *config.Config // loaded MCP/server config, shared with subagents
 
 	// hasCustomSystemPrompt is true when the user explicitly configured a
 	// system prompt (via --system-prompt flag, config file, or SDK option).
@@ -849,6 +850,13 @@ type Options struct {
 	// (e.g. AGENTS.md) from the working directory.
 	NoContextFiles bool
 
+	// MCPConfig provides a pre-loaded MCP configuration. When set,
+	// LoadAndValidateConfig is skipped during Kit creation — avoiding
+	// viper access entirely. This is set automatically for in-process
+	// subagents (inheriting the parent's loaded config) and can be used
+	// by SDK consumers who build config programmatically.
+	MCPConfig *config.Config
+
 	// InProcessMCPServers registers mcp-go servers that run in the same
 	// process. Each key is the server name (used to prefix tool names, e.g.
 	// "docs__search"). The value must be a *[server.MCPServer].
@@ -1136,8 +1144,11 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 	// ---- viperInitMu released — heavy I/O below runs concurrently ----
 
-	// Load MCP configuration. Use pre-loaded config if provided via CLI options.
-	if opts.CLI != nil && opts.CLI.MCPConfig != nil {
+	// Load MCP configuration. Use pre-loaded config if provided directly,
+	// via CLI options, or load from viper as a last resort.
+	if opts.MCPConfig != nil {
+		mcpConfig = opts.MCPConfig
+	} else if opts.CLI != nil && opts.CLI.MCPConfig != nil {
 		mcpConfig = opts.CLI.MCPConfig
 	}
 	if mcpConfig == nil {
@@ -1258,6 +1269,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
+		mcpConfig:             mcpConfig,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
 		beforeToolCall:        beforeToolCall,
 		afterToolResult:       afterToolResult,
@@ -1582,13 +1594,15 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		tools = SubagentTools()
 	}
 
-	// Create child Kit instance.
+	// Create child Kit instance. Pass the parent's loaded MCP config to
+	// avoid re-reading viper (which races with concurrent subagent spawns).
 	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
+		MCPConfig:    m.mcpConfig,
 	}
 	child, err := New(ctx, childOpts)
 	if err != nil {

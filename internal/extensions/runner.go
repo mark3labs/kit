@@ -1,21 +1,93 @@
 package extensions
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
 )
 
+// ---------------------------------------------------------------------------
+// reentrantMu — a per-extension mutex that allows the same goroutine to
+// re-enter (e.g. handler → ctx.EmitCustomEvent → handler in same extension).
+// Different goroutines are serialized, preventing concurrent state mutation.
+// ---------------------------------------------------------------------------
+
+type reentrantMu struct {
+	mu    sync.Mutex
+	cond  *sync.Cond
+	owner int64 // goroutine ID that holds the lock, or 0
+	depth int   // re-entrancy depth
+}
+
+// initReentrantMu initializes the reentrant mutex in-place. Must be called
+// after the struct is at its final memory location (not before copying).
+func (r *reentrantMu) init() {
+	r.cond = sync.NewCond(&r.mu)
+}
+
+// lock acquires the mutex. If the calling goroutine already holds it, the
+// call succeeds immediately (re-entrant). Every call to lock must be paired
+// with a call to unlock.
+func (r *reentrantMu) lock() {
+	gid := goroutineID()
+	r.mu.Lock()
+	if r.owner == gid {
+		// Re-entrant: same goroutine already holds the lock.
+		r.depth++
+		r.mu.Unlock()
+		return
+	}
+	// Wait for the current owner to release.
+	for r.owner != 0 {
+		r.cond.Wait() // releases mu, blocks, re-acquires mu on wake
+	}
+	r.owner = gid
+	r.depth = 1
+	r.mu.Unlock()
+}
+
+// unlock releases the mutex (or decrements re-entrancy depth).
+func (r *reentrantMu) unlock() {
+	r.mu.Lock()
+	r.depth--
+	if r.depth == 0 {
+		r.owner = 0
+		r.cond.Signal()
+	}
+	r.mu.Unlock()
+}
+
+// goroutineID extracts the current goroutine's ID from runtime.Stack output.
+// This is a well-known technique used by Go testing infrastructure.
+func goroutineID() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	// Stack output starts with "goroutine NNN ["
+	s := buf[:n]
+	s = s[len("goroutine "):]
+	s = s[:bytes.IndexByte(s, ' ')]
+	id, _ := strconv.ParseInt(string(s), 10, 64)
+	return id
+}
+
 // Runner manages loaded extensions and dispatches events to their handlers
 // sequentially. Handlers execute in extension
 // load order; for cancellable events the first blocking result wins.
+//
+// Each extension has a dedicated reentrant mutex so that handlers for the
+// same extension are serialized (preventing data races on shared package-level
+// state), while handlers for different extensions may execute concurrently.
 type Runner struct {
 	extensions      []LoadedExtension
+	extMu           []reentrantMu // per-extension reentrant mutex, indexed by extension position
 	ctx             Context
 	widgets         map[string]WidgetConfig   // keyed by widget ID
 	statusEntries   map[string]StatusBarEntry // keyed by status key
@@ -52,7 +124,11 @@ type LoadedExtension struct {
 
 // NewRunner creates a Runner from a set of loaded extensions.
 func NewRunner(exts []LoadedExtension) *Runner {
-	return &Runner{extensions: exts}
+	mus := make([]reentrantMu, len(exts))
+	for i := range mus {
+		mus[i].init()
+	}
+	return &Runner{extensions: exts, extMu: mus}
 }
 
 // SetContext updates the runtime context (session ID, model, etc.) that is
@@ -367,6 +443,11 @@ func (r *Runner) Emit(event Event) (Result, error) {
 	for i := range r.extensions {
 		ext := &r.extensions[i]
 		handlers := ext.Handlers[event.Type()]
+		if len(handlers) == 0 {
+			continue
+		}
+
+		r.extMu[i].lock()
 		for _, handler := range handlers {
 			result, err := safeCall(handler, event, ctx)
 			if err != nil {
@@ -379,6 +460,7 @@ func (r *Runner) Emit(event Event) (Result, error) {
 
 			// Check for blocking/short-circuit results.
 			if isBlocking(result) {
+				r.extMu[i].unlock()
 				return result, nil
 			}
 
@@ -386,6 +468,7 @@ func (r *Runner) Emit(event Event) (Result, error) {
 			// the caller is responsible for applying the modifications.
 			accumulated = result
 		}
+		r.extMu[i].unlock()
 	}
 	return accumulated, nil
 }
@@ -712,11 +795,17 @@ func (r *Runner) EmitCustomEvent(name, data string) {
 
 	// Extension-registered handlers first (in load order).
 	for i := range r.extensions {
-		for _, h := range r.extensions[i].CustomEventHandlers[name] {
+		extHandlers := r.extensions[i].CustomEventHandlers[name]
+		if len(extHandlers) == 0 {
+			continue
+		}
+		r.extMu[i].lock()
+		for _, h := range extHandlers {
 			safeInvoke(h)
 		}
+		r.extMu[i].unlock()
 	}
-	// Then dynamic subscriptions.
+	// Then dynamic subscriptions (not extension-scoped, no per-ext lock).
 	for _, h := range dynamicHandlers {
 		safeInvoke(h)
 	}
