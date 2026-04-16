@@ -588,8 +588,10 @@ func formatToolExecutionMessage(toolName string) string {
 	return toolName
 }
 
-// UpdateTheme refreshes the component's typography instance with colors from
-// the current theme. This is called when the user changes themes via /theme.
+// UpdateTheme refreshes the component's typography instance and spinner
+// animation frames with colors from the current theme. This is called when
+// the user changes themes via /theme.
 func (s *StreamComponent) UpdateTheme() {
 	s.ty = createTypography(GetTheme())
+	s.spinnerFrames = knightRiderFrames()
 }
