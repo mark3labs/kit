@@ -40,10 +40,12 @@ Guidelines:
 
 // sdkDefaultMaxTokens is the last-resort ceiling applied when the SDK caller
 // has not configured max-tokens via Options, env, config, or a per-model
-// default. It is intentionally applied on the *models.ProviderConfig struct
+// default. It matches the CLI's --max-tokens cobra default so SDK and CLI
+// callers see the same base value before per-model right-sizing runs.
+// It is intentionally applied on the *models.ProviderConfig struct
 // (not via viper) so that viper.IsSet("max-tokens") remains false and the
 // right-sizing + per-model-default paths continue to work.
-const sdkDefaultMaxTokens = 4096
+const sdkDefaultMaxTokens = 8192
 
 // setSDKDefaults registers viper defaults that match the CLI's cobra flag
 // defaults for keys where SetDefault does not interfere with downstream

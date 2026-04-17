@@ -83,7 +83,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Generation parameters — override env/config/per-model defaults.
     // Leaving a field at its zero/nil value lets the precedence chain
     // resolve a value (KIT_* env → .kit.yml → modelSettings/customModels →
-    // 4096 floor for MaxTokens, provider defaults for samplers).
+    // 8192 floor for MaxTokens, provider defaults for samplers).
     MaxTokens:        16384,             // 0 = auto-resolve; non-zero suppresses right-sizing
     ThinkingLevel:    "medium",          // "off", "low", "medium", "high" ("" = default)
     Temperature:      ptrFloat32(0.2),   // pointer so explicit 0.0 != unset
@@ -148,7 +148,7 @@ func ptrFloat32(v float32) *float32 { return &v }
 
 | Field | Type | Empty/nil means | Notes |
 |-------|------|-----------------|-------|
-| `MaxTokens` | `int` | Auto-resolve (env → config → per-model → 4096 floor) | Non-zero suppresses `rightSizeMaxTokens` |
+| `MaxTokens` | `int` | Auto-resolve (env → config → per-model → 8192 floor) | Non-zero suppresses `rightSizeMaxTokens` |
 | `ThinkingLevel` | `string` | Auto-resolve (→ `"off"`) | Valid: `"off"`, `"low"`, `"medium"`, `"high"` (and `"minimal"` for some providers) |
 | `Temperature` | `*float32` | Leave provider/per-model default | Pointer so explicit `0.0` ≠ unset |
 | `TopP` | `*float32` | Leave provider/per-model default | |

@@ -825,20 +825,21 @@ type Options struct {
 	// .kit.yml / KIT_* environment variables. Leaving a field at its
 	// zero/nil value means "use the configured default", which in turn
 	// falls back to per-model defaults (modelSettings / customModels) and
-	// finally to a last-resort SDK floor of 4096 for MaxTokens (sampling
-	// params fall through to provider-level defaults).
+	// finally to a last-resort SDK floor of 8192 for MaxTokens (matching
+	// the CLI --max-tokens default; sampling params fall through to
+	// provider-level defaults).
 	//
 	// Pointer types are used for sampling parameters so the SDK can
 	// distinguish "explicitly set to 0" from "leave alone".
 
 	// MaxTokens overrides the maximum output tokens per LLM response.
 	// 0 = let the precedence chain resolve a value (env → config →
-	// per-model → 4096 SDK floor). Setting a non-zero value here
-	// suppresses automatic right-sizing, matching the CLI's
-	// --max-tokens flag semantics. Bump this when generating long
-	// outputs (HTML artifacts, large refactors, etc.) to avoid silent
-	// truncation mid-tool-call. The cap also applies after model
-	// switches via [Kit.SetModel].
+	// per-model → 8192 SDK floor, matching the CLI default). Setting a
+	// non-zero value here suppresses automatic right-sizing, matching
+	// the CLI's --max-tokens flag semantics. Bump this when generating
+	// long outputs (HTML artifacts, large refactors, etc.) to avoid
+	// silent truncation mid-tool-call. The cap also applies after
+	// model switches via [Kit.SetModel].
 	MaxTokens int
 
 	// ThinkingLevel sets the reasoning effort for models that support

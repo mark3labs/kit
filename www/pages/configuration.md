@@ -189,7 +189,7 @@ For the generation and provider parameters documented above, the resolved value 
 4. `.kit.yml` / `.kit.yaml` / `.kit.json` (project-local, then global)
 5. Per-model defaults (`modelSettings[provider/model]` / `customModels[...].params`)
 6. Provider-level defaults (e.g. Anthropic's own temperature default)
-7. SDK last-resort floor — currently a 4096 output-token ceiling when nothing else is configured
+7. SDK last-resort floor — currently an 8192 output-token ceiling matching the CLI `--max-tokens` default, auto-raised per-model up to 32768 when the model's catalog ceiling is higher
 
 See the [SDK options reference](/sdk/options) for the full list of `kit.Options` fields that map to these keys.
 

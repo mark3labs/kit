@@ -96,8 +96,9 @@ host, err := kit.New(ctx, &kit.Options{
 These fields override the corresponding values from `.kit.yml` / `KIT_*`
 environment variables. Leaving a field at its zero/nil value lets the
 precedence chain resolve a value (`KIT_*` env → config file → per-model
-defaults from `modelSettings`/`customModels` → a 4096 SDK floor for
-`MaxTokens` and provider-level defaults for samplers).
+defaults from `modelSettings`/`customModels` → an 8192 SDK floor for
+`MaxTokens` (matching the CLI `--max-tokens` default) and provider-level
+defaults for samplers).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -174,7 +175,7 @@ in this order (highest priority first):
 3. `.kit.yml` (project-local then `~/.kit.yml`)
 4. Per-model defaults (`modelSettings[provider/model]` or `customModels[...].params`)
 5. Provider-level defaults (e.g. Anthropic's own temperature default)
-6. SDK last-resort floor (currently: `MaxTokens = 4096`)
+6. SDK last-resort floor (currently: `MaxTokens = 8192`, matching the CLI `--max-tokens` default)
 
 Sampling params that remain `nil` after the SDK resolution step are left out
 of the provider call entirely, so the LLM library applies its own default.

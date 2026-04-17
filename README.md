@@ -547,7 +547,7 @@ host, err := kit.New(ctx, &kit.Options{
     Quiet:        true,
 
     // Generation parameters (override env/config/per-model defaults)
-    MaxTokens:        16384,             // 0 = auto-resolve (env → config → per-model → 4096 floor)
+    MaxTokens:        16384,             // 0 = auto-resolve (env → config → per-model → 8192 floor)
     ThinkingLevel:    "medium",          // "off", "low", "medium", "high"
     Temperature:      ptr(float32(0.2)), // pointer so 0.0 != unset; nil = provider default
     TopP:             nil,                // nil = leave provider/per-model default
