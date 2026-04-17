@@ -109,11 +109,12 @@
         "Custom model fields",
         "Per-model settings",
         "Per-model fields",
+        "Precedence summary",
         "Theme configuration",
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1057
+      "wordCount": 1183
     },
     {
       "id": "development",
@@ -351,10 +352,18 @@
       "headings": [
         "Full options reference",
         "Options fields",
+        "Core",
+        "Generation parameters",
+        "Provider configuration",
+        "Session",
+        "Tools &amp; extensions",
+        "Skills &amp; configuration",
+        "Compaction &amp; MCP",
+        "Precedence",
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 586
+      "wordCount": 1140
     },
     {
       "id": "sdk/overview",
@@ -367,6 +376,7 @@
         "Multi-turn conversations",
         "Additional prompt methods",
         "Custom tools",
+        "Generation &amp; provider overrides",
         "Event system",
         "Model management",
         "Dynamic MCP servers",
@@ -376,7 +386,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 613
+      "wordCount": 707
     },
     {
       "id": "sdk/sessions",
