@@ -119,6 +119,10 @@ func InitConfig(configFile string, debug bool) error {
 	}
 
 	viper.SetEnvPrefix("KIT")
+	// Map hyphenated config keys (e.g. "max-tokens") to underscored env
+	// var names (e.g. KIT_MAX_TOKENS). Without this, AutomaticEnv looks
+	// for KIT_MAX-TOKENS and silently misses valid env overrides.
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
 	return nil
 }

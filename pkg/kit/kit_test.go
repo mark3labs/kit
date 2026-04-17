@@ -179,16 +179,13 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 		"thinking-level",
 	}
 
-	// Skip any keys that a KIT_* env var legitimately sets in this
-	// environment — we only care about keys the SDK itself would have
-	// set without the fix.
+	// With SkipConfig: true, InitConfig() is not invoked, so viper has
+	// no env-var bindings registered. Any IsSet() here would come purely
+	// from SDK-side SetDefault/Set calls — which is exactly what this
+	// test is guarding against.
 	for _, k := range checkKeys {
-		envVar := "KIT_" + upper(k)
-		if os.Getenv(envVar) != "" {
-			continue
-		}
 		if viper.IsSet(k) {
-			t.Errorf("viper.IsSet(%q) == true when no Options field, env var, or config set it "+
+			t.Errorf("viper.IsSet(%q) == true when no Options field set it "+
 				"(SDK defaults must not corrupt IsSet semantics)", k)
 		}
 	}
@@ -310,20 +307,4 @@ func TestSessionManagement(t *testing.T) {
 // viper.Set() calls into the next one. Used via defer in subtests.
 func resetViper() { viper.Reset() }
 
-// upper returns s with ASCII letters upper-cased and '-' converted to '_'.
-// Used to translate a config key into its KIT_* environment variable name.
-func upper(s string) string {
-	out := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c == '-':
-			out[i] = '_'
-		case c >= 'a' && c <= 'z':
-			out[i] = c - 'a' + 'A'
-		default:
-			out[i] = c
-		}
-	}
-	return string(out)
-}
+
