@@ -224,10 +224,13 @@ kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 
 // MCP OAuth types
-kit.MCPServer        // *server.MCPServer for in-process MCP transport
-kit.MCPServerConfig  // Configuration for an MCP server (stdio, SSE, or in-process)
-kit.MCPTokenStore    // Persists OAuth tokens for a single MCP server
-kit.MCPToken         // OAuth token (access token, refresh token, expiry)
+kit.MCPServer            // *server.MCPServer for in-process MCP transport
+kit.MCPServerConfig      // Configuration for an MCP server (stdio, SSE, or in-process)
+kit.MCPAuthHandler       // Interface: handles user-facing OAuth authorization
+kit.DefaultMCPAuthHandler // Port + callback-server mechanics; set OnAuthURL for presentation
+kit.CLIMCPAuthHandler    // CLI wrapper: opens browser, prints status
+kit.MCPTokenStore        // Persists OAuth tokens for a single MCP server
+kit.MCPToken             // OAuth token (access token, refresh token, expiry)
 kit.MCPTokenStoreFactory // Creates an MCPTokenStore for a given server URL
 
 // Conversion helpers

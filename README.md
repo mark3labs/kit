@@ -588,6 +588,38 @@ are pointer types so explicit `0.0` is distinguishable from "leave alone"; a
 non-zero `MaxTokens` suppresses automatic right-sizing the same way `--max-tokens`
 does on the CLI.
 
+### MCP OAuth (remote MCP servers)
+
+When a remote MCP server returns 401, Kit runs the full OAuth flow (dynamic
+client registration → PKCE → token exchange → persistence) but delegates the
+user-facing step — showing the authorization URL and receiving the callback —
+to an `MCPAuthHandler` that you pass explicitly via `Options.MCPAuthHandler`.
+If nil, OAuth is disabled and the authorization-required error surfaces to the
+caller; the SDK never auto-opens a browser or binds a localhost port.
+
+```go
+// CLI/TUI apps: opens the system browser + prints status to stderr.
+authHandler, _ := kit.NewCLIMCPAuthHandler()
+defer authHandler.Close()
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+
+// Custom UX: reuse the SDK's port + callback server, supply your own
+// presentation via OnAuthURL (TUI modal, QR code, web redirect, etc.).
+//   h, _ := kit.NewDefaultMCPAuthHandler()
+//   h.OnAuthURL = func(server, authURL string) { myUI.Show(server, authURL) }
+//
+// Full control (web apps, daemons): implement kit.MCPAuthHandler yourself —
+// no localhost binding, no side effects.
+```
+
+Tokens are persisted to `$XDG_CONFIG_HOME/.kit/mcp_tokens.json` by default; swap
+in a custom `MCPTokenStoreFactory` for encrypted, DB-backed, or in-memory
+storage. See the [SDK options docs](/sdk/options#mcp-oauth-authorization) for
+the full matrix.
+
 ### Custom Tools
 
 Create custom tools with automatic schema generation — no external dependencies needed:

@@ -125,7 +125,12 @@ host, err := kit.New(ctx, &kit.Options{
     AutoCompact:       true,                        // auto-compact near context limit
     CompactionOptions: &kit.CompactionOptions{...}, // nil = defaults
 
-    // MCP OAuth
+    // MCP OAuth — both fields are opt-in. If MCPAuthHandler is nil,
+    // remote MCP servers that require OAuth will fail to connect with
+    // an authorization-required error instead of silently opening a
+    // browser. CLI consumers use NewCLIMCPAuthHandler; other embedders
+    // implement MCPAuthHandler or configure DefaultMCPAuthHandler.
+    MCPAuthHandler: mcpAuthHandler,             // nil = OAuth disabled
     MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
         return myCustomStore(serverURL), nil  // custom OAuth token storage
     },
@@ -820,9 +825,65 @@ err = host.SubscribeMCPResource(ctx, "myserver", "file:///path/to/file")
 err = host.UnsubscribeMCPResource(ctx, "myserver", "file:///path/to/file")
 ```
 
+### MCP OAuth Authorization
+
+When a remote MCP server requires OAuth, Kit runs the full authorization flow
+(dynamic client registration → PKCE → user consent → token exchange → token
+persistence) but delegates the **user-facing step** — displaying the
+authorization URL and receiving the callback — to an `MCPAuthHandler`.
+
+The SDK ships three building blocks:
+
+| Building block | When to use |
+|---|---|
+| **No handler** (`Options.MCPAuthHandler = nil`) | Default. OAuth is disabled; 401s from remote MCP servers surface as errors. Correct for library, daemon, and web-app embedders that don't want side effects. |
+| **`kit.NewCLIMCPAuthHandler()`** | CLI/TUI apps. Opens the system browser, prints status to stderr (or via `NotifyFunc`), runs a localhost callback server. This is what the `kit` binary uses. |
+| **`kit.NewDefaultMCPAuthHandler()` + `OnAuthURL`** | Custom UX. Get the transport mechanics (port reservation + callback server) from the SDK; wire your own presentation in the `OnAuthURL(serverName, authURL)` closure. |
+| **Implement `kit.MCPAuthHandler` directly** | Full control. No localhost binding — e.g. return the URL from an HTTP endpoint and have the consumer POST the callback URL back. |
+
+**CLI-style embedder (browser + stderr):**
+
+```go
+authHandler, err := kit.NewCLIMCPAuthHandler()
+if err != nil {
+    log.Fatal(err)
+}
+defer authHandler.Close() // release the reserved port
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Custom UX embedder (TUI modal, QR code, web redirect, etc.):**
+
+```go
+authHandler, _ := kit.NewDefaultMCPAuthHandler()
+authHandler.OnAuthURL = func(serverName, authURL string) {
+    // Render the URL however you like — no browser or terminal assumptions.
+    myUI.ShowAuthPrompt(serverName, authURL)
+}
+defer authHandler.Close()
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Important:** `DefaultMCPAuthHandler` with no `OnAuthURL` set will silently
+drop the authorization URL and block until the 2-minute callback timeout
+fires. Always set `OnAuthURL`, or use a higher-level wrapper like
+`CLIMCPAuthHandler`.
+
 ### MCP OAuth Token Storage
 
-For remote MCP servers that use OAuth, you can provide a custom token store:
+Once authorization succeeds, the resulting access/refresh tokens are persisted
+by an `MCPTokenStore`. By default tokens are written to
+`$XDG_CONFIG_HOME/.kit/mcp_tokens.json` (fallback `~/.config/.kit/mcp_tokens.json`),
+keyed by server URL, with `0600` file permissions.
+
+Provide a custom store for encrypted storage, database persistence, or
+in-memory-only flows:
 
 ```go
 host, _ := kit.New(ctx, &kit.Options{
@@ -832,7 +893,7 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
-The `MCPTokenStore` interface requires `GetToken`/`SetToken`/`DeleteToken` methods. Return `kit.ErrMCPNoToken` from `GetToken` when no token is stored. When nil (default), tokens are persisted to `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`.
+The `MCPTokenStore` interface requires `GetToken`/`SetToken`/`DeleteToken` methods. Return `kit.ErrMCPNoToken` from `GetToken` when no token is stored.
 
 ---
 
@@ -1015,6 +1076,12 @@ kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 kit.CompactionResult, kit.CompactionOptions
 
 // MCP OAuth types
+kit.MCPAuthHandler         // interface: RedirectURI() + HandleAuth(ctx, server, authURL) for OAuth UX
+kit.DefaultMCPAuthHandler  // SDK-provided transport mechanics (port + callback server); set OnAuthURL hook
+kit.CLIMCPAuthHandler      // CLI wrapper around DefaultMCPAuthHandler: opens browser, prints status
+kit.NewDefaultMCPAuthHandler()         // random port, no UX side effects
+kit.NewDefaultMCPAuthHandlerWithPort() // fixed port (useful when registering a stable redirect URI)
+kit.NewCLIMCPAuthHandler()             // CLI handler: browser + stderr + localhost callback
 kit.MCPTokenStore        // interface for custom OAuth token storage
 kit.MCPToken             // OAuth token struct (access, refresh, expiry)
 kit.MCPTokenStoreFactory // func(serverURL string) (MCPTokenStore, error)
