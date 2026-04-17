@@ -821,6 +821,70 @@ type Options struct {
 	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
 	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
 
+	// Generation parameters. These override the corresponding values from
+	// .kit.yml / KIT_* environment variables. Leaving a field at its
+	// zero/nil value means "use the configured default", which in turn
+	// falls back to per-model defaults (modelSettings / customModels) and
+	// finally to the SDK defaults registered in setSDKDefaults().
+	//
+	// Pointer types are used for sampling parameters so the SDK can
+	// distinguish "explicitly set to 0" from "leave alone".
+
+	// MaxTokens overrides the maximum output tokens per LLM response.
+	// 0 = use the configured default (SDK default is 4096). Bump this
+	// when generating long outputs (HTML artifacts, large refactors,
+	// etc.) to avoid silent truncation mid-tool-call. The cap also
+	// applies after model switches via [Kit.SetModel].
+	MaxTokens int
+
+	// ThinkingLevel sets the reasoning effort for models that support
+	// extended thinking. Valid values: "off", "low", "medium", "high".
+	// "" = use the configured default (SDK default is "off"). Use
+	// [Kit.SetThinkingLevel] to change at runtime.
+	ThinkingLevel string
+
+	// Temperature controls sampling randomness (typically 0.0–2.0).
+	// nil = leave provider/per-model default in place. Pointer type
+	// so explicit 0.0 (deterministic) is distinguishable from "unset".
+	Temperature *float32
+
+	// TopP is the nucleus-sampling cutoff (0.0–1.0).
+	// nil = leave provider/per-model default in place.
+	TopP *float32
+
+	// TopK limits sampling to the top K tokens.
+	// nil = leave provider/per-model default in place.
+	TopK *int32
+
+	// FrequencyPenalty discourages repeated tokens (OpenAI-family models).
+	// nil = leave provider/per-model default in place.
+	FrequencyPenalty *float32
+
+	// PresencePenalty discourages repeating topics (OpenAI-family models).
+	// nil = leave provider/per-model default in place.
+	PresencePenalty *float32
+
+	// Provider configuration. These override values normally read from
+	// .kit.yml or provider-specific environment variables. Useful when
+	// loading credentials from a secrets manager, pointing at custom
+	// OpenAI-compatible endpoints (LiteLLM, vLLM, Azure OpenAI, internal
+	// proxies), or running against self-hosted infrastructure.
+
+	// ProviderAPIKey overrides the API key used to authenticate with the
+	// model provider. "" = use the value from config or the
+	// provider-specific environment variable.
+	ProviderAPIKey string
+
+	// ProviderURL overrides the provider endpoint. "" = use the provider's
+	// default URL.
+	ProviderURL string
+
+	// TLSSkipVerify disables TLS certificate verification on provider
+	// HTTP clients. Only set this for self-signed certificates in
+	// development. Once enabled here it cannot be disabled via Options
+	// (use the config file or env var to opt back out).
+	TLSSkipVerify bool
+
 	// SkipConfig, when true, skips loading .kit.yml configuration files.
 	// Viper defaults (setSDKDefaults) and environment variables (KIT_*)
 	// are still applied. Use this for fully programmatic configuration.
@@ -1046,6 +1110,47 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			viper.Set("max-steps", opts.MaxSteps)
 		}
 		viper.Set("stream", opts.Streaming)
+
+		// Generation parameter overrides. Each Options field, when set,
+		// is pushed into viper here so the existing downstream code
+		// (BuildProviderConfig, SetModel, modelSettings lookups) picks
+		// it up uniformly. Pointer-typed sampling params use viper.Set
+		// only when non-nil so that nil means "leave provider/per-model
+		// default in place" (BuildProviderConfig keys off viper.IsSet).
+		if opts.MaxTokens > 0 {
+			viper.Set("max-tokens", opts.MaxTokens)
+		}
+		if opts.ThinkingLevel != "" {
+			viper.Set("thinking-level", opts.ThinkingLevel)
+		}
+		if opts.Temperature != nil {
+			viper.Set("temperature", *opts.Temperature)
+		}
+		if opts.TopP != nil {
+			viper.Set("top-p", *opts.TopP)
+		}
+		if opts.TopK != nil {
+			viper.Set("top-k", *opts.TopK)
+		}
+		if opts.FrequencyPenalty != nil {
+			viper.Set("frequency-penalty", *opts.FrequencyPenalty)
+		}
+		if opts.PresencePenalty != nil {
+			viper.Set("presence-penalty", *opts.PresencePenalty)
+		}
+
+		// Provider overrides. TLSSkipVerify only takes effect when true —
+		// callers wanting to force-disable should use the config file or
+		// env var instead.
+		if opts.ProviderAPIKey != "" {
+			viper.Set("provider-api-key", opts.ProviderAPIKey)
+		}
+		if opts.ProviderURL != "" {
+			viper.Set("provider-url", opts.ProviderURL)
+		}
+		if opts.TLSSkipVerify {
+			viper.Set("tls-skip-verify", true)
+		}
 
 		// Resolve working directory for context/skill discovery.
 		cwd = opts.SessionDir
