@@ -306,5 +306,3 @@ func TestSessionManagement(t *testing.T) {
 // resetViper wipes viper's global state so a test case doesn't leak
 // viper.Set() calls into the next one. Used via defer in subtests.
 func resetViper() { viper.Reset() }
-
-
