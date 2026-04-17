@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-X5MGF8Gx.js"></script>
+<script type="module" src="/assets/index-D1nDc2rI.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -75,7 +75,11 @@ host, err := kit.New(ctx, &kit.Options{
     // Session (advanced)
     SessionManager: myCustomSession,    // custom SessionManager implementation
 
-    // MCP OAuth
+    // MCP OAuth — both opt-in. Leave MCPAuthHandler nil to disable
+    // OAuth entirely (remote MCP 401s bubble up as errors). CLI apps
+    // pass kit.NewCLIMCPAuthHandler(); custom UX embedders implement
+    // MCPAuthHandler or configure DefaultMCPAuthHandler + OnAuthURL.
+    MCPAuthHandler: authHandler,                  // nil = OAuth disabled
     MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
         return myStore(serverURL), nil
     },
@@ -172,8 +176,87 @@ when embedding Kit as a library.
 |-------|------|---------|-------------|
 | `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
-| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers |
+| `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
+| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
 | `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
+
+## MCP OAuth Authorization
+
+When a remote MCP server (SSE or Streamable HTTP) requires OAuth, Kit runs
+the full authorization flow (dynamic client registration → PKCE → user
+consent → token exchange → token persistence) but delegates the **user-facing
+step** — displaying the authorization URL and receiving the callback — to
+an `MCPAuthHandler`.
+
+The SDK is deliberately inert when `MCPAuthHandler` is `nil`: it does **not**
+auto-construct a default handler, bind a local TCP port, or open a browser.
+This keeps library, daemon, and web-app embedders free of surprise I/O.
+Consumers opt in by passing a handler explicitly.
+
+| Building block | When to use |
+|---|---|
+| `MCPAuthHandler = nil` (default) | OAuth disabled. Remote MCP servers requiring auth fail with a clear error. Correct for libraries, daemons, and web apps. |
+| `kit.NewCLIMCPAuthHandler()` | CLI/TUI apps. Opens the system browser, prints status to stderr (or via `NotifyFunc`), runs a localhost callback server. Used by the `kit` binary. |
+| `kit.NewDefaultMCPAuthHandler()` + `OnAuthURL` | Custom UX. Use the SDK's port reservation and callback server; plug in your own presentation via the `OnAuthURL(serverName, authURL)` closure. |
+| Implement `kit.MCPAuthHandler` directly | Full control. No localhost binding — e.g. return the URL from an HTTP endpoint and have the consumer POST the callback URL back. |
+
+**CLI-style embedder:**
+
+```go
+authHandler, err := kit.NewCLIMCPAuthHandler()
+if err != nil {
+    log.Fatal(err)
+}
+defer authHandler.Close() // release the reserved port
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Custom UX embedder (TUI modal, QR code, web redirect, etc.):**
+
+```go
+authHandler, _ := kit.NewDefaultMCPAuthHandler()
+authHandler.OnAuthURL = func(serverName, authURL string) {
+    // No browser or terminal assumptions — render however you like.
+    myUI.ShowAuthPrompt(serverName, authURL)
+}
+defer authHandler.Close()
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Fully custom handler (no local port binding at all):**
+
+```go
+type WebAuthHandler struct {
+    redirectURI string
+    callbacks   chan string
+}
+
+func (h *WebAuthHandler) RedirectURI() string { return h.redirectURI }
+
+func (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL string) (string, error) {
+    // Push the URL to the user's existing browser session via your web app,
+    // then block on the callback that your HTTP handler pushes onto the channel.
+    h.pushToUserSession(serverName, authURL)
+    select {
+    case callbackURL := <-h.callbacks:
+        return callbackURL, nil
+    case <-ctx.Done():
+        return "", ctx.Err()
+    }
+}
+```
+
+::: warning
+`DefaultMCPAuthHandler` with no `OnAuthURL` set will silently drop the
+authorization URL and hang until the 2-minute callback timeout fires. Always
+set `OnAuthURL`, or use a higher-level wrapper like `CLIMCPAuthHandler`.
+:::
 
 ## Precedence
 

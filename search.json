@@ -359,11 +359,12 @@
         "Tools &amp; extensions",
         "Skills &amp; configuration",
         "Compaction &amp; MCP",
+        "MCP OAuth Authorization",
         "Precedence",
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 1140
+      "wordCount": 1624
     },
     {
       "id": "sdk/overview",
