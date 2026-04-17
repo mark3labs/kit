@@ -811,6 +811,29 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 // Options configures Kit creation with optional overrides for model,
 // prompts, configuration, and behavior settings. All fields are optional
 // and will use CLI defaults if not specified.
+//
+// Global viper state warning:
+// Options are applied by [New] via [viper.Set] calls against viper's
+// process-global store. This store is shared with every downstream reader
+// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel], BuildProviderConfig, and
+// any other code path that calls viper.Get*). Two consequences:
+//
+//  1. Kit instances are NOT isolated from each other within a single
+//     process. Values set by the second New() call overwrite the first,
+//     and any code that later reads viper will see the most recent Set.
+//  2. Fields left at the zero value do NOT clear prior viper state; they
+//     simply skip the viper.Set. Callers that need a clean slate between
+//     constructions should invoke viper.Reset() (the test suite uses a
+//     private resetViper() helper that wraps it) before the next New().
+//
+// Recommended usage: create one Kit per process, or reset viper between
+// constructions. Concurrent calls to New are serialized internally by
+// [viperInitMu], but that mutex does not prevent later viper reads (from
+// a different Kit) from observing mutated keys.
+//
+// TODO: refactor New to use a per-instance *viper.Viper (constructed via
+// viper.New()) so each Kit owns its own isolated config store and Options
+// no longer leak through the global singleton.
 type Options struct {
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
@@ -1049,14 +1072,29 @@ func InitTreeSession(opts *Options) (*session.TreeManager, error) {
 	return session.CreateTreeSession(sessionDir)
 }
 
+// viperInitMu serializes viper writes during [New]. Viper's global state
+// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
+// must not overlap the Set/Get window. Note that this mutex only protects
+// the construction window — it does not isolate long-lived Kit instances
+// from each other. See the "Global viper state warning" on [Options].
+var viperInitMu sync.Mutex
+
 // New creates a Kit instance using the same initialization as the CLI.
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
-// viperInitMu serializes viper writes during kit.New(). Viper's global state
-// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
-// must not overlap the Set()/Get() window.
-var viperInitMu sync.Mutex
-
+//
+// Global viper state warning: fields on [Options] are applied by calling
+// [viper.Set] on viper's process-global store. As a result, two Kits
+// constructed in the same process are NOT isolated: the second New
+// overwrites viper keys set by the first, and any downstream reader
+// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel]) will observe the most
+// recent value. Callers that need multiple independent Kits should call
+// viper.Reset() between constructions, or avoid constructing more than
+// one Kit per process. Writes during New are serialized by [viperInitMu].
+//
+// TODO: refactor to use a per-call viper.New() instance so each Kit owns
+// its own isolated config store and Options stop leaking through the
+// global singleton.
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
