@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 )
 
 // MCPAuthHandler handles OAuth authorization for MCP servers.
 // Implementations control the user experience — opening a browser, showing a
-// prompt, displaying a URL, etc.
+// prompt, displaying a URL, posting to a message bus, etc.
 //
-// The default implementation ([DefaultMCPAuthHandler]) opens the system browser
-// and starts a local HTTP callback server to receive the authorization code.
+// [DefaultMCPAuthHandler] provides the transport mechanics (port reservation
+// and callback server) but performs no user-facing I/O on its own; consumers
+// wire presentation via [DefaultMCPAuthHandler.OnAuthURL] or implement
+// MCPAuthHandler from scratch.
 type MCPAuthHandler interface {
 	// RedirectURI returns the OAuth redirect URI that the callback server
 	// will listen on. This is called during MCP transport setup — before any
@@ -37,23 +37,44 @@ type MCPAuthHandler interface {
 	HandleAuth(ctx context.Context, serverName string, authURL string) (callbackURL string, err error)
 }
 
-// DefaultMCPAuthHandler opens the system browser and starts a local HTTP
-// callback server to receive the OAuth authorization code. It eagerly reserves
-// a TCP port on construction so [RedirectURI] is stable for the lifetime of
-// the handler.
+// DefaultMCPAuthHandler provides the transport mechanics of an OAuth flow —
+// reserving a local TCP port and running a one-shot HTTP callback server —
+// without making any user-experience decisions. It performs no browser opens,
+// no printing, no TUI calls; consumers attach presentation by setting
+// [DefaultMCPAuthHandler.OnAuthURL] or by wrapping the handler.
 //
-// Create instances with [NewDefaultMCPAuthHandler] (random port) or
-// [NewDefaultMCPAuthHandlerWithPort] (explicit port).
+// The handler eagerly reserves a TCP port on construction so [RedirectURI] is
+// stable for the lifetime of the handler. Create instances with
+// [NewDefaultMCPAuthHandler] (random port) or [NewDefaultMCPAuthHandlerWithPort]
+// (explicit port). Always call [DefaultMCPAuthHandler.Close] when done to
+// release the port.
 type DefaultMCPAuthHandler struct {
 	listener net.Listener
 	port     int
 	mu       sync.Mutex // guards listener lifecycle
+
+	// OnAuthURL, if set, is invoked exactly once per [HandleAuth] call with
+	// the authorization URL the user must visit. This is where consumers
+	// plug in their UX: open a browser, print to stderr, post to a TUI
+	// stream, render a QR code, etc. The handler performs no I/O on the
+	// URL itself; if OnAuthURL is nil the URL is silently dropped and the
+	// user has no way to complete the flow.
+	//
+	// OnAuthURL is called synchronously before the handler blocks on the
+	// callback. It must not block indefinitely — long-running work should
+	// be dispatched to a goroutine.
+	OnAuthURL func(serverName, authURL string)
 }
 
 // NewDefaultMCPAuthHandler creates a handler that listens on a random
 // available port on localhost. The port is reserved immediately so
 // [RedirectURI] returns a stable value. Call [DefaultMCPAuthHandler.Close]
 // when the handler is no longer needed to release the port.
+//
+// The returned handler has no OnAuthURL hook configured and will therefore
+// appear to hang on HandleAuth until the context deadline fires. Set
+// OnAuthURL before using the handler, or use a higher-level wrapper such
+// as [CLIMCPAuthHandler].
 func NewDefaultMCPAuthHandler() (*DefaultMCPAuthHandler, error) {
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -88,9 +109,9 @@ func (h *DefaultMCPAuthHandler) Port() int {
 	return h.port
 }
 
-// HandleAuth opens the system browser to authURL and waits for the OAuth
-// callback on the local server. It returns the full callback URL including
-// query parameters (code, state, etc.).
+// HandleAuth invokes [OnAuthURL] with the authorization URL (if configured)
+// and waits for the OAuth callback on the local server. It returns the full
+// callback URL including query parameters (code, state, etc.).
 //
 // If the context has no deadline, a default 2-minute timeout is applied.
 // The callback server is started for each HandleAuth call and shut down
@@ -136,19 +157,13 @@ func (h *DefaultMCPAuthHandler) HandleAuth(ctx context.Context, serverName strin
 		Handler: mux,
 	}
 
-	// Start serving on the pre-reserved listener. We need to create a new
-	// listener on the same port because http.Server.Serve takes ownership
-	// and closes the listener when done. The original listener is kept open
-	// to reserve the port; we create a second listener via SO_REUSEADDR
-	// semantics (Go's default on most platforms) or, more reliably, we
-	// temporarily release and re-acquire.
-	//
-	// Strategy: use the held listener directly for Serve. After Serve
-	// returns (due to Shutdown), re-acquire the listener to keep the port
-	// reserved for future HandleAuth calls.
+	// Start serving on the pre-reserved listener. http.Server.Serve takes
+	// ownership and closes the listener when Shutdown is called, so we
+	// re-acquire a fresh listener on the same port in the deferred cleanup
+	// below to keep the port reserved for subsequent HandleAuth calls.
 	h.mu.Lock()
 	serveListener := h.listener
-	h.listener = nil // Serve will close it
+	h.listener = nil
 	h.mu.Unlock()
 
 	if serveListener == nil {
@@ -184,10 +199,11 @@ func (h *DefaultMCPAuthHandler) HandleAuth(ctx context.Context, serverName strin
 		}
 	}()
 
-	// Open the system browser.
-	if err := openBrowser(authURL); err != nil {
-		// Browser open is best-effort; the user can still navigate manually.
-		_ = err
+	// Surface the authorization URL to the consumer. This is the single
+	// presentation seam: the SDK itself does not open browsers, print,
+	// or otherwise touch the user's environment.
+	if h.OnAuthURL != nil {
+		h.OnAuthURL(serverName, authURL)
 	}
 
 	// Wait for the callback, a server error, or context cancellation.
@@ -212,22 +228,6 @@ func (h *DefaultMCPAuthHandler) Close() error {
 		return err
 	}
 	return nil
-}
-
-// openBrowser opens the default system browser to the given URL. This is a
-// best-effort operation — errors are returned but callers typically ignore
-// them since the user can navigate manually.
-func openBrowser(url string) error {
-	switch runtime.GOOS {
-	case "linux":
-		return exec.Command("xdg-open", url).Start()
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
 }
 
 // oauthSuccessHTML is the HTML page returned to the browser after a

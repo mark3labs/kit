@@ -980,15 +980,23 @@ type Options struct {
 	Debug bool
 
 	// MCPAuthHandler handles OAuth authorization for remote MCP servers.
-	// When set, remote transports (streamable HTTP, SSE) are configured with
-	// OAuth support. If the server returns a 401, the handler is invoked to
-	// let the user authorize via browser.
+	// When set, remote transports (streamable HTTP, SSE) are configured
+	// with OAuth support. If the server returns a 401, the handler is
+	// invoked to let the user authorize.
 	//
-	// If nil, a [DefaultMCPAuthHandler] is created automatically — opening the
-	// system browser and listening on a local callback server.
+	// If nil, OAuth is disabled: remote MCP servers requiring authorization
+	// will fail to connect and the underlying authorization-required error
+	// is surfaced to the caller. The SDK deliberately does not construct a
+	// default handler — doing so would bind a local TCP port and trigger
+	// presentation I/O (browser open, stderr writes) without the consumer
+	// opting in, which is wrong for library, daemon, or web-app embedders.
 	//
-	// Set to a custom implementation to control the authorization UX (e.g.
-	// display a URL in a custom UI, redirect to a web app, etc.).
+	// CLI consumers: pass [NewCLIMCPAuthHandler] to get the standard
+	// "open browser + print status" behavior.
+	//
+	// Custom UX: implement [MCPAuthHandler] directly, or use
+	// [DefaultMCPAuthHandler] and set its OnAuthURL hook to plug in your
+	// own presentation (TUI modal, QR code, web redirect, etc.).
 	MCPAuthHandler MCPAuthHandler
 
 	// MCPTokenStoreFactory, if non-nil, is called to create a token store for
@@ -1362,20 +1370,19 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 	}
 
-	// Set up OAuth handler for remote MCP servers.
+	// Set up OAuth handler for remote MCP servers. The SDK does not create
+	// a default handler: auto-construction would bind a local TCP port and
+	// (historically) shell out to a browser without the consumer asking,
+	// which is a surprise for library/daemon/web-app embedders. Consumers
+	// that want CLI behavior pass a [CLIMCPAuthHandler] explicitly; other
+	// consumers implement [MCPAuthHandler] themselves. If nil, remote MCP
+	// servers requiring OAuth will fail to connect with the underlying
+	// authorization-required error surfaced to the caller.
+	//
 	// The SDK MCPAuthHandler interface is structurally identical to
 	// tools.MCPAuthHandler, so any implementation satisfies both.
 	if opts.MCPAuthHandler != nil {
 		setupOpts.AuthHandler = opts.MCPAuthHandler
-	} else {
-		// Create a default handler that opens the system browser.
-		defaultHandler, authErr := NewDefaultMCPAuthHandler()
-		if authErr != nil {
-			// Non-fatal: OAuth just won't be available for remote servers.
-			log.Printf("WARN Failed to create OAuth handler; remote MCP servers requiring auth will fail: %v", authErr)
-		} else {
-			setupOpts.AuthHandler = defaultHandler
-		}
 	}
 
 	// Set up custom token store factory for MCP OAuth tokens.
