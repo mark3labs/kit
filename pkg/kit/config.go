@@ -38,20 +38,35 @@ Guidelines:
 - Be concise in your responses
 - Show file paths clearly when working with files`
 
-// setSDKDefaults registers the same viper defaults that the CLI sets via
-// cobra flag bindings. This ensures the SDK behaves identically to the CLI
-// even when cobra is not used.
+// sdkDefaultMaxTokens is the last-resort ceiling applied when the SDK caller
+// has not configured max-tokens via Options, env, config, or a per-model
+// default. It is intentionally applied on the *models.ProviderConfig struct
+// (not via viper) so that viper.IsSet("max-tokens") remains false and the
+// right-sizing + per-model-default paths continue to work.
+const sdkDefaultMaxTokens = 4096
+
+// setSDKDefaults registers viper defaults that match the CLI's cobra flag
+// defaults for keys where SetDefault does not interfere with downstream
+// viper.IsSet() checks.
+//
+// Keys that participate in "explicit vs unset" precedence downstream —
+// max-tokens, temperature, top-p, top-k, frequency-penalty, presence-penalty,
+// thinking-level — are deliberately NOT registered here. viper.SetDefault
+// causes viper.IsSet() to return true, which would suppress per-model
+// defaults (ApplyModelSettings) and automatic right-sizing (rightSizeMaxTokens)
+// for every SDK-created Kit. Those defaults are instead applied:
+//
+//   - max-tokens: as a last-resort struct-level floor (sdkDefaultMaxTokens)
+//     in kit.New() after BuildProviderConfig returns, when the resolved
+//     value is still zero.
+//   - thinking-level: handled implicitly by models.ParseThinkingLevel("")
+//     which returns models.ThinkingOff.
+//   - sampling params (temperature, top-p, top-k, frequency/presence-penalty):
+//     left as nil pointers so provider libraries apply their own defaults.
 func setSDKDefaults() {
 	viper.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
 	viper.SetDefault("system-prompt", defaultSystemPrompt)
-	viper.SetDefault("max-tokens", 4096)
-	viper.SetDefault("temperature", 0.7)
-	viper.SetDefault("top-p", 0.95)
-	viper.SetDefault("top-k", 40)
-	viper.SetDefault("frequency-penalty", 0.0)
-	viper.SetDefault("presence-penalty", 0.0)
 	viper.SetDefault("stream", true)
-	viper.SetDefault("thinking-level", "off")
 	viper.SetDefault("num-gpu-layers", -1)
 	viper.SetDefault("main-gpu", 0)
 }

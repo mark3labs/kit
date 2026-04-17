@@ -825,22 +825,27 @@ type Options struct {
 	// .kit.yml / KIT_* environment variables. Leaving a field at its
 	// zero/nil value means "use the configured default", which in turn
 	// falls back to per-model defaults (modelSettings / customModels) and
-	// finally to the SDK defaults registered in setSDKDefaults().
+	// finally to a last-resort SDK floor of 4096 for MaxTokens (sampling
+	// params fall through to provider-level defaults).
 	//
 	// Pointer types are used for sampling parameters so the SDK can
 	// distinguish "explicitly set to 0" from "leave alone".
 
 	// MaxTokens overrides the maximum output tokens per LLM response.
-	// 0 = use the configured default (SDK default is 4096). Bump this
-	// when generating long outputs (HTML artifacts, large refactors,
-	// etc.) to avoid silent truncation mid-tool-call. The cap also
-	// applies after model switches via [Kit.SetModel].
+	// 0 = let the precedence chain resolve a value (env → config →
+	// per-model → 4096 SDK floor). Setting a non-zero value here
+	// suppresses automatic right-sizing, matching the CLI's
+	// --max-tokens flag semantics. Bump this when generating long
+	// outputs (HTML artifacts, large refactors, etc.) to avoid silent
+	// truncation mid-tool-call. The cap also applies after model
+	// switches via [Kit.SetModel].
 	MaxTokens int
 
 	// ThinkingLevel sets the reasoning effort for models that support
 	// extended thinking. Valid values: "off", "low", "medium", "high".
-	// "" = use the configured default (SDK default is "off"). Use
-	// [Kit.SetThinkingLevel] to change at runtime.
+	// "" = let the precedence chain resolve a level (env → config →
+	// per-model → "off"). Use [Kit.SetThinkingLevel] to change at
+	// runtime.
 	ThinkingLevel string
 
 	// Temperature controls sampling randomness (typically 0.0–2.0).
@@ -1236,6 +1241,17 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		providerConfig, _, pcErr = kitsetup.BuildProviderConfig()
 		if pcErr != nil {
 			return fmt.Errorf("failed to build provider config: %w", pcErr)
+		}
+
+		// SDK last-resort max-tokens floor. When nothing — Options, env,
+		// config, nor a per-model default — supplied a value, we land on
+		// zero here (viper.GetInt returns 0 for unset keys). Apply the
+		// SDK default directly on the struct rather than via viper so
+		// viper.IsSet("max-tokens") stays false: downstream right-sizing
+		// can still raise this toward the model's known output ceiling,
+		// and per-model modelSettings[...].maxTokens can still win.
+		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
+			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
 		modelString = viper.GetString("model")
 		debug = viper.GetBool("debug")

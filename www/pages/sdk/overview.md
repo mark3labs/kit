@@ -106,6 +106,27 @@ For advanced use, return a `kit.ToolOutput` struct directly with `Data`, `MediaT
 
 Use `kit.NewParallelTool` for tools that are safe to run concurrently. Use `kit.ToolCallIDFromContext(ctx)` to retrieve the LLM-assigned call ID for logging or tracing.
 
+## Generation & provider overrides
+
+SDK consumers can configure generation parameters and provider endpoints
+entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    Model:          "anthropic/claude-sonnet-4-5-20250929",
+    MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
+    ThinkingLevel:  "high",            // "off" | "low" | "medium" | "high"
+    Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
+    ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
+    ProviderURL:    "https://proxy.internal/v1",
+})
+
+func ptrFloat32(v float32) *float32 { return &v }
+```
+
+See [Options](/sdk/options#generation-parameters) for the full field reference,
+including `TopP`, `TopK`, `FrequencyPenalty`, `PresencePenalty`, and `TLSSkipVerify`.
+
 ## Event system
 
 Subscribe to events for monitoring:

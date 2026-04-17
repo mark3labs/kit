@@ -175,9 +175,23 @@ modelSettings:
 | `thinkingLevel` | string | Thinking level override |
 | `systemPrompt` | string | Per-model system prompt (used when no explicit prompt is set) |
 
-Settings from `modelSettings` and `customModels.params` act as model-level defaults — explicit CLI flags and global config values always take precedence.
+Settings from `modelSettings` and `customModels.params` act as model-level defaults — explicit CLI flags, `KIT_*` environment variables, global config values, and SDK `Options.*` fields all take precedence over them.
 
 When switching models via `/model` or `SetModel()`, if the new model has a per-model system prompt and no custom global prompt was set, the per-model prompt automatically replaces the previous one.
+
+### Precedence summary
+
+For the generation and provider parameters documented above, the resolved value at runtime comes from the first source that sets it:
+
+1. CLI flag (e.g. `--max-tokens`, `--temperature`, `--provider-api-key`)
+2. SDK `Options.X` when embedding Kit as a library (`kit.Options.MaxTokens`, `Temperature`, `ProviderAPIKey`, etc.)
+3. `KIT_*` environment variable (`KIT_MAX_TOKENS`, `KIT_TEMPERATURE`, ...)
+4. `.kit.yml` / `.kit.yaml` / `.kit.json` (project-local, then global)
+5. Per-model defaults (`modelSettings[provider/model]` / `customModels[...].params`)
+6. Provider-level defaults (e.g. Anthropic's own temperature default)
+7. SDK last-resort floor — currently a 4096 output-token ceiling when nothing else is configured
+
+See the [SDK options reference](/sdk/options) for the full list of `kit.Options` fields that map to these keys.
 
 ## Theme configuration
 
