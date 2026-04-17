@@ -80,6 +80,23 @@ host, err := kit.New(ctx, &kit.Options{
     Quiet:     true, // suppress debug output
     Debug:     true, // enable debug logging
 
+    // Generation parameters — override env/config/per-model defaults.
+    // Leaving a field at its zero/nil value lets the precedence chain
+    // resolve a value (KIT_* env → .kit.yml → modelSettings/customModels →
+    // 8192 floor for MaxTokens, provider defaults for samplers).
+    MaxTokens:        16384,             // 0 = auto-resolve; non-zero suppresses right-sizing
+    ThinkingLevel:    "medium",          // "off", "low", "medium", "high" ("" = default)
+    Temperature:      ptrFloat32(0.2),   // pointer so explicit 0.0 != unset
+    TopP:             nil,                // nil = leave provider/per-model default
+    TopK:             nil,                // nil = leave provider/per-model default
+    FrequencyPenalty: nil,
+    PresencePenalty:  nil,
+
+    // Provider configuration — override env/config without viper.Set workarounds.
+    ProviderAPIKey: "sk-...",                    // "" = use config / provider env var
+    ProviderURL:    "https://proxy.internal/v1", // "" = provider default endpoint
+    TLSSkipVerify:  false,                       // true only; can't force-disable via Options
+
     // Session
     SessionDir:  "/path/to/project",  // base dir for session discovery (default: cwd)
     SessionPath: "/path/to/session.jsonl", // open specific session file
@@ -118,11 +135,33 @@ host, err := kit.New(ctx, &kit.Options{
         "docs": mcpSrv,  // *server.MCPServer from mcp-go — no subprocess needed
     },
 })
+
+// Tiny helper to take the address of a literal for pointer fields.
+func ptrFloat32(v float32) *float32 { return &v }
 ```
 
 **Critical distinction**: `Tools` replaces ALL default tools (core + MCP + extension). `ExtraTools` adds tools alongside the defaults. Use `Tools` to restrict the agent's capabilities; use `ExtraTools` to extend them.
 
 **In-process MCP servers** bypass subprocess spawning entirely. Pass `*server.MCPServer` instances from mcp-go via `InProcessMCPServers` or call `AddInProcessMCPServer()` at runtime.
+
+### Generation & provider Options (cheat sheet)
+
+| Field | Type | Empty/nil means | Notes |
+|-------|------|-----------------|-------|
+| `MaxTokens` | `int` | Auto-resolve (env → config → per-model → 8192 floor) | Non-zero suppresses `rightSizeMaxTokens` |
+| `ThinkingLevel` | `string` | Auto-resolve (→ `"off"`) | Valid: `"off"`, `"low"`, `"medium"`, `"high"` (and `"minimal"` for some providers) |
+| `Temperature` | `*float32` | Leave provider/per-model default | Pointer so explicit `0.0` ≠ unset |
+| `TopP` | `*float32` | Leave provider/per-model default | |
+| `TopK` | `*int32` | Leave provider/per-model default | |
+| `FrequencyPenalty` | `*float32` | Leave provider/per-model default | OpenAI-family |
+| `PresencePenalty` | `*float32` | Leave provider/per-model default | OpenAI-family |
+| `ProviderAPIKey` | `string` | Use config / provider env var | Overrides pre-existing viper state |
+| `ProviderURL` | `string` | Use provider default endpoint | Same base URL flag as `--provider-url` |
+| `TLSSkipVerify` | `bool` | — | Only effective when `true`; cannot force-disable via Options |
+
+These fields eliminate the old `viper.Set("max-tokens", 16384)` dance many
+downstream embedders used to do before calling `kit.New()`. Everything is
+now discoverable via godoc on `kit.Options`.
 
 ---
 

@@ -811,6 +811,29 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 // Options configures Kit creation with optional overrides for model,
 // prompts, configuration, and behavior settings. All fields are optional
 // and will use CLI defaults if not specified.
+//
+// Global viper state warning:
+// Options are applied by [New] via [viper.Set] calls against viper's
+// process-global store. This store is shared with every downstream reader
+// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel], BuildProviderConfig, and
+// any other code path that calls viper.Get*). Two consequences:
+//
+//  1. Kit instances are NOT isolated from each other within a single
+//     process. Values set by the second New() call overwrite the first,
+//     and any code that later reads viper will see the most recent Set.
+//  2. Fields left at the zero value do NOT clear prior viper state; they
+//     simply skip the viper.Set. Callers that need a clean slate between
+//     constructions should invoke viper.Reset() (the test suite uses a
+//     private resetViper() helper that wraps it) before the next New().
+//
+// Recommended usage: create one Kit per process, or reset viper between
+// constructions. Concurrent calls to New are serialized internally by
+// [viperInitMu], but that mutex does not prevent later viper reads (from
+// a different Kit) from observing mutated keys.
+//
+// TODO: refactor New to use a per-instance *viper.Viper (constructed via
+// viper.New()) so each Kit owns its own isolated config store and Options
+// no longer leak through the global singleton.
 type Options struct {
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
@@ -820,6 +843,76 @@ type Options struct {
 	Quiet        bool   // Suppress debug output
 	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
 	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
+
+	// Generation parameters. These override the corresponding values from
+	// .kit.yml / KIT_* environment variables. Leaving a field at its
+	// zero/nil value means "use the configured default", which in turn
+	// falls back to per-model defaults (modelSettings / customModels) and
+	// finally to a last-resort SDK floor of 8192 for MaxTokens (matching
+	// the CLI --max-tokens default; sampling params fall through to
+	// provider-level defaults).
+	//
+	// Pointer types are used for sampling parameters so the SDK can
+	// distinguish "explicitly set to 0" from "leave alone".
+
+	// MaxTokens overrides the maximum output tokens per LLM response.
+	// 0 = let the precedence chain resolve a value (env → config →
+	// per-model → 8192 SDK floor, matching the CLI default). Setting a
+	// non-zero value here suppresses automatic right-sizing, matching
+	// the CLI's --max-tokens flag semantics. Bump this when generating
+	// long outputs (HTML artifacts, large refactors, etc.) to avoid
+	// silent truncation mid-tool-call. The cap also applies after
+	// model switches via [Kit.SetModel].
+	MaxTokens int
+
+	// ThinkingLevel sets the reasoning effort for models that support
+	// extended thinking. Valid values: "off", "low", "medium", "high".
+	// "" = let the precedence chain resolve a level (env → config →
+	// per-model → "off"). Use [Kit.SetThinkingLevel] to change at
+	// runtime.
+	ThinkingLevel string
+
+	// Temperature controls sampling randomness (typically 0.0–2.0).
+	// nil = leave provider/per-model default in place. Pointer type
+	// so explicit 0.0 (deterministic) is distinguishable from "unset".
+	Temperature *float32
+
+	// TopP is the nucleus-sampling cutoff (0.0–1.0).
+	// nil = leave provider/per-model default in place.
+	TopP *float32
+
+	// TopK limits sampling to the top K tokens.
+	// nil = leave provider/per-model default in place.
+	TopK *int32
+
+	// FrequencyPenalty discourages repeated tokens (OpenAI-family models).
+	// nil = leave provider/per-model default in place.
+	FrequencyPenalty *float32
+
+	// PresencePenalty discourages repeating topics (OpenAI-family models).
+	// nil = leave provider/per-model default in place.
+	PresencePenalty *float32
+
+	// Provider configuration. These override values normally read from
+	// .kit.yml or provider-specific environment variables. Useful when
+	// loading credentials from a secrets manager, pointing at custom
+	// OpenAI-compatible endpoints (LiteLLM, vLLM, Azure OpenAI, internal
+	// proxies), or running against self-hosted infrastructure.
+
+	// ProviderAPIKey overrides the API key used to authenticate with the
+	// model provider. "" = use the value from config or the
+	// provider-specific environment variable.
+	ProviderAPIKey string
+
+	// ProviderURL overrides the provider endpoint. "" = use the provider's
+	// default URL.
+	ProviderURL string
+
+	// TLSSkipVerify disables TLS certificate verification on provider
+	// HTTP clients. Only set this for self-signed certificates in
+	// development. Once enabled here it cannot be disabled via Options
+	// (use the config file or env var to opt back out).
+	TLSSkipVerify bool
 
 	// SkipConfig, when true, skips loading .kit.yml configuration files.
 	// Viper defaults (setSDKDefaults) and environment variables (KIT_*)
@@ -979,14 +1072,29 @@ func InitTreeSession(opts *Options) (*session.TreeManager, error) {
 	return session.CreateTreeSession(sessionDir)
 }
 
+// viperInitMu serializes viper writes during [New]. Viper's global state
+// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
+// must not overlap the Set/Get window. Note that this mutex only protects
+// the construction window — it does not isolate long-lived Kit instances
+// from each other. See the "Global viper state warning" on [Options].
+var viperInitMu sync.Mutex
+
 // New creates a Kit instance using the same initialization as the CLI.
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
-// viperInitMu serializes viper writes during kit.New(). Viper's global state
-// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
-// must not overlap the Set()/Get() window.
-var viperInitMu sync.Mutex
-
+//
+// Global viper state warning: fields on [Options] are applied by calling
+// [viper.Set] on viper's process-global store. As a result, two Kits
+// constructed in the same process are NOT isolated: the second New
+// overwrites viper keys set by the first, and any downstream reader
+// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel]) will observe the most
+// recent value. Callers that need multiple independent Kits should call
+// viper.Reset() between constructions, or avoid constructing more than
+// one Kit per process. Writes during New are serialized by [viperInitMu].
+//
+// TODO: refactor to use a per-call viper.New() instance so each Kit owns
+// its own isolated config store and Options stop leaking through the
+// global singleton.
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
@@ -1046,6 +1154,47 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			viper.Set("max-steps", opts.MaxSteps)
 		}
 		viper.Set("stream", opts.Streaming)
+
+		// Generation parameter overrides. Each Options field, when set,
+		// is pushed into viper here so the existing downstream code
+		// (BuildProviderConfig, SetModel, modelSettings lookups) picks
+		// it up uniformly. Pointer-typed sampling params use viper.Set
+		// only when non-nil so that nil means "leave provider/per-model
+		// default in place" (BuildProviderConfig keys off viper.IsSet).
+		if opts.MaxTokens > 0 {
+			viper.Set("max-tokens", opts.MaxTokens)
+		}
+		if opts.ThinkingLevel != "" {
+			viper.Set("thinking-level", opts.ThinkingLevel)
+		}
+		if opts.Temperature != nil {
+			viper.Set("temperature", *opts.Temperature)
+		}
+		if opts.TopP != nil {
+			viper.Set("top-p", *opts.TopP)
+		}
+		if opts.TopK != nil {
+			viper.Set("top-k", *opts.TopK)
+		}
+		if opts.FrequencyPenalty != nil {
+			viper.Set("frequency-penalty", *opts.FrequencyPenalty)
+		}
+		if opts.PresencePenalty != nil {
+			viper.Set("presence-penalty", *opts.PresencePenalty)
+		}
+
+		// Provider overrides. TLSSkipVerify only takes effect when true —
+		// callers wanting to force-disable should use the config file or
+		// env var instead.
+		if opts.ProviderAPIKey != "" {
+			viper.Set("provider-api-key", opts.ProviderAPIKey)
+		}
+		if opts.ProviderURL != "" {
+			viper.Set("provider-url", opts.ProviderURL)
+		}
+		if opts.TLSSkipVerify {
+			viper.Set("tls-skip-verify", true)
+		}
 
 		// Resolve working directory for context/skill discovery.
 		cwd = opts.SessionDir
@@ -1131,6 +1280,17 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		providerConfig, _, pcErr = kitsetup.BuildProviderConfig()
 		if pcErr != nil {
 			return fmt.Errorf("failed to build provider config: %w", pcErr)
+		}
+
+		// SDK last-resort max-tokens floor. When nothing — Options, env,
+		// config, nor a per-model default — supplied a value, we land on
+		// zero here (viper.GetInt returns 0 for unset keys). Apply the
+		// SDK default directly on the struct rather than via viper so
+		// viper.IsSet("max-tokens") stays false: downstream right-sizing
+		// can still raise this toward the model's known output ceiling,
+		// and per-model modelSettings[...].maxTokens can still win.
+		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
+			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
 		modelString = viper.GetString("model")
 		debug = viper.GetBool("debug")

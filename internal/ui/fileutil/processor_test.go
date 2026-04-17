@@ -145,7 +145,13 @@ func TestDetectMediaType(t *testing.T) {
 		content  []byte
 		expected string
 	}{
-		{".go", nil, "text/plain"}, // .go falls back to content sniffing → text/plain
+		// An intentionally-synthetic extension that is not registered
+		// in any system MIME database. Exercises the "unknown ext +
+		// no content" branch, which must return the text/plain default.
+		// Do not use real extensions (e.g. .go) here: CI images often
+		// ship /etc/mime.types with entries like ".go → text/x-go",
+		// which would make the assertion environment-dependent.
+		{".kitsyntheticext", nil, "text/plain"},
 		{".png", []byte{0x89, 0x50, 0x4E, 0x47}, "image/png"},
 		{".jpg", []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"},
 		{".pdf", []byte{0x25, 0x50, 0x44, 0x46}, "application/pdf"},

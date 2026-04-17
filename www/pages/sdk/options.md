@@ -22,6 +22,20 @@ host, err := kit.New(ctx, &kit.Options{
     Quiet:        true,
     Debug:        true,
 
+    // Generation parameters (override env/config/per-model defaults)
+    MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
+    ThinkingLevel:    "medium",           // "off", "low", "medium", "high"
+    Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset
+    TopP:             nil,                 // nil = provider/per-model default
+    TopK:             nil,
+    FrequencyPenalty: nil,
+    PresencePenalty:  nil,
+
+    // Provider configuration
+    ProviderAPIKey: "sk-...",                      // "" = use config / provider env var
+    ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint
+    TLSSkipVerify:  false,                         // only effective when true
+
     // Session
     SessionPath:  "./session.jsonl",
     SessionDir:   "/custom/sessions/",
@@ -65,6 +79,8 @@ host, err := kit.New(ctx, &kit.Options{
 
 ## Options fields
 
+### Core
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `Model` | `string` | config default | Model string (provider/model format) |
@@ -74,24 +90,95 @@ host, err := kit.New(ctx, &kit.Options{
 | `Streaming` | `bool` | `true` | Enable streaming output |
 | `Quiet` | `bool` | `false` | Suppress output |
 | `Debug` | `bool` | `false` | Enable debug logging |
+
+### Generation parameters
+
+These fields override the corresponding values from `.kit.yml` / `KIT_*`
+environment variables. Leaving a field at its zero/nil value lets the
+precedence chain resolve a value (`KIT_*` env → config file → per-model
+defaults from `modelSettings`/`customModels` → an 8192 SDK floor for
+`MaxTokens` (matching the CLI `--max-tokens` default) and provider-level
+defaults for samplers).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
+| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"low"`, `"medium"`, `"high"` (some providers also accept `"minimal"`). `""` falls through to config/env/per-model/`"off"`. |
+| `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
+| `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
+| `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |
+| `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |
+| `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |
+
+Pointer-typed samplers are populated via a tiny helper:
+
+```go
+func ptrFloat32(v float32) *float32 { return &v }
+```
+
+These fields eliminate the need for `viper.Set()` calls before `kit.New()`
+when embedding Kit as a library.
+
+### Provider configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, overrides any pre-existing viper state. |
+| `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
+| `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
+
+### Session
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `SessionPath` | `string` | — | Open a specific session file |
 | `SessionDir` | `string` | — | Base directory for session discovery |
 | `Continue` | `bool` | `false` | Resume most recent session |
 | `NoSession` | `bool` | `false` | Ephemeral mode (no persistence) |
+| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
+
+### Tools & extensions
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `Tools` | `[]Tool` | — | Replace the entire default tool set |
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
-| `SkipConfig` | `bool` | `false` | Skip .kit.yml file loading |
-| `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
-| `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
+| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
+| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+
+### Skills & configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Override default skills directory |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
-| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
-| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
-| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
+
+### Compaction & MCP
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
+| `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers |
 | `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
+
+## Precedence
+
+For any given generation or provider field, the effective value is resolved
+in this order (highest priority first):
+
+1. `Options.X` (SDK caller)
+2. `KIT_X` environment variable
+3. `.kit.yml` (project-local then `~/.kit.yml`)
+4. Per-model defaults (`modelSettings[provider/model]` or `customModels[...].params`)
+5. Provider-level defaults (e.g. Anthropic's own temperature default)
+6. SDK last-resort floor (currently: `MaxTokens = 8192`, matching the CLI `--max-tokens` default)
+
+Sampling params that remain `nil` after the SDK resolution step are left out
+of the provider call entirely, so the LLM library applies its own default.
 
 ## Tool configuration
 

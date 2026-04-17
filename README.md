@@ -126,7 +126,12 @@ model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
+thinking-level: off       # off, minimal, low, medium, high
 ```
+
+All of the above keys can also be set programmatically via the SDK
+(`kit.Options.MaxTokens`, `Options.Temperature`, `Options.ThinkingLevel`, etc.)
+without touching config files — see [SDK options](#with-options).
 
 ### Environment Variables
 
@@ -187,7 +192,7 @@ mcpServers:
 --no-prompt-templates    Disable prompt template loading
 
 # Generation parameters
---max-tokens             Maximum tokens in response (default: 4096)
+--max-tokens             Maximum tokens in response (default: 8192, auto-raised up to 32768 for models with larger known output limits)
 --temperature            Randomness 0.0-1.0 (default: 0.7)
 --top-p                  Nucleus sampling 0.0-1.0 (default: 0.95)
 --top-k                  Limit top K tokens (default: 40)
@@ -541,6 +546,20 @@ host, err := kit.New(ctx, &kit.Options{
     Streaming:    true,
     Quiet:        true,
 
+    // Generation parameters (override env/config/per-model defaults)
+    MaxTokens:        16384,             // 0 = auto-resolve (env → config → per-model → 8192 floor)
+    ThinkingLevel:    "medium",          // "off", "low", "medium", "high"
+    Temperature:      ptr(float32(0.2)), // pointer so 0.0 != unset; nil = provider default
+    TopP:             nil,                // nil = leave provider/per-model default
+    TopK:             nil,
+    FrequencyPenalty: nil,
+    PresencePenalty:  nil,
+
+    // Provider configuration (override env/config without reaching into viper)
+    ProviderAPIKey: "sk-...",                      // "" = use config / provider env var
+    ProviderURL:    "https://proxy.internal/v1",   // "" = provider default
+    TLSSkipVerify:  false,                         // only takes effect when true
+
     // Session options
     SessionPath:  "./session.jsonl",  // Open specific session
     Continue:     true,                // Resume most recent session
@@ -560,6 +579,14 @@ host, err := kit.New(ctx, &kit.Options{
     Debug:        true,                // Debug logging
 })
 ```
+
+**Generation & provider fields** (added in v0.55+) let SDK consumers configure
+Kit entirely in-code without `viper.Set()` workarounds or shipping a `.kit.yml`.
+Precedence is `Options` > `KIT_*` env vars > `.kit.yml` > per-model defaults
+(`modelSettings` / `customModels`) > provider-level defaults. Sampling params
+are pointer types so explicit `0.0` is distinguishable from "leave alone"; a
+non-zero `MaxTokens` suppresses automatic right-sizing the same way `--max-tokens`
+does on the CLI.
 
 ### Custom Tools
 
