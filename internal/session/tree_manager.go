@@ -365,6 +365,9 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		tm.leafID = tm.EntryID(tm.entries[len(tm.entries)-1])
 	}
 
+	// Validate tree integrity and log diagnostics
+	tm.LogTreeDiagnostics()
+
 	// Open file for appending.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -409,6 +412,12 @@ func InMemoryTreeSession(cwd string) *TreeManager {
 func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+
+	// Validate parent chain before appending to detect/prevent cycles
+	// that could be caused by external file corruption or race conditions.
+	if err := tm.validateParentChainLocked(tm.leafID, ""); err != nil {
+		return "", fmt.Errorf("parent chain validation failed: %w", err)
+	}
 
 	entry, err := NewMessageEntry(tm.leafID, msg)
 	if err != nil {
@@ -517,6 +526,13 @@ func (tm *TreeManager) AppendExtensionData(extType, data string) (string, error)
 func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokensBefore, tokensAfter, messagesRemoved int, readFiles, modifiedFiles []string) (string, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+
+	// Validate that firstKeptEntryID exists if provided
+	if firstKeptEntryID != "" {
+		if _, ok := tm.index[firstKeptEntryID]; !ok {
+			return "", fmt.Errorf("first kept entry %q does not exist", firstKeptEntryID)
+		}
+	}
 
 	// The compaction entry has no parent, making it a new "root" for the
 	// post-compaction branch. This ensures old compacted messages are not
@@ -1213,11 +1229,31 @@ func (tm *TreeManager) getBranchLocked(fromID string) []any {
 }
 
 // buildTreeNode recursively builds a TreeNode from an entry ID.
+// It includes a depth limit to prevent infinite recursion in case of
+// corrupted parent-child relationships.
 func (tm *TreeManager) buildTreeNode(id string) *TreeNode {
+	return tm.buildTreeNodeDepth(id, 0, make(map[string]bool))
+}
+
+// buildTreeNodeDepth is the internal implementation with depth tracking.
+func (tm *TreeManager) buildTreeNodeDepth(id string, depth int, visited map[string]bool) *TreeNode {
+	const maxDepth = 1000
+	if depth > maxDepth {
+		// Cycle or extremely deep tree detected, stop recursing
+		return nil
+	}
+	if visited[id] {
+		// Cycle detected, stop recursing
+		return nil
+	}
+
 	entry, ok := tm.index[id]
 	if !ok {
 		return nil
 	}
+
+	visited[id] = true
+	defer delete(visited, id)
 
 	node := &TreeNode{
 		Entry:    entry,
@@ -1226,7 +1262,7 @@ func (tm *TreeManager) buildTreeNode(id string) *TreeNode {
 	}
 
 	for _, childID := range tm.childIndex[id] {
-		child := tm.buildTreeNode(childID)
+		child := tm.buildTreeNodeDepth(childID, depth+1, visited)
 		if child != nil {
 			node.Children = append(node.Children, child)
 		}
