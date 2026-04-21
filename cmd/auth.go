@@ -564,13 +564,13 @@ func startOpenAICallbackServer(expectedState string) (*callbackServer, error) {
 		}
 
 		// Return success page
-		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Authentication Successful</title></head>
 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-<h1>✓ Authentication Successful</h1>
+<h1>&#10003; Authentication Successful</h1>
 <p>You can close this window and return to the terminal.</p>
 </body>
 </html>`)
