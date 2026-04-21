@@ -873,7 +873,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.messages = []MessageItem{}
 
 	// Wire up child components now that we have the concrete implementations.
-	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to clear input, Ctrl+C again to quit)", appCtrl)
+	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C twice to quit)", appCtrl)
 
 	// Wire up cwd for @file autocomplete.
 	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
@@ -1313,22 +1313,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.overlay = nil
 			}
 
-			// Check if we should clear input first (on first Ctrl+C when input has content).
-			if m.state == stateInput && !m.ctrlCPressedOnce {
-				if ic, ok := m.input.(*InputComponent); ok {
-					if hadContent := ic.Clear(); hadContent {
-						// Input was cleared. Set flag so next Ctrl+C will quit.
-						m.ctrlCPressedOnce = true
-						// Start reset timer so the flag clears after 3 seconds.
-						return m, ctrlCResetCmd()
-					}
-				}
+			// Second Ctrl+C within the timeout window — quit.
+			if m.ctrlCPressedOnce {
+				m.quitting = true
+				return m, tea.Quit
 			}
 
-			// Set quitting flag so View() disables alt screen for clean exit.
-			m.quitting = true
-			// Graceful quit: app.Close() is deferred in cmd/root.go.
-			return m, tea.Quit
+			// First Ctrl+C — clear input if it has content, then arm the quit flag.
+			if m.state == stateInput {
+				if ic, ok := m.input.(*InputComponent); ok {
+					ic.Clear()
+				}
+			}
+			m.ctrlCPressedOnce = true
+			// Start reset timer so the flag clears after 3 seconds.
+			return m, ctrlCResetCmd()
 		}
 
 		// Check extension-registered global keyboard shortcuts. These fire
@@ -2484,6 +2483,14 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, warning)
 	}
 
+	if m.ctrlCPressedOnce {
+		warning := lipgloss.NewStyle().
+			Foreground(theme.Warning).
+			Bold(true).
+			Render("  ⚠ Press Ctrl+C again to quit")
+		parts = append(parts, warning)
+	}
+
 	if !vis.HideSeparator {
 		parts = append(parts, m.renderSeparator())
 	}
@@ -3470,7 +3477,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `!command`: Run shell command, output included in LLM context\n" +
 		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
 		"**Keys:**\n" +
-		"- `Ctrl+C`: Clear input (press again to exit)\n" +
+		"- `Ctrl+C`: Clear input and arm quit (press again to exit)\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
 		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
 		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
@@ -4660,9 +4667,12 @@ func (m *AppModel) updatePromptState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
-			// Cancel prompt and quit the application.
+			// Cancel the prompt but don't quit — let the main handler's
+			// double-Ctrl+C logic handle quitting.
 			m.resolvePrompt(app.PromptResponse{Cancelled: true})
-			return m, tea.Quit
+			// Don't consume the keypress — re-dispatch so the main
+			// ctrl+c handler can track the double-press state.
+			return m.Update(msg)
 		}
 		result, cmd := m.prompt.Update(msg)
 		if cmd != nil {
@@ -4729,9 +4739,12 @@ func (m *AppModel) updateOverlayState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
-			// Cancel overlay and quit the application.
+			// Cancel the overlay but don't quit — let the main handler's
+			// double-Ctrl+C logic handle quitting.
 			m.resolveOverlay(app.OverlayResponse{Cancelled: true})
-			return m, tea.Quit
+			// Don't consume the keypress — re-dispatch so the main
+			// ctrl+c handler can track the double-press state.
+			return m.Update(msg)
 		}
 		result, cmd := m.overlay.Update(msg)
 		if cmd != nil {

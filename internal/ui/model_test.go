@@ -853,23 +853,34 @@ func TestSpinnerEvent_hideDoesNotTransitionState(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// ctrl+c produces tea.Quit
+// ctrl+c double-press to quit
 // --------------------------------------------------------------------------
 
-// TestCtrlC_producesQuit verifies that ctrl+c always returns a tea.Quit cmd.
+// TestCtrlC_producesQuit verifies that double ctrl+c returns a tea.Quit cmd.
 func TestCtrlC_producesQuit(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-
+	// First Ctrl+C arms the quit flag.
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	m = updated.(*AppModel)
 	if cmd == nil {
-		t.Fatal("expected tea.Quit cmd on ctrl+c, got nil")
+		t.Fatal("expected a command after first ctrl+c, got nil")
 	}
-	// We verify it's a quit command by running it and checking the message type.
+	// Should be a reset timer, not quit.
 	msg := cmd()
+	if _, ok := msg.(core.CtrlCResetMsg); !ok {
+		t.Fatalf("expected CtrlCResetMsg after first ctrl+c, got %T", msg)
+	}
+
+	// Second Ctrl+C should quit.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd on second ctrl+c, got nil")
+	}
+	msg = cmd()
 	if _, ok := msg.(tea.QuitMsg); !ok {
-		t.Fatalf("expected QuitMsg from ctrl+c cmd, got %T", msg)
+		t.Fatalf("expected QuitMsg from second ctrl+c, got %T", msg)
 	}
 }
 
@@ -968,9 +979,9 @@ func TestCtrlC_resetAfterSubmit(t *testing.T) {
 	}
 }
 
-// TestCtrlC_emptyInput_quitsImmediately tests that Ctrl+C quits immediately
-// when the input is empty (no content to clear).
-func TestCtrlC_emptyInput_quitsImmediately(t *testing.T) {
+// TestCtrlC_emptyInput_armsQuit tests that Ctrl+C on empty input still
+// requires a second press to quit (consistent double-press behavior).
+func TestCtrlC_emptyInput_armsQuit(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
@@ -978,15 +989,29 @@ func TestCtrlC_emptyInput_quitsImmediately(t *testing.T) {
 	input := NewInputComponent(80, "test", ctrl)
 	m.input = input
 
-	// Ctrl+C on empty input should quit immediately
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	// First Ctrl+C on empty input should arm the flag, not quit.
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	m = updated.(*AppModel)
 
+	if !m.ctrlCPressedOnce {
+		t.Fatal("expected ctrlCPressedOnce to be true after first Ctrl+C")
+	}
 	if cmd == nil {
-		t.Fatal("expected tea.Quit cmd on empty input, got nil")
+		t.Fatal("expected a command (reset timer), got nil")
 	}
 	msg := cmd()
+	if _, ok := msg.(core.CtrlCResetMsg); !ok {
+		t.Fatalf("expected CtrlCResetMsg, got %T", msg)
+	}
+
+	// Second Ctrl+C should quit.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd on second Ctrl+C, got nil")
+	}
+	msg = cmd()
 	if _, ok := msg.(tea.QuitMsg); !ok {
-		t.Fatalf("expected QuitMsg, got %T", msg)
+		t.Fatalf("expected QuitMsg on second Ctrl+C, got %T", msg)
 	}
 }
 
