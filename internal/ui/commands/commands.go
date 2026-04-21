@@ -84,7 +84,7 @@ var SlashCommands = []SlashCommand{
 	},
 	{
 		Name:        "/thinking",
-		Description: "Set thinking/reasoning level (off, minimal, low, medium, high)",
+		Description: "Set thinking/reasoning level (off, none, minimal, low, medium, high)",
 		Category:    "System",
 		Aliases:     []string{"/think"},
 		Complete: func(prefix string) []string {

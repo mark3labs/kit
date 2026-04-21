@@ -85,6 +85,7 @@ type ThinkingLevel string
 
 const (
 	ThinkingOff     ThinkingLevel = "off"
+	ThinkingNone    ThinkingLevel = "none"
 	ThinkingMinimal ThinkingLevel = "minimal"
 	ThinkingLow     ThinkingLevel = "low"
 	ThinkingMedium  ThinkingLevel = "medium"
@@ -93,12 +94,14 @@ const (
 
 // ThinkingLevels returns the ordered list of available thinking levels for cycling.
 func ThinkingLevels() []ThinkingLevel {
-	return []ThinkingLevel{ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh}
+	return []ThinkingLevel{ThinkingOff, ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh}
 }
 
-// thinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off".
+// thinkingBudgetTokens returns the token budget for a thinking level, or 0 for "off" or "none".
 func thinkingBudgetTokens(level ThinkingLevel) int64 {
 	switch level {
+	case ThinkingNone:
+		return 1024
 	case ThinkingMinimal:
 		return 1024
 	case ThinkingLow:
@@ -117,6 +120,8 @@ func ThinkingLevelDescription(level ThinkingLevel) string {
 	switch level {
 	case ThinkingOff:
 		return "No reasoning"
+	case ThinkingNone:
+		return "Minimal reasoning (OpenAI 'none')"
 	case ThinkingMinimal:
 		return "Very brief reasoning (~1k tokens)"
 	case ThinkingLow:
@@ -133,7 +138,7 @@ func ThinkingLevelDescription(level ThinkingLevel) string {
 // ParseThinkingLevel converts a string to a ThinkingLevel, defaulting to ThinkingOff.
 func ParseThinkingLevel(s string) ThinkingLevel {
 	switch ThinkingLevel(s) {
-	case ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
+	case ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
 		return ThinkingLevel(s)
 	default:
 		return ThinkingOff
@@ -580,6 +585,8 @@ func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantas
 // Returns nil for ThinkingOff (use the model's default).
 func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort {
 	switch level {
+	case ThinkingNone:
+		return new(openai.ReasoningEffortNone)
 	case ThinkingMinimal:
 		return new(openai.ReasoningEffortMinimal)
 	case ThinkingLow:
@@ -591,6 +598,56 @@ func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort
 	default:
 		return nil
 	}
+}
+
+// IsValidThinkingLevelForModel checks if a thinking level is valid for the given
+// model. Some OpenAI models like gpt-5.4 don't support "minimal" and require
+// "none" instead.
+func IsValidThinkingLevelForModel(level ThinkingLevel, modelName string) bool {
+	if level == ThinkingOff {
+		return true
+	}
+
+	// Check if this is an OpenAI model that doesn't support "minimal"
+	// gpt-5.4 and newer gpt-5.x models use "none" instead of "minimal"
+	if level == ThinkingMinimal {
+		if strings.Contains(modelName, "gpt-5.4") ||
+			strings.Contains(modelName, "gpt-5-pro") ||
+			strings.Contains(modelName, "gpt-5-chat") {
+			return false
+		}
+	}
+
+	// Check if this is an OpenAI model that doesn't support "none"
+	// Older gpt-5 models only support "minimal", not "none"
+	if level == ThinkingNone {
+		if strings.Contains(modelName, "gpt-5") &&
+			!strings.Contains(modelName, "gpt-5.4") &&
+			!strings.Contains(modelName, "gpt-5-pro") &&
+			!strings.Contains(modelName, "gpt-5-chat") {
+			// Older gpt-5 models might not support "none"
+			// They only added "none" support in newer versions
+			return false
+		}
+	}
+
+	// All other levels are generally valid for reasoning models
+	return true
+}
+
+// SuggestThinkingLevelFallback returns a recommended fallback level when the
+// requested level is not valid for the model. Returns ThinkingOff if no
+// suitable fallback exists.
+func SuggestThinkingLevelFallback(level ThinkingLevel, modelName string) ThinkingLevel {
+	if level == ThinkingMinimal && !IsValidThinkingLevelForModel(level, modelName) {
+		// For models that don't support "minimal", suggest "none" (~same token budget)
+		return ThinkingNone
+	}
+	if level == ThinkingNone && !IsValidThinkingLevelForModel(level, modelName) {
+		// For models that don't support "none", suggest "minimal" (~same token budget)
+		return ThinkingMinimal
+	}
+	return ThinkingOff
 }
 
 // buildAnthropicProviderOptions returns fantasy.ProviderOptions configured for

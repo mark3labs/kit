@@ -543,6 +543,23 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	systemPrompt, _ := config.LoadSystemPrompt(viper.GetString("system-prompt"))
 	thinkingLevel := models.ParseThinkingLevel(viper.GetString("thinking-level"))
 
+	// Validate and adjust thinking level for the target model.
+	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
+	if thinkingLevel != models.ThinkingOff {
+		parts := strings.SplitN(modelString, "/", 2)
+		if len(parts) == 2 {
+			modelName := parts[1]
+			if !models.IsValidThinkingLevelForModel(thinkingLevel, modelName) {
+				fallback := models.SuggestThinkingLevelFallback(thinkingLevel, modelName)
+				if fallback != models.ThinkingOff {
+					// Adjust the thinking level in viper so the change persists.
+					viper.Set("thinking-level", string(fallback))
+					thinkingLevel = fallback
+				}
+			}
+		}
+	}
+
 	// With message-level caching, thinking and caching can work together.
 	// No need to disable caching when thinking is enabled.
 	cfg := &models.ProviderConfig{
@@ -866,10 +883,10 @@ type Options struct {
 	MaxTokens int
 
 	// ThinkingLevel sets the reasoning effort for models that support
-	// extended thinking. Valid values: "off", "low", "medium", "high".
-	// "" = let the precedence chain resolve a level (env → config →
-	// per-model → "off"). Use [Kit.SetThinkingLevel] to change at
-	// runtime.
+	// extended thinking. Valid values: "off", "none", "minimal", "low",
+	// "medium", "high". "" = let the precedence chain resolve a level
+	// (env → config → per-model → "off"). Use [Kit.SetThinkingLevel]
+	// to change at runtime.
 	ThinkingLevel string
 
 	// Temperature controls sampling randomness (typically 0.0–2.0).

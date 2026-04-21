@@ -1142,6 +1142,31 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		if m.setModel != nil {
 			previousModel := m.providerName + "/" + m.modelName
+
+			// Check if thinking level needs adjustment for the new model.
+			// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
+			if m.thinkingLevel != "" && m.thinkingLevel != "off" {
+				parts := strings.SplitN(msg.ModelString, "/", 2)
+				if len(parts) == 2 {
+					modelName := parts[1]
+					currentLevel := models.ParseThinkingLevel(m.thinkingLevel)
+					if !models.IsValidThinkingLevelForModel(currentLevel, modelName) {
+						fallback := models.SuggestThinkingLevelFallback(currentLevel, modelName)
+						if fallback != models.ThinkingOff {
+							m.printSystemMessage(fmt.Sprintf(
+								"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
+								modelName, currentLevel, fallback,
+							))
+							m.thinkingLevel = string(fallback)
+							if m.setThinkingLevel != nil {
+								_ = m.setThinkingLevel(string(fallback))
+							}
+							go func() { _ = prefs.SaveThinkingLevelPreference(string(fallback)) }()
+						}
+					}
+				}
+			}
+
 			if err := m.setModel(msg.ModelString); err != nil {
 				m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
 			} else {
@@ -2656,7 +2681,7 @@ func (m *AppModel) renderStatusBar() string {
 
 // cycleThinkingLevel advances to the next thinking level and applies it.
 func (m *AppModel) cycleThinkingLevel() {
-	levels := []string{"off", "minimal", "low", "medium", "high"}
+	levels := []string{"off", "none", "minimal", "low", "medium", "high"}
 	current := m.thinkingLevel
 	if current == "" {
 		current = "off"
@@ -3841,6 +3866,30 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	// Check if thinking level needs adjustment for the new model.
+	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
+	if m.thinkingLevel != "" && m.thinkingLevel != "off" {
+		parts := strings.SplitN(args, "/", 2)
+		if len(parts) == 2 {
+			modelName := parts[1]
+			currentLevel := models.ParseThinkingLevel(m.thinkingLevel)
+			if !models.IsValidThinkingLevelForModel(currentLevel, modelName) {
+				fallback := models.SuggestThinkingLevelFallback(currentLevel, modelName)
+				if fallback != models.ThinkingOff {
+					m.printSystemMessage(fmt.Sprintf(
+						"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
+						modelName, currentLevel, fallback,
+					))
+					m.thinkingLevel = string(fallback)
+					if m.setThinkingLevel != nil {
+						_ = m.setThinkingLevel(string(fallback))
+					}
+					go func() { _ = prefs.SaveThinkingLevelPreference(string(fallback)) }()
+				}
+			}
+		}
+	}
+
 	// Direct model switch with the provided model string.
 	previousModel := m.providerName + "/" + m.modelName
 	if err := m.setModel(args); err != nil {
@@ -3945,7 +3994,7 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	// Parse and validate the level.
 	level := models.ParseThinkingLevel(args)
 	if string(level) != strings.ToLower(args) {
-		m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, minimal, low, medium, high", args))
+		m.printSystemMessage(fmt.Sprintf("Unknown thinking level: %q. Use: off, none, minimal, low, medium, high", args))
 		return nil
 	}
 

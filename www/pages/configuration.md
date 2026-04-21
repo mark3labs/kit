@@ -37,7 +37,7 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
-| `thinking-level` | string | `off` | Extended thinking: off, minimal, low, medium, high |
+| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |

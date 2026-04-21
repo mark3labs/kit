@@ -115,7 +115,7 @@ entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
 host, _ := kit.New(ctx, &kit.Options{
     Model:          "anthropic/claude-sonnet-4-5-20250929",
     MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
-    ThinkingLevel:  "high",            // "off" | "low" | "medium" | "high"
+    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
     Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
     ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
     ProviderURL:    "https://proxy.internal/v1",

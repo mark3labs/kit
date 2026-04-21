@@ -126,7 +126,7 @@ model: anthropic/claude-sonnet-latest
 max-tokens: 4096
 temperature: 0.7
 stream: true
-thinking-level: off       # off, minimal, low, medium, high
+thinking-level: off       # off, none, minimal, low, medium, high
 ```
 
 All of the above keys can also be set programmatically via the SDK
@@ -199,7 +199,7 @@ mcpServers:
 --stop-sequences         Custom stop sequences (comma-separated)
 --frequency-penalty      Penalize frequent tokens 0.0-2.0 (default: 0.0)
 --presence-penalty       Penalize present tokens 0.0-2.0 (default: 0.0)
---thinking-level         Extended thinking level: off, minimal, low, medium, high (default: off)
+--thinking-level         Extended thinking level: off, none, minimal, low, medium, high (default: off)
 
 # System
 --config                 Config file path (default: ~/.kit.yml)
@@ -548,7 +548,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,             // 0 = auto-resolve (env → config → per-model → 8192 floor)
-    ThinkingLevel:    "medium",          // "off", "low", "medium", "high"
+    ThinkingLevel:    "medium",          // "off", "none", "minimal", "low", "medium", "high"
     Temperature:      ptr(float32(0.2)), // pointer so 0.0 != unset; nil = provider default
     TopP:             nil,                // nil = leave provider/per-model default
     TopK:             nil,
