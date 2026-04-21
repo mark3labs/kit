@@ -300,9 +300,18 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			// Only add cache options for providers that don't already have
 			// options set, to avoid type conflicts (e.g., Anthropic has
 			// different types for regular options vs cache control options).
-			for k, v := range cacheOpts {
-				if _, exists := result.ProviderOptions[k]; !exists {
-					result.ProviderOptions[k] = v
+			//
+			// For OpenAI Responses API models, we skip merging entirely because
+			// ResponsesProviderOptions and ProviderOptions are incompatible types.
+			skipMerge := false
+			if provider == "openai" && openai.IsResponsesModel(modelName) {
+				skipMerge = true
+			}
+			if !skipMerge {
+				for k, v := range cacheOpts {
+					if _, exists := result.ProviderOptions[k]; !exists {
+						result.ProviderOptions[k] = v
+					}
 				}
 			}
 		}

@@ -11,6 +11,7 @@ import (
 
 	"charm.land/huh/v2"
 	"github.com/mark3labs/kit/internal/auth"
+	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
 )
@@ -54,9 +55,13 @@ Available providers:
   - anthropic: Anthropic Claude API (OAuth)
   - openai:    OpenAI ChatGPT Plus/Pro (Codex OAuth)
 
-Example:
+Flags:
+  --set-default   Set this provider's default model as the system default
+
+Examples:
   kit auth login anthropic
-  kit auth login openai`,
+  kit auth login openai
+  kit auth login openai --set-default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogin,
 }
@@ -99,10 +104,43 @@ Example:
 	RunE: runAuthStatus,
 }
 
+var (
+	loginSetDefault bool
+)
+
+// defaultModels maps providers to their recommended default models.
+// These are used when --set-default flag is passed to auth login.
+var defaultModels = map[string]string{
+	"anthropic": "anthropic/claude-sonnet-4-5-20250929",
+	"openai":    "openai/gpt-5.4",
+}
+
+// setDefaultModelIfRequested sets the default model for the given provider
+// if the --set-default flag was provided.
+func setDefaultModelIfRequested(provider string) error {
+	if !loginSetDefault {
+		return nil
+	}
+
+	model, ok := defaultModels[provider]
+	if !ok {
+		return fmt.Errorf("no default model configured for provider: %s", provider)
+	}
+
+	if err := ui.SaveModelPreference(model); err != nil {
+		return fmt.Errorf("failed to save model preference: %w", err)
+	}
+
+	fmt.Printf("\n✓ Set default model to: %s\n", model)
+	return nil
+}
+
 func init() {
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
+
+	authLoginCmd.Flags().BoolVar(&loginSetDefault, "set-default", false, "Set this provider's default model as the system default after login")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
@@ -288,6 +326,17 @@ func loginAnthropic() error {
 	fmt.Println("\n🎉 Your OAuth credentials will now be used for Anthropic API calls.")
 	fmt.Println("💡 You can check your authentication status with: kit auth status")
 
+	// Set default model if requested
+	if err := setDefaultModelIfRequested("anthropic"); err != nil {
+		return err
+	}
+
+	// Remind users how to set this as default if they didn't use --set-default
+	if !loginSetDefault {
+		fmt.Println("\n💡 To set Anthropic as your default model, run:")
+		fmt.Println("   kit auth login anthropic --set-default")
+	}
+
 	return nil
 }
 
@@ -453,6 +502,17 @@ func loginOpenAI() error {
 	fmt.Printf("👤 Account ID: %s\n", creds.AccountID)
 	fmt.Println("\n🎉 Your OAuth credentials will now be used for OpenAI API calls.")
 	fmt.Println("💡 You can check your authentication status with: kit auth status")
+
+	// Set default model if requested
+	if err := setDefaultModelIfRequested("openai"); err != nil {
+		return err
+	}
+
+	// Remind users how to set this as default if they didn't use --set-default
+	if !loginSetDefault {
+		fmt.Println("\n💡 To set OpenAI as your default model, run:")
+		fmt.Println("   kit auth login openai --set-default")
+	}
 
 	return nil
 }

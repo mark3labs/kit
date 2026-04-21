@@ -471,5 +471,13 @@ func GetAnthropicAPIKey(flagValue string) (string, string, error) {
 		return envKey, "ANTHROPIC_API_KEY environment variable", nil
 	}
 
+	// Check if OpenAI credentials exist to provide a helpful suggestion
+	if cm != nil {
+		hasOpenAI, _ := cm.HasOpenAICredentials()
+		if hasOpenAI {
+			return "", "", fmt.Errorf("no Anthropic API key found. Use 'kit auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag\n\nNote: OpenAI credentials were detected. To use OpenAI, run with --model openai/gpt-5.4 or set it as default:\n  kit auth login openai --set-default")
+		}
+	}
+
 	return "", "", fmt.Errorf("no Anthropic API key found. Use 'kit auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag")
 }
