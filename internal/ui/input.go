@@ -859,6 +859,21 @@ func (s *InputComponent) PendingImageCount() int {
 	return len(s.pendingImages)
 }
 
+// Clear clears the textarea content and resets related state. Returns true if
+// there was content to clear, false if the input was already empty.
+func (s *InputComponent) Clear() bool {
+	hadContent := s.textarea.Value() != ""
+	s.textarea.SetValue("")
+	s.textarea.CursorEnd()
+	s.lastValue = ""
+	s.showPopup = false
+	s.argMode = false
+	s.fileMode = false
+	s.browsingHistory = false
+	s.savedInput = ""
+	return hadContent
+}
+
 // applyFileCompletion replaces the @prefix in the textarea with the selected
 // file or MCP resource suggestion. For directories, it keeps the popup open
 // for further drilling. For files and resources, it closes the popup and adds

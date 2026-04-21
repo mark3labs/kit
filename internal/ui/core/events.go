@@ -25,6 +25,11 @@ type SubmitMsg struct {
 // presses ESC a second time, the canceling state is reset to false.
 type CancelTimerExpiredMsg struct{}
 
+// CtrlCResetMsg is sent after a short delay when the user presses Ctrl+C to
+// clear input. If the user doesn't press Ctrl+C again within the timeout,
+// the ctrlCPressedOnce flag is reset so the next Ctrl+C will clear again.
+type CtrlCResetMsg struct{}
+
 // --- Tree session events ---
 
 // TreeNodeSelectedMsg is sent when the user selects a node in the tree selector.

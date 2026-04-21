@@ -873,6 +873,123 @@ func TestCtrlC_producesQuit(t *testing.T) {
 	}
 }
 
+// TestCtrlC_clearsInput_firstPress tests that Ctrl+C clears input on first
+// press when there's content, and requires a second press to quit.
+func TestCtrlC_clearsInput_firstPress(t *testing.T) {
+	// Create a real InputComponent to test the clear behavior
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+
+	// Replace with real InputComponent that has content
+	input := NewInputComponent(80, "test", ctrl)
+	input.textarea.SetValue("some text content")
+	m.input = input
+
+	// First Ctrl+C should clear input, not quit
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	// Should have cleared the input
+	if input.textarea.Value() != "" {
+		t.Fatalf("expected input to be cleared, got %q", input.textarea.Value())
+	}
+
+	// Should have set ctrlCPressedOnce flag
+	if !m.ctrlCPressedOnce {
+		t.Fatal("expected ctrlCPressedOnce to be true after first Ctrl+C")
+	}
+
+	// The command should be a ctrlCResetCmd (not tea.Quit)
+	if cmd == nil {
+		t.Fatal("expected a command after first Ctrl+C, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(core.CtrlCResetMsg); !ok {
+		t.Fatalf("expected CtrlCResetMsg, got %T", msg)
+	}
+
+	// Second Ctrl+C should now quit
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd on second Ctrl+C, got nil")
+	}
+	msg = cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected QuitMsg on second Ctrl+C, got %T", msg)
+	}
+}
+
+// TestCtrlC_resetAfterSubmit tests that the Ctrl+C flag is reset after
+// submitting a message, so the next Ctrl+C clears input again.
+func TestCtrlC_resetAfterSubmit(t *testing.T) {
+	// Use newTestAppModel but replace the input with a real InputComponent
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+
+	// Replace with real InputComponent
+	input := NewInputComponent(80, "test", ctrl)
+	input.textarea.SetValue("content")
+	m.input = input
+
+	// First Ctrl+C clears input
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	m = updated.(*AppModel)
+	if input.textarea.Value() != "" {
+		t.Fatal("expected input to be cleared")
+	}
+
+	// Flag should be set
+	if !m.ctrlCPressedOnce {
+		t.Fatal("expected ctrlCPressedOnce to be true after first Ctrl+C")
+	}
+
+	// Simulate CtrlCResetMsg being processed (timer expired)
+	updated, _ = m.Update(core.CtrlCResetMsg{})
+	m = updated.(*AppModel)
+
+	// Flag should be reset
+	if m.ctrlCPressedOnce {
+		t.Fatal("expected ctrlCPressedOnce to be false after CtrlCResetMsg")
+	}
+
+	// Add new content to input
+	input.textarea.SetValue("new content")
+
+	// Next Ctrl+C should clear again (not quit) because flag was reset
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if input.textarea.Value() != "" {
+		t.Fatalf("expected input to be cleared again, got %q", input.textarea.Value())
+	}
+	if cmd == nil {
+		t.Fatal("expected a command after Ctrl+C, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(core.CtrlCResetMsg); !ok {
+		t.Fatalf("expected CtrlCResetMsg, got %T", msg)
+	}
+}
+
+// TestCtrlC_emptyInput_quitsImmediately tests that Ctrl+C quits immediately
+// when the input is empty (no content to clear).
+func TestCtrlC_emptyInput_quitsImmediately(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+
+	// Replace with real InputComponent (empty by default)
+	input := NewInputComponent(80, "test", ctrl)
+	m.input = input
+
+	// Ctrl+C on empty input should quit immediately
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd on empty input, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected QuitMsg, got %T", msg)
+	}
+}
+
 // --------------------------------------------------------------------------
 // submitMsg during stateWorking (queue path)
 // --------------------------------------------------------------------------

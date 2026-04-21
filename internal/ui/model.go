@@ -720,6 +720,10 @@ type AppModel struct {
 	// disables alt screen to restore the terminal properly.
 	quitting bool
 
+	// ctrlCPressedOnce tracks if Ctrl+C was pressed once to clear input.
+	// A second Ctrl+C (or Ctrl+C when input is empty) will quit the app.
+	ctrlCPressedOnce bool
+
 	// streamingBashOutput holds the current streaming bash output lines.
 	// Lines are accumulated as they arrive and displayed in the stream region.
 	streamingBashOutput []string
@@ -869,7 +873,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.messages = []MessageItem{}
 
 	// Wire up child components now that we have the concrete implementations.
-	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to quit)", appCtrl)
+	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C to clear input, Ctrl+C again to quit)", appCtrl)
 
 	// Wire up cwd for @file autocomplete.
 	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
@@ -1283,6 +1287,19 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.overlayResponseCh = nil
 				m.overlay = nil
 			}
+
+			// Check if we should clear input first (on first Ctrl+C when input has content).
+			if m.state == stateInput && !m.ctrlCPressedOnce {
+				if ic, ok := m.input.(*InputComponent); ok {
+					if hadContent := ic.Clear(); hadContent {
+						// Input was cleared. Set flag so next Ctrl+C will quit.
+						m.ctrlCPressedOnce = true
+						// Start reset timer so the flag clears after 3 seconds.
+						return m, ctrlCResetCmd()
+					}
+				}
+			}
+
 			// Set quitting flag so View() disables alt screen for clean exit.
 			m.quitting = true
 			// Graceful quit: app.Close() is deferred in cmd/root.go.
@@ -1564,10 +1581,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uicore.CancelTimerExpiredMsg:
 		m.canceling = false
 
+	// ── Ctrl+C reset timer expired ────────────────────────────────────────────
+	case uicore.CtrlCResetMsg:
+		m.ctrlCPressedOnce = false
+
 	// ── Input submitted ──────────────────────────────────────────────────────
 	case uicore.SubmitMsg:
 		// Re-enable auto-scroll when user submits a new message.
 		m.scrollList.autoScroll = true
+		// Reset Ctrl+C flag so next Ctrl+C clears input instead of quitting.
+		m.ctrlCPressedOnce = false
 
 		// Handle slash commands locally — they should never reach app.Run().
 		// Parse once: split on the first space so argument-bearing commands
@@ -3422,7 +3445,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `!command`: Run shell command, output included in LLM context\n" +
 		"- `!!command`: Run shell command, output excluded from LLM context\n\n" +
 		"**Keys:**\n" +
-		"- `Ctrl+C`: Exit at any time\n" +
+		"- `Ctrl+C`: Clear input (press again to exit)\n" +
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
 		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
 		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
@@ -4506,6 +4529,14 @@ func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
 func cancelTimerCmd() tea.Cmd {
 	return tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
 		return uicore.CancelTimerExpiredMsg{}
+	})
+}
+
+// ctrlCResetCmd returns a tea.Cmd that fires CtrlCResetMsg after 3s.
+// This resets the ctrlCPressedOnce flag so the next Ctrl+C will clear input again.
+func ctrlCResetCmd() tea.Cmd {
+	return tea.Tick(3*time.Second, func(_ time.Time) tea.Msg {
+		return uicore.CtrlCResetMsg{}
 	})
 }
 
