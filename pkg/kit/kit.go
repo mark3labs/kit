@@ -2020,6 +2020,25 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			resp := <-responseCh
 			return resp.Password, resp.Cancelled
 		},
+		// Tool call argument streaming — fire as the LLM generates tool arguments
+		func(toolCallID, toolName string) {
+			m.events.emit(ToolCallStartEvent{
+				ToolCallID: toolCallID,
+				ToolName:   toolName,
+				ToolKind:   toolKindFor(toolName),
+			})
+		},
+		func(toolCallID, delta string) {
+			m.events.emit(ToolCallDeltaEvent{
+				ToolCallID: toolCallID,
+				Delta:      delta,
+			})
+		},
+		func(toolCallID string) {
+			m.events.emit(ToolCallEndEvent{
+				ToolCallID: toolCallID,
+			})
+		},
 	)
 }
 

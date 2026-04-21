@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllEventTypes_Count(t *testing.T) {
 	all := AllEventTypes()
-	if len(all) != 21 {
-		t.Fatalf("expected 21 event types, got %d", len(all))
+	if len(all) != 24 {
+		t.Fatalf("expected 24 event types, got %d", len(all))
 	}
 }
 
@@ -38,6 +38,9 @@ func TestEventType_TypeMethod(t *testing.T) {
 		want  EventType
 	}{
 		{ToolCallEvent{ToolName: "test"}, ToolCall},
+		{ToolCallInputStartEvent{ToolCallID: "x", ToolName: "test"}, ToolCallInputStart},
+		{ToolCallInputDeltaEvent{ToolCallID: "x", Delta: "{"}, ToolCallInputDelta},
+		{ToolCallInputEndEvent{ToolCallID: "x"}, ToolCallInputEnd},
 		{ToolExecutionStartEvent{ToolName: "test"}, ToolExecutionStart},
 		{ToolExecutionEndEvent{ToolName: "test"}, ToolExecutionEnd},
 		{ToolResultEvent{ToolName: "test"}, ToolResult},

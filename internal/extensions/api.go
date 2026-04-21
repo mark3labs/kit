@@ -1063,6 +1063,9 @@ type PrintBlockOpts struct {
 type API struct {
 	// Event-specific registration functions (wired by the loader).
 	onToolCall                func(func(ToolCallEvent, Context) *ToolCallResult)
+	onToolCallInputStart      func(func(ToolCallInputStartEvent, Context))
+	onToolCallInputDelta      func(func(ToolCallInputDeltaEvent, Context))
+	onToolCallInputEnd        func(func(ToolCallInputEndEvent, Context))
 	onToolExecStart           func(func(ToolExecutionStartEvent, Context))
 	onToolExecEnd             func(func(ToolExecutionEndEvent, Context))
 	onToolOutput              func(func(ToolOutputEvent, Context))
@@ -1097,6 +1100,26 @@ type API struct {
 // Return a non-nil ToolCallResult with Block=true to prevent execution.
 func (a *API) OnToolCall(handler func(ToolCallEvent, Context) *ToolCallResult) {
 	a.onToolCall(handler)
+}
+
+// OnToolCallInputStart registers a handler that fires when the LLM begins
+// generating tool call arguments. The tool name is known but the full
+// argument JSON is still being streamed. Useful for showing a "running"
+// indicator immediately without waiting for the full arguments.
+func (a *API) OnToolCallInputStart(handler func(ToolCallInputStartEvent, Context)) {
+	a.onToolCallInputStart(handler)
+}
+
+// OnToolCallInputDelta registers a handler that fires for each streamed
+// fragment of tool call arguments as they arrive from the LLM.
+func (a *API) OnToolCallInputDelta(handler func(ToolCallInputDeltaEvent, Context)) {
+	a.onToolCallInputDelta(handler)
+}
+
+// OnToolCallInputEnd registers a handler that fires when tool argument
+// streaming is complete, before the tool call is parsed and execution begins.
+func (a *API) OnToolCallInputEnd(handler func(ToolCallInputEndEvent, Context)) {
+	a.onToolCallInputEnd(handler)
 }
 
 // OnToolExecutionStart registers a handler for tool execution start.
@@ -1889,6 +1912,34 @@ type ToolCallResult struct {
 }
 
 func (ToolCallResult) isResult() {}
+
+// ToolCallInputStartEvent fires when the LLM begins generating tool call
+// arguments. The tool name is known but the full argument JSON is still
+// being streamed.
+type ToolCallInputStartEvent struct {
+	ToolCallID string
+	ToolName   string
+	ToolKind   string // Tool classification: "execute", "edit", "read", "search", "agent"
+}
+
+func (e ToolCallInputStartEvent) Type() EventType { return ToolCallInputStart }
+
+// ToolCallInputDeltaEvent fires for each streamed fragment of tool call
+// arguments as they arrive from the LLM.
+type ToolCallInputDeltaEvent struct {
+	ToolCallID string
+	Delta      string // JSON fragment of tool arguments
+}
+
+func (e ToolCallInputDeltaEvent) Type() EventType { return ToolCallInputDelta }
+
+// ToolCallInputEndEvent fires when tool argument streaming is complete,
+// before the tool call is parsed and execution begins.
+type ToolCallInputEndEvent struct {
+	ToolCallID string
+}
+
+func (e ToolCallInputEndEvent) Type() EventType { return ToolCallInputEnd }
 
 // ToolExecutionStartEvent fires when a tool begins executing.
 type ToolExecutionStartEvent struct {

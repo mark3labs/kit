@@ -55,7 +55,7 @@ The `Init` function receives an `ext.API` object for registering handlers, and e
 
 ## Lifecycle Events
 
-Kit provides 18 lifecycle events. Each handler receives an event struct and a `Context`.
+Kit provides 21 lifecycle events. Each handler receives an event struct and a `Context`.
 
 ### Session Events
 
@@ -135,6 +135,37 @@ api.OnToolResult(func(e ext.ToolResultEvent, ctx ext.Context) *ext.ToolResultRes
     return nil
 })
 ```
+
+### Tool Call Input Streaming Events
+
+These events fire during the LLM's tool argument generation phase, **before** the tool call is fully parsed and before `OnToolCall` fires. They enable UIs to show tool activity immediately rather than waiting for the full argument JSON to finish streaming.
+
+```go
+// Fires when the LLM begins generating tool call arguments.
+// The tool name is known but the full argument JSON is still streaming.
+api.OnToolCallInputStart(func(e ext.ToolCallInputStartEvent, ctx ext.Context) {
+    // e.ToolCallID string — stable ID for correlating tool lifecycle events
+    // e.ToolName string — name of the tool being called
+    // e.ToolKind string — "execute", "edit", "read", "search", "agent"
+    ctx.PrintInfo("Tool starting: " + e.ToolName)
+})
+
+// Fires for each streamed fragment of tool call arguments.
+// Useful for live-previewing artifact content or showing a progress indicator.
+api.OnToolCallInputDelta(func(e ext.ToolCallInputDeltaEvent, ctx ext.Context) {
+    // e.ToolCallID string
+    // e.Delta string — JSON fragment of tool arguments
+})
+
+// Fires when tool argument streaming is complete, before the tool call
+// is parsed and execution begins. Transition UI from "generating args"
+// to "executing".
+api.OnToolCallInputEnd(func(e ext.ToolCallInputEndEvent, ctx ext.Context) {
+    // e.ToolCallID string
+})
+```
+
+**Full tool lifecycle order**: `OnToolCallInputStart` → `OnToolCallInputDelta` (repeated) → `OnToolCallInputEnd` → `OnToolCall` → `OnToolExecutionStart` → `OnToolOutput` (optional, repeated) → `OnToolExecutionEnd` → `OnToolResult`
 
 ### Input Events
 

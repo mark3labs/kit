@@ -252,6 +252,25 @@ unsub := host.OnToolCall(func(e kit.ToolCallEvent) {
 })
 defer unsub()
 
+host.OnToolCallStart(func(e kit.ToolCallStartEvent) {
+    // Fires when the LLM begins generating tool call arguments.
+    // e.ToolCallID, e.ToolName, e.ToolKind
+    // Use this to show a "running" indicator immediately — before the
+    // full argument JSON finishes streaming (eliminates "dead air").
+})
+
+host.OnToolCallDelta(func(e kit.ToolCallDeltaEvent) {
+    // Fires for each streamed fragment of tool call arguments.
+    // e.ToolCallID, e.Delta (JSON fragment)
+    // Useful for live-previewing artifact content or progress indicators.
+})
+
+host.OnToolCallEnd(func(e kit.ToolCallEndEvent) {
+    // Fires when tool argument streaming is complete, before execution.
+    // e.ToolCallID
+    // Transition UI from "generating args" to "executing".
+})
+
 host.OnToolResult(func(e kit.ToolResultEvent) {
     // e.ToolCallID, e.ToolName, e.ToolKind, e.ToolArgs, e.ParsedArgs
     // e.Result, e.IsError, e.Metadata (*ToolResultMetadata)
@@ -303,6 +322,9 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `message_start` | `MessageStartEvent` | *(none)* |
 | `message_update` | `MessageUpdateEvent` | `Chunk` |
 | `message_end` | `MessageEndEvent` | `Content` |
+| `tool_call_start` | `ToolCallStartEvent` | `ToolCallID`, `ToolName`, `ToolKind` |
+| `tool_call_delta` | `ToolCallDeltaEvent` | `ToolCallID`, `Delta` |
+| `tool_call_end` | `ToolCallEndEvent` | `ToolCallID` |
 | `tool_call` | `ToolCallEvent` | `ToolCallID`, `ToolName`, `ToolKind`, `ToolArgs`, `ParsedArgs` |
 | `tool_execution_start` | `ToolExecutionStartEvent` | `ToolCallID`, `ToolName`, `ToolKind`, `ToolArgs` |
 | `tool_execution_end` | `ToolExecutionEndEvent` | `ToolCallID`, `ToolName`, `ToolKind` |
@@ -315,6 +337,8 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `step_usage` | `StepUsageEvent` | `InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens` |
 | `steer_consumed` | `SteerConsumedEvent` | `Count` |
 | `password_prompt` | `PasswordPromptEvent` | `Prompt`, `ResponseCh` |
+
+**Tool call streaming lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional, repeated) → `ToolExecutionEndEvent` → `ToolResultEvent`
 
 **PasswordPromptEvent** (for sudo password handling):
 ```go

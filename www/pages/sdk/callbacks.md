@@ -41,6 +41,32 @@ unsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {
 defer unsub6()
 ```
 
+## Tool call argument streaming
+
+For tools with large arguments (e.g., `write` with a full file body), the `ToolCallEvent` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:
+
+```go
+host.OnToolCallStart(func(event kit.ToolCallStartEvent) {
+    // Fires as soon as the LLM begins generating tool arguments.
+    // event.ToolCallID, event.ToolName, event.ToolKind
+    fmt.Printf("⏳ %s generating arguments...\n", event.ToolName)
+})
+
+host.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {
+    // Each streamed JSON fragment of the tool arguments.
+    // event.ToolCallID, event.Delta
+    // Useful for live-previewing content or showing byte progress.
+})
+
+host.OnToolCallEnd(func(event kit.ToolCallEndEvent) {
+    // Tool argument streaming complete — execution about to begin.
+    // event.ToolCallID
+    fmt.Printf("✓ Arguments ready, executing...\n")
+})
+```
+
+**Full tool lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional) → `ToolExecutionEndEvent` → `ToolResultEvent`
+
 ## Hook system
 
 Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.
@@ -104,7 +130,10 @@ Lower values run first. First non-nil result wins.
 
 | Event | Description |
 |-------|-------------|
-| `ToolCallEvent` | Tool call parsed and about to execute |
+| `ToolCallStartEvent` | LLM began generating tool call arguments (tool name known, args streaming) |
+| `ToolCallDeltaEvent` | Streamed JSON fragment of tool call arguments |
+| `ToolCallEndEvent` | Tool argument streaming complete, before execution begins |
+| `ToolCallEvent` | Tool call fully parsed and about to execute |
 | `ToolResultEvent` | Tool execution completed with result |
 | `ToolOutputEvent` | Streaming output chunk from tool (e.g., bash stdout/stderr) |
 | `MessageUpdateEvent` | Streaming text chunk from LLM |

@@ -13,6 +13,19 @@ const (
 	// ToolCall fires before a tool executes. Handlers can block execution.
 	ToolCall EventType = "tool_call"
 
+	// ToolCallInputStart fires when the LLM begins generating tool call
+	// arguments. The tool name is known but the full argument JSON is still
+	// being streamed.
+	ToolCallInputStart EventType = "tool_call_input_start"
+
+	// ToolCallInputDelta fires for each streamed fragment of tool call
+	// arguments as they arrive from the LLM.
+	ToolCallInputDelta EventType = "tool_call_input_delta"
+
+	// ToolCallInputEnd fires when tool argument streaming is complete,
+	// before the tool call is parsed and execution begins.
+	ToolCallInputEnd EventType = "tool_call_input_end"
+
 	// ToolExecutionStart fires when a tool begins executing.
 	ToolExecutionStart EventType = "tool_execution_start"
 
@@ -88,7 +101,8 @@ const (
 // AllEventTypes returns every supported event type.
 func AllEventTypes() []EventType {
 	return []EventType{
-		ToolCall, ToolExecutionStart, ToolExecutionEnd, ToolResult,
+		ToolCall, ToolCallInputStart, ToolCallInputDelta, ToolCallInputEnd,
+		ToolExecutionStart, ToolExecutionEnd, ToolResult,
 		Input, BeforeAgentStart, AgentStart, AgentEnd,
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,

@@ -888,6 +888,12 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 		switch ev := e.(type) {
 		case kit.ToolCallEvent:
 			sendFn(ToolCallStartedEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs})
+		case kit.ToolCallStartEvent:
+			sendFn(ToolCallInputStartEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolKind: ev.ToolKind})
+		case kit.ToolCallDeltaEvent:
+			sendFn(ToolCallInputDeltaEvent{ToolCallID: ev.ToolCallID, Delta: ev.Delta})
+		case kit.ToolCallEndEvent:
+			sendFn(ToolCallInputEndEvent{ToolCallID: ev.ToolCallID})
 		case kit.ToolExecutionStartEvent:
 			sendFn(ToolExecutionEvent{ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, ToolArgs: ev.ToolArgs, IsStarting: true})
 		case kit.ToolExecutionEndEvent:

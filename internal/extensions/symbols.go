@@ -152,6 +152,9 @@ func Symbols() interp.Exports {
 			// Event structs
 			"ToolCallEvent":           reflect.ValueOf((*ToolCallEvent)(nil)),
 			"ToolCallResult":          reflect.ValueOf((*ToolCallResult)(nil)),
+			"ToolCallInputStartEvent": reflect.ValueOf((*ToolCallInputStartEvent)(nil)),
+			"ToolCallInputDeltaEvent": reflect.ValueOf((*ToolCallInputDeltaEvent)(nil)),
+			"ToolCallInputEndEvent":   reflect.ValueOf((*ToolCallInputEndEvent)(nil)),
 			"ToolExecutionStartEvent": reflect.ValueOf((*ToolExecutionStartEvent)(nil)),
 			"ToolExecutionEndEvent":   reflect.ValueOf((*ToolExecutionEndEvent)(nil)),
 			"ToolOutputEvent":         reflect.ValueOf((*ToolOutputEvent)(nil)),

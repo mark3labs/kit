@@ -32,6 +32,36 @@ type ToolCallStartedEvent struct {
 	ToolArgs string
 }
 
+// ToolCallInputStartEvent is sent when the LLM begins generating tool call
+// arguments. The tool name is known but the full argument JSON is still being
+// streamed. UIs can use this to show a "running" indicator immediately instead
+// of waiting for the full argument JSON to finish streaming.
+type ToolCallInputStartEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
+	// ToolName is the name of the tool being called.
+	ToolName string
+	// ToolKind classifies the tool: "execute", "edit", "read", "search", "agent".
+	ToolKind string
+}
+
+// ToolCallInputDeltaEvent is sent for each streamed fragment of tool call
+// arguments as they arrive from the LLM. Useful for live-previewing content
+// or showing a progress indicator with byte count.
+type ToolCallInputDeltaEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
+	// Delta is a JSON fragment of tool call arguments.
+	Delta string
+}
+
+// ToolCallInputEndEvent is sent when tool argument streaming is complete,
+// before the tool call is parsed and execution begins.
+type ToolCallInputEndEvent struct {
+	// ToolCallID is the stable identifier for correlating tool lifecycle events.
+	ToolCallID string
+}
+
 // ToolExecutionEvent is sent when a tool starts or finishes executing.
 // The IsStarting flag distinguishes between the start and end of execution.
 type ToolExecutionEvent struct {

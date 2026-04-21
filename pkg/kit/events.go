@@ -23,6 +23,14 @@ const (
 	EventMessageUpdate EventType = "message_update"
 	// EventMessageEnd fires when the assistant message is complete.
 	EventMessageEnd EventType = "message_end"
+	// EventToolCallStart fires when the LLM begins generating tool call arguments.
+	// The tool name is known but arguments are still streaming.
+	EventToolCallStart EventType = "tool_call_start"
+	// EventToolCallDelta fires for each streamed fragment of tool call arguments.
+	EventToolCallDelta EventType = "tool_call_delta"
+	// EventToolCallEnd fires when tool argument streaming is complete, before
+	// the tool call is parsed and execution begins.
+	EventToolCallEnd EventType = "tool_call_end"
 	// EventToolCall fires when a tool call has been parsed and is about to execute.
 	EventToolCall EventType = "tool_call"
 	// EventToolExecutionStart fires when a tool begins executing.
@@ -215,6 +223,40 @@ type MessageEndEvent struct {
 
 // EventType implements Event.
 func (e MessageEndEvent) EventType() EventType { return EventMessageEnd }
+
+// ToolCallStartEvent fires when the LLM begins generating tool call arguments.
+// The tool name is known at this point but the full arguments are still being
+// streamed. UIs can use this to show a "running" indicator immediately instead
+// of waiting for the full argument JSON to finish streaming.
+type ToolCallStartEvent struct {
+	ToolCallID string // Stable ID for correlating tool lifecycle events
+	ToolName   string
+	ToolKind   string // Tool classification: "execute", "edit", "read", "search", "agent"
+}
+
+// EventType implements Event.
+func (e ToolCallStartEvent) EventType() EventType { return EventToolCallStart }
+
+// ToolCallDeltaEvent fires for each streamed fragment of tool call arguments.
+// Useful for live-previewing artifact content as it's generated, or showing a
+// progress indicator with byte count.
+type ToolCallDeltaEvent struct {
+	ToolCallID string // Stable ID for correlating tool lifecycle events
+	Delta      string // JSON fragment of tool arguments
+}
+
+// EventType implements Event.
+func (e ToolCallDeltaEvent) EventType() EventType { return EventToolCallDelta }
+
+// ToolCallEndEvent fires when tool argument streaming is complete, before
+// the tool call is parsed and execution begins. UIs can use this to
+// transition from an "generating args" state to an "executing" state.
+type ToolCallEndEvent struct {
+	ToolCallID string // Stable ID for correlating tool lifecycle events
+}
+
+// EventType implements Event.
+func (e ToolCallEndEvent) EventType() EventType { return EventToolCallEnd }
 
 // ToolCallEvent fires when a tool call has been parsed.
 type ToolCallEvent struct {
@@ -416,6 +458,39 @@ func (m *Kit) OnToolCall(handler func(ToolCallEvent)) func() {
 	return m.Subscribe(func(e Event) {
 		if tc, ok := e.(ToolCallEvent); ok {
 			handler(tc)
+		}
+	})
+}
+
+// OnToolCallStart registers a handler that fires only for ToolCallStartEvent.
+// This fires when the LLM begins generating tool call arguments — before the
+// full argument JSON is available. Returns an unsubscribe function.
+func (m *Kit) OnToolCallStart(handler func(ToolCallStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tcs, ok := e.(ToolCallStartEvent); ok {
+			handler(tcs)
+		}
+	})
+}
+
+// OnToolCallDelta registers a handler that fires only for ToolCallDeltaEvent.
+// Each delta contains a JSON fragment of tool call arguments as they stream in.
+// Returns an unsubscribe function.
+func (m *Kit) OnToolCallDelta(handler func(ToolCallDeltaEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tcd, ok := e.(ToolCallDeltaEvent); ok {
+			handler(tcd)
+		}
+	})
+}
+
+// OnToolCallEnd registers a handler that fires only for ToolCallEndEvent.
+// This fires when tool argument streaming is complete, before the tool call
+// is parsed and execution begins. Returns an unsubscribe function.
+func (m *Kit) OnToolCallEnd(handler func(ToolCallEndEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tce, ok := e.(ToolCallEndEvent); ok {
+			handler(tce)
 		}
 	})
 }

@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 23 lifecycle events:
+Extensions can hook into 26 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -17,6 +17,9 @@ Extensions can hook into 23 lifecycle events:
 | `OnAgentStart` | Agent loop started |
 | `OnAgentEnd` | Agent loop completed |
 | `OnToolCall` | Tool call requested by the model |
+| `OnToolCallInputStart` | LLM began generating tool call arguments (tool name known, args streaming) |
+| `OnToolCallInputDelta` | Streamed JSON fragment of tool call arguments |
+| `OnToolCallInputEnd` | Tool argument streaming complete, before execution begins |
 | `OnToolExecutionStart` | Tool execution beginning |
 | `OnToolOutput` | Streaming tool output chunk (for long-running tools) |
 | `OnToolExecutionEnd` | Tool execution completed |

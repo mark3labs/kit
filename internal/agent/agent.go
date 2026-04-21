@@ -87,6 +87,19 @@ type ReasoningDeltaHandler func(delta string)
 // Called when the last reasoning token has been processed, before text streaming starts.
 type ReasoningCompleteHandler func()
 
+// ToolCallStartHandler is a function type for handling the moment when the LLM
+// begins generating tool call arguments. The tool name is known but the full
+// argument JSON is still streaming.
+type ToolCallStartHandler func(toolCallID, toolName string)
+
+// ToolCallDeltaHandler is a function type for handling streamed fragments of
+// tool call arguments as they arrive from the LLM.
+type ToolCallDeltaHandler func(toolCallID, delta string)
+
+// ToolCallEndHandler is a function type for handling the end of tool argument
+// streaming, before the tool call is parsed and execution begins.
+type ToolCallEndHandler func(toolCallID string)
+
 // ToolOutputHandler is a function type for handling streaming tool output chunks.
 // Used by tools like bash to stream output as it arrives rather than waiting
 // for the command to complete. The isStderr flag indicates if the chunk
@@ -411,7 +424,7 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
 	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil, nil)
+		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
@@ -427,6 +440,9 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onStepMessages StepMessagesHandler,
 	onStepUsage StepUsageHandler,
 	onPasswordPrompt PasswordPromptHandler,
+	onToolCallStart ToolCallStartHandler,
+	onToolCallDelta ToolCallDeltaHandler,
+	onToolCallEnd ToolCallEndHandler,
 ) (*GenerateWithLoopResult, error) {
 
 	// Wait for background MCP tool loading to complete and rebuild the
@@ -462,7 +478,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// Stream is required to observe tool execution in real time. The non-streaming
 	// Generate path is reserved for the simple case with no callbacks at all.
 	hasCallbacks := onToolCall != nil || onToolExecution != nil || onToolResult != nil ||
-		onToolCallContent != nil || onStreamingResponse != nil || onReasoningDelta != nil
+		onToolCallContent != nil || onStreamingResponse != nil || onReasoningDelta != nil ||
+		onToolCallStart != nil || onToolCallDelta != nil || onToolCallEnd != nil
 
 	if a.streamingEnabled || hasCallbacks {
 		// Track completed step messages so we can return partial results
@@ -480,6 +497,35 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 			Prompt:   prompt,
 			Files:    files,
 			Messages: history,
+
+			// Tool input streaming callbacks — fire during tool argument generation
+			OnToolInputStart: func(id, toolName string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if onToolCallStart != nil {
+					onToolCallStart(id, toolName)
+				}
+				return nil
+			},
+			OnToolInputDelta: func(id, delta string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if onToolCallDelta != nil {
+					onToolCallDelta(id, delta)
+				}
+				return nil
+			},
+			OnToolInputEnd: func(id string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if onToolCallEnd != nil {
+					onToolCallEnd(id)
+				}
+				return nil
+			},
 
 			// Reasoning/thinking streaming callback
 			OnReasoningDelta: func(id, delta string) error {

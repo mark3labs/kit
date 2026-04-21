@@ -100,6 +100,38 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		})
 	}
 
+	// Tool call input streaming events — fire as the LLM generates tool arguments.
+	if runner.HasHandlers(extensions.ToolCallInputStart) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ToolCallStartEvent); ok {
+				_, _ = runner.Emit(extensions.ToolCallInputStartEvent{
+					ToolCallID: ev.ToolCallID,
+					ToolName:   ev.ToolName,
+					ToolKind:   ev.ToolKind,
+				})
+			}
+		})
+	}
+	if runner.HasHandlers(extensions.ToolCallInputDelta) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ToolCallDeltaEvent); ok {
+				_, _ = runner.Emit(extensions.ToolCallInputDeltaEvent{
+					ToolCallID: ev.ToolCallID,
+					Delta:      ev.Delta,
+				})
+			}
+		})
+	}
+	if runner.HasHandlers(extensions.ToolCallInputEnd) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ToolCallEndEvent); ok {
+				_, _ = runner.Emit(extensions.ToolCallInputEndEvent{
+					ToolCallID: ev.ToolCallID,
+				})
+			}
+		})
+	}
+
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
 			if ev, ok := e.(TurnEndEvent); ok {

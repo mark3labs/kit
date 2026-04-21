@@ -429,6 +429,24 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return *r
 			})
 		},
+		onToolCallInputStart: func(h func(ToolCallInputStartEvent, Context)) {
+			reg(ToolCallInputStart, func(e Event, c Context) Result {
+				h(e.(ToolCallInputStartEvent), c)
+				return nil
+			})
+		},
+		onToolCallInputDelta: func(h func(ToolCallInputDeltaEvent, Context)) {
+			reg(ToolCallInputDelta, func(e Event, c Context) Result {
+				h(e.(ToolCallInputDeltaEvent), c)
+				return nil
+			})
+		},
+		onToolCallInputEnd: func(h func(ToolCallInputEndEvent, Context)) {
+			reg(ToolCallInputEnd, func(e Event, c Context) Result {
+				h(e.(ToolCallInputEndEvent), c)
+				return nil
+			})
+		},
 		onToolExecStart: func(h func(ToolExecutionStartEvent, Context)) {
 			reg(ToolExecutionStart, func(e Event, c Context) Result {
 				h(e.(ToolExecutionStartEvent), c)
