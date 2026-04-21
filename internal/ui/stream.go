@@ -472,6 +472,10 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 
 	// Main content using Italic with Muted color for visual distinction.
 	content := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
+	// Soft-wrap to the available width so long lines don't get cut off.
+	if s.width > 4 {
+		content = lipgloss.Wrap(content, s.width-4, "")
+	}
 	theme := GetTheme()
 	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	parts = append(parts, mutedStyle.Render(s.ty.Italic(content)))

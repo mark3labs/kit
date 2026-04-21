@@ -178,7 +178,7 @@ func (r *MessageRenderer) RenderAssistantMessage(content string, timestamp time.
 // as live streaming: muted italic text with margin. This is used when resuming
 // sessions to display saved reasoning content.
 func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Time) UIMessage {
-	rendered := render.ReasoningBlock(content, 0, r.ty, style.GetTheme())
+	rendered := render.ReasoningBlock(content, 0, r.width, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      AssistantMessage,

@@ -63,14 +63,19 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 
 // ReasoningBlock renders a reasoning/thinking block with muted italic text.
 // If duration > 0, shows "Thought for Xs" label. Otherwise shows just "Thought".
-func ReasoningBlock(content string, duration int64, ty *herald.Typography, theme style.Theme) string {
+// The width parameter controls soft-wrapping so long reasoning lines don't get cut off.
+func ReasoningBlock(content string, duration int64, width int, ty *herald.Typography, theme style.Theme) string {
 	if strings.TrimSpace(content) == "" {
 		return ""
 	}
 
-	// Match live streaming styling: muted italic text
+	// Match live streaming styling: muted italic text. Wrap before styling so
+	// ANSI sequences from italics don't interfere with width calculations.
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 	contentStr := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
+	if width > 4 { // mirror other blocks (User/Assistant) which subtract 4
+		contentStr = lipgloss.Wrap(contentStr, width-4, "")
+	}
 	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	contentRendered := mutedStyle.Render(ty.Italic(contentStr))
 

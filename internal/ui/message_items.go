@@ -156,7 +156,7 @@ func (s *StreamingMessageItem) Render(width int) string {
 			durationMs = time.Since(s.startTime).Milliseconds()
 		}
 		ty := createTypography(style.GetTheme())
-		rendered = render.ReasoningBlock(s.content, durationMs, ty, style.GetTheme())
+		rendered = render.ReasoningBlock(s.content, durationMs, width, ty, style.GetTheme())
 	} else {
 		// Render as assistant message
 		rendered = render.AssistantBlock(s.content, width, style.GetTheme())
