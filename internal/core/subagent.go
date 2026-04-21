@@ -86,7 +86,7 @@ Example use cases:
 				},
 				"model": map[string]any{
 					"type":        "string",
-					"description": "Optional model override (e.g. 'anthropic/claude-haiku-3-5-20241022' for faster/cheaper tasks)",
+					"description": "Optional model override. Empty string uses the current model.",
 				},
 				"system_prompt": map[string]any{
 					"type":        "string",
@@ -94,7 +94,7 @@ Example use cases:
 				},
 				"timeout_seconds": map[string]any{
 					"type":        "number",
-					"description": "Maximum execution time in seconds (default: 300, max: 1800)",
+					"description": "Maximum execution time in seconds (default: 300, max: 1800, minimum recommended: 240)",
 				},
 			},
 			Required: []string{"task"},
