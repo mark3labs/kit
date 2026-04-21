@@ -660,6 +660,11 @@ mcpServers:
   search:
     type: remote
     url: "https://mcp.example.com/search"
+
+  pubmed:
+    type: remote
+    url: "https://pubmed.mcp.example.com"
+    noOAuth: true  # skip OAuth for public servers
 ```
 
 ### MCP server fields
@@ -672,6 +677,7 @@ mcpServers:
 | `url` | string | URL for remote servers |
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
+| `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
 

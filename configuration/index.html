@@ -7,7 +7,7 @@
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="canonical" href="/configuration">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-B2b6y3Fq.js"></script>
+<script type="module" src="/assets/index-DRvisnpF.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Configuration","description":"Configure Kit using config files, environment variables, and CLI flags.","url":"https://go-kit.dev/configuration","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -93,6 +93,11 @@ mcpServers:
   search:
     type: remote
     url: "https://mcp.example.com/search"
+
+  pubmed:
+    type: remote
+    url: "https://pubmed.mcp.example.com"
+    noOAuth: true  # skip OAuth for public servers
 ```
 
 ### MCP server fields
@@ -105,6 +110,7 @@ mcpServers:
 | `url` | string | URL for remote servers |
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
+| `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
 
