@@ -1,6 +1,6 @@
 const s={frontmatter:{title:"Capabilities",description:"All extension capabilities — lifecycle events, tools, commands, widgets, and more.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 23 lifecycle events:</p>
+<p>Extensions can hook into 26 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -32,6 +32,18 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <tr>
 <td><code>OnToolCall</code></td>
 <td>Tool call requested by the model</td>
+</tr>
+<tr>
+<td><code>OnToolCallInputStart</code></td>
+<td>LLM began generating tool call arguments (tool name known, args streaming)</td>
+</tr>
+<tr>
+<td><code>OnToolCallInputDelta</code></td>
+<td>Streamed JSON fragment of tool call arguments</td>
+</tr>
+<tr>
+<td><code>OnToolCallInputEnd</code></td>
+<td>Tool argument streaming complete, before execution begins</td>
 </tr>
 <tr>
 <td><code>OnToolExecutionStart</code></td>
@@ -415,7 +427,7 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 
 ## Lifecycle events
 
-Extensions can hook into 23 lifecycle events:
+Extensions can hook into 26 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -425,6 +437,9 @@ Extensions can hook into 23 lifecycle events:
 | \`OnAgentStart\` | Agent loop started |
 | \`OnAgentEnd\` | Agent loop completed |
 | \`OnToolCall\` | Tool call requested by the model |
+| \`OnToolCallInputStart\` | LLM began generating tool call arguments (tool name known, args streaming) |
+| \`OnToolCallInputDelta\` | Streamed JSON fragment of tool call arguments |
+| \`OnToolCallInputEnd\` | Tool argument streaming complete, before execution begins |
 | \`OnToolExecutionStart\` | Tool execution beginning |
 | \`OnToolOutput\` | Streaming tool output chunk (for long-running tools) |
 | \`OnToolExecutionEnd\` | Tool execution completed |

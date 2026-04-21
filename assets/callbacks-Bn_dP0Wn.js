@@ -30,6 +30,26 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Turn ended"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> unsub6</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<h2 id="tool-call-argument-streaming"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-call-argument-streaming"><span class="icon icon-link"></span></a>Tool call argument streaming</h2>
+<p>For tools with large arguments (e.g., <code>write</code> with a full file body), the <code>ToolCallEvent</code> only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCallStart</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">event</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallStartEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Fires as soon as the LLM begins generating tool arguments.</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // event.ToolCallID, event.ToolName, event.ToolKind</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"⏳ </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> generating arguments...</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, event.ToolName)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCallDelta</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">event</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallDeltaEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Each streamed JSON fragment of the tool arguments.</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // event.ToolCallID, event.Delta</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Useful for live-previewing content or showing byte progress.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCallEnd</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">event</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallEndEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Tool argument streaming complete — execution about to begin.</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // event.ToolCallID</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"✓ Arguments ready, executing...</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><strong>Full tool lifecycle</strong>: <code>ToolCallStartEvent</code> → <code>ToolCallDeltaEvent</code> (repeated) → <code>ToolCallEndEvent</code> → <code>ToolCallEvent</code> → <code>ToolExecutionStartEvent</code> → <code>ToolOutputEvent</code> (optional) → <code>ToolExecutionEndEvent</code> → <code>ToolResultEvent</code></p>
 <h2 id="hook-system"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#hook-system"><span class="icon icon-link"></span></a>Hook system</h2>
 <p>Hooks can <strong>modify or cancel</strong> operations. Unlike events (read-only), hooks are read-write interceptors.</p>
 <h3 id="beforetoolcall--block-tool-execution"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#beforetoolcall--block-tool-execution"><span class="icon icon-link"></span></a>BeforeToolCall — block tool execution</h3>
@@ -76,8 +96,20 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 </thead>
 <tbody>
 <tr>
+<td><code>ToolCallStartEvent</code></td>
+<td>LLM began generating tool call arguments (tool name known, args streaming)</td>
+</tr>
+<tr>
+<td><code>ToolCallDeltaEvent</code></td>
+<td>Streamed JSON fragment of tool call arguments</td>
+</tr>
+<tr>
+<td><code>ToolCallEndEvent</code></td>
+<td>Tool argument streaming complete, before execution begins</td>
+</tr>
+<tr>
 <td><code>ToolCallEvent</code></td>
-<td>Tool call parsed and about to execute</td>
+<td>Tool call fully parsed and about to execute</td>
 </tr>
 <tr>
 <td><code>ToolResultEvent</code></td>
@@ -124,7 +156,7 @@ const s={frontmatter:{title:"Callbacks",description:"Monitor tool calls and stre
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Hook system",id:"hook-system"},{depth:3,text:"BeforeToolCall — block tool execution",id:"beforetoolcall--block-tool-execution"},{depth:3,text:"AfterToolResult — modify tool output",id:"aftertoolresult--modify-tool-output"},{depth:3,text:"BeforeTurn — modify prompt, inject messages",id:"beforeturn--modify-prompt-inject-messages"},{depth:3,text:"AfterTurn — observation only",id:"afterturn--observation-only"},{depth:3,text:"Hook priorities",id:"hook-priorities"},{depth:2,text:"All event types",id:"all-event-types"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
+<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:"Event-based monitoring",id:"event-based-monitoring"},{depth:2,text:"Tool call argument streaming",id:"tool-call-argument-streaming"},{depth:2,text:"Hook system",id:"hook-system"},{depth:3,text:"BeforeToolCall — block tool execution",id:"beforetoolcall--block-tool-execution"},{depth:3,text:"AfterToolResult — modify tool output",id:"aftertoolresult--modify-tool-output"},{depth:3,text:"BeforeTurn — modify prompt, inject messages",id:"beforeturn--modify-prompt-inject-messages"},{depth:3,text:"AfterTurn — observation only",id:"afterturn--observation-only"},{depth:3,text:"Hook priorities",id:"hook-priorities"},{depth:2,text:"All event types",id:"all-event-types"},{depth:2,text:"Subagent event monitoring",id:"subagent-event-monitoring"}],raw:`
 # Callbacks
 
 ## Event-based monitoring
@@ -162,6 +194,32 @@ unsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {
 })
 defer unsub6()
 \`\`\`
+
+## Tool call argument streaming
+
+For tools with large arguments (e.g., \`write\` with a full file body), the \`ToolCallEvent\` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:
+
+\`\`\`go
+host.OnToolCallStart(func(event kit.ToolCallStartEvent) {
+    // Fires as soon as the LLM begins generating tool arguments.
+    // event.ToolCallID, event.ToolName, event.ToolKind
+    fmt.Printf("⏳ %s generating arguments...\\n", event.ToolName)
+})
+
+host.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {
+    // Each streamed JSON fragment of the tool arguments.
+    // event.ToolCallID, event.Delta
+    // Useful for live-previewing content or showing byte progress.
+})
+
+host.OnToolCallEnd(func(event kit.ToolCallEndEvent) {
+    // Tool argument streaming complete — execution about to begin.
+    // event.ToolCallID
+    fmt.Printf("✓ Arguments ready, executing...\\n")
+})
+\`\`\`
+
+**Full tool lifecycle**: \`ToolCallStartEvent\` → \`ToolCallDeltaEvent\` (repeated) → \`ToolCallEndEvent\` → \`ToolCallEvent\` → \`ToolExecutionStartEvent\` → \`ToolOutputEvent\` (optional) → \`ToolExecutionEndEvent\` → \`ToolResultEvent\`
 
 ## Hook system
 
@@ -226,7 +284,10 @@ Lower values run first. First non-nil result wins.
 
 | Event | Description |
 |-------|-------------|
-| \`ToolCallEvent\` | Tool call parsed and about to execute |
+| \`ToolCallStartEvent\` | LLM began generating tool call arguments (tool name known, args streaming) |
+| \`ToolCallDeltaEvent\` | Streamed JSON fragment of tool call arguments |
+| \`ToolCallEndEvent\` | Tool argument streaming complete, before execution begins |
+| \`ToolCallEvent\` | Tool call fully parsed and about to execute |
 | \`ToolResultEvent\` | Tool execution completed with result |
 | \`ToolOutputEvent\` | Streaming output chunk from tool (e.g., bash stdout/stderr) |
 | \`MessageUpdateEvent\` | Streaming text chunk from LLM |

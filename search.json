@@ -168,7 +168,7 @@
         "Model Resolution"
       ],
       "tags": [],
-      "wordCount": 1488
+      "wordCount": 1525
     },
     {
       "id": "extensions/examples",
@@ -332,6 +332,7 @@
       "description": "Monitor tool calls and streaming output with the Kit Go SDK.",
       "headings": [
         "Event-based monitoring",
+        "Tool call argument streaming",
         "Hook system",
         "BeforeToolCall — block tool execution",
         "AfterToolResult — modify tool output",
@@ -342,7 +343,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 425
+      "wordCount": 604
     },
     {
       "id": "sdk/options",
