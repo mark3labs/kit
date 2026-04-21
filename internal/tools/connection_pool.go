@@ -243,10 +243,12 @@ func (p *MCPConnectionPool) performHealthCheck(ctx context.Context, conn *MCPCon
 
 // createConnection creates a new connection
 func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName string, serverConfig config.MCPServerConfig) (*MCPConnection, error) {
+	oauthEnabled := p.oauthFlow != nil && !serverConfig.NoOAuth
+
 	mcpClient, err := p.createMCPClient(ctx, serverName, serverConfig)
 	if err != nil {
 		// SSE transport can return OAuth error during Start()
-		if p.oauthFlow != nil && IsOAuthError(err) {
+		if oauthEnabled && IsOAuthError(err) {
 			if flowErr := p.oauthFlow.RunAuthFlow(ctx, serverName, err); flowErr != nil {
 				return nil, fmt.Errorf("OAuth authorization failed: %w", flowErr)
 			}
@@ -262,7 +264,7 @@ func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName str
 
 	if err := p.initializeClient(ctx, mcpClient); err != nil {
 		// Streamable HTTP transport returns OAuth error during Initialize()
-		if p.oauthFlow != nil && IsOAuthError(err) {
+		if oauthEnabled && IsOAuthError(err) {
 			if flowErr := p.oauthFlow.RunAuthFlow(ctx, serverName, err); flowErr != nil {
 				_ = mcpClient.Close()
 				return nil, fmt.Errorf("OAuth authorization failed: %w", flowErr)
@@ -363,11 +365,11 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 		}
 	}
 
-	// Enable OAuth for remote transports when an auth handler is configured.
-	// The OAuthConfig uses PKCE and the handler's redirect URI. If the server
-	// config provides a pre-registered ClientID (for servers that don't support
-	// dynamic client registration, e.g. GitHub), it is passed through directly.
-	if p.oauthFlow != nil {
+	// Enable OAuth for remote transports when an auth handler is configured
+	// and the server hasn't opted out via NoOAuth. Public MCP servers (e.g.
+	// PubMed) set NoOAuth to skip dynamic client registration and token
+	// exchange, which would otherwise fail with a 404.
+	if p.oauthFlow != nil && !serverConfig.NoOAuth {
 		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
@@ -420,11 +422,9 @@ func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverCo
 		}
 	}
 
-	// Enable OAuth for remote transports when an auth handler is configured.
-	// The OAuthConfig uses PKCE and the handler's redirect URI. If the server
-	// config provides a pre-registered ClientID (for servers that don't support
-	// dynamic client registration, e.g. GitHub), it is passed through directly.
-	if p.oauthFlow != nil {
+	// Enable OAuth for remote transports when an auth handler is configured
+	// and the server hasn't opted out via NoOAuth.
+	if p.oauthFlow != nil && !serverConfig.NoOAuth {
 		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
 		if tsErr != nil {
 			return nil, fmt.Errorf("failed to create token store: %w", tsErr)

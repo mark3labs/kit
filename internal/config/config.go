@@ -30,6 +30,14 @@ type MCPServerConfig struct {
 	OAuthClientSecret string   `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
 	OAuthScopes       []string `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
 
+	// NoOAuth disables OAuth transport configuration for this server, even
+	// when the connection pool has an auth handler. Use this for public MCP
+	// servers (e.g. PubMed) that don't require authentication. Without this
+	// flag, the pool would attach OAuth transport to every remote server,
+	// causing proactive dynamic-client-registration attempts that fail on
+	// servers that don't support it.
+	NoOAuth bool `json:"noOAuth,omitempty" yaml:"noOAuth,omitempty"`
+
 	// InProcessServer holds a live *server.MCPServer for in-process transport.
 	// When set (and Type is "inprocess"), the connection pool creates an
 	// in-process client instead of spawning a subprocess or making HTTP calls.
@@ -59,6 +67,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		OAuthClientID     string            `json:"oauthClientId,omitempty" yaml:"oauthClientId,omitempty"`
 		OAuthClientSecret string            `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
 		OAuthScopes       []string          `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
+		NoOAuth           bool              `json:"noOAuth,omitempty" yaml:"noOAuth,omitempty"`
 	}
 
 	// Also try legacy format
@@ -86,6 +95,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		s.OAuthClientID = newConfig.OAuthClientID
 		s.OAuthClientSecret = newConfig.OAuthClientSecret
 		s.OAuthScopes = newConfig.OAuthScopes
+		s.NoOAuth = newConfig.NoOAuth
 		return nil
 	}
 
