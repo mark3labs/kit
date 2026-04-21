@@ -1,9 +1,0 @@
-1. Hello, world!
-
-2. Testing one, two, three.
-
-3. This is a quick test message.
-
-4. Sample text for verification.
-
-5. All systems operational.
