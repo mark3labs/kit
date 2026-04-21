@@ -76,7 +76,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 843
+      "wordCount": 844
     },
     {
       "id": "cli/flags",
@@ -92,7 +92,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 504
+      "wordCount": 505
     },
     {
       "id": "configuration",
@@ -114,7 +114,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1183
+      "wordCount": 1184
     },
     {
       "id": "development",
@@ -364,7 +364,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 1624
+      "wordCount": 1623
     },
     {
       "id": "sdk/overview",
@@ -387,7 +387,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 707
+      "wordCount": 711
     },
     {
       "id": "sdk/sessions",

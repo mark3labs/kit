@@ -407,7 +407,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/servers` | Show connected MCP servers |
 | `/model [name]` | Switch model or open model selector |
 | `/theme [name]` | Switch color theme or list available themes |
-| `/thinking [level]` | Set thinking level (off, minimal, low, medium, high) |
+| `/thinking [level]` | Set thinking level (off, none, minimal, low, medium, high) |
 | `/compact [focus]` | Summarize older messages to free context |
 | `/clear` | Clear conversation |
 | `/clear-queue` | Clear queued messages |
@@ -565,7 +565,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
 | `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
 | `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
-| `--thinking-level` | — | `off` | Extended thinking level: off, minimal, low, medium, high |
+| `--thinking-level` | — | `off` | Extended thinking level: off, none, minimal, low, medium, high |
 
 ## System
 
@@ -613,7 +613,7 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
-| `thinking-level` | string | `off` | Extended thinking: off, minimal, low, medium, high |
+| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
@@ -2586,7 +2586,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
-    ThinkingLevel:    "medium",           // "off", "low", "medium", "high"
+    ThinkingLevel:    "medium",           // "off", "none", "minimal", "low", "medium", "high"
     Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset
     TopP:             nil,                 // nil = provider/per-model default
     TopK:             nil,
@@ -2669,7 +2669,7 @@ defaults for samplers).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
-| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"low"`, `"medium"`, `"high"` (some providers also accept `"minimal"`). `""` falls through to config/env/per-model/`"off"`. |
+| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. |
 | `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
 | `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
 | `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |
@@ -2966,7 +2966,7 @@ entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
 host, _ := kit.New(ctx, &kit.Options{
     Model:          "anthropic/claude-sonnet-4-5-20250929",
     MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
-    ThinkingLevel:  "high",            // "off" | "low" | "medium" | "high"
+    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
     Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
     ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
     ProviderURL:    "https://proxy.internal/v1",

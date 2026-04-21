@@ -60,7 +60,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 </tr>
 <tr>
 <td><code>/thinking [level]</code></td>
-<td>Set thinking level (off, minimal, low, medium, high)</td>
+<td>Set thinking level (off, none, minimal, low, medium, high)</td>
 </tr>
 <tr>
 <td><code>/compact [focus]</code></td>
@@ -261,7 +261,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/servers\` | Show connected MCP servers |
 | \`/model [name]\` | Switch model or open model selector |
 | \`/theme [name]\` | Switch color theme or list available themes |
-| \`/thinking [level]\` | Set thinking level (off, minimal, low, medium, high) |
+| \`/thinking [level]\` | Set thinking level (off, none, minimal, low, medium, high) |
 | \`/compact [focus]\` | Summarize older messages to free context |
 | \`/clear\` | Clear conversation |
 | \`/clear-queue\` | Clear queued messages |
