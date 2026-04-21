@@ -157,6 +157,11 @@ mcpServers:
   search:
     type: remote
     url: "https://mcp.example.com/search"
+
+  pubmed:
+    type: remote
+    url: "https://pubmed.mcp.example.com"
+    noOAuth: true  # skip OAuth for public servers that don't require auth
 ```
 
 ## CLI Reference
