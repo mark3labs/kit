@@ -10,9 +10,10 @@ description: Complete reference for all Kit CLI subcommands.
 For OAuth-enabled providers like Anthropic.
 
 ```bash
-kit auth login [provider]    # Start OAuth flow (e.g., anthropic)
-kit auth logout [provider]   # Remove credentials for provider
-kit auth status              # Check authentication status
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+kit auth login [provider] --set-default  # Set provider's default model as system default
+kit auth logout [provider]       # Remove credentials for provider
+kit auth status                    # Check authentication status
 ```
 
 ## Model database

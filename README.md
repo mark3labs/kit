@@ -211,9 +211,10 @@ mcpServers:
 
 ```bash
 # Authentication (for OAuth-enabled providers)
-kit auth login [provider]    # Start OAuth flow (e.g., anthropic)
-kit auth logout [provider]   # Remove credentials for provider
-kit auth status              # Check authentication status
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+kit auth login [provider] --set-default  # Set provider's default model as system default
+kit auth logout [provider]         # Remove credentials for provider
+kit auth status                    # Check authentication status
 
 # Model database
 kit models [provider]        # List available models (optionally filter by provider)
