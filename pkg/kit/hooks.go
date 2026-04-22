@@ -121,6 +121,32 @@ type BeforeCompactResult struct {
 	Summary string
 }
 
+// PrepareStepHook is the input for hooks that fire between steps within a
+// multi-step agent turn, with full message replacement capability. This is
+// the most powerful interception point — it fires after the existing steering
+// logic (if any) and before the messages are sent to the LLM.
+//
+// Use cases:
+//   - Transforming tool results (e.g. converting image tool results to FilePart
+//     user messages for vision models that don't support media in tool results)
+//   - Dynamic tool filtering per step
+//   - Mid-turn context injection beyond simple steering
+//   - Custom stop conditions that inspect message history
+type PrepareStepHook struct {
+	// StepNumber is the zero-based step index within the current turn.
+	StepNumber int
+	// Messages is the current context window that will be sent to the LLM.
+	// This includes any steering messages already injected in this step.
+	Messages []LLMMessage
+}
+
+// PrepareStepResult can replace the context window between steps.
+type PrepareStepResult struct {
+	// Messages replaces the entire context window for this step. If nil,
+	// the original messages (including any steering) are used unchanged.
+	Messages []LLMMessage
+}
+
 // ---------------------------------------------------------------------------
 // Generic hook registry with priority ordering
 // ---------------------------------------------------------------------------
@@ -246,6 +272,19 @@ func (m *Kit) OnContextPrepare(p HookPriority, h func(ContextPrepareHook) *Conte
 // Returns an unregister function.
 func (m *Kit) OnBeforeCompact(p HookPriority, h func(BeforeCompactHook) *BeforeCompactResult) func() {
 	return m.beforeCompact.register(p, h)
+}
+
+// OnPrepareStep registers a hook that fires between steps within a multi-step
+// agent turn, after steering messages are injected and before the messages are
+// sent to the LLM. Return a non-nil PrepareStepResult with Messages to replace
+// the entire context window for this step. Hooks execute in priority order;
+// the first non-nil result wins. Returns an unregister function.
+//
+// This is the most powerful interception point in the agent lifecycle. It
+// enables patterns like transforming tool results, dynamic tool filtering,
+// and mid-turn context injection.
+func (m *Kit) OnPrepareStep(p HookPriority, h func(PrepareStepHook) *PrepareStepResult) func() {
+	return m.prepareStep.register(p, h)
 }
 
 // ---------------------------------------------------------------------------

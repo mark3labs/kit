@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllEventTypes_Count(t *testing.T) {
 	all := AllEventTypes()
-	if len(all) != 24 {
-		t.Fatalf("expected 24 event types, got %d", len(all))
+	if len(all) != 32 {
+		t.Fatalf("expected 32 event types, got %d", len(all))
 	}
 }
 

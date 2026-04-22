@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -187,6 +188,74 @@ func TestEventTypes(t *testing.T) {
 		if got := tt.event.EventType(); got != tt.expected {
 			t.Errorf("%T.EventType() = %q, want %q", tt.event, got, tt.expected)
 		}
+	}
+}
+
+// TestNewEventTypes verifies that each new event struct returns the correct EventType.
+func TestNewEventTypes(t *testing.T) {
+	tests := []struct {
+		event    Event
+		expected EventType
+	}{
+		{StepStartEvent{StepNumber: 0}, EventStepStart},
+		{StepFinishEvent{StepNumber: 1, HasToolCalls: true}, EventStepFinish},
+		{TextStartEvent{ID: "text-1"}, EventTextStart},
+		{TextEndEvent{ID: "text-1"}, EventTextEnd},
+		{ReasoningStartEvent{ID: "reason-1"}, EventReasoningStart},
+		{WarningsEvent{Warnings: []string{"test"}}, EventWarnings},
+		{SourceEvent{URL: "https://example.com", Title: "Example"}, EventSource},
+		{StreamFinishEvent{FinishReason: "stop"}, EventStreamFinish},
+		{ErrorEvent{Error: fmt.Errorf("test error")}, EventError},
+		{RetryEvent{Attempt: 1, Error: fmt.Errorf("retry error")}, EventRetry},
+		{ToolCallStartEvent{}, EventToolCallStart},
+		{ToolCallDeltaEvent{}, EventToolCallDelta},
+		{ToolCallEndEvent{}, EventToolCallEnd},
+		{PasswordPromptEvent{}, EventPasswordPrompt},
+	}
+
+	for _, tt := range tests {
+		if got := tt.event.EventType(); got != tt.expected {
+			t.Errorf("%T.EventType() = %q, want %q", tt.event, got, tt.expected)
+		}
+	}
+}
+
+// TestNewEventEmission verifies that new event types are properly emitted and received.
+func TestNewEventEmission(t *testing.T) {
+	bus := newEventBus()
+	var received []Event
+
+	bus.subscribe(func(e Event) {
+		received = append(received, e)
+	})
+
+	bus.emit(StepStartEvent{StepNumber: 0})
+	bus.emit(TextStartEvent{ID: "text-1"})
+	bus.emit(TextEndEvent{ID: "text-1"})
+	bus.emit(ReasoningStartEvent{ID: "reason-1"})
+	bus.emit(WarningsEvent{Warnings: []string{"low confidence"}})
+	bus.emit(SourceEvent{URL: "https://example.com", Title: "Example"})
+	bus.emit(StreamFinishEvent{FinishReason: "stop"})
+	bus.emit(StepFinishEvent{StepNumber: 0, HasToolCalls: false, FinishReason: "stop"})
+	bus.emit(ErrorEvent{Error: fmt.Errorf("test error")})
+	bus.emit(RetryEvent{Attempt: 1, Error: fmt.Errorf("retry")})
+
+	if len(received) != 10 {
+		t.Fatalf("expected 10 events, got %d", len(received))
+	}
+
+	// Verify specific event fields
+	if ss, ok := received[0].(StepStartEvent); !ok || ss.StepNumber != 0 {
+		t.Errorf("event 0: expected StepStartEvent{StepNumber:0}, got %T %+v", received[0], received[0])
+	}
+	if ts, ok := received[1].(TextStartEvent); !ok || ts.ID != "text-1" {
+		t.Errorf("event 1: expected TextStartEvent{ID:text-1}, got %T %+v", received[1], received[1])
+	}
+	if w, ok := received[4].(WarningsEvent); !ok || len(w.Warnings) != 1 || w.Warnings[0] != "low confidence" {
+		t.Errorf("event 4: expected WarningsEvent with 1 warning, got %T %+v", received[4], received[4])
+	}
+	if sf, ok := received[7].(StepFinishEvent); !ok || sf.StepNumber != 0 || sf.HasToolCalls {
+		t.Errorf("event 7: expected StepFinishEvent{StepNumber:0, HasToolCalls:false}, got %T %+v", received[7], received[7])
 	}
 }
 

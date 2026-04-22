@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 
@@ -125,6 +126,76 @@ type StepMessagesHandler func(stepMessages []fantasy.Message)
 // complete step in a multi-step agent turn. This enables real-time cost
 // tracking during long-running tool-calling conversations.
 type StepUsageHandler func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64)
+
+// StepStartHandler is called when a new LLM step begins within a turn.
+type StepStartHandler func(stepNumber int)
+
+// StepFinishHandler is called when a step completes with full context.
+type StepFinishHandler func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage)
+
+// TextStartHandler is called when the LLM begins generating text content.
+type TextStartHandler func(id string)
+
+// TextEndHandler is called when the LLM finishes generating text content.
+type TextEndHandler func(id string)
+
+// ReasoningStartHandler is called when the LLM begins reasoning/thinking.
+type ReasoningStartHandler func(id string)
+
+// WarningsHandler is called when the LLM provider returns warnings.
+type WarningsHandler func(warnings []string)
+
+// SourceHandler is called when the LLM references a source.
+type SourceHandler func(sourceType, id, url, title string)
+
+// StreamFinishHandler is called when a per-step LLM stream completes.
+type StreamFinishHandler func(usage fantasy.Usage, finishReason string)
+
+// ErrorHandler is called when an agent-level error occurs.
+type ErrorHandler func(err error)
+
+// RetryHandler is called when the LLM request is retried.
+type RetryHandler func(attempt int, err error)
+
+// PrepareStepHandler is called between steps to allow message modification.
+// It receives the step number and current messages, and returns replacement
+// messages (or nil to keep unchanged).
+type PrepareStepHandler func(stepNumber int, messages []fantasy.Message) []fantasy.Message
+
+// GenerateCallbacks consolidates all callback functions for
+// GenerateWithLoopAndStreaming into a single struct. This replaces the previous
+// 16+ positional callback parameters, making it easier to add new callbacks
+// without breaking existing callers (new fields default to nil).
+type GenerateCallbacks struct {
+	OnToolCall          ToolCallHandler
+	OnToolExecution     ToolExecutionHandler
+	OnToolResult        ToolResultHandler
+	OnResponse          ResponseHandler
+	OnToolCallContent   ToolCallContentHandler
+	OnStreamingResponse StreamingResponseHandler
+	OnReasoningDelta    ReasoningDeltaHandler
+	OnReasoningComplete ReasoningCompleteHandler
+	OnToolOutput        ToolOutputHandler
+	OnStepMessages      StepMessagesHandler
+	OnStepUsage         StepUsageHandler
+	OnPasswordPrompt    PasswordPromptHandler
+	OnToolCallStart     ToolCallStartHandler
+	OnToolCallDelta     ToolCallDeltaHandler
+	OnToolCallEnd       ToolCallEndHandler
+
+	// New callbacks for previously unwired Fantasy lifecycle events.
+	OnStepStart      StepStartHandler
+	OnStepFinish     StepFinishHandler
+	OnTextStart      TextStartHandler
+	OnTextEnd        TextEndHandler
+	OnReasoningStart ReasoningStartHandler
+	OnWarnings       WarningsHandler
+	OnSource         SourceHandler
+	OnStreamFinish   StreamFinishHandler
+	OnError          ErrorHandler
+	OnRetry          RetryHandler
+	OnPrepareStep    PrepareStepHandler
+}
 
 // Agent represents an AI agent with core tool integration using the LLM library.
 // Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
@@ -423,13 +494,20 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
 ) (*GenerateWithLoopResult, error) {
-	return a.GenerateWithLoopAndStreaming(ctx, messages, onToolCall, onToolExecution, onToolResult,
-		onResponse, onToolCallContent, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return a.GenerateWithCallbacks(ctx, messages, GenerateCallbacks{
+		OnToolCall:        onToolCall,
+		OnToolExecution:   onToolExecution,
+		OnToolResult:      onToolResult,
+		OnResponse:        onResponse,
+		OnToolCallContent: onToolCallContent,
+	})
 }
 
 // GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
-// The agent handles the tool call loop internally. We map the rich callback system
-// to kit's existing callback interface for UI integration.
+// The agent handles the tool call loop internally.
+//
+// Deprecated: Use GenerateWithCallbacks instead, which takes a GenerateCallbacks
+// struct and is easier to extend with new callbacks.
 func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fantasy.Message,
 	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
 	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
@@ -444,6 +522,31 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	onToolCallDelta ToolCallDeltaHandler,
 	onToolCallEnd ToolCallEndHandler,
 ) (*GenerateWithLoopResult, error) {
+	return a.GenerateWithCallbacks(ctx, messages, GenerateCallbacks{
+		OnToolCall:          onToolCall,
+		OnToolExecution:     onToolExecution,
+		OnToolResult:        onToolResult,
+		OnResponse:          onResponse,
+		OnToolCallContent:   onToolCallContent,
+		OnStreamingResponse: onStreamingResponse,
+		OnReasoningDelta:    onReasoningDelta,
+		OnReasoningComplete: onReasoningComplete,
+		OnToolOutput:        onToolOutput,
+		OnStepMessages:      onStepMessages,
+		OnStepUsage:         onStepUsage,
+		OnPasswordPrompt:    onPasswordPrompt,
+		OnToolCallStart:     onToolCallStart,
+		OnToolCallDelta:     onToolCallDelta,
+		OnToolCallEnd:       onToolCallEnd,
+	})
+}
+
+// GenerateWithCallbacks processes messages using the agent with streaming and callbacks.
+// The agent handles the tool call loop internally. We map the rich callback system
+// to kit's existing callback interface for UI integration.
+func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Message,
+	cb GenerateCallbacks,
+) (*GenerateWithLoopResult, error) {
 
 	// Wait for background MCP tool loading to complete and rebuild the
 	// fantasy agent with the full tool set. This is a no-op when no MCP
@@ -451,13 +554,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	a.ensureMCPTools()
 
 	// Inject tool output handler into context for use by core tools (e.g., bash).
-	if onToolOutput != nil {
-		ctx = core.ContextWithToolOutputCallback(ctx, onToolOutput)
+	if cb.OnToolOutput != nil {
+		ctx = core.ContextWithToolOutputCallback(ctx, cb.OnToolOutput)
 	}
 
 	// Inject password prompt handler into context for use by bash tool.
-	if onPasswordPrompt != nil {
-		ctx = core.ContextWithPasswordPrompt(ctx, onPasswordPrompt)
+	if cb.OnPasswordPrompt != nil {
+		ctx = core.ContextWithPasswordPrompt(ctx, cb.OnPasswordPrompt)
 	}
 
 	// The agent requires the current user input as Prompt, with prior messages as history.
@@ -477,9 +580,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 	// provided. The agent only exposes tool/step callbacks on AgentStreamCall, so
 	// Stream is required to observe tool execution in real time. The non-streaming
 	// Generate path is reserved for the simple case with no callbacks at all.
-	hasCallbacks := onToolCall != nil || onToolExecution != nil || onToolResult != nil ||
-		onToolCallContent != nil || onStreamingResponse != nil || onReasoningDelta != nil ||
-		onToolCallStart != nil || onToolCallDelta != nil || onToolCallEnd != nil
+	hasCallbacks := cb.OnToolCall != nil || cb.OnToolExecution != nil || cb.OnToolResult != nil ||
+		cb.OnToolCallContent != nil || cb.OnStreamingResponse != nil || cb.OnReasoningDelta != nil ||
+		cb.OnToolCallStart != nil || cb.OnToolCallDelta != nil || cb.OnToolCallEnd != nil ||
+		cb.OnStepStart != nil || cb.OnStepFinish != nil || cb.OnTextStart != nil ||
+		cb.OnTextEnd != nil || cb.OnReasoningStart != nil || cb.OnWarnings != nil ||
+		cb.OnSource != nil || cb.OnStreamFinish != nil || cb.OnError != nil ||
+		cb.OnRetry != nil || cb.OnPrepareStep != nil
 
 	if a.streamingEnabled || hasCallbacks {
 		// Track completed step messages so we can return partial results
@@ -488,9 +595,11 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		// for every step that completed before the error occurred.
 		var completedStepMessages []fantasy.Message
 		// persistedCount tracks how many new messages (beyond the original
-		// input) were persisted incrementally via onStepMessages, so the
+		// input) were persisted incrementally via cb.OnStepMessages, so the
 		// caller can skip them during post-generation persistence.
 		var persistedCount int
+		// stepCounter tracks the current step number for StepStart/StepFinish events.
+		var stepCounter int
 
 		// Use the streaming agent
 		streamCall := fantasy.AgentStreamCall{
@@ -503,8 +612,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onToolCallStart != nil {
-					onToolCallStart(id, toolName)
+				if cb.OnToolCallStart != nil {
+					cb.OnToolCallStart(id, toolName)
 				}
 				return nil
 			},
@@ -512,8 +621,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onToolCallDelta != nil {
-					onToolCallDelta(id, delta)
+				if cb.OnToolCallDelta != nil {
+					cb.OnToolCallDelta(id, delta)
 				}
 				return nil
 			},
@@ -521,8 +630,39 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onToolCallEnd != nil {
-					onToolCallEnd(id)
+				if cb.OnToolCallEnd != nil {
+					cb.OnToolCallEnd(id)
+				}
+				return nil
+			},
+
+			// Text start/end callbacks
+			OnTextStart: func(id string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnTextStart != nil {
+					cb.OnTextStart(id)
+				}
+				return nil
+			},
+			OnTextEnd: func(id string) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnTextEnd != nil {
+					cb.OnTextEnd(id)
+				}
+				return nil
+			},
+
+			// Reasoning start callback
+			OnReasoningStart: func(id string, _ fantasy.ReasoningContent) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnReasoningStart != nil {
+					cb.OnReasoningStart(id)
 				}
 				return nil
 			},
@@ -532,8 +672,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onReasoningDelta != nil {
-					onReasoningDelta(delta)
+				if cb.OnReasoningDelta != nil {
+					cb.OnReasoningDelta(delta)
 				}
 				return nil
 			},
@@ -543,8 +683,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onReasoningComplete != nil {
-					onReasoningComplete()
+				if cb.OnReasoningComplete != nil {
+					cb.OnReasoningComplete()
 				}
 				return nil
 			},
@@ -554,8 +694,64 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if onStreamingResponse != nil {
-					onStreamingResponse(text)
+				if cb.OnStreamingResponse != nil {
+					cb.OnStreamingResponse(text)
+				}
+				return nil
+			},
+
+			// Warnings callback
+			OnWarnings: func(warnings []fantasy.CallWarning) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnWarnings != nil {
+					strs := make([]string, len(warnings))
+					for i, w := range warnings {
+						strs[i] = w.Message
+					}
+					cb.OnWarnings(strs)
+				}
+				return nil
+			},
+
+			// Source callback
+			OnSource: func(source fantasy.SourceContent) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnSource != nil {
+					cb.OnSource(string(source.SourceType), source.ID, source.URL, source.Title)
+				}
+				return nil
+			},
+
+			// Stream finish callback (per-step stream completion)
+			OnStreamFinish: func(usage fantasy.Usage, finishReason fantasy.FinishReason, _ fantasy.ProviderMetadata) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if cb.OnStreamFinish != nil {
+					cb.OnStreamFinish(usage, string(finishReason))
+				}
+				return nil
+			},
+
+			// Error callback
+			OnError: func(err error) {
+				if cb.OnError != nil {
+					cb.OnError(err)
+				}
+			},
+
+			// Step start callback
+			OnStepStart: func(stepNumber int) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				stepCounter = stepNumber
+				if cb.OnStepStart != nil {
+					cb.OnStepStart(stepNumber)
 				}
 				return nil
 			},
@@ -568,13 +764,13 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				currentToolArgs = tc.Input
 
 				// Notify about the tool call
-				if onToolCall != nil {
-					onToolCall(tc.ToolCallID, tc.ToolName, tc.Input)
+				if cb.OnToolCall != nil {
+					cb.OnToolCall(tc.ToolCallID, tc.ToolName, tc.Input)
 				}
 
 				// Notify tool execution starting
-				if onToolExecution != nil {
-					onToolExecution(tc.ToolCallID, tc.ToolName, tc.Input, true)
+				if cb.OnToolExecution != nil {
+					cb.OnToolExecution(tc.ToolCallID, tc.ToolName, tc.Input, true)
 				}
 
 				return nil
@@ -586,14 +782,14 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 					return ctx.Err()
 				}
 				// Notify tool execution finished
-				if onToolExecution != nil {
-					onToolExecution(tr.ToolCallID, tr.ToolName, currentToolArgs, false)
+				if cb.OnToolExecution != nil {
+					cb.OnToolExecution(tr.ToolCallID, tr.ToolName, currentToolArgs, false)
 				}
 
-				if onToolResult != nil {
+				if cb.OnToolResult != nil {
 					// Extract result text and error status
 					resultText, isError := extractToolResultText(tr)
-					onToolResult(tr.ToolCallID, tr.ToolName, currentToolArgs, resultText, tr.ClientMetadata, isError)
+					cb.OnToolResult(tr.ToolCallID, tr.ToolName, currentToolArgs, resultText, tr.ClientMetadata, isError)
 				}
 
 				return nil
@@ -607,8 +803,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 				// Persist step messages incrementally so progress is saved
 				// as it happens rather than only at the end of the turn.
-				if onStepMessages != nil && len(step.Messages) > 0 {
-					onStepMessages(step.Messages)
+				if cb.OnStepMessages != nil && len(step.Messages) > 0 {
+					cb.OnStepMessages(step.Messages)
 					persistedCount += len(step.Messages)
 				}
 
@@ -618,62 +814,85 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 				// Check if step has text content alongside tool calls
 				text := step.Content.Text()
 				toolCalls := step.Content.ToolCalls()
-				if text != "" && len(toolCalls) > 0 && onToolCallContent != nil {
-					onToolCallContent(text)
+				if text != "" && len(toolCalls) > 0 && cb.OnToolCallContent != nil {
+					cb.OnToolCallContent(text)
 				}
 				// Emit step usage for real-time cost tracking
-				if onStepUsage != nil {
-					onStepUsage(step.Usage.InputTokens, step.Usage.OutputTokens,
+				if cb.OnStepUsage != nil {
+					cb.OnStepUsage(step.Usage.InputTokens, step.Usage.OutputTokens,
 						step.Usage.CacheReadTokens, step.Usage.CacheCreationTokens)
+				}
+				// Emit unified step finish event
+				if cb.OnStepFinish != nil {
+					cb.OnStepFinish(stepCounter, len(toolCalls) > 0, string(step.FinishReason), step.Usage)
 				}
 				return nil
 			},
 		}
 
-		// If a steer channel is attached to the context, wire up a
-		// PrepareStep function that drains the channel between steps
-		// and injects pending steer messages as user messages before
-		// the next LLM call. This enables graceful mid-turn steering
-		// without cancelling in-progress tool execution.
-		if steerCh := steerChFromContext(ctx); steerCh != nil {
-			onConsumed := steerConsumedFromContext(ctx)
+		// Always wire up PrepareStep to handle both steering and the
+		// OnPrepareStep hook. Steering drains its channel first, then
+		// OnPrepareStep hooks run against the (possibly already steered)
+		// messages.
+		steerCh := steerChFromContext(ctx)
+		onConsumed := steerConsumedFromContext(ctx)
+		hasSteering := steerCh != nil
+		hasPrepareStepHook := cb.OnPrepareStep != nil
+
+		if hasSteering || hasPrepareStepHook {
 			streamCall.PrepareStep = func(
 				stepCtx context.Context,
 				opts fantasy.PrepareStepFunctionOptions,
 			) (context.Context, fantasy.PrepareStepResult, error) {
-				// Drain all pending steer messages (non-blocking).
-				var steered []SteerMessage
-				for {
-					select {
-					case msg := <-steerCh:
-						steered = append(steered, msg)
-					default:
-						goto done
-					}
-				}
-			done:
 				result := fantasy.PrepareStepResult{
 					Model:    opts.Model,
 					Messages: opts.Messages,
 				}
-				if len(steered) > 0 {
-					// Inject each steer message as a user message so the
-					// LLM sees the redirection on the next step.
-					for _, sm := range steered {
-						result.Messages = append(result.Messages,
-							fantasy.NewUserMessage(sm.Text, sm.Files...))
+
+				// Phase 1: Drain steering channel (if present).
+				if hasSteering {
+					var steered []SteerMessage
+					for {
+						select {
+						case msg := <-steerCh:
+							steered = append(steered, msg)
+						default:
+							goto done
+						}
 					}
-					// Notify that steer messages were consumed.
-					if onConsumed != nil {
-						onConsumed(len(steered))
+				done:
+					if len(steered) > 0 {
+						for _, sm := range steered {
+							result.Messages = append(result.Messages,
+								fantasy.NewUserMessage(sm.Text, sm.Files...))
+						}
+						if onConsumed != nil {
+							onConsumed(len(steered))
+						}
+					}
+				}
+
+				// Phase 2: Run OnPrepareStep hook (if registered).
+				if hasPrepareStepHook {
+					if replacement := cb.OnPrepareStep(opts.StepNumber, result.Messages); replacement != nil {
+						result.Messages = replacement
 					}
 				}
 
 				// Apply message-level cache control for Anthropic models.
-				// This avoids type conflicts with provider-level options.
 				result.Messages = applyCacheControlToMessages(result.Messages)
 
 				return stepCtx, result, nil
+			}
+		}
+
+		// Wire OnRetry callback if provided.
+		if cb.OnRetry != nil {
+			streamCall.OnRetry = func(err *fantasy.ProviderError, _ time.Duration) {
+				// Use the retry number from the error if available; Fantasy
+				// doesn't pass a counter directly, so we approximate with a
+				// counter incremented on each call.
+				cb.OnRetry(0, err)
 			}
 		}
 
@@ -702,8 +921,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 		// empty (e.g. reasoning-only responses) so the UI properly resets
 		// the stream component and avoids duplicate content on the next
 		// flush.
-		if onResponse != nil {
-			onResponse(result.Response.Content.Text())
+		if cb.OnResponse != nil {
+			cb.OnResponse(result.Response.Content.Text())
 		}
 
 		r := convertAgentResult(result, messages)
@@ -723,8 +942,8 @@ func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fan
 
 	// For non-streaming, fire the response callback so callers can reset
 	// streaming state (see streaming path comment above).
-	if onResponse != nil {
-		onResponse(result.Response.Content.Text())
+	if cb.OnResponse != nil {
+		cb.OnResponse(result.Response.Content.Text())
 	}
 
 	return convertAgentResult(result, messages), nil

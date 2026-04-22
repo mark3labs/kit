@@ -66,6 +66,7 @@ type Kit struct {
 	afterTurn       *hookRegistry[AfterTurnHook, AfterTurnResult]
 	contextPrepare  *hookRegistry[ContextPrepareHook, ContextPrepareResult]
 	beforeCompact   *hookRegistry[BeforeCompactHook, BeforeCompactResult]
+	prepareStep     *hookRegistry[PrepareStepHook, PrepareStepResult]
 
 	// lastInputTokens stores the API-reported input token count from the
 	// most recent turn. Used by GetContextStats() to return accurate usage
@@ -1368,6 +1369,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
 	contextPrepare := newHookRegistry[ContextPrepareHook, ContextPrepareResult]()
 	beforeCompact := newHookRegistry[BeforeCompactHook, BeforeCompactResult]()
+	prepareStep := newHookRegistry[PrepareStepHook, PrepareStepResult]()
 
 	// Build agent setup options, pulling CLI-specific fields when available.
 	// Pass the pre-built ProviderConfig and scalar viper snapshots so
@@ -1461,6 +1463,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		afterTurn:             afterTurn,
 		contextPrepare:        contextPrepare,
 		beforeCompact:         beforeCompact,
+		prepareStep:           prepareStep,
 	}
 
 	// Bridge extension events to SDK hooks.
@@ -1901,21 +1904,21 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		return sr, err
 	})
 
-	return m.agent.GenerateWithLoopAndStreaming(ctx, messages,
-		func(toolCallID, toolName, toolArgs string) {
+	return m.agent.GenerateWithCallbacks(ctx, messages, agent.GenerateCallbacks{
+		OnToolCall: func(toolCallID, toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
 				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
 			})
 		},
-		func(toolCallID, toolName, toolArgs string, isStarting bool) {
+		OnToolExecution: func(toolCallID, toolName, toolArgs string, isStarting bool) {
 			if isStarting {
 				m.events.emit(ToolExecutionStartEvent{ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName), ToolArgs: toolArgs})
 			} else {
 				m.events.emit(ToolExecutionEndEvent{ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName)})
 			}
 		},
-		func(toolCallID, toolName, toolArgs, resultText, metadata string, isError bool) {
+		OnToolResult: func(toolCallID, toolName, toolArgs, resultText, metadata string, isError bool) {
 			evt := ToolResultEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
 				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
@@ -1929,17 +1932,17 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			}
 			m.events.emit(evt)
 		},
-		func(content string) {
+		OnResponse: func(content string) {
 			m.events.emit(ResponseEvent{Content: content})
 		},
-		func(content string) {
+		OnToolCallContent: func(content string) {
 			m.events.emit(ToolCallContentEvent{Content: content})
 		},
 		// <think> tag filtering: models like Qwen/DeepSeek wrap reasoning inside
 		// <think>...</think> tags in the regular text stream. We intercept those
 		// spans here and re-route them as ReasoningDeltaEvent/ReasoningCompleteEvent
 		// so callers always receive clean, tag-free text and structured reasoning.
-		func() func(chunk string) {
+		OnStreamingResponse: func() func(chunk string) {
 			const (
 				thinkOpen  = "<think>"
 				thinkClose = "</think>"
@@ -1975,14 +1978,13 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				}
 			}
 		}(),
-		func(delta string) {
+		OnReasoningDelta: func(delta string) {
 			m.events.emit(ReasoningDeltaEvent{Delta: delta})
 		},
-		func() {
+		OnReasoningComplete: func() {
 			m.events.emit(ReasoningCompleteEvent{})
 		},
-		func(toolCallID, toolName, chunk string, isStderr bool) {
-			// Emit tool output chunk event for streaming bash output
+		OnToolOutput: func(toolCallID, toolName, chunk string, isStderr bool) {
 			m.events.emit(ToolOutputEvent{
 				ToolCallID: toolCallID,
 				ToolName:   toolName,
@@ -1991,18 +1993,13 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			})
 		},
 		// Persist step messages incrementally so that progress survives
-		// crashes and long-running turns don't lose work. Each step's
-		// messages are persisted as a unit: for tool-calling steps this is
-		// the assistant message (with tool_use parts) + tool-role message
-		// (with tool_result parts) as a pair; for the final step it's the
-		// assistant text/reasoning message alone.
-		func(stepMessages []fantasy.Message) {
+		// crashes and long-running turns don't lose work.
+		OnStepMessages: func(stepMessages []fantasy.Message) {
 			for _, msg := range stepMessages {
 				_, _ = m.session.AppendMessage(msg)
 			}
 		},
-		func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
-			// Emit step usage event for real-time cost tracking
+		OnStepUsage: func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			if viper.GetBool("debug") {
 				log.Printf("DEBUG Kit.generate emitting StepUsageEvent: input=%d output=%d cacheRead=%d cacheCreate=%d",
 					inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
@@ -2016,37 +2013,97 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			})
 		},
 		// Password prompt handler for sudo commands
-		func(prompt string) (string, bool) {
-			// Emit event to TUI and wait for response via channel
+		OnPasswordPrompt: func(prompt string) (string, bool) {
 			responseCh := make(chan PasswordPromptResponse, 1)
 			m.events.emit(PasswordPromptEvent{
 				Prompt:     prompt,
 				ResponseCh: responseCh,
 			})
-			// Wait for response (TUI will send password or cancel)
 			resp := <-responseCh
 			return resp.Password, resp.Cancelled
 		},
-		// Tool call argument streaming — fire as the LLM generates tool arguments
-		func(toolCallID, toolName string) {
+		// Tool call argument streaming
+		OnToolCallStart: func(toolCallID, toolName string) {
 			m.events.emit(ToolCallStartEvent{
 				ToolCallID: toolCallID,
 				ToolName:   toolName,
 				ToolKind:   toolKindFor(toolName),
 			})
 		},
-		func(toolCallID, delta string) {
+		OnToolCallDelta: func(toolCallID, delta string) {
 			m.events.emit(ToolCallDeltaEvent{
 				ToolCallID: toolCallID,
 				Delta:      delta,
 			})
 		},
-		func(toolCallID string) {
+		OnToolCallEnd: func(toolCallID string) {
 			m.events.emit(ToolCallEndEvent{
 				ToolCallID: toolCallID,
 			})
 		},
-	)
+
+		// New callbacks for previously unwired Fantasy lifecycle events.
+		OnStepStart: func(stepNumber int) {
+			m.events.emit(StepStartEvent{StepNumber: stepNumber})
+		},
+		OnStepFinish: func(stepNumber int, hasToolCalls bool, finishReason string, usage fantasy.Usage) {
+			m.events.emit(StepFinishEvent{
+				StepNumber:   stepNumber,
+				HasToolCalls: hasToolCalls,
+				FinishReason: finishReason,
+				Usage:        usage,
+			})
+		},
+		OnTextStart: func(id string) {
+			m.events.emit(TextStartEvent{ID: id})
+		},
+		OnTextEnd: func(id string) {
+			m.events.emit(TextEndEvent{ID: id})
+		},
+		OnReasoningStart: func(id string) {
+			m.events.emit(ReasoningStartEvent{ID: id})
+		},
+		OnWarnings: func(warnings []string) {
+			m.events.emit(WarningsEvent{Warnings: warnings})
+		},
+		OnSource: func(sourceType, id, url, title string) {
+			m.events.emit(SourceEvent{
+				SourceType: sourceType,
+				ID:         id,
+				URL:        url,
+				Title:      title,
+			})
+		},
+		OnStreamFinish: func(usage fantasy.Usage, finishReason string) {
+			m.events.emit(StreamFinishEvent{
+				Usage:        usage,
+				FinishReason: finishReason,
+			})
+		},
+		OnError: func(err error) {
+			m.events.emit(ErrorEvent{Error: err})
+		},
+		OnRetry: func(attempt int, err error) {
+			m.events.emit(RetryEvent{Attempt: attempt, Error: err})
+		},
+		// PrepareStep hook — compose with steering (handled in agent layer)
+		// and then run SDK consumer hooks.
+		OnPrepareStep: func() agent.PrepareStepHandler {
+			if !m.prepareStep.hasHooks() {
+				return nil
+			}
+			return func(stepNumber int, messages []fantasy.Message) []fantasy.Message {
+				hookResult := m.prepareStep.run(PrepareStepHook{
+					StepNumber: stepNumber,
+					Messages:   messages,
+				})
+				if hookResult != nil && hookResult.Messages != nil {
+					return hookResult.Messages
+				}
+				return nil
+			}
+		}(),
+	})
 }
 
 // runTurn is the shared lifecycle for every prompt mode:

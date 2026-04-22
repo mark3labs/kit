@@ -281,7 +281,7 @@ host.OnToolOutput(func(e kit.ToolOutputEvent) {
     // Streaming bash output chunks
 })
 
-host.OnStreaming(func(e kit.MessageUpdateEvent) {
+host.OnMessageUpdate(func(e kit.MessageUpdateEvent) {
     fmt.Print(e.Chunk) // real-time text streaming
 })
 
@@ -296,7 +296,63 @@ host.OnTurnStart(func(e kit.TurnStartEvent) {
 host.OnTurnEnd(func(e kit.TurnEndEvent) {
     // e.Response, e.Error, e.StopReason
 })
+
+host.OnStepStart(func(e kit.StepStartEvent) {
+    // e.StepNumber — which LLM call step (1-based)
+})
+
+host.OnStepFinish(func(e kit.StepFinishEvent) {
+    // e.StepNumber, e.HasToolCalls, e.FinishReason, e.Usage (LLMUsage)
+})
+
+host.OnWarnings(func(e kit.WarningsEvent) {
+    for _, w := range e.Warnings {
+        log.Printf("warning: %s", w)
+    }
+})
+
+host.OnError(func(e kit.ErrorEvent) {
+    log.Printf("agent error: %v", e.Error)
+})
+
+host.OnRetry(func(e kit.RetryEvent) {
+    log.Printf("retrying (attempt %d): %v", e.Attempt, e.Error)
+})
+
+host.OnTextStart(func(e kit.TextStartEvent) {
+    // e.ID — content block ID
+})
+
+host.OnTextEnd(func(e kit.TextEndEvent) {
+    // e.ID — content block ID
+})
+
+host.OnReasoningStart(func(e kit.ReasoningStartEvent) {
+    // e.ID — reasoning block ID
+})
+
+host.OnSource(func(e kit.SourceEvent) {
+    // e.SourceType, e.ID, e.URL, e.Title
+})
+
+host.OnStreamFinish(func(e kit.StreamFinishEvent) {
+    // e.Usage (LLMUsage), e.FinishReason
+})
+
+// Additional typed subscribers for previously generic-only events:
+host.OnMessageStart(func(e kit.MessageStartEvent) {})
+host.OnMessageEnd(func(e kit.MessageEndEvent) { /* e.Content */ })
+host.OnReasoningDelta(func(e kit.ReasoningDeltaEvent) { /* e.Delta */ })
+host.OnReasoningComplete(func(e kit.ReasoningCompleteEvent) {})
+host.OnToolExecutionStart(func(e kit.ToolExecutionStartEvent) { /* e.ToolCallID, e.ToolName, e.ToolKind, e.ToolArgs */ })
+host.OnToolExecutionEnd(func(e kit.ToolExecutionEndEvent) { /* e.ToolCallID, e.ToolName, e.ToolKind */ })
+host.OnToolCallContent(func(e kit.ToolCallContentEvent) { /* e.Content */ })
+host.OnStepUsage(func(e kit.StepUsageEvent) { /* e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens */ })
+host.OnCompaction(func(e kit.CompactionEvent) { /* e.Summary, e.OriginalTokens, e.CompactedTokens, ... */ })
+host.OnSteerConsumed(func(e kit.SteerConsumedEvent) { /* e.Count */ })
 ```
+
+> **Rename note:** `OnStreaming` has been renamed to `OnMessageUpdate`. The old `OnStreaming` name is kept as a deprecated alias for one release cycle.
 
 ### Generic subscriber (receives all events)
 
@@ -336,6 +392,16 @@ unsub := host.Subscribe(func(e kit.Event) {
 | `reasoning_delta` | `ReasoningDeltaEvent` | `Delta` |
 | `step_usage` | `StepUsageEvent` | `InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens` |
 | `steer_consumed` | `SteerConsumedEvent` | `Count` |
+| `step_start` | `StepStartEvent` | `StepNumber` |
+| `step_finish` | `StepFinishEvent` | `StepNumber`, `HasToolCalls`, `FinishReason`, `Usage` |
+| `text_start` | `TextStartEvent` | `ID` |
+| `text_end` | `TextEndEvent` | `ID` |
+| `reasoning_start` | `ReasoningStartEvent` | `ID` |
+| `warnings` | `WarningsEvent` | `Warnings` |
+| `source` | `SourceEvent` | `SourceType`, `ID`, `URL`, `Title` |
+| `stream_finish` | `StreamFinishEvent` | `Usage`, `FinishReason` |
+| `error` | `ErrorEvent` | `Error` |
+| `retry` | `RetryEvent` | `Attempt`, `Error` |
 | `password_prompt` | `PasswordPromptEvent` | `Prompt`, `ResponseCh` |
 
 **Tool call streaming lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional, repeated) → `ToolExecutionEndEvent` → `ToolResultEvent`
@@ -420,6 +486,20 @@ host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
     log.Printf("Turn completed: %d chars", len(h.Response))
 })
 ```
+
+### PrepareStep — intercept/replace messages before each LLM call
+
+```go
+host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
+    // h.StepNumber  — which step in the current turn (1-based)
+    // h.Messages    — []kit.LLMMessage being sent to the LLM
+    // Return nil to pass through unchanged, or replace messages:
+    modified := filterSensitiveMessages(h.Messages)
+    return &kit.PrepareStepResult{Messages: modified}
+})
+```
+
+`PrepareStep` fires before every LLM API call within a turn (including tool-call loop iterations). Unlike `ContextPrepare` (which operates on the full context window once per turn), `PrepareStep` runs per-step and sees the messages that include the latest tool results.
 
 ### ContextPrepare — filter/inject context window
 
@@ -1172,7 +1252,7 @@ for {
 ### Pattern: Streaming output to terminal
 
 ```go
-host.OnStreaming(func(e kit.MessageUpdateEvent) {
+host.OnMessageUpdate(func(e kit.MessageUpdateEvent) {
     fmt.Print(e.Chunk)
 })
 response, _ := host.Prompt(ctx, "Write a poem")

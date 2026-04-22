@@ -356,4 +356,134 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			return nil
 		})
 	}
+
+	// --- Step lifecycle observation events ---
+
+	if runner.HasHandlers(extensions.StepStart) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(StepStartEvent); ok {
+				_, _ = runner.Emit(extensions.StepStartEvent{StepNumber: ev.StepNumber})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.StepFinish) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(StepFinishEvent); ok {
+				_, _ = runner.Emit(extensions.StepFinishEvent{
+					StepNumber:       ev.StepNumber,
+					HasToolCalls:     ev.HasToolCalls,
+					FinishReason:     ev.FinishReason,
+					InputTokens:      ev.Usage.InputTokens,
+					OutputTokens:     ev.Usage.OutputTokens,
+					CacheReadTokens:  ev.Usage.CacheReadTokens,
+					CacheWriteTokens: ev.Usage.CacheCreationTokens,
+				})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.ReasoningStart) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ReasoningStartEvent); ok {
+				_, _ = runner.Emit(extensions.ReasoningStartEvent{ID: ev.ID})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.Warnings) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(WarningsEvent); ok {
+				_, _ = runner.Emit(extensions.WarningsEvent{Warnings: ev.Warnings})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.Source) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(SourceEvent); ok {
+				_, _ = runner.Emit(extensions.SourceEvent{
+					SourceType: ev.SourceType,
+					ID:         ev.ID,
+					URL:        ev.URL,
+					Title:      ev.Title,
+				})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.Error) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(ErrorEvent); ok {
+				_, _ = runner.Emit(extensions.ErrorEvent{Error: ev.Error.Error()})
+			}
+		})
+	}
+
+	if runner.HasHandlers(extensions.Retry) {
+		m.Subscribe(func(e Event) {
+			if ev, ok := e.(RetryEvent); ok {
+				_, _ = runner.Emit(extensions.RetryEvent{
+					Attempt: ev.Attempt,
+					Error:   ev.Error.Error(),
+				})
+			}
+		})
+	}
+
+	// --- PrepareStep hook ---
+	// Extension PrepareStep → SDK PrepareStep hook.
+	// Same pattern as ContextPrepare: convert LLMMessage ↔ ContextMessage.
+	if runner.HasHandlers(extensions.PrepareStep) {
+		m.OnPrepareStep(HookPriorityNormal, func(h PrepareStepHook) *PrepareStepResult {
+			// Convert LLM message slice to extension ContextMessage slice.
+			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
+			for i, msg := range h.Messages {
+				var sb strings.Builder
+				for _, part := range msg.Content {
+					if tp, ok := part.(LLMTextPart); ok {
+						sb.WriteString(tp.Text)
+					}
+				}
+				extMsgs[i] = extensions.ContextMessage{
+					Index:   i,
+					Role:    string(msg.Role),
+					Content: sb.String(),
+				}
+			}
+
+			result, _ := runner.Emit(extensions.PrepareStepEvent{
+				StepNumber: h.StepNumber,
+				Messages:   extMsgs,
+			})
+			r, ok := result.(extensions.PrepareStepResult)
+			if !ok || r.Messages == nil {
+				return nil
+			}
+
+			// Rebuild LLM message slice from extension result.
+			rebuilt := make([]LLMMessage, 0, len(r.Messages))
+			for _, cm := range r.Messages {
+				if cm.Index >= 0 && cm.Index < len(h.Messages) {
+					rebuilt = append(rebuilt, h.Messages[cm.Index])
+				} else {
+					role := LLMRoleUser
+					switch cm.Role {
+					case "assistant":
+						role = LLMRoleAssistant
+					case "system":
+						role = LLMRoleSystem
+					case "tool":
+						role = LLMRoleTool
+					}
+					rebuilt = append(rebuilt, LLMMessage{
+						Role:    role,
+						Content: []LLMMessagePart{LLMTextPart{Text: cm.Content}},
+					})
+				}
+			}
+
+			return &PrepareStepResult{Messages: rebuilt}
+		})
+	}
 }

@@ -618,6 +618,57 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return nil
 			})
 		},
+		onStepStart: func(h func(StepStartEvent, Context)) {
+			reg(StepStart, func(e Event, c Context) Result {
+				h(e.(StepStartEvent), c)
+				return nil
+			})
+		},
+		onStepFinish: func(h func(StepFinishEvent, Context)) {
+			reg(StepFinish, func(e Event, c Context) Result {
+				h(e.(StepFinishEvent), c)
+				return nil
+			})
+		},
+		onReasoningStart: func(h func(ReasoningStartEvent, Context)) {
+			reg(ReasoningStart, func(e Event, c Context) Result {
+				h(e.(ReasoningStartEvent), c)
+				return nil
+			})
+		},
+		onWarnings: func(h func(WarningsEvent, Context)) {
+			reg(Warnings, func(e Event, c Context) Result {
+				h(e.(WarningsEvent), c)
+				return nil
+			})
+		},
+		onSource: func(h func(SourceEvent, Context)) {
+			reg(Source, func(e Event, c Context) Result {
+				h(e.(SourceEvent), c)
+				return nil
+			})
+		},
+		onError: func(h func(ErrorEvent, Context)) {
+			reg(Error, func(e Event, c Context) Result {
+				h(e.(ErrorEvent), c)
+				return nil
+			})
+		},
+		onRetry: func(h func(RetryEvent, Context)) {
+			reg(Retry, func(e Event, c Context) Result {
+				h(e.(RetryEvent), c)
+				return nil
+			})
+		},
+		onPrepareStep: func(h func(PrepareStepEvent, Context) *PrepareStepResult) {
+			reg(PrepareStep, func(e Event, c Context) Result {
+				r := h(e.(PrepareStepEvent), c)
+				if r == nil {
+					return nil
+				}
+				return *r
+			})
+		},
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.

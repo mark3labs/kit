@@ -538,3 +538,75 @@ func TestKit_HookMethodsExist(t *testing.T) {
 	u3()
 	u4()
 }
+
+// TestPrepareStepHookRegistry verifies registration and execution of PrepareStep hooks.
+func TestPrepareStepHookRegistry(t *testing.T) {
+	hr := newHookRegistry[PrepareStepHook, PrepareStepResult]()
+
+	// Register a hook that appends a message.
+	hr.register(HookPriorityNormal, func(h PrepareStepHook) *PrepareStepResult {
+		if h.StepNumber == 0 {
+			// On step 0, prepend a system message.
+			newMsgs := make([]LLMMessage, 0, len(h.Messages)+1)
+			newMsgs = append(newMsgs, fantasy.NewSystemMessage("injected"))
+			newMsgs = append(newMsgs, h.Messages...)
+			return &PrepareStepResult{Messages: newMsgs}
+		}
+		return nil // No modification for other steps.
+	})
+
+	// Test step 0 — should modify messages.
+	input := PrepareStepHook{
+		StepNumber: 0,
+		Messages:   []LLMMessage{fantasy.NewUserMessage("hello")},
+	}
+	result := hr.run(input)
+	if result == nil {
+		t.Fatal("expected non-nil result for step 0")
+	}
+	if len(result.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(result.Messages))
+	}
+	if result.Messages[0].Role != fantasy.MessageRoleSystem {
+		t.Errorf("expected system message first, got role %q", result.Messages[0].Role)
+	}
+
+	// Test step 1 — should return nil (no modification).
+	input.StepNumber = 1
+	result = hr.run(input)
+	if result != nil {
+		t.Errorf("expected nil result for step 1, got %+v", result)
+	}
+}
+
+// TestPrepareStepHookPriority verifies that PrepareStep hooks respect priority ordering.
+func TestPrepareStepHookPriority(t *testing.T) {
+	hr := newHookRegistry[PrepareStepHook, PrepareStepResult]()
+
+	var order []string
+
+	// Low priority — should run second.
+	hr.register(HookPriorityLow, func(_ PrepareStepHook) *PrepareStepResult {
+		order = append(order, "low")
+		return nil
+	})
+
+	// High priority — should run first and win.
+	hr.register(HookPriorityHigh, func(h PrepareStepHook) *PrepareStepResult {
+		order = append(order, "high")
+		return &PrepareStepResult{Messages: h.Messages}
+	})
+
+	input := PrepareStepHook{
+		StepNumber: 0,
+		Messages:   []LLMMessage{fantasy.NewUserMessage("test")},
+	}
+	result := hr.run(input)
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(order) != 1 || order[0] != "high" {
+		t.Errorf("expected [high] (first non-nil wins), got %v", order)
+	}
+}

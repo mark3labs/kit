@@ -62,7 +62,7 @@ func main() {
 		}
 	})
 	// Subscribe to streaming chunks.
-	host3.OnStreaming(func(e kit.MessageUpdateEvent) {
+	host3.OnMessageUpdate(func(e kit.MessageUpdateEvent) {
 		fmt.Print(e.Chunk)
 	})
 

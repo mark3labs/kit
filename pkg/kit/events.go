@@ -58,6 +58,31 @@ const (
 	// EventSteerConsumed fires when one or more steering messages have been
 	// injected into the agent turn via PrepareStep.
 	EventSteerConsumed EventType = "steer_consumed"
+	// EventStepStart fires when a new LLM call begins within a turn.
+	EventStepStart EventType = "step_start"
+	// EventStepFinish fires when a step completes, providing full step context
+	// including whether tool calls were made, the finish reason, and usage stats.
+	EventStepFinish EventType = "step_finish"
+	// EventTextStart fires when the LLM begins generating text content.
+	EventTextStart EventType = "text_start"
+	// EventTextEnd fires when the LLM finishes generating text content.
+	EventTextEnd EventType = "text_end"
+	// EventReasoningStart fires when the LLM begins reasoning/thinking.
+	EventReasoningStart EventType = "reasoning_start"
+	// EventWarnings fires when the LLM provider returns warnings.
+	EventWarnings EventType = "warnings"
+	// EventSource fires when the LLM references a source (e.g. from web search).
+	EventSource EventType = "source"
+	// EventStreamFinish fires when a per-step LLM stream completes with
+	// usage stats and a finish reason.
+	EventStreamFinish EventType = "stream_finish"
+	// EventError fires when an agent-level error occurs during streaming.
+	// This is distinct from TurnEndEvent.Error — it fires at the point of
+	// failure, before the turn ends.
+	EventError EventType = "error"
+	// EventRetry fires when the LLM provider request is retried after a
+	// transient error.
+	EventRetry EventType = "retry"
 )
 
 // ---------------------------------------------------------------------------
@@ -379,6 +404,100 @@ type SteerConsumedEvent struct {
 // EventType implements Event.
 func (e SteerConsumedEvent) EventType() EventType { return EventSteerConsumed }
 
+// StepStartEvent fires when a new LLM call begins within a multi-step agent turn.
+type StepStartEvent struct {
+	StepNumber int
+}
+
+// EventType implements Event.
+func (e StepStartEvent) EventType() EventType { return EventStepStart }
+
+// StepFinishEvent fires when a step completes, providing full step context.
+// This is a unified event that carries the same data as the existing
+// ToolCallContentEvent and StepUsageEvent, plus additional step metadata.
+type StepFinishEvent struct {
+	StepNumber   int
+	HasToolCalls bool
+	FinishReason string
+	Usage        LLMUsage
+}
+
+// EventType implements Event.
+func (e StepFinishEvent) EventType() EventType { return EventStepFinish }
+
+// TextStartEvent fires when the LLM begins generating text content.
+// Paired with MessageUpdateEvent (deltas) and TextEndEvent.
+type TextStartEvent struct {
+	ID string
+}
+
+// EventType implements Event.
+func (e TextStartEvent) EventType() EventType { return EventTextStart }
+
+// TextEndEvent fires when the LLM finishes generating text content.
+type TextEndEvent struct {
+	ID string
+}
+
+// EventType implements Event.
+func (e TextEndEvent) EventType() EventType { return EventTextEnd }
+
+// ReasoningStartEvent fires when the LLM begins reasoning/thinking.
+// Paired with ReasoningDeltaEvent (deltas) and ReasoningCompleteEvent.
+type ReasoningStartEvent struct {
+	ID string
+}
+
+// EventType implements Event.
+func (e ReasoningStartEvent) EventType() EventType { return EventReasoningStart }
+
+// WarningsEvent fires when the LLM provider returns warnings about the request.
+type WarningsEvent struct {
+	Warnings []string
+}
+
+// EventType implements Event.
+func (e WarningsEvent) EventType() EventType { return EventWarnings }
+
+// SourceEvent fires when the LLM references a source (e.g. from web search tools).
+type SourceEvent struct {
+	SourceType string
+	ID         string
+	URL        string
+	Title      string
+}
+
+// EventType implements Event.
+func (e SourceEvent) EventType() EventType { return EventSource }
+
+// StreamFinishEvent fires when a per-step LLM stream completes.
+// Provides per-stream usage stats and finish reason.
+type StreamFinishEvent struct {
+	Usage        LLMUsage
+	FinishReason string
+}
+
+// EventType implements Event.
+func (e StreamFinishEvent) EventType() EventType { return EventStreamFinish }
+
+// ErrorEvent fires when an agent-level error occurs during streaming.
+// This is distinct from TurnEndEvent.Error — it fires at the point of failure.
+type ErrorEvent struct {
+	Error error
+}
+
+// EventType implements Event.
+func (e ErrorEvent) EventType() EventType { return EventError }
+
+// RetryEvent fires when the LLM provider request is retried after a transient error.
+type RetryEvent struct {
+	Attempt int
+	Error   error
+}
+
+// EventType implements Event.
+func (e RetryEvent) EventType() EventType { return EventRetry }
+
 // PasswordPromptEvent fires when a sudo command needs a password.
 // The TUI should display a password prompt and send the result back via ResponseCh.
 type PasswordPromptEvent struct {
@@ -517,7 +636,16 @@ func (m *Kit) OnToolOutput(handler func(ToolOutputEvent)) func() {
 
 // OnStreaming registers a handler that fires only for MessageUpdateEvent
 // (streaming text chunks). Returns an unsubscribe function.
+//
+// Deprecated: Use OnMessageUpdate instead. OnStreaming will be removed in a
+// future release.
 func (m *Kit) OnStreaming(handler func(MessageUpdateEvent)) func() {
+	return m.OnMessageUpdate(handler)
+}
+
+// OnMessageUpdate registers a handler that fires only for MessageUpdateEvent
+// (streaming text chunks). Returns an unsubscribe function.
+func (m *Kit) OnMessageUpdate(handler func(MessageUpdateEvent)) func() {
 	return m.Subscribe(func(e Event) {
 		if mu, ok := e.(MessageUpdateEvent); ok {
 			handler(mu)
@@ -551,6 +679,214 @@ func (m *Kit) OnTurnEnd(handler func(TurnEndEvent)) func() {
 	return m.Subscribe(func(e Event) {
 		if te, ok := e.(TurnEndEvent); ok {
 			handler(te)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Typed subscribers for previously unsubscribed event types
+// ---------------------------------------------------------------------------
+
+// OnMessageStart registers a handler that fires only for MessageStartEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnMessageStart(handler func(MessageStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if ms, ok := e.(MessageStartEvent); ok {
+			handler(ms)
+		}
+	})
+}
+
+// OnMessageEnd registers a handler that fires only for MessageEndEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnMessageEnd(handler func(MessageEndEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if me, ok := e.(MessageEndEvent); ok {
+			handler(me)
+		}
+	})
+}
+
+// OnReasoningDelta registers a handler that fires only for ReasoningDeltaEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnReasoningDelta(handler func(ReasoningDeltaEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if rd, ok := e.(ReasoningDeltaEvent); ok {
+			handler(rd)
+		}
+	})
+}
+
+// OnReasoningComplete registers a handler that fires only for ReasoningCompleteEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnReasoningComplete(handler func(ReasoningCompleteEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if rc, ok := e.(ReasoningCompleteEvent); ok {
+			handler(rc)
+		}
+	})
+}
+
+// OnToolExecutionStart registers a handler that fires only for ToolExecutionStartEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnToolExecutionStart(handler func(ToolExecutionStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tes, ok := e.(ToolExecutionStartEvent); ok {
+			handler(tes)
+		}
+	})
+}
+
+// OnToolExecutionEnd registers a handler that fires only for ToolExecutionEndEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnToolExecutionEnd(handler func(ToolExecutionEndEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tee, ok := e.(ToolExecutionEndEvent); ok {
+			handler(tee)
+		}
+	})
+}
+
+// OnToolCallContent registers a handler that fires only for ToolCallContentEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnToolCallContent(handler func(ToolCallContentEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if tcc, ok := e.(ToolCallContentEvent); ok {
+			handler(tcc)
+		}
+	})
+}
+
+// OnStepUsage registers a handler that fires only for StepUsageEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnStepUsage(handler func(StepUsageEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if su, ok := e.(StepUsageEvent); ok {
+			handler(su)
+		}
+	})
+}
+
+// OnCompaction registers a handler that fires only for CompactionEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnCompaction(handler func(CompactionEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if ce, ok := e.(CompactionEvent); ok {
+			handler(ce)
+		}
+	})
+}
+
+// OnSteerConsumed registers a handler that fires only for SteerConsumedEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnSteerConsumed(handler func(SteerConsumedEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if sc, ok := e.(SteerConsumedEvent); ok {
+			handler(sc)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Typed subscribers for new event types
+// ---------------------------------------------------------------------------
+
+// OnStepStart registers a handler that fires only for StepStartEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnStepStart(handler func(StepStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if ss, ok := e.(StepStartEvent); ok {
+			handler(ss)
+		}
+	})
+}
+
+// OnStepFinish registers a handler that fires only for StepFinishEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnStepFinish(handler func(StepFinishEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if sf, ok := e.(StepFinishEvent); ok {
+			handler(sf)
+		}
+	})
+}
+
+// OnTextStart registers a handler that fires only for TextStartEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnTextStart(handler func(TextStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if ts, ok := e.(TextStartEvent); ok {
+			handler(ts)
+		}
+	})
+}
+
+// OnTextEnd registers a handler that fires only for TextEndEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnTextEnd(handler func(TextEndEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if te, ok := e.(TextEndEvent); ok {
+			handler(te)
+		}
+	})
+}
+
+// OnReasoningStart registers a handler that fires only for ReasoningStartEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnReasoningStart(handler func(ReasoningStartEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if rs, ok := e.(ReasoningStartEvent); ok {
+			handler(rs)
+		}
+	})
+}
+
+// OnWarnings registers a handler that fires only for WarningsEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnWarnings(handler func(WarningsEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if w, ok := e.(WarningsEvent); ok {
+			handler(w)
+		}
+	})
+}
+
+// OnSource registers a handler that fires only for SourceEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnSource(handler func(SourceEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if s, ok := e.(SourceEvent); ok {
+			handler(s)
+		}
+	})
+}
+
+// OnStreamFinish registers a handler that fires only for StreamFinishEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnStreamFinish(handler func(StreamFinishEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if sf, ok := e.(StreamFinishEvent); ok {
+			handler(sf)
+		}
+	})
+}
+
+// OnError registers a handler that fires only for ErrorEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnError(handler func(ErrorEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if ee, ok := e.(ErrorEvent); ok {
+			handler(ee)
+		}
+	})
+}
+
+// OnRetry registers a handler that fires only for RetryEvent.
+// Returns an unsubscribe function.
+func (m *Kit) OnRetry(handler func(RetryEvent)) func() {
+	return m.Subscribe(func(e Event) {
+		if r, ok := e.(RetryEvent); ok {
+			handler(r)
 		}
 	})
 }

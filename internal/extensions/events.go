@@ -96,6 +96,35 @@ const (
 	// SubagentEnd fires when a subagent tool call completes (success
 	// or error). Carries the final response and any error message.
 	SubagentEnd EventType = "subagent_end"
+
+	// StepStart fires when a new LLM call begins within a multi-step
+	// agent turn.
+	StepStart EventType = "step_start"
+
+	// StepFinish fires when a step completes, providing step number,
+	// finish reason, and token usage.
+	StepFinish EventType = "step_finish"
+
+	// ReasoningStart fires when the LLM begins reasoning/thinking.
+	ReasoningStart EventType = "reasoning_start"
+
+	// Warnings fires when the LLM provider returns warnings.
+	Warnings EventType = "warnings"
+
+	// Source fires when the LLM references a source (e.g. web search).
+	Source EventType = "source"
+
+	// Error fires when an agent-level error occurs during streaming.
+	Error EventType = "error"
+
+	// Retry fires when the LLM provider request is retried after a
+	// transient error.
+	Retry EventType = "retry"
+
+	// PrepareStep fires between steps within a multi-step agent turn,
+	// after steering messages are injected and before messages are sent
+	// to the LLM. Handlers can replace the context window for this step.
+	PrepareStep EventType = "prepare_step"
 )
 
 // AllEventTypes returns every supported event type.
@@ -109,6 +138,8 @@ func AllEventTypes() []EventType {
 		ModelChange, ContextPrepare,
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 		SubagentStart, SubagentChunk, SubagentEnd,
+		StepStart, StepFinish, ReasoningStart, Warnings, Source, Error, Retry,
+		PrepareStep,
 	}
 }
 

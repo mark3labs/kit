@@ -143,7 +143,7 @@ host.OnToolResult(func(event kit.ToolResultEvent) {
     fmt.Println("Tool result:", event.Name)
 })
 
-host.OnStreaming(func(event kit.MessageUpdateEvent) {
+host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
     fmt.Print(event.Chunk)
 })
 ```

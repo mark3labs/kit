@@ -29,7 +29,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Session Management**: Tree-based conversation history with branching support
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
-- **Go SDK**: Embed Kit in your own applications
+- **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
 ## Installation
 
@@ -684,7 +684,7 @@ unsub2 := host.OnToolResult(func(e kit.ToolResultEvent) {
 })
 defer unsub2()
 
-unsub3 := host.OnStreaming(func(e kit.MessageUpdateEvent) {
+unsub3 := host.OnMessageUpdate(func(e kit.MessageUpdateEvent) {
     print(e.Chunk)
 })
 defer unsub3()

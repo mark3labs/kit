@@ -106,7 +106,7 @@ unsub2 := host.OnToolResult(func(e kit.ToolResultEvent) {
 })
 defer unsub2()
 
-unsub3 := host.OnStreaming(func(e kit.MessageUpdateEvent) {
+unsub3 := host.OnMessageUpdate(func(e kit.MessageUpdateEvent) {
     fmt.Print(e.Chunk)
 })
 defer unsub3()

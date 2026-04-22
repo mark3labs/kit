@@ -1094,6 +1094,14 @@ type API struct {
 	onSubagentStart           func(func(SubagentStartEvent, Context))
 	onSubagentChunk           func(func(SubagentChunkEvent, Context))
 	onSubagentEnd             func(func(SubagentEndEvent, Context))
+	onStepStart               func(func(StepStartEvent, Context))
+	onStepFinish              func(func(StepFinishEvent, Context))
+	onReasoningStart          func(func(ReasoningStartEvent, Context))
+	onWarnings                func(func(WarningsEvent, Context))
+	onSource                  func(func(SourceEvent, Context))
+	onError                   func(func(ErrorEvent, Context))
+	onRetry                   func(func(RetryEvent, Context))
+	onPrepareStep             func(func(PrepareStepEvent, Context) *PrepareStepResult)
 }
 
 // OnToolCall registers a handler that fires before a tool executes.
@@ -1299,6 +1307,56 @@ func (a *API) OnBeforeSessionSwitch(handler func(BeforeSessionSwitchEvent, Conte
 // compaction from proceeding.
 func (a *API) OnBeforeCompact(handler func(BeforeCompactEvent, Context) *BeforeCompactResult) {
 	a.onBeforeCompact(handler)
+}
+
+// OnStepStart registers a handler that fires when a new LLM call begins
+// within a multi-step agent turn.
+func (a *API) OnStepStart(handler func(StepStartEvent, Context)) {
+	a.onStepStart(handler)
+}
+
+// OnStepFinish registers a handler that fires when a step completes,
+// providing step number, finish reason, and decomposed token usage.
+func (a *API) OnStepFinish(handler func(StepFinishEvent, Context)) {
+	a.onStepFinish(handler)
+}
+
+// OnReasoningStart registers a handler that fires when the LLM begins
+// reasoning/thinking.
+func (a *API) OnReasoningStart(handler func(ReasoningStartEvent, Context)) {
+	a.onReasoningStart(handler)
+}
+
+// OnWarnings registers a handler that fires when the LLM provider returns
+// warnings about the request.
+func (a *API) OnWarnings(handler func(WarningsEvent, Context)) {
+	a.onWarnings(handler)
+}
+
+// OnSource registers a handler that fires when the LLM references a source
+// (e.g. from web search tools).
+func (a *API) OnSource(handler func(SourceEvent, Context)) {
+	a.onSource(handler)
+}
+
+// OnError registers a handler that fires when an agent-level error occurs
+// during streaming.
+func (a *API) OnError(handler func(ErrorEvent, Context)) {
+	a.onError(handler)
+}
+
+// OnRetry registers a handler that fires when the LLM provider request is
+// retried after a transient error.
+func (a *API) OnRetry(handler func(RetryEvent, Context)) {
+	a.onRetry(handler)
+}
+
+// OnPrepareStep registers a handler that fires between steps within a
+// multi-step agent turn, after steering messages are injected and before
+// messages are sent to the LLM. Return a non-nil PrepareStepResult with
+// Messages to replace the context window for this step.
+func (a *API) OnPrepareStep(handler func(PrepareStepEvent, Context) *PrepareStepResult) {
+	a.onPrepareStep(handler)
 }
 
 // RegisterToolRenderer registers a custom renderer for a specific tool's
@@ -2252,6 +2310,98 @@ type SubagentEndEvent struct {
 }
 
 func (e SubagentEndEvent) Type() EventType { return SubagentEnd }
+
+// ---------------------------------------------------------------------------
+// Step lifecycle events (exposed to Yaegi — concrete structs)
+// ---------------------------------------------------------------------------
+
+// StepStartEvent fires when a new LLM call begins within a multi-step agent turn.
+type StepStartEvent struct {
+	StepNumber int
+}
+
+func (e StepStartEvent) Type() EventType { return StepStart }
+
+// StepFinishEvent fires when a step completes, providing step metadata and
+// token usage. Usage fields are plain int64 (not LLMUsage) because Yaegi
+// cannot handle fantasy types across the interpreter boundary.
+type StepFinishEvent struct {
+	StepNumber       int
+	HasToolCalls     bool
+	FinishReason     string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+}
+
+func (e StepFinishEvent) Type() EventType { return StepFinish }
+
+// ReasoningStartEvent fires when the LLM begins reasoning/thinking.
+type ReasoningStartEvent struct {
+	ID string
+}
+
+func (e ReasoningStartEvent) Type() EventType { return ReasoningStart }
+
+// WarningsEvent fires when the LLM provider returns warnings about the request.
+type WarningsEvent struct {
+	Warnings []string
+}
+
+func (e WarningsEvent) Type() EventType { return Warnings }
+
+// SourceEvent fires when the LLM references a source (e.g. from web search).
+type SourceEvent struct {
+	SourceType string
+	ID         string
+	URL        string
+	Title      string
+}
+
+func (e SourceEvent) Type() EventType { return Source }
+
+// ErrorEvent fires when an agent-level error occurs during streaming.
+// Uses string instead of error because Yaegi cannot handle the error
+// interface reliably across the interpreter boundary.
+type ErrorEvent struct {
+	Error string
+}
+
+func (e ErrorEvent) Type() EventType { return Error }
+
+// RetryEvent fires when the LLM provider request is retried after a
+// transient error.
+type RetryEvent struct {
+	Attempt int
+	Error   string
+}
+
+func (e RetryEvent) Type() EventType { return Retry }
+
+// PrepareStepEvent fires between steps within a multi-step agent turn,
+// after steering messages are injected and before messages are sent to
+// the LLM. Handlers can inspect and replace the context window.
+type PrepareStepEvent struct {
+	// StepNumber is the zero-based step index within the current turn.
+	StepNumber int
+	// Messages is the current context window that will be sent to the LLM.
+	Messages []ContextMessage
+}
+
+func (e PrepareStepEvent) Type() EventType { return PrepareStep }
+
+// PrepareStepResult allows extensions to replace the context window between
+// steps. Return nil Messages to leave the context unchanged.
+type PrepareStepResult struct {
+	// Messages replaces the entire context window for this step. If nil,
+	// the original messages are used unchanged. Messages with a non-negative
+	// Index reuse the original message at that position; messages with
+	// Index < 0 are created fresh from Role + Content.
+	Messages []ContextMessage
+}
+
+func (PrepareStepResult) isResult() {}
 
 // ThemeColor is an adaptive color pair with light and dark hex values.
 // Either field may be empty to inherit from the default theme.
