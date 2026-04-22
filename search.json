@@ -338,12 +338,13 @@
         "AfterToolResult — modify tool output",
         "BeforeTurn — modify prompt, inject messages",
         "AfterTurn — observation only",
+        "PrepareStep — intercept messages between steps",
         "Hook priorities",
         "All event types",
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 604
+      "wordCount": 958
     },
     {
       "id": "sdk/options",

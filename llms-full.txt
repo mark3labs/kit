@@ -2456,7 +2456,7 @@ unsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {
 })
 defer unsub2()
 
-unsub3 := host.OnStreaming(func(event kit.MessageUpdateEvent) {
+unsub3 := host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
     fmt.Print(event.Chunk)
 })
 defer unsub3()
@@ -2552,6 +2552,24 @@ host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
 })
 ```
 
+### PrepareStep — intercept messages between steps
+
+The most powerful hook — fires between steps within a multi-step agent turn, after any steering messages are injected and before messages are sent to the LLM. Can replace the entire context window.
+
+```go
+host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
+    // h.StepNumber — zero-based step index within the turn
+    // h.Messages   — current context window (includes any steering)
+    
+    // Example: transform tool results with images into user messages
+    modified := transformImageToolResults(h.Messages)
+    return &kit.PrepareStepResult{Messages: modified}
+    // Return nil to pass through unchanged
+})
+```
+
+Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
+
 ### Hook priorities
 
 ```go
@@ -2564,19 +2582,41 @@ Lower values run first. First non-nil result wins.
 
 ## All event types
 
-| Event | Description |
-|-------|-------------|
-| `ToolCallStartEvent` | LLM began generating tool call arguments (tool name known, args streaming) |
-| `ToolCallDeltaEvent` | Streamed JSON fragment of tool call arguments |
-| `ToolCallEndEvent` | Tool argument streaming complete, before execution begins |
-| `ToolCallEvent` | Tool call fully parsed and about to execute |
-| `ToolResultEvent` | Tool execution completed with result |
-| `ToolOutputEvent` | Streaming output chunk from tool (e.g., bash stdout/stderr) |
-| `MessageUpdateEvent` | Streaming text chunk from LLM |
-| `ResponseEvent` | Final response received |
-| `TurnStartEvent` | Agent turn started |
-| `TurnEndEvent` | Agent turn completed |
-| `PasswordPromptEvent` | Sudo command needs password (respond via `ResponseCh`) |
+| Event | Typed Subscriber | Description |
+|-------|-----------------|-------------|
+| `TurnStartEvent` | `OnTurnStart` | Agent turn started |
+| `TurnEndEvent` | `OnTurnEnd` | Agent turn completed |
+| `MessageStartEvent` | `OnMessageStart` | New assistant message begins |
+| `MessageUpdateEvent` | `OnMessageUpdate` | Streaming text chunk from LLM |
+| `MessageEndEvent` | `OnMessageEnd` | Assistant message complete |
+| `ToolCallStartEvent` | `OnToolCallStart` | LLM began generating tool call arguments |
+| `ToolCallDeltaEvent` | `OnToolCallDelta` | Streamed JSON fragment of tool call arguments |
+| `ToolCallEndEvent` | `OnToolCallEnd` | Tool argument streaming complete |
+| `ToolCallEvent` | `OnToolCall` | Tool call fully parsed, about to execute |
+| `ToolExecutionStartEvent` | `OnToolExecutionStart` | Tool begins executing |
+| `ToolExecutionEndEvent` | `OnToolExecutionEnd` | Tool finishes executing |
+| `ToolResultEvent` | `OnToolResult` | Tool execution completed with result |
+| `ToolCallContentEvent` | `OnToolCallContent` | Text content alongside tool calls |
+| `ToolOutputEvent` | `OnToolOutput` | Streaming output chunk from tool (e.g., bash) |
+| `ResponseEvent` | `OnResponse` | Final response received |
+| `ReasoningStartEvent` | `OnReasoningStart` | LLM begins reasoning/thinking |
+| `ReasoningDeltaEvent` | `OnReasoningDelta` | Streaming reasoning/thinking chunk |
+| `ReasoningCompleteEvent` | `OnReasoningComplete` | Reasoning/thinking finished |
+| `StepStartEvent` | `OnStepStart` | New LLM call begins within a turn |
+| `StepFinishEvent` | `OnStepFinish` | Step completes (with usage, finish reason, tool call info) |
+| `StepUsageEvent` | `OnStepUsage` | Per-step token usage |
+| `StreamFinishEvent` | `OnStreamFinish` | Per-step stream completes (with usage + finish reason) |
+| `TextStartEvent` | `OnTextStart` | LLM begins text content generation |
+| `TextEndEvent` | `OnTextEnd` | LLM finishes text content generation |
+| `WarningsEvent` | `OnWarnings` | LLM provider returned warnings |
+| `SourceEvent` | `OnSource` | LLM referenced a source (e.g., web search) |
+| `ErrorEvent` | `OnError` | Agent-level error during streaming |
+| `RetryEvent` | `OnRetry` | LLM request retried after transient error |
+| `CompactionEvent` | `OnCompaction` | Conversation compacted |
+| `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |
+| `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |
+
+> **Note:** `OnStreaming` is a deprecated alias for `OnMessageUpdate` and will be removed in a future release.
 
 ## Subagent event monitoring
 
@@ -3033,7 +3073,7 @@ host.OnToolResult(func(event kit.ToolResultEvent) {
     fmt.Println("Tool result:", event.Name)
 })
 
-host.OnStreaming(func(event kit.MessageUpdateEvent) {
+host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
     fmt.Print(event.Chunk)
 })
 ```
