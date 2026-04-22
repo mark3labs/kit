@@ -338,7 +338,7 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	// Build the content: icon + name + params on first line, then body
 	headerLine := styledIcon + " " + styledName
 	if params != "" {
-		headerLine += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
+		headerLine += " " + style.GetCachedStyles().ToolMuted.Render(params)
 	}
 
 	// Get body content

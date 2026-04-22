@@ -109,8 +109,8 @@ func (m *TextMessageItem) renderContent(width int) string {
 // It accumulates content chunks and re-renders on each update for live display.
 type StreamingMessageItem struct {
 	id            string
-	role          string // "assistant" or "reasoning"
-	content       string // Accumulated streaming content
+	role          string          // "assistant" or "reasoning"
+	content       strings.Builder // Accumulated streaming content
 	timestamp     time.Time
 	startTime     time.Time // When streaming started (for live duration counter)
 	modelName     string
@@ -156,10 +156,10 @@ func (s *StreamingMessageItem) Render(width int) string {
 			durationMs = time.Since(s.startTime).Milliseconds()
 		}
 		ty := createTypography(style.GetTheme())
-		rendered = render.ReasoningBlock(s.content, durationMs, width, ty, style.GetTheme())
+		rendered = render.ReasoningBlock(s.content.String(), durationMs, width, ty, style.GetTheme())
 	} else {
 		// Render as assistant message
-		rendered = render.AssistantBlock(s.content, width, style.GetTheme())
+		rendered = render.AssistantBlock(s.content.String(), width, style.GetTheme())
 	}
 
 	// Cache and return (but reasoning is never cached due to live duration)
@@ -187,7 +187,7 @@ func (s *StreamingMessageItem) Height() int {
 
 // AppendChunk adds a content chunk and invalidates the render cache.
 func (s *StreamingMessageItem) AppendChunk(chunk string) {
-	s.content += chunk
+	s.content.WriteString(chunk)
 	s.cachedWidth = 0 // Invalidate cache
 }
 
@@ -243,9 +243,7 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 
 	// Header with command
 	if m.command != "" {
-		headerStyle := lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Italic(true)
+		headerStyle := style.GetCachedStyles().BashHeader
 		parts = append(parts, headerStyle.Render(fmt.Sprintf("▸ %s", m.command)))
 	}
 

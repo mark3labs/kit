@@ -21,12 +21,11 @@ func knightRiderFrames() []string {
 	const numDots = 8
 	const dot = "▪"
 
-	theme := style.GetTheme()
-
-	bright := lipgloss.NewStyle().Foreground(theme.Primary)
-	med := lipgloss.NewStyle().Foreground(theme.Muted)
-	dim := lipgloss.NewStyle().Foreground(theme.VeryMuted)
-	off := lipgloss.NewStyle().Foreground(theme.MutedBorder)
+	cs := style.GetCachedStyles()
+	bright := cs.SpinnerBright
+	med := cs.SpinnerMed
+	dim := cs.SpinnerDim
+	off := cs.SpinnerOff
 
 	// Scanner bounces: 0→7→0
 	positions := make([]int, 0, 2*numDots-2)
@@ -476,9 +475,8 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	if s.width > 4 {
 		content = lipgloss.NewStyle().Width(s.width - 4).Render(content)
 	}
-	theme := GetTheme()
-	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	parts = append(parts, mutedStyle.Render(s.ty.Italic(content)))
+	cs := style.GetCachedStyles()
+	parts = append(parts, cs.Muted.Render(s.ty.Italic(content)))
 
 	// Duration footer with VeryMuted label and Accent duration.
 	var duration time.Duration
@@ -494,8 +492,8 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", duration.Seconds())
 		}
-		label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
-		durationStyled := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
+		label := cs.VeryMuted.Render("Thought for ")
+		durationStyled := cs.Accent.Render(durationStr)
 		parts = append(parts, label+durationStyled)
 	}
 

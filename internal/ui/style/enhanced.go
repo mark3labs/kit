@@ -40,6 +40,70 @@ func GetTheme() Theme {
 func SetTheme(theme Theme) {
 	currentTheme = theme
 	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
+	styleCache = nil              // invalidate cached styles; colors may have changed
+}
+
+// CachedStyles holds pre-built lipgloss styles that are reused across
+// render frames. Invalidated by SetTheme, lazily rebuilt on next access.
+// Only accessed from BubbleTea's single-threaded Update/View cycle.
+type CachedStyles struct {
+	// render/blocks.go
+	FileTokenAccent lipgloss.Style // Foreground(Accent).Bold(true)
+	Muted           lipgloss.Style // Foreground(Muted)
+	VeryMuted       lipgloss.Style // Foreground(VeryMuted)
+	Accent          lipgloss.Style // Foreground(Accent)
+	MarginBottom1   lipgloss.Style // MarginBottom(1)
+
+	// stream.go - spinner phases
+	SpinnerBright lipgloss.Style // Foreground(Primary)
+	SpinnerMed    lipgloss.Style // Foreground(Muted)
+	SpinnerDim    lipgloss.Style // Foreground(VeryMuted)
+	SpinnerOff    lipgloss.Style // Foreground(MutedBorder)
+
+	// message_items.go - bash output
+	BashHeader lipgloss.Style // Foreground(Muted).Italic(true)
+	BashStderr lipgloss.Style // Foreground(Error)
+
+	// render/blocks.go - tool block
+	ToolSuccess lipgloss.Style // Foreground(Success)
+	ToolError   lipgloss.Style // Foreground(Error)
+	ToolInfo    lipgloss.Style // Foreground(Info).Bold(true)
+	ToolMuted   lipgloss.Style // Foreground(Muted)
+
+	// common
+	ErrorFg  lipgloss.Style // Foreground(Error)
+	TextBold lipgloss.Style // Foreground(Text).Bold(true)
+}
+
+var styleCache *CachedStyles
+
+// GetCachedStyles returns the pre-built style cache, creating it lazily
+// from the current theme. Invalidated by SetTheme.
+func GetCachedStyles() *CachedStyles {
+	if styleCache != nil {
+		return styleCache
+	}
+	theme := GetTheme()
+	styleCache = &CachedStyles{
+		FileTokenAccent: lipgloss.NewStyle().Foreground(theme.Accent).Bold(true),
+		Muted:           lipgloss.NewStyle().Foreground(theme.Muted),
+		VeryMuted:       lipgloss.NewStyle().Foreground(theme.VeryMuted),
+		Accent:          lipgloss.NewStyle().Foreground(theme.Accent),
+		MarginBottom1:   lipgloss.NewStyle().MarginBottom(1),
+		SpinnerBright:   lipgloss.NewStyle().Foreground(theme.Primary),
+		SpinnerMed:      lipgloss.NewStyle().Foreground(theme.Muted),
+		SpinnerDim:      lipgloss.NewStyle().Foreground(theme.VeryMuted),
+		SpinnerOff:      lipgloss.NewStyle().Foreground(theme.MutedBorder),
+		BashHeader:      lipgloss.NewStyle().Foreground(theme.Muted).Italic(true),
+		BashStderr:      lipgloss.NewStyle().Foreground(theme.Error),
+		ToolSuccess:     lipgloss.NewStyle().Foreground(theme.Success),
+		ToolError:       lipgloss.NewStyle().Foreground(theme.Error),
+		ToolInfo:        lipgloss.NewStyle().Foreground(theme.Info).Bold(true),
+		ToolMuted:       lipgloss.NewStyle().Foreground(theme.Muted),
+		ErrorFg:         lipgloss.NewStyle().Foreground(theme.Error),
+		TextBold:        lipgloss.NewStyle().Foreground(theme.Text).Bold(true),
+	}
+	return styleCache
 }
 
 // MarkdownThemeColors defines colors for markdown rendering and syntax highlighting.

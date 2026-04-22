@@ -45,7 +45,7 @@ func UserBlock(content string, width int, ty *herald.Typography, theme style.The
 // HighlightFileTokens wraps @file tokens in the given text with the theme
 // accent color so they stand out visually in rendered user messages.
 func HighlightFileTokens(text string, theme style.Theme) string {
-	accentStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
+	accentStyle := style.GetCachedStyles().FileTokenAccent
 	return fileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
 		return accentStyle.Render(token)
 	})
@@ -75,8 +75,8 @@ func ReasoningBlock(content string, duration int64, width int, ty *herald.Typogr
 	if width > 4 {
 		contentStr = wrapText(contentStr, width-4)
 	}
-	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	contentRendered := mutedStyle.Render(ty.Italic(contentStr))
+	cs := style.GetCachedStyles()
+	contentRendered := cs.Muted.Render(ty.Italic(contentStr))
 
 	// Build label based on duration
 	if duration > 0 {
@@ -86,14 +86,14 @@ func ReasoningBlock(content string, duration int64, width int, ty *herald.Typogr
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", float64(duration)/1000)
 		}
-		labelPart := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought for ")
-		durationPart := lipgloss.NewStyle().Foreground(theme.Accent).Render(durationStr)
+		labelPart := cs.VeryMuted.Render("Thought for ")
+		durationPart := cs.Accent.Render(durationStr)
 		label := labelPart + durationPart
 		rendered := contentRendered + "\n" + label
 		return styleMarginBottom(theme, rendered)
 	}
 
-	label := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render("Thought")
+	label := cs.VeryMuted.Render("Thought")
 	rendered := contentRendered + "\n" + label
 
 	return styleMarginBottom(theme, rendered)
@@ -194,7 +194,7 @@ func ToolBlock(displayName, params, body string, isError bool, width int, ty *he
 
 // styleMarginBottom applies a 1-line margin bottom using the theme.
 func styleMarginBottom(theme style.Theme, content string) string {
-	return lipgloss.NewStyle().MarginBottom(1).Render(content)
+	return style.GetCachedStyles().MarginBottom1.Render(content)
 }
 
 // wrapText soft-wraps a string to the given width using lipgloss, which is

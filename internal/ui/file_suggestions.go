@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // FileSuggestion represents a single file, directory, or MCP resource
@@ -30,6 +32,51 @@ type FileSuggestion struct {
 
 // maxFileSuggestions is the maximum number of file suggestions returned.
 const maxFileSuggestions = 20
+
+// fileListCache caches the result of listFiles() keyed by directory to avoid
+// re-running git subprocesses on every keystroke during @file completion.
+var fileListCache struct {
+	mu       sync.Mutex
+	dir      string           // searchDir that produced the cached entries
+	cwd      string           // cwd used for the git query
+	entries  []FileSuggestion // cached file list
+	expireAt time.Time        // when the cache entry expires
+}
+
+// fileListCacheTTL controls how long a cached file list stays valid.
+// During rapid typing the list is reused; after the TTL a fresh git
+// ls-files is executed so newly created files become visible.
+const fileListCacheTTL = 3 * time.Second
+
+// getCachedFileList returns the file list for searchDir, using a short-lived
+// cache to avoid repeated subprocess calls during @file autocompletion.
+func getCachedFileList(searchDir, cwd string) []FileSuggestion {
+	fileListCache.mu.Lock()
+	defer fileListCache.mu.Unlock()
+
+	now := time.Now()
+	if fileListCache.dir == searchDir &&
+		fileListCache.cwd == cwd &&
+		now.Before(fileListCache.expireAt) {
+		// Return a copy so callers can mutate (e.g. prepend baseDir).
+		cp := make([]FileSuggestion, len(fileListCache.entries))
+		copy(cp, fileListCache.entries)
+		return cp
+	}
+
+	// Cache miss or expired — run the real (potentially expensive) lookup.
+	files := listFiles(searchDir, cwd)
+
+	fileListCache.dir = searchDir
+	fileListCache.cwd = cwd
+	fileListCache.entries = files
+	fileListCache.expireAt = now.Add(fileListCacheTTL)
+
+	// Return a copy.
+	cp := make([]FileSuggestion, len(files))
+	copy(cp, files)
+	return cp
+}
 
 // ExtractAtPrefix checks the current line for an @-file trigger at cursorCol.
 // It returns:
@@ -99,7 +146,7 @@ func GetFileSuggestions(prefix string, cwd string) []FileSuggestion {
 		}
 	}
 
-	files := listFiles(searchDir, cwd)
+	files := getCachedFileList(searchDir, cwd)
 	if len(files) == 0 {
 		return nil
 	}

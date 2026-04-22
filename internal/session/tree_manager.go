@@ -63,6 +63,11 @@ type TreeManager struct {
 
 	// file is the open file handle for appending entries. Nil for in-memory.
 	file *os.File
+
+	// writer is a buffered writer wrapping file. Writes go through this
+	// buffer and are flushed to disk at explicit sync points (after each
+	// public Append* call, in Close, etc.) to reduce syscall overhead.
+	writer *bufio.Writer
 }
 
 // --- Constructors ---
@@ -105,10 +110,15 @@ func CreateTreeSession(cwd string) (*TreeManager, error) {
 		return nil, fmt.Errorf("failed to create session file: %w", err)
 	}
 	tm.file = f
+	tm.writer = bufio.NewWriter(f)
 
 	if err := tm.writeEntry(&header); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("failed to write session header: %w", err)
+	}
+	if err := tm.flushLocked(); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("failed to flush session header: %w", err)
 	}
 
 	return tm, nil
@@ -150,6 +160,7 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 		return nil, fmt.Errorf("failed to recreate session file: %w", err)
 	}
 	newTm.file = f
+	newTm.writer = bufio.NewWriter(f)
 
 	if err := newTm.writeEntry(&newTm.header); err != nil {
 		_ = f.Close()
@@ -289,6 +300,12 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 		}
 	}
 
+	// Flush all buffered writes from the fork in a single syscall.
+	if err := newTm.flushLocked(); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("failed to flush forked session: %w", err)
+	}
+
 	// Set the leaf to the last entry in the new session.
 	newTm.leafID = prevNewID
 
@@ -374,6 +391,7 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		return nil, fmt.Errorf("failed to open session file for append: %w", err)
 	}
 	tm.file = f
+	tm.writer = bufio.NewWriter(f)
 
 	return tm, nil
 }
@@ -427,6 +445,9 @@ func (tm *TreeManager) AppendMessage(msg message.Message) (string, error) {
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
 	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush message: %w", err)
+	}
 
 	tm.leafID = entry.ID
 	return entry.ID, nil
@@ -451,6 +472,9 @@ func (tm *TreeManager) AppendModelChange(provider, modelID string) (string, erro
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
 	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush model change: %w", err)
+	}
 
 	tm.leafID = entry.ID
 	return entry.ID, nil
@@ -465,6 +489,9 @@ func (tm *TreeManager) AppendBranchSummary(fromID, summary string) (string, erro
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
 	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush branch summary: %w", err)
+	}
 
 	tm.leafID = entry.ID
 	return entry.ID, nil
@@ -478,6 +505,9 @@ func (tm *TreeManager) AppendLabel(targetID, label string) (string, error) {
 	entry := NewLabelEntry(tm.leafID, targetID, label)
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
+	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush label: %w", err)
 	}
 
 	tm.labels[targetID] = label
@@ -494,6 +524,9 @@ func (tm *TreeManager) AppendSessionInfo(name string) (string, error) {
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
 	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush session info: %w", err)
+	}
 
 	tm.sessionName = name
 	tm.leafID = entry.ID
@@ -509,6 +542,9 @@ func (tm *TreeManager) AppendExtensionData(extType, data string) (string, error)
 	entry := NewExtensionDataEntry(tm.leafID, extType, data)
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
+	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush extension data: %w", err)
 	}
 
 	tm.leafID = entry.ID
@@ -540,6 +576,9 @@ func (tm *TreeManager) AppendCompaction(summary, firstKeptEntryID string, tokens
 	entry := NewCompactionEntry("", summary, firstKeptEntryID, tokensBefore, tokensAfter, messagesRemoved, readFiles, modifiedFiles)
 	if err := tm.appendAndPersist(entry); err != nil {
 		return "", err
+	}
+	if err := tm.flushLocked(); err != nil {
+		return "", fmt.Errorf("failed to flush compaction: %w", err)
 	}
 
 	tm.leafID = entry.ID
@@ -926,11 +965,31 @@ func (tm *TreeManager) IsEmpty() bool {
 	return tm.MessageCount() == 0
 }
 
-// Close closes the underlying file handle.
+// Flush writes any buffered data to the underlying file.
+func (tm *TreeManager) Flush() error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	return tm.flushLocked()
+}
+
+// flushLocked writes buffered data to disk. Caller must hold the lock.
+func (tm *TreeManager) flushLocked() error {
+	if tm.writer != nil {
+		return tm.writer.Flush()
+	}
+	return nil
+}
+
+// Close flushes any buffered writes and closes the underlying file handle.
 func (tm *TreeManager) Close() error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 	if tm.file != nil {
+		// Flush buffered data before closing.
+		if tm.writer != nil {
+			_ = tm.writer.Flush()
+			tm.writer = nil
+		}
 		err := tm.file.Close()
 		tm.file = nil
 		return err
@@ -1090,13 +1149,22 @@ func (tm *TreeManager) GetLastCompaction() *CompactionEntry {
 
 // AddLLMMessages appends multiple LLM messages as entries. This is
 // used when syncing from the agent's ConversationMessages after a step.
+// All entries are buffered and flushed to disk in a single batch.
 func (tm *TreeManager) AddLLMMessages(msgs []fantasy.Message) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
 	for _, msg := range msgs {
-		if _, err := tm.AppendLLMMessage(msg); err != nil {
+		entry, err := NewMessageEntry(tm.leafID, message.FromLLMMessage(msg))
+		if err != nil {
 			return err
 		}
+		if err := tm.appendAndPersist(entry); err != nil {
+			return err
+		}
+		tm.leafID = entry.ID
 	}
-	return nil
+	return tm.flushLocked()
 }
 
 // Deprecated: Use AddLLMMessages instead.
@@ -1148,12 +1216,20 @@ func (tm *TreeManager) appendAndPersist(entry any) error {
 	return nil
 }
 
-// writeEntry serializes an entry and appends it as a line to the file.
+// writeEntry serializes an entry and appends it to the buffered writer.
+// The data is not flushed to disk until flushLocked is called.
 func (tm *TreeManager) writeEntry(entry any) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("failed to marshal entry: %w", err)
 	}
+	if tm.writer != nil {
+		if _, err := tm.writer.Write(data); err != nil {
+			return err
+		}
+		return tm.writer.WriteByte('\n')
+	}
+	// Fallback for direct file writes (shouldn't happen in normal flow).
 	data = append(data, '\n')
 	_, err = tm.file.Write(data)
 	return err
