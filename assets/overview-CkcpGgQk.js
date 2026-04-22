@@ -110,9 +110,17 @@ const s={frontmatter:{title:"Go SDK",description:"Embed Kit in your Go applicati
 <td><code>kit.ErrorResult(s)</code></td>
 <td>Error result (LLM sees it as a tool error)</td>
 </tr>
+<tr>
+<td><code>kit.ImageResult(s, data, mediaType)</code></td>
+<td>Image result with binary data (e.g. <code>"image/png"</code>)</td>
+</tr>
+<tr>
+<td><code>kit.MediaResult(s, data, mediaType)</code></td>
+<td>Non-image media result (e.g. <code>"audio/mpeg"</code>)</td>
+</tr>
 </tbody>
 </table>
-<p>For advanced use, return a <code>kit.ToolOutput</code> struct directly with <code>Data</code>, <code>MediaType</code>, and <code>Metadata</code> fields.</p>
+<p>Binary data (images, audio, etc.) in <code>ToolOutput.Data</code> is automatically forwarded to the LLM when <code>MediaType</code> is set. For advanced use, return a <code>kit.ToolOutput</code> struct directly with <code>Data</code>, <code>MediaType</code>, and <code>Metadata</code> fields.</p>
 <p>Use <code>kit.NewParallelTool</code> for tools that are safe to run concurrently. Use <code>kit.ToolCallIDFromContext(ctx)</code> to retrieve the LLM-assigned call ID for logging or tracing.</p>
 <h2 id="generation--provider-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#generation--provider-overrides"><span class="icon icon-link"></span></a>Generation &amp; provider overrides</h2>
 <p>SDK consumers can configure generation parameters and provider endpoints
@@ -305,8 +313,10 @@ Return values:
 |--------|-------------|
 | \`kit.TextResult(s)\` | Successful text result |
 | \`kit.ErrorResult(s)\` | Error result (LLM sees it as a tool error) |
+| \`kit.ImageResult(s, data, mediaType)\` | Image result with binary data (e.g. \`"image/png"\`) |
+| \`kit.MediaResult(s, data, mediaType)\` | Non-image media result (e.g. \`"audio/mpeg"\`) |
 
-For advanced use, return a \`kit.ToolOutput\` struct directly with \`Data\`, \`MediaType\`, and \`Metadata\` fields.
+Binary data (images, audio, etc.) in \`ToolOutput.Data\` is automatically forwarded to the LLM when \`MediaType\` is set. For advanced use, return a \`kit.ToolOutput\` struct directly with \`Data\`, \`MediaType\`, and \`Metadata\` fields.
 
 Use \`kit.NewParallelTool\` for tools that are safe to run concurrently. Use \`kit.ToolCallIDFromContext(ctx)\` to retrieve the LLM-assigned call ID for logging or tracing.
 

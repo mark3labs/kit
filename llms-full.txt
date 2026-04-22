@@ -2991,8 +2991,10 @@ Return values:
 |--------|-------------|
 | `kit.TextResult(s)` | Successful text result |
 | `kit.ErrorResult(s)` | Error result (LLM sees it as a tool error) |
+| `kit.ImageResult(s, data, mediaType)` | Image result with binary data (e.g. `"image/png"`) |
+| `kit.MediaResult(s, data, mediaType)` | Non-image media result (e.g. `"audio/mpeg"`) |
 
-For advanced use, return a `kit.ToolOutput` struct directly with `Data`, `MediaType`, and `Metadata` fields.
+Binary data (images, audio, etc.) in `ToolOutput.Data` is automatically forwarded to the LLM when `MediaType` is set. For advanced use, return a `kit.ToolOutput` struct directly with `Data`, `MediaType`, and `Metadata` fields.
 
 Use `kit.NewParallelTool` for tools that are safe to run concurrently. Use `kit.ToolCallIDFromContext(ctx)` to retrieve the LLM-assigned call ID for logging or tracing.
 
