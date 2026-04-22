@@ -177,22 +177,55 @@ func (a *Agent) SetSessionMode(_ context.Context, _ acp.SetSessionModeRequest) (
 	return acp.SetSessionModeResponse{}, nil
 }
 
-// SetSessionModel changes the active model for a session.
-func (a *Agent) SetSessionModel(ctx context.Context, params acp.SetSessionModelRequest) (acp.SetSessionModelResponse, error) {
-	sessionID := string(params.SessionId)
+// ListSessions returns an empty session list. Kit doesn't persist sessions
+// across restarts in ACP mode, so this is effectively a no-op.
+func (a *Agent) ListSessions(_ context.Context, _ acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {
+	return acp.ListSessionsResponse{
+		Sessions: []acp.SessionInfo{},
+	}, nil
+}
+
+// SetSessionConfigOption handles session configuration changes. Currently
+// supports the "model" config option to change the active model for a session.
+func (a *Agent) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
+	// Extract session ID and config ID from whichever variant is present.
+	var sessionID string
+	var configID string
+	var value string
+
+	switch {
+	case params.ValueId != nil:
+		sessionID = string(params.ValueId.SessionId)
+		configID = string(params.ValueId.ConfigId)
+		value = string(params.ValueId.Value)
+	case params.Boolean != nil:
+		sessionID = string(params.Boolean.SessionId)
+		configID = string(params.Boolean.ConfigId)
+		// Boolean config options are not used for model selection.
+		log.Debug("acp: set_session_config_option (boolean)", "session", sessionID, "config", configID, "value", params.Boolean.Value)
+		return acp.SetSessionConfigOptionResponse{}, nil
+	default:
+		return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams("unsupported config option variant")
+	}
+
 	sess, ok := a.registry.get(sessionID)
 	if !ok {
-		return acp.SetSessionModelResponse{}, acp.NewInvalidParams(fmt.Sprintf("session not found: %s", sessionID))
+		return acp.SetSessionConfigOptionResponse{}, acp.NewInvalidParams(fmt.Sprintf("session not found: %s", sessionID))
 	}
 
-	modelID := string(params.ModelId)
-	log.Debug("acp: set_session_model", "session", sessionID, "model", modelID)
+	log.Debug("acp: set_session_config_option", "session", sessionID, "config", configID, "value", value)
 
-	if err := sess.kit.SetModel(ctx, modelID); err != nil {
-		return acp.SetSessionModelResponse{}, fmt.Errorf("set model: %w", err)
+	// Handle known config options.
+	switch configID {
+	case "model":
+		if err := sess.kit.SetModel(ctx, value); err != nil {
+			return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("set model: %w", err)
+		}
+	default:
+		log.Debug("acp: unknown config option", "config", configID)
 	}
 
-	return acp.SetSessionModelResponse{}, nil
+	return acp.SetSessionConfigOptionResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
