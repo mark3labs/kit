@@ -1781,12 +1781,19 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 
 	// Create child Kit instance. Pass the parent's loaded MCP config to
 	// avoid re-reading viper (which races with concurrent subagent spawns).
+	// Streaming must be explicitly enabled — Options.Streaming defaults to
+	// false, and New() unconditionally writes viper.Set("stream", opts.Streaming).
+	// Without this, the subagent would (a) pollute viper global state for
+	// other concurrent callers and (b) potentially hit provider-level
+	// differences (e.g. Anthropic non-streaming timeouts with extended
+	// thinking).
 	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
+		Streaming:    true,
 		MCPConfig:    m.mcpConfig,
 	}
 	child, err := New(ctx, childOpts)
