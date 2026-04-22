@@ -1170,15 +1170,30 @@ kit.Config, kit.MCPServerConfig
 // Provider types
 kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelLimit
 
-// LLM types — concrete Kit-owned structs (no external library dependency)
+// LLM types — clean aliases (no external library dependency in consumer code)
 kit.LLMMessage      // {Role LLMMessageRole, Content string}
+kit.LLMMessagePart  // interface for message content parts
 kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
 kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ReasoningTokens,
                      //  CacheCreationTokens, CacheReadTokens}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+kit.LLMTextPart     // plain-text content part
+kit.LLMReasoningPart // reasoning/chain-of-thought content part
 kit.LLMToolCall     // {ID, Name, Input string} — execution-layer tool call (for Tool.Run)
 kit.LLMToolResponse // {Type, Content, Data, MediaType, IsError, ...} — raw tool response
+kit.LLMToolCallPart    // LLM-initiated tool invocation within a message
+kit.LLMToolResultPart  // tool result within a message
+kit.LLMToolResultOutputContent      // interface for tool result output
+kit.LLMToolResultOutputContentText  // text tool result
+kit.LLMToolResultOutputContentError // error tool result
+kit.LLMToolResultOutputContentMedia // media tool result {Data, MediaType, Text}
+kit.LLMToolResultContentType        // "text" | "error" | "media"
+kit.LLMToolInfo          // {Name, Description, Parameters, Required, Parallel}
+kit.LLMProviderOptions   // provider-specific option maps (keyed by provider name)
+kit.LLMProviderMetadata  // provider-specific response metadata
+kit.LLMPrompt            // []LLMMessage — ordered prompt sequence
+kit.LLMFinishReason      // "stop" | "length" | "tool-calls" | ...
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions

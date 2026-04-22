@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-
-	"charm.land/fantasy"
 )
 
 // ---------------------------------------------------------------------------
@@ -177,20 +175,20 @@ func TestHookRegistry_ConcurrentAccess(t *testing.T) {
 // mockAgentTool implements the AgentTool interface for testing.
 type mockAgentTool struct {
 	name  string
-	runFn func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error)
-	popts fantasy.ProviderOptions
+	runFn func(ctx context.Context, call LLMToolCall) (LLMToolResponse, error)
+	popts LLMProviderOptions
 }
 
-func (m *mockAgentTool) Info() fantasy.ToolInfo {
-	return fantasy.ToolInfo{Name: m.name, Description: "mock tool"}
+func (m *mockAgentTool) Info() LLMToolInfo {
+	return LLMToolInfo{Name: m.name, Description: "mock tool"}
 }
-func (m *mockAgentTool) ProviderOptions() fantasy.ProviderOptions     { return m.popts }
-func (m *mockAgentTool) SetProviderOptions(o fantasy.ProviderOptions) { m.popts = o }
-func (m *mockAgentTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func (m *mockAgentTool) ProviderOptions() LLMProviderOptions     { return m.popts }
+func (m *mockAgentTool) SetProviderOptions(o LLMProviderOptions) { m.popts = o }
+func (m *mockAgentTool) Run(ctx context.Context, call LLMToolCall) (LLMToolResponse, error) {
 	if m.runFn != nil {
 		return m.runFn(ctx, call)
 	}
-	return fantasy.NewTextResponse("default output"), nil
+	return newLLMTextResponse("default output"), nil
 }
 
 // newEmptyHookedTool creates a hookedTool with empty hook registries and the given mock tool.
@@ -203,14 +201,14 @@ func newEmptyHookedTool(mock *mockAgentTool) *hookedTool {
 func TestHookedTool_Passthrough(t *testing.T) {
 	mock := &mockAgentTool{
 		name: "test_tool",
-		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return fantasy.NewTextResponse("hello world"), nil
+		runFn: func(_ context.Context, _ LLMToolCall) (LLMToolResponse, error) {
+			return newLLMTextResponse("hello world"), nil
 		},
 	}
 
 	ht := newEmptyHookedTool(mock)
 
-	resp, err := ht.Run(context.Background(), fantasy.ToolCall{Input: "{}"})
+	resp, err := ht.Run(context.Background(), LLMToolCall{Input: "{}"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,9 +224,9 @@ func TestHookedTool_BeforeToolCallBlock(t *testing.T) {
 	toolRan := false
 	mock := &mockAgentTool{
 		name: "dangerous_tool",
-		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+		runFn: func(_ context.Context, _ LLMToolCall) (LLMToolResponse, error) {
 			toolRan = true
-			return fantasy.NewTextResponse("should not run"), nil
+			return newLLMTextResponse("should not run"), nil
 		},
 	}
 
@@ -241,7 +239,7 @@ func TestHookedTool_BeforeToolCallBlock(t *testing.T) {
 
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
 
-	resp, err := ht.Run(context.Background(), fantasy.ToolCall{Input: "{}"})
+	resp, err := ht.Run(context.Background(), LLMToolCall{Input: "{}"})
 	if err == nil {
 		t.Fatal("expected error from blocked tool")
 	}
@@ -263,7 +261,7 @@ func TestHookedTool_BeforeToolCallBlockDefaultReason(t *testing.T) {
 	})
 
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
-	resp, _ := ht.Run(context.Background(), fantasy.ToolCall{})
+	resp, _ := ht.Run(context.Background(), LLMToolCall{})
 	if resp.Content != "Error: blocked by hook" {
 		t.Errorf("expected default block reason, got %q", resp.Content)
 	}
@@ -275,8 +273,8 @@ func TestHookedTool_AfterToolResultModify(t *testing.T) {
 
 	mock := &mockAgentTool{
 		name: "tool",
-		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return fantasy.NewTextResponse("secret data"), nil
+		runFn: func(_ context.Context, _ LLMToolCall) (LLMToolResponse, error) {
+			return newLLMTextResponse("secret data"), nil
 		},
 	}
 
@@ -286,7 +284,7 @@ func TestHookedTool_AfterToolResultModify(t *testing.T) {
 	})
 
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
-	resp, err := ht.Run(context.Background(), fantasy.ToolCall{Input: "{}"})
+	resp, err := ht.Run(context.Background(), LLMToolCall{Input: "{}"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -301,8 +299,8 @@ func TestHookedTool_AfterToolResultModifyIsError(t *testing.T) {
 
 	mock := &mockAgentTool{
 		name: "tool",
-		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return fantasy.NewTextResponse("ok"), nil
+		runFn: func(_ context.Context, _ LLMToolCall) (LLMToolResponse, error) {
+			return newLLMTextResponse("ok"), nil
 		},
 	}
 
@@ -312,7 +310,7 @@ func TestHookedTool_AfterToolResultModifyIsError(t *testing.T) {
 	})
 
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
-	resp, err := ht.Run(context.Background(), fantasy.ToolCall{})
+	resp, err := ht.Run(context.Background(), LLMToolCall{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -327,8 +325,8 @@ func TestHookedTool_HookReceivesToolInfo(t *testing.T) {
 
 	mock := &mockAgentTool{
 		name: "my_tool",
-		runFn: func(_ context.Context, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return fantasy.NewTextResponse("result"), nil
+		runFn: func(_ context.Context, _ LLMToolCall) (LLMToolResponse, error) {
+			return newLLMTextResponse("result"), nil
 		},
 	}
 
@@ -345,7 +343,7 @@ func TestHookedTool_HookReceivesToolInfo(t *testing.T) {
 	})
 
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
-	_, _ = ht.Run(context.Background(), fantasy.ToolCall{Input: `{"key":"value"}`})
+	_, _ = ht.Run(context.Background(), LLMToolCall{Input: `{"key":"value"}`})
 
 	if capturedBefore.ToolName != "my_tool" {
 		t.Errorf("BeforeToolCall: expected tool name 'my_tool', got %q", capturedBefore.ToolName)
@@ -380,7 +378,7 @@ func TestHookToolWrapper(t *testing.T) {
 
 	wrapper := hookToolWrapper(before, after)
 
-	tools := []fantasy.AgentTool{
+	tools := []Tool{
 		&mockAgentTool{name: "tool_a"},
 		&mockAgentTool{name: "tool_b"},
 	}
@@ -407,7 +405,7 @@ func TestHookToolWrapper(t *testing.T) {
 		return &BeforeToolCallResult{Block: true, Reason: "late hook"}
 	})
 
-	_, err := wrapped[0].Run(context.Background(), fantasy.ToolCall{})
+	_, err := wrapped[0].Run(context.Background(), LLMToolCall{})
 	if err == nil {
 		t.Error("expected error from late-registered blocking hook")
 	}
@@ -548,7 +546,7 @@ func TestPrepareStepHookRegistry(t *testing.T) {
 		if h.StepNumber == 0 {
 			// On step 0, prepend a system message.
 			newMsgs := make([]LLMMessage, 0, len(h.Messages)+1)
-			newMsgs = append(newMsgs, fantasy.NewSystemMessage("injected"))
+			newMsgs = append(newMsgs, NewLLMSystemMessage("injected"))
 			newMsgs = append(newMsgs, h.Messages...)
 			return &PrepareStepResult{Messages: newMsgs}
 		}
@@ -558,7 +556,7 @@ func TestPrepareStepHookRegistry(t *testing.T) {
 	// Test step 0 — should modify messages.
 	input := PrepareStepHook{
 		StepNumber: 0,
-		Messages:   []LLMMessage{fantasy.NewUserMessage("hello")},
+		Messages:   []LLMMessage{NewLLMUserMessage("hello")},
 	}
 	result := hr.run(input)
 	if result == nil {
@@ -567,7 +565,7 @@ func TestPrepareStepHookRegistry(t *testing.T) {
 	if len(result.Messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(result.Messages))
 	}
-	if result.Messages[0].Role != fantasy.MessageRoleSystem {
+	if result.Messages[0].Role != LLMRoleSystem {
 		t.Errorf("expected system message first, got role %q", result.Messages[0].Role)
 	}
 
@@ -599,7 +597,7 @@ func TestPrepareStepHookPriority(t *testing.T) {
 
 	input := PrepareStepHook{
 		StepNumber: 0,
-		Messages:   []LLMMessage{fantasy.NewUserMessage("test")},
+		Messages:   []LLMMessage{NewLLMUserMessage("test")},
 	}
 	result := hr.run(input)
 

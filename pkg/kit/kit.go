@@ -732,7 +732,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 		llmModel    fantasy.LanguageModel
 		closer      func()
 		usedModel   string
-		providerOps fantasy.ProviderOptions
+		providerOps LLMProviderOptions
 	)
 
 	if req.Model == "" {

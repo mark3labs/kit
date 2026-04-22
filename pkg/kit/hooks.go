@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-
-	"charm.land/fantasy"
 )
 
 // ---------------------------------------------------------------------------
@@ -295,16 +293,16 @@ func (m *Kit) OnPrepareStep(p HookPriority, h func(PrepareStepHook) *PrepareStep
 // AfterToolResult hooks around each execution. The registries are referenced
 // by pointer so hooks added after agent creation are still invoked.
 type hookedTool struct {
-	inner           fantasy.AgentTool
+	inner           Tool
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult]
 }
 
-func (h *hookedTool) Info() fantasy.ToolInfo                       { return h.inner.Info() }
-func (h *hookedTool) ProviderOptions() fantasy.ProviderOptions     { return h.inner.ProviderOptions() }
-func (h *hookedTool) SetProviderOptions(o fantasy.ProviderOptions) { h.inner.SetProviderOptions(o) }
+func (h *hookedTool) Info() LLMToolInfo                       { return h.inner.Info() }
+func (h *hookedTool) ProviderOptions() LLMProviderOptions     { return h.inner.ProviderOptions() }
+func (h *hookedTool) SetProviderOptions(o LLMProviderOptions) { h.inner.SetProviderOptions(o) }
 
-func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func (h *hookedTool) Run(ctx context.Context, call LLMToolCall) (LLMToolResponse, error) {
 	toolName := h.inner.Info().Name
 
 	// 1. BeforeToolCall — can block execution.
@@ -318,7 +316,7 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 			if reason == "" {
 				reason = "blocked by hook"
 			}
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("Error: %s", reason)),
+			return newLLMTextErrorResponse(fmt.Sprintf("Error: %s", reason)),
 				fmt.Errorf("tool blocked by hook: %s", reason)
 		}
 	}
@@ -353,9 +351,9 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 func hookToolWrapper(
 	beforeToolCall *hookRegistry[BeforeToolCallHook, BeforeToolCallResult],
 	afterToolResult *hookRegistry[AfterToolResultHook, AfterToolResultResult],
-) func([]fantasy.AgentTool) []fantasy.AgentTool {
-	return func(tools []fantasy.AgentTool) []fantasy.AgentTool {
-		wrapped := make([]fantasy.AgentTool, len(tools))
+) func([]Tool) []Tool {
+	return func(tools []Tool) []Tool {
+		wrapped := make([]Tool, len(tools))
 		for i, tool := range tools {
 			wrapped[i] = &hookedTool{
 				inner:           tool,

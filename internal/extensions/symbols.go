@@ -174,15 +174,15 @@ func Symbols() interp.Exports {
 			"ModelChangeEvent":        reflect.ValueOf((*ModelChangeEvent)(nil)),
 
 			// Step lifecycle events
-			"StepStartEvent":    reflect.ValueOf((*StepStartEvent)(nil)),
-			"StepFinishEvent":   reflect.ValueOf((*StepFinishEvent)(nil)),
+			"StepStartEvent":      reflect.ValueOf((*StepStartEvent)(nil)),
+			"StepFinishEvent":     reflect.ValueOf((*StepFinishEvent)(nil)),
 			"ReasoningStartEvent": reflect.ValueOf((*ReasoningStartEvent)(nil)),
-			"WarningsEvent":     reflect.ValueOf((*WarningsEvent)(nil)),
-			"SourceEvent":       reflect.ValueOf((*SourceEvent)(nil)),
-			"ErrorEvent":        reflect.ValueOf((*ErrorEvent)(nil)),
-			"RetryEvent":        reflect.ValueOf((*RetryEvent)(nil)),
-			"PrepareStepEvent":  reflect.ValueOf((*PrepareStepEvent)(nil)),
-			"PrepareStepResult": reflect.ValueOf((*PrepareStepResult)(nil)),
+			"WarningsEvent":       reflect.ValueOf((*WarningsEvent)(nil)),
+			"SourceEvent":         reflect.ValueOf((*SourceEvent)(nil)),
+			"ErrorEvent":          reflect.ValueOf((*ErrorEvent)(nil)),
+			"RetryEvent":          reflect.ValueOf((*RetryEvent)(nil)),
+			"PrepareStepEvent":    reflect.ValueOf((*PrepareStepEvent)(nil)),
+			"PrepareStepResult":   reflect.ValueOf((*PrepareStepResult)(nil)),
 		},
 	}
 }

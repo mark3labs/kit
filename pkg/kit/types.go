@@ -184,6 +184,40 @@ type LLMToolResultOutputContentText = fantasy.ToolResultOutputContentText
 // LLMToolResultOutputContentError is an error-valued tool result output.
 type LLMToolResultOutputContentError = fantasy.ToolResultOutputContentError
 
+// LLMToolResultOutputContentMedia is a media-valued tool result output
+// (images, audio, etc.) carrying base64-encoded data and a MIME type.
+type LLMToolResultOutputContentMedia = fantasy.ToolResultOutputContentMedia
+
+// LLMToolResultContentType classifies the kind of a tool result output
+// ("text", "error", or "media").
+type LLMToolResultContentType = fantasy.ToolResultContentType
+
+// Tool result content type constants.
+const (
+	// LLMToolResultContentTypeText represents text output.
+	LLMToolResultContentTypeText = fantasy.ToolResultContentTypeText
+	// LLMToolResultContentTypeError represents error text output.
+	LLMToolResultContentTypeError = fantasy.ToolResultContentTypeError
+	// LLMToolResultContentTypeMedia represents media (binary) output.
+	LLMToolResultContentTypeMedia = fantasy.ToolResultContentTypeMedia
+)
+
+// LLMToolInfo describes a tool's name, description, and JSON-Schema parameters.
+type LLMToolInfo = fantasy.ToolInfo
+
+// LLMProviderOptions carries provider-specific key/value option maps, keyed
+// by provider name (e.g. "anthropic"). Use this when configuring or
+// inspecting provider-specific tool behaviour.
+type LLMProviderOptions = fantasy.ProviderOptions
+
+// LLMProviderMetadata carries provider-specific metadata returned alongside
+// LLM responses, keyed by provider name.
+type LLMProviderMetadata = fantasy.ProviderMetadata
+
+// LLMPrompt is an ordered sequence of [LLMMessage] values forming a complete
+// prompt for the LLM.
+type LLMPrompt = fantasy.Prompt
+
 // LLMMessageRole identifies the participant role in an LLM conversation.
 type LLMMessageRole = fantasy.MessageRole
 
@@ -209,6 +243,12 @@ var NewLLMUserMessage = fantasy.NewUserMessage
 // NewLLMSystemMessage constructs a system-role LLMMessage from one or more
 // prompt strings.
 var NewLLMSystemMessage = fantasy.NewSystemMessage
+
+// newLLMTextErrorResponse creates a tool-error response (internal helper).
+var newLLMTextErrorResponse = fantasy.NewTextErrorResponse
+
+// newLLMTextResponse creates a plain-text tool response (internal helper).
+var newLLMTextResponse = fantasy.NewTextResponse
 
 // ==== Compaction Types (internal/compaction/) ====
 
