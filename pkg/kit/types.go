@@ -157,6 +157,18 @@ type LLMTextPart = fantasy.TextPart
 // LLMReasoningPart is a reasoning/chain-of-thought content part.
 type LLMReasoningPart = fantasy.ReasoningPart
 
+// LLMToolCall represents the raw tool invocation passed to a [Tool]'s Run
+// method. It carries the call ID, tool name, and the JSON-encoded input
+// arguments from the LLM. This is the execution-layer call object — distinct
+// from [ToolCall] (a message content part).
+type LLMToolCall = fantasy.ToolCall
+
+// LLMToolResponse represents the raw response returned from a [Tool]'s Run
+// method. Most SDK consumers should use [ToolOutput] with [NewTool] /
+// [NewParallelTool] instead — this alias is provided for advanced use cases
+// that need to call Tool.Run() directly (e.g. testing).
+type LLMToolResponse = fantasy.ToolResponse
+
 // LLMToolCallPart represents an LLM-initiated tool invocation within a message.
 type LLMToolCallPart = fantasy.ToolCallPart
 

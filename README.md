@@ -646,7 +646,28 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
-Use `kit.NewParallelTool` for tools safe to run concurrently. See the [SDK docs](/sdk/overview) for full details on struct tags, `ToolOutput` fields, and `ToolCallIDFromContext`.
+Use `kit.NewParallelTool` for tools safe to run concurrently. Binary data (images, audio, etc.) in `ToolOutput.Data` is automatically forwarded to the LLM when `MediaType` is set. See the [SDK docs](/sdk/overview) for full details on struct tags, `ToolOutput` fields, and `ToolCallIDFromContext`.
+
+#### Return Helpers
+
+| Helper | Description |
+| --- | --- |
+| `kit.TextResult(content)` | Successful text result |
+| `kit.ErrorResult(content)` | Error result (LLM sees it as a tool error) |
+| `kit.ImageResult(content, data, mediaType)` | Image result with binary data (e.g. `"image/png"`) |
+| `kit.MediaResult(content, data, mediaType)` | Non-image media result (e.g. `"audio/mpeg"`) |
+
+#### ToolOutput Fields
+
+```go
+kit.ToolOutput{
+    Content:   "result text",     // text returned to the LLM
+    IsError:   false,             // true = LLM sees this as an error
+    Data:      pngBytes,          // optional binary data (images, audio)
+    MediaType: "image/png",       // MIME type for binary Data
+    Metadata:  map[string]any{},  // opaque metadata for hooks/UI (not sent to LLM)
+}
+```
 
 ### With Callbacks
 

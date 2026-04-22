@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"strings"
 
 	"charm.land/fantasy"
 
@@ -52,6 +53,22 @@ func ErrorResult(content string) ToolOutput {
 	return ToolOutput{Content: content, IsError: true}
 }
 
+// ImageResult creates a [ToolOutput] that returns an image to the LLM.
+// The data is the raw image bytes and mediaType is the MIME type
+// (e.g. "image/png", "image/jpeg"). The optional text content accompanies
+// the image and is visible to the LLM alongside it.
+func ImageResult(content string, data []byte, mediaType string) ToolOutput {
+	return ToolOutput{Content: content, Data: data, MediaType: mediaType}
+}
+
+// MediaResult creates a [ToolOutput] that returns non-image binary media
+// (e.g. audio, video) to the LLM. The data is the raw bytes and mediaType
+// is the MIME type (e.g. "audio/wav", "video/mp4"). The optional text
+// content accompanies the media.
+func MediaResult(content string, data []byte, mediaType string) ToolOutput {
+	return ToolOutput{Content: content, Data: data, MediaType: mediaType}
+}
+
 // toolCallIDKey is the context key for the tool call ID.
 type toolCallIDKey struct{}
 
@@ -63,9 +80,35 @@ func ToolCallIDFromContext(ctx context.Context) string {
 	return s
 }
 
+// toolOutputToResponse converts a [ToolOutput] into the underlying
+// framework's ToolResponse, inferring the response Type from Data/MediaType
+// so that binary content (images, audio, etc.) is forwarded to the LLM
+// instead of being silently dropped.
+func toolOutputToResponse(result ToolOutput) fantasy.ToolResponse {
+	resp := fantasy.ToolResponse{
+		Content:   result.Content,
+		IsError:   result.IsError,
+		Data:      result.Data,
+		MediaType: result.MediaType,
+	}
+	// Infer response type from binary data so the downstream framework
+	// creates a media content block instead of a plain-text one.
+	if len(result.Data) > 0 && result.MediaType != "" {
+		if strings.HasPrefix(result.MediaType, "image/") {
+			resp.Type = "image"
+		} else {
+			resp.Type = "media"
+		}
+	}
+	if result.Metadata != nil {
+		resp = fantasy.WithResponseMetadata(resp, result.Metadata)
+	}
+	return resp
+}
+
 // NewTool creates a custom [Tool] with automatic JSON schema generation from
 // the TInput struct type. The handler receives a typed input (deserialized
-// from the LLM's JSON arguments) and returns a [ToolResult].
+// from the LLM's JSON arguments) and returns a [ToolOutput].
 //
 // Struct tags on TInput control the generated schema:
 //
@@ -77,6 +120,11 @@ func ToolCallIDFromContext(ctx context.Context) string {
 // The tool call ID is injected into the context and can be retrieved with
 // [ToolCallIDFromContext].
 //
+// Binary results: When [ToolOutput.Data] and [ToolOutput.MediaType] are set,
+// the response type is automatically inferred so the LLM receives the binary
+// content (e.g. an image) instead of only the text. Use [ImageResult] or
+// [MediaResult] for convenience.
+//
 // Example:
 //
 //	type WeatherInput struct {
@@ -84,7 +132,7 @@ func ToolCallIDFromContext(ctx context.Context) string {
 //	}
 //
 //	tool := kit.NewTool("get_weather", "Get weather for a city",
-//	    func(ctx context.Context, input WeatherInput) (kit.ToolResult, error) {
+//	    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
 //	        return kit.TextResult("72°F, sunny in " + input.City), nil
 //	    },
 //	)
@@ -96,16 +144,7 @@ func NewTool[TInput any](name, description string, fn func(ctx context.Context, 
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-			resp := fantasy.ToolResponse{
-				Content:   result.Content,
-				IsError:   result.IsError,
-				Data:      result.Data,
-				MediaType: result.MediaType,
-			}
-			if result.Metadata != nil {
-				resp = fantasy.WithResponseMetadata(resp, result.Metadata)
-			}
-			return resp, nil
+			return toolOutputToResponse(result), nil
 		},
 	)
 }
@@ -121,16 +160,7 @@ func NewParallelTool[TInput any](name, description string, fn func(ctx context.C
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
-			resp := fantasy.ToolResponse{
-				Content:   result.Content,
-				IsError:   result.IsError,
-				Data:      result.Data,
-				MediaType: result.MediaType,
-			}
-			if result.Metadata != nil {
-				resp = fantasy.WithResponseMetadata(resp, result.Metadata)
-			}
-			return resp, nil
+			return toolOutputToResponse(result), nil
 		},
 	)
 }

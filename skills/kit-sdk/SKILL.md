@@ -493,6 +493,8 @@ host, _ := kit.New(ctx, &kit.Options{
 |----------|-------------|
 | `kit.TextResult(content)` | Successful text result |
 | `kit.ErrorResult(content)` | Error result (LLM sees it as a tool error) |
+| `kit.ImageResult(content, data, mediaType)` | Image result with binary data (e.g. `"image/png"`) |
+| `kit.MediaResult(content, data, mediaType)` | Non-image media result (e.g. `"audio/mpeg"`) |
 
 **ToolOutput fields** (for advanced use):
 
@@ -1095,6 +1097,8 @@ kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ReasoningTokens,
                      //  CacheCreationTokens, CacheReadTokens}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+kit.LLMToolCall     // {ID, Name, Input string} — execution-layer tool call (for Tool.Run)
+kit.LLMToolResponse // {Type, Content, Data, MediaType, IsError, ...} — raw tool response
 
 // Compaction types
 kit.CompactionResult, kit.CompactionOptions
