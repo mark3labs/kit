@@ -873,7 +873,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.messages = []MessageItem{}
 
 	// Wire up child components now that we have the concrete implementations.
-	m.input = NewInputComponent(width, "Enter your prompt (Type /help for commands, Ctrl+C twice to quit)", appCtrl)
+	m.input = NewInputComponent(width, appCtrl)
 
 	// Wire up cwd for @file autocomplete.
 	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
@@ -1044,7 +1044,7 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	// Add a visual separator after startup info: blank line + HR + blank line.
 	// Uses a single pre-rendered item so there are no left borders on the spacing.
 	theme := style.GetTheme()
-	separator := strings.Repeat("─", 80)
+	separator := strings.Repeat("─", m.width)
 	separatorStyled := lipgloss.NewStyle().
 		Foreground(theme.Border).
 		Render(separator)
@@ -2440,8 +2440,10 @@ func (m *AppModel) View() tea.View {
 	scrollbackView := m.renderScrollback()
 
 	// Propagate hint visibility to the input component before rendering.
+	// Hints are hidden by default for a cleaner UI; extensions cannot
+	// override this.
 	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = vis.HideInputHint
+		ic.hideHint = true
 		ic.agentBusy = m.state == stateWorking
 	}
 
@@ -2635,8 +2637,13 @@ func (m *AppModel) renderStatusBar() string {
 		middleSide = "  " + middleSide
 	}
 
-	// Right side: provider · model + usage stats.
+	// Right side: help hint + provider · model + usage stats.
+	// Order matters for progressive truncation — least important first.
 	var rightParts []string
+
+	rightParts = append(rightParts, lipgloss.NewStyle().
+		Foreground(theme.VeryMuted).
+		Render("/help for help"))
 
 	var modelLabel string
 	if m.providerName != "" && m.modelName != "" {
@@ -2656,11 +2663,11 @@ func (m *AppModel) renderStatusBar() string {
 		}
 	}
 
-	rightSide := strings.Join(rightParts, "  ")
+	rightSide := strings.Join(rightParts, "  |  ")
 
 	// Progressive truncation to keep the status bar on one line.
 	// When content exceeds terminal width, drop sections in order:
-	// middle (extensions/thinking) → usage stats → model label → right side.
+	// middle (extensions/thinking) → help hint → usage → model → all.
 	leftW := lipgloss.Width(leftSide)
 	middleW := lipgloss.Width(middleSide)
 	rightW := lipgloss.Width(rightSide)
@@ -2671,13 +2678,19 @@ func (m *AppModel) renderStatusBar() string {
 		middleSide = ""
 		middleW = 0
 	}
+	if leftW+rightW+1 > m.width && len(rightParts) > 2 {
+		// Drop help hint first.
+		rightParts = rightParts[1:]
+		rightSide = strings.Join(rightParts, "  |  ")
+		rightW = lipgloss.Width(rightSide)
+	}
 	if leftW+rightW+1 > m.width && len(rightParts) > 1 {
-		// Drop usage stats, keep model label.
-		rightSide = rightParts[0]
+		// Drop usage (last) next, keep model label.
+		rightParts = rightParts[:len(rightParts)-1]
+		rightSide = strings.Join(rightParts, "  |  ")
 		rightW = lipgloss.Width(rightSide)
 	}
 	if leftW+rightW+1 > m.width {
-		// Drop right side entirely.
 		rightSide = ""
 		rightW = 0
 	}
@@ -2721,7 +2734,7 @@ func (m *AppModel) cycleThinkingLevel() {
 // renderSeparator renders the separator line with an optional queue/steer count badge.
 func (m *AppModel) renderSeparator() string {
 	theme := style.GetTheme()
-	lineStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	lineStyle := lipgloss.NewStyle().Foreground(theme.Border)
 	queueLen := len(m.queuedMessages)
 	steerLen := len(m.steeringMessages)
 
@@ -3095,6 +3108,16 @@ func (m *AppModel) printSystemMessage(text string) {
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
+	m.refreshContent()
+}
+
+// printCustomMessage renders a message with a custom alert label into the ScrollList.
+func (m *AppModel) printCustomMessage(text, label string) {
+	styledMsg := m.renderer.RenderCustomMessage(text, label, time.Now())
+
+	msg := NewStyledMessageItem(generateMessageID(), "system", styledMsg.Content, styledMsg.Content)
+	m.messages = append(m.messages, msg)
+
 	m.refreshContent()
 }
 
@@ -3481,9 +3504,10 @@ func (m *AppModel) printHelpMessage() {
 		"- `ESC` (x2): Cancel ongoing LLM generation\n" +
 		"- `Ctrl+X s`: Steer — redirect the agent mid-turn (injected between tool calls)\n" +
 		"- `Ctrl+X e`: Open `$EDITOR` to compose/edit your prompt\n" +
+		"- `Ctrl+V`: Paste image from clipboard\n" +
 		"- `Enter` (while working): Queue message for after the agent finishes\n\n" +
 		"You can also just type your message to chat with the AI assistant."
-	m.printSystemMessage(help)
+	m.printCustomMessage(help, "Help")
 }
 
 // printToolsMessage renders the list of available tools.
@@ -3736,15 +3760,16 @@ func (m *AppModel) distributeHeight() {
 	}
 
 	// Propagate hint visibility before measuring input height.
+	// Hints are always hidden for a cleaner UI.
 	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = vis.HideInputHint
+		ic.hideHint = true
 	}
 
 	// Measure the actual rendered input (or prompt overlay) height so we
 	// don't rely on a fragile constant that drifts when styling changes.
 	// Use renderInput() which includes the editor interceptor's Render
 	// wrapper so the measured height matches what View() actually renders.
-	inputLines := 9 // fallback: title(1)+margin(1)+nl(1)+textarea(3)+nl(1)+margin(1)+help(1)
+	inputLines := 8 // fallback: marginTop(1)+textarea(4)+border-chrome(2)+marginBottom(1)
 	if m.state == statePrompt && m.prompt != nil {
 		if rendered := m.prompt.Render(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)

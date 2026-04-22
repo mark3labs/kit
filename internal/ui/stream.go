@@ -474,7 +474,7 @@ func (s *StreamComponent) renderReasoningBlock(reasoning string) string {
 	content := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
 	// Soft-wrap to the available width so long lines don't get cut off.
 	if s.width > 4 {
-		content = lipgloss.Wrap(content, s.width-4, "")
+		content = lipgloss.NewStyle().Width(s.width - 4).Render(content)
 	}
 	theme := GetTheme()
 	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)

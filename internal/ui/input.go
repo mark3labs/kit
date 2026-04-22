@@ -40,7 +40,6 @@ type InputComponent struct {
 	width       int
 	lastValue   string
 	popupHeight int
-	title       string
 	submitNext  bool // defer submit one tick so popup dismisses cleanly
 
 	// Argument completion state. When the user types "/cmd " followed by
@@ -106,17 +105,17 @@ type clipboardImageMsg struct {
 	err   error
 }
 
-// NewInputComponent creates a new InputComponent with the given width, title,
-// and optional AppController. If appCtrl is nil the component still works but
+// NewInputComponent creates a new InputComponent with the given width and
+// optional AppController. If appCtrl is nil the component still works but
 // /clear and /clear-queue are no-ops.
-func NewInputComponent(width int, title string, appCtrl AppController) *InputComponent {
+func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 	ta := textarea.New()
 	ta.Placeholder = "Type your message..."
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.CharLimit = 0
 	ta.SetWidth(width - 8) // Account for container padding, border and internal padding
-	ta.SetHeight(3)        // Default to 3 lines like huh
+	ta.SetHeight(4)        // 4 lines for comfortable multi-line input
 	ta.Focus()
 
 	// Override InsertNewline so only ctrl+j and shift+enter insert newlines.
@@ -141,8 +140,8 @@ func NewInputComponent(width int, title string, appCtrl AppController) *InputCom
 		commands:    commands.SlashCommands,
 		width:       width,
 		popupHeight: 7,
-		title:       title,
 		appCtrl:     appCtrl,
+		hideHint:    true,
 	}
 }
 
@@ -520,18 +519,12 @@ func (s *InputComponent) resetHistoryBrowsing() {
 	s.savedInput = ""
 }
 
-// View implements tea.Model. Renders the title, textarea, autocomplete popup
+// View implements tea.Model. Renders the textarea, autocomplete popup
 // (if visible), and help text.
 func (s *InputComponent) View() tea.View {
 	containerStyle := lipgloss.NewStyle()
 
 	theme := style.GetTheme()
-
-	// PaddingLeft(3) aligns with message content: border(1) + paddingLeft(2).
-	titleStyle := lipgloss.NewStyle().
-		Foreground(theme.Text).
-		MarginBottom(1).
-		PaddingLeft(3)
 
 	inputBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.ThickBorder()).
@@ -540,12 +533,12 @@ func (s *InputComponent) View() tea.View {
 		BorderTop(false).
 		BorderBottom(false).
 		BorderForeground(theme.Primary).
+		MarginTop(1).
+		MarginBottom(1).
 		PaddingLeft(2).    // match message block paddingLeft
 		Width(s.width - 1) // full width minus left border
 
 	var view strings.Builder
-	view.WriteString(titleStyle.Render(s.title))
-	view.WriteString("\n")
 	view.WriteString(inputBoxStyle.Render(s.textarea.View()))
 
 	// Popup is now rendered as a centered overlay in AppModel.View()

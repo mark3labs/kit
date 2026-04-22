@@ -515,12 +515,12 @@ func TestWindowResize_distributeHeight(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
-	// With height=30, scroll height = 30 - 1 (separator) - 9 (input) - 1 (statusBar) = 19
+	// With height=30, scroll height = 30 - 1 (separator) - 8 (input) - 1 (statusBar) = 20
 	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	_ = m
 
-	if m.scrollList.height != 19 {
-		t.Fatalf("expected scroll list height=19, got %d", m.scrollList.height)
+	if m.scrollList.height != 20 {
+		t.Fatalf("expected scroll list height=20, got %d", m.scrollList.height)
 	}
 }
 
@@ -892,7 +892,7 @@ func TestCtrlC_clearsInput_firstPress(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 
 	// Replace with real InputComponent that has content
-	input := NewInputComponent(80, "test", ctrl)
+	input := NewInputComponent(80, ctrl)
 	input.textarea.SetValue("some text content")
 	m.input = input
 
@@ -937,7 +937,7 @@ func TestCtrlC_resetAfterSubmit(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 
 	// Replace with real InputComponent
-	input := NewInputComponent(80, "test", ctrl)
+	input := NewInputComponent(80, ctrl)
 	input.textarea.SetValue("content")
 	m.input = input
 
@@ -986,7 +986,7 @@ func TestCtrlC_emptyInput_armsQuit(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 
 	// Replace with real InputComponent (empty by default)
-	input := NewInputComponent(80, "test", ctrl)
+	input := NewInputComponent(80, ctrl)
 	m.input = input
 
 	// First Ctrl+C on empty input should arm the flag, not quit.

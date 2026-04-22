@@ -36,15 +36,15 @@ func UserBlock(content string, width int, ty *herald.Typography, theme style.The
 
 	// Highlight @file tokens with accent color so file references are
 	// visually distinct from surrounding prompt text.
-	content = highlightFileTokens(content, theme)
+	content = HighlightFileTokens(content, theme)
 
 	rendered := ty.Tip(content)
 	return styleMarginBottom(theme, rendered)
 }
 
-// highlightFileTokens wraps @file tokens in the given text with the theme
+// HighlightFileTokens wraps @file tokens in the given text with the theme
 // accent color so they stand out visually in rendered user messages.
-func highlightFileTokens(text string, theme style.Theme) string {
+func HighlightFileTokens(text string, theme style.Theme) string {
 	accentStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
 	return fileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
 		return accentStyle.Render(token)
@@ -69,12 +69,11 @@ func ReasoningBlock(content string, duration int64, width int, ty *herald.Typogr
 		return ""
 	}
 
-	// Match live streaming styling: muted italic text. Wrap before styling so
-	// ANSI sequences from italics don't interfere with width calculations.
+	// Match live streaming styling: muted italic text.
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 	contentStr := strings.TrimLeft(strings.Join(lines, "\n"), " \t\n")
-	if width > 4 { // mirror other blocks (User/Assistant) which subtract 4
-		contentStr = lipgloss.Wrap(contentStr, width-4, "")
+	if width > 4 {
+		contentStr = wrapText(contentStr, width-4)
 	}
 	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 	contentRendered := mutedStyle.Render(ty.Italic(contentStr))
@@ -108,6 +107,45 @@ func SystemBlock(content string, ty *herald.Typography, theme style.Theme) strin
 
 	rendered := ty.Note(content)
 	return styleMarginBottom(theme, rendered)
+}
+
+// CustomBlock renders a message with herald Note styling and a custom label.
+// Content is rendered as markdown before being wrapped in the alert. This
+// creates a one-off Typography instance with the given label so callers
+// can use any title (e.g. "Help", "Warning") without changing the shared
+// typography's default "Info" label.
+func CustomBlock(content, label string, width int, theme style.Theme) string {
+	if strings.TrimSpace(content) == "" {
+		content = "No content available"
+	}
+
+	// Render markdown first — subtract 4 for the alert bar prefix ("│ ").
+	mdWidth := max(width-4, 10)
+	rendered := style.ToMarkdown(content, mdWidth)
+
+	ty := herald.New(
+		herald.WithPalette(herald.ColorPalette{
+			Primary:   theme.Primary,
+			Secondary: theme.Secondary,
+			Tertiary:  theme.Info,
+			Accent:    theme.Accent,
+			Highlight: theme.Highlight,
+			Muted:     theme.Muted,
+			Text:      theme.Text,
+			Surface:   theme.Background,
+			Base:      theme.CodeBg,
+		}),
+		herald.WithAlertPalette(herald.AlertPalette{
+			Note:      theme.Info,
+			Tip:       theme.Success,
+			Important: theme.Accent,
+			Warning:   theme.Warning,
+			Caution:   theme.Error,
+		}),
+		herald.WithAlertLabel(herald.AlertNote, label),
+	)
+	alertRendered := ty.Note(rendered)
+	return styleMarginBottom(theme, alertRendered)
 }
 
 // ErrorBlock renders an error message with herald Caution styling.
@@ -157,4 +195,10 @@ func ToolBlock(displayName, params, body string, isError bool, width int, ty *he
 // styleMarginBottom applies a 1-line margin bottom using the theme.
 func styleMarginBottom(theme style.Theme, content string) string {
 	return lipgloss.NewStyle().MarginBottom(1).Render(content)
+}
+
+// wrapText soft-wraps a string to the given width using lipgloss, which is
+// ANSI-aware and preserves escape sequences across line breaks.
+func wrapText(s string, width int) string {
+	return lipgloss.NewStyle().Width(width).Render(s)
 }

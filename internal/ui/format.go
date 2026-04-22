@@ -17,6 +17,7 @@ type Renderer interface {
 	RenderReasoningBlock(content string, timestamp time.Time) UIMessage
 	RenderToolMessage(toolName, toolArgs, toolResult string, isError bool) UIMessage
 	RenderSystemMessage(content string, timestamp time.Time) UIMessage
+	RenderCustomMessage(content, label string, timestamp time.Time) UIMessage
 	RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage
 	RenderDebugMessage(message string, timestamp time.Time) UIMessage
 	RenderDebugConfigMessage(config map[string]any, timestamp time.Time) UIMessage

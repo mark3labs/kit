@@ -23,7 +23,8 @@ func testTypography(theme style.Theme) *herald.Typography {
 			Surface:   theme.Background,
 			Base:      theme.CodeBg,
 		}),
-		herald.WithAlertLabel(herald.AlertTip, "You"),
+		herald.WithAlertLabel(herald.AlertTip, ""),
+		herald.WithAlertIcon(herald.AlertTip, ""),
 	)
 }
 
@@ -70,18 +71,18 @@ func TestHighlightFileTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := highlightFileTokens(tt.input, theme)
+			result := HighlightFileTokens(tt.input, theme)
 
 			for _, want := range tt.wantHas {
 				if !strings.Contains(result, want) {
-					t.Errorf("highlightFileTokens(%q) = %q, want substring %q", tt.input, result, want)
+					t.Errorf("HighlightFileTokens(%q) = %q, want substring %q", tt.input, result, want)
 				}
 			}
 
 			// If there were @tokens, the result should contain ANSI escape
 			// sequences (from lipgloss styling).
 			if fileTokenPattern.MatchString(tt.input) && !strings.Contains(result, "\x1b[") {
-				t.Errorf("highlightFileTokens(%q) should contain ANSI escapes for @tokens but got %q", tt.input, result)
+				t.Errorf("HighlightFileTokens(%q) should contain ANSI escapes for @tokens but got %q", tt.input, result)
 			}
 		})
 	}

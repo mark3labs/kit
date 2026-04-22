@@ -19,7 +19,7 @@ import (
 
 // newTestInput creates an InputComponent with the given AppController (may be nil).
 func newTestInput(ctrl AppController) *InputComponent {
-	return NewInputComponent(80, "test input", ctrl)
+	return NewInputComponent(80, ctrl)
 }
 
 // sendInputMsg calls component.Update with the given message, returns the

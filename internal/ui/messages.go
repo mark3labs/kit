@@ -150,9 +150,26 @@ func (r *MessageRenderer) SetWidth(width int) {
 	r.width = width
 }
 
-// RenderUserMessage renders a user's input message using herald Tip alert
+// RenderUserMessage renders a user's input message with a colored left border.
 func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time) UIMessage {
-	rendered := render.UserBlock(content, r.width, r.ty, style.GetTheme())
+	if strings.TrimSpace(content) == "" {
+		content = "(empty message)"
+	}
+
+	theme := style.GetTheme()
+
+	// Highlight @file tokens with accent color.
+	content = render.HighlightFileTokens(content, theme)
+
+	rendered := renderContentBlock(
+		content,
+		r.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(theme.Success),
+		WithPaddingTop(0),
+		WithPaddingBottom(0),
+		WithMarginBottom(1),
+	)
 
 	return UIMessage{
 		Type:      UserMessage,
@@ -191,6 +208,19 @@ func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Ti
 // RenderSystemMessage renders KIT system messages using herald Note alert
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
 	rendered := render.SystemBlock(content, r.ty, style.GetTheme())
+
+	return UIMessage{
+		Type:      SystemMessage,
+		Content:   rendered,
+		Height:    lipgloss.Height(rendered),
+		Timestamp: timestamp,
+	}
+}
+
+// RenderCustomMessage renders a message with a custom alert label (e.g. "Help").
+// Content is rendered as markdown.
+func (r *MessageRenderer) RenderCustomMessage(content, label string, timestamp time.Time) UIMessage {
+	rendered := render.CustomBlock(content, label, r.width, style.GetTheme())
 
 	return UIMessage{
 		Type:      SystemMessage,
@@ -399,7 +429,8 @@ func createTypography(theme style.Theme) *herald.Typography {
 		herald.WithCodeLineNumbers(true),
 		// Customize alert labels
 		herald.WithAlertLabel(herald.AlertNote, "Info"),
-		herald.WithAlertLabel(herald.AlertTip, "You"),
+		herald.WithAlertLabel(herald.AlertTip, ""),
+		herald.WithAlertIcon(herald.AlertTip, ""),
 		herald.WithAlertLabel(herald.AlertWarning, "Working"),
 		herald.WithAlertLabel(herald.AlertCaution, "Error"),
 	)
