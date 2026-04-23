@@ -21,12 +21,9 @@ type Edit struct {
 }
 
 // editArgs holds the arguments for the edit tool.
-// Supports both single-edit mode (old_text/new_text) and multi-edit mode (edits array).
 type editArgs struct {
-	Path    string `json:"path"`
-	OldText string `json:"old_text"` // Single-edit mode
-	NewText string `json:"new_text"` // Single-edit mode
-	Edits   []Edit `json:"edits"`    // Multi-edit mode
+	Path  string `json:"path"`
+	Edits []Edit `json:"edits"`
 }
 
 // replacement represents a normalized edit ready for processing.
@@ -52,19 +49,11 @@ func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "edit",
-			Description: "Edit a file by replacing exact text. Supports single edit via old_text/new_text, or multiple edits via the edits array. All edits in the array are matched against the original file content (non-incremental) and must be non-overlapping.",
+			Description: "Edit a file by replacing exact text. All edits in the array are matched against the original file content (non-incremental) and must be non-overlapping.",
 			Parameters: map[string]any{
 				"path": map[string]any{
 					"type":        "string",
 					"description": "Path to the file to edit (relative or absolute)",
-				},
-				"old_text": map[string]any{
-					"type":        "string",
-					"description": "Exact text to find and replace (single-edit mode). Must not be used with 'edits' array.",
-				},
-				"new_text": map[string]any{
-					"type":        "string",
-					"description": "New text to replace the old text with (single-edit mode). Must not be used with 'edits' array.",
 				},
 				"edits": map[string]any{
 					"type":        "array",
@@ -85,7 +74,7 @@ func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
 					},
 				},
 			},
-			Required: []string{"path"},
+			Required: []string{"path", "edits"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			return executeEdit(ctx, call, cfg.WorkDir)
@@ -163,36 +152,11 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 }
 
 // normalizeEditInput validates and normalizes the edit input.
-// Returns error if both single-edit and multi-edit modes are used.
 func normalizeEditInput(args editArgs) ([]replacement, error) {
-	singleMode := args.OldText != "" || args.NewText != ""
-	multiMode := len(args.Edits) > 0
-
-	if singleMode && multiMode {
-		return nil, fmt.Errorf("cannot use old_text/new_text together with edits array")
+	if len(args.Edits) == 0 {
+		return nil, fmt.Errorf("edits array is required and must not be empty")
 	}
 
-	if !singleMode && !multiMode {
-		return nil, fmt.Errorf("must provide either old_text/new_text or edits array")
-	}
-
-	if singleMode {
-		if args.OldText == "" {
-			return nil, fmt.Errorf("old_text is required when using single-edit mode")
-		}
-		if args.NewText == "" {
-			return nil, fmt.Errorf("new_text is required when using single-edit mode")
-		}
-		return []replacement{{
-			oldText:     strings.ReplaceAll(args.OldText, "\r\n", "\n"),
-			newText:     strings.ReplaceAll(args.NewText, "\r\n", "\n"),
-			originalOld: args.OldText,
-			originalNew: args.NewText,
-			index:       0,
-		}}, nil
-	}
-
-	// Multi-edit mode
 	var reps []replacement
 	for i, edit := range args.Edits {
 		if edit.OldText == "" {

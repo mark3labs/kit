@@ -1968,35 +1968,42 @@ a:hover { text-decoration: underline; }
 
   function renderEditBody(input, result) {
     let html = '';
-    const oldText = input.old_text || '';
-    const newText = input.new_text || '';
+    const edits = input.edits || [];
 
     html += '<div class="tool-input">';
     html += '<div class="tool-input-label">Changes</div>';
-    html += '<div class="diff-display">';
 
-    // Render old text lines as removed
-    if (oldText) {
-      const oldLines = oldText.split('\n');
-      for (const line of oldLines) {
-        html += `<div class="diff-line removed">- ${escapeHtml(line)}</div>`;
+    for (const edit of edits) {
+      const oldText = edit.old_text || '';
+      const newText = edit.new_text || '';
+
+      html += '<div class="diff-display">';
+
+      // Render old text lines as removed
+      if (oldText) {
+        const oldLines = oldText.split('\n');
+        for (const line of oldLines) {
+          html += `<div class="diff-line removed">- ${escapeHtml(line)}</div>`;
+        }
       }
-    }
 
-    // Separator
-    if (oldText && newText) {
-      html += '<div class="diff-separator">───</div>';
-    }
-
-    // Render new text lines as added
-    if (newText) {
-      const newLines = newText.split('\n');
-      for (const line of newLines) {
-        html += `<div class="diff-line added">+ ${escapeHtml(line)}</div>`;
+      // Separator
+      if (oldText && newText) {
+        html += '<div class="diff-separator">───</div>';
       }
+
+      // Render new text lines as added
+      if (newText) {
+        const newLines = newText.split('\n');
+        for (const line of newLines) {
+          html += `<div class="diff-line added">+ ${escapeHtml(line)}</div>`;
+        }
+      }
+
+      html += '</div>';
     }
 
-    html += '</div></div>';
+    html += '</div>';
 
     if (result && result.is_error) {
       html += renderToolOutput(result.content, true);

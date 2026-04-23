@@ -389,9 +389,11 @@ func TestExecuteEdit_ExactMatch(t *testing.T) {
 	writeFileOrFail(t, path, original)
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "fmt.Println(\"hello\")",
-		NewText: "fmt.Println(\"world\")",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "fmt.Println(\"hello\")",
+			NewText: "fmt.Println(\"world\")",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -426,9 +428,11 @@ func TestExecuteEdit_ExactMatch_DoesNotCorruptRest(t *testing.T) {
 	target := lines[49]
 	replacement := "REPLACED_LINE_50"
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: target,
-		NewText: replacement,
+		Path: path,
+		Edits: []Edit{{
+			OldText: target,
+			NewText: replacement,
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -470,9 +474,11 @@ func TestExecuteEdit_FuzzyMatch_TrailingWhitespace(t *testing.T) {
 
 	// Search without trailing whitespace (common LLM behavior)
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "func foo() {\n\treturn 1\n}",
-		NewText: "func foo() {\n\treturn 2\n}",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "func foo() {\n\treturn 1\n}",
+			NewText: "func foo() {\n\treturn 2\n}",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -519,9 +525,11 @@ func TestExecuteEdit_FuzzyMatch_DoesNotCorruptRest(t *testing.T) {
 	search := strings.Repeat("x", 10) + "\n" + strings.Repeat("x", 10)
 	// But this matches lines 1-2, 2-3, etc. — should fail due to ambiguity.
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: search,
-		NewText: "REPLACED",
+		Path: path,
+		Edits: []Edit{{
+			OldText: search,
+			NewText: "REPLACED",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -546,9 +554,11 @@ func TestExecuteEdit_MultipleMatches_Fails(t *testing.T) {
 	writeFileOrFail(t, path, "hello\nworld\nhello\n")
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "hello",
-		NewText: "goodbye",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "hello",
+			NewText: "goodbye",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -575,9 +585,11 @@ func TestExecuteEdit_NoMatch_Fails(t *testing.T) {
 	writeFileOrFail(t, path, "hello world\n")
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "nonexistent text",
-		NewText: "replacement",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "nonexistent text",
+			NewText: "replacement",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -601,9 +613,11 @@ func TestExecuteEdit_CRLFNormalization(t *testing.T) {
 	writeFileOrFail(t, path, "line1\r\nline2\r\nline3\r\n")
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "line2",
-		NewText: "LINE2",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "line2",
+			NewText: "LINE2",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -622,8 +636,10 @@ func TestExecuteEdit_CRLFNormalization(t *testing.T) {
 
 func TestExecuteEdit_MissingPath(t *testing.T) {
 	input, _ := json.Marshal(editArgs{
-		OldText: "x",
-		NewText: "y",
+		Edits: []Edit{{
+			OldText: "x",
+			NewText: "y",
+		}},
 	})
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, "")
 	if err != nil {
@@ -636,9 +652,11 @@ func TestExecuteEdit_MissingPath(t *testing.T) {
 
 func TestExecuteEdit_NonexistentFile(t *testing.T) {
 	input, _ := json.Marshal(editArgs{
-		Path:    "/tmp/nonexistent_edit_test_file_12345.go",
-		OldText: "x",
-		NewText: "y",
+		Path: "/tmp/nonexistent_edit_test_file_12345.go",
+		Edits: []Edit{{
+			OldText: "x",
+			NewText: "y",
+		}},
 	})
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, "")
 	if err != nil {
@@ -661,9 +679,11 @@ func TestExecuteEdit_DiffContainsHunkHeader(t *testing.T) {
 	writeFileOrFail(t, path, strings.Join(lines, "\n")+"\n")
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "line_10_content",
-		NewText: "REPLACED",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "line_10_content",
+			NewText: "REPLACED",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -684,9 +704,11 @@ func TestExecuteEdit_MetadataContainsFileDiffs(t *testing.T) {
 	writeFileOrFail(t, path, "old content\n")
 
 	input, _ := json.Marshal(editArgs{
-		Path:    path,
-		OldText: "old content",
-		NewText: "new content",
+		Path: path,
+		Edits: []Edit{{
+			OldText: "old content",
+			NewText: "new content",
+		}},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -905,18 +927,14 @@ func TestExecuteEdit_MultiEdit_EmptyArray(t *testing.T) {
 	}
 }
 
-func TestExecuteEdit_MultiEdit_MixedWithSingleMode(t *testing.T) {
+func TestExecuteEdit_EmptyEditsArray_Fails(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mixed.txt")
+	path := filepath.Join(dir, "empty.txt")
 	writeFileOrFail(t, path, "hello\n")
 
-	input, _ := json.Marshal(map[string]any{
-		"path":     path,
-		"old_text": "hello",
-		"new_text": "HELLO",
-		"edits": []Edit{
-			{OldText: "hello", NewText: "HI"},
-		},
+	input, _ := json.Marshal(editArgs{
+		Path:  path,
+		Edits: []Edit{},
 	})
 
 	resp, err := executeEdit(t.Context(), fantasy.ToolCall{Input: string(input)}, dir)
@@ -924,10 +942,10 @@ func TestExecuteEdit_MultiEdit_MixedWithSingleMode(t *testing.T) {
 		t.Fatalf("executeEdit error: %v", err)
 	}
 	if !resp.IsError {
-		t.Error("expected error when mixing single and multi-edit modes")
+		t.Error("expected error for empty edits array")
 	}
-	if !strings.Contains(resp.Content, "cannot use") {
-		t.Errorf("expected 'cannot use' in error, got: %s", resp.Content)
+	if !strings.Contains(resp.Content, "required") {
+		t.Errorf("expected 'required' in error, got: %s", resp.Content)
 	}
 }
 

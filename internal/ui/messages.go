@@ -88,13 +88,9 @@ func formatToolParams(toolArgs string, maxWidth int) string {
 	}
 
 	bodyKeys := map[string]bool{
-		"content":  true,
-		"old_text": true,
-		"new_text": true,
-		"oldText":  true,
-		"newText":  true,
-		"edits":    true,
-		"todos":    true,
+		"content": true,
+		"edits":   true,
+		"todos":   true,
 	}
 	var remaining []string
 	for key, val := range params {
