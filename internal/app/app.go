@@ -923,7 +923,7 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 		case kit.SteerConsumedEvent:
 			sendFn(SteerConsumedEvent{})
 		case kit.StepUsageEvent:
-			a.recordStepUsage(ev, stepUsageSeen)
+			a.recordStepUsage(ev, stepUsageSeen, sendFn)
 		case kit.PasswordPromptEvent:
 			// Convert SDK PasswordPromptEvent to app PasswordPromptEvent
 			// The TUI will handle this and send the response back
@@ -1241,7 +1241,16 @@ func (a *App) PrintBlockFromExtension(opts extensions.PrintBlockOpts) {
 // recordStepUsage applies token/cost usage reported for a completed step.
 // Step usage events arrive even when a turn is later cancelled, so this keeps
 // the usage widget accurate on all stop paths.
-func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool) {
+//
+// Both session totals (cost, token counts) and the context window fill level
+// are updated here so the status bar reflects progress after every LLM call,
+// not just at the end of the full turn. Context fill monotonically increases
+// across steps because each step re-sends the entire conversation plus any
+// new tool results, so the numbers only go up.
+//
+// sendFn is called with a UsageUpdatedEvent to trigger a TUI re-render so
+// the updated values are visible immediately.
+func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool, sendFn func(tea.Msg)) {
 	hasUsage := ev.InputTokens > 0 || ev.OutputTokens > 0 || ev.CacheReadTokens > 0 || ev.CacheWriteTokens > 0
 	if a.opts.Debug {
 		log.Printf("[DEBUG] recordStepUsage: hasUsage=%v input=%d output=%d cacheRead=%d cacheWrite=%d",
@@ -1262,11 +1271,21 @@ func (a *App) recordStepUsage(ev kit.StepUsageEvent, stepUsageSeen *atomic.Bool)
 		int(ev.CacheReadTokens),
 		int(ev.CacheWriteTokens),
 	)
-	// NOTE: We do NOT call SetContextTokens here. Context fill is set once
-	// at turn completion via updateUsageFromTurnResult, which sums all token
-	// categories (Input + CacheRead + CacheCreate + Output) from FinalUsage.
-	// Per-step context tokens would cause the display to jump around during
-	// multi-step tool calls.
+	// Update context window fill from this step's usage. Each step sends
+	// the full conversation to the LLM, so the reported token counts
+	// represent the actual context utilization at that point.
+	contextFill := int(ev.InputTokens) + int(ev.CacheReadTokens) + int(ev.CacheWriteTokens) + int(ev.OutputTokens)
+	if contextFill > 0 {
+		if a.opts.Debug {
+			log.Printf("[DEBUG] recordStepUsage: SetContextTokens=%d (Input=%d + CacheRead=%d + CacheWrite=%d + Output=%d)",
+				contextFill, ev.InputTokens, ev.CacheReadTokens, ev.CacheWriteTokens, ev.OutputTokens)
+		}
+		a.opts.UsageTracker.SetContextTokens(contextFill)
+	}
+	// Notify the TUI so it re-renders the status bar with updated values.
+	if sendFn != nil {
+		sendFn(UsageUpdatedEvent{})
+	}
 }
 
 // updateUsageFromTurnResult records token usage from an SDK TurnResult into the

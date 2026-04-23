@@ -2076,6 +2076,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.providerName = msg.ProviderName
 		m.modelName = msg.ModelName
 
+	case app.UsageUpdatedEvent:
+		// Token usage was updated after a completed LLM step. No state
+		// changes needed — the UsageTracker was already mutated in-place.
+		// Returning from Update() triggers View() which re-renders the
+		// status bar with the latest token counts, cost, and context %.
+
 	case app.WidgetUpdateEvent:
 		// Extension widget changed — recalculate height distribution so the
 		// stream region accounts for widget space. View() will read the

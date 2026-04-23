@@ -210,6 +210,12 @@ type ModelChangedEvent struct {
 	ModelName string
 }
 
+// UsageUpdatedEvent is sent after each completed LLM step to notify the TUI
+// that token counts and costs have changed. The UsageTracker is updated
+// in-place before this event is sent; the TUI just needs to re-render to
+// reflect the new values in the status bar.
+type UsageUpdatedEvent struct{}
+
 // WidgetUpdateEvent is sent when an extension adds, updates, or removes a
 // widget via ctx.SetWidget or ctx.RemoveWidget. The TUI re-reads widget state
 // from its WidgetProvider on the next render cycle.

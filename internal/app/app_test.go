@@ -534,9 +534,9 @@ func TestQueueLength_reflects(t *testing.T) {
 }
 
 // TestRecordStepUsage_updatesTracker verifies that per-step usage updates are
-// recorded immediately for cost tracking. Context tokens are NOT updated here
-// (only via updateUsageFromTurnResult) to avoid display jumps during multi-step
-// tool calls.
+// recorded immediately for cost tracking. Context tokens are also updated so
+// the status bar reflects context fill after every LLM call in a multi-step
+// turn, not just at the end.
 func TestRecordStepUsage_updatesTracker(t *testing.T) {
 	usage := &usageUpdaterStub{}
 	app := New(Options{UsageTracker: usage}, nil)
@@ -547,7 +547,7 @@ func TestRecordStepUsage_updatesTracker(t *testing.T) {
 		OutputTokens:     45,
 		CacheReadTokens:  5,
 		CacheWriteTokens: 2,
-	}, nil)
+	}, nil, nil)
 
 	usage.mu.Lock()
 	defer usage.mu.Unlock()
@@ -559,9 +559,13 @@ func TestRecordStepUsage_updatesTracker(t *testing.T) {
 		t.Fatalf("unexpected usage update payload: in=%d out=%d cache_read=%d cache_write=%d",
 			usage.lastUpdateInput, usage.lastUpdateOutput, usage.lastUpdateCacheRead, usage.lastUpdateCacheWrite)
 	}
-	// Context tokens should NOT be updated by recordStepUsage (only by updateUsageFromTurnResult)
-	if usage.contextCalls != 0 {
-		t.Fatalf("expected 0 context token updates from recordStepUsage, got %d", usage.contextCalls)
+	// Context tokens should now be updated per-step (Input + CacheRead + CacheWrite + Output).
+	if usage.contextCalls != 1 {
+		t.Fatalf("expected 1 context token update from recordStepUsage, got %d", usage.contextCalls)
+	}
+	expectedContext := 120 + 45 + 5 + 2
+	if usage.lastContextTokens != expectedContext {
+		t.Fatalf("expected context tokens %d, got %d", expectedContext, usage.lastContextTokens)
 	}
 }
 
