@@ -142,8 +142,8 @@ func TestWrappedTool_BlockExecution(t *testing.T) {
 	if toolRan {
 		t.Error("tool should not have run after block")
 	}
-	if err == nil {
-		t.Error("expected error from blocked tool")
+	if err != nil {
+		t.Error("expected nil error for blocked tool (error is conveyed via IsError response)")
 	}
 	if resp.IsError != true {
 		t.Error("expected IsError=true from blocked response")
@@ -234,8 +234,8 @@ func TestExtensionTool_Error(t *testing.T) {
 
 	tools := ExtensionToolsAsLLMTools(defs, nil)
 	resp, err := tools[0].Run(context.Background(), fantasy.ToolCall{Input: "x"})
-	if err == nil {
-		t.Error("expected error")
+	if err != nil {
+		t.Error("expected nil error (error is conveyed via IsError response)")
 	}
 	if !resp.IsError {
 		t.Error("expected IsError=true")

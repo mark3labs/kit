@@ -90,8 +90,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 	// 0. Check if tool is disabled via SetActiveTools.
 	if w.runner.IsToolDisabled(toolName) {
 		return fantasy.NewTextErrorResponse(
-				fmt.Sprintf("Error: tool %q is currently disabled", toolName)),
-			fmt.Errorf("tool %q disabled by extension", toolName)
+			fmt.Sprintf("Error: tool %q is currently disabled", toolName)), nil
 	}
 
 	kind := toolKindFor(toolName)
@@ -111,8 +110,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			if reason == "" {
 				reason = "blocked by extension"
 			}
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("Error: %s", reason)),
-				fmt.Errorf("tool blocked by extension: %s", reason)
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("Error: %s", reason)), nil
 		}
 	}
 
@@ -238,7 +236,7 @@ func (t *extensionTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	}
 
 	if err != nil {
-		return fantasy.NewTextErrorResponse(err.Error()), err
+		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
 	return fantasy.NewTextResponse(result), nil
 }
