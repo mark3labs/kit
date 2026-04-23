@@ -1881,6 +1881,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			bashItem.AppendStdout(msg.Chunk)
 		}
+		// Invalidate cached height after mutation.
+		if m.scrollList != nil {
+			m.scrollList.InvalidateItemHeight(bashItem.ID())
+		}
 
 		// Check height and cap if needed - we don't want streaming output to grow forever
 		const maxStreamingBashHeight = 20 // Max lines to show during streaming
@@ -3696,6 +3700,10 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 	// If last message is a StreamingMessageItem with matching role, append to it
 	if streamMsg, ok := lastMsg.(*StreamingMessageItem); ok && streamMsg.role == role {
 		streamMsg.AppendChunk(content)
+		// Invalidate cached height so GotoBottom sees the new size.
+		if m.scrollList != nil {
+			m.scrollList.InvalidateItemHeight(streamMsg.ID())
+		}
 		// Auto-scroll to bottom if enabled (iteratr pattern)
 		// Don't call SetItems() - the slice reference hasn't changed
 		if m.scrollList != nil {

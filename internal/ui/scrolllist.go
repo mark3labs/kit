@@ -35,6 +35,12 @@ type ScrollList struct {
 	autoScroll bool // Whether to auto-scroll to bottom on new content
 	itemGap    int  // Number of blank lines between items (0 = no gap)
 
+	// heightCache maps item ID → rendered line count at current width.
+	// Avoids redundant Render() calls in GotoBottom/clampOffset/AtBottom.
+	// Invalidated on width change; individual entries are refreshed in
+	// View() when an item is actually rendered.
+	heightCache map[string]int
+
 	// Character-level text selection (crush-style).
 	sel selection.State
 }
@@ -42,13 +48,14 @@ type ScrollList struct {
 // NewScrollList creates a new ScrollList with the given dimensions.
 func NewScrollList(width, height int) *ScrollList {
 	return &ScrollList{
-		items:      []MessageItem{},
-		offsetIdx:  0,
-		offsetLine: 0,
-		width:      width,
-		height:     height,
-		autoScroll: true,
-		sel:        selection.NewState(),
+		items:       []MessageItem{},
+		offsetIdx:   0,
+		offsetLine:  0,
+		width:       width,
+		height:      height,
+		autoScroll:  true,
+		heightCache: make(map[string]int, 64),
+		sel:         selection.NewState(),
 	}
 }
 
@@ -61,6 +68,13 @@ func (s *ScrollList) SetItems(items []MessageItem) {
 	}
 }
 
+// InvalidateItemHeight removes the cached height for the given item ID,
+// forcing a re-render on the next height query. Call this after mutating
+// an item's content (e.g. AppendChunk on a streaming message).
+func (s *ScrollList) InvalidateItemHeight(id string) {
+	delete(s.heightCache, id)
+}
+
 // SetHeight updates the viewport height. Called when the terminal is resized.
 func (s *ScrollList) SetHeight(height int) {
 	s.height = height
@@ -68,9 +82,11 @@ func (s *ScrollList) SetHeight(height int) {
 }
 
 // SetWidth updates the viewport width. Called when the terminal is resized.
-// This may invalidate cached renders in MessageItems.
+// This invalidates the height cache since rendered heights are width-dependent.
 func (s *ScrollList) SetWidth(width int) {
 	s.width = width
+	// Width change invalidates all cached heights.
+	clear(s.heightCache)
 	s.clampOffset()
 }
 
@@ -338,9 +354,8 @@ func (s *ScrollList) ScrollBy(lines int) {
 			if s.offsetIdx >= len(s.items) {
 				break
 			}
-			currentItem := s.items[s.offsetIdx]
-			itemHeight := currentItem.Height()
-			remainingLines := itemHeight - s.offsetLine
+			ih := s.itemHeight(s.items[s.offsetIdx])
+			remainingLines := ih - s.offsetLine
 
 			if lines >= remainingLines {
 				// Move to next item
@@ -387,14 +402,13 @@ func (s *ScrollList) ScrollBy(lines int) {
 				// Move to previous item
 				s.offsetIdx--
 				if s.offsetIdx < len(s.items) {
-					currentItem := s.items[s.offsetIdx]
-					itemHeight := currentItem.Height()
+					ih := s.itemHeight(s.items[s.offsetIdx])
 
-					if lines >= itemHeight {
-						lines -= itemHeight
+					if lines >= ih {
+						lines -= ih
 						s.offsetLine = 0
 					} else {
-						s.offsetLine = itemHeight - lines
+						s.offsetLine = ih - lines
 						lines = 0
 					}
 				}
@@ -405,6 +419,8 @@ func (s *ScrollList) ScrollBy(lines int) {
 }
 
 // GotoBottom scrolls to the end of the list.
+// Uses cached heights and walks backwards from the end to avoid rendering
+// every item in the list.
 func (s *ScrollList) GotoBottom() {
 	if len(s.items) == 0 {
 		s.offsetIdx = 0
@@ -412,42 +428,31 @@ func (s *ScrollList) GotoBottom() {
 		return
 	}
 
-	// Calculate total height including gaps
-	totalHeight := 0
-	for i, item := range s.items {
-		rendered := item.Render(s.width)
-		itemHeight := strings.Count(rendered, "\n") + 1
-		totalHeight += itemHeight
-		if s.itemGap > 0 && i < len(s.items)-1 {
-			totalHeight += s.itemGap
+	// Walk backwards from the last item, accumulating height until we
+	// exceed the viewport. This is O(visible) instead of O(all items).
+	budget := s.height
+	for idx := len(s.items) - 1; idx >= 0; idx-- {
+		ih := s.itemHeight(s.items[idx])
+
+		// Account for gap *above* this item (gap between idx-1 and idx).
+		gap := 0
+		if s.itemGap > 0 && idx < len(s.items)-1 {
+			gap = s.itemGap
 		}
-	}
 
-	// If content fits in viewport, start at top
-	if totalHeight <= s.height {
-		s.offsetIdx = 0
-		s.offsetLine = 0
-		return
-	}
-
-	// Otherwise, position viewport at bottom
-	remaining := totalHeight - s.height
-	for idx := 0; idx < len(s.items); idx++ {
-		rendered := s.items[idx].Render(s.width)
-		itemHeight := strings.Count(rendered, "\n") + 1
-		if remaining < itemHeight {
+		if ih+gap >= budget {
+			// This item (partially) fills the remaining budget.
+			// When the gap consumed part of the budget, offsetLine would go
+			// negative — clamp to 0 so the item is shown fully.
 			s.offsetIdx = idx
-			s.offsetLine = remaining
+			s.offsetLine = max(0, ih-budget)
 			return
 		}
-		remaining -= itemHeight
-		if s.itemGap > 0 && idx < len(s.items)-1 {
-			remaining -= s.itemGap
-		}
+		budget -= ih + gap
 	}
 
-	// Fallback: show last item
-	s.offsetIdx = max(0, len(s.items)-1)
+	// All content fits in viewport — start at top.
+	s.offsetIdx = 0
 	s.offsetLine = 0
 }
 
@@ -465,14 +470,12 @@ func (s *ScrollList) AtBottom() bool {
 
 	visibleHeight := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
-		item := s.items[idx]
-		rendered := item.Render(s.width)
-		itemHeight := strings.Count(rendered, "\n") + 1
+		ih := s.itemHeight(s.items[idx])
 
 		if idx == s.offsetIdx {
-			visibleHeight += itemHeight - s.offsetLine
+			visibleHeight += ih - s.offsetLine
 		} else {
-			visibleHeight += itemHeight
+			visibleHeight += ih
 		}
 
 		if s.itemGap > 0 && idx < len(s.items)-1 {
@@ -519,6 +522,9 @@ func (s *ScrollList) View() string {
 			item := s.items[idx]
 			content := item.Render(s.width)
 			contentLines := strings.Split(content, "\n")
+
+			// Refresh height cache from the actual render (authoritative).
+			s.heightCache[item.ID()] = len(contentLines)
 
 			startLine := 0
 			if idx == s.offsetIdx {
@@ -568,7 +574,7 @@ func (s *ScrollList) ScrollPercent() float64 {
 
 	totalHeight := 0
 	for _, item := range s.items {
-		totalHeight += item.Height()
+		totalHeight += s.itemHeight(item)
 	}
 
 	if totalHeight <= s.height {
@@ -577,7 +583,7 @@ func (s *ScrollList) ScrollPercent() float64 {
 
 	linesAbove := 0
 	for i := 0; i < s.offsetIdx && i < len(s.items); i++ {
-		linesAbove += s.items[i].Height()
+		linesAbove += s.itemHeight(s.items[i])
 	}
 	linesAbove += s.offsetLine
 
@@ -597,7 +603,8 @@ func (s *ScrollList) ScrollPercent() float64 {
 }
 
 // clampOffset ensures the offset values are within valid bounds after
-// resizing or scrolling operations.
+// resizing or scrolling operations. Uses cached heights to avoid
+// redundant Render() calls.
 func (s *ScrollList) clampOffset() {
 	if len(s.items) == 0 {
 		s.offsetIdx = 0
@@ -605,6 +612,7 @@ func (s *ScrollList) clampOffset() {
 		return
 	}
 
+	// Clamp offsetIdx to valid item range.
 	if s.offsetIdx >= len(s.items) {
 		s.offsetIdx = len(s.items) - 1
 	}
@@ -612,37 +620,38 @@ func (s *ScrollList) clampOffset() {
 		s.offsetIdx = 0
 	}
 
+	// Clamp offsetLine within current item.
 	if s.offsetIdx < len(s.items) {
-		rendered := s.items[s.offsetIdx].Render(s.width)
-		itemHeight := strings.Count(rendered, "\n") + 1
-		if s.offsetLine >= itemHeight {
-			s.offsetLine = max(0, itemHeight-1)
+		ih := s.itemHeight(s.items[s.offsetIdx])
+		if s.offsetLine >= ih {
+			s.offsetLine = max(0, ih-1)
 		}
 	}
 	if s.offsetLine < 0 {
 		s.offsetLine = 0
 	}
 
-	// Prevent scrolling past the bottom
+	// Prevent scrolling past the bottom — compute total height and check
+	// whether remaining content from the current offset fills the viewport.
 	totalHeight := 0
 	for i, item := range s.items {
-		rendered := item.Render(s.width)
-		totalHeight += strings.Count(rendered, "\n") + 1
+		totalHeight += s.itemHeight(item)
 		if s.itemGap > 0 && i < len(s.items)-1 {
 			totalHeight += s.itemGap
 		}
 	}
 
+	// If content fits in viewport, force start at top.
 	if totalHeight <= s.height {
 		s.offsetIdx = 0
 		s.offsetLine = 0
 		return
 	}
 
+	// Compute lines above the viewport.
 	linesAbove := 0
 	for i := 0; i < s.offsetIdx; i++ {
-		rendered := s.items[i].Render(s.width)
-		linesAbove += strings.Count(rendered, "\n") + 1
+		linesAbove += s.itemHeight(s.items[i])
 		if s.itemGap > 0 && i < len(s.items)-1 {
 			linesAbove += s.itemGap
 		}
@@ -651,25 +660,46 @@ func (s *ScrollList) clampOffset() {
 
 	linesFromCurrentToEnd := totalHeight - linesAbove
 	if linesFromCurrentToEnd < s.height {
+		// We've scrolled past the bottom — reposition so the last line
+		// of content sits at the bottom of the viewport.
 		targetLine := totalHeight - s.height
 		currentLine := 0
 
 		for idx := 0; idx < len(s.items); idx++ {
-			rendered := s.items[idx].Render(s.width)
-			itemHeight := strings.Count(rendered, "\n") + 1
+			ih := s.itemHeight(s.items[idx])
 
-			if currentLine+itemHeight > targetLine {
+			if currentLine+ih > targetLine {
 				s.offsetIdx = idx
 				s.offsetLine = targetLine - currentLine
 				return
 			}
 
-			currentLine += itemHeight
+			currentLine += ih
 			if s.itemGap > 0 && idx < len(s.items)-1 {
 				currentLine += s.itemGap
 			}
 		}
 	}
+}
+
+// itemHeight returns the cached rendered height for an item, computing and
+// caching it on first access. This avoids calling Render() purely to
+// count lines — the most common source of redundant work in the scroll
+// list (GotoBottom, clampOffset, AtBottom, ScrollBy all need heights but
+// never use the rendered content).
+//
+// The cache is invalidated wholesale on width changes (SetWidth) and
+// individual entries are refreshed in View() after an item is actually
+// rendered, so stale entries are self-correcting within one frame.
+func (s *ScrollList) itemHeight(item MessageItem) int {
+	id := item.ID()
+	if h, ok := s.heightCache[id]; ok {
+		return h
+	}
+	// Cache miss — render to measure.
+	h := s.renderedHeight(item)
+	s.heightCache[id] = h
+	return h
 }
 
 // renderedHeight returns the height of a message item in lines by actually
