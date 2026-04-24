@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -111,13 +112,30 @@ func NewModelsRegistry() *ModelsRegistry {
 }
 
 // buildFromModelsDB converts models.dev provider data into our internal format.
-// It tries the on-disk cache first and falls back to the embedded database.
+// It starts from the compile-time embedded database and merges on-disk cached
+// data from `kit update-models` on top. Cached provider metadata replaces
+// embedded metadata, and model entries are merged with cached models taking
+// precedence. This means newly synced models are available while embedded
+// models that haven't been synced yet are still reachable.
 func buildFromModelsDB() map[string]ProviderInfo {
-	// Try cached data first (from `kit update-models`)
-	dbProviders, _ := LoadCachedProviders()
-	if len(dbProviders) == 0 {
-		// Fall back to compile-time embedded data
-		dbProviders = loadEmbeddedProviders()
+	// Start with compile-time embedded data as the base.
+	dbProviders := loadEmbeddedProviders()
+	if dbProviders == nil {
+		dbProviders = make(ModelsDBProviders)
+	}
+
+	// Merge on-disk cached data on top (cached takes precedence).
+	if cached, _ := LoadCachedProviders(); len(cached) > 0 {
+		for providerID, cp := range cached {
+			if existing, ok := dbProviders[providerID]; ok {
+				// Merge models: embedded base + cached overrides.
+				mergedModels := make(map[string]modelsDBModel, len(existing.Models)+len(cp.Models))
+				maps.Copy(mergedModels, existing.Models)
+				maps.Copy(mergedModels, cp.Models)
+				cp.Models = mergedModels
+			}
+			dbProviders[providerID] = cp
+		}
 	}
 
 	providers := make(map[string]ProviderInfo, len(dbProviders))
@@ -463,6 +481,13 @@ func (r *ModelsRegistry) ValidateModelString(modelString string) error {
 // Global registry instance
 var globalRegistry = NewModelsRegistry()
 
+func init() {
+	// Ensure fantasy's Responses API model lists include any new models
+	// from the model database that were released after the fantasy
+	// dependency was pinned.
+	RegisterResponsesModels()
+}
+
 // GetGlobalRegistry returns the global models registry instance.
 func GetGlobalRegistry() *ModelsRegistry {
 	return globalRegistry
@@ -472,4 +497,5 @@ func GetGlobalRegistry() *ModelsRegistry {
 // data sources (cache → embedded). Call after updating the cache.
 func ReloadGlobalRegistry() {
 	globalRegistry = NewModelsRegistry()
+	RegisterResponsesModels()
 }

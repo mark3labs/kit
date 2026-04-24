@@ -309,7 +309,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			// For OpenAI Responses API models, we skip merging entirely because
 			// ResponsesProviderOptions and ProviderOptions are incompatible types.
 			skipMerge := false
-			if provider == "openai" && openai.IsResponsesModel(modelName) {
+			if provider == "openai" && isResponsesAPIModel(modelName) {
 				skipMerge = true
 			}
 			if !skipMerge {
@@ -549,17 +549,69 @@ func clearConflictingAnthropicSamplingParams(config *ProviderConfig) {
 	}
 }
 
+// isResponsesAPIModel returns true when the model ID should use the OpenAI
+// Responses API. It first consults fantasy's built-in list (which may lag
+// behind new model releases) and falls back to a heuristic based on the
+// model ID prefix. All modern OpenAI models (gpt-4.1+, gpt-4.5+, gpt-5+,
+// o-series, codex, chatgpt) use the Responses API.
+func isResponsesAPIModel(modelName string) bool {
+	if openai.IsResponsesModel(modelName) {
+		return true
+	}
+	// Heuristic: modern OpenAI model families that use the Responses API.
+	// This catches newly released models (e.g. gpt-5.5) before fantasy
+	// adds them to its hardcoded list.
+	for _, prefix := range []string{
+		"gpt-4.1", "gpt-4.5", "gpt-5",
+		"o1", "o3", "o4",
+		"codex",
+		"chatgpt-",
+	} {
+		if strings.HasPrefix(modelName, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isResponsesReasoningModel returns true when the model ID should be treated
+// as an OpenAI Responses API reasoning model. Like isResponsesAPIModel, it
+// supplements fantasy's built-in list with a heuristic for new models.
+func isResponsesReasoningModel(modelName string) bool {
+	if openai.IsResponsesReasoningModel(modelName) {
+		return true
+	}
+	// Heuristic: if it's a responses-API model, check model metadata.
+	// Reasoning models in the gpt-5+ and o-series families have
+	// reasoning=true in models.dev.
+	if !isResponsesAPIModel(modelName) {
+		return false
+	}
+	registry := GetGlobalRegistry()
+	modelInfo := registry.LookupModel("openai", modelName)
+	if modelInfo != nil && modelInfo.Reasoning {
+		return true
+	}
+	// For unknown models in reasoning families, assume reasoning.
+	for _, prefix := range []string{"o1", "o3", "o4", "gpt-5", "codex"} {
+		if strings.HasPrefix(modelName, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // buildOpenAIProviderOptions returns fantasy.ProviderOptions configured for
 // OpenAI Responses API models. For reasoning models it sets reasoning_summary
 // to "auto", includes encrypted reasoning content, and maps the ThinkingLevel
 // to an OpenAI ReasoningEffort. For non-responses or non-reasoning models the
 // returned map is nil (no extra options needed).
 func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
-	if !openai.IsResponsesModel(modelName) {
+	if !isResponsesAPIModel(modelName) {
 		return nil
 	}
 
-	if openai.IsResponsesReasoningModel(modelName) {
+	if isResponsesReasoningModel(modelName) {
 		reasoningSummary := "auto"
 		opts := &openai.ResponsesProviderOptions{
 			ReasoningSummary: &reasoningSummary,
@@ -905,7 +957,7 @@ func buildCodexProviderOptions(config *ProviderConfig, modelName string) fantasy
 		opts.Instructions = &config.SystemPrompt
 	}
 
-	if openai.IsResponsesReasoningModel(modelName) {
+	if isResponsesReasoningModel(modelName) {
 		opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
 	}
 
