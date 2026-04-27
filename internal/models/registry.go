@@ -481,13 +481,6 @@ func (r *ModelsRegistry) ValidateModelString(modelString string) error {
 // Global registry instance
 var globalRegistry = NewModelsRegistry()
 
-func init() {
-	// Ensure fantasy's Responses API model lists include any new models
-	// from the model database that were released after the fantasy
-	// dependency was pinned.
-	RegisterResponsesModels()
-}
-
 // GetGlobalRegistry returns the global models registry instance.
 func GetGlobalRegistry() *ModelsRegistry {
 	return globalRegistry
@@ -497,5 +490,4 @@ func GetGlobalRegistry() *ModelsRegistry {
 // data sources (cache → embedded). Call after updating the cache.
 func ReloadGlobalRegistry() {
 	globalRegistry = NewModelsRegistry()
-	RegisterResponsesModels()
 }

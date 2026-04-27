@@ -72,20 +72,6 @@ func OldName() { return NewName() }
 - **Context function fields**: The `Context` struct uses function fields (`Print func(string)`, `SetWidget func(WidgetConfig)`) wired by closures in `cmd/root.go`
 - **Package-level vars in extensions**: Yaegi supports package-level variables captured in closures — this is how extensions maintain state across event callbacks
 
-### OpenAI Responses API Model Registration
-Fantasy's OpenAI provider routes models through either the **Responses API** or **Chat Completions** based on a hardcoded `responsesModelIDs` list. When OpenAI releases a new model (e.g. `gpt-5.5`) and it's added to our database via `kit update-models`, fantasy may not know about it yet, causing a type-mismatch crash (`*ResponsesProviderOptions` vs `*ProviderOptions`).
-
-**How we handle it** (`internal/models/responses_models.go`):
-- `isResponsesAPIModel()` / `isResponsesReasoningModel()` — supplement fantasy's checks with prefix-based heuristics (`gpt-4.1+`, `gpt-5+`, `o1/o3/o4`, `codex`, `chatgpt-`)
-- `RegisterResponsesModels()` — uses `//go:linkname` to append new model IDs from our database into fantasy's unexported `responsesModelIDs` / `responsesReasoningModelIDs` slices at init time and after `ReloadGlobalRegistry()`
-- All call sites in `providers.go` use our helpers (`isResponsesAPIModel`, `isResponsesReasoningModel`) instead of `openai.IsResponsesModel` / `openai.IsResponsesReasoningModel` directly
-
-**To add a brand-new OpenAI model family:**
-1. If the model ID starts with an existing prefix in `isResponsesAPIModel()`, it works automatically
-2. If it's a new prefix (e.g. `o5-*`), add it to the prefix lists in both `isResponsesAPIModel()` and (if reasoning) `isResponsesReasoningModel()` in `internal/models/providers.go`
-3. Run `kit update-models` to pull the model metadata — `RegisterResponsesModels()` handles the rest
-4. Tests: `internal/models/responses_models_test.go`
-
 ### Unicode in Widget Text
 - Widget content renders through `lipgloss.Style.Render()` which preserves ANSI escape codes
 - Use rune-based width calculations (`len([]rune(s))`) not byte length (`len(s)`) when aligning box-drawing characters or multi-byte symbols
