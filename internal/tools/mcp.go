@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	log "github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -141,6 +143,11 @@ type MCPToolManager struct {
 	debug             bool
 	debugLogger       DebugLogger
 
+	// taskCfg controls task-augmented tools/call execution. The zero value
+	// means: auto-detect server capability, no progress callback, default
+	// poll/timeout.
+	taskCfg MCPTaskConfig
+
 	// onServerLoaded, if non-nil, is called when each server finishes loading.
 	// Called with server name, tool count, and error (nil on success).
 	onServerLoaded func(serverName string, toolCount int, err error)
@@ -218,6 +225,21 @@ func (m *MCPToolManager) SetOnServerLoaded(cb func(serverName string, toolCount 
 // a rebuild so the LLM sees the updated tool set.
 func (m *MCPToolManager) SetOnToolsChanged(cb func()) {
 	m.onToolsChanged = cb
+}
+
+// SetTaskConfig sets the task-augmented tools/call configuration. Call
+// this before LoadTools / AddServer if you want the per-server mode
+// override and progress handler to take effect for the very first call.
+// Subsequent calls replace the previous configuration wholesale.
+func (m *MCPToolManager) SetTaskConfig(cfg MCPTaskConfig) {
+	m.taskCfg = cfg
+}
+
+// TaskConfig returns the manager's current task-augmented tools/call
+// configuration. The zero value means: defer to per-server config and
+// auto-detected capability, with no progress callback and default polling.
+func (m *MCPToolManager) TaskConfig() MCPTaskConfig {
+	return m.taskCfg
 }
 
 // AddServer connects to a new MCP server at runtime and loads its tools.
@@ -551,6 +573,14 @@ func (m *MCPToolManager) loadServerTools(ctx context.Context, serverName string,
 // checks, OAuth re-authorization, and connection error tracking.
 // The inputJSON parameter is the raw JSON arguments from the LLM.
 // Returns the result content, error flag, and any execution error.
+//
+// When the per-server TasksMode resolves to "always", or to "auto" and the
+// server advertised tasks/toolCalls capability during initialize, the call
+// is augmented with TaskParams. If the server elects to respond with a
+// CreateTaskResult the manager polls tasks/get / tasks/result until the
+// task reaches a terminal state, transparently presenting the final
+// CallToolResult-equivalent content to the agent layer. Context
+// cancellation triggers a best-effort tasks/cancel.
 func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSON string) (*MCPToolResult, error) {
 	m.mu.Lock()
 	mapping, ok := m.toolMap[prefixedName]
@@ -582,47 +612,219 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 		return nil, fmt.Errorf("failed to get healthy connection from pool: %w", err)
 	}
 
-	callRequest := mcp.CallToolRequest{
-		Request: mcp.Request{
-			Method: "tools/call",
-		},
-		Params: mcp.CallToolParams{
-			Name:      mapping.originalName,
-			Arguments: arguments,
-		},
+	callParams := mcp.CallToolParams{
+		Name:      mapping.originalName,
+		Arguments: arguments,
 	}
 
-	// Call the MCP tool using the original (unprefixed) name
-	result, err := conn.client.CallTool(ctx, callRequest)
-	if err != nil {
-		// Handle OAuth re-authorization: token may have expired mid-session.
-		if m.connectionPool.oauthFlow != nil && IsOAuthError(err) {
-			if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, err); flowErr != nil {
+	// Decide whether to augment the request with TaskParams. Modes:
+	//   never  — never augment (synchronous-only).
+	//   always — always augment, even without server capability.
+	//   auto   — augment only when the server advertised tasks/toolCalls.
+	mode := m.resolveTaskMode(mapping.serverName, mapping.serverConfig)
+	useTask := mode == MCPTaskModeAlways ||
+		(mode == MCPTaskModeAuto && conn.SupportsToolTasks())
+	if useTask {
+		var ttl *int64
+		if m.taskCfg.DefaultTTL > 0 {
+			ms := m.taskCfg.DefaultTTL.Milliseconds()
+			ttl = &ms
+		}
+		callParams.Task = &mcp.TaskParams{TTL: ttl}
+	}
+
+	// Synchronous fast path: no task augmentation. Use the upstream client
+	// helper which keeps content-block typing identical to historical
+	// behaviour.
+	if !useTask {
+		callRequest := mcp.CallToolRequest{
+			Request: mcp.Request{Method: "tools/call"},
+			Params:  callParams,
+		}
+		result, callErr := conn.client.CallTool(ctx, callRequest)
+		if callErr != nil {
+			if m.connectionPool.oauthFlow != nil && IsOAuthError(callErr) {
+				if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, callErr); flowErr != nil {
+					return nil, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", mapping.originalName, flowErr)
+				}
+				result, callErr = conn.client.CallTool(ctx, callRequest)
+				if callErr != nil {
+					m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
+					return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", callErr)
+				}
+			} else {
+				m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
+				return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
+			}
+		}
+		marshaledResult, mErr := json.Marshal(result)
+		if mErr != nil {
+			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
+		}
+		return &MCPToolResult{
+			Content: string(marshaledResult),
+			IsError: result.IsError,
+		}, nil
+	}
+
+	// Task-augmented path. Bypass the upstream CallTool helper because its
+	// ParseCallToolResult requires a "content" field that is absent from a
+	// CreateTaskResult.
+	rawClient, ok := conn.client.(*client.Client)
+	if !ok {
+		// Older client implementations — fall back to the synchronous shape.
+		callParams.Task = nil
+		callRequest := mcp.CallToolRequest{
+			Request: mcp.Request{Method: "tools/call"},
+			Params:  callParams,
+		}
+		result, callErr := conn.client.CallTool(ctx, callRequest)
+		if callErr != nil {
+			m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
+			return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
+		}
+		marshaledResult, mErr := json.Marshal(result)
+		if mErr != nil {
+			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
+		}
+		return &MCPToolResult{Content: string(marshaledResult), IsError: result.IsError}, nil
+	}
+
+	callResult, taskResult, callErr := callToolWithTask(ctx, rawClient, callParams)
+	if callErr != nil {
+		if m.connectionPool.oauthFlow != nil && IsOAuthError(callErr) {
+			if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, callErr); flowErr != nil {
 				return nil, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", mapping.originalName, flowErr)
 			}
-			// Retry the tool call after successful re-auth.
-			result, err = conn.client.CallTool(ctx, callRequest)
-			if err != nil {
-				m.connectionPool.HandleConnectionError(mapping.serverName, err)
-				return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", err)
+			callResult, taskResult, callErr = callToolWithTask(ctx, rawClient, callParams)
+			if callErr != nil {
+				m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
+				return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", callErr)
 			}
 		} else {
-			// Mark connection as unhealthy for automatic recovery
-			m.connectionPool.HandleConnectionError(mapping.serverName, err)
-			return nil, fmt.Errorf("failed to call mcp tool: %w", err)
+			m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
+			return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
 		}
 	}
 
-	// Marshal the MCP result to JSON string
-	marshaledResult, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", err)
+	// Server chose to answer synchronously — same shape as the no-task path.
+	if callResult != nil {
+		marshaledResult, mErr := json.Marshal(callResult)
+		if mErr != nil {
+			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
+		}
+		return &MCPToolResult{
+			Content: string(marshaledResult),
+			IsError: callResult.IsError,
+		}, nil
 	}
 
+	// Asynchronous task path: poll until terminal, then return the result.
+	if taskResult == nil {
+		return nil, errors.New("mcp tools/call returned neither result nor task")
+	}
+	final, pollErr := pollTaskUntilTerminal(
+		ctx, rawClient, mapping.serverName, taskResult.Task,
+		m.taskCfg, m.taskCfg.Progress,
+	)
+	if pollErr != nil {
+		return nil, fmt.Errorf("task execution failed: %w", pollErr)
+	}
+
+	// Adapt TaskResultResult → CallToolResult for downstream JSON shape parity.
+	adapted := &mcp.CallToolResult{
+		Content:           final.Content,
+		StructuredContent: final.StructuredContent,
+		IsError:           final.IsError,
+	}
+	marshaledResult, mErr := json.Marshal(adapted)
+	if mErr != nil {
+		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
+	}
 	return &MCPToolResult{
 		Content: string(marshaledResult),
-		IsError: result.IsError,
+		IsError: final.IsError,
 	}, nil
+}
+
+// resolveTaskMode resolves the effective task mode for a given server.
+// Programmatic overrides via SetTaskConfig take precedence over the
+// per-server TasksMode in MCPServerConfig. Empty / unknown values map to
+// MCPTaskModeAuto.
+func (m *MCPToolManager) resolveTaskMode(name string, cfg config.MCPServerConfig) MCPTaskMode {
+	if m.taskCfg.PerServerMode != nil {
+		if v, ok := m.taskCfg.PerServerMode[name]; ok {
+			return v
+		}
+	}
+	return ParseTaskMode(cfg.TasksMode)
+}
+
+// ListServerTasks queries tasks/list on the named server and returns the
+// active and recent tasks the server is willing to disclose. Errors are
+// returned untouched (callers commonly ignore METHOD_NOT_FOUND when the
+// server didn't advertise tasks/list capability).
+func (m *MCPToolManager) ListServerTasks(ctx context.Context, serverName string) ([]MCPTaskInfo, error) {
+	c, err := m.taskClient(serverName)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.ListTasks(ctx, mcp.ListTasksRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("tasks/list on %s: %w", serverName, err)
+	}
+	out := make([]MCPTaskInfo, 0, len(res.Tasks))
+	for _, t := range res.Tasks {
+		out = append(out, taskFromMCP(serverName, t))
+	}
+	return out, nil
+}
+
+// GetServerTask queries tasks/get for a single task on the named server.
+func (m *MCPToolManager) GetServerTask(ctx context.Context, serverName, taskID string) (MCPTaskInfo, error) {
+	c, err := m.taskClient(serverName)
+	if err != nil {
+		return MCPTaskInfo{}, err
+	}
+	res, err := c.GetTask(ctx, mcp.GetTaskRequest{Params: mcp.GetTaskParams{TaskId: taskID}})
+	if err != nil {
+		return MCPTaskInfo{}, fmt.Errorf("tasks/get on %s: %w", serverName, err)
+	}
+	return taskFromMCP(serverName, res.Task), nil
+}
+
+// CancelServerTask issues tasks/cancel for a task on the named server.
+// Returns the post-cancel task state when the server responded with one.
+func (m *MCPToolManager) CancelServerTask(ctx context.Context, serverName, taskID string) (MCPTaskInfo, error) {
+	c, err := m.taskClient(serverName)
+	if err != nil {
+		return MCPTaskInfo{}, err
+	}
+	res, err := c.CancelTask(ctx, mcp.CancelTaskRequest{Params: mcp.CancelTaskParams{TaskId: taskID}})
+	if err != nil {
+		return MCPTaskInfo{}, fmt.Errorf("tasks/cancel on %s: %w", serverName, err)
+	}
+	return taskFromMCP(serverName, res.Task), nil
+}
+
+// taskClient returns the *client.Client for a server. Tasks endpoints are
+// not part of the upstream MCPClient interface so callers must work with
+// the concrete client. Returns an error when the connection is missing
+// or backed by a non-standard client type.
+func (m *MCPToolManager) taskClient(serverName string) (*client.Client, error) {
+	if m.connectionPool == nil {
+		return nil, fmt.Errorf("no connection pool available")
+	}
+	clients := m.connectionPool.GetClients()
+	raw, ok := clients[serverName]
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q not loaded", serverName)
+	}
+	c, ok := raw.(*client.Client)
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q does not support task RPCs", serverName)
+	}
+	return c, nil
 }
 
 // GetTools returns all loaded MCP tools from all configured MCP servers.

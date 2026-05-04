@@ -190,6 +190,41 @@ msg, err := host.GetMCPPrompt(ctx, "server-name", "prompt-name", map[string]stri
 })
 ```
 
+### MCP Tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize`. Cooperating servers can respond to `tools/call` with a
+`taskId` immediately; Kit then polls `tasks/get` / `tasks/result` until the
+task reaches a terminal state, and best-effort `tasks/cancel`s on context
+cancellation. Servers that don't advertise the capability keep their previous
+synchronous behaviour.
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    // Per-server mode: auto (default), never, or always.
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways,
+    },
+    MCPTaskTimeout:  15 * time.Minute, // total wall-clock cap
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s/%s: %s", p.Server, p.TaskID, p.Status)
+    },
+})
+
+// Inspect / cancel in-flight tasks
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+t, _    := host.GetMCPTask(ctx, "build-server", tasks[0].TaskID)
+if !t.Status.IsTerminal() {
+    _, _ = host.CancelMCPTask(ctx, "build-server", t.TaskID)
+}
+```
+
+The progress handler fires once when a task is accepted and again on every
+observed status transition; the final invocation always carries a terminal
+status (`MCPTaskStatusCompleted`, `MCPTaskStatusFailed`, or
+`MCPTaskStatusCancelled`). Don't block in the handler — dispatch long work on
+a goroutine.
+
 ### Session Management
 
 Maintain conversation context:

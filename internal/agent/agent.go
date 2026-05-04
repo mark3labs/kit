@@ -59,6 +59,11 @@ type AgentConfig struct {
 	// loading (successfully or with error). The callback receives the server
 	// name, tool count, and any error. Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+
+	// MCPTaskConfig configures task-augmented tools/call execution. The
+	// zero value preserves historical synchronous-only behaviour for any
+	// server that didn't advertise task support during initialize.
+	MCPTaskConfig tools.MCPTaskConfig
 }
 
 // ToolCallHandler is a function type for handling tool calls as they happen.
@@ -231,6 +236,10 @@ type Agent struct {
 	authHandler       tools.MCPAuthHandler
 	tokenStoreFactory tools.TokenStoreFactory
 
+	// mcpTaskConfig is stored from AgentConfig so AddMCPServer() can
+	// propagate it to a lazily-created MCPToolManager.
+	mcpTaskConfig tools.MCPTaskConfig
+
 	// mcpReady is closed when background MCP tool loading completes (success
 	// or failure). nil when no MCP servers are configured.
 	mcpReady chan struct{}
@@ -329,6 +338,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		modelConfig:         agentConfig.ModelConfig,
 		authHandler:         agentConfig.AuthHandler,
 		tokenStoreFactory:   agentConfig.TokenStoreFactory,
+		mcpTaskConfig:       agentConfig.MCPTaskConfig,
 	}
 
 	// Start MCP tool loading in the background if servers are configured.
@@ -348,6 +358,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		if agentConfig.OnMCPServerLoaded != nil {
 			toolManager.SetOnServerLoaded(agentConfig.OnMCPServerLoaded)
 		}
+		// Apply task-augmented tool execution config (zero value = no-op).
+		toolManager.SetTaskConfig(agentConfig.MCPTaskConfig)
 		a.toolManager = toolManager
 		a.mcpReady = make(chan struct{})
 
@@ -1134,6 +1146,7 @@ func (a *Agent) AddMCPServer(ctx context.Context, name string, cfg config.MCPSer
 		if a.tokenStoreFactory != nil {
 			a.toolManager.SetTokenStoreFactory(a.tokenStoreFactory)
 		}
+		a.toolManager.SetTaskConfig(a.mcpTaskConfig)
 		a.toolManager.SetOnToolsChanged(func() {
 			a.rebuildFantasyAgent()
 		})

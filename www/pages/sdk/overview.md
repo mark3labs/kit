@@ -215,6 +215,33 @@ resources := host.ListMCPResources()
 content, _ := host.ReadMCPResource(ctx, "server", "file:///path")
 ```
 
+## MCP tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize`, so cooperating servers can return a `taskId` immediately
+and let Kit poll `tasks/get` / `tasks/result` until the operation completes.
+This avoids HTTP/SSE proxy timeouts on long tools and gives you clean
+cancellation via context.
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways,
+    },
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s: %s", p.TaskID, p.Status)
+    },
+})
+
+// Inspect / cancel in-flight tasks
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+_, _    = host.CancelMCPTask(ctx, "build-server", tasks[0].TaskID)
+```
+
+Defaults to `MCPTaskModeAuto` per server, so any existing MCP server keeps
+its previous synchronous behaviour. See [SDK options → MCP Tasks](/sdk/options#mcp-tasks)
+for the full surface.
+
 ## Context and compaction
 
 Monitor and manage context usage:

@@ -38,6 +38,23 @@ type MCPServerConfig struct {
 	// servers that don't support it.
 	NoOAuth bool `json:"noOAuth,omitempty" yaml:"noOAuth,omitempty"`
 
+	// TasksMode controls when this server's tools/call requests are augmented
+	// with MCP task metadata (turning a synchronous call into an asynchronous,
+	// pollable job — see https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks).
+	//
+	// Valid values:
+	//   - "" or "auto": (default) augment requests with task metadata only
+	//     when the server advertises tasks/toolCalls capability during initialize.
+	//   - "never":      never augment — every tool call is synchronous, regardless
+	//     of server capability.
+	//   - "always":     always augment, even when the server didn't advertise
+	//     task support. The server may still respond synchronously; this just
+	//     opts in unconditionally on the client side.
+	//
+	// In all modes, when the server returns a CreateTaskResult the client polls
+	// tasks/get / tasks/result until the task reaches a terminal state.
+	TasksMode string `json:"tasksMode,omitempty" yaml:"tasksMode,omitempty"`
+
 	// InProcessServer holds a live *server.MCPServer for in-process transport.
 	// When set (and Type is "inprocess"), the connection pool creates an
 	// in-process client instead of spawning a subprocess or making HTTP calls.
@@ -68,6 +85,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		OAuthClientSecret string            `json:"oauthClientSecret,omitempty" yaml:"oauthClientSecret,omitempty"`
 		OAuthScopes       []string          `json:"oauthScopes,omitempty" yaml:"oauthScopes,omitempty"`
 		NoOAuth           bool              `json:"noOAuth,omitempty" yaml:"noOAuth,omitempty"`
+		TasksMode         string            `json:"tasksMode,omitempty" yaml:"tasksMode,omitempty"`
 	}
 
 	// Also try legacy format
@@ -80,6 +98,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		Headers       []string       `json:"headers,omitempty"`
 		AllowedTools  []string       `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 		ExcludedTools []string       `json:"excludedTools,omitempty" yaml:"excludedTools,omitempty"`
+		TasksMode     string         `json:"tasksMode,omitempty" yaml:"tasksMode,omitempty"`
 	}
 
 	// Try new format first
@@ -96,6 +115,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 		s.OAuthClientSecret = newConfig.OAuthClientSecret
 		s.OAuthScopes = newConfig.OAuthScopes
 		s.NoOAuth = newConfig.NoOAuth
+		s.TasksMode = newConfig.TasksMode
 		return nil
 	}
 
@@ -116,6 +136,7 @@ func (s *MCPServerConfig) UnmarshalJSON(data []byte) error {
 	s.Headers = legacyConfig.Headers
 	s.AllowedTools = legacyConfig.AllowedTools
 	s.ExcludedTools = legacyConfig.ExcludedTools
+	s.TasksMode = legacyConfig.TasksMode
 
 	// Infer type from legacy format for better compatibility
 	// Only set Type when it doesn't change existing transport behavior
@@ -322,6 +343,17 @@ func (c *Config) Validate() error {
 	for serverName, serverConfig := range c.MCPServers {
 		if len(serverConfig.AllowedTools) > 0 && len(serverConfig.ExcludedTools) > 0 {
 			return fmt.Errorf("server %s: allowedTools and excludedTools are mutually exclusive", serverName)
+		}
+
+		// Reject unknown tasksMode values up front so a typo (e.g. "alwasy")
+		// fails loud here instead of being silently downgraded to "auto" by
+		// the runtime parser. Comparison is case-insensitive to match
+		// tools.ParseTaskMode.
+		switch strings.ToLower(strings.TrimSpace(serverConfig.TasksMode)) {
+		case "", "auto", "never", "always":
+			// ok
+		default:
+			return fmt.Errorf("server %s: invalid tasksMode %q (expected one of: auto, never, always)", serverName, serverConfig.TasksMode)
 		}
 
 		transport := serverConfig.GetTransportType()

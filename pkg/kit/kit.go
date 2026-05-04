@@ -1035,6 +1035,41 @@ type Options struct {
 	// real-time progress in the TUI.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
 
+	// MCPTaskMode overrides the per-server [MCPTaskMode] for task-augmented
+	// tools/call execution. Keys are MCP server names. Servers not present
+	// in the map fall back to the TasksMode field of MCPServerConfig (or
+	// MCPTaskModeAuto when that is empty). See the MCP Tasks spec for the
+	// underlying semantics:
+	// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks
+	MCPTaskMode map[string]MCPTaskMode
+
+	// MCPTaskTimeout is the maximum wall-clock duration to wait for a
+	// task-augmented tool call to reach a terminal state. Independent of
+	// any per-call context deadline; whichever fires first wins. Zero
+	// means use the default (15 minutes).
+	MCPTaskTimeout time.Duration
+
+	// MCPTaskTTL is the TTL hint sent in TaskParams for every
+	// task-augmented tools/call. Zero omits the TTL and lets the server
+	// pick its own retention policy.
+	MCPTaskTTL time.Duration
+
+	// MCPTaskPollInterval is the fallback interval between tasks/get
+	// requests when the server does not suggest one. Zero means use the
+	// default (1 second).
+	MCPTaskPollInterval time.Duration
+
+	// MCPTaskMaxPollInterval caps the polling interval (a server-supplied
+	// pollInterval can otherwise grow without bound). Zero means use the
+	// default (5 seconds).
+	MCPTaskMaxPollInterval time.Duration
+
+	// MCPTaskProgress, if non-nil, is invoked once when a task is accepted
+	// and on every status transition observed by the polling loop. The
+	// final invocation always carries a terminal status. Implementations
+	// must not block; long work should run on a goroutine.
+	MCPTaskProgress MCPTaskProgressHandler
+
 	// CLI is optional CLI-specific configuration. SDK users leave this nil.
 	CLI *CLIOptions
 
@@ -1387,6 +1422,14 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		MaxSteps:          maxSteps,
 		StreamingEnabled:  streaming,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
+		MCPTaskConfig: mcpTaskOptions{
+			perServer:       opts.MCPTaskMode,
+			defaultTTL:      opts.MCPTaskTTL,
+			pollInterval:    opts.MCPTaskPollInterval,
+			maxPollInterval: opts.MCPTaskMaxPollInterval,
+			timeout:         opts.MCPTaskTimeout,
+			progress:        opts.MCPTaskProgress,
+		}.toToolsConfig(),
 	}
 
 	// Set up OAuth handler for remote MCP servers. The SDK does not create
@@ -1799,6 +1842,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Streaming:    true,
 		MCPConfig:    m.mcpConfig,
 	}
+	// Propagate the parent's MCP task configuration so a child subagent
+	// invoking long-running MCP tools observes the same per-server modes,
+	// timeouts, and progress callback as the parent. Without this, child
+	// agents would silently fall back to MCPTaskModeAuto with default
+	// polling and no progress feedback even when the parent had configured
+	// custom values.
+	inheritMCPTaskOptions(childOpts, m.opts)
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
