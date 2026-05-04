@@ -105,6 +105,7 @@
         "Environment variables",
         "MCP server configuration",
         "MCP server fields",
+        "MCP tasks (long-running tools)",
         "Custom models",
         "Custom model fields",
         "Per-model settings",
@@ -114,7 +115,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1215
+      "wordCount": 1442
     },
     {
       "id": "development",
@@ -362,11 +363,15 @@
         "Skills &amp; configuration",
         "Compaction &amp; MCP",
         "MCP OAuth Authorization",
+        "MCP Tasks",
+        "Per-server mode",
+        "Progress callbacks",
+        "Inspecting and cancelling tasks",
         "Precedence",
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 1623
+      "wordCount": 2133
     },
     {
       "id": "sdk/overview",
@@ -385,11 +390,12 @@
         "Dynamic MCP servers",
         "In-process MCP servers",
         "MCP prompts and resources",
+        "MCP tasks (long-running tools)",
         "Context and compaction",
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 752
+      "wordCount": 862
     },
     {
       "id": "sdk/sessions",

@@ -198,6 +198,27 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// List and read resources</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">resources </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListMCPResources</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">content, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ReadMCPResource</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"file:///path"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<h2 id="mcp-tasks-long-running-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-tasks-long-running-tools"><span class="icon icon-link"></span></a>MCP tasks (long-running tools)</h2>
+<p>Kit advertises <a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks">MCP task support</a>
+during <code>initialize</code>, so cooperating servers can return a <code>taskId</code> immediately
+and let Kit poll <code>tasks/get</code> / <code>tasks/result</code> until the operation completes.
+This avoids HTTP/SSE proxy timeouts on long tools and gives you clean
+cancellation via context.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskMode: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPTaskMode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: kit.MCPTaskModeAlways,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskProgress: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">p</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPTaskProgress</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, p.TaskID, p.Status)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inspect / cancel in-flight tasks</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">tasks, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListMCPTasks</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, _    </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CancelMCPTask</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, tasks[</span><span style="color:#005CC5;--shiki-dark:#79B8FF">0</span><span style="color:#24292E;--shiki-dark:#E1E4E8">].TaskID)</span></span></code></pre>
+<p>Defaults to <code>MCPTaskModeAuto</code> per server, so any existing MCP server keeps
+its previous synchronous behaviour. See <a href="/sdk/options#mcp-tasks">SDK options → MCP Tasks</a>
+for the full surface.</p>
 <h2 id="context-and-compaction"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#context-and-compaction"><span class="icon icon-link"></span></a>Context and compaction</h2>
 <p>Monitor and manage context usage:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">tokens </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EstimateContextTokens</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
@@ -214,7 +235,7 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -426,6 +447,33 @@ result, _ := host.GetMCPPrompt(ctx, "server", "prompt-name", map[string]string{"
 resources := host.ListMCPResources()
 content, _ := host.ReadMCPResource(ctx, "server", "file:///path")
 \`\`\`
+
+## MCP tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during \`initialize\`, so cooperating servers can return a \`taskId\` immediately
+and let Kit poll \`tasks/get\` / \`tasks/result\` until the operation completes.
+This avoids HTTP/SSE proxy timeouts on long tools and gives you clean
+cancellation via context.
+
+\`\`\`go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways,
+    },
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s: %s", p.TaskID, p.Status)
+    },
+})
+
+// Inspect / cancel in-flight tasks
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+_, _    = host.CancelMCPTask(ctx, "build-server", tasks[0].TaskID)
+\`\`\`
+
+Defaults to \`MCPTaskModeAuto\` per server, so any existing MCP server keeps
+its previous synchronous behaviour. See [SDK options → MCP Tasks](/sdk/options#mcp-tasks)
+for the full surface.
 
 ## Context and compaction
 
