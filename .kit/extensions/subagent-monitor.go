@@ -13,8 +13,6 @@
 // - No channels in maps (Yaegi panics on range over map[string]chan)
 // - All ctx.* calls guarded with nil checks
 // - Simple data structures only
-// - The extension runner serializes handler calls per-extension, so
-//   concurrent subagent events cannot race on this shared state.
 package main
 
 import (
@@ -45,8 +43,7 @@ const (
 )
 
 // ---------------------------------------------------------------------------
-// Package-level state — safe because the runner serializes all handler
-// invocations for the same extension (per-extension reentrant mutex).
+// Package-level state - all simple types
 // ---------------------------------------------------------------------------
 
 var (
@@ -285,8 +282,8 @@ func Init(api ext.API) {
 
 		submonPushWidget()
 
-		// Remove the entry — build a new slice to avoid aliasing bugs
-		newEntries := make([]*submonEntry, 0, len(submonEntries))
+		// Remove the entry immediately (no goroutine to avoid races)
+		newEntries := submonEntries[:0]
 		for _, en := range submonEntries {
 			if en.callID != e.ToolCallID {
 				newEntries = append(newEntries, en)
