@@ -47,6 +47,7 @@ type MCPConnection struct {
 	client       client.MCPClient
 	serverName   string
 	serverConfig config.MCPServerConfig
+	initResult   *mcp.InitializeResult // captured at handshake; nil before initialize
 	lastUsed     time.Time
 	isHealthy    bool
 	errorCount   int
@@ -262,7 +263,9 @@ func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName str
 		}
 	}
 
-	if err := p.initializeClient(ctx, mcpClient); err != nil {
+	conn := &MCPConnection{}
+
+	if err := p.initializeClient(ctx, mcpClient, conn); err != nil {
 		// Streamable HTTP transport returns OAuth error during Initialize()
 		if oauthEnabled && IsOAuthError(err) {
 			if flowErr := p.oauthFlow.RunAuthFlow(ctx, serverName, err); flowErr != nil {
@@ -270,7 +273,7 @@ func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName str
 				return nil, fmt.Errorf("OAuth authorization failed: %w", flowErr)
 			}
 			// Retry initialization after successful auth
-			if err := p.initializeClient(ctx, mcpClient); err != nil {
+			if err := p.initializeClient(ctx, mcpClient, conn); err != nil {
 				_ = mcpClient.Close()
 				return nil, err
 			}
@@ -280,15 +283,11 @@ func (p *MCPConnectionPool) createConnection(ctx context.Context, serverName str
 		}
 	}
 
-	conn := &MCPConnection{
-		client:       mcpClient,
-		serverName:   serverName,
-		serverConfig: serverConfig,
-		lastUsed:     time.Now(),
-		isHealthy:    true,
-		errorCount:   0,
-		lastError:    nil,
-	}
+	conn.client = mcpClient
+	conn.serverName = serverName
+	conn.serverConfig = serverConfig
+	conn.lastUsed = time.Now()
+	conn.isHealthy = true
 
 	if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
 		p.debugLogger.LogDebug(fmt.Sprintf("[POOL] Created connection for %s", serverName))
@@ -484,8 +483,10 @@ func (p *MCPConnectionPool) createTokenStore(serverURL string) (transport.TokenS
 	return NewFileTokenStore(serverURL)
 }
 
-// initializeClient initializes the client
-func (p *MCPConnectionPool) initializeClient(ctx context.Context, client client.MCPClient) error {
+// initializeClient initializes the client and captures the server's
+// initialize result on the supplied connection so callers can later
+// inspect advertised capabilities (e.g. task support).
+func (p *MCPConnectionPool) initializeClient(ctx context.Context, c client.MCPClient, conn *MCPConnection) error {
 	initCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
@@ -495,11 +496,20 @@ func (p *MCPConnectionPool) initializeClient(ctx context.Context, client client.
 		Name:    "kit",
 		Version: "1.0.0",
 	}
-	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
+	// Advertise task support so servers may return CreateTaskResult for
+	// long-running tools/call requests instead of blocking the connection
+	// until completion. The client is responsible for polling tasks/get and
+	// tasks/result until the task reaches a terminal state.
+	initRequest.Params.Capabilities = mcp.ClientCapabilities{
+		Tasks: mcp.NewTasksCapability(),
+	}
 
-	_, err := client.Initialize(initCtx, initRequest)
+	initResult, err := c.Initialize(initCtx, initRequest)
 	if err != nil {
 		return fmt.Errorf("initialization timeout or failed: %w", err)
+	}
+	if conn != nil {
+		conn.initResult = initResult
 	}
 
 	if p.debugLogger != nil && p.debugLogger.IsDebugEnabled() {
@@ -613,6 +623,54 @@ func (p *MCPConnectionPool) GetConnectionStats() map[string]any {
 // the actual server implementation name.
 func (c *MCPConnection) ServerName() string {
 	return c.serverName
+}
+
+// InitializeResult returns the result captured from the server's initialize
+// response, or nil if the connection was created before initialize completed.
+// Callers can inspect ServerCapabilities.Tasks to discover task-related
+// capability advertisements.
+func (c *MCPConnection) InitializeResult() *mcp.InitializeResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.initResult
+}
+
+// SupportsToolTasks reports whether the server advertised support for
+// task-augmented tools/call requests. Returns false when the connection has
+// not yet completed initialization or when the server omitted task
+// capabilities.
+func (c *MCPConnection) SupportsToolTasks() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return supportsToolTasksFromInit(c.initResult)
+}
+
+// supportsToolTasksFromInit reports whether the supplied InitializeResult
+// advertises task-augmented tools/call support. Extracted to a free function
+// for unit testing without standing up a connection.
+func supportsToolTasksFromInit(init *mcp.InitializeResult) bool {
+	if init == nil || init.Capabilities.Tasks == nil {
+		return false
+	}
+	req := init.Capabilities.Tasks.Requests
+	if req == nil || req.Tools == nil {
+		return false
+	}
+	return req.Tools.Call != nil
+}
+
+// ServerSupportsToolTasks reports whether the named server's connection
+// advertises task-augmented tools/call support. Returns false when no
+// connection exists for the server or when the server didn't advertise the
+// capability.
+func (p *MCPConnectionPool) ServerSupportsToolTasks(serverName string) bool {
+	p.mu.RLock()
+	conn, ok := p.connections[serverName]
+	p.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return conn.SupportsToolTasks()
 }
 
 // GetClients returns a map of all MCP clients currently in the pool.

@@ -72,6 +72,9 @@ type AgentSetupOptions struct {
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+	// MCPTaskConfig configures task-augmented tools/call execution. The
+	// zero value preserves historical synchronous-only behaviour.
+	MCPTaskConfig tools.MCPTaskConfig
 }
 
 // AgentSetupResult bundles the created agent and any debug logger so the caller
@@ -229,6 +232,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		ToolWrapper:       toolWrapper,
 		ExtraTools:        extraTools,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
+		MCPTaskConfig:     opts.MCPTaskConfig,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent: %w", err)

@@ -627,3 +627,48 @@ func TestMCPServerConfig_OAuthFields_Omitted(t *testing.T) {
 		t.Errorf("Expected empty OAuthScopes, got %v", cfg.OAuthScopes)
 	}
 }
+
+func TestMCPServerConfig_TasksMode_NewFormat(t *testing.T) {
+	jsonData := `{
+		"type": "remote",
+		"url": "https://my-mcp-server.com",
+		"tasksMode": "always"
+	}`
+	var cfg MCPServerConfig
+	if err := json.Unmarshal([]byte(jsonData), &cfg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if cfg.TasksMode != "always" {
+		t.Errorf("expected TasksMode 'always', got %q", cfg.TasksMode)
+	}
+}
+
+func TestMCPServerConfig_TasksMode_LegacyFormat(t *testing.T) {
+	// tasksMode also recognised in the legacy unmarshal path so users on
+	// the older command/args shape can opt in without migrating.
+	jsonData := `{
+		"command": "npx",
+		"args": ["@modelcontextprotocol/server-filesystem", "/path"],
+		"tasksMode": "never"
+	}`
+	var cfg MCPServerConfig
+	if err := json.Unmarshal([]byte(jsonData), &cfg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if cfg.TasksMode != "never" {
+		t.Errorf("expected TasksMode 'never', got %q", cfg.TasksMode)
+	}
+}
+
+func TestMCPServerConfig_TasksMode_DefaultEmpty(t *testing.T) {
+	// When tasksMode is not set the field stays empty, which downstream
+	// resolves to "auto" via tools.ParseTaskMode.
+	jsonData := `{"type":"remote","url":"https://x.example"}`
+	var cfg MCPServerConfig
+	if err := json.Unmarshal([]byte(jsonData), &cfg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if cfg.TasksMode != "" {
+		t.Errorf("expected default TasksMode to be empty, got %q", cfg.TasksMode)
+	}
+}

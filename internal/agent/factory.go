@@ -56,6 +56,8 @@ type AgentCreationOptions struct {
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+	// MCPTaskConfig configures task-augmented tools/call execution.
+	MCPTaskConfig tools.MCPTaskConfig
 }
 
 // CreateAgent creates an agent with optional spinner for Ollama models.
@@ -76,6 +78,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		ToolWrapper:       opts.ToolWrapper,
 		ExtraTools:        opts.ExtraTools,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
+		MCPTaskConfig:     opts.MCPTaskConfig,
 	}
 
 	var agent *Agent
