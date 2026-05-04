@@ -232,6 +232,20 @@ func (r *sessionRegistry) closeAll() {
 	}
 }
 
+// remove closes and removes a single session by ID.
+func (r *sessionRegistry) remove(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sess, ok := r.sessions[sessionID]
+	if !ok {
+		return
+	}
+	if sess.kit != nil {
+		_ = sess.kit.Close()
+	}
+	delete(r.sessions, sessionID)
+}
+
 // cancelPrompt cancels the current prompt for a session, if any.
 func (s *acpSession) cancelPrompt() {
 	s.cancelMu.Lock()

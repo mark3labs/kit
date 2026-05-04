@@ -185,6 +185,26 @@ func (a *Agent) ListSessions(_ context.Context, _ acp.ListSessionsRequest) (acp.
 	}, nil
 }
 
+// CloseSession cancels any ongoing work for the session and frees its resources.
+func (a *Agent) CloseSession(_ context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	sessionID := string(params.SessionId)
+	sess, ok := a.registry.get(sessionID)
+	if !ok {
+		return acp.CloseSessionResponse{}, nil
+	}
+
+	log.Debug("acp: close session", "session", sessionID)
+	sess.cancelPrompt()
+	a.registry.remove(sessionID)
+	return acp.CloseSessionResponse{}, nil
+}
+
+// ResumeSession is not supported — Kit doesn't persist sessions across
+// restarts in ACP mode. Clients should use NewSession instead.
+func (a *Agent) ResumeSession(_ context.Context, _ acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
+	return acp.ResumeSessionResponse{}, fmt.Errorf("resume session not supported")
+}
+
 // SetSessionConfigOption handles session configuration changes. Currently
 // supports the "model" config option to change the active model for a session.
 func (a *Agent) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
