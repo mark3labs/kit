@@ -88,6 +88,11 @@ mcpServers:
     type: remote
     url: "https://pubmed.mcp.example.com"
     noOAuth: true  # skip OAuth for public servers
+
+  builds:
+    type: remote
+    url: "https://builds.mcp.example.com"
+    tasksMode: always  # always run tools/call as async tasks (Phase 1 MVP)
 ```
 
 ### MCP server fields
@@ -101,8 +106,33 @@ mcpServers:
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
 | `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
+| `tasksMode` | string | When to augment `tools/call` with MCP task metadata: `auto` (default — only when the server advertises task support), `never`, or `always`. See [MCP tasks](#mcp-tasks-long-running-tools). |
 
 A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
+
+### MCP tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize` so servers can respond to `tools/call` with a
+`CreateTaskResult` (a task ID + `working` status) instead of blocking until
+the operation finishes. Kit then polls `tasks/get` / `tasks/result` until the
+task reaches a terminal state, and best-effort `tasks/cancel`s on context
+cancellation.
+
+This avoids HTTP/SSE proxy timeouts on long builds, deploys, and batch jobs,
+and lets the user/agent abort cleanly with Ctrl-C.
+
+**Per-server `tasksMode`:**
+
+| Value | Behaviour |
+|-------|-----------|
+| `auto` (default) | Augment `tools/call` with task metadata only when the server advertised `tasks/toolCalls` capability. Servers that don't advertise it run synchronously, exactly as before. |
+| `never` | Always issue `tools/call` synchronously, regardless of server capability. |
+| `always` | Always opt into task augmentation, even when the server didn't advertise the capability. The server may still respond synchronously — this just expresses client intent unconditionally. |
+
+Defaults are safe: any existing MCP server keeps its previous behaviour
+bit-for-bit. SDK consumers can also override the mode programmatically and
+plug in a progress callback — see [SDK options](/sdk/options#mcp-tasks).
 
 ## Custom models
 

@@ -162,6 +162,11 @@ mcpServers:
     type: remote
     url: "https://pubmed.mcp.example.com"
     noOAuth: true  # skip OAuth for public servers that don't require auth
+
+  builds:
+    type: remote
+    url: "https://builds.mcp.example.com"
+    tasksMode: always  # async task execution — see MCP Tasks below
 ```
 
 ## CLI Reference
@@ -625,6 +630,36 @@ Tokens are persisted to `$XDG_CONFIG_HOME/.kit/mcp_tokens.json` by default; swap
 in a custom `MCPTokenStoreFactory` for encrypted, DB-backed, or in-memory
 storage. See the [SDK options docs](/sdk/options#mcp-oauth-authorization) for
 the full matrix.
+
+### MCP Tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize`, so cooperating MCP servers can respond to `tools/call`
+with a `taskId` instead of blocking the connection. Kit then polls
+`tasks/get` / `tasks/result` until the task reaches a terminal state, and
+best-effort `tasks/cancel`s on context cancellation.
+
+Defaults are safe — a server that doesn't advertise task capability runs
+synchronously, exactly as before. Opt in per server via `tasksMode` in
+`.kit.yml` (`auto` | `never` | `always`) or programmatically through the SDK:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways,
+    },
+    MCPTaskTimeout:  15 * time.Minute,
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s: %s", p.TaskID, p.Status)
+    },
+})
+
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+_, _    = host.CancelMCPTask(ctx, "build-server", tasks[0].TaskID)
+```
+
+See the [configuration docs](/configuration#mcp-tasks-long-running-tools) and
+[SDK options → MCP Tasks](/sdk/options#mcp-tasks) for the full surface.
 
 ### Custom Tools
 

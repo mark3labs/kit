@@ -169,6 +169,12 @@ when embedding Kit as a library.
 | `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
 | `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
+| `MCPTaskMode` | `map[string]MCPTaskMode` | — | Per-server override for task-augmented `tools/call`. Keys are server names; missing entries fall back to the `tasksMode` field of the matching `MCPServerConfig`. See [MCP Tasks](#mcp-tasks). |
+| `MCPTaskTimeout` | `time.Duration` | `15m` | Maximum wall-clock to wait for a task to reach a terminal state. Independent of any per-call context deadline. |
+| `MCPTaskTTL` | `time.Duration` | — | TTL hint sent in `TaskParams` for every task-augmented call. Zero omits the field and lets the server pick. |
+| `MCPTaskPollInterval` | `time.Duration` | `1s` | Fallback interval between `tasks/get` requests when the server does not suggest one. |
+| `MCPTaskMaxPollInterval` | `time.Duration` | `5s` | Cap on the polling interval (a server-supplied `pollInterval` can otherwise grow without bound). |
+| `MCPTaskProgress` | `MCPTaskProgressHandler` | — | Optional callback invoked once when a task is accepted and on every observed status transition. The final invocation always carries a terminal status. |
 
 ## MCP OAuth Authorization
 
@@ -247,6 +253,79 @@ func (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL str
 authorization URL and hang until the 2-minute callback timeout fires. Always
 set `OnAuthURL`, or use a higher-level wrapper like `CLIMCPAuthHandler`.
 :::
+
+## MCP Tasks
+
+The [MCP Tasks utility](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+turns a synchronous `tools/call` into a pollable async job: the server
+returns a `taskId` with status `working` immediately, and the client polls
+`tasks/get` / `tasks/result` until the task reaches a terminal state.
+
+Kit advertises task support during `initialize` and, by default, augments
+`tools/call` with task metadata only when the server advertises
+`tasks/toolCalls` capability — so any existing MCP server keeps its previous
+synchronous behaviour bit-for-bit. Long-running tools (builds, deployments,
+batch jobs, sub-agent runs) get HTTP/SSE timeout-resistance and clean
+cancellation "for free" once both sides opt in.
+
+### Per-server mode
+
+```go
+import "time"
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways, // force task-augmented calls
+        "chat-server":  kit.MCPTaskModeNever,  // force synchronous calls
+        // any server not in the map honours its `tasksMode` config field
+        // (default "auto")
+    },
+})
+```
+
+| Mode | Behaviour |
+|---|---|
+| `MCPTaskModeAuto` (default) | Augment `tools/call` with `TaskParams` only when the server advertised `tasks/toolCalls`. |
+| `MCPTaskModeNever` | Always issue `tools/call` synchronously, ignoring server capability. |
+| `MCPTaskModeAlways` | Always opt in, even when the server didn't advertise the capability. The server may still respond synchronously. |
+
+### Progress callbacks
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskTimeout:  15 * time.Minute,        // total wall-clock cap
+    MCPTaskTTL:      30 * time.Minute,        // server retention hint
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s/%s: %s %s", p.Server, p.TaskID, p.Status, p.Message)
+    },
+})
+```
+
+The handler fires once when a task is accepted and again on every observed
+status transition. The final call always carries a terminal status
+(`MCPTaskStatusCompleted`, `MCPTaskStatusFailed`, or `MCPTaskStatusCancelled`).
+Do not block in the handler — dispatch long work on a goroutine.
+
+### Inspecting and cancelling tasks
+
+```go
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+for _, t := range tasks {
+    fmt.Printf("%s: %s (%s)\n", t.TaskID, t.Status, t.StatusMessage)
+}
+
+t, _ := host.GetMCPTask(ctx, "build-server", taskID)
+if !t.Status.IsTerminal() {
+    _, _ = host.CancelMCPTask(ctx, "build-server", taskID)
+}
+```
+
+`Kit.ListMCPTasks`, `Kit.GetMCPTask`, and `Kit.CancelMCPTask` work against any
+loaded MCP server that advertises the corresponding capability.
+`MCPTaskStatus.IsTerminal()` is the canonical check for completion.
+
+Context cancellation also works end-to-end: cancelling the `ctx` passed to a
+tool execution triggers a best-effort `tasks/cancel` before the call returns.
 
 ## Precedence
 
