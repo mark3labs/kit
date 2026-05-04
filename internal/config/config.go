@@ -345,6 +345,17 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("server %s: allowedTools and excludedTools are mutually exclusive", serverName)
 		}
 
+		// Reject unknown tasksMode values up front so a typo (e.g. "alwasy")
+		// fails loud here instead of being silently downgraded to "auto" by
+		// the runtime parser. Comparison is case-insensitive to match
+		// tools.ParseTaskMode.
+		switch strings.ToLower(strings.TrimSpace(serverConfig.TasksMode)) {
+		case "", "auto", "never", "always":
+			// ok
+		default:
+			return fmt.Errorf("server %s: invalid tasksMode %q (expected one of: auto, never, always)", serverName, serverConfig.TasksMode)
+		}
+
 		transport := serverConfig.GetTransportType()
 		switch transport {
 		case "stdio":

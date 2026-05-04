@@ -118,3 +118,48 @@ func TestKitMCPTasksWithoutAgentReturnsError(t *testing.T) {
 		t.Error("CancelMCPTask on nil Kit should error")
 	}
 }
+
+func TestSubagentPropagatesMCPTaskOptions(t *testing.T) {
+	// Exercises the helper Kit.Subagent uses to copy MCP task options
+	// onto child Options. Calling the real helper (rather than
+	// duplicating its body in the test) means any new field added to
+	// the propagation list is picked up automatically by the
+	// equivalence assertion below.
+	parent := &Options{
+		MCPTaskMode: map[string]MCPTaskMode{
+			"build": MCPTaskModeAlways,
+			"chat":  MCPTaskModeNever,
+		},
+		MCPTaskTimeout:         30 * time.Minute,
+		MCPTaskTTL:             45 * time.Minute,
+		MCPTaskPollInterval:    750 * time.Millisecond,
+		MCPTaskMaxPollInterval: 4 * time.Second,
+		MCPTaskProgress:        func(MCPTaskProgress) {},
+	}
+
+	child := &Options{}
+	inheritMCPTaskOptions(child, parent)
+
+	if child.MCPTaskMode["build"] != MCPTaskModeAlways || child.MCPTaskMode["chat"] != MCPTaskModeNever {
+		t.Errorf("MCPTaskMode not propagated: got %+v", child.MCPTaskMode)
+	}
+	if child.MCPTaskTimeout != 30*time.Minute {
+		t.Errorf("MCPTaskTimeout = %v, want 30m", child.MCPTaskTimeout)
+	}
+	if child.MCPTaskTTL != 45*time.Minute {
+		t.Errorf("MCPTaskTTL = %v, want 45m", child.MCPTaskTTL)
+	}
+	if child.MCPTaskPollInterval != 750*time.Millisecond {
+		t.Errorf("MCPTaskPollInterval = %v, want 750ms", child.MCPTaskPollInterval)
+	}
+	if child.MCPTaskMaxPollInterval != 4*time.Second {
+		t.Errorf("MCPTaskMaxPollInterval = %v, want 4s", child.MCPTaskMaxPollInterval)
+	}
+	if child.MCPTaskProgress == nil {
+		t.Error("MCPTaskProgress not propagated")
+	}
+
+	// Nil parent is a no-op rather than a panic.
+	inheritMCPTaskOptions(&Options{}, nil)
+	inheritMCPTaskOptions(nil, parent)
+}

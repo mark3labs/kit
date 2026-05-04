@@ -672,3 +672,47 @@ func TestMCPServerConfig_TasksMode_DefaultEmpty(t *testing.T) {
 		t.Errorf("expected default TasksMode to be empty, got %q", cfg.TasksMode)
 	}
 }
+
+func TestConfig_Validate_TasksMode(t *testing.T) {
+	t.Run("empty is valid", func(t *testing.T) {
+		cfg := &Config{
+			MCPServers: map[string]MCPServerConfig{
+				"a": {Type: "remote", URL: "https://x.example"},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("empty TasksMode should validate, got %v", err)
+		}
+	})
+
+	t.Run("known values are valid", func(t *testing.T) {
+		for _, mode := range []string{"auto", "never", "always", "AUTO", " always "} {
+			cfg := &Config{
+				MCPServers: map[string]MCPServerConfig{
+					"a": {Type: "remote", URL: "https://x.example", TasksMode: mode},
+				},
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("TasksMode=%q should validate, got %v", mode, err)
+			}
+		}
+	})
+
+	t.Run("typo is rejected with a clear error", func(t *testing.T) {
+		cfg := &Config{
+			MCPServers: map[string]MCPServerConfig{
+				"buildbot": {Type: "remote", URL: "https://x.example", TasksMode: "alwasy"},
+			},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for invalid TasksMode")
+		}
+		// Error must mention the server name AND the bad value so the
+		// user knows where to look.
+		msg := err.Error()
+		if !strings.Contains(msg, "buildbot") || !strings.Contains(msg, `"alwasy"`) {
+			t.Errorf("error %q should mention both server name and bad value", msg)
+		}
+	})
+}

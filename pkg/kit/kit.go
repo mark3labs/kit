@@ -1842,6 +1842,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Streaming:    true,
 		MCPConfig:    m.mcpConfig,
 	}
+	// Propagate the parent's MCP task configuration so a child subagent
+	// invoking long-running MCP tools observes the same per-server modes,
+	// timeouts, and progress callback as the parent. Without this, child
+	// agents would silently fall back to MCPTaskModeAuto with default
+	// polling and no progress feedback even when the parent had configured
+	// custom values.
+	inheritMCPTaskOptions(childOpts, m.opts)
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)

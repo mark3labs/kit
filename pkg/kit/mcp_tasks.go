@@ -218,3 +218,19 @@ func mcpTaskFromInternal(t tools.MCPTaskInfo) MCPTask {
 		PollInterval:  t.PollInterval,
 	}
 }
+
+// inheritMCPTaskOptions copies every MCP task-related field from parent
+// onto child. Used by Kit.Subagent so child instances observe the same
+// per-server modes, timeouts, and progress callback as their parent.
+// A nil parent is a no-op so callers don't have to guard at the call site.
+func inheritMCPTaskOptions(child, parent *Options) {
+	if child == nil || parent == nil {
+		return
+	}
+	child.MCPTaskMode = parent.MCPTaskMode
+	child.MCPTaskTimeout = parent.MCPTaskTimeout
+	child.MCPTaskTTL = parent.MCPTaskTTL
+	child.MCPTaskPollInterval = parent.MCPTaskPollInterval
+	child.MCPTaskMaxPollInterval = parent.MCPTaskMaxPollInterval
+	child.MCPTaskProgress = parent.MCPTaskProgress
+}
