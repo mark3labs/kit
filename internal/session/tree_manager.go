@@ -1356,9 +1356,35 @@ func DefaultSessionDir(cwd string) string {
 	if err != nil {
 		home = "."
 	}
-	// Convert path separators to double dashes.
-	safeCwd := strings.ReplaceAll(cwd, string(filepath.Separator), "--")
+	return filepath.Join(home, ".kit", "sessions", encodeCwdForDir(cwd))
+}
+
+// encodeCwdForDir converts a working-directory path into a single, filesystem-
+// safe directory name. Path separators are replaced with double dashes and
+// characters that are illegal in Windows directory names — most importantly
+// the colon that follows the drive letter (e.g. `C:\foo` → `C--foo`) — are
+// stripped. The result is identical to the previous Unix-only encoding for
+// paths that do not contain such characters, so existing session directories
+// are preserved.
+func encodeCwdForDir(cwd string) string {
+	// Convert both `/` and `\` to double dashes so encoding is stable across
+	// platforms and remains correct on Windows where `filepath.Separator`
+	// would otherwise miss forward-slash style paths.
+	safeCwd := strings.ReplaceAll(cwd, "\\", "--")
+	safeCwd = strings.ReplaceAll(safeCwd, "/", "--")
 	// Remove leading separator replacement.
 	safeCwd = strings.TrimPrefix(safeCwd, "--")
-	return filepath.Join(home, ".kit", "sessions", safeCwd)
+	// Strip characters that are illegal in directory names on Windows
+	// (`< > : " | ? *`). On Unix these characters are legal but rare in
+	// practice; stripping them keeps the encoding portable.
+	replacer := strings.NewReplacer(
+		":", "",
+		"<", "",
+		">", "",
+		"\"", "",
+		"|", "",
+		"?", "",
+		"*", "",
+	)
+	return replacer.Replace(safeCwd)
 }
