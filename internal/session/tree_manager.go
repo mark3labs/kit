@@ -1350,7 +1350,10 @@ func (tm *TreeManager) buildTreeNodeDepth(id string, depth int, visited map[stri
 // --- Path conventions ---
 
 // DefaultSessionDir returns the default session storage directory for a cwd.
-// Convention: ~/.kit/sessions/--<cwd-path>--/
+// Convention: ~/.kit/sessions/<encoded-cwd>, where path separators are
+// encoded as "--" with no leading or trailing dashes — e.g.
+// /home/user/proj becomes home--user--proj. See encodeCwdForDir for the
+// full encoding rules (including Windows path handling).
 func DefaultSessionDir(cwd string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
