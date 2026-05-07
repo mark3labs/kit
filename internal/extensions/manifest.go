@@ -72,30 +72,6 @@ func loadManifestFromPath(path string) (*Manifest, error) {
 	return &manifest, nil
 }
 
-// saveManifestToScope saves the manifest to the given scope.
-func saveManifestToScope(manifest *Manifest, scope InstallScope) error {
-	path := manifestPathForScope(scope)
-	return saveManifestToPath(manifest, path)
-}
-
-// saveManifestToPath saves a manifest to a specific file path.
-func saveManifestToPath(manifest *Manifest, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("creating manifest directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding manifest: %w", err)
-	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("writing manifest: %w", err)
-	}
-
-	return nil
-}
-
 // manifestPathForScope returns the manifest file path for a scope.
 func manifestPathForScope(scope InstallScope) string {
 	if scope == ScopeProject {
@@ -111,55 +87,6 @@ func manifestPathForScope(scope InstallScope) string {
 		base = filepath.Join(home, ".local", "share")
 	}
 	return filepath.Join(base, "kit", "git", "packages.json")
-}
-
-// GetGlobalManifest returns the global manifest.
-func GetGlobalManifest() (*Manifest, error) {
-	return loadManifestFromScope(ScopeGlobal)
-}
-
-// GetProjectManifest returns the project manifest.
-func GetProjectManifest() (*Manifest, error) {
-	return loadManifestFromScope(ScopeProject)
-}
-
-// addEntryToManifest adds or replaces an entry in the manifest for a scope.
-func addEntryToManifest(entry ManifestEntry, scope InstallScope) error {
-	manifest, err := loadManifestFromScope(scope)
-	if err != nil {
-		return err
-	}
-
-	// Remove any existing entry with same identity
-	identity := entry.Identity()
-	filtered := make([]ManifestEntry, 0, len(manifest.Packages))
-	for _, p := range manifest.Packages {
-		if p.Identity() != identity {
-			filtered = append(filtered, p)
-		}
-	}
-	filtered = append(filtered, entry)
-	manifest.Packages = filtered
-
-	return saveManifestToScope(manifest, scope)
-}
-
-// removeEntryFromManifest removes an entry by identity from the manifest for a scope.
-func removeEntryFromManifest(identity string, scope InstallScope) error {
-	manifest, err := loadManifestFromScope(scope)
-	if err != nil {
-		return err
-	}
-
-	filtered := make([]ManifestEntry, 0, len(manifest.Packages))
-	for _, p := range manifest.Packages {
-		if p.Identity() != identity {
-			filtered = append(filtered, p)
-		}
-	}
-	manifest.Packages = filtered
-
-	return saveManifestToScope(manifest, scope)
 }
 
 // FindInManifest finds an entry by identity in either global or project manifest.

@@ -148,9 +148,9 @@ func parseToolArgs(toolArgs string) map[string]any {
 // ---------------------------------------------------------------------------
 
 // Finish reasons reported by the LLM provider on a completed turn. These
-// mirror fantasy.FinishReason string values so comparisons against
-// TurnEndEvent.StopReason / TurnResult.StopReason are stable across
-// providers.
+// mirror the underlying provider's finish reason string values so
+// comparisons against TurnEndEvent.StopReason / TurnResult.StopReason are
+// stable across providers.
 const (
 	// FinishReasonStop: the model produced a natural stop (e.g. stop sequence
 	// or end-of-turn signal).

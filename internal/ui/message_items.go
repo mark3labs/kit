@@ -25,17 +25,6 @@ type TextMessageItem struct {
 	timestamp   time.Time
 }
 
-// NewTextMessageItem creates a new text message for the scrollback.
-// The content should be pre-rendered using MessageRenderer for proper styling.
-func NewTextMessageItem(id string, role string, content string) *TextMessageItem {
-	return &TextMessageItem{
-		id:        id,
-		role:      role,
-		content:   content,
-		timestamp: time.Now(),
-	}
-}
-
 // NewStyledMessageItem creates a message item with pre-rendered styled content.
 // This is the preferred way to create messages when you have styled content from MessageRenderer.
 func NewStyledMessageItem(id string, role string, rawContent string, preRendered string) *TextMessageItem {
@@ -316,57 +305,6 @@ func (m *StreamingBashOutputItem) MarkComplete() {
 }
 
 // --------------------------------------------------------------------------
-// SystemMessageItem - System messages (commands, info, errors)
-// --------------------------------------------------------------------------
-
-// SystemMessageItem represents a system message (commands, info, errors).
-type SystemMessageItem struct {
-	id           string
-	content      string
-	timestamp    time.Time
-	cachedRender string
-	cachedWidth  int
-}
-
-// NewSystemMessageItem creates a new system message for the scrollback.
-func NewSystemMessageItem(id, content string) *SystemMessageItem {
-	return &SystemMessageItem{
-		id:        id,
-		content:   content,
-		timestamp: time.Now(),
-	}
-}
-
-func (m *SystemMessageItem) ID() string {
-	return m.id
-}
-
-func (m *SystemMessageItem) Render(width int) string {
-	// Return cached render if width matches
-	if m.cachedWidth == width && m.cachedRender != "" {
-		return m.cachedRender
-	}
-
-	// Simple system message formatting
-	rendered := "│ " + strings.ReplaceAll(m.content, "\n", "\n│ ")
-
-	// Cache and return
-	m.cachedRender = rendered
-	m.cachedWidth = width
-	return rendered
-}
-
-func (m *SystemMessageItem) Height() int {
-	if m.cachedRender != "" {
-		return strings.Count(m.cachedRender, "\n") + 1
-	}
-	// Estimate
-	if m.cachedWidth > 0 {
-		return (len(m.content) / max(m.cachedWidth-10, 40)) + 3
-	}
-	return 3
-}
-
 // --------------------------------------------------------------------------
 // Helper: generateMessageID
 // --------------------------------------------------------------------------

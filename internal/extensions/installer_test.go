@@ -245,14 +245,21 @@ func TestManifestEntryIdentity(t *testing.T) {
 	}
 }
 
+// TestLoadAndSaveManifest exercises the live *Installer.loadManifest /
+// saveManifest round-trip against a temp directory, ensuring an absent
+// manifest loads as empty and a saved manifest reads back identically.
 func TestLoadAndSaveManifest(t *testing.T) {
 	tempDir := t.TempDir()
+	installer := &Installer{
+		projectGitRoot: tempDir,
+		globalGitRoot:  tempDir,
+	}
 	manifestPath := filepath.Join(tempDir, "packages.json")
 
 	// Test loading non-existent manifest
-	manifest, err := loadManifestFromPath(manifestPath)
+	manifest, err := installer.loadManifest(ScopeGlobal)
 	if err != nil {
-		t.Fatalf("loadManifestFromPath() error = %v", err)
+		t.Fatalf("loadManifest() error = %v", err)
 	}
 	if len(manifest.Packages) != 0 {
 		t.Errorf("Expected empty packages, got %d", len(manifest.Packages))
@@ -273,15 +280,20 @@ func TestLoadAndSaveManifest(t *testing.T) {
 	}
 
 	// Save it
-	err = saveManifestToPath(manifest, manifestPath)
+	err = installer.saveManifest(manifest, ScopeGlobal)
 	if err != nil {
-		t.Fatalf("saveManifestToPath() error = %v", err)
+		t.Fatalf("saveManifest() error = %v", err)
+	}
+
+	// Verify it was written to expected path
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Fatalf("manifest file not created: %v", err)
 	}
 
 	// Load it back
-	loaded, err := loadManifestFromPath(manifestPath)
+	loaded, err := installer.loadManifest(ScopeGlobal)
 	if err != nil {
-		t.Fatalf("loadManifestFromPath() error = %v", err)
+		t.Fatalf("loadManifest() error = %v", err)
 	}
 	if len(loaded.Packages) != 1 {
 		t.Errorf("Expected 1 package, got %d", len(loaded.Packages))
@@ -291,21 +303,15 @@ func TestLoadAndSaveManifest(t *testing.T) {
 	}
 }
 
+// TestAddAndRemoveFromManifest verifies that *Installer.addToManifest
+// followed by removeFromManifest leaves the manifest in its original
+// (empty) state, using a temp-directory installer scope.
 func TestAddAndRemoveFromManifest(t *testing.T) {
 	tempDir := t.TempDir()
-
-	// Set up environment for manifest path
-	if err := os.Setenv("XDG_DATA_HOME", tempDir); err != nil {
-		t.Fatalf("Setenv() error = %v", err)
+	installer := &Installer{
+		projectGitRoot: tempDir,
+		globalGitRoot:  tempDir,
 	}
-	defer func() {
-		if err := os.Unsetenv("XDG_DATA_HOME"); err != nil {
-			t.Logf("Unsetenv() error = %v", err)
-		}
-	}()
-
-	// The manifest path when XDG_DATA_HOME is set
-	manifestPath := filepath.Join(tempDir, "kit", "git", "packages.json")
 
 	// Add an entry
 	entry := ManifestEntry{
@@ -315,58 +321,51 @@ func TestAddAndRemoveFromManifest(t *testing.T) {
 		Scope:  ScopeGlobal,
 	}
 
-	err := addEntryToManifest(entry, ScopeGlobal)
-	if err != nil {
-		t.Fatalf("addEntryToManifest() error = %v", err)
+	if err := installer.addToManifest(entry, ScopeGlobal); err != nil {
+		t.Fatalf("addToManifest() error = %v", err)
 	}
 
 	// Verify it was added
-	manifest, err := loadManifestFromPath(manifestPath)
+	manifest, err := installer.loadManifest(ScopeGlobal)
 	if err != nil {
-		t.Fatalf("loadManifestFromPath() error = %v", err)
+		t.Fatalf("loadManifest() error = %v", err)
 	}
 	if len(manifest.Packages) != 1 {
 		t.Errorf("Expected 1 package, got %d", len(manifest.Packages))
 	}
 
 	// Remove it
-	err = removeEntryFromManifest("github.com/user/repo", ScopeGlobal)
-	if err != nil {
-		t.Fatalf("removeEntryFromManifest() error = %v", err)
+	if err := installer.removeFromManifest("github.com/user/repo", ScopeGlobal); err != nil {
+		t.Fatalf("removeFromManifest() error = %v", err)
 	}
 
 	// Verify it was removed
-	manifest, err = loadManifestFromPath(manifestPath)
+	manifest, err = installer.loadManifest(ScopeGlobal)
 	if err != nil {
-		t.Fatalf("loadManifestFromPath() error = %v", err)
+		t.Fatalf("loadManifest() error = %v", err)
 	}
 	if len(manifest.Packages) != 0 {
 		t.Errorf("Expected 0 packages, got %d", len(manifest.Packages))
 	}
 }
 
+// TestFindInManifest writes a manifest file directly to the path
+// resolved by the package-level manifestPathForScope helper and then
+// confirms FindInManifest locates the entry by identity (and returns
+// nil for a non-existent identity).
 func TestFindInManifest(t *testing.T) {
 	tempDir := t.TempDir()
-	if err := os.Setenv("XDG_DATA_HOME", tempDir); err != nil {
-		t.Fatalf("Setenv() error = %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("XDG_DATA_HOME"); err != nil {
-			t.Logf("Unsetenv() error = %v", err)
-		}
-	}()
+	t.Setenv("XDG_DATA_HOME", tempDir)
 
-	// Add an entry to global manifest
-	entry := ManifestEntry{
-		Source: "git:github.com/user/repo",
-		Host:   "github.com",
-		Path:   "user/repo",
-		Scope:  ScopeGlobal,
+	// Write a manifest entry directly via the package-level path resolver
+	// so FindInManifest (which uses manifestPathForScope) can read it back.
+	manifestPath := manifestPathForScope(ScopeGlobal)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
 	}
-
-	err := addEntryToManifest(entry, ScopeGlobal)
-	if err != nil {
-		t.Fatalf("addEntryToManifest() error = %v", err)
+	data := []byte(`{"packages":[{"source":"git:github.com/user/repo","repo":"","host":"github.com","path":"user/repo","pinned":false,"scope":"global","installed":"0001-01-01T00:00:00Z"}]}`)
+	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	// Find it

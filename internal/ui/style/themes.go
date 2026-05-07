@@ -543,12 +543,6 @@ func ApplyThemeWithoutSave(name string) error {
 	return nil
 }
 
-// RefreshThemeRegistry re-scans the themes directory. Call after the user
-// drops a new file into ~/.config/kit/themes/.
-func RefreshThemeRegistry() {
-	initThemeRegistry()
-}
-
 // RegisterThemeFromConfig adds a theme to the runtime registry from an
 // extension's ThemeColorConfig (string hex pairs). Replaces any existing
 // entry with the same name. The theme is immediately available via

@@ -19,28 +19,7 @@ import (
 //   - @path/to/file.txt      (unquoted, no spaces)
 var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 
-// UserBlock renders a user message with herald Tip styling.
-// The width parameter controls line wrapping so long messages don't overflow.
-// Any @file tokens in the content are highlighted with the theme accent color.
-func UserBlock(content string, width int, ty *herald.Typography, theme style.Theme) string {
-	if strings.TrimSpace(content) == "" {
-		content = "(empty message)"
-	}
-
-	// Wrap content before passing to herald Alert so long lines break
-	// inside the alert box. Subtract 4 to account for the alert bar
-	// prefix ("│ ") and a small margin.
-	if width > 4 {
-		content = lipgloss.Wrap(content, width-4, "")
-	}
-
-	// Highlight @file tokens with accent color so file references are
-	// visually distinct from surrounding prompt text.
-	content = HighlightFileTokens(content, theme)
-
-	rendered := ty.Tip(content)
-	return styleMarginBottom(theme, rendered)
-}
+// UserBlock-related rendering helpers and herald typography.
 
 // HighlightFileTokens wraps @file tokens in the given text with the theme
 // accent color so they stand out visually in rendered user messages.
@@ -152,44 +131,6 @@ func CustomBlock(content, label string, width int, theme style.Theme) string {
 func ErrorBlock(errorMsg string, ty *herald.Typography, theme style.Theme) string {
 	rendered := ty.Caution(errorMsg)
 	return styleMarginBottom(theme, rendered)
-}
-
-// ToolBlock renders a tool execution result with header and body.
-func ToolBlock(displayName, params, body string, isError bool, width int, ty *herald.Typography, theme style.Theme) string {
-	var icon string
-	iconColor := theme.Success
-	if isError {
-		icon = "×"
-		iconColor = theme.Error
-	} else {
-		icon = "✓"
-	}
-
-	// Style the tool name with color
-	nameColor := theme.Info
-	if isError {
-		nameColor = theme.Error
-	}
-	styledName := lipgloss.NewStyle().Foreground(nameColor).Bold(true).Render(displayName)
-	styledIcon := lipgloss.NewStyle().Foreground(iconColor).Render(icon)
-
-	// Build the content: icon + name + params on first line, then body
-	headerLine := styledIcon + " " + styledName
-	if params != "" {
-		headerLine += " " + lipgloss.NewStyle().Foreground(theme.Muted).Render(params)
-	}
-
-	if strings.TrimSpace(body) == "" {
-		body = ty.Italic("(no output)")
-	}
-
-	// Compose: icon + name + params, then body
-	fullContent := ty.Compose(
-		headerLine,
-		"",
-		body,
-	)
-	return styleMarginBottom(theme, fullContent)
 }
 
 // styleMarginBottom applies a 1-line margin bottom using the theme.

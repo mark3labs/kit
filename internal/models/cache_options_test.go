@@ -3,8 +3,6 @@ package models
 import (
 	"os"
 	"testing"
-
-	"charm.land/fantasy"
 )
 
 func TestModelInfo_SupportsCaching(t *testing.T) {
@@ -191,58 +189,4 @@ func TestCachingPriorityOverThinking(t *testing.T) {
 	if opts3 == nil {
 		t.Errorf("OpenAI caching should work when thinking is OFF")
 	}
-}
-
-func TestMergeProviderOptions(t *testing.T) {
-	opts1 := fantasy.ProviderOptions{
-		"provider1": &testProviderData{value: "value1"},
-	}
-	opts2 := fantasy.ProviderOptions{
-		"provider2": &testProviderData{value: "value2"},
-	}
-
-	merged := mergeProviderOptions(opts1, opts2)
-
-	if len(merged) != 2 {
-		t.Errorf("mergeProviderOptions should combine options from multiple maps, got %d items", len(merged))
-	}
-
-	if _, ok := merged["provider1"]; !ok {
-		t.Errorf("merged options should contain 'provider1' key")
-	}
-
-	if _, ok := merged["provider2"]; !ok {
-		t.Errorf("merged options should contain 'provider2' key")
-	}
-
-	// Later options should override earlier ones
-	opts3 := fantasy.ProviderOptions{
-		"provider1": &testProviderData{value: "overridden"},
-	}
-	merged2 := mergeProviderOptions(opts1, opts3)
-
-	if data, ok := merged2["provider1"].(*testProviderData); ok {
-		if data.value != "overridden" {
-			t.Errorf("later options should override earlier ones, got %q", data.value)
-		}
-	}
-
-	if mergeProviderOptions() != nil {
-		t.Errorf("mergeProviderOptions with no args should return nil")
-	}
-}
-
-// testProviderData is a simple implementation of ProviderOptionsData for testing
-type testProviderData struct {
-	value string
-}
-
-func (t *testProviderData) Options() {}
-
-func (t *testProviderData) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + t.value + `"`), nil
-}
-
-func (t *testProviderData) UnmarshalJSON(data []byte) error {
-	return nil
 }

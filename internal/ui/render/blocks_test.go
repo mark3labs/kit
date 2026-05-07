@@ -4,29 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/indaco/herald"
-
 	"github.com/mark3labs/kit/internal/ui/style"
 )
-
-// testTypography creates a herald Typography for tests.
-func testTypography(theme style.Theme) *herald.Typography {
-	return herald.New(
-		herald.WithPalette(herald.ColorPalette{
-			Primary:   theme.Primary,
-			Secondary: theme.Secondary,
-			Tertiary:  theme.Info,
-			Accent:    theme.Accent,
-			Highlight: theme.Highlight,
-			Muted:     theme.Muted,
-			Text:      theme.Text,
-			Surface:   theme.Background,
-			Base:      theme.CodeBg,
-		}),
-		herald.WithAlertLabel(herald.AlertTip, ""),
-		herald.WithAlertIcon(herald.AlertTip, ""),
-	)
-}
 
 func TestHighlightFileTokens(t *testing.T) {
 	theme := style.DefaultTheme()
@@ -88,24 +67,25 @@ func TestHighlightFileTokens(t *testing.T) {
 	}
 }
 
-func TestUserBlockHighlightsFileTokens(t *testing.T) {
+// TestHighlightFileTokensInjectsANSI verifies that HighlightFileTokens
+// preserves the original @file references in the output and wraps each
+// token with ANSI escape codes for the theme accent color.
+func TestHighlightFileTokensInjectsANSI(t *testing.T) {
 	theme := style.DefaultTheme()
-	ty := testTypography(theme)
 
-	// A user message with @file tokens should contain ANSI escapes around the token.
 	content := "refactor @main.go and @utils.go"
-	result := UserBlock(content, 80, ty, theme)
+	result := HighlightFileTokens(content, theme)
 
-	// The rendered output should contain both file references.
+	// The output should still contain both file references.
 	if !strings.Contains(result, "@main.go") {
-		t.Errorf("UserBlock output should contain @main.go, got:\n%s", result)
+		t.Errorf("HighlightFileTokens output should contain @main.go, got:\n%s", result)
 	}
 	if !strings.Contains(result, "@utils.go") {
-		t.Errorf("UserBlock output should contain @utils.go, got:\n%s", result)
+		t.Errorf("HighlightFileTokens output should contain @utils.go, got:\n%s", result)
 	}
 
 	// Verify ANSI codes are present (the tokens are styled).
 	if !strings.Contains(result, "\x1b[") {
-		t.Errorf("UserBlock output should contain ANSI escape codes for styled @file tokens")
+		t.Errorf("HighlightFileTokens output should contain ANSI escape codes for styled @file tokens")
 	}
 }

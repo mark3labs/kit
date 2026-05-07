@@ -28,15 +28,6 @@ type blockRenderer struct {
 // renderingOption configures block rendering
 type renderingOption func(*blockRenderer)
 
-// WithFullWidth returns a renderingOption that configures the block renderer
-// to expand to the full available width of its container. When enabled, the
-// block will fill the entire horizontal space rather than sizing to its content.
-func WithFullWidth() renderingOption {
-	return func(c *blockRenderer) {
-		c.fullWidth = true
-	}
-}
-
 // WithNoBorder returns a renderingOption that disables all borders on the
 // block, rendering content with only padding.
 func WithNoBorder() renderingOption {
@@ -63,39 +54,12 @@ func WithBorderColor(c color.Color) renderingOption {
 	}
 }
 
-// WithMarginTop returns a renderingOption that sets the top margin
-// for the block. The margin is specified in number of lines and adds
-// vertical space above the block.
-func WithMarginTop(margin int) renderingOption {
-	return func(c *blockRenderer) {
-		c.marginTop = margin
-	}
-}
-
 // WithMarginBottom returns a renderingOption that sets the bottom margin
 // for the block. The margin is specified in number of lines and adds
 // vertical space below the block.
 func WithMarginBottom(margin int) renderingOption {
 	return func(c *blockRenderer) {
 		c.marginBottom = margin
-	}
-}
-
-// WithPaddingLeft returns a renderingOption that sets the left padding
-// for the block content. The padding is specified in number of characters
-// and adds horizontal space between the left border and the content.
-func WithPaddingLeft(padding int) renderingOption {
-	return func(c *blockRenderer) {
-		c.paddingLeft = padding
-	}
-}
-
-// WithPaddingRight returns a renderingOption that sets the right padding
-// for the block content. The padding is specified in number of characters
-// and adds horizontal space between the content and the right border.
-func WithPaddingRight(padding int) renderingOption {
-	return func(c *blockRenderer) {
-		c.paddingRight = padding
 	}
 }
 
@@ -114,33 +78,6 @@ func WithPaddingTop(padding int) renderingOption {
 func WithPaddingBottom(padding int) renderingOption {
 	return func(c *blockRenderer) {
 		c.paddingBottom = padding
-	}
-}
-
-// WithBackground returns a renderingOption that sets the background color
-// for the entire block. The color parameter accepts any color.Color value,
-// typically a lipgloss hex color (e.g. lipgloss.Color("#1e1e2e")).
-func WithBackground(c color.Color) renderingOption {
-	return func(br *blockRenderer) {
-		br.background = &c
-	}
-}
-
-// WithForeground returns a renderingOption that overrides the default text
-// foreground color (theme.Text) for the block. Useful for muted or
-// de-emphasized content blocks.
-func WithForeground(c color.Color) renderingOption {
-	return func(br *blockRenderer) {
-		br.foreground = &c
-	}
-}
-
-// WithWidth returns a renderingOption that sets a specific width for the block
-// in characters. This overrides the default container width and allows precise
-// control over the block's horizontal dimensions.
-func WithWidth(width int) renderingOption {
-	return func(c *blockRenderer) {
-		c.width = width
 	}
 }
 

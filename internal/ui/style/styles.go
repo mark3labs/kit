@@ -6,13 +6,6 @@ import (
 	heraldmd "github.com/indaco/herald-md"
 )
 
-// BaseStyle returns a new, empty lipgloss style that can be customized with
-// additional styling methods. This serves as the foundation for building more
-// complex styled components.
-func BaseStyle() lipgloss.Style {
-	return lipgloss.NewStyle()
-}
-
 // markdownTypographyCache holds the last-created Typography instance for
 // herald-md rendering. It is cached to avoid re-initialization on every
 // streaming flush tick. The cache is invalidated by SetTheme when the

@@ -54,12 +54,6 @@ func (c *CLI) GetUsageTracker() *UsageTracker {
 	return c.usageTracker
 }
 
-// GetDebugLogger returns a CLIDebugLogger instance that routes debug output
-// through the CLI's rendering system for consistent message formatting and display.
-func (c *CLI) GetDebugLogger() *CLIDebugLogger {
-	return NewCLIDebugLogger(c)
-}
-
 // SetModelName updates the current AI model name being used in the conversation.
 // This name is displayed in message headers to indicate which model is responding.
 func (c *CLI) SetModelName(modelName string) {
@@ -85,13 +79,6 @@ func (c *CLI) ShowSpinner(action func() error) error {
 // is timestamped and styled according to the active theme.
 func (c *CLI) DisplayUserMessage(message string) {
 	fmt.Println(c.renderer.RenderUserMessage(message, time.Now()).Content)
-}
-
-// DisplayAssistantMessage renders and displays an AI assistant's response message
-// with appropriate formatting. This method delegates to DisplayAssistantMessageWithModel
-// with an empty model name for backward compatibility.
-func (c *CLI) DisplayAssistantMessage(message string) error {
-	return c.DisplayAssistantMessageWithModel(message, "")
 }
 
 // DisplayAssistantMessageWithModel renders and displays an AI assistant's response
@@ -147,12 +134,6 @@ func (c *CLI) DisplayExtensionBlock(text, borderColor, subtitle string) {
 		WithMarginBottom(1),
 	)
 	fmt.Println(rendered)
-}
-
-// DisplayCancellation displays a system message indicating that the current
-// AI generation has been cancelled by the user (typically via ESC key).
-func (c *CLI) DisplayCancellation() {
-	fmt.Println(c.renderer.RenderSystemMessage("Generation cancelled by user (ESC pressed)", time.Now()).Content)
 }
 
 // DisplayDebugMessage renders and displays a debug message if debug mode is enabled.

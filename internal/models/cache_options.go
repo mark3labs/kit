@@ -3,7 +3,6 @@ package models
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"maps"
 	"os"
 
 	"charm.land/fantasy"
@@ -68,20 +67,4 @@ func generateCacheKey(systemPrompt, modelID string) string {
 
 	// Prefix with "kit-" to identify KIT-generated cache keys
 	return "kit-" + hex.EncodeToString(h.Sum(nil))[:24]
-}
-
-// mergeProviderOptions merges multiple ProviderOptions maps.
-// Later maps take precedence over earlier ones.
-func mergeProviderOptions(opts ...fantasy.ProviderOptions) fantasy.ProviderOptions {
-	result := make(fantasy.ProviderOptions)
-
-	for _, opt := range opts {
-		maps.Copy(result, opt)
-	}
-
-	if len(result) == 0 {
-		return nil
-	}
-
-	return result
 }
