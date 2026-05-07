@@ -245,6 +245,9 @@ func TestManifestEntryIdentity(t *testing.T) {
 	}
 }
 
+// TestLoadAndSaveManifest exercises the live *Installer.loadManifest /
+// saveManifest round-trip against a temp directory, ensuring an absent
+// manifest loads as empty and a saved manifest reads back identically.
 func TestLoadAndSaveManifest(t *testing.T) {
 	tempDir := t.TempDir()
 	installer := &Installer{
@@ -300,6 +303,9 @@ func TestLoadAndSaveManifest(t *testing.T) {
 	}
 }
 
+// TestAddAndRemoveFromManifest verifies that *Installer.addToManifest
+// followed by removeFromManifest leaves the manifest in its original
+// (empty) state, using a temp-directory installer scope.
 func TestAddAndRemoveFromManifest(t *testing.T) {
 	tempDir := t.TempDir()
 	installer := &Installer{
@@ -343,16 +349,13 @@ func TestAddAndRemoveFromManifest(t *testing.T) {
 	}
 }
 
+// TestFindInManifest writes a manifest file directly to the path
+// resolved by the package-level manifestPathForScope helper and then
+// confirms FindInManifest locates the entry by identity (and returns
+// nil for a non-existent identity).
 func TestFindInManifest(t *testing.T) {
 	tempDir := t.TempDir()
-	if err := os.Setenv("XDG_DATA_HOME", tempDir); err != nil {
-		t.Fatalf("Setenv() error = %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("XDG_DATA_HOME"); err != nil {
-			t.Logf("Unsetenv() error = %v", err)
-		}
-	}()
+	t.Setenv("XDG_DATA_HOME", tempDir)
 
 	// Write a manifest entry directly via the package-level path resolver
 	// so FindInManifest (which uses manifestPathForScope) can read it back.

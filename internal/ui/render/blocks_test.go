@@ -67,6 +67,9 @@ func TestHighlightFileTokens(t *testing.T) {
 	}
 }
 
+// TestHighlightFileTokensInjectsANSI verifies that HighlightFileTokens
+// preserves the original @file references in the output and wraps each
+// token with ANSI escape codes for the theme accent color.
 func TestHighlightFileTokensInjectsANSI(t *testing.T) {
 	theme := style.DefaultTheme()
 
