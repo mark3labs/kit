@@ -44,10 +44,12 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 	ctx := deps.ctx
 
 	return extensions.Context{
-		CWD:           deps.cwd,
-		Model:         deps.modelName,
-		Interactive:   deps.interactive,
-		PrintBlock:    appInstance.PrintBlockFromExtension,
+		CWD:         deps.cwd,
+		Model:       deps.modelName,
+		Interactive: deps.interactive,
+		PrintBlock: func(opts extensions.PrintBlockOpts) {
+			appInstance.PrintBlockFromExtension(opts)
+		},
 		SendMessage:   func(text string) { appInstance.Run(text) },
 		CancelAndSend: func(text string) { appInstance.InterruptAndSend(text) },
 		Abort:         func() { appInstance.Abort() },
@@ -369,7 +371,9 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			}
 			return result
 		},
-		GetChildren: kitInstance.GetChildren,
+		GetChildren: func(parentID string) []string {
+			return kitInstance.GetChildren(parentID)
+		},
 		NavigateTo: func(entryID string) extensions.TreeNavigationResult {
 			err := kitInstance.NavigateTo(entryID)
 			if err != nil {
@@ -421,15 +425,25 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
 			return ""
 		},
-		GetAvailableSkills: kitInstance.DiscoverSkillsForExtension,
+		GetAvailableSkills: func() []extensions.Skill {
+			return kitInstance.DiscoverSkillsForExtension()
+		},
 
 		// -------------------------------------------------------------------
 		// Template Parsing API
 		// -------------------------------------------------------------------
-		ParseTemplate:        kit.ParseTemplate,
-		RenderTemplate:       kit.RenderTemplate,
-		ParseArguments:       kit.ParseArguments,
-		SimpleParseArguments: kit.SimpleParseArguments,
+		ParseTemplate: func(name, content string) extensions.PromptTemplate {
+			return kit.ParseTemplate(name, content)
+		},
+		RenderTemplate: func(tpl extensions.PromptTemplate, vars map[string]string) string {
+			return kit.RenderTemplate(tpl, vars)
+		},
+		ParseArguments: func(input string, pattern extensions.ArgumentPattern) extensions.ParseResult {
+			return kit.ParseArguments(input, pattern)
+		},
+		SimpleParseArguments: func(input string, count int) []string {
+			return kit.SimpleParseArguments(input, count)
+		},
 		EvaluateModelConditional: func(condition string) bool {
 			return kit.EvaluateModelConditional(kitInstance.Extensions().GetContext().Model, condition)
 		},
@@ -440,11 +454,15 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		// -------------------------------------------------------------------
 		// Model Resolution API
 		// -------------------------------------------------------------------
-		ResolveModelChain: kit.ResolveModelChain,
+		ResolveModelChain: func(preferences []string) extensions.ModelResolutionResult {
+			return kit.ResolveModelChain(preferences)
+		},
 		GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
 			return kit.GetModelCapabilities(model)
 		},
-		CheckModelAvailable: kit.CheckModelAvailable,
+		CheckModelAvailable: func(model string) bool {
+			return kit.CheckModelAvailable(model)
+		},
 		GetCurrentProvider: func() string {
 			return kit.GetCurrentProvider(kitInstance.Extensions().GetContext().Model)
 		},
