@@ -4,29 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/indaco/herald"
-
 	"github.com/mark3labs/kit/internal/ui/style"
 )
-
-// testTypography creates a herald Typography for tests.
-func testTypography(theme style.Theme) *herald.Typography {
-	return herald.New(
-		herald.WithPalette(herald.ColorPalette{
-			Primary:   theme.Primary,
-			Secondary: theme.Secondary,
-			Tertiary:  theme.Info,
-			Accent:    theme.Accent,
-			Highlight: theme.Highlight,
-			Muted:     theme.Muted,
-			Text:      theme.Text,
-			Surface:   theme.Background,
-			Base:      theme.CodeBg,
-		}),
-		herald.WithAlertLabel(herald.AlertTip, ""),
-		herald.WithAlertIcon(herald.AlertTip, ""),
-	)
-}
 
 func TestHighlightFileTokens(t *testing.T) {
 	theme := style.DefaultTheme()
