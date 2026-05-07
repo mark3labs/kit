@@ -169,12 +169,6 @@ func InitConfig() {
 	models.ReloadGlobalRegistry()
 }
 
-// LoadConfigWithEnvSubstitution loads a config file with environment variable
-// substitution. Delegates to the SDK implementation.
-func LoadConfigWithEnvSubstitution(configPath string) error {
-	return kit.LoadConfigWithEnvSubstitution(configPath)
-}
-
 // adaptiveOrDefault converts a config.AdaptiveColor to a resolved color.Color,
 // falling back to fallback when both Light and Dark are empty.
 func adaptiveOrDefault(ac config.AdaptiveColor, fallback color.Color) color.Color {

@@ -450,25 +450,6 @@ func globalGitInstallRoot() string {
 	return filepath.Join(base, "kit", "git")
 }
 
-// GetInstalledPackages returns all installed packages from both scopes.
-func (i *Installer) GetInstalledPackages() ([]ManifestEntry, error) {
-	var all []ManifestEntry
-
-	global, err := i.loadManifest(ScopeGlobal)
-	if err != nil {
-		return nil, fmt.Errorf("loading global manifest: %w", err)
-	}
-	all = append(all, global.Packages...)
-
-	project, err := i.loadManifest(ScopeProject)
-	if err != nil {
-		return nil, fmt.Errorf("loading project manifest: %w", err)
-	}
-	all = append(all, project.Packages...)
-
-	return all, nil
-}
-
 // IsInstalled checks if a package is installed in either scope.
 // Returns (scope, true) if installed, ("", false) otherwise.
 func (i *Installer) IsInstalled(source *GitSource) (InstallScope, bool) {

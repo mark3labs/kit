@@ -199,18 +199,6 @@ func GetCommandByName(name string) *SlashCommand {
 	return nil
 }
 
-// GetAllCommandNames returns a complete list of all command names and their aliases.
-// This is useful for command completion, validation, and help display. The returned
-// slice contains both primary command names and all alternative aliases.
-func GetAllCommandNames() []string {
-	var names []string
-	for _, cmd := range SlashCommands {
-		names = append(names, cmd.Name)
-		names = append(names, cmd.Aliases...)
-	}
-	return names
-}
-
 // ExtensionCommand is a slash command registered by an extension. Unlike
 // built-in SlashCommands whose execution is hardcoded in handleSlashCommand,
 // extension commands carry their own Execute callback.

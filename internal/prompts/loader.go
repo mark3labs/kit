@@ -179,31 +179,6 @@ func LoadFromDir(dir string) ([]*PromptTemplate, error) {
 	return templates, nil
 }
 
-// Deduplicate removes duplicate templates by name, keeping the first occurrence.
-// It returns the deduplicated list and diagnostics for any collisions.
-// This is a standalone function for when you need to deduplicate an existing list.
-func Deduplicate(templates []*PromptTemplate) ([]*PromptTemplate, []Diagnostic) {
-	seen := make(map[string]*PromptTemplate)
-	var result []*PromptTemplate
-	var diagnostics []Diagnostic
-
-	for _, tpl := range templates {
-		if existing, ok := seen[tpl.Name]; ok {
-			diagnostics = append(diagnostics, Diagnostic{
-				Name:        tpl.Name,
-				KeptPath:    existing.FilePath,
-				DroppedPath: tpl.FilePath,
-				Reason:      "duplicate template name (first-match-wins)",
-			})
-		} else {
-			seen[tpl.Name] = tpl
-			result = append(result, tpl)
-		}
-	}
-
-	return result, diagnostics
-}
-
 // loadDefaultTemplates returns the built-in default templates.
 // These are embedded templates that ship with Kit.
 func loadDefaultTemplates() []*PromptTemplate {
