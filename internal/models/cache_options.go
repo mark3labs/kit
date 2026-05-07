@@ -68,4 +68,3 @@ func generateCacheKey(systemPrompt, modelID string) string {
 	// Prefix with "kit-" to identify KIT-generated cache keys
 	return "kit-" + hex.EncodeToString(h.Sum(nil))[:24]
 }
-

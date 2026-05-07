@@ -190,4 +190,3 @@ func TestCachingPriorityOverThinking(t *testing.T) {
 		t.Errorf("OpenAI caching should work when thinking is OFF")
 	}
 }
-

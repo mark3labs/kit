@@ -150,4 +150,3 @@ func (h *SubagentHandle) Wait() SubagentResult {
 func (h *SubagentHandle) Done() <-chan struct{} {
 	return h.done
 }
-
