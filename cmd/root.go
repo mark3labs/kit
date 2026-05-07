@@ -14,6 +14,7 @@ import (
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/extbridge"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
@@ -1140,45 +1141,8 @@ func runNormalMode(ctx context.Context) error {
 				}
 			},
 			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				// In-process subagent via SDK.
-				sdkCfg := kit.SubagentConfig{
-					Prompt:       config.Prompt,
-					Model:        config.Model,
-					SystemPrompt: config.SystemPrompt,
-					Timeout:      config.Timeout,
-					NoSession:    config.NoSession,
-				}
-				// Bridge SDK events to extension SubagentEvents.
-				if config.OnEvent != nil {
-					sdkCfg.OnEvent = func(e kit.Event) {
-						se := sdkEventToSubagentEvent(e)
-						if se.Type != "" {
-							config.OnEvent(se)
-						}
-					}
-				}
-				result, err := kitInstance.Subagent(ctx, sdkCfg)
-				if result == nil {
-					return nil, &extensions.SubagentResult{Error: err}, err
-				}
-				extResult := &extensions.SubagentResult{
-					Response:  result.Response,
-					Error:     err,
-					SessionID: result.SessionID,
-					Elapsed:   result.Elapsed,
-				}
-				if result.Usage != nil {
-					extResult.Usage = &extensions.SubagentUsage{
-						InputTokens:  result.Usage.InputTokens,
-						OutputTokens: result.Usage.OutputTokens,
-					}
-				}
-				return nil, extResult, err
+				return extbridge.SpawnSubagent(ctx, kitInstance, config)
 			},
-
-			// -------------------------------------------------------------------------
-			// Tree Navigation API (Phase 1 Bridge)
-			// -------------------------------------------------------------------------
 			GetTreeNode: func(entryID string) *extensions.TreeNode {
 				node := kitInstance.GetTreeNode(entryID)
 				if node == nil {
@@ -1438,45 +1402,8 @@ func runNormalMode(ctx context.Context) error {
 				}
 			},
 			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				// In-process subagent via SDK.
-				sdkCfg := kit.SubagentConfig{
-					Prompt:       config.Prompt,
-					Model:        config.Model,
-					SystemPrompt: config.SystemPrompt,
-					Timeout:      config.Timeout,
-					NoSession:    config.NoSession,
-				}
-				// Bridge SDK events to extension SubagentEvents.
-				if config.OnEvent != nil {
-					sdkCfg.OnEvent = func(e kit.Event) {
-						se := sdkEventToSubagentEvent(e)
-						if se.Type != "" {
-							config.OnEvent(se)
-						}
-					}
-				}
-				result, err := kitInstance.Subagent(ctx, sdkCfg)
-				if result == nil {
-					return nil, &extensions.SubagentResult{Error: err}, err
-				}
-				extResult := &extensions.SubagentResult{
-					Response:  result.Response,
-					Error:     err,
-					SessionID: result.SessionID,
-					Elapsed:   result.Elapsed,
-				}
-				if result.Usage != nil {
-					extResult.Usage = &extensions.SubagentUsage{
-						InputTokens:  result.Usage.InputTokens,
-						OutputTokens: result.Usage.OutputTokens,
-					}
-				}
-				return nil, extResult, err
+				return extbridge.SpawnSubagent(ctx, kitInstance, config)
 			},
-
-			// -------------------------------------------------------------------------
-			// Tree Navigation API (Phase 1 Bridge) - Second Context
-			// -------------------------------------------------------------------------
 			GetTreeNode: func(entryID string) *extensions.TreeNode {
 				node := kitInstance.GetTreeNode(entryID)
 				if node == nil {
@@ -2177,43 +2104,4 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 
 	_, runErr := program.Run()
 	return runErr
-}
-
-// sdkEventToSubagentEvent converts an SDK event to an extension-facing
-// SubagentEvent. Returns a zero-value event (Type=="") for events that
-// don't map to anything useful.
-func sdkEventToSubagentEvent(e kit.Event) extensions.SubagentEvent {
-	switch ev := e.(type) {
-	case kit.MessageUpdateEvent:
-		return extensions.SubagentEvent{Type: "text", Content: ev.Chunk}
-	case kit.ReasoningDeltaEvent:
-		return extensions.SubagentEvent{Type: "reasoning", Content: ev.Delta}
-	case kit.ToolCallEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_call", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind, ToolArgs: ev.ToolArgs,
-		}
-	case kit.ToolExecutionStartEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_execution_start", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-		}
-	case kit.ToolExecutionEndEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_execution_end", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-		}
-	case kit.ToolResultEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_result", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-			ToolResult: ev.Result, IsError: ev.IsError,
-		}
-	case kit.TurnStartEvent:
-		return extensions.SubagentEvent{Type: "turn_start"}
-	case kit.TurnEndEvent:
-		return extensions.SubagentEvent{Type: "turn_end"}
-	default:
-		return extensions.SubagentEvent{}
-	}
 }

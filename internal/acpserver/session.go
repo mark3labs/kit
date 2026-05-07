@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/mark3labs/kit/internal/extbridge"
 	"github.com/mark3labs/kit/internal/extensions"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
@@ -152,38 +153,7 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 				return kitInstance.ExecuteCompletion(context.Background(), req)
 			},
 			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				sdkCfg := kit.SubagentConfig{
-					Prompt:       config.Prompt,
-					Model:        config.Model,
-					SystemPrompt: config.SystemPrompt,
-					Timeout:      config.Timeout,
-					NoSession:    config.NoSession,
-				}
-				if config.OnEvent != nil {
-					sdkCfg.OnEvent = func(e kit.Event) {
-						se := sdkEventToSubagentEvent(e)
-						if se.Type != "" {
-							config.OnEvent(se)
-						}
-					}
-				}
-				result, err := kitInstance.Subagent(context.Background(), sdkCfg)
-				if result == nil {
-					return nil, &extensions.SubagentResult{Error: err}, err
-				}
-				extResult := &extensions.SubagentResult{
-					Response:  result.Response,
-					Error:     err,
-					SessionID: result.SessionID,
-					Elapsed:   result.Elapsed,
-				}
-				if result.Usage != nil {
-					extResult.Usage = &extensions.SubagentUsage{
-						InputTokens:  result.Usage.InputTokens,
-						OutputTokens: result.Usage.OutputTokens,
-					}
-				}
-				return nil, extResult, err
+				return extbridge.SpawnSubagent(context.Background(), kitInstance, config)
 			},
 
 			// Render — fall back to logging.
@@ -268,41 +238,4 @@ func (s *acpSession) clearCancel() {
 	s.cancelMu.Lock()
 	defer s.cancelMu.Unlock()
 	s.cancelFn = nil
-}
-
-// sdkEventToSubagentEvent converts an SDK event to an extension SubagentEvent.
-func sdkEventToSubagentEvent(e kit.Event) extensions.SubagentEvent {
-	switch ev := e.(type) {
-	case kit.MessageUpdateEvent:
-		return extensions.SubagentEvent{Type: "text", Content: ev.Chunk}
-	case kit.ReasoningDeltaEvent:
-		return extensions.SubagentEvent{Type: "reasoning", Content: ev.Delta}
-	case kit.ToolCallEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_call", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind, ToolArgs: ev.ToolArgs,
-		}
-	case kit.ToolExecutionStartEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_execution_start", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-		}
-	case kit.ToolExecutionEndEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_execution_end", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-		}
-	case kit.ToolResultEvent:
-		return extensions.SubagentEvent{
-			Type: "tool_result", ToolCallID: ev.ToolCallID,
-			ToolName: ev.ToolName, ToolKind: ev.ToolKind,
-			ToolResult: ev.Result, IsError: ev.IsError,
-		}
-	case kit.TurnStartEvent:
-		return extensions.SubagentEvent{Type: "turn_start"}
-	case kit.TurnEndEvent:
-		return extensions.SubagentEvent{Type: "turn_end"}
-	default:
-		return extensions.SubagentEvent{}
-	}
 }
