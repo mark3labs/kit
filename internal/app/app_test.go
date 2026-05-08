@@ -763,3 +763,120 @@ func TestFormatMaxTokensTruncatedMessage_NoKit(t *testing.T) {
 		}
 	}
 }
+
+// --------------------------------------------------------------------------
+// releaseBusyAfterCompact (issue #27)
+// --------------------------------------------------------------------------
+
+// TestReleaseBusyAfterCompact_flushesQueuedMessages is a regression test for
+// issue #27: messages queued via Run() while /compact is running used to sit
+// in a.queue indefinitely until the user typed another prompt. After the fix
+// the deferred releaseBusyAfterCompact tail picks up any pending items and
+// dispatches drainQueue automatically.
+//
+// We simulate the compaction completion path directly (bypassing the SDK)
+// by toggling busy=true, populating the queue exactly as Run() would have
+// during compaction, and then invoking releaseBusyAfterCompact.
+func TestReleaseBusyAfterCompact_flushesQueuedMessages(t *testing.T) {
+	stub := newStubWithFuncs(
+		func(ctx context.Context) (*kit.TurnResult, error) {
+			return turnResult("compacted then drained"), nil
+		},
+	)
+	app := newTestApp(stub)
+	defer app.Close()
+
+	// Simulate the state at the start of the compaction tail: busy is set
+	// and a couple of prompts have piled up in the queue while we were
+	// summarising. (Run() would have appended them and returned a queue
+	// length > 0 to the caller.)
+	app.mu.Lock()
+	app.busy = true
+	app.queue = append(app.queue,
+		queueItem{Prompt: "queued during compact #1"},
+		queueItem{Prompt: "queued during compact #2"},
+	)
+	app.mu.Unlock()
+
+	// Invoke the deferred tail directly. It should kick off drainQueue.
+	app.releaseBusyAfterCompact()
+
+	// drainQueue runs in a goroutine. Wait for the app to come back to idle.
+	ok := waitForCondition(2*time.Second, func() bool {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+		return !app.busy
+	})
+	if !ok {
+		t.Fatal("app did not become idle after releaseBusyAfterCompact: queue not drained")
+	}
+
+	// Wait for any in-flight goroutine to finish before reading state.
+	app.wg.Wait()
+
+	if got := app.QueueLength(); got != 0 {
+		t.Fatalf("expected empty queue after drain, got %d", got)
+	}
+	if n := stub.callCount(); n == 0 {
+		t.Fatalf("expected stub PromptFunc to fire at least once after compact, got %d calls", n)
+	}
+}
+
+// TestReleaseBusyAfterCompact_idleWhenQueueEmpty verifies that with no
+// pending messages the helper just clears busy and does NOT spawn a
+// drainQueue goroutine (no spurious agent turn).
+func TestReleaseBusyAfterCompact_idleWhenQueueEmpty(t *testing.T) {
+	stub := newStub()
+	app := newTestApp(stub)
+	defer app.Close()
+
+	app.mu.Lock()
+	app.busy = true
+	app.mu.Unlock()
+
+	app.releaseBusyAfterCompact()
+
+	app.mu.Lock()
+	busy := app.busy
+	app.mu.Unlock()
+	if busy {
+		t.Fatal("expected busy=false after releaseBusyAfterCompact with empty queue")
+	}
+
+	// Give any rogue goroutine a moment to (incorrectly) call PromptFunc.
+	time.Sleep(50 * time.Millisecond)
+	if n := stub.callCount(); n != 0 {
+		t.Fatalf("expected 0 PromptFunc calls when queue empty, got %d", n)
+	}
+}
+
+// TestReleaseBusyAfterCompact_dropsQueueWhenClosed verifies that if the app
+// was closed during compaction the helper discards any pending items rather
+// than spawning drainQueue against a torn-down App.
+func TestReleaseBusyAfterCompact_dropsQueueWhenClosed(t *testing.T) {
+	stub := newStub()
+	app := newTestApp(stub)
+
+	app.mu.Lock()
+	app.busy = true
+	app.queue = append(app.queue, queueItem{Prompt: "would have run"})
+	app.closed = true
+	app.mu.Unlock()
+
+	app.releaseBusyAfterCompact()
+
+	app.mu.Lock()
+	busy := app.busy
+	qLen := len(app.queue)
+	app.mu.Unlock()
+	if busy {
+		t.Fatal("expected busy=false even when closed")
+	}
+	if qLen != 0 {
+		t.Fatalf("expected queue cleared on closed app, got %d entries", qLen)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if n := stub.callCount(); n != 0 {
+		t.Fatalf("expected 0 PromptFunc calls on closed app, got %d", n)
+	}
+}
