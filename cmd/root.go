@@ -784,6 +784,16 @@ func runNormalMode(ctx context.Context) error {
 	}
 	defer func() { _ = kitInstance.Close() }()
 
+	// Build the "System Prompt loaded" notice shown at startup, paralleling the
+	// per-server "MCP server loaded" notifications so users can confirm that a
+	// configured prompt file was found and applied.
+	var systemPromptLoadedMsg string
+	if kitInstance.HasCustomSystemPrompt() {
+		if src := kitInstance.GetSystemPromptSource(); src != "" {
+			systemPromptLoadedMsg = "System Prompt loaded: " + src
+		}
+	}
+
 	// Extract metadata for display and app options.
 	parsedProvider, modelName, serverNames, toolNames, mcpToolCount, extensionToolCount := CollectAgentMetadata(kitInstance, mcpConfig)
 
@@ -801,6 +811,9 @@ func runNormalMode(ctx context.Context) error {
 		}
 
 		DisplayDebugConfig(cli, kitInstance, mcpConfig, parsedProvider)
+		if systemPromptLoadedMsg != "" && cli != nil {
+			cli.DisplayInfo(systemPromptLoadedMsg)
+		}
 	}
 
 	// Load existing messages from resumed/continued sessions.
@@ -840,6 +853,9 @@ func runNormalMode(ctx context.Context) error {
 
 	// Buffer for extension messages during startup (printed after startup banner).
 	var startupExtensionMessages []string
+	if systemPromptLoadedMsg != "" {
+		startupExtensionMessages = append(startupExtensionMessages, systemPromptLoadedMsg)
+	}
 
 	// Set up extension context and emit SessionStart.
 	if kitInstance.Extensions().HasExtensions() {
