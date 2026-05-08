@@ -356,6 +356,10 @@ func (a *App) AddContextMessage(text string) {
 // tea.Program. customInstructions is optional text appended to the summary
 // prompt (e.g. "Focus on the API design decisions").
 //
+// Any prompts queued via Run/RunWithFiles or steering messages injected via
+// Steer/SteerWithFiles while compaction is running are flushed automatically
+// once compaction completes (see releaseBusyAfterCompact).
+//
 // Satisfies ui.AppController.
 func (a *App) CompactConversation(customInstructions string) error {
 	a.mu.Lock()
@@ -377,11 +381,7 @@ func (a *App) CompactConversation(customInstructions string) error {
 
 	go func() {
 		defer a.wg.Done()
-		defer func() {
-			a.mu.Lock()
-			a.busy = false
-			a.mu.Unlock()
-		}()
+		defer a.releaseBusyAfterCompact()
 
 		// Subscribe to SDK events for streaming compaction summary to the TUI.
 		sendFn := func(msg tea.Msg) {
@@ -420,6 +420,9 @@ func (a *App) CompactConversation(customInstructions string) error {
 // CompactAsync is like CompactConversation but calls onComplete/onError
 // callbacks instead of sending TUI events. Used by the extension API's
 // ctx.Compact() which needs callback-based notification.
+//
+// Like CompactConversation, any prompts/steer messages received during
+// compaction are flushed automatically once compaction finishes.
 func (a *App) CompactAsync(customInstructions string, onComplete func(), onError func(string)) error {
 	a.mu.Lock()
 	if a.closed {
@@ -440,11 +443,7 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 
 	go func() {
 		defer a.wg.Done()
-		defer func() {
-			a.mu.Lock()
-			a.busy = false
-			a.mu.Unlock()
-		}()
+		defer a.releaseBusyAfterCompact()
 
 		// Subscribe to SDK events for streaming compaction summary to the TUI.
 		sendFn := func(msg tea.Msg) {
@@ -487,6 +486,76 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 		}
 	}()
 	return nil
+}
+
+// releaseBusyAfterCompact is the deferred tail that runs at the end of every
+// compaction goroutine (success, error, or panic-after-recover paths). It
+// flips a.busy back to false, but before doing so it checks whether any
+// prompts piled up while compaction was running:
+//
+//   - Run/RunWithFiles append to a.queue when a.busy is set.
+//   - Steer/SteerWithFiles deposit messages into the SDK steer channel via
+//     Kit.InjectSteerWithFiles when a.busy is set.
+//
+// Without this hand-off the queue would sit idle until the user submits
+// another prompt — see issue #27. If we find anything pending we keep busy
+// set, splice the steer messages to the front of the queue, and start a
+// fresh drainQueue goroutine to deliver them as a single batched turn.
+func (a *App) releaseBusyAfterCompact() {
+	// Pull steer messages outside the app mutex; DrainSteer takes its own
+	// internal lock and we don't want to nest the two.
+	var steerItems []queueItem
+	if a.opts.Kit != nil {
+		if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
+			steerItems = make([]queueItem, len(leftover))
+			for i, sm := range leftover {
+				steerItems[i] = queueItem{Prompt: sm.Text, Files: sm.Files}
+			}
+		}
+	}
+
+	a.mu.Lock()
+	// If the app was closed while compaction was running, drop everything
+	// and just clear busy. Run/Steer would have rejected new items already
+	// after Close(), but this guards against in-flight items that slipped
+	// in just before closed was set.
+	if a.closed {
+		a.queue = a.queue[:0]
+		a.busy = false
+		a.mu.Unlock()
+		return
+	}
+
+	// Combine steer-channel items (front) with the in-memory queue (back).
+	// Steer messages are placed first so they retain their "act now"
+	// semantics relative to ordinary queued prompts that arrived later.
+	pending := append(steerItems, a.queue...)
+	a.queue = a.queue[:0]
+
+	if len(pending) == 0 {
+		a.busy = false
+		a.mu.Unlock()
+		return
+	}
+
+	// Hand off to drainQueue: it will pick up the first item directly and
+	// scoop the rest from a.queue on its first iteration.
+	first := pending[0]
+	if len(pending) > 1 {
+		a.queue = append(a.queue, pending[1:]...)
+	}
+	// Stay busy across the goroutine swap.
+	a.wg.Add(1)
+	a.mu.Unlock()
+
+	// Notify the UI that steer-channel messages were consumed so the
+	// steering badge can clear; ordinary queued prompts will be reflected
+	// by the QueueUpdatedEvent that drainQueue emits as it picks them up.
+	if len(steerItems) > 0 {
+		a.sendEvent(SteerConsumedEvent{})
+	}
+
+	go a.drainQueue(first)
 }
 
 // --------------------------------------------------------------------------
