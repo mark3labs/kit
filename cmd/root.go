@@ -811,7 +811,7 @@ func runNormalMode(ctx context.Context) error {
 		}
 
 		DisplayDebugConfig(cli, kitInstance, mcpConfig, parsedProvider)
-		if systemPromptLoadedMsg != "" {
+		if systemPromptLoadedMsg != "" && cli != nil {
 			cli.DisplayInfo(systemPromptLoadedMsg)
 		}
 	}
