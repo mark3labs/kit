@@ -3,6 +3,7 @@ package kit_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -306,3 +307,92 @@ func TestSessionManagement(t *testing.T) {
 // resetViper wipes viper's global state so a test case doesn't leak
 // viper.Set() calls into the next one. Used via defer in subtests.
 func resetViper() { viper.Reset() }
+
+// TestNewSystemPromptFilePath is a regression test for issue #25.
+//
+// When Options.SystemPrompt (or the --system-prompt flag / config entry) is a
+// file path, Kit must resolve the path to its file contents *before* the
+// PromptBuilder composes the runtime context. Previously the path string
+// itself was used verbatim as the base prompt, so the LLM received the path —
+// not the prompt — as its system message.
+func TestNewSystemPromptFilePath(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+	defer resetViper()
+
+	const promptContent = "You are a strict regression-test persona. Marker: KIT-25-OK"
+
+	tmpFile, err := os.CreateTemp(t.TempDir(), "kit-system-prompt-*.md")
+	if err != nil {
+		t.Fatalf("failed to create temp prompt file: %v", err)
+	}
+	if _, err := tmpFile.WriteString(promptContent); err != nil {
+		t.Fatalf("failed to write temp prompt file: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("failed to close temp prompt file: %v", err)
+	}
+
+	ctx := context.Background()
+	host, err := kit.New(ctx, &kit.Options{
+		Model:        "anthropic/claude-sonnet-4-5-20250929",
+		SystemPrompt: tmpFile.Name(),
+		Quiet:        true,
+		NoSession:    true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit with system-prompt file: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	if !host.HasCustomSystemPrompt() {
+		t.Error("HasCustomSystemPrompt() = false; want true when --system-prompt is set")
+	}
+	if got, want := host.GetSystemPromptSource(), tmpFile.Name(); got != want {
+		t.Errorf("GetSystemPromptSource() = %q; want %q", got, want)
+	}
+
+	// The composed system prompt is written back to viper after PromptBuilder
+	// runs. It must contain the file's contents, not the file path.
+	composed := viper.GetString("system-prompt")
+	if !strings.Contains(composed, promptContent) {
+		t.Errorf("composed system-prompt does not contain file contents\n  composed = %q\n  want substring = %q", composed, promptContent)
+	}
+	if strings.TrimSpace(composed) == tmpFile.Name() {
+		t.Errorf("composed system-prompt is the file path verbatim (%q); LoadSystemPrompt was not applied before PromptBuilder", composed)
+	}
+}
+
+// TestNewSystemPromptInline confirms that inline system-prompt strings still
+// flow through unchanged after the file-path resolution change.
+func TestNewSystemPromptInline(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+	defer resetViper()
+
+	const inline = "You are a concise inline-prompt persona."
+
+	ctx := context.Background()
+	host, err := kit.New(ctx, &kit.Options{
+		Model:        "anthropic/claude-sonnet-4-5-20250929",
+		SystemPrompt: inline,
+		Quiet:        true,
+		NoSession:    true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit with inline system-prompt: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	if !host.HasCustomSystemPrompt() {
+		t.Error("HasCustomSystemPrompt() = false; want true for inline prompt")
+	}
+	if got := host.GetSystemPromptSource(); got != inline {
+		t.Errorf("GetSystemPromptSource() = %q; want %q", got, inline)
+	}
+	if composed := viper.GetString("system-prompt"); !strings.Contains(composed, inline) {
+		t.Errorf("composed system-prompt missing inline content; got %q", composed)
+	}
+}

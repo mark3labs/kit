@@ -58,6 +58,9 @@ type Kit struct {
 	// When false, per-model system prompts from modelSettings/customModels
 	// can replace the default prompt on model switch.
 	hasCustomSystemPrompt bool
+	// systemPromptSource holds the raw configured value (file path or text)
+	// when hasCustomSystemPrompt is true; empty when the built-in default is in use.
+	systemPromptSource string
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -632,6 +635,21 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	return nil
 }
 
+// HasCustomSystemPrompt reports whether the user explicitly configured a system
+// prompt via --system-prompt, a config file entry, or SDK Options.SystemPrompt.
+// When false, the built-in default (or a per-model override) is in use and can
+// be replaced transparently on model switch.
+func (m *Kit) HasCustomSystemPrompt() bool {
+	return m.hasCustomSystemPrompt
+}
+
+// GetSystemPromptSource returns the raw configured value — a file path or
+// inline text — when HasCustomSystemPrompt is true; returns an empty string
+// when the built-in default prompt is active.
+func (m *Kit) GetSystemPromptSource() string {
+	return m.systemPromptSource
+}
+
 // composeSystemPrompt takes a base system prompt and composes it with the
 // current runtime context: AGENTS.md content, skills metadata, and date/cwd.
 // This mirrors the composition done during Kit.New() initialization.
@@ -1179,6 +1197,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		maxSteps              int
 		streaming             bool
 		hasCustomSystemPrompt bool
+		systemPromptSource    string
 	)
 
 	if err := func() error {
@@ -1285,13 +1304,27 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// explicitly set system-prompt, use the per-model prompt as the
 		// base instead of the global default.
 		{
-			basePrompt := viper.GetString("system-prompt")
+			rawPromptInput := viper.GetString("system-prompt")
+
+			// Resolve a file path to its content so PromptBuilder receives the
+			// actual prompt text rather than a literal path string. Without this,
+			// when system-prompt is set to a file path in the config file or via
+			// --system-prompt, the path itself becomes the effective system prompt
+			// sent to the model (LoadSystemPrompt only ran later, after viper had
+			// been overwritten with the augmented base text).
+			basePrompt, _ := config.LoadSystemPrompt(rawPromptInput)
+			if basePrompt == "" {
+				basePrompt = rawPromptInput
+			}
 
 			// Track whether the user explicitly configured a custom system
 			// prompt. When they haven't (basePrompt is the built-in default
 			// or empty), per-model system prompts can replace it on switch.
 			userSetSystemPrompt := basePrompt != "" && basePrompt != defaultSystemPrompt
 			hasCustomSystemPrompt = userSetSystemPrompt
+			if hasCustomSystemPrompt {
+				systemPromptSource = rawPromptInput
+			}
 
 			// Check for per-model system prompt override when no explicit
 			// global system-prompt was configured by the user.
@@ -1500,6 +1533,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		opts:                  opts,
 		mcpConfig:             mcpConfig,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
+		systemPromptSource:    systemPromptSource,
 		beforeToolCall:        beforeToolCall,
 		afterToolResult:       afterToolResult,
 		beforeTurn:            beforeTurn,
