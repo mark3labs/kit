@@ -78,6 +78,13 @@ type App struct {
 	// (~1 frame) so new updates are always let through once the TUI has had a
 	// chance to process the pending event.
 	widgetUpdatePending atomic.Bool
+
+	// steerDrainFn is the test seam used by releaseBusyAfterCompact to pull
+	// any steer messages that arrived during compaction. In production it is
+	// nil and the helper falls back to a.opts.Kit.DrainSteer(); tests that
+	// need to exercise the steer-drain path without standing up a full
+	// *kit.Kit can set this field directly to inject fake items.
+	steerDrainFn func() []queueItem
 }
 
 // New creates a new App with the provided options and pre-loaded messages.
@@ -503,9 +510,14 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 // fresh drainQueue goroutine to deliver them as a single batched turn.
 func (a *App) releaseBusyAfterCompact() {
 	// Pull steer messages outside the app mutex; DrainSteer takes its own
-	// internal lock and we don't want to nest the two.
+	// internal lock and we don't want to nest the two. The test seam
+	// (a.steerDrainFn) takes precedence so unit tests can inject fake
+	// steer items without a real *kit.Kit.
 	var steerItems []queueItem
-	if a.opts.Kit != nil {
+	switch {
+	case a.steerDrainFn != nil:
+		steerItems = a.steerDrainFn()
+	case a.opts.Kit != nil:
 		if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
 			steerItems = make([]queueItem, len(leftover))
 			for i, sm := range leftover {
