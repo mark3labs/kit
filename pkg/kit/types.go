@@ -78,6 +78,23 @@ type MCPServerConfig = config.MCPServerConfig
 
 // ==== Agent Types ====
 
+// DebugLogger is an SDK-owned interface for low-level debug logging from
+// the engine and MCP tool plumbing. Implementations must be safe for
+// concurrent use.
+//
+// Most consumers do not need to provide one; pass [Options.Debug] = true
+// to use the default logger. DebugLogger is exposed for the low-level
+// [AgentConfig] path and for embedders that want to route debug output
+// into their own logging system.
+type DebugLogger interface {
+	// LogDebug records a single debug message. Implementations may drop,
+	// buffer, or render the message however they choose.
+	LogDebug(message string)
+	// IsDebugEnabled reports whether debug logging is active. Callers may
+	// check this before doing expensive formatting work.
+	IsDebugEnabled() bool
+}
+
 // AgentConfig holds configuration options for constructing an agent at the
 // SDK boundary. All fields use SDK-owned types, so consumers can populate
 // this struct without importing any underlying LLM-provider package.
@@ -134,6 +151,19 @@ type AgentConfig struct {
 	// when its tools have finished loading (or failed). Called from a
 	// background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+
+	// DebugLogger receives low-level debug output from the engine and the
+	// MCP tool plumbing. Nil means no debug output is emitted at this
+	// layer (regardless of [Options.Debug], which feeds the higher-level
+	// [New] entry point). Pass an implementation here when wiring a custom
+	// logger through the lower-level AgentConfig path.
+	DebugLogger DebugLogger
+
+	// MCPTaskConfig configures task-aware MCP tools/call execution — mode
+	// overrides, polling intervals, timeouts, and the progress handler.
+	// The zero value preserves historical synchronous-only behaviour for
+	// any server that didn't advertise task support during initialize.
+	MCPTaskConfig MCPTaskConfig
 }
 
 // toInternal converts an AgentConfig to its internal representation.
@@ -161,6 +191,10 @@ func (c *AgentConfig) toInternal() *agent.AgentConfig {
 	if c.TokenStoreFactory != nil {
 		out.TokenStoreFactory = tools.TokenStoreFactory(c.TokenStoreFactory)
 	}
+	if c.DebugLogger != nil {
+		out.DebugLogger = c.DebugLogger
+	}
+	out.MCPTaskConfig = c.MCPTaskConfig.toToolsConfig()
 	return out
 }
 

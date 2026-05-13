@@ -98,6 +98,70 @@ type MCPTaskProgress struct {
 // dispatched on a goroutine.
 type MCPTaskProgressHandler func(MCPTaskProgress)
 
+// MCPTaskConfig configures task-aware MCP tools/call execution. All fields
+// are optional; the zero value disables progress callbacks and applies
+// sensible polling defaults inside the engine.
+//
+// For most consumers, the flat [Options] fields (`MCPTaskMode`,
+// `MCPTaskTTL`, `MCPTaskPollInterval`, `MCPTaskMaxPollInterval`,
+// `MCPTaskTimeout`, `MCPTaskProgress`) are the preferred entry point.
+// MCPTaskConfig is exposed for the low-level [AgentConfig] path.
+type MCPTaskConfig struct {
+	// PerServerMode overrides the per-server task mode resolved from
+	// [MCPServerConfig]. Keys are server names. Missing entries fall back
+	// to the configured value.
+	PerServerMode map[string]MCPTaskMode
+
+	// DefaultTTL is the TTL hint sent in TaskParams when augmenting a
+	// tools/call. Zero means omit the TTL — let the server pick its own.
+	DefaultTTL time.Duration
+
+	// PollInterval is the fallback interval between tasks/get requests
+	// when the server does not suggest one. Zero defaults to 1 second.
+	PollInterval time.Duration
+
+	// MaxPollInterval caps the polling interval. Zero defaults to 5 seconds.
+	MaxPollInterval time.Duration
+
+	// Timeout is the maximum wall-clock duration to wait for a task to
+	// reach a terminal state. Zero defaults to 15 minutes. Independent
+	// of the per-call context deadline; whichever fires first wins.
+	Timeout time.Duration
+
+	// Progress, if non-nil, receives every status transition observed by
+	// the polling loop.
+	Progress MCPTaskProgressHandler
+}
+
+// toToolsConfig converts the SDK-level [MCPTaskConfig] to the internal
+// tools-package representation. Keeps the dependency arrow internal-only.
+func (c MCPTaskConfig) toToolsConfig() tools.MCPTaskConfig {
+	cfg := tools.MCPTaskConfig{
+		DefaultTTL:      c.DefaultTTL,
+		PollInterval:    c.PollInterval,
+		MaxPollInterval: c.MaxPollInterval,
+		Timeout:         c.Timeout,
+	}
+	if len(c.PerServerMode) > 0 {
+		cfg.PerServerMode = make(map[string]tools.MCPTaskMode, len(c.PerServerMode))
+		for k, v := range c.PerServerMode {
+			cfg.PerServerMode[k] = tools.MCPTaskMode(v)
+		}
+	}
+	if c.Progress != nil {
+		h := c.Progress
+		cfg.Progress = func(p tools.MCPTaskProgress) {
+			h(MCPTaskProgress{
+				Server:  p.Server,
+				TaskID:  p.TaskID,
+				Status:  MCPTaskStatus(p.Status),
+				Message: p.Message,
+			})
+		}
+	}
+	return cfg
+}
+
 // mcpTaskOptions carries SDK consumer configuration into the agent setup.
 // Stored on Options as a single value so the public surface stays compact;
 // individual fields are exposed via WithMCP* builder functions.

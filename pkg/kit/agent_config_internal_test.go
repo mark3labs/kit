@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/kit/internal/agent"
 )
@@ -97,6 +98,60 @@ func TestAgentConfigToInternal(t *testing.T) {
 		}
 	})
 
+	t.Run("DebugLogger propagates", func(t *testing.T) {
+		dl := &fakeDebugLogger{enabled: true}
+		c := &AgentConfig{DebugLogger: dl}
+		got := c.toInternal()
+		if got.DebugLogger == nil {
+			t.Fatal("internal DebugLogger is nil")
+		}
+		if !got.DebugLogger.IsDebugEnabled() {
+			t.Error("IsDebugEnabled = false, want true")
+		}
+		got.DebugLogger.LogDebug("hello")
+		if len(dl.messages) != 1 || dl.messages[0] != "hello" {
+			t.Errorf("messages = %v, want [hello]", dl.messages)
+		}
+	})
+
+	t.Run("MCPTaskConfig propagates with mode + progress", func(t *testing.T) {
+		c := &AgentConfig{
+			MCPTaskConfig: MCPTaskConfig{
+				PerServerMode: map[string]MCPTaskMode{
+					"build-svr": MCPTaskModeAlways,
+				},
+				DefaultTTL:      30 * time.Second,
+				PollInterval:    250 * time.Millisecond,
+				MaxPollInterval: 2 * time.Second,
+				Timeout:         5 * time.Minute,
+				Progress:        func(_ MCPTaskProgress) {},
+			},
+		}
+		got := c.toInternal()
+		if got.MCPTaskConfig.DefaultTTL != 30*time.Second {
+			t.Errorf("DefaultTTL = %v, want 30s", got.MCPTaskConfig.DefaultTTL)
+		}
+		if got.MCPTaskConfig.PollInterval != 250*time.Millisecond {
+			t.Errorf("PollInterval = %v, want 250ms", got.MCPTaskConfig.PollInterval)
+		}
+		if got.MCPTaskConfig.MaxPollInterval != 2*time.Second {
+			t.Errorf("MaxPollInterval = %v, want 2s", got.MCPTaskConfig.MaxPollInterval)
+		}
+		if got.MCPTaskConfig.Timeout != 5*time.Minute {
+			t.Errorf("Timeout = %v, want 5m", got.MCPTaskConfig.Timeout)
+		}
+		mode, ok := got.MCPTaskConfig.PerServerMode["build-svr"]
+		if !ok {
+			t.Fatal("PerServerMode missing 'build-svr'")
+		}
+		if string(mode) != string(MCPTaskModeAlways) {
+			t.Errorf("mode = %q, want %q", mode, MCPTaskModeAlways)
+		}
+		if got.MCPTaskConfig.Progress == nil {
+			t.Fatal("internal Progress handler is nil")
+		}
+	})
+
 	t.Run("auth and token store factories are wired", func(t *testing.T) {
 		auth := &fakeAuthHandler{}
 		tokenCalls := 0
@@ -142,3 +197,12 @@ func (f *fakeAuthHandler) RedirectURI() string { return "redirect" }
 func (f *fakeAuthHandler) HandleAuth(_ context.Context, _ string, _ string) (string, error) {
 	return "", nil
 }
+
+// fakeDebugLogger implements kit.DebugLogger for tests.
+type fakeDebugLogger struct {
+	enabled  bool
+	messages []string
+}
+
+func (f *fakeDebugLogger) LogDebug(m string)    { f.messages = append(f.messages, m) }
+func (f *fakeDebugLogger) IsDebugEnabled() bool { return f.enabled }
