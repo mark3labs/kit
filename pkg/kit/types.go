@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/tools"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -75,25 +76,117 @@ type Config = config.Config
 // local (stdio) and remote (StreamableHTTP/SSE) server types.
 type MCPServerConfig = config.MCPServerConfig
 
-// ==== Agent Types (internal/agent/) ====
+// ==== Agent Types ====
 
-// AgentConfig holds configuration options for creating a new Agent.
-type AgentConfig = agent.AgentConfig
+// AgentConfig holds configuration options for constructing an agent at the
+// SDK boundary. All fields use SDK-owned types, so consumers can populate
+// this struct without importing any underlying LLM-provider package.
+//
+// For most use cases, prefer the high-level [New] entry point with
+// [Options]. AgentConfig is exposed for advanced consumers that need
+// direct access to the lower-level agent configuration shape.
+type AgentConfig struct {
+	// ModelConfig holds the LLM provider configuration. A nil value means
+	// that the default provider/model resolution will be used.
+	ModelConfig *ProviderConfig
 
-type (
-	// ToolCallHandler is a function type for handling tool calls as they happen.
-	ToolCallHandler = agent.ToolCallHandler
-	// ToolExecutionHandler is a function type for handling tool execution start/end events.
-	ToolExecutionHandler = agent.ToolExecutionHandler
-	// ToolResultHandler is a function type for handling tool results.
-	ToolResultHandler = agent.ToolResultHandler
-	// ResponseHandler is a function type for handling LLM responses.
-	ResponseHandler = agent.ResponseHandler
-	// StreamingResponseHandler is a function type for handling streaming LLM responses.
-	StreamingResponseHandler = agent.StreamingResponseHandler
-	// ToolCallContentHandler is a function type for handling content that accompanies tool calls.
-	ToolCallContentHandler = agent.ToolCallContentHandler
-)
+	// MCPConfig describes any MCP servers whose tools should be loaded
+	// alongside core tools.
+	MCPConfig *Config
+
+	// SystemPrompt is the system prompt sent to the LLM.
+	SystemPrompt string
+
+	// MaxSteps caps the number of LLM iterations per turn. A value of
+	// zero means no cap is applied at this layer.
+	MaxSteps int
+
+	// StreamingEnabled controls whether the agent streams responses.
+	StreamingEnabled bool
+
+	// AuthHandler handles OAuth authorization for remote MCP servers.
+	// When nil, remote MCP servers requiring OAuth will fail to connect.
+	AuthHandler MCPAuthHandler
+
+	// TokenStoreFactory, if non-nil, creates a custom token store for each
+	// remote MCP server's OAuth tokens. When nil, the default file-based
+	// token store is used.
+	TokenStoreFactory MCPTokenStoreFactory
+
+	// CoreTools overrides the default core tool set. If empty, [AllTools]
+	// is used. Provide a custom tool set (e.g. [CodingTools] or tools
+	// built with a custom WorkDir) to scope agent capabilities.
+	CoreTools []Tool
+
+	// DisableCoreTools, when true, prevents loading any core tools.
+	// Combined with empty CoreTools this yields a chat-only agent with
+	// no built-in tools.
+	DisableCoreTools bool
+
+	// ExtraTools are additional tools loaded alongside core and MCP tools.
+	ExtraTools []Tool
+
+	// ToolWrapper, if non-nil, wraps the combined tool list before it is
+	// handed to the LLM. Used to intercept tool calls or results.
+	ToolWrapper func([]Tool) []Tool
+
+	// OnMCPServerLoaded, if non-nil, is invoked once for each MCP server
+	// when its tools have finished loading (or failed). Called from a
+	// background goroutine.
+	OnMCPServerLoaded func(serverName string, toolCount int, err error)
+}
+
+// toInternal converts an AgentConfig to its internal representation.
+// Slice and function fields convert without allocation because [Tool]
+// is a type alias for the underlying LLM-tool type.
+func (c *AgentConfig) toInternal() *agent.AgentConfig {
+	if c == nil {
+		return nil
+	}
+	out := &agent.AgentConfig{
+		ModelConfig:       c.ModelConfig,
+		MCPConfig:         c.MCPConfig,
+		SystemPrompt:      c.SystemPrompt,
+		MaxSteps:          c.MaxSteps,
+		StreamingEnabled:  c.StreamingEnabled,
+		CoreTools:         c.CoreTools,
+		DisableCoreTools:  c.DisableCoreTools,
+		ExtraTools:        c.ExtraTools,
+		ToolWrapper:       c.ToolWrapper,
+		OnMCPServerLoaded: c.OnMCPServerLoaded,
+	}
+	if c.AuthHandler != nil {
+		out.AuthHandler = c.AuthHandler
+	}
+	if c.TokenStoreFactory != nil {
+		out.TokenStoreFactory = tools.TokenStoreFactory(c.TokenStoreFactory)
+	}
+	return out
+}
+
+// ToolCallHandler is invoked when the LLM produces a tool call. It receives
+// the call ID, tool name, and the JSON-encoded input arguments.
+type ToolCallHandler func(toolCallID, toolName, toolArgs string)
+
+// ToolExecutionHandler is invoked at the start and end of tool execution.
+// The isStarting flag distinguishes the two phases.
+type ToolExecutionHandler func(toolCallID, toolName, toolArgs string, isStarting bool)
+
+// ToolResultHandler is invoked after a tool finishes executing. The metadata
+// parameter carries optional structured data (e.g. file-diff info) from the
+// tool execution, JSON-encoded; it may be empty.
+type ToolResultHandler func(toolCallID, toolName, toolArgs, result, metadata string, isError bool)
+
+// ResponseHandler is invoked with the final assistant text for each turn.
+type ResponseHandler func(content string)
+
+// StreamingResponseHandler is invoked with each streamed text delta as it
+// arrives from the LLM.
+type StreamingResponseHandler func(content string)
+
+// ToolCallContentHandler is invoked with any assistant text that accompanies
+// a tool call within the same step.
+type ToolCallContentHandler func(content string)
 
 // ==== Provider & Model Types (internal/models/) ====
 
@@ -126,7 +219,7 @@ type ModelsRegistry = models.ModelsRegistry
 
 // SpinnerFunc wraps a function in a loading spinner animation. Used for
 // Ollama model loading. Signature: func(fn func() error) error.
-type SpinnerFunc = agent.SpinnerFunc
+type SpinnerFunc func(fn func() error) error
 
 // ==== LLM Types ====
 //

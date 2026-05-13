@@ -1,6 +1,7 @@
 package kit_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -261,6 +262,101 @@ func TestConvertFromLLMMessage(t *testing.T) {
 	if msg.Content() != "the answer is 4" {
 		t.Errorf("converted Content() = %q, want %q", msg.Content(), "the answer is 4")
 	}
+}
+
+// TestAgentConfigNoFantasyImport verifies AgentConfig can be populated with
+// every field — including CoreTools, ExtraTools, and ToolWrapper — using
+// only SDK-owned types. This test deliberately does not import
+// "charm.land/fantasy"; the package compiling at all is the proof that the
+// SDK no longer leaks the dependency name through AgentConfig.
+//
+// Regression test for https://github.com/mark3labs/kit/issues/30.
+func TestAgentConfigNoFantasyImport(t *testing.T) {
+	myTool := kit.NewTool[struct{}]("noop", "does nothing", func(_ context.Context, _ struct{}) (kit.ToolOutput, error) {
+		return kit.TextResult("ok"), nil
+	})
+
+	wrapperCalled := false
+	cfg := kit.AgentConfig{
+		SystemPrompt:     "you are a tester",
+		MaxSteps:         5,
+		StreamingEnabled: true,
+		CoreTools:        []kit.Tool{myTool},
+		ExtraTools:       []kit.Tool{myTool},
+		DisableCoreTools: false,
+		ToolWrapper: func(in []kit.Tool) []kit.Tool {
+			wrapperCalled = true
+			return in
+		},
+		OnMCPServerLoaded: func(_ string, _ int, _ error) {},
+	}
+
+	if cfg.SystemPrompt != "you are a tester" {
+		t.Errorf("SystemPrompt = %q, want %q", cfg.SystemPrompt, "you are a tester")
+	}
+	if cfg.MaxSteps != 5 {
+		t.Errorf("MaxSteps = %d, want 5", cfg.MaxSteps)
+	}
+	if !cfg.StreamingEnabled {
+		t.Error("StreamingEnabled = false, want true")
+	}
+	if len(cfg.CoreTools) != 1 {
+		t.Errorf("CoreTools len = %d, want 1", len(cfg.CoreTools))
+	}
+	if len(cfg.ExtraTools) != 1 {
+		t.Errorf("ExtraTools len = %d, want 1", len(cfg.ExtraTools))
+	}
+
+	// Exercise the wrapper to confirm the func type is usable.
+	out := cfg.ToolWrapper(cfg.CoreTools)
+	if !wrapperCalled {
+		t.Error("ToolWrapper was not invoked")
+	}
+	if len(out) != 1 {
+		t.Errorf("wrapped tool list len = %d, want 1", len(out))
+	}
+}
+
+// TestAgentConfigToolWrapperSignature documents that AgentConfig.ToolWrapper
+// uses kit.Tool (not the underlying provider type) in its signature.
+func TestAgentConfigToolWrapperSignature(t *testing.T) {
+	//nolint:staticcheck // QF1011: explicit type asserts the SDK-side func signature.
+	var _ func([]kit.Tool) []kit.Tool = func(in []kit.Tool) []kit.Tool { return in }
+	cfg := kit.AgentConfig{
+		ToolWrapper: func(in []kit.Tool) []kit.Tool { return in },
+	}
+	if cfg.ToolWrapper == nil {
+		t.Fatal("ToolWrapper assignment failed")
+	}
+}
+
+// TestSpinnerFuncSignature verifies SpinnerFunc has the documented signature
+// and can be constructed without importing any provider package.
+func TestSpinnerFuncSignature(t *testing.T) {
+	called := false
+	var sp kit.SpinnerFunc = func(fn func() error) error {
+		called = true
+		return fn()
+	}
+	err := sp(func() error { return nil })
+	if err != nil {
+		t.Errorf("SpinnerFunc returned err: %v", err)
+	}
+	if !called {
+		t.Error("SpinnerFunc did not invoke fn")
+	}
+}
+
+// TestHandlerTypesSignatures verifies the SDK-owned handler function types
+// can be assigned from plain function literals using only standard library
+// types in their signatures (no provider-package import required).
+func TestHandlerTypesSignatures(t *testing.T) {
+	var _ kit.ToolCallHandler = func(_, _, _ string) {}
+	var _ kit.ToolExecutionHandler = func(_, _, _ string, _ bool) {}
+	var _ kit.ToolResultHandler = func(_, _, _, _, _ string, _ bool) {}
+	var _ kit.ResponseHandler = func(_ string) {}
+	var _ kit.StreamingResponseHandler = func(_ string) {}
+	var _ kit.ToolCallContentHandler = func(_ string) {}
 }
 
 // containsStr is a tiny helper to avoid importing strings in test.

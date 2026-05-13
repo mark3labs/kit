@@ -1489,7 +1489,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 
 	if opts.CLI != nil {
 		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
-		setupOpts.SpinnerFunc = opts.CLI.SpinnerFunc
+		setupOpts.SpinnerFunc = agent.SpinnerFunc(opts.CLI.SpinnerFunc)
 		setupOpts.UseBufferedLogger = opts.CLI.UseBufferedLogger
 		if opts.CLI.ProgressReaderFunc != nil {
 			providerConfig.ProgressReaderFunc = opts.CLI.ProgressReaderFunc
