@@ -129,9 +129,10 @@ type AppController interface {
 // SkillItem holds display metadata about a loaded skill for the startup
 // [Skills] section. Built by the CLI layer from the SDK's []*kit.Skill.
 type SkillItem struct {
-	Name   string // Skill name (e.g. "btca-cli").
-	Path   string // Absolute path to the skill file.
-	Source string // "project" or "user" (global).
+	Name        string // Skill name (e.g. "btca-cli").
+	Path        string // Absolute path to the skill file.
+	Source      string // "project" or "user" (global).
+	Description string // Short summary used in autocomplete and help.
 }
 
 // MCPPromptInfo describes an MCP prompt for display in the TUI (autocomplete,
@@ -908,6 +909,20 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 				Description: tpl.Description,
 				Category:    "Prompts",
 				HasArgs:     tpl.HasArgPlaceholders(),
+			})
+		}
+	}
+
+	// Merge skills into autocomplete as /skill:<name> commands. Skills accept
+	// optional trailing args, so HasArgs is true — Enter populates the input
+	// with "/skill:name " rather than auto-submitting.
+	if ic, ok := m.input.(*InputComponent); ok && len(opts.SkillItems) > 0 {
+		for _, s := range opts.SkillItems {
+			ic.commands = append(ic.commands, commands.SlashCommand{
+				Name:        "/skill:" + s.Name,
+				Description: formatSkillDescription(s),
+				Category:    "Skills",
+				HasArgs:     true,
 			})
 		}
 	}
@@ -3395,13 +3410,46 @@ func (m *AppModel) refreshPromptTemplates() {
 	}
 }
 
-// refreshSkillItems reloads skill items from the provider callback.
-// Called on ContentReloadEvent.
+// refreshSkillItems reloads skill items from the provider callback and
+// updates the autocomplete entries. Called on ContentReloadEvent.
 func (m *AppModel) refreshSkillItems() {
 	if m.getSkillItems == nil {
 		return
 	}
-	m.skillItems = m.getSkillItems()
+	newItems := m.getSkillItems()
+	m.skillItems = newItems
+
+	if ic, ok := m.input.(*InputComponent); ok {
+		// Remove old Skills commands and add fresh ones.
+		var kept []commands.SlashCommand
+		for _, sc := range ic.commands {
+			if sc.Category != "Skills" {
+				kept = append(kept, sc)
+			}
+		}
+		for _, s := range newItems {
+			kept = append(kept, commands.SlashCommand{
+				Name:        "/skill:" + s.Name,
+				Description: formatSkillDescription(s),
+				Category:    "Skills",
+				HasArgs:     true,
+			})
+		}
+		ic.commands = kept
+	}
+}
+
+// formatSkillDescription returns the autocomplete description for a skill,
+// prefixed with [project] or [user] so users can tell colliding names apart.
+func formatSkillDescription(s SkillItem) string {
+	prefix := "[user]"
+	if s.Source == "project" {
+		prefix = "[project]"
+	}
+	if s.Description == "" {
+		return prefix
+	}
+	return prefix + " " + s.Description
 }
 
 // refreshMCPPrompts reloads MCP prompts from the provider callback and

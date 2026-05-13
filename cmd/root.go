@@ -935,9 +935,10 @@ func runNormalMode(ctx context.Context) error {
 			source = "project"
 		}
 		skillItems = append(skillItems, ui.SkillItem{
-			Name:   s.Name,
-			Path:   s.Path,
-			Source: source,
+			Name:        s.Name,
+			Path:        s.Path,
+			Source:      source,
+			Description: s.Description,
 		})
 	}
 
@@ -976,9 +977,10 @@ func runNormalMode(ctx context.Context) error {
 				source = "project"
 			}
 			items = append(items, ui.SkillItem{
-				Name:   s.Name,
-				Path:   s.Path,
-				Source: source,
+				Name:        s.Name,
+				Path:        s.Path,
+				Source:      source,
+				Description: s.Description,
 			})
 		}
 		return items
