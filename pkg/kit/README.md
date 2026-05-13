@@ -243,7 +243,7 @@ host.ClearSession()
 
 ## Re-exported Types
 
-The SDK re-exports types so you don't need direct internal imports:
+The SDK re-exports message/session/MCP types so you don't need direct internal imports. Agent-configuration types are Kit-owned (not aliases) and use only SDK types in their signatures, so consumers never need to import the underlying LLM-provider package.
 
 ```go
 // Message types
@@ -251,12 +251,27 @@ kit.Message, kit.MessageRole, kit.ContentPart
 kit.TextContent, kit.ReasoningContent, kit.ToolCall, kit.ToolResult, kit.Finish
 kit.RoleUser, kit.RoleAssistant, kit.RoleTool, kit.RoleSystem
 
-// LLM types — concrete Kit-owned structs, no external library dependency
+// LLM types — Kit-owned `LLM*` aliases over the underlying provider types,
+// so consumers never import the provider package directly
 kit.LLMMessage      // {Role LLMMessageRole, Content string}
 kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
 kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ...}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+
+// Agent configuration — concrete Kit-owned structs and function types.
+// All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct
+// these without importing any LLM-provider package.
+kit.AgentConfig              // Lower-level agent config — prefer Options unless you need direct control
+kit.DebugLogger              // Interface: LogDebug(string) / IsDebugEnabled() bool
+kit.MCPTaskConfig            // Task-aware MCP tools/call config (modes, polling, progress)
+kit.ToolCallHandler          // func(toolCallID, toolName, toolArgs string)
+kit.ToolExecutionHandler     // func(toolCallID, toolName, toolArgs string, isStarting bool)
+kit.ToolResultHandler        // func(toolCallID, toolName, toolArgs, result, metadata string, isError bool)
+kit.ResponseHandler          // func(content string)
+kit.StreamingResponseHandler // func(content string)
+kit.ToolCallContentHandler   // func(content string)
+kit.SpinnerFunc              // func(fn func() error) error
 
 // MCP OAuth types
 kit.MCPServer            // *server.MCPServer for in-process MCP transport
