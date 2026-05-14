@@ -129,25 +129,34 @@ func TestCompactionWithNewMessagesAfterCompaction(t *testing.T) {
 	msg4 := message.Message{Role: message.RoleAssistant, Parts: []message.ContentPart{message.TextContent{Text: "Message 4 - after compaction"}}}
 	_, _ = tm.AppendMessage(msg4)
 
-	// BuildContext should return: [summary] + [M4 (new after compaction)] + [M3 (kept)]
+	// BuildContext should return: [summary] + [M3 (kept)] + [M4 (new after compaction)]
+	// Kept messages must appear BEFORE post-compaction messages so the LLM
+	// sees the conversation in chronological order. Otherwise the latest
+	// post-compaction user message would be followed by an older kept user
+	// message, breaking user/assistant alternation and causing the model to
+	// respond as if the post-compaction turn never happened.
 	messages, _, _ := tm.BuildContext()
 	if len(messages) != 3 {
-		t.Fatalf("expected 3 messages (summary + M4 + M3), got %d: %+v", len(messages), messages)
+		t.Fatalf("expected 3 messages (summary + M3 + M4), got %d: %+v", len(messages), messages)
 	}
 
-	// Verify order: summary, M4 (new), M3 (kept)
+	// Verify order: summary, M3 (kept), M4 (new)
 	if messages[0].Role != fantasy.MessageRoleSystem {
 		t.Errorf("first message should be summary, got %s", messages[0].Role)
 	}
-	if messages[1].Role != fantasy.MessageRoleAssistant {
-		t.Errorf("second message should be assistant (M4), got %s", messages[1].Role)
+	if messages[1].Role != fantasy.MessageRoleUser {
+		t.Errorf("second message should be user (M3 kept), got %s", messages[1].Role)
 	}
-	m4Text := messages[1].Content[0].(fantasy.TextPart).Text
+	m3Text := messages[1].Content[0].(fantasy.TextPart).Text
+	if m3Text != "Message 3 - kept" {
+		t.Errorf("unexpected M3 text: %s", m3Text)
+	}
+	if messages[2].Role != fantasy.MessageRoleAssistant {
+		t.Errorf("third message should be assistant (M4 post-compact), got %s", messages[2].Role)
+	}
+	m4Text := messages[2].Content[0].(fantasy.TextPart).Text
 	if m4Text != "Message 4 - after compaction" {
 		t.Errorf("unexpected M4 text: %s", m4Text)
-	}
-	if messages[2].Role != fantasy.MessageRoleUser {
-		t.Errorf("third message should be user (M3), got %s", messages[2].Role)
 	}
 
 	// Verify that M1 is NOT in the context

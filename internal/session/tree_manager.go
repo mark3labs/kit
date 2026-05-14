@@ -755,9 +755,17 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 		}
 	}
 
-	// If there is a compaction, inject the summary first and collect
-	// the kept messages starting from FirstKeptEntryID (since the
-	// compaction entry's parent chain doesn't include them).
+	// If there is a compaction, inject the summary first, then the
+	// preserved "kept" messages (chronologically before the compaction),
+	// then the post-compaction messages (chronologically after).
+	//
+	// Order matters: the kept messages must come BEFORE the post-compaction
+	// branch so the LLM sees the conversation in chronological order. If the
+	// kept messages were appended last, the latest user message in the
+	// current branch would be followed by an older kept user message,
+	// breaking the strict user/assistant alternation that providers expect
+	// and causing the model to respond as if the previous turn never
+	// happened.
 	if lastCompaction != nil {
 		messages = append(messages, fantasy.Message{
 			Role: fantasy.MessageRoleSystem,
@@ -768,49 +776,10 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 			},
 		})
 
-		// Collect entries from the compaction entry itself (at compactionIndex)
-		// and any entries before it in the branch (newer messages).
-		for i := compactionIndex; i < len(branch); i++ {
-			entry := branch[i]
-			switch e := entry.(type) {
-			case *MessageEntry:
-				msg, err := e.ToMessage()
-				if err != nil {
-					continue // skip malformed entries
-				}
-				msgs := msg.ToLLMMessages()
-				messages = append(messages, msgs...)
-
-			case *BranchSummaryEntry:
-				// Convert branch summary to a user message for context.
-				if e.Summary != "" {
-					messages = append(messages, fantasy.Message{
-						Role: fantasy.MessageRoleUser,
-						Content: []fantasy.MessagePart{
-							fantasy.TextPart{
-								Text: fmt.Sprintf("[Branch context: %s]", e.Summary),
-							},
-						},
-					})
-				}
-
-			case *ModelChangeEntry:
-				provider = e.Provider
-				modelID = e.ModelID
-
-			case *CompactionEntry:
-				// Already handled above (summary injected).
-				continue
-			}
-		}
-
-		// Now collect the kept messages starting from FirstKeptEntryID.
-		// These are not in the current branch because the compaction entry
-		// is parented to the first kept entry's parent, not the first kept entry.
-		// We iterate through entries in order (not using getBranchLocked) to avoid
-		// walking back to old compacted messages.
-		// We stop when we reach the compaction entry to avoid double-counting
-		// messages that were added after the compaction.
+		// Step 1: collect the kept messages starting from FirstKeptEntryID.
+		// These are not on the current branch (the compaction entry is a
+		// new root with no parent), so we iterate tm.entries in append order
+		// and stop when we reach the compaction entry itself.
 		if lastCompaction.FirstKeptEntryID != "" {
 			found := false
 			for _, entry := range tm.entries {
@@ -825,13 +794,12 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 					}
 				}
 
-				// Stop when we reach the compaction entry itself.
-				// Messages after the compaction are collected from the branch walk above.
+				// Stop when we reach the compaction entry itself; messages
+				// after it are collected from the branch walk below.
 				if entryID == lastCompaction.ID {
 					break
 				}
 
-				// Process this kept entry.
 				switch e := entry.(type) {
 				case *MessageEntry:
 					msg, err := e.ToMessage()
@@ -857,6 +825,42 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 					provider = e.Provider
 					modelID = e.ModelID
 				}
+			}
+		}
+
+		// Step 2: collect entries on the current branch after the compaction
+		// entry (these are post-compaction messages). The compaction entry
+		// itself is skipped — its summary was already injected above.
+		for i := compactionIndex; i < len(branch); i++ {
+			entry := branch[i]
+			switch e := entry.(type) {
+			case *MessageEntry:
+				msg, err := e.ToMessage()
+				if err != nil {
+					continue
+				}
+				msgs := msg.ToLLMMessages()
+				messages = append(messages, msgs...)
+
+			case *BranchSummaryEntry:
+				if e.Summary != "" {
+					messages = append(messages, fantasy.Message{
+						Role: fantasy.MessageRoleUser,
+						Content: []fantasy.MessagePart{
+							fantasy.TextPart{
+								Text: fmt.Sprintf("[Branch context: %s]", e.Summary),
+							},
+						},
+					})
+				}
+
+			case *ModelChangeEntry:
+				provider = e.Provider
+				modelID = e.ModelID
+
+			case *CompactionEntry:
+				// Summary already injected above.
+				continue
 			}
 		}
 
@@ -1030,44 +1034,22 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 
 	var ids []string
 
-	// If there's a compaction, we need to collect IDs from:
-	// 1. Entries after the compaction entry in the branch (newer messages)
-	// 2. Entries from FirstKeptEntryID onwards (kept messages)
+	// If there's a compaction, we collect IDs in the same order as
+	// BuildContext: [summary placeholder, kept messages, post-compaction
+	// messages]. This ordering must stay in sync with BuildContext so a
+	// cut-point index can be mapped back to the correct entry ID.
 	if lastCompaction != nil {
 		// Placeholder for the summary system message (no entry ID).
 		ids = append(ids, "")
 
-		// Collect IDs from entries after the compaction entry (newer messages).
-		for i := compactionIndex + 1; i < len(branch); i++ {
-			entry := branch[i]
-			switch e := entry.(type) {
-			case *MessageEntry:
-				msg, err := e.ToMessage()
-				if err != nil {
-					continue
-				}
-				msgs := msg.ToLLMMessages()
-				for range msgs {
-					ids = append(ids, e.ID)
-				}
-
-			case *BranchSummaryEntry:
-				if e.Summary != "" {
-					ids = append(ids, e.ID)
-				}
-			}
-		}
-
-		// Collect IDs from the kept messages starting at FirstKeptEntryID.
-		// We iterate through entries in order (not using getBranchLocked) to avoid
-		// walking back to old compacted messages.
-		// We stop when we reach the compaction entry to avoid double-counting.
+		// Step 1: IDs of the kept messages starting at FirstKeptEntryID.
+		// Iterate tm.entries in append order and stop at the compaction
+		// entry to avoid double-counting post-compaction messages.
 		if lastCompaction.FirstKeptEntryID != "" {
 			found := false
 			for _, entry := range tm.entries {
 				entryID := tm.EntryID(entry)
 
-				// Skip entries until we reach the first kept entry.
 				if !found {
 					if entryID == lastCompaction.FirstKeptEntryID {
 						found = true
@@ -1076,7 +1058,6 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 					}
 				}
 
-				// Stop when we reach the compaction entry itself.
 				if entryID == lastCompaction.ID {
 					break
 				}
@@ -1096,6 +1077,28 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 					if e.Summary != "" {
 						ids = append(ids, e.ID)
 					}
+				}
+			}
+		}
+
+		// Step 2: IDs of entries after the compaction entry on the current
+		// branch (post-compaction messages).
+		for i := compactionIndex + 1; i < len(branch); i++ {
+			entry := branch[i]
+			switch e := entry.(type) {
+			case *MessageEntry:
+				msg, err := e.ToMessage()
+				if err != nil {
+					continue
+				}
+				msgs := msg.ToLLMMessages()
+				for range msgs {
+					ids = append(ids, e.ID)
+				}
+
+			case *BranchSummaryEntry:
+				if e.Summary != "" {
+					ids = append(ids, e.ID)
 				}
 			}
 		}
