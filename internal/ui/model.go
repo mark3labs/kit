@@ -1266,7 +1266,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollList.autoScroll = false
 		case tea.MouseWheelDown:
 			m.scrollList.ScrollBy(scrollLines)
-			if m.scrollList.AtBottom() {
+			// Only re-enable auto-scroll when the user is not actively
+			// selecting text. Otherwise a wheel-down during a drag-select
+			// would re-arm GotoBottom on the next stream chunk, shifting
+			// the highlighted row out from under the cursor.
+			if m.scrollList.AtBottom() && !m.scrollList.IsMouseDown() {
 				m.scrollList.autoScroll = true
 			}
 		}
@@ -1274,9 +1278,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Mouse click selection (crush-style character-level) ──────────────────
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			// Calculate viewport-relative coordinates.
-			viewY := msg.Y - m.scrollbackYOffset
-			if viewY >= 0 && viewY < m.scrollList.height {
+			// Compute the scrollback origin from the current frame's layout
+			// rather than the stale cached value from the previous View().
+			// scrollbackYOffset/scrollList.height are only refreshed inside
+			// View() and lag behind any state change that resized the header
+			// (extension widgets, warning rows, etc.) since the last render.
+			yOff, vpHeight := m.currentScrollbackBounds()
+			viewY := msg.Y - yOff
+			if viewY >= 0 && viewY < vpHeight {
 				// Clear any previous selection on a new click.
 				// HandleMouseDown will set up new selection state.
 				if m.scrollList.HandleMouseDown(msg.X, viewY) {
@@ -1287,8 +1296,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Mouse motion/drag for character-level selection ──────────────────────
 	case tea.MouseMotionMsg:
-		viewY := msg.Y - m.scrollbackYOffset
-		if viewY >= 0 && viewY < m.scrollList.height {
+		yOff, vpHeight := m.currentScrollbackBounds()
+		viewY := msg.Y - yOff
+		if viewY >= 0 && viewY < vpHeight {
 			m.scrollList.HandleMouseDrag(msg.X, viewY)
 		}
 
@@ -1618,10 +1628,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Cancel timer expired ─────────────────────────────────────────────────
 	case uicore.CancelTimerExpiredMsg:
+		if m.canceling {
+			m.layoutDirty = true
+		}
 		m.canceling = false
 
 	// ── Ctrl+C reset timer expired ────────────────────────────────────────────
 	case uicore.CtrlCResetMsg:
+		if m.ctrlCPressedOnce {
+			m.layoutDirty = true
+		}
 		m.ctrlCPressedOnce = false
 
 	// ── Input submitted ──────────────────────────────────────────────────────
@@ -3763,7 +3779,12 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 		}
 		// Auto-scroll to bottom if enabled (iteratr pattern)
 		// Don't call SetItems() - the slice reference hasn't changed
-		if m.scrollList != nil {
+		//
+		// CRITICAL: never scroll the viewport while the user is actively
+		// selecting text (mouse button held). Doing so shifts the
+		// highlighted content out from under the cursor and produces the
+		// off-by-N-row drift users see when copy-selecting during streaming.
+		if m.scrollList != nil && !m.scrollList.IsMouseDown() {
 			if m.scrollList.autoScroll {
 				m.scrollList.GotoBottom()
 			} else if m.scrollList.AtBottom() {
@@ -3789,6 +3810,36 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 
 	// Refresh ScrollList and scroll to bottom
 	m.refreshContent()
+}
+
+// currentScrollbackBounds returns the live (yOffset, viewportHeight) for the
+// scrollback region, computed from the current state — not from the cached
+// values populated inside View().
+//
+// scrollbackYOffset and scrollList.height are refreshed once per render, so
+// any state change that resizes the header (extension widget toggles,
+// warning rows, queued messages, etc.) leaves the cached values one frame
+// stale. Mouse click handlers in Update() can then place the cursor on the
+// wrong line, producing the off-by-N-row drift seen during copy-selection.
+//
+// This recomputes the header height by rendering it (cheap — the renderer
+// returns "" when no extension header is set) and recomputes the viewport
+// height the same way distributeHeight() does, so both inputs to the
+// y → (item, line) mapping are always current.
+func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
+	// Force a fresh layout if anything in Update() marked the state dirty;
+	// otherwise scrollList.height still reflects the previous frame.
+	if m.layoutDirty {
+		m.distributeHeight()
+		m.layoutDirty = false
+	}
+	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+		yOffset = lipgloss.Height(headerView)
+	}
+	if m.scrollList != nil {
+		viewportHeight = m.scrollList.height
+	}
+	return yOffset, viewportHeight
 }
 
 // distributeHeight recalculates child component heights after a window resize,
@@ -3863,7 +3914,20 @@ func (m *AppModel) distributeHeight() {
 		headerFooterLines += lipgloss.Height(footerView)
 	}
 
-	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-inputLines-statusBarLines, 0)
+	// Account for transient warning rows that View() injects between the
+	// scrollback and the separator. These flags are toggled by ESC/Ctrl+C
+	// handlers; without subtracting them here the joined view exceeds
+	// m.height by one line per active warning and the bottom of the screen
+	// gets silently clipped — which in turn invalidates scrollbackYOffset.
+	var warningLines int
+	if m.canceling {
+		warningLines++
+	}
+	if m.ctrlCPressedOnce {
+		warningLines++
+	}
+
+	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-inputLines-statusBarLines-warningLines, 0)
 
 	// In alt screen mode, give the calculated height to ScrollList instead of stream.
 	// The stream component still exists but is embedded as the last item in scrollList.

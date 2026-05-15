@@ -60,10 +60,13 @@ func NewScrollList(width, height int) *ScrollList {
 }
 
 // SetItems replaces the items in the scroll list. If auto-scroll is enabled,
-// the viewport will scroll to the bottom to show the latest content.
+// the viewport will scroll to the bottom to show the latest content — EXCEPT
+// when the user is actively selecting text (mouse button held), in which case
+// the scroll position is locked so the highlighted content stays under the
+// cursor. The pending bottom-scroll is deferred to MouseUp.
 func (s *ScrollList) SetItems(items []MessageItem) {
 	s.items = items
-	if s.autoScroll {
+	if s.autoScroll && !s.sel.MouseDown {
 		s.GotoBottom()
 	}
 }
@@ -157,6 +160,10 @@ func (s *ScrollList) HandleMouseDown(x, y int) bool {
 // HandleMouseDrag handles mouse motion while button is held.
 // Updates the selection endpoint for character-level precision.
 // Returns true if selection was updated.
+//
+// Defensively disables auto-scroll on every drag update — even if the
+// MouseDown handler missed (e.g. click landed in viewport padding), any
+// active drag means the user is selecting and the viewport must not jump.
 func (s *ScrollList) HandleMouseDrag(x, y int) bool {
 	if !s.sel.MouseDown {
 		return false
@@ -171,11 +178,21 @@ func (s *ScrollList) HandleMouseDrag(x, y int) bool {
 		return false
 	}
 
+	// Hard-lock the viewport while dragging.
+	s.autoScroll = false
+
 	s.sel.DragItemIdx = itemIdx
 	s.sel.DragLineIdx = lineIdx
 	s.sel.DragCol = x
 
 	return true
+}
+
+// IsMouseDown reports whether the user currently has the mouse button held
+// (i.e. a selection drag is in progress). Used by the parent model to avoid
+// re-enabling auto-scroll during streaming while the user is selecting.
+func (s *ScrollList) IsMouseDown() bool {
+	return s.sel.MouseDown
 }
 
 // HandleMouseUp handles mouse button release.
