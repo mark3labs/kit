@@ -434,6 +434,36 @@ func extensionCommandsForUI(k *kit.Kit) []commands.ExtensionCommand {
 	return cmds
 }
 
+// buildExtensionItems converts the loaded extensions into ui.ExtensionItem
+// values for the startup [Extensions] section. The display name is the file
+// basename without the .go suffix; for subdirectory extensions the parent
+// directory name is used (matching `kit extensions list`).
+func buildExtensionItems(k *kit.Kit, cwd string) []ui.ExtensionItem {
+	infos := k.Extensions().Loaded()
+	if len(infos) == 0 {
+		return nil
+	}
+	items := make([]ui.ExtensionItem, 0, len(infos))
+	for _, info := range infos {
+		name := filepath.Base(info.Path)
+		if name == "main.go" {
+			// Subdirectory extension: use the parent directory's name.
+			name = filepath.Base(filepath.Dir(info.Path))
+		}
+		name = strings.TrimSuffix(name, ".go")
+		source := "user"
+		if cwd != "" && strings.HasPrefix(info.Path, cwd) {
+			source = "project"
+		}
+		items = append(items, ui.ExtensionItem{
+			Name:   name,
+			Path:   info.Path,
+			Source: source,
+		})
+	}
+	return items
+}
+
 // widgetProviderForUI returns a function that converts extension widgets to
 // ui.WidgetData for the given placement. Returns nil if extensions are
 // disabled, which is safe — the UI treats a nil GetWidgets as "no widgets".
@@ -942,6 +972,10 @@ func runNormalMode(ctx context.Context) error {
 		})
 	}
 
+	// Build extension items from the loaded extensions for the [Extensions]
+	// startup section. Each entry is a single .go file (or a subdir's main.go).
+	extensionItems := buildExtensionItems(kitInstance, cwd)
+
 	// Build prompt template and skill item provider callbacks for hot-reload.
 	// These are called by the TUI when ContentReloadEvent fires.
 	getPromptTemplates := func() []*prompts.PromptTemplate {
@@ -984,6 +1018,13 @@ func runNormalMode(ctx context.Context) error {
 			})
 		}
 		return items
+	}
+
+	// getExtensionItems re-collects the loaded extension list, used by the
+	// TUI after an extension hot-reload to refresh the [Extensions] row.
+	getExtensionItems := func() []ui.ExtensionItem {
+		cwd, _ := os.Getwd()
+		return buildExtensionItems(kitInstance, cwd)
 	}
 
 	// Build extension UI providers once (shared between both modes).
@@ -1222,7 +1263,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Check if running in non-interactive mode
 	if positionalPrompt != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, positionalPrompt, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getPromptTemplates, getSkillItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI)
+		return runNonInteractiveModeApp(ctx, appInstance, cli, positionalPrompt, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -1230,7 +1271,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet requires a prompt")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getPromptTemplates, getSkillItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI, startupExtensionMessages)
+	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI, startupExtensionMessages)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -1243,7 +1284,7 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error) error {
+func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, extensionItems []ui.ExtensionItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getExtensionItems func() []ui.ExtensionItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error) error {
 	// Expand @file references in the prompt before sending to the agent.
 	// Text files are XML-inlined; binary files are extracted as multimodal parts.
 	var fileParts []kit.LLMFilePart
@@ -1304,7 +1345,7 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, getPromptTemplates, getSkillItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModel, emitModelChange, isReasoningModel, thinkingLevel, setThinkingLevel, switchSession, reloadExtensions, nil)
+		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModel, emitModelChange, isReasoningModel, thinkingLevel, setThinkingLevel, switchSession, reloadExtensions, nil)
 	}
 
 	return nil
@@ -1402,7 +1443,7 @@ func writeJSONError(err error) {
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error, startupExtensionMessages []string) error {
+func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, extensionItems []ui.ExtensionItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getExtensionItems func() []ui.ExtensionItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error, startupExtensionMessages []string) error {
 	// Redirect all log output (stdlib and charm) to a file so that log
 	// messages don't write to stderr and corrupt the TUI. Bubble Tea
 	// captures stdout for rendering; any stray stderr output from
@@ -1447,6 +1488,8 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 		ContextPaths:             contextPaths,
 		SkillItems:               skillItems,
 		GetSkillItems:            getSkillItems,
+		ExtensionItems:           extensionItems,
+		GetExtensionItems:        getExtensionItems,
 		StartupExtensionMessages: startupExtensionMessages,
 		GetWidgets:               getWidgets,
 		GetHeader:                getHeader,

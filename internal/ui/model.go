@@ -135,6 +135,15 @@ type SkillItem struct {
 	Description string // Short summary used in autocomplete and help.
 }
 
+// ExtensionItem holds display metadata about a loaded extension for the
+// startup [Extensions] section. Built by the CLI layer from the SDK's
+// []kit.ExtensionInfo.
+type ExtensionItem struct {
+	Name   string // Extension display name (filename without .go extension).
+	Path   string // Absolute path to the extension's .go file.
+	Source string // "project" or "user" (global).
+}
+
 // MCPPromptInfo describes an MCP prompt for display in the TUI (autocomplete,
 // help). This is a pure UI type — it carries no MCP client dependencies.
 type MCPPromptInfo struct {
@@ -363,6 +372,16 @@ type AppModelOptions struct {
 	// Called on ContentReloadEvent to refresh the skill list after a file
 	// watcher detects changes. May be nil if skill hot-reload is not needed.
 	GetSkillItems func() []SkillItem
+
+	// ExtensionItems lists loaded extensions for the [Extensions] startup
+	// section. Each entry shows the filename of an extension that was
+	// discovered and loaded (global, project-local, or explicit).
+	ExtensionItems []ExtensionItem
+
+	// GetExtensionItems, if non-nil, returns the current extension items.
+	// Called on extension hot-reload to refresh the list. May be nil if no
+	// extensions are loaded.
+	GetExtensionItems func() []ExtensionItem
 
 	// MCPToolCount is the number of tools loaded from external MCP servers.
 	MCPToolCount int
@@ -607,6 +626,14 @@ type AppModel struct {
 	// getSkillItems returns the current skill items. Used to refresh the
 	// skill list after content hot-reload. May be nil.
 	getSkillItems func() []SkillItem
+
+	// extensionItems lists loaded extensions for the [Extensions] startup
+	// section (filenames only).
+	extensionItems []ExtensionItem
+
+	// getExtensionItems returns the current extension items. Used to refresh
+	// the list after extension hot-reload. May be nil.
+	getExtensionItems func() []ExtensionItem
 
 	// mcpToolCount and extensionToolCount track tool counts by source for
 	// the startup info display.
@@ -861,6 +888,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.contextPaths = opts.ContextPaths
 	m.skillItems = opts.SkillItems
 	m.getSkillItems = opts.GetSkillItems
+	m.extensionItems = opts.ExtensionItems
+	m.getExtensionItems = opts.GetExtensionItems
 	m.mcpToolCount = opts.MCPToolCount
 	m.extensionToolCount = opts.ExtensionToolCount
 	m.startupExtensionMessages = opts.StartupExtensionMessages
@@ -1029,8 +1058,21 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
 	}
 
-	// Extension tool count (only shown when > 0).
-	if m.extensionToolCount > 0 {
+	// Extensions — listed by filename. Each extension shows its basename
+	// without the .go suffix, matching the [Skills] section's style.
+	if len(m.extensionItems) > 0 {
+		names := make([]string, len(m.extensionItems))
+		for i, ei := range m.extensionItems {
+			names[i] = ei.Name
+		}
+		value := strings.Join(names, ", ")
+		if m.extensionToolCount > 0 {
+			value += fmt.Sprintf(" (%d tools)", m.extensionToolCount)
+		}
+		pairs = append(pairs, [2]string{"Extensions", value})
+	} else if m.extensionToolCount > 0 {
+		// Fallback: tool count only (extensions registered tools but the CLI
+		// did not provide ExtensionItems for some reason).
 		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
 	}
 
@@ -2359,6 +2401,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
 		} else {
+			m.refreshExtensionItems()
 			m.printSystemMessage("Extensions reloaded.")
 		}
 
@@ -3455,6 +3498,16 @@ func (m *AppModel) refreshSkillItems() {
 		}
 		ic.commands = kept
 	}
+}
+
+// refreshExtensionItems reloads extension items from the provider callback
+// so the [Extensions] startup section reflects the current set after a
+// hot-reload. Called from the extReloadResultMsg handler.
+func (m *AppModel) refreshExtensionItems() {
+	if m.getExtensionItems == nil {
+		return
+	}
+	m.extensionItems = m.getExtensionItems()
 }
 
 // formatSkillDescription returns the autocomplete description for a skill,

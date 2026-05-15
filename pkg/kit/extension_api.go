@@ -76,6 +76,22 @@ type ExtensionAPI interface {
 	// Lifecycle
 	Reload() error
 	HasExtensions() bool
+
+	// Loaded returns metadata about the extensions currently loaded.
+	Loaded() []ExtensionInfo
+}
+
+// ExtensionInfo describes a single loaded extension for display purposes
+// (e.g. the startup banner or `kit extensions list`).
+type ExtensionInfo struct {
+	// Path is the absolute path of the extension's .go file.
+	Path string
+	// ToolCount is the number of tools registered by the extension.
+	ToolCount int
+	// CommandCount is the number of slash commands registered.
+	CommandCount int
+	// HandlerCount is the total number of event handlers registered.
+	HandlerCount int
 }
 
 // extensionAPI implements ExtensionAPI by wrapping a Kit instance.
@@ -455,4 +471,28 @@ func (e *extensionAPI) Reload() error {
 
 func (e *extensionAPI) HasExtensions() bool {
 	return e.kit.extRunner != nil
+}
+
+func (e *extensionAPI) Loaded() []ExtensionInfo {
+	if e.kit.extRunner == nil {
+		return nil
+	}
+	exts := e.kit.extRunner.Extensions()
+	if len(exts) == 0 {
+		return nil
+	}
+	infos := make([]ExtensionInfo, 0, len(exts))
+	for _, ex := range exts {
+		handlerCount := 0
+		for _, hs := range ex.Handlers {
+			handlerCount += len(hs)
+		}
+		infos = append(infos, ExtensionInfo{
+			Path:         ex.Path,
+			ToolCount:    len(ex.Tools),
+			CommandCount: len(ex.Commands),
+			HandlerCount: handlerCount,
+		})
+	}
+	return infos
 }
