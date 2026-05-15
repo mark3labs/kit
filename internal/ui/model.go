@@ -3110,6 +3110,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleResumeCommand()
 	case "/export":
 		return m.handleExportCommand(args)
+	case "/copy":
+		return m.handleCopyCommand()
 	case "/share":
 		return m.handleShareCommand()
 	case "/import":
@@ -3524,6 +3526,7 @@ func (m *AppModel) printHelpMessage() {
 		"**System:**\n" +
 		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
 		"- `/clear`: Clear message history\n" +
+		"- `/copy`: Copy the last message to the system clipboard\n" +
 		"- `/export [path]`: Export session as JSONL\n" +
 		"- `/import <path.jsonl>`: Import session from JSONL file\n" +
 		"- `/reset-usage`: Reset usage statistics\n" +
@@ -4282,6 +4285,48 @@ func (m *AppModel) handleNameCommand(args string) tea.Cmd {
 	}
 	m.printSystemMessage(fmt.Sprintf("Session named %q", args))
 	return nil
+}
+
+// handleCopyCommand copies the last user or assistant message to the system
+// clipboard. Skips transient system messages (e.g. /help output) so the user
+// gets the actual last conversational message.
+func (m *AppModel) handleCopyCommand() tea.Cmd {
+	if len(m.messages) == 0 {
+		m.printSystemMessage("No messages to copy.")
+		return nil
+	}
+
+	var (
+		text string
+		role string
+	)
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		switch msg := m.messages[i].(type) {
+		case *TextMessageItem:
+			if msg.role == "user" || msg.role == "assistant" {
+				text = msg.content
+				role = msg.role
+			}
+		case *StreamingMessageItem:
+			if msg.role == "assistant" || msg.role == "reasoning" {
+				text = msg.content.String()
+				role = msg.role
+			}
+		}
+		if text != "" {
+			break
+		}
+	}
+
+	if strings.TrimSpace(text) == "" {
+		m.printSystemMessage("No copyable message found.")
+		return nil
+	}
+
+	m.printSystemMessage(fmt.Sprintf(
+		"Copied last %s message to clipboard (%d chars).", role, len(text),
+	))
+	return clipboard.CopyToClipboard(text)
 }
 
 // handleExportCommand exports the current session to a file.

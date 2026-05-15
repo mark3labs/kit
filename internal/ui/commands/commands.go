@@ -162,6 +162,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/r"},
 	},
 	{
+		Name:        "/copy",
+		Description: "Copy the last message to the system clipboard",
+		Category:    "System",
+		Aliases:     []string{"/cp"},
+	},
+	{
 		Name:        "/export",
 		Description: "Export session (JSONL by default, or /export path.jsonl)",
 		Category:    "System",
