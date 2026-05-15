@@ -36,15 +36,17 @@ type Diagnostic struct {
 }
 
 // LoadAll discovers and loads all prompt templates from standard locations
-// and any extra paths. Templates are loaded in order of precedence (lowest
-// to highest), with later templates overriding earlier ones of the same name.
+// and any extra paths. Templates are loaded in order of precedence (highest
+// to lowest); the first source to define a given name wins, later definitions
+// of the same name are dropped with a diagnostic.
 //
 // Discovery paths searched in order:
 //  1. Default templates (if IncludeDefaults)
-//  2. ~/.kit/prompts/ (global user templates)
-//  3. .kit/prompts/ (project-local templates)
-//  4. ConfigPaths (from configuration)
-//  5. ExtraPaths (explicit paths, highest precedence)
+//  2. ~/.kit/prompts/                          (legacy global)
+//  3. $XDG_CONFIG_HOME/kit/prompts/            (XDG global, default ~/.config/kit/prompts/)
+//  4. <cwd>/.kit/prompts/                      (project-local templates)
+//  5. ConfigPaths                              (from configuration)
+//  6. ExtraPaths                               (explicit paths, lowest precedence)
 func LoadAll(opts LoadOptions) ([]*PromptTemplate, []Diagnostic, error) {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
@@ -88,13 +90,21 @@ func LoadAll(opts LoadOptions) ([]*PromptTemplate, []Diagnostic, error) {
 		addTemplates(defaults, "default")
 	}
 
-	// 2. Global user templates: ~/.kit/prompts/
-	globalDir := filepath.Join(opts.HomeDir, ".kit", "prompts")
-	if templates, err := LoadFromDir(globalDir); err == nil {
+	// 2. Legacy global user templates: ~/.kit/prompts/
+	legacyGlobalDir := filepath.Join(opts.HomeDir, ".kit", "prompts")
+	if templates, err := LoadFromDir(legacyGlobalDir); err == nil {
 		addTemplates(templates, "global")
 	}
 
-	// 3. Project-local templates: .kit/prompts/
+	// 3. XDG global user templates: $XDG_CONFIG_HOME/kit/prompts/
+	//    Default: ~/.config/kit/prompts/. Aligns with extensions and skills.
+	if xdgDir := GlobalDir(); xdgDir != "" && xdgDir != legacyGlobalDir {
+		if templates, err := LoadFromDir(xdgDir); err == nil {
+			addTemplates(templates, "global")
+		}
+	}
+
+	// 4. Project-local templates: .kit/prompts/
 	localDir := filepath.Join(opts.Cwd, ".kit", "prompts")
 	if templates, err := LoadFromDir(localDir); err == nil {
 		addTemplates(templates, "local")
@@ -185,4 +195,23 @@ func loadDefaultTemplates() []*PromptTemplate {
 	// Default templates can be added here as needed
 	// For now, return an empty slice - users can define their own templates
 	return nil
+}
+
+// GlobalDir returns the XDG-aligned global prompts directory, respecting
+// $XDG_CONFIG_HOME. Defaults to ~/.config/kit/prompts/. Returns an empty
+// string if the user's home directory cannot be resolved.
+//
+// This is the canonical location for user-wide prompt templates and aligns
+// with the discovery paths used for extensions ($XDG_CONFIG_HOME/kit/extensions/)
+// and skills ($XDG_CONFIG_HOME/kit/skills/).
+func GlobalDir() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "kit", "prompts")
 }

@@ -1206,7 +1206,10 @@ func runNormalMode(ctx context.Context) error {
 		extWatcher, watchErr := extensions.NewWatcher(watchDirs, func() {
 			if err := reloadExtensionsForUI(); err != nil {
 				log.Printf("auto-reload extensions failed: %v", err)
+				appInstance.PrintFromExtension("error", fmt.Sprintf("Extension auto-reload failed: %v", err))
+				return
 			}
+			appInstance.PrintFromExtension("info", "Extensions reloaded.")
 		})
 		if watchErr != nil {
 			log.Printf("extension file watcher not started: %v", watchErr)
@@ -1225,6 +1228,7 @@ func runNormalMode(ctx context.Context) error {
 		promptDirs := watcher.CollectDirs(
 			[]string{
 				filepath.Join(homeDir, ".kit", "prompts"),
+				prompts.GlobalDir(),
 				filepath.Join(cwd, ".kit", "prompts"),
 			},
 			append(promptTemplatePaths, viper.GetStringSlice("prompts")...),

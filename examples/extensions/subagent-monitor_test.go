@@ -13,7 +13,7 @@ import (
 // without panicking and properly guards nil ctx calls.
 func TestSubagentMonitor_SessionStart(t *testing.T) {
 	harness := test.New(t)
-	harness.LoadFile("../../.kit/extensions/subagent-monitor.go")
+	harness.LoadFile("./subagent-monitor.go")
 
 	// Emit SessionStart - should not panic even with nil ctx functions
 	_, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test-session"})
@@ -26,7 +26,7 @@ func TestSubagentMonitor_SessionStart(t *testing.T) {
 // creates entries and emits widget updates.
 func TestSubagentMonitor_SubagentLifecycle(t *testing.T) {
 	harness := test.New(t)
-	harness.LoadFile("../../.kit/extensions/subagent-monitor.go")
+	harness.LoadFile("./subagent-monitor.go")
 
 	// Start session
 	_, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test-session"})
@@ -84,7 +84,7 @@ func TestSubagentMonitor_SubagentLifecycle(t *testing.T) {
 // TestSubagentMonitor_MultipleSubagents verifies multiple parallel subagents.
 func TestSubagentMonitor_MultipleSubagents(t *testing.T) {
 	harness := test.New(t)
-	harness.LoadFile("../../.kit/extensions/subagent-monitor.go")
+	harness.LoadFile("./subagent-monitor.go")
 
 	_, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test-session"})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestSubagentMonitor_MultipleSubagents(t *testing.T) {
 // subagents emit events concurrently from different goroutines.
 func TestSubagentMonitor_ConcurrentSubagents(t *testing.T) {
 	harness := test.New(t)
-	harness.LoadFile("../../.kit/extensions/subagent-monitor.go")
+	harness.LoadFile("./subagent-monitor.go")
 
 	_, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test-session"})
 	if err != nil {
@@ -186,7 +186,7 @@ func TestSubagentMonitor_ConcurrentSubagents(t *testing.T) {
 // even with nil ctx functions.
 func TestSubagentMonitor_SessionShutdown(t *testing.T) {
 	harness := test.New(t)
-	harness.LoadFile("../../.kit/extensions/subagent-monitor.go")
+	harness.LoadFile("./subagent-monitor.go")
 
 	// Start then shutdown
 	_, err := harness.Emit(extensions.SessionStartEvent{SessionID: "test-session"})
