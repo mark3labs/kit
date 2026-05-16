@@ -130,3 +130,52 @@ func TestScrollList_SetItemsRespectsMouseDown(t *testing.T) {
 		}
 	}
 }
+
+// TestScrollList_EmptyItemsDoNotShiftMouseMapping is the regression test
+// for the second drift bug: items that render to "" must contribute the
+// same number of rows in View() (zero) as in renderedHeight(), or mouse
+// hit-testing drifts by one row per empty item between offsetIdx and the
+// cursor. This was surfaced by extension widgets (e.g. subagent-monitor)
+// that shrink the scrollback so empty streaming-reasoning items end up
+// in the visible window.
+//
+// Setup: 1 normal item + 1 empty item + 1 normal item. Click on the line
+// where the third item begins. With the bug, getItemAndLineAtY skips the
+// empty item (renderedHeight=0) and reports lineIdx pointing one row
+// past where View() actually painted that line.
+func TestScrollList_EmptyItemsDoNotShiftMouseMapping(t *testing.T) {
+	sl := NewScrollList(80, 10)
+	sl.SetItems([]MessageItem{
+		&fakeItem{id: "a", lines: 2},     // viewY 0–1
+		&fakeItem{id: "empty", lines: 0}, // renders "" — contributes 0 rows
+		&fakeItem{id: "b", lines: 2},     // viewY 2–3
+	})
+
+	// Render the viewport once so the cache reflects what View() actually
+	// emits (this is the path that previously diverged from renderedHeight
+	// for empty items).
+	rendered := sl.View()
+	lines := strings.Split(rendered, "\n")
+
+	// Sanity: View() must emit exactly height lines.
+	if len(lines) != 10 {
+		t.Fatalf("View() returned %d lines, want 10", len(lines))
+	}
+	// Item b's first line should appear at viewY=2, NOT viewY=3.
+	if !strings.Contains(lines[2], "b-line-0") {
+		t.Errorf("viewY=2 should render b-line-0 (empty item contributes 0 rows), got %q", lines[2])
+	}
+
+	// Now the actual hit-test contract: clicking on viewY=2 must map to
+	// item b line 0 — the same coordinate View() rendered there.
+	idx, line := sl.getItemAndLineAtY(2)
+	if idx != 2 || line != 0 {
+		t.Errorf("getItemAndLineAtY(2) = (%d,%d), want (2,0)", idx, line)
+	}
+
+	// And clicking on the second line of b (viewY=3) must map to b line 1.
+	idx, line = sl.getItemAndLineAtY(3)
+	if idx != 2 || line != 1 {
+		t.Errorf("getItemAndLineAtY(3) = (%d,%d), want (2,1)", idx, line)
+	}
+}

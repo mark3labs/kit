@@ -538,6 +538,21 @@ func (s *ScrollList) View() string {
 		for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
 			item := s.items[idx]
 			content := item.Render(s.width)
+
+			// Items that render to an empty string contribute zero height to
+			// the viewport. This MUST match renderedHeight()'s semantics —
+			// otherwise getItemAndLineAtY (which uses renderedHeight) treats
+			// the item as 0 lines while View() emits one blank line via
+			// strings.Split("", "\n") = [""], producing a 1-row downward
+			// drift in mouse hit-testing per empty item between offsetIdx
+			// and the cursor (most visibly streaming-reasoning items before
+			// any reasoning has streamed, which extension widgets surface by
+			// shrinking the scrollback).
+			if content == "" {
+				s.heightCache[item.ID()] = 0
+				continue
+			}
+
 			contentLines := strings.Split(content, "\n")
 
 			// Refresh height cache from the actual render (authoritative).

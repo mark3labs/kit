@@ -357,6 +357,54 @@ func TestHighlightLine_NoSelection(t *testing.T) {
 	}
 }
 
+// TestHighlightLine_EndOfLineSentinel verifies that endCol=-1 is interpreted
+// as "highlight from startCol to end of line", matching the sentinel
+// returned by IsLineInRange for the first line of a multi-line selection.
+//
+// Regression: without this contract, the start line of any multi-line drag
+// would silently fall through HighlightLine's startCol >= endCol guard and
+// render unstyled, making the selection appear to begin one row below the
+// cursor — the exact "tracking gets shifted" symptom users reported when
+// extension widgets shrank the scrollback enough that the click landed on a
+// styled tool-result block.
+func TestHighlightLine_EndOfLineSentinel(t *testing.T) {
+	line := "Hello, World!"
+	result := HighlightLine(line, 0, -1)
+	if result == line {
+		t.Errorf("endCol=-1 should highlight from startCol to end of line; got unchanged input")
+	}
+	if len(result) <= len(line) {
+		t.Errorf("highlighted result should be longer than plain input (ANSI codes added); got len=%d want > %d", len(result), len(line))
+	}
+}
+
+// TestExtractText_EndOfLineSentinel mirrors TestHighlightLine_EndOfLineSentinel
+// for the extraction path used by the clipboard copy.
+func TestExtractText_EndOfLineSentinel(t *testing.T) {
+	line := "Hello, World!"
+	got := ExtractText(line, 7, -1)
+	want := "World!"
+	if got != want {
+		t.Errorf("ExtractText(line, 7, -1) = %q, want %q", got, want)
+	}
+}
+
+// TestIsLineInRange_StartLineSentinelHighlights composes IsLineInRange with
+// HighlightLine end-to-end: the start line of a multi-line, single-item
+// selection must actually emit highlight ANSI codes. This is the contract
+// the rendering path in scrolllist.View() relies on.
+func TestIsLineInRange_StartLineSentinelHighlights(t *testing.T) {
+	r := Range{StartItemIdx: 5, EndItemIdx: 5, StartLine: 0, EndLine: 2, StartCol: 0, EndCol: 10}
+	inRange, sc, ec := IsLineInRange(r, 5, 0)
+	if !inRange {
+		t.Fatalf("item 5 line 0 should be in range")
+	}
+	highlighted := HighlightLine("first line of selection", sc, ec)
+	if highlighted == "first line of selection" {
+		t.Errorf("first line of multi-line selection was not highlighted (sc=%d ec=%d)", sc, ec)
+	}
+}
+
 // TestMultiClickDetection verifies the click counting logic.
 func TestMultiClickDetection(t *testing.T) {
 	s := NewState()

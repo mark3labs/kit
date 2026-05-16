@@ -230,8 +230,10 @@ func FindWordBoundaries(line string, col int) (startCol, endCol int) {
 
 // HighlightLine applies reverse-video highlighting to a portion of a rendered
 // line (which may contain ANSI escape codes). startCol/endCol are in display
-// columns. If startCol == -1, the entire line is highlighted. If startCol ==
-// endCol, returns the line unchanged.
+// columns. If startCol == -1, the entire line is highlighted. If endCol ==
+// -1, the highlight runs from startCol to the end of the line (the sentinel
+// returned by IsLineInRange for the first line of a multi-line selection).
+// If startCol == endCol, returns the line unchanged.
 //
 // Uses ultraviolet ScreenBuffer for cell-level ANSI manipulation.
 func HighlightLine(line string, startCol, endCol int) string {
@@ -247,6 +249,16 @@ func HighlightLine(line string, startCol, endCol int) string {
 	// Full-line highlight.
 	if startCol == -1 {
 		startCol = 0
+		endCol = lineWidth
+	}
+
+	// "From startCol to end of line" sentinel (returned by IsLineInRange
+	// for the first line of a multi-line selection). Without this branch,
+	// the start line of a multi-line drag would never be highlighted —
+	// the user perceives this as the selection being shifted one row down
+	// from the cursor, especially when extension widgets shrink the
+	// scrollback and make the start line land on a tall styled block.
+	if endCol < 0 {
 		endCol = lineWidth
 	}
 
@@ -293,6 +305,11 @@ func ExtractText(line string, startCol, endCol int) string {
 	// Full-line extraction.
 	if startCol == -1 {
 		startCol = 0
+		endCol = lineWidth
+	}
+
+	// "From startCol to end of line" sentinel (see HighlightLine).
+	if endCol < 0 {
 		endCol = lineWidth
 	}
 
