@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -97,6 +99,11 @@ func ListAllSessions() ([]SessionInfo, error) {
 
 // listSessionsInDir reads all .jsonl files in a directory and extracts session info.
 // Empty sessions (no messages) are automatically cleaned up and not returned.
+//
+// Per-file extraction is parallelized across a small worker pool because each
+// file requires a full JSONL scan to compute MessageCount and FirstMessage —
+// for users with many sessions this is the dominant cost of opening the
+// session picker.
 func listSessionsInDir(dir string) ([]SessionInfo, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, nil
@@ -107,20 +114,47 @@ func listSessionsInDir(dir string) ([]SessionInfo, error) {
 		return nil, fmt.Errorf("failed to read directory %s: %w", dir, err)
 	}
 
-	var sessions []SessionInfo
+	// Collect candidate paths first so we can parallelize the heavy work.
+	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
 			continue
 		}
+		paths = append(paths, filepath.Join(dir, entry.Name()))
+	}
 
-		path := filepath.Join(dir, entry.Name())
-		info, err := extractSessionInfo(path)
-		if err != nil {
-			continue // skip malformed session files
+	results := make([]*SessionInfo, len(paths))
+
+	// Worker pool sized to GOMAXPROCS, capped to avoid thrashing for tiny lists.
+	workers := max(min(runtime.GOMAXPROCS(0), len(paths)), 1)
+
+	var wg sync.WaitGroup
+	jobs := make(chan int, len(paths))
+	for range workers {
+		wg.Go(func() {
+			for i := range jobs {
+				info, err := extractSessionInfo(paths[i])
+				if err != nil {
+					continue // skip malformed session files
+				}
+				results[i] = info
+			}
+		})
+	}
+	for i := range paths {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	sessions := make([]SessionInfo, 0, len(results))
+	for i, info := range results {
+		if info == nil {
+			continue
 		}
-		// Clean up and skip empty sessions (no messages)
+		// Clean up and skip empty sessions (no messages).
 		if info.MessageCount == 0 {
-			_ = os.Remove(path)
+			_ = os.Remove(paths[i])
 			continue
 		}
 		sessions = append(sessions, *info)
