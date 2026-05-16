@@ -70,14 +70,17 @@ type App struct {
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 
-	// widgetUpdatePending is set to true when a WidgetUpdateEvent has been
-	// sent to the TUI but not yet consumed by its event loop. While the flag
-	// is set, subsequent NotifyWidgetUpdate calls are coalesced (dropped) to
-	// prevent fast extension tickers from flooding the BubbleTea mailbox with
-	// redundant re-render triggers. The flag is cleared after a short debounce
-	// (~1 frame) so new updates are always let through once the TUI has had a
-	// chance to process the pending event.
-	widgetUpdatePending atomic.Bool
+	// widgetUpdatePending is set to true while a WidgetUpdateEvent burst is
+	// being coalesced. The leading edge fires immediately; subsequent calls
+	// within the debounce window set widgetUpdateTrailing so a final event
+	// is delivered with the latest runner state at the end of the window.
+	// Without the trailing send, a rapid SetWidget→RemoveWidget pair (e.g.
+	// SubagentEnd pushing a final frame then removing the widget) would let
+	// the second call get silently dropped, leaving the TUI's layout stuck
+	// on the pre-removal widget height — visible as empty rows below the
+	// status bar after the widget disappears.
+	widgetUpdatePending  atomic.Bool
+	widgetUpdateTrailing atomic.Bool
 
 	// steerDrainFn is the test seam used by releaseBusyAfterCompact to pull
 	// any steer messages that arrived during compaction. In production it is
@@ -1157,32 +1160,47 @@ func (a *App) NotifyModelChanged(provider, model string) {
 // extension widgets. Called from the extension context's SetWidget/RemoveWidget
 // closures. In non-interactive mode this is a no-op (widgets are TUI-only).
 //
-// Coalescing: if a WidgetUpdateEvent is already queued and not yet consumed
-// by the TUI event loop, additional calls within the same ~16 ms window are
-// dropped. This prevents fast extension tickers from flooding BubbleTea's
-// mailbox with redundant re-render triggers.
+// Coalescing (leading + trailing edge): the first call in an idle period
+// fires immediately for responsiveness. Subsequent calls within a ~16 ms
+// debounce window are batched into a single trailing event delivered at
+// the end of the window. The trailing send is essential for correctness:
+// extensions routinely make tight SetWidget→RemoveWidget pairs (e.g. on
+// SubagentEnd) and silently dropping the second call would leave the TUI's
+// layout stuck on stale widget dimensions until some other event happens
+// to trigger a re-render.
 func (a *App) NotifyWidgetUpdate() {
-	// Coalesce: only one pending update at a time.
 	if !a.widgetUpdatePending.CompareAndSwap(false, true) {
+		// A leading-edge event is already in flight — mark that the runner
+		// state has changed again so the trailing send below picks it up.
+		a.widgetUpdateTrailing.Store(true)
 		return
 	}
 	a.mu.Lock()
 	prog := a.program
 	a.mu.Unlock()
-	if prog != nil {
-		prog.Send(WidgetUpdateEvent{})
-		// Reset the pending flag after a short debounce so subsequent calls
-		// within the same render cycle are also coalesced, but new updates
-		// after the cycle are allowed through.
-		go func() {
-			time.Sleep(16 * time.Millisecond) // ~1 frame at 60 fps
-			a.widgetUpdatePending.Store(false)
-		}()
-	} else {
+	if prog == nil {
 		// No program registered (non-interactive mode); clear the flag so
 		// future calls are never permanently blocked.
 		a.widgetUpdatePending.Store(false)
+		return
 	}
+	prog.Send(WidgetUpdateEvent{})
+	go func() {
+		time.Sleep(16 * time.Millisecond) // ~1 frame at 60 fps
+		// If any extra calls came in during the debounce window, deliver
+		// one trailing event so the TUI sees the latest widget state. We
+		// swap-and-test instead of plain-load so concurrent calls after
+		// the trailing send still race correctly with the pending reset.
+		if a.widgetUpdateTrailing.Swap(false) {
+			a.mu.Lock()
+			p := a.program
+			a.mu.Unlock()
+			if p != nil {
+				p.Send(WidgetUpdateEvent{})
+			}
+		}
+		a.widgetUpdatePending.Store(false)
+	}()
 }
 
 // NotifyContentReload sends a ContentReloadEvent to the TUI so it refreshes
