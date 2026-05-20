@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
@@ -585,8 +586,13 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 	// This avoids type conflicts with provider-level options.
 	history = applyCacheControlToMessages(history)
 
-	// Track current tool call args for callbacks
-	var currentToolArgs string
+	// Track tool call args per-ToolCallID so parallel tool calls in a single
+	// step don't clobber each other. Without this, OnToolResult callbacks would
+	// all see the args of the last OnToolCall in the step. The mutex guards
+	// against the possibility that the underlying streaming layer dispatches
+	// callbacks from multiple goroutines.
+	toolCallArgs := make(map[string]string)
+	var toolCallArgsMu sync.Mutex
 
 	// Use the streaming path when streaming is enabled OR when any callbacks are
 	// provided. The agent only exposes tool/step callbacks on AgentStreamCall, so
@@ -773,7 +779,9 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				currentToolArgs = tc.Input
+				toolCallArgsMu.Lock()
+				toolCallArgs[tc.ToolCallID] = tc.Input
+				toolCallArgsMu.Unlock()
 
 				// Notify about the tool call
 				if cb.OnToolCall != nil {
@@ -793,15 +801,22 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				// Look up the args recorded for this specific tool call. Delete
+				// the entry so the map doesn't accumulate across steps.
+				toolCallArgsMu.Lock()
+				args := toolCallArgs[tr.ToolCallID]
+				delete(toolCallArgs, tr.ToolCallID)
+				toolCallArgsMu.Unlock()
+
 				// Notify tool execution finished
 				if cb.OnToolExecution != nil {
-					cb.OnToolExecution(tr.ToolCallID, tr.ToolName, currentToolArgs, false)
+					cb.OnToolExecution(tr.ToolCallID, tr.ToolName, args, false)
 				}
 
 				if cb.OnToolResult != nil {
 					// Extract result text and error status
 					resultText, isError := extractToolResultText(tr)
-					cb.OnToolResult(tr.ToolCallID, tr.ToolName, currentToolArgs, resultText, tr.ClientMetadata, isError)
+					cb.OnToolResult(tr.ToolCallID, tr.ToolName, args, resultText, tr.ClientMetadata, isError)
 				}
 
 				return nil
