@@ -54,83 +54,51 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	// Subscribe to SDK events and forward to extension runner so extensions
 	// see lifecycle events from the SDK's runTurn()/generate() path.
 
-	if runner.HasHandlers(extensions.AgentStart) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(TurnStartEvent); ok {
-				_, _ = runner.Emit(extensions.AgentStartEvent{Prompt: ev.Prompt})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.AgentStart, func(ev TurnStartEvent) extensions.Event {
+		return extensions.AgentStartEvent{Prompt: ev.Prompt}
+	})
 
-	if runner.HasHandlers(extensions.MessageStart) {
-		m.Subscribe(func(e Event) {
-			if _, ok := e.(MessageStartEvent); ok {
-				_, _ = runner.Emit(extensions.MessageStartEvent{})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.MessageStart, func(_ MessageStartEvent) extensions.Event {
+		return extensions.MessageStartEvent{}
+	})
 
-	if runner.HasHandlers(extensions.MessageUpdate) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(MessageUpdateEvent); ok {
-				_, _ = runner.Emit(extensions.MessageUpdateEvent{Chunk: ev.Chunk})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.MessageUpdate, func(ev MessageUpdateEvent) extensions.Event {
+		return extensions.MessageUpdateEvent{Chunk: ev.Chunk}
+	})
 
-	if runner.HasHandlers(extensions.MessageEnd) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(MessageEndEvent); ok {
-				_, _ = runner.Emit(extensions.MessageEndEvent{Content: ev.Content})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.MessageEnd, func(ev MessageEndEvent) extensions.Event {
+		return extensions.MessageEndEvent{Content: ev.Content}
+	})
 
 	// Tool output streaming events (observation only).
-	if runner.HasHandlers(extensions.ToolOutput) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ToolOutputEvent); ok {
-				_, _ = runner.Emit(extensions.ToolOutputEvent{
-					ToolCallID: ev.ToolCallID,
-					ToolName:   ev.ToolName,
-					Chunk:      ev.Chunk,
-					IsStderr:   ev.IsStderr,
-				})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.ToolOutput, func(ev ToolOutputEvent) extensions.Event {
+		return extensions.ToolOutputEvent{
+			ToolCallID: ev.ToolCallID,
+			ToolName:   ev.ToolName,
+			Chunk:      ev.Chunk,
+			IsStderr:   ev.IsStderr,
+		}
+	})
 
 	// Tool call input streaming events — fire as the LLM generates tool arguments.
-	if runner.HasHandlers(extensions.ToolCallInputStart) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ToolCallStartEvent); ok {
-				_, _ = runner.Emit(extensions.ToolCallInputStartEvent{
-					ToolCallID: ev.ToolCallID,
-					ToolName:   ev.ToolName,
-					ToolKind:   ev.ToolKind,
-				})
-			}
-		})
-	}
-	if runner.HasHandlers(extensions.ToolCallInputDelta) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ToolCallDeltaEvent); ok {
-				_, _ = runner.Emit(extensions.ToolCallInputDeltaEvent{
-					ToolCallID: ev.ToolCallID,
-					Delta:      ev.Delta,
-				})
-			}
-		})
-	}
-	if runner.HasHandlers(extensions.ToolCallInputEnd) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ToolCallEndEvent); ok {
-				_, _ = runner.Emit(extensions.ToolCallInputEndEvent{
-					ToolCallID: ev.ToolCallID,
-				})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.ToolCallInputStart, func(ev ToolCallStartEvent) extensions.Event {
+		return extensions.ToolCallInputStartEvent{
+			ToolCallID: ev.ToolCallID,
+			ToolName:   ev.ToolName,
+			ToolKind:   ev.ToolKind,
+		}
+	})
+	bridgeObserve(m, runner, extensions.ToolCallInputDelta, func(ev ToolCallDeltaEvent) extensions.Event {
+		return extensions.ToolCallInputDeltaEvent{
+			ToolCallID: ev.ToolCallID,
+			Delta:      ev.Delta,
+		}
+	})
+	bridgeObserve(m, runner, extensions.ToolCallInputEnd, func(ev ToolCallEndEvent) extensions.Event {
+		return extensions.ToolCallInputEndEvent{
+			ToolCallID: ev.ToolCallID,
+		}
+	})
 
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
@@ -278,54 +246,13 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	// Extension ContextPrepare → SDK ContextPrepare hook.
 	if runner.HasHandlers(extensions.ContextPrepare) {
 		m.OnContextPrepare(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
-			// Convert LLM message slice to extension ContextMessage slice.
-			// Extract plain text from each message for the extension API.
-			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
-			for i, msg := range h.Messages {
-				var sb strings.Builder
-				for _, part := range msg.Content {
-					if tp, ok := part.(LLMTextPart); ok {
-						sb.WriteString(tp.Text)
-					}
-				}
-				extMsgs[i] = extensions.ContextMessage{
-					Index:   i,
-					Role:    string(msg.Role),
-					Content: sb.String(),
-				}
-			}
-
+			extMsgs := llmToContextMessages(h.Messages)
 			result, _ := runner.Emit(extensions.ContextPrepareEvent{Messages: extMsgs})
 			r, ok := result.(extensions.ContextPrepareResult)
 			if !ok || r.Messages == nil {
 				return nil
 			}
-
-			// Rebuild LLM message slice from extension result.
-			rebuilt := make([]LLMMessage, 0, len(r.Messages))
-			for _, cm := range r.Messages {
-				if cm.Index >= 0 && cm.Index < len(h.Messages) {
-					// Reuse original message (preserves original role and content).
-					rebuilt = append(rebuilt, h.Messages[cm.Index])
-				} else {
-					// New message injected by extension — construct from role + text.
-					role := LLMRoleUser
-					switch cm.Role {
-					case "assistant":
-						role = LLMRoleAssistant
-					case "system":
-						role = LLMRoleSystem
-					case "tool":
-						role = LLMRoleTool
-					}
-					rebuilt = append(rebuilt, LLMMessage{
-						Role:    role,
-						Content: []LLMMessagePart{LLMTextPart{Text: cm.Content}},
-					})
-				}
-			}
-
-			return &ContextPrepareResult{Messages: rebuilt}
+			return &ContextPrepareResult{Messages: contextMessagesToLLM(r.Messages, h.Messages)}
 		})
 	}
 
@@ -359,99 +286,56 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 
 	// --- Step lifecycle observation events ---
 
-	if runner.HasHandlers(extensions.StepStart) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(StepStartEvent); ok {
-				_, _ = runner.Emit(extensions.StepStartEvent{StepNumber: ev.StepNumber})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.StepStart, func(ev StepStartEvent) extensions.Event {
+		return extensions.StepStartEvent{StepNumber: ev.StepNumber}
+	})
 
-	if runner.HasHandlers(extensions.StepFinish) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(StepFinishEvent); ok {
-				_, _ = runner.Emit(extensions.StepFinishEvent{
-					StepNumber:       ev.StepNumber,
-					HasToolCalls:     ev.HasToolCalls,
-					FinishReason:     ev.FinishReason,
-					InputTokens:      ev.Usage.InputTokens,
-					OutputTokens:     ev.Usage.OutputTokens,
-					CacheReadTokens:  ev.Usage.CacheReadTokens,
-					CacheWriteTokens: ev.Usage.CacheCreationTokens,
-				})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.StepFinish, func(ev StepFinishEvent) extensions.Event {
+		return extensions.StepFinishEvent{
+			StepNumber:       ev.StepNumber,
+			HasToolCalls:     ev.HasToolCalls,
+			FinishReason:     ev.FinishReason,
+			InputTokens:      ev.Usage.InputTokens,
+			OutputTokens:     ev.Usage.OutputTokens,
+			CacheReadTokens:  ev.Usage.CacheReadTokens,
+			CacheWriteTokens: ev.Usage.CacheCreationTokens,
+		}
+	})
 
-	if runner.HasHandlers(extensions.ReasoningStart) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ReasoningStartEvent); ok {
-				_, _ = runner.Emit(extensions.ReasoningStartEvent{ID: ev.ID})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.ReasoningStart, func(ev ReasoningStartEvent) extensions.Event {
+		return extensions.ReasoningStartEvent{ID: ev.ID}
+	})
 
-	if runner.HasHandlers(extensions.Warnings) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(WarningsEvent); ok {
-				_, _ = runner.Emit(extensions.WarningsEvent{Warnings: ev.Warnings})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.Warnings, func(ev WarningsEvent) extensions.Event {
+		return extensions.WarningsEvent{Warnings: ev.Warnings}
+	})
 
-	if runner.HasHandlers(extensions.Source) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(SourceEvent); ok {
-				_, _ = runner.Emit(extensions.SourceEvent{
-					SourceType: ev.SourceType,
-					ID:         ev.ID,
-					URL:        ev.URL,
-					Title:      ev.Title,
-				})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.Source, func(ev SourceEvent) extensions.Event {
+		return extensions.SourceEvent{
+			SourceType: ev.SourceType,
+			ID:         ev.ID,
+			URL:        ev.URL,
+			Title:      ev.Title,
+		}
+	})
 
-	if runner.HasHandlers(extensions.Error) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(ErrorEvent); ok {
-				_, _ = runner.Emit(extensions.ErrorEvent{Error: ev.Error.Error()})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.Error, func(ev ErrorEvent) extensions.Event {
+		return extensions.ErrorEvent{Error: ev.Error.Error()}
+	})
 
-	if runner.HasHandlers(extensions.Retry) {
-		m.Subscribe(func(e Event) {
-			if ev, ok := e.(RetryEvent); ok {
-				_, _ = runner.Emit(extensions.RetryEvent{
-					Attempt: ev.Attempt,
-					Error:   ev.Error.Error(),
-				})
-			}
-		})
-	}
+	bridgeObserve(m, runner, extensions.Retry, func(ev RetryEvent) extensions.Event {
+		return extensions.RetryEvent{
+			Attempt: ev.Attempt,
+			Error:   ev.Error.Error(),
+		}
+	})
 
 	// --- PrepareStep hook ---
 	// Extension PrepareStep → SDK PrepareStep hook.
 	// Same pattern as ContextPrepare: convert LLMMessage ↔ ContextMessage.
 	if runner.HasHandlers(extensions.PrepareStep) {
 		m.OnPrepareStep(HookPriorityNormal, func(h PrepareStepHook) *PrepareStepResult {
-			// Convert LLM message slice to extension ContextMessage slice.
-			extMsgs := make([]extensions.ContextMessage, len(h.Messages))
-			for i, msg := range h.Messages {
-				var sb strings.Builder
-				for _, part := range msg.Content {
-					if tp, ok := part.(LLMTextPart); ok {
-						sb.WriteString(tp.Text)
-					}
-				}
-				extMsgs[i] = extensions.ContextMessage{
-					Index:   i,
-					Role:    string(msg.Role),
-					Content: sb.String(),
-				}
-			}
-
+			extMsgs := llmToContextMessages(h.Messages)
 			result, _ := runner.Emit(extensions.PrepareStepEvent{
 				StepNumber: h.StepNumber,
 				Messages:   extMsgs,
@@ -460,30 +344,71 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			if !ok || r.Messages == nil {
 				return nil
 			}
-
-			// Rebuild LLM message slice from extension result.
-			rebuilt := make([]LLMMessage, 0, len(r.Messages))
-			for _, cm := range r.Messages {
-				if cm.Index >= 0 && cm.Index < len(h.Messages) {
-					rebuilt = append(rebuilt, h.Messages[cm.Index])
-				} else {
-					role := LLMRoleUser
-					switch cm.Role {
-					case "assistant":
-						role = LLMRoleAssistant
-					case "system":
-						role = LLMRoleSystem
-					case "tool":
-						role = LLMRoleTool
-					}
-					rebuilt = append(rebuilt, LLMMessage{
-						Role:    role,
-						Content: []LLMMessagePart{LLMTextPart{Text: cm.Content}},
-					})
-				}
-			}
-
-			return &PrepareStepResult{Messages: rebuilt}
+			return &PrepareStepResult{Messages: contextMessagesToLLM(r.Messages, h.Messages)}
 		})
 	}
+}
+
+// bridgeObserve subscribes to SDK events of type In and forwards them to the
+// extension runner as the event returned by conv. The subscription is only
+// registered when the runner has handlers for the given event kind.
+func bridgeObserve[In Event](m *Kit, runner *extensions.Runner, kind extensions.EventType, conv func(In) extensions.Event) {
+	if !runner.HasHandlers(kind) {
+		return
+	}
+	m.Subscribe(func(e Event) {
+		if ev, ok := e.(In); ok {
+			_, _ = runner.Emit(conv(ev))
+		}
+	})
+}
+
+// llmToContextMessages converts a slice of LLM messages to extension
+// ContextMessage values, extracting plain text from each message.
+func llmToContextMessages(msgs []LLMMessage) []extensions.ContextMessage {
+	extMsgs := make([]extensions.ContextMessage, len(msgs))
+	for i, msg := range msgs {
+		var sb strings.Builder
+		for _, part := range msg.Content {
+			if tp, ok := part.(LLMTextPart); ok {
+				sb.WriteString(tp.Text)
+			}
+		}
+		extMsgs[i] = extensions.ContextMessage{
+			Index:   i,
+			Role:    string(msg.Role),
+			Content: sb.String(),
+		}
+	}
+	return extMsgs
+}
+
+// contextMessagesToLLM rebuilds an LLM message slice from extension
+// ContextMessages. Messages with a valid index reuse the original from
+// originals; new messages injected by extensions are constructed from
+// role + text.
+func contextMessagesToLLM(cms []extensions.ContextMessage, originals []LLMMessage) []LLMMessage {
+	rebuilt := make([]LLMMessage, 0, len(cms))
+	for _, cm := range cms {
+		if cm.Index >= 0 && cm.Index < len(originals) {
+			// Reuse original message (preserves original role and content).
+			rebuilt = append(rebuilt, originals[cm.Index])
+		} else {
+			// New message injected by extension — construct from role + text.
+			role := LLMRoleUser
+			switch cm.Role {
+			case "assistant":
+				role = LLMRoleAssistant
+			case "system":
+				role = LLMRoleSystem
+			case "tool":
+				role = LLMRoleTool
+			}
+			rebuilt = append(rebuilt, LLMMessage{
+				Role:    role,
+				Content: []LLMMessagePart{LLMTextPart{Text: cm.Content}},
+			})
+		}
+	}
+	return rebuilt
 }

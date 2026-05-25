@@ -160,15 +160,6 @@ func rewriteSudoForStdin(command string) string {
 	return result
 }
 
-// SudoPasswordRequiredResult is a special marker that indicates sudo needs a password.
-// This is stored in tool response metadata to signal the TUI to prompt for password.
-const SudoPasswordRequiredMetadata = `{"sudo_password_required":true}`
-
-// IsSudoPasswordRequiredResult checks if a tool response indicates sudo password is needed.
-func IsSudoPasswordRequiredResult(resp fantasy.ToolResponse) bool {
-	return resp.Metadata == SudoPasswordRequiredMetadata
-}
-
 func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
 	var args bashArgs
 	if err := parseArgs(call.Input, &args); err != nil {

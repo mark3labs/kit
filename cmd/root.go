@@ -899,8 +899,9 @@ func runNormalMode(ctx context.Context) error {
 			appInstance:  appInstance,
 			usageTracker: usageTracker,
 		})
+
+		// During startup, buffer extension messages so they appear after the banner.
 		extCtx.Print = func(text string) {
-			// Capture messages during startup, print after startup banner.
 			startupExtensionMessages = append(startupExtensionMessages, text)
 		}
 		extCtx.PrintInfo = func(text string) {
@@ -913,15 +914,6 @@ func runNormalMode(ctx context.Context) error {
 		kitInstance.Extensions().EmitSessionStart()
 
 		// Restore normal print functions for runtime use.
-		extCtx = buildInteractiveExtensionContext(extensionContextDeps{
-			ctx:          ctx,
-			cwd:          cwd,
-			modelName:    modelName,
-			interactive:  positionalPrompt == "",
-			kitInstance:  kitInstance,
-			appInstance:  appInstance,
-			usageTracker: usageTracker,
-		})
 		extCtx.Print = func(text string) { appInstance.PrintFromExtension("", text) }
 		extCtx.PrintInfo = func(text string) { appInstance.PrintFromExtension("info", text) }
 		extCtx.PrintError = func(text string) { appInstance.PrintFromExtension("error", text) }

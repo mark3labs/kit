@@ -8,55 +8,104 @@ import (
 	"github.com/mark3labs/kit/internal/session"
 )
 
+// ==== Extension Types ====
+//
+// Type aliases for internal extension types exposed through the public
+// ExtensionAPI interface. External SDK consumers can use these without
+// importing internal packages directly.
+
+// ExtensionContext holds the runtime context passed to extensions, including
+// callbacks for printing, sending messages, and accessing session state.
+type ExtensionContext = extensions.Context
+
+// ExtensionWidgetConfig describes a widget registered by an extension.
+type ExtensionWidgetConfig = extensions.WidgetConfig
+
+// ExtensionWidgetPlacement indicates where a widget should be rendered
+// (e.g. above or below the conversation).
+type ExtensionWidgetPlacement = extensions.WidgetPlacement
+
+// ExtensionHeaderFooterConfig describes a header or footer registered by an extension.
+type ExtensionHeaderFooterConfig = extensions.HeaderFooterConfig
+
+// ExtensionEditorConfig configures editor behaviour overrides set by extensions.
+type ExtensionEditorConfig = extensions.EditorConfig
+
+// ExtensionUIVisibility controls which UI elements are visible.
+type ExtensionUIVisibility = extensions.UIVisibility
+
+// ExtensionToolRenderConfig describes custom tool output rendering registered by an extension.
+type ExtensionToolRenderConfig = extensions.ToolRenderConfig
+
+// ExtensionMessageRendererConfig describes custom message rendering registered by an extension.
+type ExtensionMessageRendererConfig = extensions.MessageRendererConfig
+
+// ExtensionSessionMessage represents a single message in the session history
+// as exposed to extensions.
+type ExtensionSessionMessage = extensions.SessionMessage
+
+// ExtensionEntry represents a custom data entry stored by an extension
+// in the session tree.
+type ExtensionEntry = extensions.ExtensionEntry
+
+// ExtensionStatusBarEntry describes a status bar entry registered by an extension.
+type ExtensionStatusBarEntry = extensions.StatusBarEntry
+
+// ExtensionToolInfo describes a tool available to the agent, as seen by extensions.
+type ExtensionToolInfo = extensions.ToolInfo
+
+// ExtensionCommandDef describes a slash command registered by an extension.
+type ExtensionCommandDef = extensions.CommandDef
+
 // ExtensionAPI provides grouped access to all extension-related functionality.
 // This cleans up the main Kit API surface while keeping all extension capabilities available.
 type ExtensionAPI interface {
 	// Context management
-	SetContext(ctx extensions.Context)
-	GetContext() extensions.Context
+	SetContext(ctx ExtensionContext)
+	GetContext() ExtensionContext
 	UpdateContextModel(model string)
 
 	// Widgets
-	SetWidget(config extensions.WidgetConfig)
+	SetWidget(config ExtensionWidgetConfig)
 	RemoveWidget(id string)
-	GetWidgets(placement extensions.WidgetPlacement) []extensions.WidgetConfig
+	GetWidgets(placement ExtensionWidgetPlacement) []ExtensionWidgetConfig
 
 	// Header/Footer
-	SetHeader(config extensions.HeaderFooterConfig)
+	SetHeader(config ExtensionHeaderFooterConfig)
 	RemoveHeader()
-	GetHeader() *extensions.HeaderFooterConfig
-	SetFooter(config extensions.HeaderFooterConfig)
+	GetHeader() *ExtensionHeaderFooterConfig
+	SetFooter(config ExtensionHeaderFooterConfig)
 	RemoveFooter()
-	GetFooter() *extensions.HeaderFooterConfig
+	GetFooter() *ExtensionHeaderFooterConfig
 
 	// Editor
-	SetEditor(config extensions.EditorConfig)
+	SetEditor(config ExtensionEditorConfig)
 	ResetEditor()
-	GetEditor() *extensions.EditorConfig
+	GetEditor() *ExtensionEditorConfig
 
 	// UI Visibility
-	SetUIVisibility(v extensions.UIVisibility)
-	GetUIVisibility() *extensions.UIVisibility
+	SetUIVisibility(v ExtensionUIVisibility)
+	GetUIVisibility() *ExtensionUIVisibility
 
 	// Tool rendering
-	GetToolRenderer(toolName string) *extensions.ToolRenderConfig
-	GetMessageRenderer(name string) *extensions.MessageRendererConfig
+	GetToolRenderer(toolName string) *ExtensionToolRenderConfig
+	GetMessageRenderer(name string) *ExtensionMessageRendererConfig
 
 	// Session data
-	GetSessionMessages() []extensions.SessionMessage
+	GetSessionMessages() []ExtensionSessionMessage
 	AppendEntry(extType, data string) (string, error)
-	GetEntries(extType string) []extensions.ExtensionEntry
+	GetEntries(extType string) []ExtensionEntry
 
 	// Status bar
-	SetStatus(entry extensions.StatusBarEntry)
+	SetStatus(entry ExtensionStatusBarEntry)
 	RemoveStatus(key string)
-	GetStatusEntries() []extensions.StatusBarEntry
+	GetStatusEntries() []ExtensionStatusBarEntry
 
 	// Shortcuts
 	GetShortcuts() map[string]func()
 
 	// Tools
-	GetToolInfos() []extensions.ToolInfo
+	GetToolInfos() []ExtensionToolInfo
 	SetActiveTools(names []string)
 
 	// Options
@@ -71,7 +120,7 @@ type ExtensionAPI interface {
 	EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string)
 
 	// Commands
-	Commands() []extensions.CommandDef
+	Commands() []ExtensionCommandDef
 
 	// Lifecycle
 	Reload() error

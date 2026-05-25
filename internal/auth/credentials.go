@@ -255,29 +255,6 @@ func (cm *CredentialManager) HasAnthropicCredentials() (bool, error) {
 	}
 }
 
-// SetOpenAICredentials stores OpenAI API key credentials. It validates the
-// API key format before storing. The API key must start with "sk-" and be
-// at least 20 characters long. Returns an error if the API key is invalid or
-// if storage fails.
-func (cm *CredentialManager) SetOpenAICredentials(apiKey string) error {
-	if err := validateOpenAIAPIKey(apiKey); err != nil {
-		return err
-	}
-
-	store, err := cm.LoadCredentials()
-	if err != nil {
-		return err
-	}
-
-	store.OpenAI = &OpenAICredentials{
-		Type:      "api_key",
-		APIKey:    apiKey,
-		CreatedAt: time.Now(),
-	}
-
-	return cm.SaveCredentials(store)
-}
-
 // GetOpenAICredentials retrieves stored OpenAI credentials. Returns nil if
 // no credentials are stored. The returned credentials may be either OAuth or API
 // key type, check the Type field to determine which.
@@ -408,26 +385,6 @@ func validateAnthropicAPIKey(apiKey string) error {
 	// Anthropic API keys typically start with "sk-ant-" and are quite long
 	if !strings.HasPrefix(apiKey, "sk-ant-") {
 		return fmt.Errorf("invalid Anthropic API key format (should start with 'sk-ant-')")
-	}
-
-	if len(apiKey) < 20 {
-		return fmt.Errorf("API key appears to be too short")
-	}
-
-	return nil
-}
-
-// validateOpenAIAPIKey validates the format of an OpenAI API key
-func validateOpenAIAPIKey(apiKey string) error {
-	apiKey = strings.TrimSpace(apiKey)
-
-	if apiKey == "" {
-		return fmt.Errorf("API key cannot be empty")
-	}
-
-	// OpenAI API keys typically start with "sk-" and are quite long
-	if !strings.HasPrefix(apiKey, "sk-") {
-		return fmt.Errorf("invalid OpenAI API key format (should start with 'sk-')")
 	}
 
 	if len(apiKey) < 20 {

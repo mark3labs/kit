@@ -2126,7 +2126,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			})
 		},
 
-		// New callbacks for previously unwired Fantasy lifecycle events.
+		// New callbacks for previously unwired agent lifecycle events.
 		OnStepStart: func(stepNumber int) {
 			m.events.emit(StepStartEvent{StepNumber: stepNumber})
 		},

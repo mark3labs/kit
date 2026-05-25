@@ -345,49 +345,70 @@ func (p *MCPConnectionPool) createStdioClient(ctx context.Context, serverConfig 
 	return stdioClient, nil
 }
 
-// createSSEClient creates an SSE client
+// parseHeaders parses "Key: Value" header strings into a map.
+func parseHeaders(raw []string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	headers := make(map[string]string)
+	for _, header := range raw {
+		parts := strings.SplitN(header, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			headers[key] = value
+		}
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return headers
+}
+
+// buildOAuthConfig constructs a transport.OAuthConfig from the server config
+// and the pool's OAuth flow. Returns nil if OAuth is not applicable.
+func (p *MCPConnectionPool) buildOAuthConfig(serverConfig config.MCPServerConfig) (*transport.OAuthConfig, error) {
+	if p.oauthFlow == nil || serverConfig.NoOAuth {
+		return nil, nil
+	}
+	tokenStore, err := p.createTokenStore(serverConfig.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token store: %w", err)
+	}
+	cfg := &transport.OAuthConfig{
+		RedirectURI: p.oauthFlow.handler.RedirectURI(),
+		PKCEEnabled: true,
+		TokenStore:  tokenStore,
+	}
+	if serverConfig.OAuthClientID != "" {
+		cfg.ClientID = serverConfig.OAuthClientID
+	}
+	if serverConfig.OAuthClientSecret != "" {
+		cfg.ClientSecret = serverConfig.OAuthClientSecret
+	}
+	if len(serverConfig.OAuthScopes) > 0 {
+		cfg.Scopes = serverConfig.OAuthScopes
+	}
+	return cfg, nil
+}
+
 func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
 	var options []transport.ClientOption
 
-	if len(serverConfig.Headers) > 0 {
-		headers := make(map[string]string)
-		for _, header := range serverConfig.Headers {
-			parts := strings.SplitN(header, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-				headers[key] = value
-			}
-		}
-		if len(headers) > 0 {
-			options = append(options, transport.WithHeaders(headers))
-		}
+	if headers := parseHeaders(serverConfig.Headers); headers != nil {
+		options = append(options, transport.WithHeaders(headers))
 	}
 
 	// Enable OAuth for remote transports when an auth handler is configured
 	// and the server hasn't opted out via NoOAuth. Public MCP servers (e.g.
 	// PubMed) set NoOAuth to skip dynamic client registration and token
 	// exchange, which would otherwise fail with a 404.
-	if p.oauthFlow != nil && !serverConfig.NoOAuth {
-		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
-		if tsErr != nil {
-			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
-		}
-		oauthCfg := transport.OAuthConfig{
-			RedirectURI: p.oauthFlow.handler.RedirectURI(),
-			PKCEEnabled: true,
-			TokenStore:  tokenStore,
-		}
-		if serverConfig.OAuthClientID != "" {
-			oauthCfg.ClientID = serverConfig.OAuthClientID
-		}
-		if serverConfig.OAuthClientSecret != "" {
-			oauthCfg.ClientSecret = serverConfig.OAuthClientSecret
-		}
-		if len(serverConfig.OAuthScopes) > 0 {
-			oauthCfg.Scopes = serverConfig.OAuthScopes
-		}
-		options = append(options, transport.WithOAuth(oauthCfg))
+	oauthCfg, err := p.buildOAuthConfig(serverConfig)
+	if err != nil {
+		return nil, err
+	}
+	if oauthCfg != nil {
+		options = append(options, transport.WithOAuth(*oauthCfg))
 	}
 
 	sseClient, err := client.NewSSEMCPClient(serverConfig.URL, options...)
@@ -406,43 +427,18 @@ func (p *MCPConnectionPool) createSSEClient(ctx context.Context, serverConfig co
 func (p *MCPConnectionPool) createStreamableClient(ctx context.Context, serverConfig config.MCPServerConfig) (client.MCPClient, error) {
 	var options []transport.StreamableHTTPCOption
 
-	if len(serverConfig.Headers) > 0 {
-		headers := make(map[string]string)
-		for _, header := range serverConfig.Headers {
-			parts := strings.SplitN(header, ":", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-				headers[key] = value
-			}
-		}
-		if len(headers) > 0 {
-			options = append(options, transport.WithHTTPHeaders(headers))
-		}
+	if headers := parseHeaders(serverConfig.Headers); headers != nil {
+		options = append(options, transport.WithHTTPHeaders(headers))
 	}
 
 	// Enable OAuth for remote transports when an auth handler is configured
 	// and the server hasn't opted out via NoOAuth.
-	if p.oauthFlow != nil && !serverConfig.NoOAuth {
-		tokenStore, tsErr := p.createTokenStore(serverConfig.URL)
-		if tsErr != nil {
-			return nil, fmt.Errorf("failed to create token store: %w", tsErr)
-		}
-		oauthCfg := transport.OAuthConfig{
-			RedirectURI: p.oauthFlow.handler.RedirectURI(),
-			PKCEEnabled: true,
-			TokenStore:  tokenStore,
-		}
-		if serverConfig.OAuthClientID != "" {
-			oauthCfg.ClientID = serverConfig.OAuthClientID
-		}
-		if serverConfig.OAuthClientSecret != "" {
-			oauthCfg.ClientSecret = serverConfig.OAuthClientSecret
-		}
-		if len(serverConfig.OAuthScopes) > 0 {
-			oauthCfg.Scopes = serverConfig.OAuthScopes
-		}
-		options = append(options, transport.WithHTTPOAuth(oauthCfg))
+	oauthCfg, err := p.buildOAuthConfig(serverConfig)
+	if err != nil {
+		return nil, err
+	}
+	if oauthCfg != nil {
+		options = append(options, transport.WithHTTPOAuth(*oauthCfg))
 	}
 
 	streamableClient, err := client.NewStreamableHttpClient(serverConfig.URL, options...)
