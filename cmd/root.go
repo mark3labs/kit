@@ -70,8 +70,9 @@ var (
 	mainGPU int32
 
 	// Extensions control
-	noExtensionsFlag bool
-	extensionPaths   []string
+	noExtensionsFlag  bool
+	noCoreToolsFlag   bool
+	extensionPaths    []string
 
 	// TLS configuration
 	tlsSkipVerify bool
@@ -279,6 +280,8 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&noExtensionsFlag, "no-extensions", false, "disable all extensions")
 	rootCmd.PersistentFlags().
+		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)")
+	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
 	flags := rootCmd.PersistentFlags()
@@ -327,6 +330,7 @@ func init() {
 	_ = viper.BindPFlag("main-gpu", rootCmd.PersistentFlags().Lookup("main-gpu"))
 	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
 	_ = viper.BindPFlag("no-extensions", rootCmd.PersistentFlags().Lookup("no-extensions"))
+	_ = viper.BindPFlag("no-core-tools", rootCmd.PersistentFlags().Lookup("no-core-tools"))
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
@@ -772,13 +776,14 @@ func runNormalMode(ctx context.Context) error {
 	var appInstancePtr *app.App
 
 	kitOpts := &kit.Options{
-		Quiet:          quietFlag,
-		Debug:          debugMode,
-		NoSession:      noSessionFlag,
-		Continue:       continueFlag,
-		SessionPath:    sessionPath,
-		AutoCompact:    autoCompactFlag,
-		MCPAuthHandler: authHandler,
+		Quiet:            quietFlag,
+		Debug:            debugMode,
+		NoSession:        noSessionFlag,
+		Continue:         continueFlag,
+		SessionPath:      sessionPath,
+		AutoCompact:      autoCompactFlag,
+		MCPAuthHandler:   authHandler,
+		DisableCoreTools: viper.GetBool("no-core-tools"),
 		// This callback is called when each MCP server finishes loading.
 		// We use a closure that captures appInstancePtr which is set after
 		// app.New() is called below.
