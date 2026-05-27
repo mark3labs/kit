@@ -127,6 +127,7 @@ max-tokens: 4096
 temperature: 0.7
 stream: true
 thinking-level: off       # off, none, minimal, low, medium, high
+no-core-tools: false      # set to true to disable all built-in core tools
 ```
 
 All of the above keys can also be set programmatically via the SDK
@@ -195,9 +196,10 @@ mcpServers:
 --compact                Enable compact output mode
 --auto-compact           Auto-compact conversation near context limit
 
-# Extensions
+# Extensions and tools
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
+--no-core-tools          Disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
 
@@ -579,7 +581,9 @@ host, err := kit.New(ctx, &kit.Options{
     // Tool options
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
-    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+    DisableCoreTools: true,                // Disable all built-in core tools; also controllable via
+                                           // --no-core-tools flag, KIT_NO_CORE_TOOLS env var,
+                                           // or no-core-tools: true in .kit.yml
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
