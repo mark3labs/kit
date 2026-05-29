@@ -139,13 +139,150 @@ func (m *Kit) ClearSkillCache() {
 }
 
 // ReloadSkills re-discovers skills from disk, replacing the current set.
-// This is called by file watchers when skill files change.
+// This is called by file watchers when skill files change. The system prompt
+// is recomposed and applied to the running agent so subsequent turns see the
+// new skill set.
 func (m *Kit) ReloadSkills() error {
 	newSkills, err := loadSkills(m.opts)
 	if err != nil {
 		return fmt.Errorf("reloading skills: %w", err)
 	}
+	m.runtimeMu.Lock()
 	m.skills = newSkills
+	m.runtimeMu.Unlock()
 	m.ClearSkillCache()
+	m.applyComposedSystemPrompt()
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Runtime skill management (Issue #36)
+// ---------------------------------------------------------------------------
+//
+// The methods below let SDK consumers (chatbot hosts, multi-tenant agents)
+// mutate the active skill set after Kit construction. Each mutation recomposes
+// the system prompt and applies it to the underlying agent so the LLM sees
+// the new skill metadata on its next turn.
+
+// AddSkill registers a single skill on this Kit instance. The skill object
+// can be built programmatically (no file on disk required) — only Name and
+// Content are mandatory. If a skill with the same Name is already loaded the
+// new skill replaces it. Returns an error when skill is nil or has an empty
+// name.
+//
+// After mutation the system prompt is recomposed and applied to the running
+// agent so the next turn sees the updated skill metadata. AddSkill is safe to
+// call from any goroutine.
+func (m *Kit) AddSkill(skill *Skill) error {
+	if skill == nil {
+		return fmt.Errorf("AddSkill: skill is nil")
+	}
+	if skill.Name == "" {
+		return fmt.Errorf("AddSkill: skill name is required")
+	}
+
+	m.runtimeMu.Lock()
+	replaced := false
+	for i, s := range m.skills {
+		if s.Name == skill.Name {
+			m.skills[i] = skill
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		m.skills = append(m.skills, skill)
+	}
+	m.runtimeMu.Unlock()
+
+	m.ClearSkillCache()
+	m.applyComposedSystemPrompt()
+	return nil
+}
+
+// LoadAndAddSkill loads a skill from a filesystem path (single .md/.txt file)
+// and adds it via [Kit.AddSkill]. Returns the loaded skill on success.
+func (m *Kit) LoadAndAddSkill(path string) (*Skill, error) {
+	s, err := skills.LoadSkill(path)
+	if err != nil {
+		return nil, fmt.Errorf("LoadAndAddSkill: %w", err)
+	}
+	if err := m.AddSkill(s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// RemoveSkill removes the named skill from this Kit instance and recomposes
+// the system prompt. Returns true when a skill with that name was found and
+// removed, false otherwise.
+func (m *Kit) RemoveSkill(name string) bool {
+	m.runtimeMu.Lock()
+	found := false
+	for i, s := range m.skills {
+		if s.Name == name {
+			m.skills = append(m.skills[:i], m.skills[i+1:]...)
+			found = true
+			break
+		}
+	}
+	m.runtimeMu.Unlock()
+
+	if !found {
+		return false
+	}
+	m.ClearSkillCache()
+	m.applyComposedSystemPrompt()
+	return true
+}
+
+// SetSkills replaces the active skill set with the provided slice. Pass nil
+// or an empty slice to remove all skills. The system prompt is recomposed and
+// applied. Skills with empty names are rejected and no mutation is performed.
+func (m *Kit) SetSkills(skillList []*Skill) error {
+	// Validate first so a bad input doesn't partially mutate state.
+	for i, s := range skillList {
+		if s == nil {
+			return fmt.Errorf("SetSkills: skill at index %d is nil", i)
+		}
+		if s.Name == "" {
+			return fmt.Errorf("SetSkills: skill at index %d has empty name", i)
+		}
+	}
+
+	copied := make([]*Skill, len(skillList))
+	copy(copied, skillList)
+
+	m.runtimeMu.Lock()
+	m.skills = copied
+	m.runtimeMu.Unlock()
+
+	m.ClearSkillCache()
+	m.applyComposedSystemPrompt()
+	return nil
+}
+
+// applyComposedSystemPrompt recomposes the system prompt from the captured
+// base prompt + current contextFiles + current skills + date/cwd, and pushes
+// the result onto the underlying agent. No-op when the agent is unset (i.e.
+// during construction).
+func (m *Kit) applyComposedSystemPrompt() {
+	if m.agent == nil {
+		return
+	}
+	m.runtimeMu.RLock()
+	base := m.basePrompt
+	m.runtimeMu.RUnlock()
+	composed := m.composeSystemPrompt(base)
+	m.agent.SetSystemPrompt(composed)
+}
+
+// RefreshSystemPrompt manually recomposes the system prompt from the current
+// skills and context files and applies it to the agent. Call this after a
+// batch of low-level mutations or to force a re-render of the date/cwd
+// section. Most callers don't need to invoke this directly because
+// AddSkill, RemoveSkill, SetSkills, AddContextFile, RemoveContextFile, and
+// SetContextFiles all refresh automatically.
+func (m *Kit) RefreshSystemPrompt() {
+	m.applyComposedSystemPrompt()
 }

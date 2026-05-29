@@ -246,6 +246,12 @@ type Agent struct {
 	mcpReady chan struct{}
 	// mcpErr holds any error from background MCP loading.
 	mcpErr error
+
+	// promptMu serializes runtime updates to systemPrompt and the
+	// accompanying fantasy agent rebuild so concurrent SetSystemPrompt
+	// callers (e.g. Kit.applyComposedSystemPrompt invoked from multiple
+	// goroutines) don't race on a.systemPrompt / a.fantasyAgent.
+	promptMu sync.Mutex
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -1316,6 +1322,24 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 // GetModel returns the underlying LanguageModel.
 func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
+}
+
+// SetSystemPrompt updates the agent's system prompt and rebuilds the underlying
+// fantasy agent so subsequent turns use the new prompt. Safe to call while the
+// agent is idle; if invoked during an in-flight turn the new prompt takes
+// effect on the next LLM call.
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+	a.systemPrompt = prompt
+	a.rebuildFantasyAgent()
+}
+
+// GetSystemPrompt returns the agent's current system prompt.
+func (a *Agent) GetSystemPrompt() string {
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
+	return a.systemPrompt
 }
 
 // GetMaxTokens returns the effective max output tokens the agent currently

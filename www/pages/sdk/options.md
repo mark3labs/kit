@@ -160,6 +160,14 @@ when embedding Kit as a library.
 | `SkillsDir` | `string` | — | Override default skills directory |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
 
+These fields only control the **initial** skill and context-file set picked
+up by `New()`. To add, remove, or replace skills and `AGENTS.md`-style
+context files at runtime (e.g. per user or per session), use the
+`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` and
+`AddContextFile` / `AddContextFileContent` / `RemoveContextFile` /
+`SetContextFiles` methods on `*kit.Kit`. See
+[Runtime skills and context files](/sdk/overview#runtime-skills-and-context-files).
+
 ### Compaction & MCP
 
 | Field | Type | Default | Description |

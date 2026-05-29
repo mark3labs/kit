@@ -61,6 +61,11 @@ type Kit struct {
 	// systemPromptSource holds the raw configured value (file path or text)
 	// when hasCustomSystemPrompt is true; empty when the built-in default is in use.
 	systemPromptSource string
+	// basePrompt holds the resolved base system prompt text (post file-load,
+	// pre runtime-context composition) captured during New. Used by
+	// RefreshSystemPrompt to recompose after skills/context-file mutations.
+	// Protected by runtimeMu.
+	basePrompt string
 
 	// Hook registries — interception layer (see hooks.go).
 	beforeToolCall  *hookRegistry[BeforeToolCallHook, BeforeToolCallResult]
@@ -89,6 +94,12 @@ type Kit struct {
 		skills []*skills.Skill
 		mu     sync.RWMutex
 	}
+
+	// runtimeMu protects contextFiles and skills against concurrent runtime
+	// mutations via AddSkill / RemoveSkill / AddContextFile etc. The fields
+	// are read by composeSystemPrompt and several other accessors, so all
+	// reads and writes after Kit construction must take this lock.
+	runtimeMu sync.RWMutex
 
 	// steerCh is a buffered channel used to inject steering messages into
 	// the running agent turn via the LLM library's PrepareStep. Created fresh for
@@ -653,18 +664,25 @@ func (m *Kit) GetSystemPromptSource() string {
 // composeSystemPrompt takes a base system prompt and composes it with the
 // current runtime context: AGENTS.md content, skills metadata, and date/cwd.
 // This mirrors the composition done during Kit.New() initialization.
+// It acquires a read lock on runtimeMu while snapshotting contextFiles and
+// skills, so callers must not hold the write lock.
 func (m *Kit) composeSystemPrompt(basePrompt string) string {
 	cwd, _ := os.Getwd()
 	pb := skills.NewPromptBuilder(basePrompt)
 
+	m.runtimeMu.RLock()
+	contextFiles := append([]*ContextFile(nil), m.contextFiles...)
+	loadedSkills := append([]*skills.Skill(nil), m.skills...)
+	m.runtimeMu.RUnlock()
+
 	// Inject AGENTS.md content as project context.
-	for _, cf := range m.contextFiles {
+	for _, cf := range contextFiles {
 		pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
 	}
 
 	// Inject skills metadata.
-	if len(m.skills) > 0 {
-		pb.WithSkills(m.skills)
+	if len(loadedSkills) > 0 {
+		pb.WithSkills(loadedSkills)
 	}
 
 	// Append current date/time and working directory.
@@ -1198,6 +1216,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		streaming             bool
 		hasCustomSystemPrompt bool
 		systemPromptSource    string
+		capturedBasePrompt    string
 	)
 
 	if err := func() error {
@@ -1348,6 +1367,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			}
 
 			pb := skills.NewPromptBuilder(basePrompt)
+
+			// Capture the resolved base prompt so RefreshSystemPrompt can
+			// recompose later after runtime skill/context-file mutations.
+			capturedBasePrompt = basePrompt
 
 			// Inject AGENTS.md content as project context.
 			for _, cf := range contextFiles {
@@ -1534,6 +1557,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		mcpConfig:             mcpConfig,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
 		systemPromptSource:    systemPromptSource,
+		basePrompt:            capturedBasePrompt,
 		beforeToolCall:        beforeToolCall,
 		afterToolResult:       afterToolResult,
 		beforeTurn:            beforeTurn,
@@ -1560,15 +1584,32 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	return k, nil
 }
 
-// GetContextFiles returns the context files (e.g. AGENTS.md) loaded during
-// initialisation. Returns nil if no context files were found.
+// GetContextFiles returns the context files (e.g. AGENTS.md) currently active
+// on this Kit instance. The returned slice is a snapshot — mutating it does
+// not affect Kit state. Returns nil when no context files are loaded.
 func (m *Kit) GetContextFiles() []*ContextFile {
-	return m.contextFiles
+	m.runtimeMu.RLock()
+	defer m.runtimeMu.RUnlock()
+	if len(m.contextFiles) == 0 {
+		return nil
+	}
+	out := make([]*ContextFile, len(m.contextFiles))
+	copy(out, m.contextFiles)
+	return out
 }
 
-// GetSkills returns the skills loaded during initialisation.
+// GetSkills returns the skills currently active on this Kit instance. The
+// returned slice is a snapshot — mutating it does not affect Kit state.
+// Returns nil when no skills are loaded.
 func (m *Kit) GetSkills() []*Skill {
-	return m.skills
+	m.runtimeMu.RLock()
+	defer m.runtimeMu.RUnlock()
+	if len(m.skills) == 0 {
+		return nil
+	}
+	out := make([]*Skill, len(m.skills))
+	copy(out, m.skills)
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1613,12 +1654,14 @@ func (m *Kit) expandSkillCommand(prompt string) string {
 
 	// Find the skill by name.
 	var skillPath string
+	m.runtimeMu.RLock()
 	for _, s := range m.skills {
 		if s.Name == name {
 			skillPath = s.Path
 			break
 		}
 	}
+	m.runtimeMu.RUnlock()
 	if skillPath == "" {
 		return prompt
 	}
