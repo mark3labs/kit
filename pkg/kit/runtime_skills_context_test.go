@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/skills"
 )
 
@@ -307,7 +308,11 @@ func TestComposeSystemPrompt_IncludesSkillsAndContext(t *testing.T) {
 // TestRuntimeMutations_AreThreadSafe stresses the mutation API from multiple
 // goroutines to surface data races under `go test -race`.
 func TestRuntimeMutations_AreThreadSafe(t *testing.T) {
-	k := &Kit{basePrompt: "base"}
+	// Use a non-nil agent so applyComposedSystemPrompt actually invokes
+	// agent.SetSystemPrompt (a no-op agent is fine — we only need the
+	// systemPrompt mutation + fantasy rebuild path to run concurrently so
+	// -race can observe any unsynchronized writes).
+	k := &Kit{basePrompt: "base", agent: &agent.Agent{}}
 	var wg sync.WaitGroup
 	const goroutines = 8
 	const iterations = 50
