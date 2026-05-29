@@ -70,9 +70,9 @@ var (
 	mainGPU int32
 
 	// Extensions control
-	noExtensionsFlag  bool
-	noCoreToolsFlag   bool
-	extensionPaths    []string
+	noExtensionsFlag bool
+	noCoreToolsFlag  bool
+	extensionPaths   []string
 
 	// TLS configuration
 	tlsSkipVerify bool
