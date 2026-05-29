@@ -1318,6 +1318,20 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
 }
 
+// SetSystemPrompt updates the agent's system prompt and rebuilds the underlying
+// fantasy agent so subsequent turns use the new prompt. Safe to call while the
+// agent is idle; if invoked during an in-flight turn the new prompt takes
+// effect on the next LLM call.
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.systemPrompt = prompt
+	a.rebuildFantasyAgent()
+}
+
+// GetSystemPrompt returns the agent's current system prompt.
+func (a *Agent) GetSystemPrompt() string {
+	return a.systemPrompt
+}
+
 // GetMaxTokens returns the effective max output tokens the agent currently
 // sends to the LLM provider, after per-model defaults, right-sizing, and any
 // Anthropic thinking-budget adjustments. Returns 0 when no ModelConfig is

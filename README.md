@@ -756,6 +756,45 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
+### Runtime Skills & Context Files
+
+For multi-tenant hosts (chatbots, per-user agents, web services), the SDK
+lets you swap skills and `AGENTS.md`-style context files **after** Kit
+construction. Every mutation recomposes the system prompt and applies it to
+the agent so the next turn picks up the new instructions — no restart needed.
+
+```go
+// Programmatic skill (no file on disk required).
+host.AddSkill(&kit.Skill{
+    Name:        "polite-french",
+    Description: "Respond in French and always greet the user.",
+    Content:     "Always reply in French. Open every response with 'Bonjour'.",
+})
+
+// Or load one from disk.
+host.LoadAndAddSkill("/var/skills/refund-policy.md")
+
+// Per-user AGENTS.md content pulled from a database.
+host.AddContextFileContent(
+    fmt.Sprintf("session://%s/AGENTS.md", userID),
+    rulesFromDB,
+)
+
+// Tear down session-specific state on logout.
+host.RemoveSkill("polite-french")
+host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Or replace the whole set atomically.
+host.SetSkills(activeSkillsForUser)
+host.SetContextFiles(activeContextForUser)
+```
+
+Skills dedupe by `Name`, context files dedupe by `Path` (which can be any
+opaque identifier — it doesn't have to be a real filesystem path). All
+mutators and readers (`GetSkills`, `GetContextFiles`) are safe to call
+concurrently from multiple goroutines. See the [SDK overview docs](/sdk/overview#runtime-skills-and-context-files)
+for the full reference.
+
 ## Advanced Usage
 
 ### Subagent Pattern

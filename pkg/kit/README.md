@@ -241,6 +241,43 @@ response, _ := host.Prompt(ctx, "What's my name?")
 host.ClearSession()
 ```
 
+### Runtime Skills and Context Files
+
+For multi-tenant chatbots, web services, or any host that needs per-user or
+per-session instructions, the SDK lets you add, remove, and replace skills and
+project context files (e.g. `AGENTS.md`) **after** Kit construction. Every
+mutation recomposes the system prompt and applies it to the agent so the next
+turn picks up the new instructions — no restart required.
+
+```go
+// Add a programmatic skill (no file on disk required).
+host.AddSkill(&kit.Skill{
+    Name:        "polite-french",
+    Description: "Respond in French and always greet the user.",
+    Content:     "Always reply in French. Open every response with 'Bonjour'.",
+})
+
+// Or load one from disk.
+host.LoadAndAddSkill("/var/skills/refund-policy.md")
+
+// Swap per-user AGENTS.md content fetched from your database.
+host.AddContextFileContent(
+    fmt.Sprintf("session://%s/AGENTS.md", userID),
+    rulesFromDB,
+)
+
+// Tear down session-specific state when the user logs off.
+host.RemoveSkill("polite-french")
+host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Or replace the whole set in one shot.
+host.SetSkills(activeSkillsForUser)
+host.SetContextFiles(activeContextForUser)
+```
+
+Readers (`GetSkills`, `GetContextFiles`) return snapshots, and every mutator
+is safe to call concurrently from multiple goroutines.
+
 ## Re-exported Types
 
 The SDK re-exports message/session/MCP types so you don't need direct internal imports. Agent-configuration types are Kit-owned (not aliases) and use only SDK types in their signatures, so consumers never need to import the underlying LLM-provider package.
@@ -312,6 +349,9 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `ClearSession()` - Clear conversation history
 - `GetSessionPath()` - Get session file path
 - `GetSessionID()` - Get session UUID
+- `AddSkill(*Skill)` / `LoadAndAddSkill(path)` / `RemoveSkill(name)` / `SetSkills([])` - Manage skills at runtime
+- `AddContextFile(*ContextFile)` / `AddContextFileContent(path, content)` / `LoadAndAddContextFile(path)` / `RemoveContextFile(path)` / `SetContextFiles([])` - Manage AGENTS.md-style context files at runtime
+- `RefreshSystemPrompt()` - Re-apply the composed system prompt to the agent
 - `Close()` - Clean up resources
 
 ### Options
