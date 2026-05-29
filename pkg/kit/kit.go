@@ -1212,6 +1212,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		mcpConfig             *config.Config
 		debug                 bool
 		noExtensions          bool
+		disableCoreTools      bool
 		maxSteps              int
 		streaming             bool
 		hasCustomSystemPrompt bool
@@ -1412,6 +1413,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		modelString = viper.GetString("model")
 		debug = viper.GetBool("debug")
 		noExtensions = opts.NoExtensions || viper.GetBool("no-extensions")
+		disableCoreTools = opts.DisableCoreTools || viper.GetBool("no-core-tools")
 		maxSteps = viper.GetInt("max-steps")
 		streaming = viper.GetBool("stream")
 
@@ -1469,7 +1471,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		MCPConfig:         mcpConfig,
 		Quiet:             opts.Quiet,
 		CoreTools:         opts.Tools,
-		DisableCoreTools:  opts.DisableCoreTools,
+		DisableCoreTools:  disableCoreTools,
 		ExtraTools:        opts.ExtraTools,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
