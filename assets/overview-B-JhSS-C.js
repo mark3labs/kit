@@ -189,6 +189,61 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or at runtime</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">n, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddInProcessMCPServer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"docs"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, mcpSrv)</span></span></code></pre>
+<h2 id="runtime-skills-and-context-files"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#runtime-skills-and-context-files"><span class="icon icon-link"></span></a>Runtime skills and context files</h2>
+<p>Kit auto-discovers skills and <code>AGENTS.md</code>-style context files during <code>New()</code>,
+but multi-tenant hosts (chatbots, web services, per-user agents) often need
+to swap these <strong>after</strong> construction. The runtime mutators below recompose
+the system prompt and apply it to the agent so the next turn picks up the
+updated instructions — no restart, no file shuffling.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Add a programmatic skill — no file on disk required.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Skill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Name:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"polite-french"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Description: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Respond in French and always greet the user."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Always reply in French. Open every response with 'Bonjour'."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or load one from disk.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadAndAddSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/var/skills/refund-policy.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Project context (AGENTS.md equivalents): inline content from a DB...</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddContextFileContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"session://</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/AGENTS.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, userID),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    rulesFromDB,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// ...or load from disk.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadAndAddContextFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/etc/agents/tenant-acme.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Remove individually when a session ends.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"polite-french"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveContextFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"session://</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/AGENTS.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, userID))</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or replace the whole set in one call.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(activeSkillsForUser)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(activeContextForUser)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inspect current state (snapshot copies — safe to mutate).</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">skills </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctxFiles </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<p>Key points:</p>
+<ul>
+<li><strong>Auto-refresh.</strong> Every <code>Add*</code> / <code>Remove*</code> / <code>Set*</code> call recomposes the system
+prompt against the captured base prompt (preserving per-model overrides and
+<code>--system-prompt</code> resolution) and pushes the result onto the agent. Call
+<code>host.RefreshSystemPrompt()</code> only if you mutate state through a different
+path and need to force a re-render.</li>
+<li><strong>Dedup keys.</strong> Skills dedupe by <code>Name</code>; context files dedupe by <code>Path</code>.
+Re-adding the same key replaces the entry instead of appending a duplicate.</li>
+<li><strong>Path is opaque.</strong> <code>ContextFile.Path</code> does not have to point at a real file
+— it's only used for dedup and for the <code>Instructions from: &lt;Path&gt;</code> header
+injected into the prompt. URIs like <code>session://user-123/AGENTS.md</code> work fine.</li>
+<li><strong>Thread safety.</strong> All readers and mutators are safe to call concurrently
+from multiple goroutines; the underlying state is guarded by an internal
+<code>RWMutex</code>.</li>
+<li><strong>Init-time options still apply.</strong> <code>Options.Skills</code>, <code>Options.SkillsDir</code>,
+<code>Options.NoSkills</code>, and <code>Options.NoContextFiles</code> continue to control the
+startup set; the runtime API mutates from whatever state <code>New()</code> produced.
+See <a href="/sdk/options#skills--configuration">SDK options</a>.</li>
+</ul>
 <h2 id="mcp-prompts-and-resources"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-prompts-and-resources"><span class="icon icon-link"></span></a>MCP prompts and resources</h2>
 <p>Query prompts and resources exposed by connected MCP servers:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// List and expand prompts</span></span>
@@ -235,7 +290,7 @@ for the full surface.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -433,6 +488,66 @@ host, _ := kit.New(ctx, &kit.Options{
 // Or at runtime
 n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
 \`\`\`
+
+## Runtime skills and context files
+
+Kit auto-discovers skills and \`AGENTS.md\`-style context files during \`New()\`,
+but multi-tenant hosts (chatbots, web services, per-user agents) often need
+to swap these **after** construction. The runtime mutators below recompose
+the system prompt and apply it to the agent so the next turn picks up the
+updated instructions — no restart, no file shuffling.
+
+\`\`\`go
+// Add a programmatic skill — no file on disk required.
+host.AddSkill(&kit.Skill{
+    Name:        "polite-french",
+    Description: "Respond in French and always greet the user.",
+    Content:     "Always reply in French. Open every response with 'Bonjour'.",
+})
+
+// Or load one from disk.
+host.LoadAndAddSkill("/var/skills/refund-policy.md")
+
+// Project context (AGENTS.md equivalents): inline content from a DB...
+host.AddContextFileContent(
+    fmt.Sprintf("session://%s/AGENTS.md", userID),
+    rulesFromDB,
+)
+// ...or load from disk.
+host.LoadAndAddContextFile("/etc/agents/tenant-acme.md")
+
+// Remove individually when a session ends.
+host.RemoveSkill("polite-french")
+host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Or replace the whole set in one call.
+host.SetSkills(activeSkillsForUser)
+host.SetContextFiles(activeContextForUser)
+
+// Inspect current state (snapshot copies — safe to mutate).
+skills := host.GetSkills()
+ctxFiles := host.GetContextFiles()
+\`\`\`
+
+Key points:
+
+- **Auto-refresh.** Every \`Add*\` / \`Remove*\` / \`Set*\` call recomposes the system
+  prompt against the captured base prompt (preserving per-model overrides and
+  \`--system-prompt\` resolution) and pushes the result onto the agent. Call
+  \`host.RefreshSystemPrompt()\` only if you mutate state through a different
+  path and need to force a re-render.
+- **Dedup keys.** Skills dedupe by \`Name\`; context files dedupe by \`Path\`.
+  Re-adding the same key replaces the entry instead of appending a duplicate.
+- **Path is opaque.** \`ContextFile.Path\` does not have to point at a real file
+  — it's only used for dedup and for the \`Instructions from: <Path>\` header
+  injected into the prompt. URIs like \`session://user-123/AGENTS.md\` work fine.
+- **Thread safety.** All readers and mutators are safe to call concurrently
+  from multiple goroutines; the underlying state is guarded by an internal
+  \`RWMutex\`.
+- **Init-time options still apply.** \`Options.Skills\`, \`Options.SkillsDir\`,
+  \`Options.NoSkills\`, and \`Options.NoContextFiles\` continue to control the
+  startup set; the runtime API mutates from whatever state \`New()\` produced.
+  See [SDK options](/sdk/options#skills--configuration).
 
 ## MCP prompts and resources
 

@@ -2831,6 +2831,14 @@ when embedding Kit as a library.
 | `SkillsDir` | `string` | — | Override default skills directory |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
 
+These fields only control the **initial** skill and context-file set picked
+up by `New()`. To add, remove, or replace skills and `AGENTS.md`-style
+context files at runtime (e.g. per user or per session), use the
+`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` and
+`AddContextFile` / `AddContextFileContent` / `RemoveContextFile` /
+`SetContextFiles` methods on `*kit.Kit`. See
+[Runtime skills and context files](/sdk/overview#runtime-skills-and-context-files).
+
 ### Compaction & MCP
 
 | Field | Type | Default | Description |
@@ -3239,6 +3247,66 @@ host, _ := kit.New(ctx, &kit.Options{
 // Or at runtime
 n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
 ```
+
+## Runtime skills and context files
+
+Kit auto-discovers skills and `AGENTS.md`-style context files during `New()`,
+but multi-tenant hosts (chatbots, web services, per-user agents) often need
+to swap these **after** construction. The runtime mutators below recompose
+the system prompt and apply it to the agent so the next turn picks up the
+updated instructions — no restart, no file shuffling.
+
+```go
+// Add a programmatic skill — no file on disk required.
+host.AddSkill(&kit.Skill{
+    Name:        "polite-french",
+    Description: "Respond in French and always greet the user.",
+    Content:     "Always reply in French. Open every response with 'Bonjour'.",
+})
+
+// Or load one from disk.
+host.LoadAndAddSkill("/var/skills/refund-policy.md")
+
+// Project context (AGENTS.md equivalents): inline content from a DB...
+host.AddContextFileContent(
+    fmt.Sprintf("session://%s/AGENTS.md", userID),
+    rulesFromDB,
+)
+// ...or load from disk.
+host.LoadAndAddContextFile("/etc/agents/tenant-acme.md")
+
+// Remove individually when a session ends.
+host.RemoveSkill("polite-french")
+host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Or replace the whole set in one call.
+host.SetSkills(activeSkillsForUser)
+host.SetContextFiles(activeContextForUser)
+
+// Inspect current state (snapshot copies — safe to mutate).
+skills := host.GetSkills()
+ctxFiles := host.GetContextFiles()
+```
+
+Key points:
+
+- **Auto-refresh.** Every `Add*` / `Remove*` / `Set*` call recomposes the system
+  prompt against the captured base prompt (preserving per-model overrides and
+  `--system-prompt` resolution) and pushes the result onto the agent. Call
+  `host.RefreshSystemPrompt()` only if you mutate state through a different
+  path and need to force a re-render.
+- **Dedup keys.** Skills dedupe by `Name`; context files dedupe by `Path`.
+  Re-adding the same key replaces the entry instead of appending a duplicate.
+- **Path is opaque.** `ContextFile.Path` does not have to point at a real file
+  — it's only used for dedup and for the `Instructions from: <Path>` header
+  injected into the prompt. URIs like `session://user-123/AGENTS.md` work fine.
+- **Thread safety.** All readers and mutators are safe to call concurrently
+  from multiple goroutines; the underlying state is guarded by an internal
+  `RWMutex`.
+- **Init-time options still apply.** `Options.Skills`, `Options.SkillsDir`,
+  `Options.NoSkills`, and `Options.NoContextFiles` continue to control the
+  startup set; the runtime API mutates from whatever state `New()` produced.
+  See [SDK options](/sdk/options#skills--configuration).
 
 ## MCP prompts and resources
 

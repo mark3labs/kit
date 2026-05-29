@@ -371,7 +371,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2133
+      "wordCount": 2191
     },
     {
       "id": "sdk/overview",
@@ -389,13 +389,14 @@
         "Model management",
         "Dynamic MCP servers",
         "In-process MCP servers",
+        "Runtime skills and context files",
         "MCP prompts and resources",
         "MCP tasks (long-running tools)",
         "Context and compaction",
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 862
+      "wordCount": 1184
     },
     {
       "id": "sdk/sessions",
