@@ -35,10 +35,9 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --parallelism 1
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOFLAGS: -p=2
 
   npm-publish:
     runs-on: ubuntu-latest
