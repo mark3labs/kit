@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -209,6 +210,210 @@ type OpenAIOAuthClient struct {
 	TokenURL     string
 	RedirectURI  string
 	Scopes       string
+}
+
+// CopilotOAuthClient handles GitHub device-flow OAuth and exchanges the
+// GitHub token for a short-lived GitHub Copilot API token.
+type CopilotOAuthClient struct {
+	ClientID      string
+	DeviceURL     string
+	TokenURL      string
+	CopilotURL    string
+	Scopes        string
+	PollTimeout   time.Duration
+	ClientTimeout time.Duration
+}
+
+// CopilotDeviceCode contains data returned by GitHub's device-code endpoint.
+type CopilotDeviceCode struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
+// NewCopilotOAuthClient creates a GitHub Copilot OAuth client.
+func NewCopilotOAuthClient() *CopilotOAuthClient {
+	return &CopilotOAuthClient{
+		ClientID:      "Iv1.b507a08c87ecfe98",
+		DeviceURL:     "https://github.com/login/device/code",
+		TokenURL:      "https://github.com/login/oauth/access_token",
+		CopilotURL:    "https://api.github.com/copilot_internal/v2/token",
+		Scopes:        "read:user",
+		PollTimeout:   15 * time.Minute,
+		ClientTimeout: 30 * time.Second,
+	}
+}
+
+// StartDeviceFlow requests a GitHub device code for browser login.
+func (c *CopilotOAuthClient) StartDeviceFlow() (*CopilotDeviceCode, error) {
+	data := url.Values{
+		"client_id": {c.ClientID},
+		"scope":     {c.Scopes},
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", c.DeviceURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create device-code request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request device code: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("device-code request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var code CopilotDeviceCode
+	if err := json.NewDecoder(resp.Body).Decode(&code); err != nil {
+		return nil, fmt.Errorf("failed to decode device-code response: %w", err)
+	}
+	if code.DeviceCode == "" || code.UserCode == "" || code.VerificationURI == "" {
+		return nil, fmt.Errorf("device-code response missing required fields")
+	}
+	if code.Interval <= 0 {
+		code.Interval = 5
+	}
+	return &code, nil
+}
+
+// PollDeviceToken waits until the user authorizes the device code and returns
+// the resulting GitHub OAuth token.
+func (c *CopilotOAuthClient) PollDeviceToken(deviceCode string) (string, error) {
+	deadline := time.Now().Add(c.PollTimeout)
+	interval := 5 * time.Second
+
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+
+		data := url.Values{
+			"client_id":   {c.ClientID},
+			"device_code": {deviceCode},
+			"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
+		}
+
+		req, err := http.NewRequestWithContext(context.Background(), "POST", c.TokenURL, strings.NewReader(data.Encode()))
+		if err != nil {
+			return "", fmt.Errorf("failed to create device-token request: %w", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+		if err != nil {
+			return "", fmt.Errorf("failed to poll device token: %w", err)
+		}
+
+		var tokenResp struct {
+			AccessToken string `json:"access_token"`
+			Error       string `json:"error"`
+			Description string `json:"error_description"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&tokenResp)
+		_ = resp.Body.Close()
+		if decodeErr != nil {
+			return "", fmt.Errorf("failed to decode device-token response: %w", decodeErr)
+		}
+
+		if tokenResp.AccessToken != "" {
+			return tokenResp.AccessToken, nil
+		}
+
+		switch tokenResp.Error {
+		case "authorization_pending":
+			continue
+		case "slow_down":
+			interval += 5 * time.Second
+			continue
+		case "expired_token":
+			return "", fmt.Errorf("device code expired; restart login")
+		case "access_denied":
+			return "", fmt.Errorf("GitHub login denied")
+		case "":
+			return "", fmt.Errorf("device-token request failed with status %d", resp.StatusCode)
+		default:
+			if tokenResp.Description != "" {
+				return "", fmt.Errorf("device-token request failed: %s: %s", tokenResp.Error, tokenResp.Description)
+			}
+			return "", fmt.Errorf("device-token request failed: %s", tokenResp.Error)
+		}
+	}
+
+	return "", fmt.Errorf("timed out waiting for GitHub device authorization")
+}
+
+// ExchangeGitHubToken converts a GitHub OAuth token into a Copilot API token.
+func (c *CopilotOAuthClient) ExchangeGitHubToken(githubToken string) (*CopilotCredentials, error) {
+	return c.RefreshCopilotToken(githubToken)
+}
+
+// RefreshCopilotToken obtains a fresh short-lived Copilot token from GitHub.
+func (c *CopilotOAuthClient) RefreshCopilotToken(githubToken string) (*CopilotCredentials, error) {
+	req, err := http.NewRequestWithContext(context.Background(), "GET", c.CopilotURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Copilot token request: %w", err)
+	}
+	req.Header.Set("Authorization", "token "+githubToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "kit")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := (&http.Client{Timeout: c.ClientTimeout}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request Copilot token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Copilot token request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		Token     string `json:"token"`
+		ExpiresAt any    `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to decode Copilot token response: %w", err)
+	}
+	if tokenResp.Token == "" {
+		return nil, fmt.Errorf("Copilot token response missing token")
+	}
+
+	expiresAt := parseCopilotExpiry(tokenResp.ExpiresAt)
+	if expiresAt == 0 {
+		expiresAt = time.Now().Add(20 * time.Minute).Unix()
+	}
+
+	return &CopilotCredentials{
+		Type:               "oauth",
+		GitHubToken:        githubToken,
+		CopilotAccessToken: tokenResp.Token,
+		ExpiresAt:          expiresAt,
+		CreatedAt:          time.Now(),
+	}, nil
+}
+
+func parseCopilotExpiry(value any) int64 {
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case string:
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return parsed
+		}
+		if parsed, err := time.Parse(time.RFC3339, v); err == nil {
+			return parsed.Unix()
+		}
+	}
+	return 0
 }
 
 // NewOpenAIOAuthClient creates a new OAuth client configured for OpenAI Codex OAuth.

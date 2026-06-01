@@ -10,10 +10,10 @@ import (
 )
 
 // CredentialStore holds all stored credentials for various providers.
-// Currently supports Anthropic and OpenAI credentials with both OAuth and API key authentication methods.
 type CredentialStore struct {
 	Anthropic *AnthropicCredentials `json:"anthropic,omitempty"`
 	OpenAI    *OpenAICredentials    `json:"openai,omitempty"`
+	Copilot   *CopilotCredentials   `json:"copilot,omitempty"`
 }
 
 // AnthropicCredentials holds Anthropic API credentials supporting both OAuth
@@ -41,6 +41,16 @@ type OpenAICredentials struct {
 	ExpiresAt    int64     `json:"expires_at,omitempty"`    // For OAuth
 	AccountID    string    `json:"account_id,omitempty"`    // For OAuth (ChatGPT account ID)
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// CopilotCredentials holds GitHub OAuth credentials and the short-lived
+// GitHub Copilot API token derived from them.
+type CopilotCredentials struct {
+	Type               string    `json:"type"`                           // "oauth"
+	GitHubToken        string    `json:"github_token,omitempty"`         // GitHub device-flow OAuth token
+	CopilotAccessToken string    `json:"copilot_access_token,omitempty"` // Short-lived Copilot API token
+	ExpiresAt          int64     `json:"expires_at,omitempty"`           // Copilot token expiry
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // oauthTokenExpired reports whether an OAuth token with the given type and
@@ -88,6 +98,16 @@ func (c *OpenAICredentials) IsExpired() bool {
 // to avoid authentication failures during operations. Returns false for API key
 // authentication or if no expiration is set.
 func (c *OpenAICredentials) NeedsRefresh() bool {
+	return oauthTokenNeedsRefresh(c.Type, c.ExpiresAt)
+}
+
+// IsExpired checks if the Copilot API token is expired.
+func (c *CopilotCredentials) IsExpired() bool {
+	return oauthTokenExpired(c.Type, c.ExpiresAt)
+}
+
+// NeedsRefresh reports whether the Copilot API token should be renewed.
+func (c *CopilotCredentials) NeedsRefresh() bool {
 	return oauthTokenNeedsRefresh(c.Type, c.ExpiresAt)
 }
 
@@ -222,7 +242,7 @@ func (cm *CredentialManager) RemoveAnthropicCredentials() error {
 	store.Anthropic = nil
 
 	// If store is empty, remove the file entirely
-	if store.Anthropic == nil {
+	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
 		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove credentials file: %w", err)
 		}
@@ -279,7 +299,7 @@ func (cm *CredentialManager) RemoveOpenAICredentials() error {
 	store.OpenAI = nil
 
 	// If store is empty, remove the file entirely
-	if store.Anthropic == nil && store.OpenAI == nil {
+	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
 		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove credentials file: %w", err)
 		}
@@ -287,6 +307,94 @@ func (cm *CredentialManager) RemoveOpenAICredentials() error {
 	}
 
 	return cm.SaveCredentials(store)
+}
+
+// GetCopilotCredentials retrieves stored GitHub Copilot credentials.
+func (cm *CredentialManager) GetCopilotCredentials() (*CopilotCredentials, error) {
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return nil, err
+	}
+
+	return store.Copilot, nil
+}
+
+// RemoveCopilotCredentials removes stored GitHub Copilot credentials.
+func (cm *CredentialManager) RemoveCopilotCredentials() error {
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return err
+	}
+
+	store.Copilot = nil
+
+	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
+		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove credentials file: %w", err)
+		}
+		return nil
+	}
+
+	return cm.SaveCredentials(store)
+}
+
+// HasCopilotCredentials checks if valid GitHub Copilot credentials are stored.
+func (cm *CredentialManager) HasCopilotCredentials() (bool, error) {
+	creds, err := cm.GetCopilotCredentials()
+	if err != nil {
+		return false, err
+	}
+	if creds == nil {
+		return false, nil
+	}
+
+	return creds.Type == "oauth" && creds.GitHubToken != "", nil
+}
+
+// SetCopilotOAuthCredentials stores GitHub Copilot OAuth credentials.
+func (cm *CredentialManager) SetCopilotOAuthCredentials(creds *CopilotCredentials) error {
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return err
+	}
+
+	store.Copilot = creds
+	return cm.SaveCredentials(store)
+}
+
+// GetValidCopilotAccessToken returns a fresh Copilot API token, renewing it
+// with the stored GitHub OAuth token when needed.
+func (cm *CredentialManager) GetValidCopilotAccessToken() (string, error) {
+	creds, err := cm.GetCopilotCredentials()
+	if err != nil {
+		return "", err
+	}
+	if creds == nil {
+		return "", fmt.Errorf("no Copilot credentials found")
+	}
+	if creds.Type != "oauth" {
+		return "", fmt.Errorf("unknown credential type: %s", creds.Type)
+	}
+	if creds.GitHubToken == "" {
+		return "", fmt.Errorf("GitHub OAuth token missing from Copilot credentials")
+	}
+
+	if creds.CopilotAccessToken == "" || creds.NeedsRefresh() {
+		client := NewCopilotOAuthClient()
+		newCreds, err := client.RefreshCopilotToken(creds.GitHubToken)
+		if err != nil {
+			return "", fmt.Errorf("failed to refresh Copilot token: %w", err)
+		}
+		newCreds.CreatedAt = creds.CreatedAt
+
+		if err := cm.SetCopilotOAuthCredentials(newCreds); err != nil {
+			return "", fmt.Errorf("failed to save refreshed Copilot token: %w", err)
+		}
+
+		return newCreds.CopilotAccessToken, nil
+	}
+
+	return creds.CopilotAccessToken, nil
 }
 
 // HasOpenAICredentials checks if valid OpenAI credentials are stored.

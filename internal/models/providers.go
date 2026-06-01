@@ -270,6 +270,8 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		result, createErr = createAnthropicProvider(ctx, config, modelName)
 	case "openai":
 		result, createErr = createOpenAIProvider(ctx, config, modelName)
+	case "copilot":
+		result, createErr = createCopilotProvider(ctx, config, modelName)
 	case "google", "gemini":
 		result, createErr = createGoogleProvider(ctx, config, modelName)
 	case "ollama":
@@ -848,6 +850,43 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
+func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize credential manager: %w", err)
+	}
+
+	token, err := cm.GetValidCopilotAccessToken()
+	if err != nil {
+		return nil, fmt.Errorf("GitHub Copilot credentials not available. Use 'kit auth login copilot': %w", err)
+	}
+
+	baseURL := "https://api.githubcopilot.com"
+	if config.ProviderURL != "" {
+		baseURL = config.ProviderURL
+	}
+
+	opts := []openaicompat.Option{
+		openaicompat.WithName("copilot"),
+		openaicompat.WithBaseURL(baseURL),
+		openaicompat.WithAPIKey(token),
+		openaicompat.WithHTTPClient(createCopilotHTTPClient(token, config.TLSSkipVerify)),
+		openaicompat.WithObjectMode(fantasy.ObjectModeTool),
+	}
+
+	provider, err := openaicompat.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub Copilot provider: %w", err)
+	}
+
+	model, err := provider.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub Copilot model: %w", err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
 // Uses the chatgpt.com/backend-api/codex endpoint with special headers.
 func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
@@ -973,6 +1012,52 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	newReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	newReq.Header.Set("Cache-Control", "no-cache")
 	newReq.Header.Set("Pragma", "no-cache")
+
+	return t.base.RoundTrip(newReq)
+}
+
+func createCopilotHTTPClient(token string, skipVerify bool) *http.Client {
+	var base http.RoundTripper
+	if skipVerify {
+		base = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	} else {
+		base = http.DefaultTransport
+	}
+
+	return &http.Client{
+		Transport: &copilotTransport{
+			base:  base,
+			token: token,
+		},
+		Timeout: 120 * time.Second,
+	}
+}
+
+type copilotTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *copilotTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	token := t.token
+	if cm, err := auth.NewCredentialManager(); err == nil {
+		if fresh, err := cm.GetValidCopilotAccessToken(); err == nil && fresh != "" {
+			token = fresh
+		}
+	}
+
+	newReq := req.Clone(req.Context())
+	newReq.Header.Set("Authorization", "Bearer "+token)
+	newReq.Header.Set("Copilot-Integration-Id", "vscode-chat")
+	newReq.Header.Set("Editor-Version", "vscode/1.104.1")
+	newReq.Header.Set("Editor-Plugin-Version", "copilot-chat/0.31.0")
+	newReq.Header.Set("Openai-Intent", "conversation-agent")
+	newReq.Header.Set("User-Agent", "GitHubCopilotChat/0.31.0")
+	newReq.Header.Set("X-GitHub-Api-Version", "2026-01-09")
 
 	return t.base.RoundTrip(newReq)
 }

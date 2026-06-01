@@ -17,6 +17,9 @@ type AnthropicCredentials = auth.AnthropicCredentials
 // and API key authentication methods.
 type OpenAICredentials = auth.OpenAICredentials
 
+// CopilotCredentials holds GitHub OAuth and Copilot API credentials.
+type CopilotCredentials = auth.CopilotCredentials
+
 // CredentialStore holds all stored credentials for various providers.
 type CredentialStore = auth.CredentialStore
 
@@ -59,6 +62,19 @@ func HasOpenAICredentials() bool {
 		return false
 	}
 	has, err := cm.HasOpenAICredentials()
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+// HasCopilotCredentials checks if valid GitHub Copilot credentials are stored.
+func HasCopilotCredentials() bool {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return false
+	}
+	has, err := cm.HasCopilotCredentials()
 	if err != nil {
 		return false
 	}

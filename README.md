@@ -228,6 +228,10 @@ kit auth login [provider] --set-default  # Set provider's default model as syste
 kit auth logout [provider]         # Remove credentials for provider
 kit auth status                    # Check authentication status
 
+# GitHub Copilot login (experimental; requires active Copilot subscription)
+kit auth login copilot
+kit --model copilot/gpt-5.5 "Hello"
+
 # Model database
 kit models [provider]        # List available models (optionally filter by provider)
 kit models --all             # Show all providers (not just LLM-compatible)
