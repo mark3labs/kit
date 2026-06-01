@@ -866,15 +866,17 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 		baseURL = config.ProviderURL
 	}
 
-	opts := []openaicompat.Option{
-		openaicompat.WithName("copilot"),
-		openaicompat.WithBaseURL(baseURL),
-		openaicompat.WithAPIKey(token),
-		openaicompat.WithHTTPClient(createCopilotHTTPClient(token, config.TLSSkipVerify)),
-		openaicompat.WithObjectMode(fantasy.ObjectModeTool),
+	opts := []openai.Option{
+		openai.WithName("copilot"),
+		openai.WithBaseURL(baseURL),
+		openai.WithAPIKey(token),
+		openai.WithHTTPClient(createCopilotHTTPClient(token, config.TLSSkipVerify)),
+		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(copilotUsesResponsesAPI),
+		openai.WithObjectMode(fantasy.ObjectModeTool),
 	}
 
-	provider, err := openaicompat.New(opts...)
+	provider, err := openai.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub Copilot provider: %w", err)
 	}
@@ -885,6 +887,10 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 	}
 
 	return &ProviderResult{Model: model}, nil
+}
+
+func copilotUsesResponsesAPI(modelID string) bool {
+	return strings.HasPrefix(modelID, "gpt-5")
 }
 
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
