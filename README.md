@@ -556,7 +556,7 @@ host, err := kit.New(ctx, &kit.Options{
     SystemPrompt: "You are a helpful bot",
     ConfigFile:   "/path/to/config.yml",
     MaxSteps:     10,
-    Streaming:    true,
+    Streaming:    ptr(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
 
     // Generation parameters (override env/config/per-model defaults)

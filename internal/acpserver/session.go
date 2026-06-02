@@ -45,10 +45,11 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 	// the process-global store (which cobra populated from flags) so launching
 	// `kit acp -m <model> [--thinking-level ...] [--provider-url ...]` is still
 	// honored; .kit.yml and KIT_* env vars are loaded per session by kit.New.
+	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
 		SessionDir:     cwd,
 		Quiet:          true,
-		Streaming:      true,
+		Streaming:      &streamOn,
 		Model:          viper.GetString("model"),
 		ThinkingLevel:  viper.GetString("thinking-level"),
 		ProviderURL:    viper.GetString("provider-url"),

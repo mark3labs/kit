@@ -50,8 +50,10 @@ func TestOptionFunctionsPlumbing(t *testing.T) {
 	if o.ConfigFile != "/tmp/.kit.yml" {
 		t.Errorf("WithConfigFile: got %q", o.ConfigFile)
 	}
-	if o.Streaming {
-		t.Error("WithStreaming(false): expected Streaming=false")
+	if o.Streaming == nil {
+		t.Error("WithStreaming: expected Streaming to be set (non-nil)")
+	} else if *o.Streaming {
+		t.Error("WithStreaming(false): expected *Streaming=false")
 	}
 	if !o.Debug {
 		t.Error("WithDebug: expected Debug=true")
@@ -174,5 +176,57 @@ func TestNewAgentStreamingOptOut(t *testing.T) {
 
 	if k.ConfigBoolForTest("stream") {
 		t.Error("WithStreaming(false) should disable streaming")
+	}
+}
+
+// TestNewZeroOptionsKeepsStreamingDefault is the regression test for the
+// unconditional `v.Set("stream", opts.Streaming)` bug: a zero-valued Options
+// (Streaming == nil) must NOT force stream=false. With Streaming unset,
+// streaming resolves through the precedence chain, whose SDK default is true.
+func TestNewZeroOptionsKeepsStreamingDefault(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	ctx := context.Background()
+	k, err := kit.New(ctx, &kit.Options{
+		Model:      "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:      true,
+		NoSession:  true,
+		SkipConfig: true, // isolate from any ~/.kit.yml / env stream setting
+	})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = k.Close() }()
+
+	if !k.ConfigBoolForTest("stream") {
+		t.Error("zero-valued Options must not force stream=false; expected the default (true)")
+	}
+}
+
+// TestNewStreamingExplicitOptOut verifies that a raw Options can still disable
+// streaming by setting Streaming to a pointer to false.
+func TestNewStreamingExplicitOptOut(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	streamOff := false
+	ctx := context.Background()
+	k, err := kit.New(ctx, &kit.Options{
+		Model:      "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:      true,
+		NoSession:  true,
+		SkipConfig: true,
+		Streaming:  &streamOff,
+	})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = k.Close() }()
+
+	if k.ConfigBoolForTest("stream") {
+		t.Error("Streaming=&false should disable streaming")
 	}
 }

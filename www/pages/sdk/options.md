@@ -28,7 +28,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Behavior
     MaxSteps:     10,
-    Streaming:    true,
+    Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
     Debug:        true,
 
@@ -101,7 +101,7 @@ host, err := kit.New(ctx, &kit.Options{
 | `SystemPrompt` | `string` | — | System prompt text or file path |
 | `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |
-| `Streaming` | `bool` | `true` | Enable streaming output |
+| `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
 | `Quiet` | `bool` | `false` | Suppress output |
 | `Debug` | `bool` | `false` | Enable debug logging |
 
@@ -124,9 +124,10 @@ defaults for samplers).
 | `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |
 | `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |
 
-Pointer-typed samplers are populated via a tiny helper:
+Pointer-typed fields (`Streaming` and the samplers) are populated via tiny helpers:
 
 ```go
+func ptrBool(v bool) *bool          { return &v }
 func ptrFloat32(v float32) *float32 { return &v }
 ```
 

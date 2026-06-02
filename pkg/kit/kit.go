@@ -890,10 +890,17 @@ type Options struct {
 	SystemPrompt string // Override system prompt
 	ConfigFile   string // Override config file path
 	MaxSteps     int    // Override max steps (0 = use default)
-	Streaming    bool   // Enable streaming (default from config)
-	Quiet        bool   // Suppress debug output
-	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
-	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
+
+	// Streaming enables or disables streaming output. It is a pointer so the
+	// SDK can distinguish "unset" (nil) from an explicit choice, mirroring the
+	// sampling-parameter fields below. nil leaves streaming to the precedence
+	// chain (env → .kit.yml → default true); a non-nil value forces it. Prefer
+	// [WithStreaming] for the functional-options API.
+	Streaming *bool
+
+	Quiet      bool   // Suppress debug output
+	Tools      []Tool // Custom tool set. If empty, AllTools() is used.
+	ExtraTools []Tool // Additional tools added alongside core/MCP/extension tools.
 
 	// Generation parameters. These override the corresponding values from
 	// .kit.yml / KIT_* environment variables. Leaving a field at its
@@ -1250,7 +1257,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		if opts.MaxSteps > 0 {
 			v.Set("max-steps", opts.MaxSteps)
 		}
-		v.Set("stream", opts.Streaming)
+		// Only override streaming when the caller explicitly set it. Otherwise
+		// leave the precedence chain (env → config → default true) untouched so a
+		// zero-valued Options does not silently force stream=false.
+		if opts.Streaming != nil {
+			v.Set("stream", *opts.Streaming)
+		}
 
 		// Generation parameter overrides. Each Options field, when set,
 		// is pushed into the instance store here so the existing downstream
@@ -1905,19 +1917,18 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 
 	// Create child Kit instance. Pass the parent's loaded MCP config to
 	// avoid re-loading and re-validating config for the child.
-	// Streaming must be explicitly enabled — Options.Streaming defaults to
-	// false, and New() writes Set("stream", opts.Streaming) on the child's
-	// isolated store. Without this, the subagent would potentially hit
+	// Streaming is enabled explicitly — without it, non-streaming can hit
 	// provider-level differences (e.g. Anthropic non-streaming timeouts with
-	// extended thinking). The child gets its own config store, so this no
-	// longer affects any other concurrent caller.
+	// extended thinking). The child gets its own config store, so this does not
+	// affect any other concurrent caller.
+	streamOn := true
 	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
-		Streaming:    true,
+		Streaming:    &streamOn,
 		MCPConfig:    m.mcpConfig,
 	}
 	// Propagate the parent's MCP task configuration so a child subagent

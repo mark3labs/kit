@@ -89,7 +89,7 @@ host, err := kit.New(ctx, &kit.Options{
     SystemPrompt: "You are a helpful bot",    // Override system prompt
     ConfigFile:   "/path/to/config.yml",      // Use specific config file
     MaxSteps:     10,                         // Override max steps
-    Streaming:    true,                       // Enable streaming
+    Streaming:    ptrBool(true),               // *bool: nil = unset (default true), &false = off
     Quiet:        true,                       // Suppress debug output
 
     // Session options

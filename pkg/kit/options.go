@@ -27,9 +27,9 @@ type Option func(*Options)
 //	)
 func NewAgent(ctx context.Context, opts ...Option) (*Kit, error) {
 	// Streaming defaults to true for the ergonomic constructor — this is the
-	// natural expectation for interactive agents and avoids the latent
-	// "false always wins" edge case of the raw Options.Streaming zero value.
-	o := &Options{Streaming: true}
+	// natural expectation for interactive agents. WithStreaming(false) overrides it.
+	streamOn := true
+	o := &Options{Streaming: &streamOn}
 	for _, fn := range opts {
 		fn(o)
 	}
@@ -46,7 +46,9 @@ func WithSystemPrompt(p string) Option { return func(o *Options) { o.SystemPromp
 
 // WithStreaming enables or disables streaming responses. [NewAgent] enables
 // streaming by default, so pass WithStreaming(false) to opt out.
-func WithStreaming(b bool) Option { return func(o *Options) { o.Streaming = b } }
+func WithStreaming(b bool) Option {
+	return func(o *Options) { o.Streaming = &b }
+}
 
 // WithMaxTokens sets the maximum output tokens per LLM response. A value of 0
 // lets the precedence chain (env → config → per-model → SDK floor) resolve a
