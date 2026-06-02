@@ -98,7 +98,18 @@ type Runner struct {
 	disabledTools   map[string]bool           // nil = all tools enabled
 	customEventSubs map[string][]func(string) // inter-extension event bus
 	optionOverrides map[string]string         // runtime option overrides
+	configStore     *viper.Viper              // per-instance config store (nil = global)
 	mu              sync.RWMutex
+}
+
+// SetConfigStore sets the per-instance configuration store used by GetOption
+// to resolve "options.<name>" config values. When unset (nil), GetOption falls
+// back to the process-global viper store. Threading a per-Kit store keeps
+// extension option resolution isolated between Kit instances.
+func (r *Runner) SetConfigStore(v *viper.Viper) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.configStore = v
 }
 
 // ShortcutEntry pairs a shortcut definition with its handler.
@@ -872,7 +883,13 @@ func (r *Runner) GetOption(name string) string {
 
 	// 3. Viper config: options.<name>
 	configKey := "options." + name
-	if v := viper.GetString(configKey); v != "" {
+	r.mu.RLock()
+	store := r.configStore
+	r.mu.RUnlock()
+	if store == nil {
+		store = viper.GetViper()
+	}
+	if v := store.GetString(configKey); v != "" {
 		return v
 	}
 

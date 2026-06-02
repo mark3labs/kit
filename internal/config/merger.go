@@ -7,20 +7,36 @@ import (
 	"github.com/spf13/viper"
 )
 
-// LoadAndValidateConfig loads configuration from viper, fixes environment variable
-// casing issues, and validates the configuration. Returns an error if loading or
-// validation fails.
+// LoadAndValidateConfig loads configuration from the process-global viper
+// store, fixes environment variable casing issues, and validates the
+// configuration. Returns an error if loading or validation fails.
+//
+// This is a convenience wrapper around [LoadAndValidateConfigFrom] using the
+// shared global store; it is retained for the CLI and other callers that rely
+// on viper's process-global state.
 func LoadAndValidateConfig() (*Config, error) {
+	return LoadAndValidateConfigFrom(viper.GetViper())
+}
+
+// LoadAndValidateConfigFrom loads configuration from the supplied per-instance
+// store, fixes environment variable casing issues, and validates the
+// configuration. When v is nil, the process-global store is used. Threading an
+// explicit store lets each Kit instance own an isolated configuration without
+// clobbering other instances in the same process.
+func LoadAndValidateConfigFrom(v *viper.Viper) (*Config, error) {
+	if v == nil {
+		v = viper.GetViper()
+	}
 	config := &Config{
 		MCPServers: make(map[string]MCPServerConfig),
 	}
-	if err := viper.Unmarshal(config); err != nil {
+	if err := v.Unmarshal(config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
 	}
 
 	// Fix environment variable case sensitivity issue
 	// Viper lowercases all keys, but we need to preserve the original case for environment variables
-	fixEnvironmentCase(config)
+	fixEnvironmentCase(v, config)
 
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %v", err)
@@ -30,9 +46,9 @@ func LoadAndValidateConfig() (*Config, error) {
 }
 
 // fixEnvironmentCase fixes the case of environment variable keys that were lowercased by Viper
-func fixEnvironmentCase(config *Config) {
+func fixEnvironmentCase(v *viper.Viper, config *Config) {
 	// Get the raw config data from viper
-	rawConfig := viper.AllSettings()
+	rawConfig := v.AllSettings()
 
 	// Check if we have mcpServers in the raw config
 	if mcpServersRaw, ok := rawConfig["mcpservers"]; ok {

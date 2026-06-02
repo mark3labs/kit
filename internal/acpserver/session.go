@@ -42,6 +42,10 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 		SessionDir: cwd,
 		Quiet:      true,
 		Streaming:  true,
+		// Share the process-global config store so cobra flag bindings and
+		// config loaded by the CLI's cobra.OnInitialize remain in effect for
+		// the ACP server. SDK consumers leave CLI nil to get isolated stores.
+		CLI: &kit.CLIOptions{},
 	})
 	if err != nil {
 		// Provide actionable guidance for provider auth errors, which are

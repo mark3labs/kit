@@ -65,23 +65,35 @@ const sdkDefaultMaxTokens = 8192
 //     which returns models.ThinkingOff.
 //   - sampling params (temperature, top-p, top-k, frequency/presence-penalty):
 //     left as nil pointers so provider libraries apply their own defaults.
-func setSDKDefaults() {
-	viper.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
-	viper.SetDefault("system-prompt", defaultSystemPrompt)
-	viper.SetDefault("stream", true)
-	viper.SetDefault("num-gpu-layers", -1)
-	viper.SetDefault("main-gpu", 0)
+func setSDKDefaults(v *viper.Viper) {
+	v.SetDefault("model", "anthropic/claude-sonnet-4-5-20250929")
+	v.SetDefault("system-prompt", defaultSystemPrompt)
+	v.SetDefault("stream", true)
+	v.SetDefault("num-gpu-layers", -1)
+	v.SetDefault("main-gpu", 0)
 }
 
-// InitConfig initializes the viper configuration system.
+// InitConfig initializes the process-global viper configuration system.
 // It searches for config files in standard locations and loads them with
 // environment variable substitution.
 //
 // configFile: explicit config file path (empty = search defaults).
 // debug: if true, print warnings about missing configs to stderr.
+//
+// This wraps [initConfig] using the process-global store and is retained for
+// the CLI, which binds its flags to the global viper.
 func InitConfig(configFile string, debug bool) error {
+	return initConfig(viper.GetViper(), configFile, debug)
+}
+
+// initConfig loads configuration into the supplied per-instance store. When v
+// is nil the process-global store is used.
+func initConfig(v *viper.Viper, configFile string, debug bool) error {
+	if v == nil {
+		v = viper.GetViper()
+	}
 	if configFile != "" {
-		return LoadConfigWithEnvSubstitution(configFile)
+		return loadConfigWithEnvSubstitution(v, configFile)
 	}
 
 	// Ensure a config file exists (create default if none found).
@@ -97,15 +109,15 @@ func InitConfig(configFile string, debug bool) error {
 	}
 
 	// Current directory has higher priority than home directory.
-	viper.AddConfigPath(".")
-	viper.AddConfigPath(home)
+	v.AddConfigPath(".")
+	v.AddConfigPath(home)
 
 	configLoaded := false
 
-	viper.SetConfigName(".kit")
-	if err := viper.ReadInConfig(); err == nil {
-		configPath := viper.ConfigFileUsed()
-		if err := LoadConfigWithEnvSubstitution(configPath); err != nil {
+	v.SetConfigName(".kit")
+	if err := v.ReadInConfig(); err == nil {
+		configPath := v.ConfigFileUsed()
+		if err := loadConfigWithEnvSubstitution(v, configPath); err != nil {
 			if strings.Contains(err.Error(), "environment variable substitution failed") {
 				return fmt.Errorf("error reading config file '%s': %w", configPath, err)
 			}
@@ -118,17 +130,27 @@ func InitConfig(configFile string, debug bool) error {
 		fmt.Fprintf(os.Stderr, "No config file found in current directory or home directory\n")
 	}
 
-	viper.SetEnvPrefix("KIT")
+	v.SetEnvPrefix("KIT")
 	// Map hyphenated config keys (e.g. "max-tokens") to underscored env
 	// var names (e.g. KIT_MAX_TOKENS). Without this, AutomaticEnv looks
 	// for KIT_MAX-TOKENS and silently misses valid env overrides.
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
 	return nil
 }
 
-// LoadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion.
+// LoadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion
+// into the process-global viper store.
 func LoadConfigWithEnvSubstitution(configPath string) error {
+	return loadConfigWithEnvSubstitution(viper.GetViper(), configPath)
+}
+
+// loadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion
+// into the supplied per-instance store (or the global store when v is nil).
+func loadConfigWithEnvSubstitution(v *viper.Viper, configPath string) error {
+	if v == nil {
+		v = viper.GetViper()
+	}
 	rawContent, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
@@ -146,6 +168,6 @@ func LoadConfigWithEnvSubstitution(configPath string) error {
 	}
 
 	config.SetConfigPath(configPath)
-	viper.SetConfigType(configType)
-	return viper.ReadConfig(strings.NewReader(processedContent))
+	v.SetConfigType(configType)
+	return v.ReadConfig(strings.NewReader(processedContent))
 }
