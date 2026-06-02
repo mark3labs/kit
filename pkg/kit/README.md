@@ -49,6 +49,36 @@ The SDK behaves identically to the CLI:
 - Respects all environment variables (`KIT_*`)
 - Uses the same defaults as the CLI
 
+Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe — setting
+the model, thinking level, or generation parameters on one never affects
+another, and runtime mutators (`SetModel`, `SetThinkingLevel`) only touch the
+owning instance. This makes subagent spawning and multi-Kit embedding race-free
+without external synchronization.
+
+### Functional options (`NewAgent`)
+
+For simple programmatic setups, `kit.NewAgent` is an ergonomic
+functional-options front door over `kit.New`. Streaming is enabled by default;
+pass `kit.WithStreaming(false)` to opt out.
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+```
+
+Helpers: `WithModel`, `WithSystemPrompt`, `WithStreaming`, `WithMaxTokens`,
+`WithThinkingLevel`, `WithTools`, `WithExtraTools`, `WithProviderAPIKey`,
+`WithProviderURL`, `WithConfigFile`, `WithDebug`, and `Ephemeral`. `Option` is
+a plain `func(*Options)`, so you can define your own. For fields without a
+`With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task
+tuning) construct an `Options` value and call `kit.New`.
+
 ### Options
 
 You can override specific settings:
@@ -59,7 +89,7 @@ host, err := kit.New(ctx, &kit.Options{
     SystemPrompt: "You are a helpful bot",    // Override system prompt
     ConfigFile:   "/path/to/config.yml",      // Use specific config file
     MaxSteps:     10,                         // Override max steps
-    Streaming:    true,                       // Enable streaming
+    Streaming:    ptrBool(true),               // *bool: nil = unset (default true), &false = off
     Quiet:        true,                       // Suppress debug output
 
     // Session options
@@ -331,6 +361,7 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 
 - `Kit` - Main SDK type
 - `Options` - Configuration options
+- `Option` - Functional option (`func(*Options)`) for `NewAgent`
 - `Message` - Conversation message with typed content parts
 - `Tool` - Agent tool interface
 - `TurnResult` - Full result from a prompt including usage stats
@@ -338,6 +369,7 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 ### Key Methods
 
 - `New(ctx, opts)` - Create new Kit instance
+- `NewAgent(ctx, ...Option)` - Create a Kit via functional options (streaming on by default)
 - `Prompt(ctx, message)` - Send message and get response string
 - `PromptResult(ctx, message)` - Send message and get full TurnResult
 - `PromptWithOptions(ctx, message, opts)` - Prompt with per-call options

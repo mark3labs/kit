@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/log"
+	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/extbridge"
 	"github.com/mark3labs/kit/internal/extensions"
@@ -38,10 +39,21 @@ func newSessionRegistry() *sessionRegistry {
 // given working directory. The Kit-generated session ID is used as the ACP
 // session ID so the mapping is 1:1.
 func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, error) {
+	// Each ACP session gets its own isolated config store (CLI is left nil) so
+	// per-session SetModel / SetThinkingLevel calls cannot race or bleed across
+	// the sessionRegistry. We seed the relevant root-command flag values from
+	// the process-global store (which cobra populated from flags) so launching
+	// `kit acp -m <model> [--thinking-level ...] [--provider-url ...]` is still
+	// honored; .kit.yml and KIT_* env vars are loaded per session by kit.New.
+	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
-		SessionDir: cwd,
-		Quiet:      true,
-		Streaming:  true,
+		SessionDir:     cwd,
+		Quiet:          true,
+		Streaming:      &streamOn,
+		Model:          viper.GetString("model"),
+		ThinkingLevel:  viper.GetString("thinking-level"),
+		ProviderURL:    viper.GetString("provider-url"),
+		ProviderAPIKey: viper.GetString("provider-api-key"),
 	})
 	if err != nil {
 		// Provide actionable guidance for provider auth errors, which are

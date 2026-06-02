@@ -7,6 +7,16 @@ description: Configuration options for the Kit Go SDK.
 
 Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 
+::: tip
+For simple setups, `kit.NewAgent(ctx, ...Option)` provides functional-options
+helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...) over the same `Options`
+struct. See [Functional options](/sdk/overview#functional-options-newagent).
+:::
+
+Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
+these options never leak between Kit instances in the same process. See
+[Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
+
 ## Full options reference
 
 ```go
@@ -18,7 +28,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Behavior
     MaxSteps:     10,
-    Streaming:    true,
+    Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
     Debug:        true,
 
@@ -91,7 +101,7 @@ host, err := kit.New(ctx, &kit.Options{
 | `SystemPrompt` | `string` | — | System prompt text or file path |
 | `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |
-| `Streaming` | `bool` | `true` | Enable streaming output |
+| `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
 | `Quiet` | `bool` | `false` | Suppress output |
 | `Debug` | `bool` | `false` | Enable debug logging |
 
@@ -114,9 +124,10 @@ defaults for samplers).
 | `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |
 | `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |
 
-Pointer-typed samplers are populated via a tiny helper:
+Pointer-typed fields (`Streaming` and the samplers) are populated via tiny helpers:
 
 ```go
+func ptrBool(v bool) *bool          { return &v }
 func ptrFloat32(v float32) *float32 { return &v }
 ```
 
@@ -127,7 +138,7 @@ when embedding Kit as a library.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, overrides any pre-existing viper state. |
+| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance's store. |
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 

@@ -10,14 +10,24 @@ import (
 
 // loadCustomModelsFromConfig loads custom model definitions from the config file
 // and returns them as a map of model ID -> ModelInfo. Returns nil if no custom
-// models are configured.
+// models are configured. Reads from the process-global viper store (the model
+// registry is a process-global singleton).
 func loadCustomModelsFromConfig() map[string]ModelInfo {
-	if !viper.IsSet("customModels") {
+	return loadCustomModelsFrom(viper.GetViper())
+}
+
+// loadCustomModelsFrom loads custom model definitions from the supplied store.
+// When v is nil the process-global store is used.
+func loadCustomModelsFrom(v *viper.Viper) map[string]ModelInfo {
+	if v == nil {
+		v = viper.GetViper()
+	}
+	if !v.IsSet("customModels") {
 		return nil
 	}
 
 	var customModels map[string]CustomModelConfig
-	if err := viper.UnmarshalKey("customModels", &customModels); err != nil {
+	if err := v.UnmarshalKey("customModels", &customModels); err != nil {
 		log.Printf("Warning: Failed to parse customModels: %v", err)
 		return nil
 	}
@@ -60,15 +70,26 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 }
 
 // LoadModelSettingsFromConfig loads per-model generation parameter overrides
-// from the config file. Keys are "provider/model" strings. Returns nil if
-// no model settings are configured.
+// from the process-global viper store. Keys are "provider/model" strings.
+// Returns nil if no model settings are configured.
 func LoadModelSettingsFromConfig() map[string]*GenerationParams {
-	if !viper.IsSet("modelSettings") {
+	return LoadModelSettingsFrom(viper.GetViper())
+}
+
+// LoadModelSettingsFrom loads per-model generation parameter overrides from the
+// supplied per-instance store. When v is nil the process-global store is used.
+// Keys are "provider/model" strings. Returns nil if no model settings are
+// configured.
+func LoadModelSettingsFrom(v *viper.Viper) map[string]*GenerationParams {
+	if v == nil {
+		v = viper.GetViper()
+	}
+	if !v.IsSet("modelSettings") {
 		return nil
 	}
 
 	var settings map[string]GenerationParamsConfig
-	if err := viper.UnmarshalKey("modelSettings", &settings); err != nil {
+	if err := v.UnmarshalKey("modelSettings", &settings); err != nil {
 		log.Printf("Warning: Failed to parse modelSettings: %v", err)
 		return nil
 	}
@@ -148,12 +169,17 @@ func ApplyModelSettings(config *ProviderConfig, modelInfo *ModelInfo) {
 		return
 	}
 
+	// Resolve the config store: prefer the per-instance store carried on the
+	// ProviderConfig (set by BuildProviderConfig / Kit.New), falling back to
+	// the process-global store for callers that don't thread one through.
+	store := config.ConfigStore
+
 	// Collect model-level params: modelSettings override > custom model params.
 	// modelSettings takes priority because it's the more specific/intentional config.
 	var params *GenerationParams
 
 	// First check modelSettings from config.
-	if settings := LoadModelSettingsFromConfig(); settings != nil {
+	if settings := LoadModelSettingsFrom(store); settings != nil {
 		modelKey := provider + "/" + modelName
 		if p, ok := settings[modelKey]; ok {
 			params = p
@@ -173,28 +199,28 @@ func ApplyModelSettings(config *ProviderConfig, modelInfo *ModelInfo) {
 	// We check viper.IsSet() which returns true only when the key was
 	// set via CLI flag, environment variable, or config file global section.
 
-	if params.MaxTokens != nil && !isExplicitlySet("max-tokens") {
+	if params.MaxTokens != nil && !isExplicitlySet(store, "max-tokens") {
 		config.MaxTokens = *params.MaxTokens
 	}
-	if params.Temperature != nil && !isExplicitlySet("temperature") {
+	if params.Temperature != nil && !isExplicitlySet(store, "temperature") {
 		config.Temperature = params.Temperature
 	}
-	if params.TopP != nil && !isExplicitlySet("top-p") {
+	if params.TopP != nil && !isExplicitlySet(store, "top-p") {
 		config.TopP = params.TopP
 	}
-	if params.TopK != nil && !isExplicitlySet("top-k") {
+	if params.TopK != nil && !isExplicitlySet(store, "top-k") {
 		config.TopK = params.TopK
 	}
-	if params.FrequencyPenalty != nil && !isExplicitlySet("frequency-penalty") {
+	if params.FrequencyPenalty != nil && !isExplicitlySet(store, "frequency-penalty") {
 		config.FrequencyPenalty = params.FrequencyPenalty
 	}
-	if params.PresencePenalty != nil && !isExplicitlySet("presence-penalty") {
+	if params.PresencePenalty != nil && !isExplicitlySet(store, "presence-penalty") {
 		config.PresencePenalty = params.PresencePenalty
 	}
-	if len(params.StopSequences) > 0 && !isExplicitlySet("stop-sequences") {
+	if len(params.StopSequences) > 0 && !isExplicitlySet(store, "stop-sequences") {
 		config.StopSequences = params.StopSequences
 	}
-	if params.ThinkingLevel != "" && !isExplicitlySet("thinking-level") {
+	if params.ThinkingLevel != "" && !isExplicitlySet(store, "thinking-level") {
 		config.ThinkingLevel = params.ThinkingLevel
 	}
 	if params.SystemPrompt != "" && config.SystemPrompt == "" {
@@ -228,7 +254,14 @@ func LoadSystemPromptValue(input string) string {
 // isExplicitlySet returns true when the user has explicitly set a config key
 // via CLI flag, environment variable, or the global section of the config file.
 // Model-level defaults should not override explicitly set values.
-func isExplicitlySet(key string) bool {
+//
+// The check runs against the supplied per-instance store when non-nil,
+// otherwise the process-global store. This keeps the "explicit vs unset"
+// precedence contract per-Kit-instance once a store is threaded through.
+func isExplicitlySet(v *viper.Viper, key string) bool {
+	if v == nil {
+		v = viper.GetViper()
+	}
 	// viper.IsSet returns true if the key has been set in any of the
 	// data stores (flag, env, config file, default). We need to check
 	// whether the value was set at the global config level (not just
@@ -239,7 +272,7 @@ func isExplicitlySet(key string) bool {
 	// file values. This means global config file values (e.g.
 	// temperature: 0.7 at the top level) will correctly take precedence
 	// over model-level defaults, which is the desired behavior.
-	return viper.IsSet(key)
+	return v.IsSet(key)
 }
 
 // GenerationParams holds per-model generation parameter defaults.

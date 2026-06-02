@@ -53,6 +53,14 @@ type Kit struct {
 	opts           *Options       // stored for reload operations (skills, etc.)
 	mcpConfig      *config.Config // loaded MCP/server config, shared with subagents
 
+	// v is this Kit instance's isolated configuration store. Each Kit owns its
+	// own *viper.Viper (constructed via viper.New) so that runtime config
+	// mutators (SetModel, SetThinkingLevel) and config reads do not clobber or
+	// observe state from other Kit instances in the same process. When the CLI
+	// constructs a Kit (Options.CLI != nil) this points at the process-global
+	// store so cobra flag bindings remain in effect.
+	v *viper.Viper
+
 	// hasCustomSystemPrompt is true when the user explicitly configured a
 	// system prompt (via --system-prompt flag, config file, or SDK option).
 	// When false, per-model system prompts from modelSettings/customModels
@@ -555,8 +563,8 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 
 	// Build a provider config from current settings, overriding the model.
 	// Load system prompt properly (handles both file paths and inline content).
-	systemPrompt, _ := config.LoadSystemPrompt(viper.GetString("system-prompt"))
-	thinkingLevel := models.ParseThinkingLevel(viper.GetString("thinking-level"))
+	systemPrompt, _ := config.LoadSystemPrompt(m.v.GetString("system-prompt"))
+	thinkingLevel := models.ParseThinkingLevel(m.v.GetString("thinking-level"))
 
 	// Validate and adjust thinking level for the target model.
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
@@ -567,8 +575,8 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 			if !models.IsValidThinkingLevelForModel(thinkingLevel, modelName) {
 				fallback := models.SuggestThinkingLevelFallback(thinkingLevel, modelName)
 				if fallback != models.ThinkingOff {
-					// Adjust the thinking level in viper so the change persists.
-					viper.Set("thinking-level", string(fallback))
+					// Adjust the thinking level in the instance store so the change persists.
+					m.v.Set("thinking-level", string(fallback))
 					thinkingLevel = fallback
 				}
 			}
@@ -580,35 +588,36 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: viper.GetString("provider-api-key"),
-		ProviderURL:    viper.GetString("provider-url"),
-		MaxTokens:      viper.GetInt("max-tokens"),
-		TLSSkipVerify:  viper.GetBool("tls-skip-verify"),
+		ProviderAPIKey: m.v.GetString("provider-api-key"),
+		ProviderURL:    m.v.GetString("provider-url"),
+		MaxTokens:      m.v.GetInt("max-tokens"),
+		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
 		DisableCaching: false, // Caching enabled by default, works with thinking
+		ConfigStore:    m.v,
 	}
 
 	// Only set generation parameter pointers when the user has explicitly
 	// provided a value. This leaves nil pointers for unset params, allowing
 	// per-model defaults (modelSettings / customModels params) to apply.
-	if viper.IsSet("temperature") {
-		v := float32(viper.GetFloat64("temperature"))
+	if m.v.IsSet("temperature") {
+		v := float32(m.v.GetFloat64("temperature"))
 		cfg.Temperature = &v
 	}
-	if viper.IsSet("top-p") {
-		v := float32(viper.GetFloat64("top-p"))
+	if m.v.IsSet("top-p") {
+		v := float32(m.v.GetFloat64("top-p"))
 		cfg.TopP = &v
 	}
-	if viper.IsSet("top-k") {
-		v := int32(viper.GetInt("top-k"))
+	if m.v.IsSet("top-k") {
+		v := int32(m.v.GetInt("top-k"))
 		cfg.TopK = &v
 	}
-	if viper.IsSet("frequency-penalty") {
-		v := float32(viper.GetFloat64("frequency-penalty"))
+	if m.v.IsSet("frequency-penalty") {
+		v := float32(m.v.GetFloat64("frequency-penalty"))
 		cfg.FrequencyPenalty = &v
 	}
-	if viper.IsSet("presence-penalty") {
-		v := float32(viper.GetFloat64("presence-penalty"))
+	if m.v.IsSet("presence-penalty") {
+		v := float32(m.v.GetFloat64("presence-penalty"))
 		cfg.PresencePenalty = &v
 	}
 
@@ -734,7 +743,7 @@ func (m *Kit) ReloadExtensions() error {
 	}
 
 	// Re-load from disk.
-	extraPaths := viper.GetStringSlice("extension")
+	extraPaths := m.v.GetStringSlice("extension")
 	loaded, err := extensions.LoadExtensions(extraPaths)
 	if err != nil {
 		return fmt.Errorf("reloading extensions: %w", err)
@@ -742,6 +751,7 @@ func (m *Kit) ReloadExtensions() error {
 
 	// Swap extensions on the runner (clears dynamic state).
 	m.extRunner.Reload(loaded)
+	m.extRunner.SetConfigStore(m.v)
 
 	// Update extension tools on the agent so the LLM sees changes.
 	if m.agent != nil {
@@ -780,7 +790,8 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
 			ModelString:   req.Model,
-			TLSSkipVerify: viper.GetBool("tls-skip-verify"),
+			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
+			ConfigStore:   m.v,
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
@@ -866,37 +877,30 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequ
 // prompts, configuration, and behavior settings. All fields are optional
 // and will use CLI defaults if not specified.
 //
-// Global viper state warning:
-// Options are applied by [New] via [viper.Set] calls against viper's
-// process-global store. This store is shared with every downstream reader
-// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel], BuildProviderConfig, and
-// any other code path that calls viper.Get*). Two consequences:
-//
-//  1. Kit instances are NOT isolated from each other within a single
-//     process. Values set by the second New() call overwrite the first,
-//     and any code that later reads viper will see the most recent Set.
-//  2. Fields left at the zero value do NOT clear prior viper state; they
-//     simply skip the viper.Set. Callers that need a clean slate between
-//     constructions should invoke viper.Reset() (the test suite uses a
-//     private resetViper() helper that wraps it) before the next New().
-//
-// Recommended usage: create one Kit per process, or reset viper between
-// constructions. Concurrent calls to New are serialized internally by
-// [viperInitMu], but that mutex does not prevent later viper reads (from
-// a different Kit) from observing mutated keys.
-//
-// TODO: refactor New to use a per-instance *viper.Viper (constructed via
-// viper.New()) so each Kit owns its own isolated config store and Options
-// no longer leak through the global singleton.
+// Config isolation: each [New] / [NewAgent] call constructs its own isolated
+// configuration store (via viper.New internally). Options are applied to that
+// per-instance store, so two Kits constructed in the same process do NOT share
+// or clobber each other's configuration. Runtime mutators ([Kit.SetModel],
+// [Kit.SetThinkingLevel]) and config readers ([Kit.GetThinkingLevel]) operate
+// only on the owning instance. Fields left at their zero value are simply not
+// applied; they fall through to the precedence chain (env → .kit.yml →
+// per-model defaults) resolved within the instance's own store.
 type Options struct {
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
 	ConfigFile   string // Override config file path
 	MaxSteps     int    // Override max steps (0 = use default)
-	Streaming    bool   // Enable streaming (default from config)
-	Quiet        bool   // Suppress debug output
-	Tools        []Tool // Custom tool set. If empty, AllTools() is used.
-	ExtraTools   []Tool // Additional tools added alongside core/MCP/extension tools.
+
+	// Streaming enables or disables streaming output. It is a pointer so the
+	// SDK can distinguish "unset" (nil) from an explicit choice, mirroring the
+	// sampling-parameter fields below. nil leaves streaming to the precedence
+	// chain (env → .kit.yml → default true); a non-nil value forces it. Prefer
+	// [WithStreaming] for the functional-options API.
+	Streaming *bool
+
+	Quiet      bool   // Suppress debug output
+	Tools      []Tool // Custom tool set. If empty, AllTools() is used.
+	ExtraTools []Tool // Additional tools added alongside core/MCP/extension tools.
 
 	// Generation parameters. These override the corresponding values from
 	// .kit.yml / KIT_* environment variables. Leaving a field at its
@@ -1169,40 +1173,40 @@ func InitTreeSession(opts *Options) (*session.TreeManager, error) {
 	return session.CreateTreeSession(sessionDir)
 }
 
-// viperInitMu serializes viper writes during [New]. Viper's global state
-// is not thread-safe, so concurrent calls (e.g. parallel subagent spawns)
-// must not overlap the Set/Get window. Note that this mutex only protects
-// the construction window — it does not isolate long-lived Kit instances
-// from each other. See the "Global viper state warning" on [Options].
-var viperInitMu sync.Mutex
-
 // New creates a Kit instance using the same initialization as the CLI.
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
 //
-// Global viper state warning: fields on [Options] are applied by calling
-// [viper.Set] on viper's process-global store. As a result, two Kits
-// constructed in the same process are NOT isolated: the second New
-// overwrites viper keys set by the first, and any downstream reader
-// (e.g. [Kit.SetModel], [Kit.GetThinkingLevel]) will observe the most
-// recent value. Callers that need multiple independent Kits should call
-// viper.Reset() between constructions, or avoid constructing more than
-// one Kit per process. Writes during New are serialized by [viperInitMu].
+// Config isolation: New constructs a per-instance configuration store (via
+// viper.New internally) and applies [Options] to it. Two Kits constructed in
+// the same process are therefore fully isolated — neither overwrites the
+// other's model, thinking level, or generation parameters, and runtime
+// mutators ([Kit.SetModel], [Kit.SetThinkingLevel]) only affect the owning
+// instance. This makes subagent spawning and multi-Kit embedding safe without
+// any external synchronization.
 //
-// TODO: refactor to use a per-call viper.New() instance so each Kit owns
-// its own isolated config store and Options stop leaking through the
-// global singleton.
+// CLI integration: when Options.CLI is non-nil the Kit shares the
+// process-global viper store instead of allocating a fresh one, so cobra flag
+// bindings established by the CLI remain in effect. SDK callers leave
+// Options.CLI nil and always get an isolated store.
+//
+// For an ergonomic functional-options front door, see [NewAgent].
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
 
-	// All viper writes (SetSDKDefaults, InitConfig, Set calls, system-prompt
-	// composition) happen under viperInitMu. We also call BuildProviderConfig
-	// here — it's fast (just reads) — so we can capture the full config
-	// snapshot before releasing the lock. The expensive work (MCP loading,
-	// provider creation, session init) then runs outside the lock, allowing
-	// parallel subagent spawns to proceed concurrently.
+	// Construct this Kit's configuration store. SDK callers get a fresh,
+	// isolated *viper.Viper so concurrent constructions never clobber each
+	// other. The CLI (Options.CLI != nil) shares the process-global store so
+	// its cobra flag bindings and pre-loaded config remain visible.
+	var v *viper.Viper
+	if opts.CLI != nil {
+		v = viper.GetViper()
+	} else {
+		v = viper.New()
+	}
+
 	var (
 		providerConfig        *models.ProviderConfig
 		modelString           string
@@ -1221,79 +1225,84 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	)
 
 	if err := func() error {
-		viperInitMu.Lock()
-		defer viperInitMu.Unlock()
+		// Set CLI-equivalent defaults on the instance store. When used as an
+		// SDK (without cobra), these defaults are not registered via flag bindings.
+		setSDKDefaults(v)
 
-		// Set CLI-equivalent defaults for viper. When used as an SDK (without
-		// cobra), these defaults are not registered via flag bindings.
-		setSDKDefaults()
-
-		// Initialize config (loads config files and env vars).
-		// Only initialize if not already done (e.g., by CLI's cobra.OnInitialize).
-		// Check if model is already set, which indicates config was loaded.
+		// Initialize config (loads config files and env vars) into the instance
+		// store. The CLI shares the process-global store, which cobra.OnInitialize
+		// has already populated, so re-running initConfig there is unnecessary;
+		// SDK callers get a fresh isolated store that must be loaded here.
+		// We key off opts.CLI (not a config value) because setSDKDefaults always
+		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
-		if !opts.SkipConfig && viper.GetString("model") == "" {
-			if err := InitConfig(opts.ConfigFile, false); err != nil {
+		if !opts.SkipConfig && opts.CLI == nil {
+			if err := initConfig(v, opts.ConfigFile, false); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
 		}
 
 		// Handle CLI debug mode.
 		if opts.Debug {
-			viper.Set("debug", true)
+			v.Set("debug", true)
 		}
 
-		// Override viper settings with options.
+		// Override instance settings with options.
 		if opts.Model != "" {
-			viper.Set("model", opts.Model)
+			v.Set("model", opts.Model)
 		}
 		if opts.SystemPrompt != "" {
-			viper.Set("system-prompt", opts.SystemPrompt)
+			v.Set("system-prompt", opts.SystemPrompt)
 		}
 		if opts.MaxSteps > 0 {
-			viper.Set("max-steps", opts.MaxSteps)
+			v.Set("max-steps", opts.MaxSteps)
 		}
-		viper.Set("stream", opts.Streaming)
+		// Only override streaming when the caller explicitly set it. Otherwise
+		// leave the precedence chain (env → config → default true) untouched so a
+		// zero-valued Options does not silently force stream=false.
+		if opts.Streaming != nil {
+			v.Set("stream", *opts.Streaming)
+		}
 
 		// Generation parameter overrides. Each Options field, when set,
-		// is pushed into viper here so the existing downstream code
-		// (BuildProviderConfig, SetModel, modelSettings lookups) picks
-		// it up uniformly. Pointer-typed sampling params use viper.Set
-		// only when non-nil so that nil means "leave provider/per-model
-		// default in place" (BuildProviderConfig keys off viper.IsSet).
+		// is pushed into the instance store here so the existing downstream
+		// code (BuildProviderConfig, SetModel, modelSettings lookups) picks
+		// it up uniformly. Pointer-typed sampling params use Set only when
+		// non-nil so that nil means "leave provider/per-model default in
+		// place" (BuildProviderConfig keys off IsSet).
 		if opts.MaxTokens > 0 {
-			viper.Set("max-tokens", opts.MaxTokens)
+			v.Set("max-tokens", opts.MaxTokens)
 		}
 		if opts.ThinkingLevel != "" {
-			viper.Set("thinking-level", opts.ThinkingLevel)
+			v.Set("thinking-level", opts.ThinkingLevel)
 		}
 		if opts.Temperature != nil {
-			viper.Set("temperature", *opts.Temperature)
+			v.Set("temperature", *opts.Temperature)
 		}
 		if opts.TopP != nil {
-			viper.Set("top-p", *opts.TopP)
+			v.Set("top-p", *opts.TopP)
 		}
 		if opts.TopK != nil {
-			viper.Set("top-k", *opts.TopK)
+			v.Set("top-k", *opts.TopK)
 		}
 		if opts.FrequencyPenalty != nil {
-			viper.Set("frequency-penalty", *opts.FrequencyPenalty)
+			v.Set("frequency-penalty", *opts.FrequencyPenalty)
 		}
 		if opts.PresencePenalty != nil {
-			viper.Set("presence-penalty", *opts.PresencePenalty)
+			v.Set("presence-penalty", *opts.PresencePenalty)
 		}
 
 		// Provider overrides. TLSSkipVerify only takes effect when true —
 		// callers wanting to force-disable should use the config file or
 		// env var instead.
 		if opts.ProviderAPIKey != "" {
-			viper.Set("provider-api-key", opts.ProviderAPIKey)
+			v.Set("provider-api-key", opts.ProviderAPIKey)
 		}
 		if opts.ProviderURL != "" {
-			viper.Set("provider-url", opts.ProviderURL)
+			v.Set("provider-url", opts.ProviderURL)
 		}
 		if opts.TLSSkipVerify {
-			viper.Set("tls-skip-verify", true)
+			v.Set("tls-skip-verify", true)
 		}
 
 		// Resolve working directory for context/skill discovery.
@@ -1324,7 +1333,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// explicitly set system-prompt, use the per-model prompt as the
 		// base instead of the global default.
 		{
-			rawPromptInput := viper.GetString("system-prompt")
+			rawPromptInput := v.GetString("system-prompt")
 
 			// Resolve a file path to its content so PromptBuilder receives the
 			// actual prompt text rather than a literal path string. Without this,
@@ -1349,12 +1358,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			// Check for per-model system prompt override when no explicit
 			// global system-prompt was configured by the user.
 			if !userSetSystemPrompt {
-				modelStr := viper.GetString("model")
+				modelStr := v.GetString("model")
 				if modelStr != "" {
 					if mi := models.LookupModelForSettings(modelStr); mi != nil {
 						var perModelParams *models.GenerationParams
 						// modelSettings takes priority over custom model params.
-						if ms := models.LoadModelSettingsFromConfig(); ms != nil {
+						if ms := models.LoadModelSettingsFrom(v); ms != nil {
 							perModelParams = ms[modelStr]
 						}
 						if perModelParams == nil && mi.Params != nil {
@@ -1389,42 +1398,42 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 				time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
 			))
 
-			viper.Set("system-prompt", pb.Build())
+			v.Set("system-prompt", pb.Build())
 		}
 
-		// Snapshot all viper-derived values now, while the lock is held.
-		// BuildProviderConfig is fast (pure reads), so we do it here.
+		// Snapshot all instance-derived values now.
+		// BuildProviderConfig is fast (pure reads).
 		var pcErr error
-		providerConfig, _, pcErr = kitsetup.BuildProviderConfig()
+		providerConfig, _, pcErr = kitsetup.BuildProviderConfig(v)
 		if pcErr != nil {
 			return fmt.Errorf("failed to build provider config: %w", pcErr)
 		}
 
 		// SDK last-resort max-tokens floor. When nothing — Options, env,
 		// config, nor a per-model default — supplied a value, we land on
-		// zero here (viper.GetInt returns 0 for unset keys). Apply the
-		// SDK default directly on the struct rather than via viper so
-		// viper.IsSet("max-tokens") stays false: downstream right-sizing
+		// zero here (GetInt returns 0 for unset keys). Apply the
+		// SDK default directly on the struct rather than via the store so
+		// IsSet("max-tokens") stays false: downstream right-sizing
 		// can still raise this toward the model's known output ceiling,
 		// and per-model modelSettings[...].maxTokens can still win.
 		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
-		modelString = viper.GetString("model")
-		debug = viper.GetBool("debug")
-		noExtensions = opts.NoExtensions || viper.GetBool("no-extensions")
-		disableCoreTools = opts.DisableCoreTools || viper.GetBool("no-core-tools")
-		maxSteps = viper.GetInt("max-steps")
-		streaming = viper.GetBool("stream")
+		modelString = v.GetString("model")
+		debug = v.GetBool("debug")
+		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
+		disableCoreTools = opts.DisableCoreTools || v.GetBool("no-core-tools")
+		maxSteps = v.GetInt("max-steps")
+		streaming = v.GetBool("stream")
 
 		return nil
 	}(); err != nil {
 		return nil, err
 	}
-	// ---- viperInitMu released — heavy I/O below runs concurrently ----
+	// ---- config snapshot complete — heavy I/O below ----
 
 	// Load MCP configuration. Use pre-loaded config if provided directly,
-	// via CLI options, or load from viper as a last resort.
+	// via CLI options, or load from the instance store as a last resort.
 	if opts.MCPConfig != nil {
 		mcpConfig = opts.MCPConfig
 	} else if opts.CLI != nil && opts.CLI.MCPConfig != nil {
@@ -1432,7 +1441,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 	if mcpConfig == nil {
 		var err error
-		mcpConfig, err = config.LoadAndValidateConfig()
+		mcpConfig, err = config.LoadAndValidateConfigFrom(v)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load MCP config: %w", err)
 		}
@@ -1488,6 +1497,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			timeout:         opts.MCPTaskTimeout,
 			progress:        opts.MCPTaskProgress,
 		}.toToolsConfig(),
+		Viper: v,
 	}
 
 	// Set up OAuth handler for remote MCP servers. The SDK does not create
@@ -1557,6 +1567,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
 		mcpConfig:             mcpConfig,
+		v:                     v,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
 		systemPromptSource:    systemPromptSource,
 		basePrompt:            capturedBasePrompt,
@@ -1836,6 +1847,50 @@ type SubagentResult struct {
 	Elapsed time.Duration
 }
 
+// inheritProviderConfig copies the parent's effective provider/runtime
+// configuration from its isolated config store onto child Options. Used by
+// Kit.Subagent so the child — which owns a separate store and re-loads only
+// .kit.yml / KIT_* on its own — still observes provider credentials, the
+// thinking level, and sampler/token overrides the parent acquired via
+// programmatic Options or runtime setters (e.g. SetThinkingLevel).
+//
+// max-tokens and the sampling parameters are only propagated when the parent
+// explicitly set them (IsSet), preserving the tri-state precedence so per-model
+// defaults still apply on the child when the parent left them unset. A nil
+// child or store is a no-op.
+func inheritProviderConfig(child *Options, v *viper.Viper) {
+	if child == nil || v == nil {
+		return
+	}
+	child.ProviderAPIKey = v.GetString("provider-api-key")
+	child.ProviderURL = v.GetString("provider-url")
+	child.TLSSkipVerify = v.GetBool("tls-skip-verify")
+	child.ThinkingLevel = v.GetString("thinking-level")
+	if v.IsSet("max-tokens") {
+		child.MaxTokens = v.GetInt("max-tokens")
+	}
+	if v.IsSet("temperature") {
+		t := float32(v.GetFloat64("temperature"))
+		child.Temperature = &t
+	}
+	if v.IsSet("top-p") {
+		p := float32(v.GetFloat64("top-p"))
+		child.TopP = &p
+	}
+	if v.IsSet("top-k") {
+		k := int32(v.GetInt("top-k"))
+		child.TopK = &k
+	}
+	if v.IsSet("frequency-penalty") {
+		fp := float32(v.GetFloat64("frequency-penalty"))
+		child.FrequencyPenalty = &fp
+	}
+	if v.IsSet("presence-penalty") {
+		pp := float32(v.GetFloat64("presence-penalty"))
+		child.PresencePenalty = &pp
+	}
+}
+
 // Subagent spawns an in-process child Kit instance to perform a task. The
 // child gets its own session, event bus, and agent loop but shares the
 // parent's config (API keys, provider settings) and defaults to the parent's
@@ -1905,22 +1960,28 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 
 	// Create child Kit instance. Pass the parent's loaded MCP config to
-	// avoid re-reading viper (which races with concurrent subagent spawns).
-	// Streaming must be explicitly enabled — Options.Streaming defaults to
-	// false, and New() unconditionally writes viper.Set("stream", opts.Streaming).
-	// Without this, the subagent would (a) pollute viper global state for
-	// other concurrent callers and (b) potentially hit provider-level
-	// differences (e.g. Anthropic non-streaming timeouts with extended
-	// thinking).
+	// avoid re-loading and re-validating config for the child.
+	// Streaming is enabled explicitly — without it, non-streaming can hit
+	// provider-level differences (e.g. Anthropic non-streaming timeouts with
+	// extended thinking). The child gets its own config store, so this does not
+	// affect any other concurrent caller.
+	streamOn := true
 	childOpts := &Options{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
-		Streaming:    true,
+		Streaming:    &streamOn,
 		MCPConfig:    m.mcpConfig,
 	}
+
+	// Inherit the parent's effective provider/runtime configuration. Since #40
+	// each Kit owns an isolated config store, so the child's New() only re-loads
+	// .kit.yml / KIT_* on its own — values the parent picked up from
+	// programmatic Options or runtime setters (e.g. SetThinkingLevel) would
+	// otherwise be lost.
+	inheritProviderConfig(childOpts, m.v)
 	// Propagate the parent's MCP task configuration so a child subagent
 	// invoking long-running MCP tools observes the same per-server modes,
 	// timeouts, and progress callback as the parent. Without this, child
@@ -2129,7 +2190,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			}
 		},
 		OnStepUsage: func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
-			if viper.GetBool("debug") {
+			if m.v.GetBool("debug") {
 				log.Printf("DEBUG Kit.generate emitting StepUsageEvent: input=%d output=%d cacheRead=%d cacheCreate=%d",
 					inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
 				)
@@ -2625,7 +2686,7 @@ func (m *Kit) IsReasoningModel() bool {
 
 // GetThinkingLevel returns the current thinking level.
 func (m *Kit) GetThinkingLevel() string {
-	return viper.GetString("thinking-level")
+	return m.v.GetString("thinking-level")
 }
 
 // SetThinkingLevel changes the thinking level and recreates the agent with
@@ -2634,7 +2695,7 @@ func (m *Kit) GetThinkingLevel() string {
 // With message-level caching, both thinking and caching work together.
 // Caching reduces costs by 60-90% for repeated context.
 func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
-	viper.Set("thinking-level", level)
+	m.v.Set("thinking-level", level)
 	// Recreate agent with new thinking config by re-running SetModel
 	// with the same model string. SetModel rebuilds the provider and
 	// passes the updated viper config (including thinking-level).

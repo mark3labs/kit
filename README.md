@@ -556,7 +556,7 @@ host, err := kit.New(ctx, &kit.Options{
     SystemPrompt: "You are a helpful bot",
     ConfigFile:   "/path/to/config.yml",
     MaxSteps:     10,
-    Streaming:    true,
+    Streaming:    ptr(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
 
     // Generation parameters (override env/config/per-model defaults)
@@ -602,6 +602,38 @@ Precedence is `Options` > `KIT_*` env vars > `.kit.yml` > per-model defaults
 are pointer types so explicit `0.0` is distinguishable from "leave alone"; a
 non-zero `MaxTokens` suppresses automatic right-sizing the same way `--max-tokens`
 does on the CLI.
+
+### Functional options (`NewAgent`)
+
+For simple programmatic setups, `kit.NewAgent` offers an ergonomic
+functional-options front door over `kit.New`. Streaming is **enabled by
+default**; pass `kit.WithStreaming(false)` to opt out.
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+```
+
+Available options: `WithModel`, `WithSystemPrompt`, `WithStreaming`,
+`WithMaxTokens`, `WithThinkingLevel`, `WithTools`, `WithExtraTools`,
+`WithProviderAPIKey`, `WithProviderURL`, `WithConfigFile`, `WithDebug`, and
+`Ephemeral`. For advanced configuration not covered by the helpers (custom MCP
+config, in-process MCP servers, session backends, MCP task tuning) construct an
+`Options` value explicitly and call `kit.New`.
+
+### Per-instance config isolation
+
+Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (`SetModel`, `SetThinkingLevel`) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.
 
 ### MCP OAuth (remote MCP servers)
 

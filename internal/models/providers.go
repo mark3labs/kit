@@ -25,6 +25,7 @@ import (
 	openaisdk "github.com/charmbracelet/openai-go"
 
 	"github.com/mark3labs/kit/internal/auth"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -163,6 +164,13 @@ type ProviderConfig struct {
 	TLSSkipVerify    bool
 	ThinkingLevel    ThinkingLevel
 	DisableCaching   bool // Opt-out: set to true to disable automatic prompt caching
+
+	// ConfigStore is the per-instance configuration store used to resolve
+	// "explicitly set" precedence checks (isExplicitlySet), per-model
+	// settings, and right-sizing. When nil, the process-global viper store is
+	// used. Threading a per-Kit store here keeps generation-parameter
+	// precedence isolated between Kit instances in the same process.
+	ConfigStore *viper.Viper
 
 	// ProgressReaderFunc, when set, wraps an io.Reader with progress display
 	// for long operations like Ollama model pulls. The returned io.ReadCloser
@@ -530,7 +538,7 @@ func rightSizeMaxTokens(config *ProviderConfig, modelInfo *ModelInfo) {
 	if modelInfo == nil || modelInfo.Limit.Output <= 0 {
 		return
 	}
-	if isExplicitlySet("max-tokens") {
+	if isExplicitlySet(config.ConfigStore, "max-tokens") {
 		return
 	}
 	target := min(modelInfo.Limit.Output, defaultRightSizeCap)
