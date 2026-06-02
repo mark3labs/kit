@@ -7,7 +7,7 @@
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="canonical" href="/configuration">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-BlpsZ4Ox.js"></script>
+<script type="module" src="/assets/index-Q95EUVzd.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Configuration","description":"Configure Kit using config files, environment variables, and CLI flags.","url":"https://go-kit.dev/configuration","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -98,6 +98,9 @@ mcpServers:
     type: remote
     url: "https://pubmed.mcp.example.com"
     noOAuth: true  # skip OAuth for public servers
+    headers:
+      - "ApiKey: ${env://API_KEY}"              # required env var
+      - "X-Tenant: ${env://TENANT_ID:-default}" # with fallback default
 
   builds:
     type: remote
@@ -116,9 +119,10 @@ mcpServers:
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
 | `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
+| `headers` | list of strings | HTTP headers to attach to every request, each as a `"Key: Value"` string. Values support env-substitution: `${env://VAR}` or `${env://VAR:-default}`. |
 | `tasksMode` | string | When to augment `tools/call` with MCP task metadata: `auto` (default — only when the server advertises task support), `never`, or `always`. See [MCP tasks](#mcp-tasks-long-running-tools). |
 
-A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
+A legacy format with `transport`, `args`, and `env` fields is also supported; `headers` works in both the current and legacy formats.
 
 ### MCP tasks (long-running tools)
 
