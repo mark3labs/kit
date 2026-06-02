@@ -1847,6 +1847,50 @@ type SubagentResult struct {
 	Elapsed time.Duration
 }
 
+// inheritProviderConfig copies the parent's effective provider/runtime
+// configuration from its isolated config store onto child Options. Used by
+// Kit.Subagent so the child — which owns a separate store and re-loads only
+// .kit.yml / KIT_* on its own — still observes provider credentials, the
+// thinking level, and sampler/token overrides the parent acquired via
+// programmatic Options or runtime setters (e.g. SetThinkingLevel).
+//
+// max-tokens and the sampling parameters are only propagated when the parent
+// explicitly set them (IsSet), preserving the tri-state precedence so per-model
+// defaults still apply on the child when the parent left them unset. A nil
+// child or store is a no-op.
+func inheritProviderConfig(child *Options, v *viper.Viper) {
+	if child == nil || v == nil {
+		return
+	}
+	child.ProviderAPIKey = v.GetString("provider-api-key")
+	child.ProviderURL = v.GetString("provider-url")
+	child.TLSSkipVerify = v.GetBool("tls-skip-verify")
+	child.ThinkingLevel = v.GetString("thinking-level")
+	if v.IsSet("max-tokens") {
+		child.MaxTokens = v.GetInt("max-tokens")
+	}
+	if v.IsSet("temperature") {
+		t := float32(v.GetFloat64("temperature"))
+		child.Temperature = &t
+	}
+	if v.IsSet("top-p") {
+		p := float32(v.GetFloat64("top-p"))
+		child.TopP = &p
+	}
+	if v.IsSet("top-k") {
+		k := int32(v.GetInt("top-k"))
+		child.TopK = &k
+	}
+	if v.IsSet("frequency-penalty") {
+		fp := float32(v.GetFloat64("frequency-penalty"))
+		child.FrequencyPenalty = &fp
+	}
+	if v.IsSet("presence-penalty") {
+		pp := float32(v.GetFloat64("presence-penalty"))
+		child.PresencePenalty = &pp
+	}
+}
+
 // Subagent spawns an in-process child Kit instance to perform a task. The
 // child gets its own session, event bus, and agent loop but shares the
 // parent's config (API keys, provider settings) and defaults to the parent's
@@ -1931,6 +1975,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Streaming:    &streamOn,
 		MCPConfig:    m.mcpConfig,
 	}
+
+	// Inherit the parent's effective provider/runtime configuration. Since #40
+	// each Kit owns an isolated config store, so the child's New() only re-loads
+	// .kit.yml / KIT_* on its own — values the parent picked up from
+	// programmatic Options or runtime setters (e.g. SetThinkingLevel) would
+	// otherwise be lost.
+	inheritProviderConfig(childOpts, m.v)
 	// Propagate the parent's MCP task configuration so a child subagent
 	// invoking long-running MCP tools observes the same per-server modes,
 	// timeouts, and progress callback as the parent. Without this, child

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/mark3labs/kit/internal/tools"
 )
 
@@ -162,4 +164,83 @@ func TestSubagentPropagatesMCPTaskOptions(t *testing.T) {
 	// Nil parent is a no-op rather than a panic.
 	inheritMCPTaskOptions(&Options{}, nil)
 	inheritMCPTaskOptions(nil, parent)
+}
+
+// TestInheritProviderConfig verifies that Kit.Subagent's provider/runtime
+// config inheritance copies the parent's effective settings onto child
+// Options, and that the tri-state (IsSet) keys are only propagated when the
+// parent explicitly set them. Regression test for config loss after the
+// per-instance viper store isolation (#40).
+func TestInheritProviderConfig(t *testing.T) {
+	t.Run("explicit values propagate", func(t *testing.T) {
+		v := viper.New()
+		v.Set("provider-api-key", "sk-parent")
+		v.Set("provider-url", "https://proxy.internal/v1")
+		v.Set("tls-skip-verify", true)
+		v.Set("thinking-level", "high")
+		v.Set("max-tokens", 4321)
+		v.Set("temperature", 0.25)
+		v.Set("top-p", 0.9)
+		v.Set("top-k", 40)
+		v.Set("frequency-penalty", 0.1)
+		v.Set("presence-penalty", 0.2)
+
+		child := &Options{}
+		inheritProviderConfig(child, v)
+
+		if child.ProviderAPIKey != "sk-parent" {
+			t.Errorf("ProviderAPIKey = %q, want sk-parent", child.ProviderAPIKey)
+		}
+		if child.ProviderURL != "https://proxy.internal/v1" {
+			t.Errorf("ProviderURL = %q", child.ProviderURL)
+		}
+		if !child.TLSSkipVerify {
+			t.Error("TLSSkipVerify not propagated")
+		}
+		if child.ThinkingLevel != "high" {
+			t.Errorf("ThinkingLevel = %q, want high", child.ThinkingLevel)
+		}
+		if child.MaxTokens != 4321 {
+			t.Errorf("MaxTokens = %d, want 4321", child.MaxTokens)
+		}
+		if child.Temperature == nil || *child.Temperature != 0.25 {
+			t.Errorf("Temperature = %v, want 0.25", child.Temperature)
+		}
+		if child.TopP == nil || *child.TopP != 0.9 {
+			t.Errorf("TopP = %v, want 0.9", child.TopP)
+		}
+		if child.TopK == nil || *child.TopK != 40 {
+			t.Errorf("TopK = %v, want 40", child.TopK)
+		}
+		if child.FrequencyPenalty == nil || *child.FrequencyPenalty != 0.1 {
+			t.Errorf("FrequencyPenalty = %v, want 0.1", child.FrequencyPenalty)
+		}
+		if child.PresencePenalty == nil || *child.PresencePenalty != 0.2 {
+			t.Errorf("PresencePenalty = %v, want 0.2", child.PresencePenalty)
+		}
+	})
+
+	t.Run("unset tri-state keys stay unset", func(t *testing.T) {
+		// A store with no sampler / max-tokens keys must leave the child's
+		// pointers nil and MaxTokens zero so per-model defaults still apply.
+		v := viper.New()
+		child := &Options{}
+		inheritProviderConfig(child, v)
+
+		if child.MaxTokens != 0 {
+			t.Errorf("MaxTokens = %d, want 0 (unset)", child.MaxTokens)
+		}
+		if child.Temperature != nil || child.TopP != nil || child.TopK != nil ||
+			child.FrequencyPenalty != nil || child.PresencePenalty != nil {
+			t.Error("sampler pointers must stay nil when the parent did not set them")
+		}
+		if child.ThinkingLevel != "" {
+			t.Errorf("ThinkingLevel = %q, want empty", child.ThinkingLevel)
+		}
+	})
+
+	t.Run("nil child or store is a no-op", func(t *testing.T) {
+		inheritProviderConfig(nil, viper.New())
+		inheritProviderConfig(&Options{}, nil)
+	})
 }
