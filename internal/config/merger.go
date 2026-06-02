@@ -31,7 +31,7 @@ func LoadAndValidateConfigFrom(v *viper.Viper) (*Config, error) {
 		MCPServers: make(map[string]MCPServerConfig),
 	}
 	if err := v.Unmarshal(config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	// Fix environment variable case sensitivity issue
@@ -39,7 +39,7 @@ func LoadAndValidateConfigFrom(v *viper.Viper) (*Config, error) {
 	fixEnvironmentCase(v, config)
 
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %v", err)
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return config, nil

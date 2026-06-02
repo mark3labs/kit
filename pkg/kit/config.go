@@ -92,6 +92,17 @@ func initConfig(v *viper.Viper, configFile string, debug bool) error {
 	if v == nil {
 		v = viper.GetViper()
 	}
+
+	// Configure KIT_* environment overrides unconditionally, before any file
+	// is loaded, so that an explicit config file does not disable env support.
+	// Map hyphenated config keys (e.g. "max-tokens") to underscored env var
+	// names (e.g. KIT_MAX_TOKENS); without this AutomaticEnv looks for
+	// KIT_MAX-TOKENS and silently misses valid overrides. Precedence is
+	// resolved at read time, so calling these before ReadConfig is fine.
+	v.SetEnvPrefix("KIT")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+
 	if configFile != "" {
 		return loadConfigWithEnvSubstitution(v, configFile)
 	}
@@ -130,12 +141,6 @@ func initConfig(v *viper.Viper, configFile string, debug bool) error {
 		fmt.Fprintf(os.Stderr, "No config file found in current directory or home directory\n")
 	}
 
-	v.SetEnvPrefix("KIT")
-	// Map hyphenated config keys (e.g. "max-tokens") to underscored env
-	// var names (e.g. KIT_MAX_TOKENS). Without this, AutomaticEnv looks
-	// for KIT_MAX-TOKENS and silently misses valid env overrides.
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.AutomaticEnv()
 	return nil
 }
 

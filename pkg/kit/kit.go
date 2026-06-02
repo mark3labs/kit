@@ -1223,10 +1223,13 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		setSDKDefaults(v)
 
 		// Initialize config (loads config files and env vars) into the instance
-		// store. Only initialize if not already done (e.g., by CLI's
-		// cobra.OnInitialize, which populates the shared global store).
+		// store. The CLI shares the process-global store, which cobra.OnInitialize
+		// has already populated, so re-running initConfig there is unnecessary;
+		// SDK callers get a fresh isolated store that must be loaded here.
+		// We key off opts.CLI (not a config value) because setSDKDefaults always
+		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
-		if !opts.SkipConfig && v.GetString("model") == "" {
+		if !opts.SkipConfig && opts.CLI == nil {
 			if err := initConfig(v, opts.ConfigFile, false); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
