@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-Q95EUVzd.js"></script>
+<script type="module" src="/assets/index-39SlNbn6.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -53,6 +53,73 @@ func main() {
 
     println(response)
 }
+```
+
+## Functional options (`NewAgent`)
+
+For simple programmatic setups, `kit.NewAgent` offers an ergonomic
+functional-options front door over `kit.New`. Streaming is **enabled by
+default**; pass `kit.WithStreaming(false)` to opt out.
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer host.Close()
+```
+
+Available options:
+
+| Option | Sets |
+|--------|------|
+| `WithModel(string)` | `Options.Model` (provider/model format) |
+| `WithSystemPrompt(string)` | `Options.SystemPrompt` (inline text or file path) |
+| `WithStreaming(bool)` | `Options.Streaming` (default `true` under `NewAgent`) |
+| `WithMaxTokens(int)` | `Options.MaxTokens` |
+| `WithThinkingLevel(string)` | `Options.ThinkingLevel` |
+| `WithTools(...Tool)` | `Options.Tools` (replaces the default set) |
+| `WithExtraTools(...Tool)` | `Options.ExtraTools` (adds alongside defaults) |
+| `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
+| `WithProviderURL(string)` | `Options.ProviderURL` |
+| `WithConfigFile(string)` | `Options.ConfigFile` |
+| `WithDebug()` | `Options.Debug = true` |
+| `Ephemeral()` | `Options.NoSession = true` |
+
+Options are applied in order, so later options override earlier ones. `Option`
+is a plain `func(*Options)`, so you can define your own. For advanced
+configuration not covered by the helpers (custom MCP config, in-process MCP
+servers, session backends, MCP task tuning) construct an `Options` value
+explicitly and call `kit.New`.
+
+### When to use which
+
+| Constructor | Use when |
+|-------------|----------|
+| `kit.NewAgent(ctx, ...Option)` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
+| `kit.New(ctx, *Options)` | You need fields without a `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task tuning, etc.), or you already hold an `Options` value. |
+
+## Per-instance config isolation
+
+Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (`SetModel`, `SetThinkingLevel`) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.
+
+```go
+a, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("low"))
+b, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("high"))
+
+a.SetThinkingLevel(ctx, "medium")
+// a.GetThinkingLevel() == "medium"; b.GetThinkingLevel() is still "high"
 ```
 
 ## Multi-turn conversations

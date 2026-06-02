@@ -30,6 +30,116 @@ const s={frontmatter:{title:"Go SDK",description:"Embed Kit in your Go applicati
 <span class="line"></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(response)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<h2 id="functional-options-newagent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#functional-options-newagent"><span class="icon icon-link"></span></a>Functional options (<code>NewAgent</code>)</h2>
+<p>For simple programmatic setups, <code>kit.NewAgent</code> offers an ergonomic
+functional-options front door over <code>kit.New</code>. Streaming is <strong>enabled by
+default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithSystemPrompt</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a helpful assistant."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithMaxTokens</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">8192</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"medium"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Ephemeral</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(), </span><span style="color:#6A737D;--shiki-dark:#6A737D">// in-memory session, no persistence</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Fatal</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Close</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<p>Available options:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WithModel(string)</code></td>
+<td><code>Options.Model</code> (provider/model format)</td>
+</tr>
+<tr>
+<td><code>WithSystemPrompt(string)</code></td>
+<td><code>Options.SystemPrompt</code> (inline text or file path)</td>
+</tr>
+<tr>
+<td><code>WithStreaming(bool)</code></td>
+<td><code>Options.Streaming</code> (default <code>true</code> under <code>NewAgent</code>)</td>
+</tr>
+<tr>
+<td><code>WithMaxTokens(int)</code></td>
+<td><code>Options.MaxTokens</code></td>
+</tr>
+<tr>
+<td><code>WithThinkingLevel(string)</code></td>
+<td><code>Options.ThinkingLevel</code></td>
+</tr>
+<tr>
+<td><code>WithTools(...Tool)</code></td>
+<td><code>Options.Tools</code> (replaces the default set)</td>
+</tr>
+<tr>
+<td><code>WithExtraTools(...Tool)</code></td>
+<td><code>Options.ExtraTools</code> (adds alongside defaults)</td>
+</tr>
+<tr>
+<td><code>WithProviderAPIKey(string)</code></td>
+<td><code>Options.ProviderAPIKey</code></td>
+</tr>
+<tr>
+<td><code>WithProviderURL(string)</code></td>
+<td><code>Options.ProviderURL</code></td>
+</tr>
+<tr>
+<td><code>WithConfigFile(string)</code></td>
+<td><code>Options.ConfigFile</code></td>
+</tr>
+<tr>
+<td><code>WithDebug()</code></td>
+<td><code>Options.Debug = true</code></td>
+</tr>
+<tr>
+<td><code>Ephemeral()</code></td>
+<td><code>Options.NoSession = true</code></td>
+</tr>
+</tbody>
+</table>
+<p>Options are applied in order, so later options override earlier ones. <code>Option</code>
+is a plain <code>func(*Options)</code>, so you can define your own. For advanced
+configuration not covered by the helpers (custom MCP config, in-process MCP
+servers, session backends, MCP task tuning) construct an <code>Options</code> value
+explicitly and call <code>kit.New</code>.</p>
+<h3 id="when-to-use-which"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#when-to-use-which"><span class="icon icon-link"></span></a>When to use which</h3>
+<table>
+<thead>
+<tr>
+<th>Constructor</th>
+<th>Use when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kit.NewAgent(ctx, ...Option)</code></td>
+<td>Quick programmatic setups; you only need the common fields. Streaming defaults on.</td>
+</tr>
+<tr>
+<td><code>kit.New(ctx, *Options)</code></td>
+<td>You need fields without a <code>With*</code> helper (<code>MCPConfig</code>, <code>InProcessMCPServers</code>, <code>SessionManager</code>, MCP task tuning, etc.), or you already hold an <code>Options</code> value.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="per-instance-config-isolation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#per-instance-config-isolation"><span class="icon icon-link"></span></a>Per-instance config isolation</h2>
+<p>Each <code>kit.New</code> / <code>kit.NewAgent</code> call owns an <strong>isolated configuration store</strong>,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (<code>SetModel</code>, <code>SetThinkingLevel</code>) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">a, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"low"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">))</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">b, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"high"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">))</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">a.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"medium"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// a.GetThinkingLevel() == "medium"; b.GetThinkingLevel() is still "high"</span></span></code></pre>
 <h2 id="multi-turn-conversations"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#multi-turn-conversations"><span class="icon icon-link"></span></a>Multi-turn conversations</h2>
 <p>Conversations retain context automatically across calls:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Prompt</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"My name is Alice"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
@@ -290,7 +400,7 @@ for the full surface.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -331,6 +441,73 @@ func main() {
 
     println(response)
 }
+\`\`\`
+
+## Functional options (\`NewAgent\`)
+
+For simple programmatic setups, \`kit.NewAgent\` offers an ergonomic
+functional-options front door over \`kit.New\`. Streaming is **enabled by
+default**; pass \`kit.WithStreaming(false)\` to opt out.
+
+\`\`\`go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer host.Close()
+\`\`\`
+
+Available options:
+
+| Option | Sets |
+|--------|------|
+| \`WithModel(string)\` | \`Options.Model\` (provider/model format) |
+| \`WithSystemPrompt(string)\` | \`Options.SystemPrompt\` (inline text or file path) |
+| \`WithStreaming(bool)\` | \`Options.Streaming\` (default \`true\` under \`NewAgent\`) |
+| \`WithMaxTokens(int)\` | \`Options.MaxTokens\` |
+| \`WithThinkingLevel(string)\` | \`Options.ThinkingLevel\` |
+| \`WithTools(...Tool)\` | \`Options.Tools\` (replaces the default set) |
+| \`WithExtraTools(...Tool)\` | \`Options.ExtraTools\` (adds alongside defaults) |
+| \`WithProviderAPIKey(string)\` | \`Options.ProviderAPIKey\` |
+| \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
+| \`WithConfigFile(string)\` | \`Options.ConfigFile\` |
+| \`WithDebug()\` | \`Options.Debug = true\` |
+| \`Ephemeral()\` | \`Options.NoSession = true\` |
+
+Options are applied in order, so later options override earlier ones. \`Option\`
+is a plain \`func(*Options)\`, so you can define your own. For advanced
+configuration not covered by the helpers (custom MCP config, in-process MCP
+servers, session backends, MCP task tuning) construct an \`Options\` value
+explicitly and call \`kit.New\`.
+
+### When to use which
+
+| Constructor | Use when |
+|-------------|----------|
+| \`kit.NewAgent(ctx, ...Option)\` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
+| \`kit.New(ctx, *Options)\` | You need fields without a \`With*\` helper (\`MCPConfig\`, \`InProcessMCPServers\`, \`SessionManager\`, MCP task tuning, etc.), or you already hold an \`Options\` value. |
+
+## Per-instance config isolation
+
+Each \`kit.New\` / \`kit.NewAgent\` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (\`SetModel\`, \`SetThinkingLevel\`) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.
+
+\`\`\`go
+a, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("low"))
+b, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("high"))
+
+a.SetThinkingLevel(ctx, "medium")
+// a.GetThinkingLevel() == "medium"; b.GetThinkingLevel() is still "high"
 \`\`\`
 
 ## Multi-turn conversations

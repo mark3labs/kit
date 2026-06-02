@@ -371,7 +371,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2191
+      "wordCount": 2292
     },
     {
       "id": "sdk/overview",
@@ -381,6 +381,9 @@
       "headings": [
         "Installation",
         "Basic usage",
+        "Functional options (NewAgent)",
+        "When to use which",
+        "Per-instance config isolation",
         "Multi-turn conversations",
         "Additional prompt methods",
         "Custom tools",
@@ -396,7 +399,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 1184
+      "wordCount": 1518
     },
     {
       "id": "sdk/sessions",

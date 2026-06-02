@@ -2682,6 +2682,16 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 
 Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 
+::: tip
+For simple setups, `kit.NewAgent(ctx, ...Option)` provides functional-options
+helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...) over the same `Options`
+struct. See [Functional options](/sdk/overview#functional-options-newagent).
+:::
+
+Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
+these options never leak between Kit instances in the same process. See
+[Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
+
 ## Full options reference
 
 ```go
@@ -2693,7 +2703,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Behavior
     MaxSteps:     10,
-    Streaming:    true,
+    Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
     Debug:        true,
 
@@ -2766,7 +2776,7 @@ host, err := kit.New(ctx, &kit.Options{
 | `SystemPrompt` | `string` | — | System prompt text or file path |
 | `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |
-| `Streaming` | `bool` | `true` | Enable streaming output |
+| `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
 | `Quiet` | `bool` | `false` | Suppress output |
 | `Debug` | `bool` | `false` | Enable debug logging |
 
@@ -2789,9 +2799,10 @@ defaults for samplers).
 | `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |
 | `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |
 
-Pointer-typed samplers are populated via a tiny helper:
+Pointer-typed fields (`Streaming` and the samplers) are populated via tiny helpers:
 
 ```go
+func ptrBool(v bool) *bool          { return &v }
 func ptrFloat32(v float32) *float32 { return &v }
 ```
 
@@ -2802,7 +2813,7 @@ when embedding Kit as a library.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, overrides any pre-existing viper state. |
+| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance's store. |
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 
@@ -3094,6 +3105,73 @@ func main() {
 
     println(response)
 }
+```
+
+## Functional options (`NewAgent`)
+
+For simple programmatic setups, `kit.NewAgent` offers an ergonomic
+functional-options front door over `kit.New`. Streaming is **enabled by
+default**; pass `kit.WithStreaming(false)` to opt out.
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer host.Close()
+```
+
+Available options:
+
+| Option | Sets |
+|--------|------|
+| `WithModel(string)` | `Options.Model` (provider/model format) |
+| `WithSystemPrompt(string)` | `Options.SystemPrompt` (inline text or file path) |
+| `WithStreaming(bool)` | `Options.Streaming` (default `true` under `NewAgent`) |
+| `WithMaxTokens(int)` | `Options.MaxTokens` |
+| `WithThinkingLevel(string)` | `Options.ThinkingLevel` |
+| `WithTools(...Tool)` | `Options.Tools` (replaces the default set) |
+| `WithExtraTools(...Tool)` | `Options.ExtraTools` (adds alongside defaults) |
+| `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
+| `WithProviderURL(string)` | `Options.ProviderURL` |
+| `WithConfigFile(string)` | `Options.ConfigFile` |
+| `WithDebug()` | `Options.Debug = true` |
+| `Ephemeral()` | `Options.NoSession = true` |
+
+Options are applied in order, so later options override earlier ones. `Option`
+is a plain `func(*Options)`, so you can define your own. For advanced
+configuration not covered by the helpers (custom MCP config, in-process MCP
+servers, session backends, MCP task tuning) construct an `Options` value
+explicitly and call `kit.New`.
+
+### When to use which
+
+| Constructor | Use when |
+|-------------|----------|
+| `kit.NewAgent(ctx, ...Option)` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
+| `kit.New(ctx, *Options)` | You need fields without a `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task tuning, etc.), or you already hold an `Options` value. |
+
+## Per-instance config isolation
+
+Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (`SetModel`, `SetThinkingLevel`) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.
+
+```go
+a, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("low"))
+b, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("high"))
+
+a.SetThinkingLevel(ctx, "medium")
+// a.GetThinkingLevel() == "medium"; b.GetThinkingLevel() is still "high"
 ```
 
 ## Multi-turn conversations
