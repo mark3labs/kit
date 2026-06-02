@@ -42,4 +42,14 @@ defer host.Close()
 response, err := host.Prompt(ctx, "Hello!")
 ```
 
+Or use the functional-options constructor for quick setups (streaming defaults on):
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.Ephemeral(),
+)
+```
+
 See the [SDK README](../../pkg/kit/README.md) for the full API reference.

@@ -7,6 +7,16 @@ description: Configuration options for the Kit Go SDK.
 
 Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 
+::: tip
+For simple setups, `kit.NewAgent(ctx, ...Option)` provides functional-options
+helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...) over the same `Options`
+struct. See [Functional options](/sdk/overview#functional-options-newagent).
+:::
+
+Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
+these options never leak between Kit instances in the same process. See
+[Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
+
 ## Full options reference
 
 ```go
@@ -127,7 +137,7 @@ when embedding Kit as a library.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, overrides any pre-existing viper state. |
+| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance's store. |
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 
