@@ -48,18 +48,28 @@ type modelsDBLimit struct {
 	Output  int `json:"output"`
 }
 
-// npmToLLMProvider maps npm package names from models.dev to LLM
-// provider identifiers. Providers not in this map but with an api URL
-// can be auto-routed through openaicompat.
-var npmToLLMProvider = map[string]string{
-	"@ai-sdk/anthropic":               "anthropic",
-	"@ai-sdk/openai":                  "openai",
-	"@ai-sdk/google":                  "google",
-	"@ai-sdk/google-vertex":           "google-vertex",
-	"@ai-sdk/google-vertex/anthropic": "google-vertex-anthropic",
-	"@ai-sdk/amazon-bedrock":          "bedrock",
-	"@ai-sdk/azure":                   "azure",
-	"@openrouter/ai-sdk-provider":     "openrouter",
-	"@ai-sdk/vercel":                  "vercel",
-	"@ai-sdk/openai-compatible":       "openaicompat",
+// wireProtocol identifies which LLM API protocol an npm package speaks.
+// Fantasy implements three native protocols (openai, anthropic, google);
+// everything else in its providers/ tree is a thin wrapper around one of
+// them with a pre-baked default URL or auth scheme.
+type wireProtocol int
+
+const (
+	wireUnknown wireProtocol = iota
+	wireOpenAI
+	wireAnthropic
+	wireGoogle
+)
+
+// npmToWireProtocol maps npm package names from models.dev to the wire
+// protocol they speak. Provider-specific bundles (azure, bedrock, vercel,
+// openrouter, google-vertex, google-vertex-anthropic) are intentionally
+// absent — they have native top-level cases in CreateProvider and never
+// reach the auto-router. Providers not in this map but with an api URL
+// are auto-routed through the OpenAI-compatible wire.
+var npmToWireProtocol = map[string]wireProtocol{
+	"@ai-sdk/openai":            wireOpenAI,
+	"@ai-sdk/openai-compatible": wireOpenAI,
+	"@ai-sdk/anthropic":         wireAnthropic,
+	"@ai-sdk/google":            wireGoogle,
 }
