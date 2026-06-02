@@ -9,7 +9,9 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -220,8 +222,10 @@ func ParseModelString(modelString string) (provider, model string, err error) {
 //
 // Native providers: anthropic, openai, google, ollama, azure, google-vertex-anthropic,
 // openrouter, bedrock, vercel.
-// Any provider in models.dev with an api URL or openai-compatible npm package
-// is auto-routed through fantasy's openaicompat provider.
+// Any other provider in models.dev is auto-routed by wire protocol: its npm
+// package (or per-model override) selects the OpenAI, Anthropic, or Google
+// transport, using the provider's api URL as the base. Providers with an api
+// URL but an unrecognized npm package fall back to the OpenAI-compatible wire.
 func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResult, error) {
 	provider, modelName, err := ParseModelString(config.ModelString)
 	if err != nil {
@@ -335,43 +339,62 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 
 // autoRouteProvider attempts to create a provider by looking up its npm package
 // in the models.dev database and routing through the appropriate fantasy provider.
-// For openai-compatible providers, it uses the api URL from models.dev.
-// Models may have a provider override that specifies a different npm package than
-// the provider's default (e.g., opencode's claude-opus-4-6 uses @ai-sdk/anthropic).
+// It routes on wire protocol (openai, anthropic, google) rather than per-npm
+// provider name: fantasy implements three native wire protocols, and every other
+// entry in its providers/ tree is a thin wrapper around one of them. Using the
+// provider's api URL from models.dev as the base URL, any proxy that re-flavors
+// one of these protocols (e.g. opencode's Gemini routes) Just Works.
+//
+// Models may carry a provider override that specifies a different npm package
+// than the provider's default (e.g. opencode's claude-* uses @ai-sdk/anthropic
+// and its gemini-* uses @ai-sdk/google), which is resolved first.
 func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, modelName string, registry *ModelsRegistry) (*ProviderResult, error) {
 	providerInfo := registry.GetProviderInfo(provider)
 	if providerInfo == nil {
 		return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", provider)
 	}
 
-	// Check for model-specific provider override
+	// Resolve npm: per-model override > provider default.
 	npmPackage := providerInfo.NPM
 	if modelInfo := registry.LookupModel(provider, modelName); modelInfo != nil && modelInfo.ProviderNPM != "" {
 		npmPackage = modelInfo.ProviderNPM
 	}
 
-	// Determine the LLM provider for this npm package
-	llmProvider := npmToLLMProvider[npmPackage]
-	if llmProvider == "" && providerInfo.API != "" {
-		// Unknown npm but has API URL → route through openaicompat
-		llmProvider = "openaicompat"
+	wire, known := npmToWireProtocol[npmPackage]
+	if !known {
+		// Unknown npm but the provider has an API URL → assume OpenAI-compatible.
+		// (Preserves the long-standing "any provider in models.dev with an api URL
+		// is auto-routed through openaicompat" behaviour.)
+		if providerInfo.API == "" {
+			return nil, fmt.Errorf(
+				"cannot auto-route provider %s: npm package %q has no known wire protocol "+
+					"and the registry has no API URL (use --provider-url to override)",
+				provider, npmPackage,
+			)
+		}
+		wire = wireOpenAI
 	}
 
-	switch llmProvider {
-	case "openaicompat":
+	// All three wires use the provider's API URL from models.dev as the base.
+	if config.ProviderURL == "" && providerInfo.API != "" {
+		config.ProviderURL = providerInfo.API
+	}
+
+	switch wire {
+	case wireOpenAI:
+		// The native OpenAI SDK package (@ai-sdk/openai) speaks the Responses
+		// API; openai-compatible proxies (and unknown-npm fallbacks) use the
+		// chat-completions wire via fantasy's openaicompat provider.
+		if npmPackage == "@ai-sdk/openai" {
+			return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
+		}
 		return createAutoRoutedOpenAICompatProvider(ctx, config, modelName, providerInfo)
-	case "anthropic":
-		if config.ProviderURL == "" && providerInfo.API != "" {
-			config.ProviderURL = providerInfo.API
-		}
+	case wireAnthropic:
 		return createAutoRoutedAnthropicProvider(ctx, config, modelName, providerInfo)
-	case "openai":
-		if config.ProviderURL == "" && providerInfo.API != "" {
-			config.ProviderURL = providerInfo.API
-		}
-		return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
+	case wireGoogle:
+		return createAutoRoutedGoogleProvider(ctx, config, modelName, providerInfo)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (npm: %s has no LLM provider mapping)", provider, npmPackage)
+		return nil, fmt.Errorf("internal error: unknown wire protocol for provider %s (npm: %s)", provider, npmPackage)
 	}
 }
 
@@ -486,6 +509,115 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 	providerOpts := buildOpenAIProviderOptions(config, modelName)
 
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+}
+
+// createAutoRoutedGoogleProvider creates a Google (Gemini) provider for
+// third-party providers that expose a Gemini-compatible API (e.g. opencode's
+// Gemini routes, which carry an @ai-sdk/google per-model override).
+//
+// The underlying genai SDK always injects its own API version segment
+// ("v1beta") between the base URL and the resource path. When the proxy's
+// base URL from models.dev already carries a version segment (e.g. opencode's
+// https://opencode.ai/zen/v1), that produces a doubled ".../v1/v1beta/..."
+// path that the proxy rejects. In that case we install a transport that
+// strips the injected segment so the proxy's own version is used.
+func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
+			info.Name, strings.Join(info.Env, " / "))
+	}
+
+	opts := []google.Option{
+		google.WithGeminiAPIKey(apiKey),
+		google.WithName(info.ID),
+	}
+
+	if config.ProviderURL != "" {
+		opts = append(opts, google.WithBaseURL(config.ProviderURL))
+	}
+
+	// Decide whether the genai-injected version segment needs stripping.
+	var httpClient *http.Client
+	if basePath := versionedBasePath(config.ProviderURL); basePath != "" {
+		httpClient = newGeminiProxyHTTPClient(basePath, config.TLSSkipVerify)
+	} else if config.TLSSkipVerify {
+		httpClient = createHTTPClientWithTLSConfig(true)
+	}
+	if httpClient != nil {
+		opts = append(opts, google.WithHTTPClient(httpClient))
+	}
+
+	p, err := google.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+	}
+
+	model, err := p.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+	}
+
+	return &ProviderResult{Model: model}, nil
+}
+
+// versionSegmentRe matches a trailing API version segment in a URL path,
+// e.g. "/v1", "/v1beta", "/v1beta1", "/v2alpha".
+var versionSegmentRe = regexp.MustCompile(`/v\d+(?:beta\d*|alpha\d*)?$`)
+
+// versionedBasePath returns the path component of rawURL when that path ends
+// with an API version segment (e.g. opencode's ".../zen/v1" → "/zen/v1").
+// It returns "" when rawURL is empty, unparseable, or has no version suffix
+// — in which case the genai SDK's default version injection is correct and
+// no rewriting is needed.
+func versionedBasePath(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	if versionSegmentRe.MatchString(path) {
+		return path
+	}
+	return ""
+}
+
+// newGeminiProxyHTTPClient builds an HTTP client whose transport strips the
+// genai-injected version segment ("v1beta"/"v1beta1") that directly follows
+// basePath, collapsing "{basePath}/v1beta/..." back to "{basePath}/...".
+func newGeminiProxyHTTPClient(basePath string, skipVerify bool) *http.Client {
+	var base http.RoundTripper
+	if skipVerify {
+		base = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	} else {
+		base = http.DefaultTransport
+	}
+	return &http.Client{
+		Transport: &geminiProxyTransport{base: base, basePath: basePath},
+	}
+}
+
+// geminiProxyTransport removes the redundant API version segment that the
+// genai SDK injects after a proxy base URL that already carries its own
+// version segment.
+type geminiProxyTransport struct {
+	base     http.RoundTripper
+	basePath string
+}
+
+func (t *geminiProxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	for _, injected := range []string{"/v1beta1", "/v1beta"} {
+		prefix := t.basePath + injected + "/"
+		if strings.HasPrefix(req.URL.Path, prefix) {
+			newReq := req.Clone(req.Context())
+			newReq.URL.Path = t.basePath + strings.TrimPrefix(req.URL.Path, t.basePath+injected)
+			return t.base.RoundTrip(newReq)
+		}
+	}
+	return t.base.RoundTrip(req)
 }
 
 // resolveAPIKey returns the first non-empty API key from the explicit key

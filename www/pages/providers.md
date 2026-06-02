@@ -143,6 +143,39 @@ The `custom/custom` model has zero cost, 262K context window, and supports reaso
 
 Optionally set `CUSTOM_API_KEY` environment variable or use `--provider-api-key` for endpoints requiring authentication.
 
+## Auto-routed providers
+
+Any provider in the [models.dev](https://models.dev) database can be used with the
+standard `provider/model` format, even without a dedicated native integration. Kit
+auto-routes the request through the matching **wire protocol** — the actual API
+shape the provider speaks — rather than requiring a per-provider code path:
+
+| Wire protocol | npm package (models.dev) | Transport used |
+|---------------|--------------------------|----------------|
+| OpenAI (Responses API) | `@ai-sdk/openai` | OpenAI |
+| OpenAI (chat completions) | `@ai-sdk/openai-compatible` | OpenAI-compatible |
+| Anthropic | `@ai-sdk/anthropic` | Anthropic |
+| Google Gemini | `@ai-sdk/google` | Google |
+
+The provider's `api` URL from the database is used as the base URL. A provider
+whose npm package isn't recognized but that has an `api` URL falls back to the
+OpenAI-compatible wire.
+
+Because routing follows the wire protocol, aggregator/proxy providers work across
+**all** of their models — including ones they re-flavor onto a different protocol
+via a per-model override. For example, an aggregator that proxies Claude, GPT,
+*and* Gemini routes them to the Anthropic, OpenAI, and Google transports
+respectively:
+
+```bash
+kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
+kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
+kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+```
+
+Provide the provider's API key the same way as any other — via its environment
+variable (e.g. `OPENCODE_API_KEY`) or `--provider-api-key`.
+
 ## Model database
 
 Kit ships with a local model database that maps provider names to API configurations. You can manage it with:

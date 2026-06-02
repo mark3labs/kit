@@ -404,8 +404,8 @@ func isProviderLLMSupported(providerID string, info *ProviderInfo) bool {
 		return true
 	}
 
-	// Check if npm maps to an LLM provider
-	if _, ok := npmToLLMProvider[info.NPM]; ok {
+	// Check if npm maps to a known wire protocol
+	if _, ok := npmToWireProtocol[info.NPM]; ok {
 		return true
 	}
 

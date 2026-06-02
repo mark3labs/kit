@@ -972,6 +972,31 @@ This automatically defaults to `custom/custom` without needing to specify a mode
 - Reasoning and temperature support
 - Optional `CUSTOM_API_KEY` environment variable or `--provider-api-key` flag
 
+### Auto-routed Providers
+
+Any provider in the [models.dev](https://models.dev) database can be used as
+`provider/model` without a dedicated native integration. Kit auto-routes the
+request through the matching **wire protocol** based on the provider's npm package
+(or per-model override), using its `api` URL as the base:
+
+| npm package | Wire protocol |
+|-------------|---------------|
+| `@ai-sdk/openai` | OpenAI (Responses API) |
+| `@ai-sdk/openai-compatible` | OpenAI (chat completions) |
+| `@ai-sdk/anthropic` | Anthropic |
+| `@ai-sdk/google` | Google Gemini |
+
+Providers with an `api` URL but an unrecognized npm package fall back to the
+OpenAI-compatible wire. Because routing follows the wire protocol, aggregator/proxy
+providers work across all of their models — including Claude, GPT, *and* Gemini
+routes:
+
+```bash
+kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
+kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
+kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+```
+
 ### Model String Format
 
 ```bash
