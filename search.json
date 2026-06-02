@@ -307,10 +307,11 @@
         "API keys",
         "OAuth",
         "Custom provider URL",
+        "Auto-routed providers",
         "Model database"
       ],
       "tags": [],
-      "wordCount": 466
+      "wordCount": 684
     },
     {
       "id": "quick-start",

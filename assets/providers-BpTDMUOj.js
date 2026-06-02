@@ -130,13 +130,62 @@ const s={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "http://localhost:8080/v1"</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
 <p>The <code>custom/custom</code> model has zero cost, 262K context window, and supports reasoning. It routes through the <code>openaicompat</code> provider and accepts any OpenAI-compatible API endpoint.</p>
 <p>Optionally set <code>CUSTOM_API_KEY</code> environment variable or use <code>--provider-api-key</code> for endpoints requiring authentication.</p>
+<h2 id="auto-routed-providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#auto-routed-providers"><span class="icon icon-link"></span></a>Auto-routed providers</h2>
+<p>Any provider in the <a href="https://models.dev">models.dev</a> database can be used with the
+standard <code>provider/model</code> format, even without a dedicated native integration. Kit
+auto-routes the request through the matching <strong>wire protocol</strong> — the actual API
+shape the provider speaks — rather than requiring a per-provider code path:</p>
+<table>
+<thead>
+<tr>
+<th>Wire protocol</th>
+<th>npm package (models.dev)</th>
+<th>Transport used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenAI (Responses API)</td>
+<td><code>@ai-sdk/openai</code></td>
+<td>OpenAI</td>
+</tr>
+<tr>
+<td>OpenAI (chat completions)</td>
+<td><code>@ai-sdk/openai-compatible</code></td>
+<td>OpenAI-compatible</td>
+</tr>
+<tr>
+<td>Anthropic</td>
+<td><code>@ai-sdk/anthropic</code></td>
+<td>Anthropic</td>
+</tr>
+<tr>
+<td>Google Gemini</td>
+<td><code>@ai-sdk/google</code></td>
+<td>Google</td>
+</tr>
+</tbody>
+</table>
+<p>The provider's <code>api</code> URL from the database is used as the base URL. A provider
+whose npm package isn't recognized but that has an <code>api</code> URL falls back to the
+OpenAI-compatible wire.</p>
+<p>Because routing follows the wire protocol, aggregator/proxy providers work across
+<strong>all</strong> of their models — including ones they re-flavor onto a different protocol
+via a per-model override. For example, an aggregator that proxies Claude, GPT,
+<em>and</em> Gemini routes them to the Anthropic, OpenAI, and Google transports
+respectively:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/claude-haiku-4-5</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Anthropic wire</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gpt-5</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">                # → OpenAI wire</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gemini-3.5-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Google wire</span></span></code></pre>
+<p>Provide the provider's API key the same way as any other — via its environment
+variable (e.g. <code>OPENCODE_API_KEY</code>) or <code>--provider-api-key</code>.</p>
 <h2 id="model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-database"><span class="icon icon-link"></span></a>Model database</h2>
 <p>Kit ships with a local model database that maps provider names to API configurations. You can manage it with:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#6A737D;--shiki-dark:#6A737D">                   # List available models</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Filter by provider</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Update from models.dev</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:3,text:"Anthropic Claude",id:"anthropic-claude"},{depth:3,text:"OpenAI GPT",id:"openai-gpt"},{depth:3,text:"Google Gemini",id:"google-gemini"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Model database",id:"model-database"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:3,text:"Anthropic Claude",id:"anthropic-claude"},{depth:3,text:"OpenAI GPT",id:"openai-gpt"},{depth:3,text:"Google Gemini",id:"google-gemini"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Auto-routed providers",id:"auto-routed-providers"},{depth:2,text:"Model database",id:"model-database"}],raw:`
 # Providers
 
 Kit supports a wide range of LLM providers through a unified \`provider/model\` string format.
@@ -276,6 +325,39 @@ kit --provider-url "http://localhost:8080/v1" "Hello"
 The \`custom/custom\` model has zero cost, 262K context window, and supports reasoning. It routes through the \`openaicompat\` provider and accepts any OpenAI-compatible API endpoint.
 
 Optionally set \`CUSTOM_API_KEY\` environment variable or use \`--provider-api-key\` for endpoints requiring authentication.
+
+## Auto-routed providers
+
+Any provider in the [models.dev](https://models.dev) database can be used with the
+standard \`provider/model\` format, even without a dedicated native integration. Kit
+auto-routes the request through the matching **wire protocol** — the actual API
+shape the provider speaks — rather than requiring a per-provider code path:
+
+| Wire protocol | npm package (models.dev) | Transport used |
+|---------------|--------------------------|----------------|
+| OpenAI (Responses API) | \`@ai-sdk/openai\` | OpenAI |
+| OpenAI (chat completions) | \`@ai-sdk/openai-compatible\` | OpenAI-compatible |
+| Anthropic | \`@ai-sdk/anthropic\` | Anthropic |
+| Google Gemini | \`@ai-sdk/google\` | Google |
+
+The provider's \`api\` URL from the database is used as the base URL. A provider
+whose npm package isn't recognized but that has an \`api\` URL falls back to the
+OpenAI-compatible wire.
+
+Because routing follows the wire protocol, aggregator/proxy providers work across
+**all** of their models — including ones they re-flavor onto a different protocol
+via a per-model override. For example, an aggregator that proxies Claude, GPT,
+*and* Gemini routes them to the Anthropic, OpenAI, and Google transports
+respectively:
+
+\`\`\`bash
+kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
+kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
+kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+\`\`\`
+
+Provide the provider's API key the same way as any other — via its environment
+variable (e.g. \`OPENCODE_API_KEY\`) or \`--provider-api-key\`.
 
 ## Model database
 
