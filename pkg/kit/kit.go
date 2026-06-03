@@ -138,6 +138,19 @@ func (m *Kit) GetToolNames() []string {
 	return names
 }
 
+// GetToolsForSubagent like GetTools but eliminates subagent tool
+// to avoid infinite recursion.
+func (m *Kit) GetToolsForSubagent() []Tool {
+	var tools []Tool
+	for _, t := range m.agent.GetTools() {
+		if t.Info().Name == "subagent" {
+			continue
+		}
+		tools = append(tools, t)
+	}
+	return tools
+}
+
 // GetLoadingMessage returns the agent's startup info message (e.g. GPU
 // fallback info), or empty string if none.
 func (m *Kit) GetLoadingMessage() string {
@@ -1814,8 +1827,14 @@ type SubagentConfig struct {
 	// Empty string uses a minimal default prompt.
 	SystemPrompt string
 
-	// Tools overrides the tool set. If nil, SubagentTools() is used (all
-	// core tools except subagent, preventing infinite recursion).
+	// Tools overrides the tool set available to the subagent.
+	// If nil and the subagent is created via the SDK (Kit.Subagent()), the
+	// static SubagentTools() set (all core tools except "subagent") is used.
+	// When spawned internally by the agent loop, the parent's active tools
+	// minus "subagent" are used instead (see GetToolsForSubagent()).
+	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
+	// SDK call sites.
+	// (The subagent tool is dropped to prevent infinite recursion.)
 	Tools []Tool
 
 	// NoSession, when true, uses an in-memory ephemeral session. When false
@@ -2076,6 +2095,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			SystemPrompt: systemPrompt,
 			Timeout:      timeout,
 			OnEvent:      onEvent,
+			Tools:        m.GetToolsForSubagent(),
 		})
 		m.cleanupSubagentListeners(toolCallID)
 		if result == nil {

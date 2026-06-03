@@ -66,6 +66,7 @@ func SpawnSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfi
 		SystemPrompt: cfg.SystemPrompt,
 		Timeout:      cfg.Timeout,
 		NoSession:    cfg.NoSession,
+		Tools:        k.GetToolsForSubagent(),
 	}
 	if cfg.OnEvent != nil {
 		sdkCfg.OnEvent = func(e kit.Event) {
