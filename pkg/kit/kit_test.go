@@ -86,8 +86,8 @@ func TestNewWithGenerationOptions(t *testing.T) {
 		if got := host.MaxTokens(); got != want {
 			t.Errorf("Options.MaxTokens=%d did not propagate; Kit.MaxTokens()=%d", want, got)
 		}
-		if !viper.IsSet("max-tokens") {
-			t.Error("viper.IsSet(\"max-tokens\") should be true after MaxTokens override")
+		if !host.ConfigValueIsSetForTest("max-tokens") {
+			t.Error("max-tokens should be marked explicitly set on the instance store after MaxTokens override")
 		}
 	})
 
@@ -129,11 +129,11 @@ func TestNewWithGenerationOptions(t *testing.T) {
 		}
 		defer func() { _ = host.Close() }()
 
-		if !viper.IsSet("temperature") {
-			t.Fatal("viper.IsSet(\"temperature\") should be true after Temperature override")
+		if !host.ConfigValueIsSetForTest("temperature") {
+			t.Fatal("temperature should be marked explicitly set on the instance store after Temperature override")
 		}
-		if got := float32(viper.GetFloat64("temperature")); got != want {
-			t.Errorf("Options.Temperature=%v did not propagate; viper=%v", want, got)
+		if got := float32(host.ConfigFloatForTest("temperature")); got != want {
+			t.Errorf("Options.Temperature=%v did not propagate; instance store=%v", want, got)
 		}
 	})
 }
@@ -185,8 +185,8 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 	// from SDK-side SetDefault/Set calls — which is exactly what this
 	// test is guarding against.
 	for _, k := range checkKeys {
-		if viper.IsSet(k) {
-			t.Errorf("viper.IsSet(%q) == true when no Options field set it "+
+		if host.ConfigValueIsSetForTest(k) {
+			t.Errorf("instance store reports %q explicitly set when no Options field set it "+
 				"(SDK defaults must not corrupt IsSet semantics)", k)
 		}
 	}
@@ -217,14 +217,14 @@ func TestNewWithProviderOptions(t *testing.T) {
 		}
 		defer func() { _ = host.Close() }()
 
-		if got := viper.GetString("provider-api-key"); got != apiKey {
-			t.Errorf("Options.ProviderAPIKey did not propagate to viper; got %q (len=%d)", got, len(got))
+		if got := host.ConfigStringForTest("provider-api-key"); got != apiKey {
+			t.Errorf("Options.ProviderAPIKey did not propagate to the instance store; got %q (len=%d)", got, len(got))
 		}
 	})
 
-	// Override precedence: even when viper already holds a different
-	// provider-api-key value (as it would if a config file or earlier
-	// Set() call populated one), Options.ProviderAPIKey must win.
+	// Override precedence: even when the process-global store already holds a
+	// different provider-api-key value, Options.ProviderAPIKey must win on the
+	// Kit's isolated store.
 	t.Run("Options override beats pre-existing viper state", func(t *testing.T) {
 		defer resetViper()
 
@@ -242,15 +242,16 @@ func TestNewWithProviderOptions(t *testing.T) {
 			ProviderAPIKey:   want,
 		})
 		// Creation may still fail if the model registry is strict, but
-		// we only care that the override reached viper before any
-		// provider handshake happened.
-		if host != nil {
-			defer func() { _ = host.Close() }()
+		// we only care that the override reached the instance store before
+		// any provider handshake happened.
+		if host == nil {
+			t.Fatalf("expected a Kit instance to inspect; got nil (err=%v)", err)
 		}
+		defer func() { _ = host.Close() }()
 		_ = err
 
-		if got := viper.GetString("provider-api-key"); got != want {
-			t.Errorf("Options.ProviderAPIKey did not override pre-existing viper value; got %q, want %q", got, want)
+		if got := host.ConfigStringForTest("provider-api-key"); got != want {
+			t.Errorf("Options.ProviderAPIKey did not override pre-existing value on the instance store; got %q, want %q", got, want)
 		}
 	})
 
@@ -270,7 +271,7 @@ func TestNewWithProviderOptions(t *testing.T) {
 		}
 		defer func() { _ = host.Close() }()
 
-		if got := viper.GetString("provider-url"); got != want {
+		if got := host.ConfigStringForTest("provider-url"); got != want {
 			t.Errorf("Options.ProviderURL did not propagate; got %q, want %q", got, want)
 		}
 	})
@@ -353,9 +354,9 @@ func TestNewSystemPromptFilePath(t *testing.T) {
 		t.Errorf("GetSystemPromptSource() = %q; want %q", got, want)
 	}
 
-	// The composed system prompt is written back to viper after PromptBuilder
-	// runs. It must contain the file's contents, not the file path.
-	composed := viper.GetString("system-prompt")
+	// The composed system prompt is written back to the instance store after
+	// PromptBuilder runs. It must contain the file's contents, not the file path.
+	composed := host.ConfigStringForTest("system-prompt")
 	if !strings.Contains(composed, promptContent) {
 		t.Errorf("composed system-prompt does not contain file contents\n  composed = %q\n  want substring = %q", composed, promptContent)
 	}
@@ -392,7 +393,7 @@ func TestNewSystemPromptInline(t *testing.T) {
 	if got := host.GetSystemPromptSource(); got != inline {
 		t.Errorf("GetSystemPromptSource() = %q; want %q", got, inline)
 	}
-	if composed := viper.GetString("system-prompt"); !strings.Contains(composed, inline) {
+	if composed := host.ConfigStringForTest("system-prompt"); !strings.Contains(composed, inline) {
 		t.Errorf("composed system-prompt missing inline content; got %q", composed)
 	}
 }

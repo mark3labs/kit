@@ -88,6 +88,9 @@ mcpServers:
     type: remote
     url: "https://pubmed.mcp.example.com"
     noOAuth: true  # skip OAuth for public servers
+    headers:
+      - "ApiKey: ${env://API_KEY}"              # required env var
+      - "X-Tenant: ${env://TENANT_ID:-default}" # with fallback default
 
   builds:
     type: remote
@@ -106,9 +109,10 @@ mcpServers:
 | `allowedTools` | list | Whitelist of tool names to expose |
 | `excludedTools` | list | Blacklist of tool names to hide |
 | `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
+| `headers` | list of strings | HTTP headers to attach to every request, each as a `"Key: Value"` string. Values support env-substitution: `${env://VAR}` or `${env://VAR:-default}`. |
 | `tasksMode` | string | When to augment `tools/call` with MCP task metadata: `auto` (default — only when the server advertises task support), `never`, or `always`. See [MCP tasks](#mcp-tasks-long-running-tools). |
 
-A legacy format with `transport`, `args`, `env`, and `headers` fields is also supported.
+A legacy format with `transport`, `args`, and `env` fields is also supported; `headers` works in both the current and legacy formats.
 
 ### MCP tasks (long-running tools)
 
