@@ -579,10 +579,10 @@ const (
 // thumbCols returns the thumbnail width in terminal cells given the current
 // input width, or 0 when there is no room to render a preview.
 func (s *InputComponent) thumbCols() int {
-	cols := thumbMaxCols
-	if s.width > 6 && s.width-6 < cols {
-		cols = s.width - 6
+	if s.width <= 6 {
+		return 0
 	}
+	cols := min(thumbMaxCols, s.width-6)
 	if cols < 1 {
 		return 0
 	}
