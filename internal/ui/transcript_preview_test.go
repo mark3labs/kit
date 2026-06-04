@@ -29,7 +29,7 @@ func makeTestPNG(t *testing.T, w, h int) []byte {
 
 func TestTranscriptPreviewCmdNoImages(t *testing.T) {
 	m, _, _ := newTestAppModel(nil)
-	if cmd := m.transcriptPreviewCmd(nil); cmd != nil {
+	if cmd := m.transcriptPreviewCmd(nil, ""); cmd != nil {
 		t.Error("expected nil cmd when there are no images")
 	}
 }
@@ -39,7 +39,7 @@ func TestTranscriptPreviewCmdRendersBlock(t *testing.T) {
 	images := []uicore.ImageAttachment{
 		{Data: makeTestPNG(t, 16, 16), MediaType: "image/png"},
 	}
-	cmd := m.transcriptPreviewCmd(images)
+	cmd := m.transcriptPreviewCmd(images, "anchor-1")
 	if cmd == nil {
 		t.Fatal("expected a non-nil cmd for a valid image")
 	}
@@ -58,6 +58,9 @@ func TestTranscriptPreviewCmdRendersBlock(t *testing.T) {
 	if !strings.Contains(ready.block, "▀") {
 		t.Errorf("preview block should contain half-block glyphs, got %q", ready.block)
 	}
+	if ready.anchorID != "anchor-1" {
+		t.Errorf("preview should carry the originating anchorID, got %q", ready.anchorID)
+	}
 }
 
 func TestImagePreviewReadyMsgAppendsItem(t *testing.T) {
@@ -73,6 +76,53 @@ func TestImagePreviewReadyMsgAppendsItem(t *testing.T) {
 	}
 	if !strings.Contains(last.Render(0), "▀") {
 		t.Error("appended preview item should render the half-block block verbatim")
+	}
+}
+
+// TestImagePreviewReadyMsgInsertsAfterAnchor verifies the preview is placed
+// directly after its originating user message even when a later message (e.g.
+// a streamed assistant reply) was already appended while the thumbnail was
+// being decoded asynchronously.
+func TestImagePreviewReadyMsgInsertsAfterAnchor(t *testing.T) {
+	m, _, _ := newTestAppModel(nil)
+	userItem := NewStyledMessageItem("user-anchor", "user", "hi", "hi")
+	assistantItem := NewStyledMessageItem("assistant-1", "assistant", "reply", "reply")
+	m.messages = append(m.messages, userItem, assistantItem)
+
+	m = sendMsg(m, imagePreviewReadyMsg{
+		block:    "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m",
+		anchorID: "user-anchor",
+	})
+
+	// Expect order: user, preview, assistant.
+	if len(m.messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(m.messages))
+	}
+	if m.messages[0].ID() != "user-anchor" {
+		t.Errorf("messages[0] should be the user message, got %q", m.messages[0].ID())
+	}
+	if m.messages[2].ID() != "assistant-1" {
+		t.Errorf("messages[2] should be the assistant message, got %q", m.messages[2].ID())
+	}
+	if !strings.Contains(m.messages[1].Render(0), "▀") {
+		t.Errorf("messages[1] should be the inserted preview, got %q", m.messages[1].Render(0))
+	}
+}
+
+// TestImagePreviewReadyMsgUnknownAnchorAppends verifies that when the anchor
+// is missing (e.g. the message was cleared), the preview falls back to append.
+func TestImagePreviewReadyMsgUnknownAnchorAppends(t *testing.T) {
+	m, _, _ := newTestAppModel(nil)
+	m.messages = append(m.messages, NewStyledMessageItem("only", "user", "hi", "hi"))
+	m = sendMsg(m, imagePreviewReadyMsg{
+		block:    "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m",
+		anchorID: "does-not-exist",
+	})
+	if len(m.messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(m.messages))
+	}
+	if !strings.Contains(m.messages[1].Render(0), "▀") {
+		t.Error("preview should be appended as the last item when anchor is unknown")
 	}
 }
 

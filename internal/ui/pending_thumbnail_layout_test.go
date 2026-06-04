@@ -51,6 +51,14 @@ func measuredInputHeight(m *AppModel) int {
 // distributeHeight already measured the input region without it. The parent
 // must mark the layout dirty so the (now taller) input is re-measured.
 func TestPendingThumbnailTriggersLayoutRecompute(t *testing.T) {
+	// Force a truecolor profile so imagepreview.Render deterministically
+	// produces a thumbnail regardless of the CI terminal's color support.
+	// Without this, a low-color test environment yields an empty preview and
+	// the glyph / height assertions below would flake.
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("NO_COLOR", "")
+
 	real := NewInputComponent(80, nil)
 	m, _, _ := newTestAppModel(nil)
 	m.input = real
