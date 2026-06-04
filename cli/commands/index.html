@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-Caxbfw96.js"></script>
+<script type="module" src="/assets/index-Bb5NSVzf.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Commands","description":"Complete reference for all Kit CLI subcommands.","url":"https://go-kit.dev/cli/commands","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -119,6 +119,23 @@ Press **Ctrl+X s** during streaming to inject a system-level instruction mid-tur
 - Model continues from the interruption point with the new guidance
 
 Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
+
+### Image attachments
+
+Attach images to your next prompt straight from the clipboard:
+
+- Copy an image (e.g. a screenshot) to the system clipboard, then press **Ctrl+V** in the input to attach it.
+- Press **Ctrl+U** to clear all pending image attachments.
+- Attachments are sent alongside your text when you submit, and cleared afterward.
+
+When a terminal supports color, Kit renders a small low-resolution **thumbnail preview** of each pending image directly in the input, below the `[N image(s) attached]` indicator, so you can confirm the right image was attached before sending.
+
+The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like **tmux** and **zellij**. Thumbnails are capped to a small cell box for a glanceable, low-res look.
+
+- Best fidelity needs a **truecolor** terminal (`COLORTERM=truecolor`); Kit degrades to 256-color where truecolor is unavailable.
+- On terminals with neither, the preview is skipped and the `[N image(s) attached]` text indicator is shown alone.
+
+You can also attach image files by referencing them with `@path/to/image.png` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the `@` attachment syntax.
 
 ## Prompt templates
 

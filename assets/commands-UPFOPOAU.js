@@ -144,6 +144,20 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <li>Model continues from the interruption point with the new guidance</li>
 </ul>
 <p>Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.</p>
+<h3 id="image-attachments"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#image-attachments"><span class="icon icon-link"></span></a>Image attachments</h3>
+<p>Attach images to your next prompt straight from the clipboard:</p>
+<ul>
+<li>Copy an image (e.g. a screenshot) to the system clipboard, then press <strong>Ctrl+V</strong> in the input to attach it.</li>
+<li>Press <strong>Ctrl+U</strong> to clear all pending image attachments.</li>
+<li>Attachments are sent alongside your text when you submit, and cleared afterward.</li>
+</ul>
+<p>When a terminal supports color, Kit renders a small low-resolution <strong>thumbnail preview</strong> of each pending image directly in the input, below the <code>[N image(s) attached]</code> indicator, so you can confirm the right image was attached before sending.</p>
+<p>The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like <strong>tmux</strong> and <strong>zellij</strong>. Thumbnails are capped to a small cell box for a glanceable, low-res look.</p>
+<ul>
+<li>Best fidelity needs a <strong>truecolor</strong> terminal (<code>COLORTERM=truecolor</code>); Kit degrades to 256-color where truecolor is unavailable.</li>
+<li>On terminals with neither, the preview is skipped and the <code>[N image(s) attached]</code> text indicator is shown alone.</li>
+</ul>
+<p>You can also attach image files by referencing them with <code>@path/to/image.png</code> — binary files are auto-detected by MIME type. See <a href="/quick-start">Quick Start</a> for the <code>@</code> attachment syntax.</p>
 <h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
 <h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
 <p>Templates use YAML frontmatter for metadata and support argument placeholders:</p>
@@ -198,7 +212,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -305,6 +319,23 @@ Press **Ctrl+X s** during streaming to inject a system-level instruction mid-tur
 - Model continues from the interruption point with the new guidance
 
 Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
+
+### Image attachments
+
+Attach images to your next prompt straight from the clipboard:
+
+- Copy an image (e.g. a screenshot) to the system clipboard, then press **Ctrl+V** in the input to attach it.
+- Press **Ctrl+U** to clear all pending image attachments.
+- Attachments are sent alongside your text when you submit, and cleared afterward.
+
+When a terminal supports color, Kit renders a small low-resolution **thumbnail preview** of each pending image directly in the input, below the \`[N image(s) attached]\` indicator, so you can confirm the right image was attached before sending.
+
+The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like **tmux** and **zellij**. Thumbnails are capped to a small cell box for a glanceable, low-res look.
+
+- Best fidelity needs a **truecolor** terminal (\`COLORTERM=truecolor\`); Kit degrades to 256-color where truecolor is unavailable.
+- On terminals with neither, the preview is skipped and the \`[N image(s) attached]\` text indicator is shown alone.
+
+You can also attach image files by referencing them with \`@path/to/image.png\` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the \`@\` attachment syntax.
 
 ## Prompt templates
 
