@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/kit/internal/clipboard"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -79,6 +80,13 @@ type InputComponent struct {
 	// pendingImages holds clipboard images attached to the next submission.
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []core.ImageAttachment
+
+	// imageThumbs caches the rendered half-block thumbnail for each entry in
+	// pendingImages (1:1 index correspondence). Thumbnails are rendered once
+	// when an image is attached — never per frame — and an entry is the empty
+	// string when the terminal cannot display a half-block preview, in which
+	// case the text pill is shown instead. See internal/ui/imagepreview.
+	imageThumbs []string
 
 	// history stores previously submitted prompts (most recent last).
 	// Limited to maxHistory entries; duplicates of the previous entry are
@@ -194,6 +202,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.image != nil {
 			s.pendingImages = append(s.pendingImages, *msg.image)
+			s.imageThumbs = append(s.imageThumbs, s.renderThumbnail(*msg.image))
 		}
 		return s, nil
 
@@ -250,6 +259,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clear all pending image attachments.
 				if len(s.pendingImages) > 0 {
 					s.pendingImages = nil
+					s.imageThumbs = nil
 					return s, nil
 				}
 			}
@@ -486,6 +496,7 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	// images and clear them.
 	images := s.pendingImages
 	s.pendingImages = nil
+	s.imageThumbs = nil
 	return func() tea.Msg {
 		return core.SubmitMsg{Text: trimmed, Images: images}
 	}
@@ -519,6 +530,33 @@ func (s *InputComponent) resetHistoryBrowsing() {
 	s.savedInput = ""
 }
 
+// thumbMaxCols and thumbMaxRows cap the size, in terminal cells, of pending
+// image previews. Kept small for the low-res look and to keep scrollback
+// light.
+const (
+	thumbMaxCols = 40
+	thumbMaxRows = 12
+)
+
+// renderThumbnail renders a half-block ANSI preview of an attached image once,
+// at attach time, so View never re-renders it per frame. Returns an empty
+// string when the terminal cannot display a preview (the caller then shows the
+// text pill alone) or when rendering fails.
+func (s *InputComponent) renderThumbnail(img core.ImageAttachment) string {
+	cols := thumbMaxCols
+	if s.width > 6 && s.width-6 < cols {
+		cols = s.width - 6
+	}
+	if cols < 1 {
+		return ""
+	}
+	thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, style.GetTheme().Background)
+	if err != nil {
+		return ""
+	}
+	return thumb
+}
+
 // View implements tea.Model. Renders the textarea, autocomplete popup
 // (if visible), and help text.
 func (s *InputComponent) View() tea.View {
@@ -544,7 +582,9 @@ func (s *InputComponent) View() tea.View {
 	// Popup is now rendered as a centered overlay in AppModel.View()
 	// instead of inline here to prevent bottom overflow
 
-	// Show image attachment indicator when images are pending.
+	// Show image attachment previews when images are pending. A cached
+	// half-block thumbnail is rendered when the terminal supports it;
+	// otherwise the text pill alone is shown.
 	if len(s.pendingImages) > 0 {
 		imgStyle := lipgloss.NewStyle().
 			Foreground(theme.Secondary).
@@ -553,6 +593,14 @@ func (s *InputComponent) View() tea.View {
 		label := fmt.Sprintf("[%d image(s) attached] ctrl+u to clear", len(s.pendingImages))
 		view.WriteString("\n")
 		view.WriteString(imgStyle.Render(label))
+
+		thumbStyle := lipgloss.NewStyle().PaddingLeft(3)
+		for i := range s.pendingImages {
+			if i < len(s.imageThumbs) && s.imageThumbs[i] != "" {
+				view.WriteString("\n")
+				view.WriteString(thumbStyle.Render(s.imageThumbs[i]))
+			}
+		}
 	}
 
 	if !s.hideHint {
@@ -844,6 +892,7 @@ func readClipboardImageCmd() tea.Cmd {
 func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
 	images := s.pendingImages
 	s.pendingImages = nil
+	s.imageThumbs = nil
 	return images
 }
 
