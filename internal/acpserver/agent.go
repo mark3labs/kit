@@ -61,6 +61,12 @@ func (a *Agent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (acp.
 	return acp.AuthenticateResponse{}, nil
 }
 
+// Logout handles logout requests. Kit doesn't require auth for local stdio
+// usage, so this is a no-op.
+func (a *Agent) Logout(_ context.Context, _ acp.LogoutRequest) (acp.LogoutResponse, error) {
+	return acp.LogoutResponse{}, nil
+}
+
 // Initialize negotiates capabilities with the ACP client.
 func (a *Agent) Initialize(_ context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
 	log.Debug("acp: initialize", "protocol_version", params.ProtocolVersion)
