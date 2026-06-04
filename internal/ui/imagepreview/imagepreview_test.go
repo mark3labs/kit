@@ -89,6 +89,21 @@ func TestRenderInvalidImage(t *testing.T) {
 	}
 }
 
+func TestRenderRejectsOversizedImage(t *testing.T) {
+	// A header advertising dimensions beyond maxImageDimension must be
+	// rejected before full decode (decompression-bomb guard). image.RGBA
+	// allocation is avoided by only checking the config path here.
+	w := maxImageDimension + 1
+	data := makePNG(t, w, 1, color.White)
+	out, err := renderWithProfile(data, 10, 5, color.Black, colorprofile.TrueColor)
+	if err == nil {
+		t.Fatal("expected error for oversized image dimensions")
+	}
+	if out != "" {
+		t.Errorf("expected empty output for oversized image, got %q", out)
+	}
+}
+
 func TestRenderZeroBox(t *testing.T) {
 	data := makePNG(t, 20, 20, color.White)
 	out, err := renderWithProfile(data, 0, 0, color.Black, colorprofile.TrueColor)

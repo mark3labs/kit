@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
@@ -82,11 +83,21 @@ type InputComponent struct {
 	pendingImages []core.ImageAttachment
 
 	// imageThumbs caches the rendered half-block thumbnail for each entry in
-	// pendingImages (1:1 index correspondence). Thumbnails are rendered once
-	// when an image is attached — never per frame — and an entry is the empty
-	// string when the terminal cannot display a half-block preview, in which
-	// case the text pill is shown instead. See internal/ui/imagepreview.
+	// pendingImages (1:1 index correspondence). Thumbnails are rendered
+	// asynchronously off the Bubble Tea event loop (decode + resample is too
+	// slow to run inside Update), so an entry starts as the empty string
+	// placeholder and is filled in when the matching thumbnailReadyMsg
+	// arrives. An entry stays empty when the terminal cannot display a
+	// half-block preview, in which case the text pill is shown alone.
+	// See internal/ui/imagepreview.
 	imageThumbs []string
+
+	// imageGen is a monotonic generation counter incremented whenever the
+	// pending image set is cleared. Async thumbnail results carry the
+	// generation they were enqueued under and are discarded if it no longer
+	// matches, preventing a stale thumbnail from landing on the wrong slot
+	// after a clear + re-attach.
+	imageGen int
 
 	// history stores previously submitted prompts (most recent last).
 	// Limited to maxHistory entries; duplicates of the previous entry are
@@ -111,6 +122,16 @@ const maxHistory = 100
 type clipboardImageMsg struct {
 	image *core.ImageAttachment
 	err   error
+}
+
+// thumbnailReadyMsg carries the result of an async thumbnail render back to
+// the Update loop. gen and index identify the pendingImages slot the
+// thumbnail belongs to; the result is dropped if the generation no longer
+// matches (the pending set was cleared) or the index is out of range.
+type thumbnailReadyMsg struct {
+	gen   int
+	index int
+	thumb string
 }
 
 // NewInputComponent creates a new InputComponent with the given width and
@@ -201,8 +222,23 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		}
 		if msg.image != nil {
-			s.pendingImages = append(s.pendingImages, *msg.image)
-			s.imageThumbs = append(s.imageThumbs, s.renderThumbnail(*msg.image))
+			img := *msg.image
+			index := len(s.pendingImages)
+			s.pendingImages = append(s.pendingImages, img)
+			// Reserve a placeholder; the async render fills it in via
+			// thumbnailReadyMsg so Update never blocks on decode/resample.
+			s.imageThumbs = append(s.imageThumbs, "")
+			cols := s.thumbCols()
+			if cols < 1 {
+				return s, nil
+			}
+			return s, renderThumbnailCmd(img, cols, thumbMaxRows, style.GetTheme().Background, s.imageGen, index)
+		}
+		return s, nil
+
+	case thumbnailReadyMsg:
+		if msg.gen == s.imageGen && msg.index >= 0 && msg.index < len(s.imageThumbs) {
+			s.imageThumbs[msg.index] = msg.thumb
 		}
 		return s, nil
 
@@ -260,6 +296,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(s.pendingImages) > 0 {
 					s.pendingImages = nil
 					s.imageThumbs = nil
+					s.imageGen++
 					return s, nil
 				}
 			}
@@ -497,6 +534,7 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	images := s.pendingImages
 	s.pendingImages = nil
 	s.imageThumbs = nil
+	s.imageGen++
 	return func() tea.Msg {
 		return core.SubmitMsg{Text: trimmed, Images: images}
 	}
@@ -538,23 +576,32 @@ const (
 	thumbMaxRows = 12
 )
 
-// renderThumbnail renders a half-block ANSI preview of an attached image once,
-// at attach time, so View never re-renders it per frame. Returns an empty
-// string when the terminal cannot display a preview (the caller then shows the
-// text pill alone) or when rendering fails.
-func (s *InputComponent) renderThumbnail(img core.ImageAttachment) string {
+// thumbCols returns the thumbnail width in terminal cells given the current
+// input width, or 0 when there is no room to render a preview.
+func (s *InputComponent) thumbCols() int {
 	cols := thumbMaxCols
 	if s.width > 6 && s.width-6 < cols {
 		cols = s.width - 6
 	}
 	if cols < 1 {
-		return ""
+		return 0
 	}
-	thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, style.GetTheme().Background)
-	if err != nil {
-		return ""
+	return cols
+}
+
+// renderThumbnailCmd returns a tea.Cmd that renders a half-block ANSI preview
+// off the Bubble Tea event loop. The decode + resample work runs in the Cmd
+// goroutine, and the result is delivered as a thumbnailReadyMsg tagged with
+// the generation and slot index it was enqueued for. An empty thumbnail
+// (terminal unsupported or render error) leaves the text pill in place.
+func renderThumbnailCmd(img core.ImageAttachment, cols, rows int, bg color.Color, gen, index int) tea.Cmd {
+	return func() tea.Msg {
+		thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, rows, bg)
+		if err != nil {
+			thumb = ""
+		}
+		return thumbnailReadyMsg{gen: gen, index: index, thumb: thumb}
 	}
-	return thumb
 }
 
 // View implements tea.Model. Renders the textarea, autocomplete popup
@@ -893,6 +940,7 @@ func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
 	images := s.pendingImages
 	s.pendingImages = nil
 	s.imageThumbs = nil
+	s.imageGen++
 	return images
 }
 

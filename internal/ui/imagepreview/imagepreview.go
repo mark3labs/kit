@@ -39,6 +39,12 @@ const upperHalfBlock = "▀"
 // reset is the SGR reset sequence appended after each rendered row.
 const reset = "\x1b[0m"
 
+// maxImageDimension is the largest width or height, in pixels, that Render will
+// fully decode. Images larger than this in either axis are rejected before the
+// expensive image.Decode call to guard against decompression bombs (small
+// encoded payloads that expand to enormous pixel buffers).
+const maxImageDimension = 20000
+
 // Render returns a half-block ANSI thumbnail of the image, scaled to fit
 // within maxCols x maxRows terminal cells while preserving aspect ratio.
 //
@@ -72,6 +78,17 @@ func renderWithProfile(data []byte, maxCols, maxRows int, bg color.Color, profil
 	}
 	if bg == nil {
 		bg = color.Black
+	}
+
+	// Guard against decompression bombs: inspect the header dimensions before
+	// fully decoding, so a small malicious payload cannot expand into an
+	// enormous pixel buffer.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("decode image config: %w", err)
+	}
+	if cfg.Width > maxImageDimension || cfg.Height > maxImageDimension {
+		return "", fmt.Errorf("decode image: dimensions %dx%d exceed limit %d", cfg.Width, cfg.Height, maxImageDimension)
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
