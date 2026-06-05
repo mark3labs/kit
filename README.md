@@ -513,6 +513,8 @@ During an interactive session, use these slash commands:
 
 | Shortcut | Description |
 |----------|-------------|
+| `Ctrl+V` | Paste an image from the clipboard — shows an inline low-res thumbnail preview (tmux/zellij-safe) |
+| `Ctrl+U` | Clear all pending image attachments |
 | `Ctrl+X e` | Open `$VISUAL`/`$EDITOR` to compose or edit your prompt |
 | `Ctrl+X s` | Steer — inject a system-level instruction mid-turn |
 | `ESC ESC` | Cancel the current operation (tool call or streaming) |

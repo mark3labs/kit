@@ -25,6 +25,7 @@ import (
 	"github.com/mark3labs/kit/internal/ui/commands"
 	uicore "github.com/mark3labs/kit/internal/ui/core"
 	"github.com/mark3labs/kit/internal/ui/fileutil"
+	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/prefs"
 	"github.com/mark3labs/kit/internal/ui/style"
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -1794,12 +1795,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// messages stay in chronological order.
 				m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 				m.flushStreamAndPendingUserMessages()
+				// Insert inline thumbnail previews after the user message.
+				cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
 			}
 		} else {
 			m.printUserMessage(displayText)
+			// Insert inline thumbnail previews after the user message.
+			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
 		}
 		if m.state != stateWorking {
 			m.state = stateWorking
+		}
+
+	// ── Async transcript image preview ───────────────────────────────────────
+	case imagePreviewReadyMsg:
+		if msg.block != "" {
+			item := NewStyledMessageItem(generateMessageID(), "user", "", msg.block)
+			m.insertMessageAfter(msg.anchorID, item)
+			m.refreshContent()
+			m.layoutDirty = true
 		}
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
@@ -2447,6 +2461,19 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.printSystemMessage(msg.Text)
 		}
 
+	// ── Clipboard image attached / thumbnail rendered ────────────────────────
+	// Both messages change the input region's rendered height (the pill and
+	// the async half-block preview), so forward them to the input and mark the
+	// layout dirty — otherwise distributeHeight keeps a stale, too-short input
+	// height and the preview is clipped off the bottom of the screen.
+	case clipboardImageMsg, thumbnailReadyMsg:
+		if m.input != nil {
+			updated, cmd := m.input.Update(msg)
+			m.input, _ = updated.(inputComponentIface)
+			cmds = append(cmds, cmd)
+		}
+		m.layoutDirty = true
+
 	default:
 		// Pass unrecognised messages to all children.
 		if m.input != nil {
@@ -3045,6 +3072,85 @@ func truncateMessageForBlock(msg string, maxLines, width int) string {
 // --------------------------------------------------------------------------
 // Print helpers — add content to ScrollList
 // --------------------------------------------------------------------------
+
+// imagePreviewReadyMsg carries an asynchronously rendered transcript image
+// preview block back to the Update loop, where it is inserted into the
+// ScrollList directly after the originating user message (identified by
+// anchorID). Inserting by anchor — rather than appending — keeps the preview
+// next to its message even when the agent's streamed reply has already been
+// appended while the thumbnail was being decoded off the event loop.
+type imagePreviewReadyMsg struct {
+	block    string
+	anchorID string
+}
+
+// transcriptPreviewCmd returns a tea.Cmd that renders half-block thumbnail
+// previews for the given clipboard images off the Bubble Tea event loop
+// (decode + resample must not block Update). The rendered block is delivered
+// via imagePreviewReadyMsg, tagged with anchorID so the consumer can place it
+// directly after the originating user message. Returns nil when there is
+// nothing to render or no room for a preview; an empty result (terminal lacks
+// color support) yields a nil message that Bubble Tea ignores.
+func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorID string) tea.Cmd {
+	if len(images) == 0 {
+		return nil
+	}
+	cols := thumbMaxCols
+	if m.width > 6 && m.width-6 < cols {
+		cols = m.width - 6
+	}
+	if cols < 1 {
+		return nil
+	}
+	bg := style.GetTheme().Background
+	imgs := images
+	return func() tea.Msg {
+		pad := lipgloss.NewStyle().PaddingLeft(2)
+		var blocks []string
+		for _, img := range imgs {
+			thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, bg)
+			if err != nil || thumb == "" {
+				continue
+			}
+			blocks = append(blocks, pad.Render(thumb))
+		}
+		if len(blocks) == 0 {
+			return nil
+		}
+		return imagePreviewReadyMsg{block: strings.Join(blocks, "\n"), anchorID: anchorID}
+	}
+}
+
+// lastMessageID returns the ID of the most recently added ScrollList message,
+// or "" when there are none. Used to anchor an async transcript preview to the
+// user message that was just printed.
+func (m *AppModel) lastMessageID() string {
+	if len(m.messages) == 0 {
+		return ""
+	}
+	return m.messages[len(m.messages)-1].ID()
+}
+
+// insertMessageAfter inserts item immediately after the message whose ID
+// matches anchorID. If anchorID is empty or not found, item is appended.
+func (m *AppModel) insertMessageAfter(anchorID string, item MessageItem) {
+	idx := -1
+	if anchorID != "" {
+		for i, msgItem := range m.messages {
+			if msgItem.ID() == anchorID {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 {
+		m.messages = append(m.messages, item)
+		return
+	}
+	m.messages = append(m.messages, nil)
+	copy(m.messages[idx+2:], m.messages[idx+1:])
+	m.messages[idx+1] = item
+}
 
 // printUserMessage renders a user message into the ScrollList.
 func (m *AppModel) printUserMessage(text string) {

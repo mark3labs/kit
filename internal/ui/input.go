@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/mark3labs/kit/internal/clipboard"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -80,6 +82,23 @@ type InputComponent struct {
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []core.ImageAttachment
 
+	// imageThumbs caches the rendered half-block thumbnail for each entry in
+	// pendingImages (1:1 index correspondence). Thumbnails are rendered
+	// asynchronously off the Bubble Tea event loop (decode + resample is too
+	// slow to run inside Update), so an entry starts as the empty string
+	// placeholder and is filled in when the matching thumbnailReadyMsg
+	// arrives. An entry stays empty when the terminal cannot display a
+	// half-block preview, in which case the text pill is shown alone.
+	// See internal/ui/imagepreview.
+	imageThumbs []string
+
+	// imageGen is a monotonic generation counter incremented whenever the
+	// pending image set is cleared. Async thumbnail results carry the
+	// generation they were enqueued under and are discarded if it no longer
+	// matches, preventing a stale thumbnail from landing on the wrong slot
+	// after a clear + re-attach.
+	imageGen int
+
 	// history stores previously submitted prompts (most recent last).
 	// Limited to maxHistory entries; duplicates of the previous entry are
 	// skipped. Empty strings are never stored.
@@ -103,6 +122,16 @@ const maxHistory = 100
 type clipboardImageMsg struct {
 	image *core.ImageAttachment
 	err   error
+}
+
+// thumbnailReadyMsg carries the result of an async thumbnail render back to
+// the Update loop. gen and index identify the pendingImages slot the
+// thumbnail belongs to; the result is dropped if the generation no longer
+// matches (the pending set was cleared) or the index is out of range.
+type thumbnailReadyMsg struct {
+	gen   int
+	index int
+	thumb string
 }
 
 // NewInputComponent creates a new InputComponent with the given width and
@@ -193,7 +222,23 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		}
 		if msg.image != nil {
-			s.pendingImages = append(s.pendingImages, *msg.image)
+			img := *msg.image
+			index := len(s.pendingImages)
+			s.pendingImages = append(s.pendingImages, img)
+			// Reserve a placeholder; the async render fills it in via
+			// thumbnailReadyMsg so Update never blocks on decode/resample.
+			s.imageThumbs = append(s.imageThumbs, "")
+			cols := s.thumbCols()
+			if cols < 1 {
+				return s, nil
+			}
+			return s, renderThumbnailCmd(img, cols, thumbMaxRows, style.GetTheme().Background, s.imageGen, index)
+		}
+		return s, nil
+
+	case thumbnailReadyMsg:
+		if msg.gen == s.imageGen && msg.index >= 0 && msg.index < len(s.imageThumbs) {
+			s.imageThumbs[msg.index] = msg.thumb
 		}
 		return s, nil
 
@@ -250,6 +295,8 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clear all pending image attachments.
 				if len(s.pendingImages) > 0 {
 					s.pendingImages = nil
+					s.imageThumbs = nil
+					s.imageGen++
 					return s, nil
 				}
 			}
@@ -486,6 +533,8 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	// images and clear them.
 	images := s.pendingImages
 	s.pendingImages = nil
+	s.imageThumbs = nil
+	s.imageGen++
 	return func() tea.Msg {
 		return core.SubmitMsg{Text: trimmed, Images: images}
 	}
@@ -519,6 +568,42 @@ func (s *InputComponent) resetHistoryBrowsing() {
 	s.savedInput = ""
 }
 
+// thumbMaxCols and thumbMaxRows cap the size, in terminal cells, of pending
+// image previews. Kept small for the low-res look and to keep scrollback
+// light.
+const (
+	thumbMaxCols = 40
+	thumbMaxRows = 12
+)
+
+// thumbCols returns the thumbnail width in terminal cells given the current
+// input width, or 0 when there is no room to render a preview.
+func (s *InputComponent) thumbCols() int {
+	if s.width <= 6 {
+		return 0
+	}
+	cols := min(thumbMaxCols, s.width-6)
+	if cols < 1 {
+		return 0
+	}
+	return cols
+}
+
+// renderThumbnailCmd returns a tea.Cmd that renders a half-block ANSI preview
+// off the Bubble Tea event loop. The decode + resample work runs in the Cmd
+// goroutine, and the result is delivered as a thumbnailReadyMsg tagged with
+// the generation and slot index it was enqueued for. An empty thumbnail
+// (terminal unsupported or render error) leaves the text pill in place.
+func renderThumbnailCmd(img core.ImageAttachment, cols, rows int, bg color.Color, gen, index int) tea.Cmd {
+	return func() tea.Msg {
+		thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, rows, bg)
+		if err != nil {
+			thumb = ""
+		}
+		return thumbnailReadyMsg{gen: gen, index: index, thumb: thumb}
+	}
+}
+
 // View implements tea.Model. Renders the textarea, autocomplete popup
 // (if visible), and help text.
 func (s *InputComponent) View() tea.View {
@@ -544,7 +629,9 @@ func (s *InputComponent) View() tea.View {
 	// Popup is now rendered as a centered overlay in AppModel.View()
 	// instead of inline here to prevent bottom overflow
 
-	// Show image attachment indicator when images are pending.
+	// Show image attachment previews when images are pending. A cached
+	// half-block thumbnail is rendered when the terminal supports it;
+	// otherwise the text pill alone is shown.
 	if len(s.pendingImages) > 0 {
 		imgStyle := lipgloss.NewStyle().
 			Foreground(theme.Secondary).
@@ -553,6 +640,14 @@ func (s *InputComponent) View() tea.View {
 		label := fmt.Sprintf("[%d image(s) attached] ctrl+u to clear", len(s.pendingImages))
 		view.WriteString("\n")
 		view.WriteString(imgStyle.Render(label))
+
+		thumbStyle := lipgloss.NewStyle().PaddingLeft(3)
+		for i := range s.pendingImages {
+			if i < len(s.imageThumbs) && s.imageThumbs[i] != "" {
+				view.WriteString("\n")
+				view.WriteString(thumbStyle.Render(s.imageThumbs[i]))
+			}
+		}
 	}
 
 	if !s.hideHint {
@@ -844,6 +939,8 @@ func readClipboardImageCmd() tea.Cmd {
 func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
 	images := s.pendingImages
 	s.pendingImages = nil
+	s.imageThumbs = nil
+	s.imageGen++
 	return images
 }
 
