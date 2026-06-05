@@ -953,6 +953,7 @@ npm/                 - NPM package wrapper for distribution
 
 - **Anthropic** - Claude models (native, prompt caching, OAuth)
 - **OpenAI** - GPT models
+- **Copilot** - GitHub Copilot models (`copilot`, requires active Copilot subscription)
 - **Google** - Gemini models
 - **Ollama** - Local models
 - **Azure OpenAI** - Azure-hosted OpenAI

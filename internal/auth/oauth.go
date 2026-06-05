@@ -247,13 +247,13 @@ func NewCopilotOAuthClient() *CopilotOAuthClient {
 }
 
 // StartDeviceFlow requests a GitHub device code for browser login.
-func (c *CopilotOAuthClient) StartDeviceFlow() (*CopilotDeviceCode, error) {
+func (c *CopilotOAuthClient) StartDeviceFlow(ctx context.Context) (*CopilotDeviceCode, error) {
 	data := url.Values{
 		"client_id": {c.ClientID},
 		"scope":     {c.Scopes},
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.DeviceURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.DeviceURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create device-code request: %w", err)
 	}
@@ -286,20 +286,46 @@ func (c *CopilotOAuthClient) StartDeviceFlow() (*CopilotDeviceCode, error) {
 
 // PollDeviceToken waits until the user authorizes the device code and returns
 // the resulting GitHub OAuth token.
-func (c *CopilotOAuthClient) PollDeviceToken(deviceCode string) (string, error) {
+func (c *CopilotOAuthClient) PollDeviceToken(ctx context.Context, deviceCode *CopilotDeviceCode) (string, error) {
+	if deviceCode == nil || deviceCode.DeviceCode == "" {
+		return "", fmt.Errorf("device code missing")
+	}
+
 	deadline := time.Now().Add(c.PollTimeout)
-	interval := 5 * time.Second
+	if deviceCode.ExpiresIn > 0 {
+		expiresAt := time.Now().Add(time.Duration(deviceCode.ExpiresIn) * time.Second)
+		if expiresAt.Before(deadline) {
+			deadline = expiresAt
+		}
+	}
+
+	interval := time.Duration(deviceCode.Interval) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
 
 	for time.Now().Before(deadline) {
-		time.Sleep(interval)
+		wait := interval
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(wait):
+		}
+
+		if !time.Now().Before(deadline) {
+			break
+		}
 
 		data := url.Values{
 			"client_id":   {c.ClientID},
-			"device_code": {deviceCode},
+			"device_code": {deviceCode.DeviceCode},
 			"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 		}
 
-		req, err := http.NewRequestWithContext(context.Background(), "POST", c.TokenURL, strings.NewReader(data.Encode()))
+		req, err := http.NewRequestWithContext(ctx, "POST", c.TokenURL, strings.NewReader(data.Encode()))
 		if err != nil {
 			return "", fmt.Errorf("failed to create device-token request: %w", err)
 		}
@@ -350,13 +376,13 @@ func (c *CopilotOAuthClient) PollDeviceToken(deviceCode string) (string, error) 
 }
 
 // ExchangeGitHubToken converts a GitHub OAuth token into a Copilot API token.
-func (c *CopilotOAuthClient) ExchangeGitHubToken(githubToken string) (*CopilotCredentials, error) {
-	return c.RefreshCopilotToken(githubToken)
+func (c *CopilotOAuthClient) ExchangeGitHubToken(ctx context.Context, githubToken string) (*CopilotCredentials, error) {
+	return c.RefreshCopilotToken(ctx, githubToken)
 }
 
 // RefreshCopilotToken obtains a fresh short-lived Copilot token from GitHub.
-func (c *CopilotOAuthClient) RefreshCopilotToken(githubToken string) (*CopilotCredentials, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", c.CopilotURL, nil)
+func (c *CopilotOAuthClient) RefreshCopilotToken(ctx context.Context, githubToken string) (*CopilotCredentials, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.CopilotURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Copilot token request: %w", err)
 	}

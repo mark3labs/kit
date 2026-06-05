@@ -996,7 +996,7 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 		return nil, fmt.Errorf("failed to initialize credential manager: %w", err)
 	}
 
-	token, err := cm.GetValidCopilotAccessToken()
+	token, err := cm.GetValidCopilotAccessTokenContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("GitHub Copilot credentials not available. Use 'kit auth login copilot': %w", err)
 	}
@@ -1026,7 +1026,9 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 		return nil, fmt.Errorf("failed to create GitHub Copilot model: %w", err)
 	}
 
-	return &ProviderResult{Model: model}, nil
+	providerOpts := buildOpenAIProviderOptions(config, modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
 func copilotUsesResponsesAPI(modelID string) bool {
@@ -1191,7 +1193,7 @@ type copilotTransport struct {
 func (t *copilotTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	token := t.token
 	if cm, err := auth.NewCredentialManager(); err == nil {
-		if fresh, err := cm.GetValidCopilotAccessToken(); err == nil && fresh != "" {
+		if fresh, err := cm.GetValidCopilotAccessTokenContext(req.Context()); err == nil && fresh != "" {
 			token = fresh
 		}
 	}

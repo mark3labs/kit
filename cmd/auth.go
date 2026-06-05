@@ -159,7 +159,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	case "openai":
 		return loginOpenAI()
 	case "copilot":
-		return loginCopilot()
+		return loginCopilot(cmd.Context())
 	default:
 		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai, copilot", provider)
 	}
@@ -550,7 +550,11 @@ func loginOpenAI() error {
 	return nil
 }
 
-func loginCopilot() error {
+func loginCopilot(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	cm, err := kit.NewCredentialManager()
 	if err != nil {
 		return fmt.Errorf("failed to initialize credential manager: %w", err)
@@ -577,7 +581,7 @@ func loginCopilot() error {
 	fmt.Println("This uses GitHub device login and requires an active GitHub Copilot subscription.")
 	fmt.Println()
 
-	deviceCode, err := client.StartDeviceFlow()
+	deviceCode, err := client.StartDeviceFlow(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start GitHub device login: %w", err)
 	}
@@ -588,13 +592,13 @@ func loginCopilot() error {
 	auth.TryOpenBrowser(deviceCode.VerificationURI)
 
 	fmt.Println("Waiting for GitHub authorization...")
-	githubToken, err := client.PollDeviceToken(deviceCode.DeviceCode)
+	githubToken, err := client.PollDeviceToken(ctx, deviceCode)
 	if err != nil {
 		return fmt.Errorf("failed to complete GitHub device login: %w", err)
 	}
 
 	fmt.Println("\n🔄 Exchanging GitHub token for Copilot access token...")
-	creds, err := client.ExchangeGitHubToken(githubToken)
+	creds, err := client.ExchangeGitHubToken(ctx, githubToken)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub Copilot token: %w", err)
 	}

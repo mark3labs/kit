@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -365,6 +366,12 @@ func (cm *CredentialManager) SetCopilotOAuthCredentials(creds *CopilotCredential
 // GetValidCopilotAccessToken returns a fresh Copilot API token, renewing it
 // with the stored GitHub OAuth token when needed.
 func (cm *CredentialManager) GetValidCopilotAccessToken() (string, error) {
+	return cm.GetValidCopilotAccessTokenContext(context.Background())
+}
+
+// GetValidCopilotAccessTokenContext returns a fresh Copilot API token, renewing
+// it with the stored GitHub OAuth token when needed.
+func (cm *CredentialManager) GetValidCopilotAccessTokenContext(ctx context.Context) (string, error) {
 	creds, err := cm.GetCopilotCredentials()
 	if err != nil {
 		return "", err
@@ -381,7 +388,7 @@ func (cm *CredentialManager) GetValidCopilotAccessToken() (string, error) {
 
 	if creds.CopilotAccessToken == "" || creds.NeedsRefresh() {
 		client := NewCopilotOAuthClient()
-		newCreds, err := client.RefreshCopilotToken(creds.GitHubToken)
+		newCreds, err := client.RefreshCopilotToken(ctx, creds.GitHubToken)
 		if err != nil {
 			return "", fmt.Errorf("failed to refresh Copilot token: %w", err)
 		}
