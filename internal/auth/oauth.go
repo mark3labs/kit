@@ -248,6 +248,10 @@ func NewCopilotOAuthClient() *CopilotOAuthClient {
 
 // StartDeviceFlow requests a GitHub device code for browser login.
 func (c *CopilotOAuthClient) StartDeviceFlow(ctx context.Context) (*CopilotDeviceCode, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	data := url.Values{
 		"client_id": {c.ClientID},
 		"scope":     {c.Scopes},
@@ -287,6 +291,10 @@ func (c *CopilotOAuthClient) StartDeviceFlow(ctx context.Context) (*CopilotDevic
 // PollDeviceToken waits until the user authorizes the device code and returns
 // the resulting GitHub OAuth token.
 func (c *CopilotOAuthClient) PollDeviceToken(ctx context.Context, deviceCode *CopilotDeviceCode) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	if deviceCode == nil || deviceCode.DeviceCode == "" {
 		return "", fmt.Errorf("device code missing")
 	}
@@ -382,6 +390,10 @@ func (c *CopilotOAuthClient) ExchangeGitHubToken(ctx context.Context, githubToke
 
 // RefreshCopilotToken obtains a fresh short-lived Copilot token from GitHub.
 func (c *CopilotOAuthClient) RefreshCopilotToken(ctx context.Context, githubToken string) (*CopilotCredentials, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", c.CopilotURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Copilot token request: %w", err)

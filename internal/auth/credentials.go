@@ -372,6 +372,10 @@ func (cm *CredentialManager) GetValidCopilotAccessToken() (string, error) {
 // GetValidCopilotAccessTokenContext returns a fresh Copilot API token, renewing
 // it with the stored GitHub OAuth token when needed.
 func (cm *CredentialManager) GetValidCopilotAccessTokenContext(ctx context.Context) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	creds, err := cm.GetCopilotCredentials()
 	if err != nil {
 		return "", err

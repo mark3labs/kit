@@ -150,6 +150,7 @@ func init() {
 	authLoginCmd.Flags().BoolVar(&loginSetDefault, "set-default", false, "Set this provider's default model as the system default after login")
 }
 
+// runAuthLogin dispatches OAuth login to the selected provider.
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	provider := strings.ToLower(args[0])
 
@@ -550,6 +551,7 @@ func loginOpenAI() error {
 	return nil
 }
 
+// loginCopilot authenticates GitHub Copilot using GitHub device flow.
 func loginCopilot(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
