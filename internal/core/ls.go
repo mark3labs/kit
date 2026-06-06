@@ -42,6 +42,9 @@ func NewLsTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeLs(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
 	var args lsArgs
 	_ = parseArgs(call.Input, &args) // optional args
 

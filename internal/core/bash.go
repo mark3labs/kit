@@ -249,34 +249,37 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	return executeBashBuffered(cmdCtx, call, cmd, sudoPassword)
 }
 
-// executeBashBuffered collects all output before returning (original behavior).
-// It uses explicit pipes (not cmd.Stdout) so that cmd.WaitDelay can forcibly
-// close them when grandchild processes hold pipe handles open after the
-// direct child exits.
-func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd, sudoPassword string) (fantasy.ToolResponse, error) {
+// setupBashPipes opens stdout/stderr pipes (plus an optional sudo stdin),
+// starts the command, and asynchronously writes the sudo password if any.
+// Returns the readers ready for the caller to consume. If setup fails,
+// errResp is non-nil and the readers must not be used; the caller should
+// return the response directly.
+func setupBashPipes(cmd *exec.Cmd, sudoPassword string) (stdout, stderr io.Reader, errResp *fantasy.ToolResponse) {
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return fantasy.NewTextErrorResponse("failed to create stdout pipe"), nil
+		r := fantasy.NewTextErrorResponse("failed to create stdout pipe")
+		return nil, nil, &r
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return fantasy.NewTextErrorResponse("failed to create stderr pipe"), nil
+		r := fantasy.NewTextErrorResponse("failed to create stderr pipe")
+		return nil, nil, &r
 	}
 
-	// If we have a sudo password, create a stdin pipe and write the password
 	var stdinPipe io.WriteCloser
 	if sudoPassword != "" {
 		stdinPipe, err = cmd.StdinPipe()
 		if err != nil {
-			return fantasy.NewTextErrorResponse("failed to create stdin pipe"), nil
+			r := fantasy.NewTextErrorResponse("failed to create stdin pipe")
+			return nil, nil, &r
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err)), nil
+		r := fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err))
+		return nil, nil, &r
 	}
 
-	// Write password to stdin if needed, then close stdin
 	if sudoPassword != "" && stdinPipe != nil {
 		go func() {
 			defer func() { _ = stdinPipe.Close() }()
@@ -284,19 +287,49 @@ func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exe
 		}()
 	}
 
+	return stdoutPipe, stderrPipe, nil
+}
+
+// interpretBashExit decodes cmd.Wait()'s error into an exit code, mapping
+// context-deadline-exceeded to a friendly "command timed out" response.
+// errResp is non-nil only when the caller should short-circuit and return
+// it directly (e.g. timeout).
+func interpretBashExit(waitErr error, cmdCtx context.Context) (exitCode int, errResp *fantasy.ToolResponse) {
+	if waitErr == nil {
+		return 0, nil
+	}
+	if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), nil
+	}
+	if cmdCtx.Err() == context.DeadlineExceeded {
+		r := fantasy.NewTextErrorResponse("command timed out")
+		return 0, &r
+	}
+	return 0, nil
+}
+
+// executeBashBuffered collects all output before returning (original behavior).
+// It uses explicit pipes (not cmd.Stdout) so that cmd.WaitDelay can forcibly
+// close them when grandchild processes hold pipe handles open after the
+// direct child exits.
+func executeBashBuffered(cmdCtx context.Context, _ fantasy.ToolCall, cmd *exec.Cmd, sudoPassword string) (fantasy.ToolResponse, error) {
+	stdoutPipe, stderrPipe, errResp := setupBashPipes(cmd, sudoPassword)
+	if errResp != nil {
+		return *errResp, nil
+	}
+
 	// Read pipes concurrently
 	var wg sync.WaitGroup
 	var stdout, stderr strings.Builder
-	var stdoutErr, stderrErr error
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, stdoutErr = io.Copy(&stdout, stdoutPipe)
+		_, _ = io.Copy(&stdout, stdoutPipe)
 	}()
 	go func() {
 		defer wg.Done()
-		_, stderrErr = io.Copy(&stderr, stderrPipe)
+		_, _ = io.Copy(&stderr, stderrPipe)
 	}()
 
 	// Wait for the process to exit first. cmd.WaitDelay ensures that if
@@ -307,18 +340,9 @@ func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exe
 	// Wait for pipe readers to finish draining.
 	wg.Wait()
 
-	// Ignore pipe read errors caused by WaitDelay force-closing —
-	// we still have whatever was read before the close.
-	_ = stdoutErr
-	_ = stderrErr
-
-	exitCode := 0
-	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if cmdCtx.Err() == context.DeadlineExceeded {
-			return fantasy.NewTextErrorResponse("command timed out"), nil
-		}
+	exitCode, errResp := interpretBashExit(waitErr, cmdCtx)
+	if errResp != nil {
+		return *errResp, nil
 	}
 
 	return buildBashResponse(stdout.String(), stderr.String(), exitCode)
@@ -326,35 +350,9 @@ func executeBashBuffered(cmdCtx context.Context, call fantasy.ToolCall, cmd *exe
 
 // executeBashStreaming streams output as it arrives via the callback.
 func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd, outputCallback ToolOutputCallback, sudoPassword string) (fantasy.ToolResponse, error) {
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fantasy.NewTextErrorResponse("failed to create stdout pipe"), nil
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return fantasy.NewTextErrorResponse("failed to create stderr pipe"), nil
-	}
-
-	// If we have a sudo password, create a stdin pipe
-	var stdinPipe io.WriteCloser
-	if sudoPassword != "" {
-		stdinPipe, err = cmd.StdinPipe()
-		if err != nil {
-			return fantasy.NewTextErrorResponse("failed to create stdin pipe"), nil
-		}
-	}
-
-	// Start command execution
-	if err := cmd.Start(); err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err)), nil
-	}
-
-	// Write password to stdin if needed, then close stdin
-	if sudoPassword != "" && stdinPipe != nil {
-		go func() {
-			defer func() { _ = stdinPipe.Close() }()
-			_, _ = io.WriteString(stdinPipe, sudoPassword+"\n")
-		}()
+	stdoutPipe, stderrPipe, errResp := setupBashPipes(cmd, sudoPassword)
+	if errResp != nil {
+		return *errResp, nil
 	}
 
 	// Stream stdout and stderr concurrently
@@ -391,20 +389,16 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 	// Wait for the process to exit. cmd.WaitDelay ensures that if pipes
 	// remain open (held by grandchild processes), they'll be forcibly closed
 	// after the grace period, which unblocks the scanners above.
-	err = cmd.Wait()
+	waitErr := cmd.Wait()
 
 	// Wait for the pipe readers to finish draining. This will complete
 	// quickly since cmd.Wait() (with WaitDelay) has already ensured
 	// the pipes are closed.
 	wg.Wait()
 
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if cmdCtx.Err() == context.DeadlineExceeded {
-			return fantasy.NewTextErrorResponse("command timed out"), nil
-		}
+	exitCode, errResp := interpretBashExit(waitErr, cmdCtx)
+	if errResp != nil {
+		return *errResp, nil
 	}
 
 	return buildBashResponse(strings.Join(stdoutChunks, "\n"), strings.Join(stderrChunks, "\n"), exitCode)

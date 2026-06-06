@@ -155,17 +155,17 @@ func (m *Kit) Extensions() ExtensionAPI {
 
 // Context management
 
-func (e *extensionAPI) SetContext(ctx extensions.Context) {
+func (e *extensionAPI) SetContext(ctx ExtensionContext) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetContext(ctx)
 	}
 }
 
-func (e *extensionAPI) GetContext() extensions.Context {
+func (e *extensionAPI) GetContext() ExtensionContext {
 	if e.kit.extRunner != nil {
 		return e.kit.extRunner.GetContext()
 	}
-	return extensions.Context{}
+	return ExtensionContext{}
 }
 
 func (e *extensionAPI) UpdateContextModel(model string) {
@@ -178,7 +178,7 @@ func (e *extensionAPI) UpdateContextModel(model string) {
 
 // Widgets
 
-func (e *extensionAPI) SetWidget(config extensions.WidgetConfig) {
+func (e *extensionAPI) SetWidget(config ExtensionWidgetConfig) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetWidget(config)
 	}
@@ -190,7 +190,7 @@ func (e *extensionAPI) RemoveWidget(id string) {
 	}
 }
 
-func (e *extensionAPI) GetWidgets(placement extensions.WidgetPlacement) []extensions.WidgetConfig {
+func (e *extensionAPI) GetWidgets(placement ExtensionWidgetPlacement) []ExtensionWidgetConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -199,7 +199,7 @@ func (e *extensionAPI) GetWidgets(placement extensions.WidgetPlacement) []extens
 
 // Header/Footer
 
-func (e *extensionAPI) SetHeader(config extensions.HeaderFooterConfig) {
+func (e *extensionAPI) SetHeader(config ExtensionHeaderFooterConfig) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetHeader(config)
 	}
@@ -211,14 +211,14 @@ func (e *extensionAPI) RemoveHeader() {
 	}
 }
 
-func (e *extensionAPI) GetHeader() *extensions.HeaderFooterConfig {
+func (e *extensionAPI) GetHeader() *ExtensionHeaderFooterConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
 	return e.kit.extRunner.GetHeader()
 }
 
-func (e *extensionAPI) SetFooter(config extensions.HeaderFooterConfig) {
+func (e *extensionAPI) SetFooter(config ExtensionHeaderFooterConfig) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetFooter(config)
 	}
@@ -230,7 +230,7 @@ func (e *extensionAPI) RemoveFooter() {
 	}
 }
 
-func (e *extensionAPI) GetFooter() *extensions.HeaderFooterConfig {
+func (e *extensionAPI) GetFooter() *ExtensionHeaderFooterConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -239,7 +239,7 @@ func (e *extensionAPI) GetFooter() *extensions.HeaderFooterConfig {
 
 // Editor
 
-func (e *extensionAPI) SetEditor(config extensions.EditorConfig) {
+func (e *extensionAPI) SetEditor(config ExtensionEditorConfig) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetEditor(config)
 	}
@@ -251,7 +251,7 @@ func (e *extensionAPI) ResetEditor() {
 	}
 }
 
-func (e *extensionAPI) GetEditor() *extensions.EditorConfig {
+func (e *extensionAPI) GetEditor() *ExtensionEditorConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -260,13 +260,13 @@ func (e *extensionAPI) GetEditor() *extensions.EditorConfig {
 
 // UI Visibility
 
-func (e *extensionAPI) SetUIVisibility(v extensions.UIVisibility) {
+func (e *extensionAPI) SetUIVisibility(v ExtensionUIVisibility) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetUIVisibility(v)
 	}
 }
 
-func (e *extensionAPI) GetUIVisibility() *extensions.UIVisibility {
+func (e *extensionAPI) GetUIVisibility() *ExtensionUIVisibility {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -275,14 +275,14 @@ func (e *extensionAPI) GetUIVisibility() *extensions.UIVisibility {
 
 // Tool rendering
 
-func (e *extensionAPI) GetToolRenderer(toolName string) *extensions.ToolRenderConfig {
+func (e *extensionAPI) GetToolRenderer(toolName string) *ExtensionToolRenderConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
 	return e.kit.extRunner.GetToolRenderer(toolName)
 }
 
-func (e *extensionAPI) GetMessageRenderer(name string) *extensions.MessageRendererConfig {
+func (e *extensionAPI) GetMessageRenderer(name string) *ExtensionMessageRendererConfig {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -291,7 +291,7 @@ func (e *extensionAPI) GetMessageRenderer(name string) *extensions.MessageRender
 
 // Session data
 
-func (e *extensionAPI) GetSessionMessages() []extensions.SessionMessage {
+func (e *extensionAPI) GetSessionMessages() []ExtensionSessionMessage {
 	if e.kit.session == nil {
 		return nil
 	}
@@ -299,8 +299,8 @@ func (e *extensionAPI) GetSessionMessages() []extensions.SessionMessage {
 	// Try to use the legacy iterBranchMessages for backward compatibility
 	// with the default TreeManager adapter
 	if adapter, ok := e.kit.session.(*treeManagerAdapter); ok {
-		return iterBranchMessages(adapter.inner, func(me *session.MessageEntry, msg message.Message) extensions.SessionMessage {
-			return extensions.SessionMessage{
+		return iterBranchMessages(adapter.inner, func(me *session.MessageEntry, msg message.Message) ExtensionSessionMessage {
+			return ExtensionSessionMessage{
 				ID:        me.ID,
 				Role:      string(msg.Role),
 				Content:   msg.Content(),
@@ -311,10 +311,10 @@ func (e *extensionAPI) GetSessionMessages() []extensions.SessionMessage {
 
 	// For custom SessionManagers, use the public interface
 	branch := e.kit.session.GetCurrentBranch()
-	var result []extensions.SessionMessage
+	var result []ExtensionSessionMessage
 	for _, entry := range branch {
 		if entry.Type == EntryTypeMessage {
-			result = append(result, extensions.SessionMessage{
+			result = append(result, ExtensionSessionMessage{
 				ID:        entry.ID,
 				Role:      entry.Role,
 				Content:   entry.Content,
@@ -332,14 +332,14 @@ func (e *extensionAPI) AppendEntry(extType, data string) (string, error) {
 	return e.kit.session.AppendExtensionData(extType, data)
 }
 
-func (e *extensionAPI) GetEntries(extType string) []extensions.ExtensionEntry {
+func (e *extensionAPI) GetEntries(extType string) []ExtensionEntry {
 	if e.kit.session == nil {
 		return nil
 	}
 	entries := e.kit.session.GetExtensionData(extType)
-	result := make([]extensions.ExtensionEntry, 0, len(entries))
+	result := make([]ExtensionEntry, 0, len(entries))
 	for _, e := range entries {
-		result = append(result, extensions.ExtensionEntry{
+		result = append(result, ExtensionEntry{
 			ID:        e.ID,
 			EntryType: e.ExtType,
 			Data:      e.Data,
@@ -351,7 +351,7 @@ func (e *extensionAPI) GetEntries(extType string) []extensions.ExtensionEntry {
 
 // Status bar
 
-func (e *extensionAPI) SetStatus(entry extensions.StatusBarEntry) {
+func (e *extensionAPI) SetStatus(entry ExtensionStatusBarEntry) {
 	if e.kit.extRunner != nil {
 		e.kit.extRunner.SetStatusEntry(entry)
 	}
@@ -363,7 +363,7 @@ func (e *extensionAPI) RemoveStatus(key string) {
 	}
 }
 
-func (e *extensionAPI) GetStatusEntries() []extensions.StatusBarEntry {
+func (e *extensionAPI) GetStatusEntries() []ExtensionStatusBarEntry {
 	if e.kit.extRunner == nil {
 		return nil
 	}
@@ -394,12 +394,12 @@ func (e *extensionAPI) GetShortcuts() map[string]func() {
 
 // Tools
 
-func (e *extensionAPI) GetToolInfos() []extensions.ToolInfo {
+func (e *extensionAPI) GetToolInfos() []ExtensionToolInfo {
 	agentTools := e.kit.agent.GetTools()
 	coreCount := e.kit.agent.GetCoreToolCount()
 	mcpCount := e.kit.agent.GetMCPToolCount()
 
-	result := make([]extensions.ToolInfo, 0, len(agentTools))
+	result := make([]ExtensionToolInfo, 0, len(agentTools))
 	for i, t := range agentTools {
 		info := t.Info()
 		source := "core"
@@ -412,7 +412,7 @@ func (e *extensionAPI) GetToolInfos() []extensions.ToolInfo {
 		if e.kit.extRunner != nil && e.kit.extRunner.IsToolDisabled(info.Name) {
 			enabled = false
 		}
-		result = append(result, extensions.ToolInfo{
+		result = append(result, ExtensionToolInfo{
 			Name:        info.Name,
 			Description: info.Description,
 			Source:      source,
@@ -505,7 +505,7 @@ func (e *extensionAPI) EmitBeforeSessionSwitch(switchReason string) (cancelled b
 
 // Commands
 
-func (e *extensionAPI) Commands() []extensions.CommandDef {
+func (e *extensionAPI) Commands() []ExtensionCommandDef {
 	if e.kit.extRunner == nil {
 		return nil
 	}

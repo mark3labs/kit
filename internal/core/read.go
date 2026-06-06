@@ -47,6 +47,9 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
 	var args readArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("path parameter is required"), nil

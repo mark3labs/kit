@@ -169,9 +169,9 @@ type RetryHandler func(attempt int, err error)
 type PrepareStepHandler func(stepNumber int, messages []fantasy.Message) []fantasy.Message
 
 // GenerateCallbacks consolidates all callback functions for
-// GenerateWithLoopAndStreaming into a single struct. This replaces the previous
-// 16+ positional callback parameters, making it easier to add new callbacks
-// without breaking existing callers (new fields default to nil).
+// GenerateWithCallbacks into a single struct, replacing what was previously
+// 16+ positional callback parameters. New fields default to nil, so adding
+// new callbacks does not break existing callers.
 type GenerateCallbacks struct {
 	OnToolCall          ToolCallHandler
 	OnToolExecution     ToolExecutionHandler
@@ -519,44 +519,6 @@ func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message
 		OnToolResult:      onToolResult,
 		OnResponse:        onResponse,
 		OnToolCallContent: onToolCallContent,
-	})
-}
-
-// GenerateWithLoopAndStreaming processes messages using the agent with streaming and callbacks.
-// The agent handles the tool call loop internally.
-//
-// Deprecated: Use GenerateWithCallbacks instead, which takes a GenerateCallbacks
-// struct and is easier to extend with new callbacks.
-func (a *Agent) GenerateWithLoopAndStreaming(ctx context.Context, messages []fantasy.Message,
-	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
-	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
-	onStreamingResponse StreamingResponseHandler,
-	onReasoningDelta ReasoningDeltaHandler,
-	onReasoningComplete ReasoningCompleteHandler,
-	onToolOutput ToolOutputHandler,
-	onStepMessages StepMessagesHandler,
-	onStepUsage StepUsageHandler,
-	onPasswordPrompt PasswordPromptHandler,
-	onToolCallStart ToolCallStartHandler,
-	onToolCallDelta ToolCallDeltaHandler,
-	onToolCallEnd ToolCallEndHandler,
-) (*GenerateWithLoopResult, error) {
-	return a.GenerateWithCallbacks(ctx, messages, GenerateCallbacks{
-		OnToolCall:          onToolCall,
-		OnToolExecution:     onToolExecution,
-		OnToolResult:        onToolResult,
-		OnResponse:          onResponse,
-		OnToolCallContent:   onToolCallContent,
-		OnStreamingResponse: onStreamingResponse,
-		OnReasoningDelta:    onReasoningDelta,
-		OnReasoningComplete: onReasoningComplete,
-		OnToolOutput:        onToolOutput,
-		OnStepMessages:      onStepMessages,
-		OnStepUsage:         onStepUsage,
-		OnPasswordPrompt:    onPasswordPrompt,
-		OnToolCallStart:     onToolCallStart,
-		OnToolCallDelta:     onToolCallDelta,
-		OnToolCallEnd:       onToolCallEnd,
 	})
 }
 

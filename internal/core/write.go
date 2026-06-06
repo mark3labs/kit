@@ -41,6 +41,9 @@ func NewWriteTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
 	var args writeArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("path and content parameters are required"), nil

@@ -83,6 +83,9 @@ func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
 }
 
 func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return fantasy.ToolResponse{}, err
+	}
 	var args editArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("failed to parse arguments: " + err.Error()), nil

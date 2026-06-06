@@ -398,6 +398,24 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 	}
 }
 
+// resolveAutoRouteAPIKey looks up the API key for an auto-routed provider,
+// returning a uniform error message when none can be resolved.
+func resolveAutoRouteAPIKey(config *ProviderConfig, info *ProviderInfo) (string, error) {
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	if apiKey == "" {
+		return "", fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
+			info.Name, strings.Join(info.Env, " / "))
+	}
+	return apiKey, nil
+}
+
+// wrapProviderErr produces the uniform "failed to create X provider/model: %w"
+// error wrap used by every createXxxProvider path. kind is typically
+// "provider" or "model".
+func wrapProviderErr(name, kind string, err error) error {
+	return fmt.Errorf("failed to create %s %s: %w", name, kind, err)
+}
+
 // createAutoRoutedOpenAICompatProvider creates an openaicompat provider using
 // the api URL and env vars from models.dev.
 func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
@@ -409,10 +427,9 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 		return nil, fmt.Errorf("provider %s requires --provider-url (no API URL in database)", info.ID)
 	}
 
-	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
-	if apiKey == "" {
-		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
-			info.Name, strings.Join(info.Env, " / "))
+	apiKey, err := resolveAutoRouteAPIKey(config, info)
+	if err != nil {
+		return nil, err
 	}
 
 	var opts []openaicompat.Option
@@ -426,12 +443,12 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 
 	p, err := openaicompat.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "provider", err)
 	}
 
 	model, err := p.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -442,10 +459,9 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
 	clearConflictingAnthropicSamplingParams(config)
 
-	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
-	if apiKey == "" {
-		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
-			info.Name, strings.Join(info.Env, " / "))
+	apiKey, err := resolveAutoRouteAPIKey(config, info)
+	if err != nil {
+		return nil, err
 	}
 
 	var opts []anthropic.Option
@@ -464,12 +480,12 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 
 	p, err := anthropic.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "provider", err)
 	}
 
 	model, err := p.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -478,10 +494,9 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 // createAutoRoutedOpenAIProvider creates an openai provider for
 // third-party providers with openai-compatible APIs.
 func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
-	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
-	if apiKey == "" {
-		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
-			info.Name, strings.Join(info.Env, " / "))
+	apiKey, err := resolveAutoRouteAPIKey(config, info)
+	if err != nil {
+		return nil, err
 	}
 
 	var opts []openai.Option
@@ -498,12 +513,12 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 
 	p, err := openai.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "provider", err)
 	}
 
 	model, err := p.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
 	providerOpts := buildOpenAIProviderOptions(config, modelName)
@@ -522,10 +537,9 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 // path that the proxy rejects. In that case we install a transport that
 // strips the injected segment so the proxy's own version is used.
 func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
-	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
-	if apiKey == "" {
-		return nil, fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
-			info.Name, strings.Join(info.Env, " / "))
+	apiKey, err := resolveAutoRouteAPIKey(config, info)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := []google.Option{
@@ -550,12 +564,12 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 
 	p, err := google.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s provider: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "provider", err)
 	}
 
 	model, err := p.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s model: %w", info.Name, err)
+		return nil, wrapProviderErr(info.Name, "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -859,12 +873,12 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 
 	provider, err := anthropic.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Anthropic provider: %w", err)
+		return nil, wrapProviderErr("Anthropic", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Anthropic model: %w", err)
+		return nil, wrapProviderErr("Anthropic", "model", err)
 	}
 
 	// Build provider options for extended thinking (reasoning budget).
@@ -901,12 +915,12 @@ func createVertexAnthropicProvider(ctx context.Context, config *ProviderConfig, 
 
 	provider, err := anthropic.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Vertex Anthropic provider: %w", err)
+		return nil, wrapProviderErr("Vertex Anthropic", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Vertex Anthropic model: %w", err)
+		return nil, wrapProviderErr("Vertex Anthropic", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -974,12 +988,12 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	provider, err := openai.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenAI provider: %w", err)
+		return nil, wrapProviderErr("OpenAI", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenAI model: %w", err)
+		return nil, wrapProviderErr("OpenAI", "model", err)
 	}
 
 	// Build provider options for OpenAI Responses API reasoning models.
@@ -1015,12 +1029,12 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 
 	provider, err := openai.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenAI Codex provider: %w", err)
+		return nil, wrapProviderErr("OpenAI Codex", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenAI Codex model: %w", err)
+		return nil, wrapProviderErr("OpenAI Codex", "model", err)
 	}
 
 	providerOpts := buildCodexProviderOptions(config, modelName)
@@ -1133,12 +1147,12 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	provider, err := google.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Google provider: %w", err)
+		return nil, wrapProviderErr("Google", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Google model: %w", err)
+		return nil, wrapProviderErr("Google", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1171,12 +1185,12 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName 
 
 	provider, err := azure.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Azure OpenAI provider: %w", err)
+		return nil, wrapProviderErr("Azure OpenAI", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Azure OpenAI model: %w", err)
+		return nil, wrapProviderErr("Azure OpenAI", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1196,12 +1210,12 @@ func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, model
 
 	provider, err := openrouter.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenRouter provider: %w", err)
+		return nil, wrapProviderErr("OpenRouter", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenRouter model: %w", err)
+		return nil, wrapProviderErr("OpenRouter", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1213,12 +1227,12 @@ func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelNam
 	// Bedrock uses AWS SDK default credential chain (env vars, shared config, etc.)
 	provider, err := bedrock.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Bedrock provider: %w", err)
+		return nil, wrapProviderErr("Bedrock", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Bedrock model: %w", err)
+		return nil, wrapProviderErr("Bedrock", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1242,12 +1256,12 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	provider, err := vercel.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Vercel provider: %w", err)
+		return nil, wrapProviderErr("Vercel", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Vercel model: %w", err)
+		return nil, wrapProviderErr("Vercel", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1300,12 +1314,12 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	p, err := openai.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create custom provider: %w", err)
+		return nil, wrapProviderErr("custom", "provider", err)
 	}
 
 	model, err := p.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create custom model: %w", err)
+		return nil, wrapProviderErr("custom", "model", err)
 	}
 
 	return &ProviderResult{Model: model}, nil
@@ -1349,12 +1363,12 @@ func createOllamaProvider(ctx context.Context, config *ProviderConfig, modelName
 
 	provider, err := openaicompat.New(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Ollama provider: %w", err)
+		return nil, wrapProviderErr("Ollama", "provider", err)
 	}
 
 	model, err := provider.LanguageModel(ctx, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Ollama model: %w", err)
+		return nil, wrapProviderErr("Ollama", "model", err)
 	}
 
 	return &ProviderResult{

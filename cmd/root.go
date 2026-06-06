@@ -1262,9 +1262,57 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
+	// Bundle all the shared dependencies into a single struct that both
+	// run-mode entry points consume. This keeps the dispatch site and the
+	// function signatures readable.
+	deps := runModeDeps{
+		appInstance:              appInstance,
+		cli:                      cli,
+		modelName:                modelName,
+		providerName:             parsedProvider,
+		loadingMessage:           kitInstance.GetLoadingMessage(),
+		serverNames:              serverNames,
+		toolNames:                toolNames,
+		mcpToolCount:             mcpToolCount,
+		extensionToolCount:       extensionToolCount,
+		usageTracker:             usageTracker,
+		extCommands:              extCommands,
+		promptTemplates:          promptTemplates,
+		contextPaths:             contextPaths,
+		skillItems:               skillItems,
+		extensionItems:           extensionItems,
+		getPromptTemplates:       getPromptTemplates,
+		getSkillItems:            getSkillItems,
+		getExtensionItems:        getExtensionItems,
+		getToolNames:             getToolNames,
+		getMCPToolCount:          getMCPToolCount,
+		mcpPrompts:               mcpPrompts,
+		getMCPPrompts:            getMCPPrompts,
+		expandMCPPrompt:          expandMCPPrompt,
+		getWidgets:               getWidgets,
+		getHeader:                getHeader,
+		getFooter:                getFooter,
+		getToolRenderer:          getToolRenderer,
+		getEditorInterceptor:     getEditorInterceptor,
+		getUIVisibility:          getUIVisibility,
+		getStatusBarEntries:      getStatusBarEntries,
+		emitBeforeFork:           emitBeforeFork,
+		emitBeforeSessionSwitch:  emitBeforeSessionSwitch,
+		getGlobalShortcuts:       getGlobalShortcuts,
+		getExtensionCommands:     getExtensionCommands,
+		setModel:                 setModelForUI,
+		emitModelChange:          emitModelChangeForUI,
+		isReasoningModel:         kitInstance.IsReasoningModel(),
+		thinkingLevel:            kitInstance.GetThinkingLevel(),
+		setThinkingLevel:         setThinkingLevelForUI,
+		switchSession:            switchSessionForUI,
+		reloadExtensions:         reloadExtensionsForUI,
+		startupExtensionMessages: startupExtensionMessages,
+	}
+
 	// Check if running in non-interactive mode
 	if positionalPrompt != "" {
-		return runNonInteractiveModeApp(ctx, appInstance, cli, positionalPrompt, quietFlag, jsonFlag, noExitFlag, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI)
+		return runNonInteractiveModeApp(ctx, deps, positionalPrompt, quietFlag, jsonFlag, noExitFlag)
 	}
 
 	// Quiet mode is not allowed in interactive mode
@@ -1272,7 +1320,7 @@ func runNormalMode(ctx context.Context) error {
 		return fmt.Errorf("--quiet requires a prompt")
 	}
 
-	return runInteractiveModeBubbleTea(ctx, appInstance, modelName, parsedProvider, kitInstance.GetLoadingMessage(), serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModelForUI, emitModelChangeForUI, kitInstance.IsReasoningModel(), kitInstance.GetThinkingLevel(), setThinkingLevelForUI, switchSessionForUI, reloadExtensionsForUI, startupExtensionMessages)
+	return runInteractiveModeBubbleTea(ctx, deps)
 }
 
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
@@ -1285,7 +1333,10 @@ func runNormalMode(ctx context.Context) error {
 //
 // When --no-exit is set, after the prompt completes the interactive BubbleTea
 // TUI is started so the user can continue the conversation.
-func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui.CLI, prompt string, quiet, jsonOutput, noExit bool, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, extensionItems []ui.ExtensionItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getExtensionItems func() []ui.ExtensionItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error) error {
+func runNonInteractiveModeApp(ctx context.Context, deps runModeDeps, prompt string, quiet, jsonOutput, noExit bool) error {
+	appInstance := deps.appInstance
+	cli := deps.cli
+	modelName := deps.modelName
 	// Expand @file references in the prompt before sending to the agent.
 	// Text files are XML-inlined; binary files are extracted as multimodal parts.
 	var fileParts []kit.LLMFilePart
@@ -1346,10 +1397,65 @@ func runNonInteractiveModeApp(ctx context.Context, appInstance *app.App, cli *ui
 
 	// If --no-exit was requested, hand off to the interactive TUI.
 	if noExit {
-		return runInteractiveModeBubbleTea(ctx, appInstance, modelName, providerName, loadingMessage, serverNames, toolNames, mcpToolCount, extensionToolCount, usageTracker, extCommands, promptTemplates, contextPaths, skillItems, extensionItems, getPromptTemplates, getSkillItems, getExtensionItems, getToolNames, getMCPToolCount, mcpPrompts, getMCPPrompts, expandMCPPrompt, getWidgets, getHeader, getFooter, getToolRenderer, getEditorInterceptor, getUIVisibility, getStatusBarEntries, emitBeforeFork, emitBeforeSessionSwitch, getGlobalShortcuts, getExtensionCommands, setModel, emitModelChange, isReasoningModel, thinkingLevel, setThinkingLevel, switchSession, reloadExtensions, nil)
+		// Drop the cli (interactive mode doesn't use it) and clear the
+		// interactive-only fields explicitly; deps carries everything else.
+		interactive := deps
+		interactive.cli = nil
+		interactive.startupExtensionMessages = nil
+		return runInteractiveModeBubbleTea(ctx, interactive)
 	}
 
 	return nil
+}
+
+// runModeDeps bundles the shared dependencies that runNormalMode wires up
+// once and threads to both runNonInteractiveModeApp and
+// runInteractiveModeBubbleTea. Grouping them into a single struct keeps the
+// call sites and signatures readable and makes it trivial to add a new
+// provider callback without touching every call chain.
+type runModeDeps struct {
+	appInstance              *app.App
+	cli                      *ui.CLI // non-interactive only
+	modelName                string
+	providerName             string
+	loadingMessage           string
+	serverNames              []string
+	toolNames                []string
+	mcpToolCount             int
+	extensionToolCount       int
+	usageTracker             *ui.UsageTracker
+	extCommands              []commands.ExtensionCommand
+	promptTemplates          []*prompts.PromptTemplate
+	contextPaths             []string
+	skillItems               []ui.SkillItem
+	extensionItems           []ui.ExtensionItem
+	getPromptTemplates       func() []*prompts.PromptTemplate
+	getSkillItems            func() []ui.SkillItem
+	getExtensionItems        func() []ui.ExtensionItem
+	getToolNames             func() []string
+	getMCPToolCount          func() int
+	mcpPrompts               []ui.MCPPromptInfo
+	getMCPPrompts            func() []ui.MCPPromptInfo
+	expandMCPPrompt          func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error)
+	getWidgets               func(string) []ui.WidgetData
+	getHeader                func() *ui.WidgetData
+	getFooter                func() *ui.WidgetData
+	getToolRenderer          func(string) *ui.ToolRendererData
+	getEditorInterceptor     func() *ui.EditorInterceptor
+	getUIVisibility          func() *ui.UIVisibility
+	getStatusBarEntries      func() []ui.StatusBarEntryData
+	emitBeforeFork           func(string, bool, string) (bool, string)
+	emitBeforeSessionSwitch  func(string) (bool, string)
+	getGlobalShortcuts       func() map[string]func()
+	getExtensionCommands     func() []commands.ExtensionCommand
+	setModel                 func(string) error
+	emitModelChange          func(string, string, string)
+	isReasoningModel         bool
+	thinkingLevel            string
+	setThinkingLevel         func(string) error
+	switchSession            func(string) error
+	reloadExtensions         func() error
+	startupExtensionMessages []string // interactive only
 }
 
 // ---------------------------------------------------------------------------
@@ -1444,7 +1550,8 @@ func writeJSONError(err error) {
 //  4. Calls program.Run() which blocks until the user quits (Ctrl+C or /quit).
 //
 // SetupCLI is not used for interactive mode; the TUI (AppModel) handles its own rendering.
-func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelName, providerName, loadingMessage string, serverNames, toolNames []string, mcpToolCount, extensionToolCount int, usageTracker *ui.UsageTracker, extCommands []commands.ExtensionCommand, promptTemplates []*prompts.PromptTemplate, contextPaths []string, skillItems []ui.SkillItem, extensionItems []ui.ExtensionItem, getPromptTemplates func() []*prompts.PromptTemplate, getSkillItems func() []ui.SkillItem, getExtensionItems func() []ui.ExtensionItem, getToolNames func() []string, getMCPToolCount func() int, mcpPrompts []ui.MCPPromptInfo, getMCPPrompts func() []ui.MCPPromptInfo, expandMCPPrompt func(string, string, map[string]string) (*ui.MCPPromptExpandResult, error), getWidgets func(string) []ui.WidgetData, getHeader, getFooter func() *ui.WidgetData, getToolRenderer func(string) *ui.ToolRendererData, getEditorInterceptor func() *ui.EditorInterceptor, getUIVisibility func() *ui.UIVisibility, getStatusBarEntries func() []ui.StatusBarEntryData, emitBeforeFork func(string, bool, string) (bool, string), emitBeforeSessionSwitch func(string) (bool, string), getGlobalShortcuts func() map[string]func(), getExtensionCommands func() []commands.ExtensionCommand, setModel func(string) error, emitModelChange func(string, string, string), isReasoningModel bool, thinkingLevel string, setThinkingLevel func(string) error, switchSession func(string) error, reloadExtensions func() error, startupExtensionMessages []string) error {
+func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
+	appInstance := deps.appInstance
 	// Redirect all log output (stdlib and charm) to a file so that log
 	// messages don't write to stderr and corrupt the TUI. Bubble Tea
 	// captures stdout for rendering; any stray stderr output from
@@ -1467,49 +1574,49 @@ func runInteractiveModeBubbleTea(_ context.Context, appInstance *app.App, modelN
 	cwd, _ := os.Getwd()
 
 	appModel := ui.NewAppModel(appInstance, ui.AppModelOptions{
-		ModelName:                modelName,
-		ProviderName:             providerName,
-		LoadingMessage:           loadingMessage,
+		ModelName:                deps.modelName,
+		ProviderName:             deps.providerName,
+		LoadingMessage:           deps.loadingMessage,
 		Cwd:                      cwd,
 		Width:                    termWidth,
 		Height:                   termHeight,
-		ServerNames:              serverNames,
-		ToolNames:                toolNames,
-		GetToolNames:             getToolNames,
-		GetMCPToolCount:          getMCPToolCount,
-		MCPToolCount:             mcpToolCount,
-		ExtensionToolCount:       extensionToolCount,
-		UsageTracker:             usageTracker,
-		ExtensionCommands:        extCommands,
-		PromptTemplates:          promptTemplates,
-		GetPromptTemplates:       getPromptTemplates,
-		MCPPrompts:               mcpPrompts,
-		GetMCPPrompts:            getMCPPrompts,
-		ExpandMCPPrompt:          expandMCPPrompt,
-		ContextPaths:             contextPaths,
-		SkillItems:               skillItems,
-		GetSkillItems:            getSkillItems,
-		ExtensionItems:           extensionItems,
-		GetExtensionItems:        getExtensionItems,
-		StartupExtensionMessages: startupExtensionMessages,
-		GetWidgets:               getWidgets,
-		GetHeader:                getHeader,
-		GetFooter:                getFooter,
-		GetToolRenderer:          getToolRenderer,
-		GetEditorInterceptor:     getEditorInterceptor,
-		GetUIVisibility:          getUIVisibility,
-		GetStatusBarEntries:      getStatusBarEntries,
-		EmitBeforeFork:           emitBeforeFork,
-		EmitBeforeSessionSwitch:  emitBeforeSessionSwitch,
-		GetGlobalShortcuts:       getGlobalShortcuts,
-		GetExtensionCommands:     getExtensionCommands,
-		SetModel:                 setModel,
-		EmitModelChange:          emitModelChange,
-		ThinkingLevel:            thinkingLevel,
-		IsReasoningModel:         isReasoningModel,
-		SetThinkingLevel:         setThinkingLevel,
-		SwitchSession:            switchSession,
-		ReloadExtensions:         reloadExtensions,
+		ServerNames:              deps.serverNames,
+		ToolNames:                deps.toolNames,
+		GetToolNames:             deps.getToolNames,
+		GetMCPToolCount:          deps.getMCPToolCount,
+		MCPToolCount:             deps.mcpToolCount,
+		ExtensionToolCount:       deps.extensionToolCount,
+		UsageTracker:             deps.usageTracker,
+		ExtensionCommands:        deps.extCommands,
+		PromptTemplates:          deps.promptTemplates,
+		GetPromptTemplates:       deps.getPromptTemplates,
+		MCPPrompts:               deps.mcpPrompts,
+		GetMCPPrompts:            deps.getMCPPrompts,
+		ExpandMCPPrompt:          deps.expandMCPPrompt,
+		ContextPaths:             deps.contextPaths,
+		SkillItems:               deps.skillItems,
+		GetSkillItems:            deps.getSkillItems,
+		ExtensionItems:           deps.extensionItems,
+		GetExtensionItems:        deps.getExtensionItems,
+		StartupExtensionMessages: deps.startupExtensionMessages,
+		GetWidgets:               deps.getWidgets,
+		GetHeader:                deps.getHeader,
+		GetFooter:                deps.getFooter,
+		GetToolRenderer:          deps.getToolRenderer,
+		GetEditorInterceptor:     deps.getEditorInterceptor,
+		GetUIVisibility:          deps.getUIVisibility,
+		GetStatusBarEntries:      deps.getStatusBarEntries,
+		EmitBeforeFork:           deps.emitBeforeFork,
+		EmitBeforeSessionSwitch:  deps.emitBeforeSessionSwitch,
+		GetGlobalShortcuts:       deps.getGlobalShortcuts,
+		GetExtensionCommands:     deps.getExtensionCommands,
+		SetModel:                 deps.setModel,
+		EmitModelChange:          deps.emitModelChange,
+		ThinkingLevel:            deps.thinkingLevel,
+		IsReasoningModel:         deps.isReasoningModel,
+		SetThinkingLevel:         deps.setThinkingLevel,
+		SwitchSession:            deps.switchSession,
+		ReloadExtensions:         deps.reloadExtensions,
 		ShowSessionPicker:        resumeFlag,
 		GetMCPResources:          mcpGetResources,
 		MCPResourceReader:        mcpResourceReader,

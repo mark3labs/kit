@@ -458,11 +458,6 @@ func (tm *TreeManager) AppendLLMMessage(msg fantasy.Message) (string, error) {
 	return tm.AppendMessage(message.FromLLMMessage(msg))
 }
 
-// Deprecated: Use AppendLLMMessage instead.
-func (tm *TreeManager) AppendFantasyMessage(msg fantasy.Message) (string, error) {
-	return tm.AppendLLMMessage(msg)
-}
-
 // AppendModelChange records a model/provider change.
 func (tm *TreeManager) AppendModelChange(provider, modelID string) (string, error) {
 	tm.mu.Lock()
@@ -1170,21 +1165,11 @@ func (tm *TreeManager) AddLLMMessages(msgs []fantasy.Message) error {
 	return tm.flushLocked()
 }
 
-// Deprecated: Use AddLLMMessages instead.
-func (tm *TreeManager) AddFantasyMessages(msgs []fantasy.Message) error {
-	return tm.AddLLMMessages(msgs)
-}
-
 // GetLLMMessages builds the context and returns just the messages.
 // This satisfies the same conceptual role as the old Manager.GetMessages().
 func (tm *TreeManager) GetLLMMessages() []fantasy.Message {
 	msgs, _, _ := tm.BuildContext()
 	return msgs
-}
-
-// Deprecated: Use GetLLMMessages instead.
-func (tm *TreeManager) GetFantasyMessages() []fantasy.Message {
-	return tm.GetLLMMessages()
 }
 
 // --- Internal helpers ---
