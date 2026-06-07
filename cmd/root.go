@@ -735,12 +735,27 @@ func runNormalMode(ctx context.Context) error {
 		viper.Set("model", "custom/custom")
 	}
 
-	// When --provider-url is set with an explicit --model that lacks a provider
-	// prefix (no "/"), auto-prefix with "custom/" for OpenAI-compatible endpoints.
+	// When --provider-url is set with an explicit --model, route through the
+	// "custom" provider (OpenAI-compatible wire). This honors the user's
+	// intent: passing a custom URL means "use THIS endpoint", not "speak
+	// the Google/Anthropic/etc. wire protocol against this endpoint".
+	//
+	// Any provider prefix on the model is stripped so a model name that
+	// happens to collide with a known provider (e.g. `google/gemma-4-12b`
+	// served by LM Studio) still resolves correctly. If you genuinely need
+	// to point a non-OpenAI wire (Anthropic, Google, ...) at a proxy URL,
+	// use the explicit `custom/<name>` form to opt out of the rewrite by
+	// configuring the proxy as that provider in your config file instead.
 	if viper.GetString("provider-url") != "" && modelFlagChanged {
 		model := viper.GetString("model")
-		if model != "" && !strings.Contains(model, "/") {
-			viper.Set("model", "custom/"+model)
+		if model != "" {
+			name := model
+			if _, after, ok := strings.Cut(model, "/"); ok {
+				name = after
+			}
+			if !strings.HasPrefix(model, "custom/") {
+				viper.Set("model", "custom/"+name)
+			}
 		}
 	}
 

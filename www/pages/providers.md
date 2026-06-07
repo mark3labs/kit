@@ -133,6 +133,15 @@ For self-hosted or proxy endpoints:
 kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
 ```
 
+When `--provider-url` is set with an explicit `--model`, Kit routes through the
+`custom` (OpenAI-compatible) wire and strips any provider prefix from the model
+name. So `openai/gpt-4o`, `google/gemma-4-12b`, and bare `gpt-4o` all resolve
+to the same endpoint — Kit treats `--provider-url` as authoritative about *where*
+to send the request, and the model string as just the upstream model id.
+
+This avoids name collisions when a local server (LM Studio, Ollama, vLLM, ...)
+happens to expose a model whose name matches a known cloud provider.
+
 When `--provider-url` is provided without `--model`, Kit automatically defaults to `custom/custom`:
 
 ```bash
