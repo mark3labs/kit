@@ -62,14 +62,73 @@ const (
 )
 
 // npmToWireProtocol maps npm package names from models.dev to the wire
-// protocol they speak. Provider-specific bundles (azure, bedrock, vercel,
-// openrouter, google-vertex, google-vertex-anthropic) are intentionally
-// absent — they have native top-level cases in CreateProvider and never
-// reach the auto-router. Providers not in this map but with an api URL
-// are auto-routed through the OpenAI-compatible wire.
+// protocol they speak. Provider-specific bundles that need bespoke auth or
+// URL templating (azure, bedrock, openrouter, google-vertex, google-vertex-
+// anthropic, and @ai-sdk/gateway which is the Vercel AI Gateway) are
+// intentionally absent — they have native top-level cases in CreateProvider
+// and never reach the auto-router. Providers not in this map but with an
+// api URL are auto-routed through the OpenAI-compatible wire.
+//
+// The thin OpenAI-compatible npm wrappers (groq, cerebras, mistral, …) are
+// listed explicitly so that auto-routing can recover their hard-coded base
+// URL from sdkDefaultBaseURL when the registry entry has no api field.
 var npmToWireProtocol = map[string]wireProtocol{
+	// Native wires.
 	"@ai-sdk/openai":            wireOpenAI,
 	"@ai-sdk/openai-compatible": wireOpenAI,
 	"@ai-sdk/anthropic":         wireAnthropic,
 	"@ai-sdk/google":            wireGoogle,
+
+	// Thin OpenAI-compatible wrappers. Each ships with a hard-coded base URL
+	// in its JS SDK (see sdkDefaultBaseURL) but speaks the plain OpenAI chat
+	// completions wire — so we can route them all through fantasy's
+	// openaicompat provider once we supply the URL.
+	"@ai-sdk/groq":                  wireOpenAI,
+	"@ai-sdk/cerebras":              wireOpenAI,
+	"@ai-sdk/perplexity":            wireOpenAI,
+	"@ai-sdk/togetherai":            wireOpenAI,
+	"@ai-sdk/xai":                   wireOpenAI,
+	"@ai-sdk/deepinfra":             wireOpenAI,
+	"@ai-sdk/mistral":               wireOpenAI,
+	"@ai-sdk/cohere":                wireOpenAI,
+	"@ai-sdk/vercel":                wireOpenAI, // v0 API (api.v0.dev), distinct from @ai-sdk/gateway
+	"@aihubmix/ai-sdk-provider":     wireOpenAI,
+	"venice-ai-sdk-provider":        wireOpenAI,
+	"merge-gateway-ai-sdk-provider": wireOpenAI,
+}
+
+// sdkDefaultBaseURL maps an npm package name to the base URL its JavaScript
+// SDK uses by default. This lets us recover a working endpoint for providers
+// whose models.dev entry omits the `api` field because the JS SDK hard-codes
+// the URL (e.g. groq, cerebras, mistral, x.ai…).
+//
+// Only OpenAI-compatible and native-wire SDKs are listed; providers needing
+// bespoke auth or URL templating (bedrock SigV4, azure resource URLs,
+// google-vertex project/location, cloudflare gateway account IDs, gitlab,
+// sap-ai-core) are handled by native CreateProvider cases or surface a
+// targeted error that asks the user to supply --provider-url.
+var sdkDefaultBaseURL = map[string]string{
+	// Native wires.
+	"@ai-sdk/openai":    "https://api.openai.com/v1",
+	"@ai-sdk/anthropic": "https://api.anthropic.com/v1",
+	"@ai-sdk/google":    "https://generativelanguage.googleapis.com/v1beta",
+
+	// Thin OpenAI-compatible wrappers.
+	"@ai-sdk/groq":                  "https://api.groq.com/openai/v1",
+	"@ai-sdk/cerebras":              "https://api.cerebras.ai/v1",
+	"@ai-sdk/perplexity":            "https://api.perplexity.ai",
+	"@ai-sdk/togetherai":            "https://api.together.xyz/v1",
+	"@ai-sdk/xai":                   "https://api.x.ai/v1",
+	"@ai-sdk/deepinfra":             "https://api.deepinfra.com/v1/openai",
+	"@ai-sdk/mistral":               "https://api.mistral.ai/v1",
+	"@ai-sdk/cohere":                "https://api.cohere.com/compatibility/v1",
+	"@ai-sdk/vercel":                "https://api.v0.dev/v1",
+	"@aihubmix/ai-sdk-provider":     "https://aihubmix.com/v1",
+	"venice-ai-sdk-provider":        "https://api.venice.ai/api/v1",
+	"merge-gateway-ai-sdk-provider": "https://api-gateway.merge.dev/v1/ai-sdk",
+
+	// Native handlers — included for ResolveProviderBaseURL introspection
+	// even though CreateProvider routes these via dedicated cases.
+	"@ai-sdk/gateway":             "https://ai-gateway.vercel.sh/v1",
+	"@openrouter/ai-sdk-provider": "https://openrouter.ai/api/v1",
 }

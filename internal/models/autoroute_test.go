@@ -10,15 +10,31 @@ import (
 )
 
 // TestNpmToWireProtocol documents the wire protocols that the auto-router
-// understands. Provider-specific bundles (azure, bedrock, vercel, openrouter,
-// google-vertex*) are intentionally absent — they have native top-level cases
-// in CreateProvider and never reach the auto-router.
+// understands. Provider-specific bundles that need bespoke auth or URL
+// templating (azure, bedrock, openrouter, google-vertex*, @ai-sdk/gateway)
+// are intentionally absent — they have native top-level cases in
+// CreateProvider and never reach the auto-router.
 func TestNpmToWireProtocol(t *testing.T) {
 	want := map[string]wireProtocol{
 		"@ai-sdk/openai":            wireOpenAI,
 		"@ai-sdk/openai-compatible": wireOpenAI,
 		"@ai-sdk/anthropic":         wireAnthropic,
 		"@ai-sdk/google":            wireGoogle,
+
+		// Thin OpenAI-compatible wrappers — routed via openaicompat using
+		// the SDK's hard-coded default base URL (sdkDefaultBaseURL).
+		"@ai-sdk/groq":                  wireOpenAI,
+		"@ai-sdk/cerebras":              wireOpenAI,
+		"@ai-sdk/perplexity":            wireOpenAI,
+		"@ai-sdk/togetherai":            wireOpenAI,
+		"@ai-sdk/xai":                   wireOpenAI,
+		"@ai-sdk/deepinfra":             wireOpenAI,
+		"@ai-sdk/mistral":               wireOpenAI,
+		"@ai-sdk/cohere":                wireOpenAI,
+		"@ai-sdk/vercel":                wireOpenAI,
+		"@aihubmix/ai-sdk-provider":     wireOpenAI,
+		"venice-ai-sdk-provider":        wireOpenAI,
+		"merge-gateway-ai-sdk-provider": wireOpenAI,
 	}
 	for npm, wire := range want {
 		if got := npmToWireProtocol[npm]; got != wire {
@@ -26,15 +42,15 @@ func TestNpmToWireProtocol(t *testing.T) {
 		}
 	}
 
-	// Bundle packages must NOT be in the table (regression guard against the
-	// old npmToLLMProvider map that listed 10 entries but only handled 3).
+	// Bundle packages must NOT be in the table — they need bespoke auth or
+	// URL templating that the auto-router cannot satisfy.
 	for _, npm := range []string{
 		"@ai-sdk/google-vertex",
 		"@ai-sdk/google-vertex/anthropic",
 		"@ai-sdk/amazon-bedrock",
 		"@ai-sdk/azure",
 		"@openrouter/ai-sdk-provider",
-		"@ai-sdk/vercel",
+		"@ai-sdk/gateway",
 	} {
 		if _, ok := npmToWireProtocol[npm]; ok {
 			t.Errorf("npmToWireProtocol unexpectedly contains bundle package %q", npm)

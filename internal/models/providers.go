@@ -286,13 +286,15 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		result, createErr = createGoogleProvider(ctx, config, modelName)
 	case "ollama":
 		result, createErr = createOllamaProvider(ctx, config, modelName)
-	case "azure":
+	case "azure", "azure-cognitive-services":
 		result, createErr = createAzureProvider(ctx, config, modelName)
 	case "google-vertex-anthropic":
 		result, createErr = createVertexAnthropicProvider(ctx, config, modelName)
+	case "google-vertex":
+		result, createErr = createGoogleVertexProvider(ctx, config, modelName)
 	case "openrouter":
 		result, createErr = createOpenRouterProvider(ctx, config, modelName)
-	case "bedrock":
+	case "bedrock", "amazon-bedrock":
 		result, createErr = createBedrockProvider(ctx, config, modelName)
 	case "vercel":
 		result, createErr = createVercelProvider(ctx, config, modelName)
@@ -376,8 +378,27 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 	}
 
 	// All three wires use the provider's API URL from models.dev as the base.
-	if config.ProviderURL == "" && providerInfo.API != "" {
-		config.ProviderURL = providerInfo.API
+	// When the registry has none, fall back to the SDK's hard-coded default for
+	// this npm package (covers groq, cerebras, mistral, x.ai, etc. — providers
+	// whose JS SDK ships a built-in baseURL that models.dev doesn't restate).
+	if config.ProviderURL == "" {
+		if providerInfo.API != "" {
+			config.ProviderURL = providerInfo.API
+		} else if defaultURL, ok := sdkDefaultBaseURL[npmPackage]; ok {
+			config.ProviderURL = defaultURL
+			providerInfo.API = defaultURL // for downstream helpers that read info.API
+		}
+	}
+
+	// Provider templates a runtime account/region/deployment segment into the
+	// URL (cloudflare-ai-gateway, databricks, snowflake-cortex, gitlab,
+	// sap-ai-core). Resolve via environment variables, or surface a targeted
+	// error pointing the user at the right knobs.
+	if resolved, err := resolveTemplatedAPIURL(config.ProviderURL, providerInfo); err != nil {
+		return nil, err
+	} else if resolved != "" {
+		config.ProviderURL = resolved
+		providerInfo.API = resolved
 	}
 
 	switch wire {
