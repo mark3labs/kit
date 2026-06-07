@@ -20,17 +20,23 @@ type PopupItem struct {
 	Meta        any    // opaque data returned on selection
 }
 
-// PopupList is a generic, themed, scrollable fuzzy-find popup list. It is
-// rendered as a centered overlay on top of the normal TUI layout and can be
-// reused by any feature that needs a selection popup (slash commands, model
-// selector, session picker, extension-provided lists, etc.).
+// PopupList is a generic, themed, scrollable popup list used by every
+// list-style popup in the TUI (slash commands, @file autocomplete, model
+// picker, session picker, tree navigation, etc.).
 //
-// The caller is responsible for:
-//   - Building the initial item list
-//   - Providing a fuzzy-filter callback (or nil for substring matching)
-//   - Handling the result when the user selects or cancels
+// Two layout modes:
+//   - Centered (default): bordered ~80-col box centered on the screen. Used
+//     for the input-bar popups (/ and @) and the model picker.
+//   - FullScreen: bordered panel filling almost the entire terminal. Used by
+//     /tree, /fork, /sessions and other browse-many-items popups.
 //
-// Navigation: up/down to move, enter to select, esc to cancel, type to filter.
+// Two usage modes:
+//   - Internal state: caller creates the list with items, calls HandleKey for
+//     navigation/search, and PopupList owns the cursor and search string.
+//     Used by selectors like ModelSelector, TreeSelector, SessionSelector.
+//   - External state: caller drives the items / cursor / search themselves
+//     (e.g. InputComponent, where typing in the textarea filters the list).
+//     Caller uses SetItems / SetCursor / SetSearch and only calls Render.
 type PopupList struct {
 	// Title shown at the top of the popup.
 	Title string
@@ -38,20 +44,45 @@ type PopupList struct {
 	Subtitle string
 	// FooterHint overrides the default keyboard-hint footer.
 	FooterHint string
+	// ExtraFooter is appended to the footer line (after the default hint).
+	// Used by selectors to surface mode info like the active filter.
+	ExtraFooter string
 
-	allItems []PopupItem // full unfiltered list
-	filtered []PopupItem // subset matching the current search
-	cursor   int
-	search   string
+	// FullScreen renders the popup at almost the full terminal size instead
+	// of a centered ~80-col box. Used by tree/session/fork selectors.
+	FullScreen bool
+
+	// ShowSearch toggles the "> <query>" search input line. Default true.
+	ShowSearch bool
+
+	// HideCount suppresses the "(i/N)" count in the footer.
+	HideCount bool
+
+	// MaxVisible caps the number of items visible at once. 0 = derive from
+	// available height.
+	MaxVisible int
+
+	// RenderItem optionally renders a single item row. When nil, the
+	// built-in label + description + active-checkmark renderer is used.
+	// innerWidth is the usable line width inside the popup (after border
+	// and padding). The returned string must already be styled — the
+	// shared selection-row background is applied by the popup only when
+	// RenderItem is nil.
+	RenderItem func(item PopupItem, innerWidth int, isCursor bool) string
 
 	// FilterFunc is called with (query, allItems) and should return the
-	// filtered+scored subset. When nil, a default substring match is used.
+	// filtered+scored subset. When nil, a default substring + fuzzy match
+	// is used. Only consulted in internal-state mode (via HandleKey).
 	FilterFunc func(query string, items []PopupItem) []PopupItem
 
-	width      int
-	height     int
-	maxVisible int // max items visible at once (0 = auto from height)
-	showSearch bool
+	allItems []PopupItem // full unfiltered list (internal-state mode)
+	filtered []PopupItem // items currently rendered (driven by FilterFunc
+	// in internal-state mode, or set directly via SetItems in external mode)
+	cursor int
+	search string
+
+	width  int
+	height int
 }
 
 // PopupResult is returned by HandleKey to tell the caller what happened.
@@ -72,7 +103,7 @@ func NewPopupList(title string, items []PopupItem, width, height int) *PopupList
 		filtered:   items,
 		width:      width,
 		height:     height,
-		showSearch: true,
+		ShowSearch: true,
 	}
 	// Position cursor on the active item if one exists.
 	for i, item := range p.filtered {
@@ -90,25 +121,102 @@ func (p *PopupList) SetSize(width, height int) {
 	p.height = height
 }
 
+// SetItems replaces the displayed item list and clamps the cursor. Used by
+// external-state callers (e.g. InputComponent) that filter items themselves.
+// In internal-state mode, this also replaces the unfiltered backing list.
+func (p *PopupList) SetItems(items []PopupItem) {
+	p.allItems = items
+	p.filtered = items
+	if p.cursor >= len(p.filtered) {
+		p.cursor = max(len(p.filtered)-1, 0)
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
+}
+
+// SetCursor moves the selection to the given index (clamped to range).
+func (p *PopupList) SetCursor(i int) {
+	if len(p.filtered) == 0 {
+		p.cursor = 0
+		return
+	}
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(p.filtered) {
+		i = len(p.filtered) - 1
+	}
+	p.cursor = i
+}
+
+// Cursor returns the current selection index.
+func (p *PopupList) Cursor() int { return p.cursor }
+
+// SetSearch replaces the search string without rebuilding the filtered list.
+// Used by external-state callers that filter items themselves.
+func (p *PopupList) SetSearch(s string) { p.search = s }
+
+// Items returns the currently-visible (filtered) items.
+func (p *PopupList) Items() []PopupItem { return p.filtered }
+
+// Search returns the current search string.
+func (p *PopupList) Search() string { return p.search }
+
+// dimensions returns the (popupWidth, popupHeight, innerWidth, innerHeight)
+// the popup will render at, given its current size and FullScreen flag.
+func (p *PopupList) dimensions() (popupW, popupH, innerW, innerH int) {
+	if p.FullScreen {
+		// Leave a small margin so the border doesn't kiss the screen edge.
+		popupW = max(p.width-2, 20)
+		popupH = max(p.height-2, 10)
+	} else {
+		// Centered: cap at 80 cols, leave a 4-col margin.
+		popupW = max(min(p.width-4, 80), 20)
+		// Height is dynamic — let it grow with content within the screen.
+		popupH = 0
+	}
+	// Border (2) + horizontal padding (4) = 6 chrome cols.
+	innerW = max(popupW-6, 10)
+	if popupH > 0 {
+		// Border (2) + vertical padding (2) = 4 chrome rows.
+		innerH = max(popupH-4, 6)
+	}
+	return
+}
+
 // visibleCount returns the number of items visible at once.
 func (p *PopupList) visibleCount() int {
-	if p.maxVisible > 0 {
-		return p.maxVisible
+	if p.MaxVisible > 0 {
+		return p.MaxVisible
 	}
-	// Reserve: title(1) + subtitle(1) + search(1) + separator(1) + footer(2) + border(2) + padding(2) = 10
+	if p.FullScreen {
+		_, _, _, innerH := p.dimensions()
+		// Reserve: title(1) + subtitle(0|1) + search(0|2) + sep(1) + footer(2)
+		overhead := 4
+		if p.Subtitle != "" {
+			overhead++
+		}
+		if p.ShowSearch {
+			overhead += 2
+		}
+		return max(innerH-overhead, 3)
+	}
+	// Centered: derive from terminal height (legacy behaviour).
 	overhead := 8
 	if p.Subtitle != "" {
 		overhead++
 	}
-	if p.showSearch {
-		overhead += 2 // search line + separator
+	if p.ShowSearch {
+		overhead += 2
 	}
 	return max(p.height/2-overhead, 3)
 }
 
 // HandleKey processes a single key event and returns the result. The caller
 // should inspect PopupResult to decide whether to re-render, close the popup,
-// or act on a selection.
+// or act on a selection. Internal-state mode only — external-state callers
+// drive cursor/search themselves and never call this.
 //
 // keyName is the Bubble Tea key string (e.g. "up", "down", "enter", "esc").
 // keyText is the printable text for character keys (e.g. "a", "1").
@@ -191,7 +299,7 @@ func (p *PopupList) HandleKey(keyName, keyText string) PopupResult {
 // as a centered overlay via lipgloss.Place + overlayContent.
 func (p *PopupList) Render() string {
 	theme := style.GetTheme()
-	popupWidth := max(min(p.width-4, 80), 20)
+	popupW, popupH, innerW, _ := p.dimensions()
 	popupBg := theme.Background
 
 	popupStyle := lipgloss.NewStyle().
@@ -199,11 +307,12 @@ func (p *PopupList) Render() string {
 		BorderForeground(theme.Primary).
 		Background(popupBg).
 		Padding(1, 2).
-		Width(popupWidth).
-		MarginBottom(1)
-
-	// Inner content width: popup minus border (2) and horizontal padding (4).
-	innerWidth := max(popupWidth-6, 10)
+		Width(popupW)
+	if popupH > 0 {
+		popupStyle = popupStyle.Height(popupH)
+	} else {
+		popupStyle = popupStyle.MarginBottom(1)
+	}
 
 	var b strings.Builder
 
@@ -212,7 +321,7 @@ func (p *PopupList) Render() string {
 		Bold(true).
 		Foreground(theme.Accent).
 		Background(popupBg).
-		Width(innerWidth)
+		Width(innerW)
 	b.WriteString(titleStyle.Render(p.Title))
 	b.WriteString("\n")
 
@@ -221,17 +330,17 @@ func (p *PopupList) Render() string {
 		subtitleStyle := lipgloss.NewStyle().
 			Foreground(theme.Muted).
 			Background(popupBg).
-			Width(innerWidth)
+			Width(innerW)
 		b.WriteString(subtitleStyle.Render(p.Subtitle))
 		b.WriteString("\n")
 	}
 
 	// Search input.
-	if p.showSearch {
+	if p.ShowSearch {
 		searchStyle := lipgloss.NewStyle().
 			Foreground(theme.Info).
 			Background(popupBg).
-			Width(innerWidth)
+			Width(innerW)
 		if p.search != "" {
 			b.WriteString(searchStyle.Render(fmt.Sprintf("> %s", p.search)))
 		} else {
@@ -243,7 +352,7 @@ func (p *PopupList) Render() string {
 		sepStyle := lipgloss.NewStyle().
 			Foreground(theme.Muted).
 			Background(popupBg)
-		b.WriteString(sepStyle.Render(strings.Repeat("─", innerWidth)))
+		b.WriteString(sepStyle.Render(strings.Repeat("─", innerW)))
 		b.WriteString("\n")
 	}
 
@@ -251,20 +360,20 @@ func (p *PopupList) Render() string {
 	normalItemBg := lipgloss.NewStyle().
 		Background(popupBg).
 		Foreground(theme.Text).
-		Width(innerWidth).
+		Width(innerW).
 		Padding(0, 1)
 
 	selectedItemBg := lipgloss.NewStyle().
 		Background(theme.Primary).
 		Foreground(theme.Background).
-		Width(innerWidth).
+		Width(innerW).
 		Padding(0, 1).
 		Bold(true)
 
 	scrollStyle := lipgloss.NewStyle().
 		Background(popupBg).
 		Foreground(theme.VeryMuted).
-		Width(innerWidth).
+		Width(innerW).
 		Padding(0, 1)
 
 	vis := p.visibleCount()
@@ -274,7 +383,7 @@ func (p *PopupList) Render() string {
 		emptyStyle := lipgloss.NewStyle().
 			Foreground(theme.Muted).
 			Background(popupBg).
-			Width(innerWidth).
+			Width(innerW).
 			Padding(0, 1)
 		if p.search != "" {
 			items = append(items, emptyStyle.Render("No matches for \""+p.search+"\""))
@@ -282,9 +391,14 @@ func (p *PopupList) Render() string {
 			items = append(items, emptyStyle.Render("No items"))
 		}
 	} else {
+		// Center the cursor in the visible window so the user always sees
+		// context above and below. Clamp to bounds.
 		startIdx := 0
-		if p.cursor >= vis {
-			startIdx = p.cursor - vis + 1
+		if len(p.filtered) > vis {
+			startIdx = max(p.cursor-vis/2, 0)
+			if startIdx+vis > len(p.filtered) {
+				startIdx = len(p.filtered) - vis
+			}
 		}
 		endIdx := min(startIdx+vis, len(p.filtered))
 
@@ -292,9 +406,26 @@ func (p *PopupList) Render() string {
 			items = append(items, scrollStyle.Render("  ↑ more above"))
 		}
 
+		// Account for the consumed padding (1 left + 1 right = 2 cols)
+		// when rendering item content so RenderItem callbacks can match.
+		itemContentWidth := max(innerW-2, 6)
+
 		for i := startIdx; i < endIdx; i++ {
 			entry := p.filtered[i]
 			isCursor := i == p.cursor
+
+			if p.RenderItem != nil {
+				// Custom renderer: caller produces the inner text. We still
+				// wrap it in a full-width row so the selection highlight
+				// covers the line edge-to-edge.
+				rowStyle := normalItemBg
+				if isCursor {
+					rowStyle = selectedItemBg
+				}
+				content := p.RenderItem(entry, itemContentWidth, isCursor)
+				items = append(items, rowStyle.Render(content))
+				continue
+			}
 
 			itemStyle := normalItemBg
 			if isCursor {
@@ -310,7 +441,7 @@ func (p *PopupList) Render() string {
 			}
 
 			// Build content: indicator + label + description + active checkmark.
-			content := p.renderItemContent(indicator, entry, innerWidth, isCursor)
+			content := p.renderItemContent(indicator, entry, itemContentWidth, isCursor)
 			items = append(items, itemStyle.Render(content))
 		}
 
@@ -323,19 +454,24 @@ func (p *PopupList) Render() string {
 
 	// Footer with count and keyboard hints.
 	var footerParts []string
-	footerParts = append(footerParts, fmt.Sprintf("(%d/%d)", p.cursor+1, len(p.filtered)))
+	if !p.HideCount {
+		footerParts = append(footerParts, fmt.Sprintf("(%d/%d)", p.cursor+1, len(p.filtered)))
+	}
 
 	footerHint := p.FooterHint
 	if footerHint == "" {
-		if innerWidth >= 50 {
+		if innerW >= 50 {
 			footerHint = "↑↓ navigate • enter select • esc cancel • type to filter"
-		} else if innerWidth >= 30 {
+		} else if innerW >= 30 {
 			footerHint = "↑↓ nav • ↵ select • esc"
 		} else {
 			footerHint = "↑↓ ↵ esc"
 		}
 	}
 	footerParts = append(footerParts, footerHint)
+	if p.ExtraFooter != "" {
+		footerParts = append(footerParts, p.ExtraFooter)
+	}
 
 	footer := lipgloss.NewStyle().
 		Background(popupBg).

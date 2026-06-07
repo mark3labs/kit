@@ -53,16 +53,19 @@ type FlatNode struct {
 }
 
 // TreeSelectorComponent is a Bubble Tea component that renders the session
-// tree as an ASCII art list with navigation and selection.
+// tree as an ASCII art list with navigation and selection. It is a thin
+// wrapper around PopupList (in FullScreen mode) — PopupList owns the cursor,
+// search, scroll math, and chrome; TreeSelectorComponent supplies the
+// filtered node list and a custom RenderItem that draws each tree node with
+// its indentation prefix and role colors.
 type TreeSelectorComponent struct {
 	tm         *session.TreeManager
-	flatNodes  []FlatNode
-	cursor     int
+	flatNodes  []FlatNode // visible nodes (matches popup.Items() 1:1)
 	filter     TreeFilterMode
 	leafID     string // real leaf for "active" marker
+	popup      *PopupList
 	width      int
 	height     int
-	search     string
 	active     bool
 	selectedID string // set when user selects a node
 	cancelled  bool
@@ -78,11 +81,12 @@ func NewTreeSelector(tm *session.TreeManager, width, height int) *TreeSelectorCo
 		height: height,
 		active: true,
 	}
-	ts.rebuildFlatList()
+	ts.initPopup()
+	ts.rebuild()
 	// Position cursor at the active leaf.
 	for i, node := range ts.flatNodes {
 		if node.ID == ts.leafID {
-			ts.cursor = i
+			ts.popup.SetCursor(i)
 			break
 		}
 	}
@@ -100,15 +104,23 @@ func NewTreeSelectorForFork(tm *session.TreeManager, width, height int) *TreeSel
 		height: height,
 		active: true,
 	}
-	ts.rebuildFlatList()
+	ts.initPopup()
+	ts.rebuild()
 	// Position cursor at the last user message before the leaf.
 	for i := len(ts.flatNodes) - 1; i >= 0; i-- {
 		if ts.isUserMessage(ts.flatNodes[i].Entry) {
-			ts.cursor = i
+			ts.popup.SetCursor(i)
 			break
 		}
 	}
 	return ts
+}
+
+func (ts *TreeSelectorComponent) initPopup() {
+	ts.popup = NewPopupList("Session Tree", nil, ts.width, ts.height)
+	ts.popup.FullScreen = true
+	ts.popup.FooterHint = "↑↓ nav • ←→ page • ↵ select • esc cancel • ^O filter • type to search"
+	ts.popup.RenderItem = ts.renderNode
 }
 
 // Init implements tea.Model.
@@ -122,96 +134,75 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		ts.width = msg.Width
 		ts.height = msg.Height
+		ts.popup.SetSize(msg.Width, msg.Height)
 		return ts, nil
 
 	case tea.KeyPressMsg:
+		// Tree-specific keys we handle ourselves before delegating to popup.
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
-			if ts.cursor > 0 {
-				ts.cursor--
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
-			if ts.cursor < len(ts.flatNodes)-1 {
-				ts.cursor++
-			}
-
 		case key.Matches(msg, key.NewBinding(key.WithKeys("left", "pgup"))):
 			// Page up.
-			ts.cursor -= ts.visibleHeight()
-			if ts.cursor < 0 {
-				ts.cursor = 0
-			}
+			result := ts.popup.HandleKey("pgup", "")
+			_ = result
+			return ts, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("right", "pgdown"))):
-			// Page down.
-			ts.cursor += ts.visibleHeight()
-			if ts.cursor >= len(ts.flatNodes) {
-				ts.cursor = len(ts.flatNodes) - 1
-			}
+			result := ts.popup.HandleKey("pgdown", "")
+			_ = result
+			return ts, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-			ts.cursor = 0
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+o"))):
+			ts.filter = (ts.filter + 1) % 5
+			ts.rebuild()
+			return ts, nil
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-			ts.cursor = len(ts.flatNodes) - 1
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+			ts.filter = TreeFilterDefault
+			ts.rebuild()
+			return ts, nil
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+t"))):
+			ts.filter = TreeFilterNoTools
+			ts.rebuild()
+			return ts, nil
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
+			ts.filter = TreeFilterUserOnly
+			ts.rebuild()
+			return ts, nil
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+l"))):
+			ts.filter = TreeFilterLabelOnly
+			ts.rebuild()
+			return ts, nil
+		}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			if ts.cursor < len(ts.flatNodes) {
-				ts.selectedID = ts.flatNodes[ts.cursor].ID
+		// Delegate everything else (nav, search, enter, esc) to the popup.
+		result := ts.popup.HandleKey(msg.String(), msg.Text)
+
+		// Update our flatNodes view if popup filtered/changed search.
+		if result.Changed {
+			ts.syncFlatNodes()
+		}
+
+		if result.Selected != nil {
+			cursor := ts.popup.Cursor()
+			if cursor < len(ts.flatNodes) {
+				node := ts.flatNodes[cursor]
+				ts.selectedID = node.ID
 				ts.active = false
 				return ts, func() tea.Msg {
 					return core.TreeNodeSelectedMsg{
-						ID:       ts.selectedID,
-						Entry:    ts.flatNodes[ts.cursor].Entry,
-						IsUser:   ts.isUserMessage(ts.flatNodes[ts.cursor].Entry),
-						UserText: ts.extractUserText(ts.flatNodes[ts.cursor].Entry),
+						ID:       node.ID,
+						Entry:    node.Entry,
+						IsUser:   ts.isUserMessage(node.Entry),
+						UserText: ts.extractUserText(node.Entry),
 					}
 				}
 			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			if ts.search != "" {
-				ts.search = ""
-				ts.rebuildFlatList()
-			} else {
-				ts.cancelled = true
-				ts.active = false
-				return ts, func() tea.Msg {
-					return core.TreeCancelledMsg{}
-				}
-			}
-
-		// Filter cycle with ctrl+o.
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+o"))):
-			ts.filter = (ts.filter + 1) % 5
-			ts.rebuildFlatList()
-
-		// Direct filter shortcuts.
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
-			ts.filter = TreeFilterDefault
-			ts.rebuildFlatList()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+t"))):
-			ts.filter = TreeFilterNoTools
-			ts.rebuildFlatList()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+u"))):
-			ts.filter = TreeFilterUserOnly
-			ts.rebuildFlatList()
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+l"))):
-			ts.filter = TreeFilterLabelOnly
-			ts.rebuildFlatList()
-		default:
-			// Typing search.
-			if msg.Text != "" && len(msg.Text) == 1 {
-				ch := msg.Text[0]
-				if ch >= 32 && ch < 127 {
-					ts.search += string(ch)
-					ts.rebuildFlatList()
-				}
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))) && len(ts.search) > 0 {
-				ts.search = ts.search[:len(ts.search)-1]
-				ts.rebuildFlatList()
+		}
+		if result.Cancelled {
+			ts.cancelled = true
+			ts.active = false
+			return ts, func() tea.Msg {
+				return core.TreeCancelledMsg{}
 			}
 		}
 	}
@@ -220,128 +211,10 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ts *TreeSelectorComponent) View() tea.View {
-	theme := GetTheme()
-
-	// Full-screen bordered container - uses entire terminal width and height
-	maxWidth := ts.width - 2 // Small margin on each side
-	if maxWidth < 20 {
-		maxWidth = ts.width
-	}
-	maxHeight := ts.height - 2 // Small margin top/bottom to prevent overflow
-	if maxHeight < 10 {
-		maxHeight = ts.height
-	}
-	horizontalPadding := 1
-	innerWidth := maxWidth - 4   // Account for border (2) + padding (2)
-	innerHeight := maxHeight - 4 // Account for border (2) + padding (2)
-
-	// Container style with border - full width/height like a framed panel
-	containerStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
-		Background(theme.Background).
-		Padding(1, horizontalPadding).
-		Width(maxWidth).
-		Height(maxHeight)
-
-	// Header style with background highlight (like PopupList title)
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(theme.Accent).
-		Background(theme.Background)
-
-	// Help text style
-	helpStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Background(theme.Background)
-
-	var contentBuilder strings.Builder
-
-	// Header row with title and help
-	headerRow := headerStyle.Render("Session Tree")
-	contentBuilder.WriteString(headerRow)
-	contentBuilder.WriteString("\n")
-
-	// Help text - adapt to terminal width
-	var helpText string
-	if ts.width >= 70 {
-		helpText = "↑/↓: move  ←/→: page  enter: select  esc: cancel  ^O: cycle filter"
-	} else if ts.width >= 45 {
-		helpText = "↑↓ move  ↵ select  esc cancel  ^O filter"
-	} else {
-		helpText = "↑↓ ↵ esc ^O"
-	}
-	contentBuilder.WriteString(helpStyle.Render(helpText))
-	contentBuilder.WriteString("\n")
-
-	// Search display (if active)
-	if ts.search != "" {
-		searchStyle := lipgloss.NewStyle().
-			Foreground(theme.Info).
-			Background(theme.Background)
-		contentBuilder.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ts.search)))
-		contentBuilder.WriteString("\n")
-	}
-
-	// Separator line - full width
-	sepWidth := innerWidth
-	contentBuilder.WriteString(
-		lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background).
-			Render(strings.Repeat("─", sepWidth)))
-	contentBuilder.WriteString("\n")
-
-	// Tree content
-	if len(ts.flatNodes) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background)
-		contentBuilder.WriteString(emptyStyle.Render("No entries in session"))
-		contentBuilder.WriteString("\n")
-	} else {
-		// Compute visible window based on inner container height
-		// Chrome: header(2) + separator(1) + footer separator(1) + footer(1) = 5
-		chromeLines := 5
-		if ts.search != "" {
-			chromeLines++
-		}
-		visH := max(innerHeight-chromeLines, 3)
-
-		startIdx := 0
-		if ts.cursor >= visH {
-			startIdx = ts.cursor - visH + 1
-		}
-		endIdx := min(startIdx+visH, len(ts.flatNodes))
-
-		for i := startIdx; i < endIdx; i++ {
-			node := ts.flatNodes[i]
-			line := ts.renderNode(node, i == ts.cursor, node.ID == ts.leafID, innerWidth)
-			contentBuilder.WriteString(line)
-			contentBuilder.WriteString("\n")
-		}
-	}
-
-	// Footer separator
-	contentBuilder.WriteString(
-		lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background).
-			Render(strings.Repeat("─", sepWidth)))
-	contentBuilder.WriteString("\n")
-
-	// Footer with count and filter
-	footerStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Background(theme.Background)
-	footer := fmt.Sprintf("(%d/%d) [%s]", ts.cursor+1, len(ts.flatNodes), ts.filter)
-	contentBuilder.WriteString(footerStyle.Render(footer))
-
-	// Apply the bordered container - full width, no centering
-	content := contentBuilder.String()
-	borderedContent := containerStyle.Render(content)
-
-	v := tea.NewView(borderedContent)
+	// Update extra footer with current filter mode.
+	ts.popup.ExtraFooter = fmt.Sprintf("[%s]", ts.filter)
+	rendered := ts.popup.RenderCentered(ts.width, ts.height)
+	v := tea.NewView(rendered)
 	v.AltScreen = true
 	return v
 }
@@ -353,38 +226,46 @@ func (ts *TreeSelectorComponent) IsActive() bool {
 
 // --- Internal helpers ---
 
-func (ts *TreeSelectorComponent) visibleHeight() int {
-	// Chrome: header(1) + help(1) + separator(1) + entries + separator(1) + footer(1) = 5 fixed.
-	// Optional search line adds 1 more. Use 7 as a safe estimate.
-	const chromeLines = 7
-	return max(ts.height-chromeLines, 3)
-}
-
-func (ts *TreeSelectorComponent) rebuildFlatList() {
-	tree := ts.tm.GetTree()
+// rebuild reflattens the tree under the current filter and reseeds the popup
+// with PopupItems. Called on initial load and whenever the filter changes.
+func (ts *TreeSelectorComponent) rebuild() {
 	ts.flatNodes = ts.flatNodes[:0]
+	tree := ts.tm.GetTree()
 	for i, root := range tree {
 		isLast := i == len(tree)-1
 		ts.flattenNode(root, 0, isLast, "")
 	}
+	ts.publishItems()
+}
 
-	// Apply search filter.
-	if ts.search != "" {
-		query := strings.ToLower(ts.search)
-		filtered := make([]FlatNode, 0)
-		for _, node := range ts.flatNodes {
-			text := ts.entryDisplayText(node.Entry)
-			if strings.Contains(strings.ToLower(text), query) {
-				filtered = append(filtered, node)
-			}
+// syncFlatNodes refreshes flatNodes from the popup's current filtered view.
+// Called after a search-driven HandleKey result so the cursor index matches.
+func (ts *TreeSelectorComponent) syncFlatNodes() {
+	items := ts.popup.Items()
+	newFlat := make([]FlatNode, len(items))
+	for i, it := range items {
+		if fn, ok := it.Meta.(FlatNode); ok {
+			newFlat[i] = fn
 		}
-		ts.flatNodes = filtered
 	}
+	ts.flatNodes = newFlat
+}
 
-	// Clamp cursor.
-	if ts.cursor >= len(ts.flatNodes) {
-		ts.cursor = max(len(ts.flatNodes)-1, 0)
+// publishItems converts flatNodes → PopupItems and seeds the popup. We rely
+// on PopupList's default substring filter against item.Label (which holds
+// the display text) for search.
+func (ts *TreeSelectorComponent) publishItems() {
+	items := make([]PopupItem, len(ts.flatNodes))
+	for i, n := range ts.flatNodes {
+		items[i] = PopupItem{
+			Label:  ts.entryDisplayText(n.Entry),
+			Active: n.ID == ts.leafID,
+			Meta:   n,
+		}
 	}
+	ts.popup.SetItems(items)
+	// Mirror the popup's current view in flatNodes so cursor lookups work.
+	ts.syncFlatNodes()
 }
 
 func (ts *TreeSelectorComponent) flattenNode(node *session.TreeNode, depth int, isLast bool, gutterPrefix string) {
@@ -473,35 +354,73 @@ func (ts *TreeSelectorComponent) passesFilter(node *session.TreeNode) bool {
 	}
 }
 
-func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool, innerWidth int) string {
+// renderNode is the RenderItem callback handed to PopupList. PopupList wraps
+// the returned string with a full-width row style.
+//
+// When isCursor we return a plain (unstyled) string so the outer row style
+// can paint a single continuous fg+bg span across the line. Composing inner
+// lipgloss.Render calls emits ANSI resets mid-string which knock the
+// background back out, breaking the highlight into disjoint bars (issue
+// observed with deep tool-interaction branches).
+func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCursor bool) string {
 	theme := GetTheme()
+	node, ok := item.Meta.(FlatNode)
+	if !ok {
+		return item.Label
+	}
+	isLeaf := node.ID == ts.leafID
 
-	// Cursor indicator - use ">" for selected (like PopupList)
-	var cursor string
+	// Indicator (2 cells).
+	indicator := "  "
 	if isCursor {
-		cursor = lipgloss.NewStyle().Foreground(theme.Accent).Render("> ")
-	} else {
-		cursor = "  "
+		indicator = "> "
 	}
 
-	// Role-colored content with background support for selection
-	text := ts.entryDisplayText(node.Entry)
+	// Prefix (tree art) — width measured in display cells via lipgloss.
+	prefix := node.Prefix
+	prefixW := lipgloss.Width(prefix)
 
-	// Calculate available width accounting for cursor, prefix, and markers
-	prefixLen := len(node.Prefix)
-	available := innerWidth - prefixLen - 4 // 4 for cursor and some padding
-	if available > 3 && len(text) > available {
-		trimLen := max(available-3, 1)
-		if trimLen < len(text) {
-			text = text[:trimLen] + "..."
+	// Compute right-side fixed parts: label badge + active marker.
+	var labelBadgeRaw, activeMarkerRaw string
+	if node.Label != "" {
+		labelBadgeRaw = " [" + node.Label + "]"
+	}
+	if isLeaf {
+		activeMarkerRaw = " ← active"
+	}
+	rightW := lipgloss.Width(labelBadgeRaw) + lipgloss.Width(activeMarkerRaw)
+
+	// If the tree prefix is so deep it would push the text off the row,
+	// truncate the prefix from the LEFT and prepend an ellipsis. Keeping
+	// the right-most segment preserves the most recent depth indicator
+	// (└─ / ├─) so the user can still see this row's connection to its
+	// parent. We reserve at least 20 cells for the actual entry text.
+	const minTextWidth = 20
+	budget := innerWidth - 2 - rightW - minTextWidth
+	if prefixW > budget && budget > 2 {
+		runes := []rune(prefix)
+		// Strip from the left until lipgloss.Width fits the budget.
+		for len(runes) > 0 && lipgloss.Width(string(runes)) > budget-1 {
+			runes = runes[1:]
 		}
+		prefix = "…" + string(runes)
+		prefixW = lipgloss.Width(prefix)
 	}
 
-	// Build the full line style
-	var lineStyle lipgloss.Style
-	var textStyle lipgloss.Style
+	// Reserve space for indicator(2) + prefix + right parts.
+	available := max(innerWidth-2-prefixW-rightW, 4)
 
-	// Base text color based on role
+	text := ts.entryDisplayText(node.Entry)
+	text = truncateRunes(text, available)
+
+	// Selected row: emit raw text. The outer row style applies fg+bg in one
+	// uninterrupted span, keeping the highlight solid edge-to-edge.
+	if isCursor {
+		return indicator + prefix + text + labelBadgeRaw + activeMarkerRaw
+	}
+
+	// Role-based text color.
+	var textStyle lipgloss.Style
 	switch e := node.Entry.(type) {
 	case *session.MessageEntry:
 		switch e.Role {
@@ -520,77 +439,27 @@ func (ts *TreeSelectorComponent) renderNode(node FlatNode, isCursor, isLeaf bool
 		textStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	}
 
-	// Apply selection highlighting (like PopupList)
-	if isCursor {
-		// Inverted colors for selected item - matches PopupList style
-		lineStyle = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.Background).
-			Bold(true)
-		textStyle = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.Background).
-			Bold(true)
-	}
-
-	// Render components
-	content := textStyle.Render(text)
-
-	// Label badge.
-	var labelBadge string
-	if node.Label != "" {
-		labelStyle := lipgloss.NewStyle().Foreground(theme.Warning)
-		if isCursor {
-			labelStyle = lipgloss.NewStyle().
-				Background(theme.Primary).
-				Foreground(theme.Warning)
-		}
-		labelBadge = " " + labelStyle.Render("["+node.Label+"]")
-	}
-
-	// Active marker - use Success color for better visibility
-	var activeMarker string
-	if isLeaf {
-		markerStyle := lipgloss.NewStyle().Foreground(theme.Success).Bold(true)
-		if isCursor {
-			markerStyle = lipgloss.NewStyle().
-				Background(theme.Primary).
-				Foreground(theme.Success).
-				Bold(true)
-		}
-		activeMarker = markerStyle.Render(" ← active")
-	}
-
-	// Prefix (tree lines) - use MutedBorder for subtler appearance
 	prefixStyle := lipgloss.NewStyle().Foreground(theme.MutedBorder)
-	if isCursor {
-		prefixStyle = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.MutedBorder)
+	labelStyle := lipgloss.NewStyle().Foreground(theme.Warning)
+	markerStyle := lipgloss.NewStyle().Foreground(theme.Success).Bold(true)
+
+	parts := indicator + prefixStyle.Render(prefix) + textStyle.Render(text)
+	if labelBadgeRaw != "" {
+		parts += labelStyle.Render(labelBadgeRaw)
 	}
-	renderedPrefix := prefixStyle.Render(node.Prefix)
-
-	// Combine all parts
-	line := cursor + renderedPrefix + content + labelBadge + activeMarker
-
-	// If selected, apply the background to the entire line
-	if isCursor {
-		return lineStyle.Render(line)
+	if activeMarkerRaw != "" {
+		parts += markerStyle.Render(activeMarkerRaw)
 	}
-
-	return line
+	return parts
 }
 
 func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
 	switch e := entry.(type) {
 	case *session.MessageEntry:
 		role := e.Role
-		text := extractTextFromParts(e.Parts)
-		if len(text) > 80 {
-			text = text[:80] + "..."
-		}
+		text := collapseToLine(extractTextFromParts(e.Parts))
+		text = truncateRunes(text, 200)
 		if text == "" {
-			// Tool call messages may not have text.
 			text = "(tool interaction)"
 		}
 		return fmt.Sprintf("%s: %s", role, text)
@@ -599,18 +468,10 @@ func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
 		return fmt.Sprintf("model: %s/%s", e.Provider, e.ModelID)
 
 	case *session.BranchSummaryEntry:
-		summary := e.Summary
-		if len(summary) > 60 {
-			summary = summary[:60] + "..."
-		}
-		return fmt.Sprintf("branch summary: %s", summary)
+		return fmt.Sprintf("branch summary: %s", truncateRunes(collapseToLine(e.Summary), 200))
 
 	case *session.CompactionEntry:
-		summary := e.Summary
-		if len(summary) > 60 {
-			summary = summary[:60] + "..."
-		}
-		return fmt.Sprintf("compaction: %s", summary)
+		return fmt.Sprintf("compaction: %s", truncateRunes(collapseToLine(e.Summary), 200))
 
 	case *session.LabelEntry:
 		return fmt.Sprintf("label: %s", e.Label)
@@ -621,6 +482,13 @@ func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
 	default:
 		return "(unknown entry)"
 	}
+}
+
+// collapseToLine flattens any multi-line string into a single line by
+// replacing whitespace runs (including newlines and tabs) with single
+// spaces. Used so popup rows never wrap and break the layout.
+func collapseToLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func (ts *TreeSelectorComponent) isUserMessage(entry any) bool {

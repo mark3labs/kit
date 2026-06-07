@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -62,17 +61,14 @@ func (m SessionFilterMode) String() string {
 // controlCharsRe matches ASCII control characters for stripping from previews.
 var controlCharsRe = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 
-// SessionSelectorComponent is a full-screen Bubble Tea component that lets
-// the user browse and select from available sessions. Modeled after pi's
-// session picker: right-aligned metadata, background-highlighted selection,
-// scope/filter toggles, and inline search.
+// SessionSelectorComponent is a Bubble Tea component that lets the user browse
+// and select from available sessions. It wraps PopupList in FullScreen mode:
+// PopupList owns the cursor/search/scroll math/chrome; this component owns
+// the session list, scope/filter toggles, and delete-confirmation flow.
 type SessionSelectorComponent struct {
 	allSessions []session.SessionInfo
 	cwdSessions []session.SessionInfo
-	filtered    []session.SessionInfo
-
-	cursor int
-	search string
+	filtered    []session.SessionInfo // matches popup.Items() 1:1
 
 	scope  SessionScopeMode
 	filter SessionFilterMode
@@ -80,6 +76,7 @@ type SessionSelectorComponent struct {
 	// currentPath is the active session file path for marking it in the list.
 	currentPath string
 
+	popup  *PopupList
 	width  int
 	height int
 	active bool
@@ -110,7 +107,12 @@ func NewSessionSelector(cwd string, width, height int) *SessionSelectorComponent
 		ss.scope = SessionScopeAll
 	}
 
-	ss.rebuildFiltered()
+	ss.popup = NewPopupList("Resume Session", nil, width, height)
+	ss.popup.FullScreen = true
+	ss.popup.FooterHint = "↑↓ nav • ↵ open • esc cancel • tab scope • ^N named • d delete • type to search"
+	ss.popup.RenderItem = ss.renderEntry
+
+	ss.rebuild()
 	return ss
 }
 
@@ -131,10 +133,11 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		ss.width = msg.Width
 		ss.height = msg.Height
+		ss.popup.SetSize(msg.Width, msg.Height)
 		return ss, nil
 
 	case tea.KeyPressMsg:
-		// Delete confirmation mode.
+		// Delete confirmation mode swallows all keys until y/n.
 		if ss.confirmDelete >= 0 {
 			switch msg.String() {
 			case "y", "Y":
@@ -145,7 +148,7 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err := session.DeleteSession(info.Path); err == nil {
 						name := sessionDisplayName(info)
 						ss.removeSession(info.Path)
-						ss.rebuildFiltered()
+						ss.rebuild()
 						return ss, func() tea.Msg {
 							return SessionDeletedMsg{Name: name}
 						}
@@ -159,64 +162,14 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("up"))):
-			if ss.cursor > 0 {
-				ss.cursor--
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("down"))):
-			if ss.cursor < len(ss.filtered)-1 {
-				ss.cursor++
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup"))):
-			ss.cursor -= ss.visibleHeight()
-			if ss.cursor < 0 {
-				ss.cursor = 0
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown"))):
-			ss.cursor += ss.visibleHeight()
-			if ss.cursor >= len(ss.filtered) {
-				ss.cursor = len(ss.filtered) - 1
-			}
-			if ss.cursor < 0 {
-				ss.cursor = 0
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("home"))):
-			ss.cursor = 0
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("end"))):
-			ss.cursor = max(len(ss.filtered)-1, 0)
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			if ss.cursor < len(ss.filtered) {
-				info := ss.filtered[ss.cursor]
-				ss.active = false
-				return ss, func() tea.Msg {
-					return SessionSelectedMsg{Path: info.Path}
-				}
-			}
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			if ss.search != "" {
-				ss.search = ""
-				ss.rebuildFiltered()
-			} else {
-				ss.active = false
-				return ss, func() tea.Msg {
-					return SessionSelectorCancelledMsg{}
-				}
-			}
-
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			if ss.scope == SessionScopeCwd {
 				ss.scope = SessionScopeAll
 			} else {
 				ss.scope = SessionScopeCwd
 			}
-			ss.rebuildFiltered()
+			ss.rebuild()
+			return ss, nil
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))):
 			if ss.filter == SessionFilterAll {
@@ -224,25 +177,48 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				ss.filter = SessionFilterAll
 			}
-			ss.rebuildFiltered()
-
-		case key.Matches(msg, key.NewBinding(key.WithKeys("d"))):
-			if ss.cursor < len(ss.filtered) {
-				ss.confirmDelete = ss.cursor
-			}
+			ss.rebuild()
 			return ss, nil
 
-		default:
-			if msg.Text != "" && len(msg.Text) == 1 {
-				ch := msg.Text[0]
-				if ch >= 32 && ch < 127 {
-					ss.search += string(ch)
-					ss.rebuildFiltered()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+d"))):
+			// Ctrl+D as an explicit delete shortcut. Plain "d" still works
+			// below when the search field is empty so it doesn't conflict
+			// with typing the letter 'd' into a query.
+			if c := ss.popup.Cursor(); c < len(ss.filtered) {
+				ss.confirmDelete = c
+			}
+			return ss, nil
+		}
+
+		// Plain 'd' triggers delete only when there's no active search
+		// query (otherwise the user would never be able to type 'd' into
+		// a search like "doc").
+		if msg.String() == "d" && !ss.popup.IsSearching() {
+			if c := ss.popup.Cursor(); c < len(ss.filtered) {
+				ss.confirmDelete = c
+				return ss, nil
+			}
+		}
+
+		// Delegate everything else to the popup.
+		result := ss.popup.HandleKey(msg.String(), msg.Text)
+		if result.Changed {
+			ss.syncFiltered()
+		}
+		if result.Selected != nil {
+			cursor := ss.popup.Cursor()
+			if cursor < len(ss.filtered) {
+				info := ss.filtered[cursor]
+				ss.active = false
+				return ss, func() tea.Msg {
+					return SessionSelectedMsg{Path: info.Path}
 				}
 			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))) && len(ss.search) > 0 {
-				ss.search = ss.search[:len(ss.search)-1]
-				ss.rebuildFiltered()
+		}
+		if result.Cancelled {
+			ss.active = false
+			return ss, func() tea.Msg {
+				return SessionSelectorCancelledMsg{}
 			}
 		}
 	}
@@ -251,152 +227,17 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ss *SessionSelectorComponent) View() tea.View {
-	theme := style.GetTheme()
-
-	// Full-screen bordered container - uses entire terminal width and height
-	maxWidth := ss.width - 2 // Small margin on each side
-	if maxWidth < 20 {
-		maxWidth = ss.width
-	}
-	maxHeight := ss.height - 2 // Small margin top/bottom to prevent overflow
-	if maxHeight < 10 {
-		maxHeight = ss.height
-	}
-	horizontalPadding := 1
-	innerWidth := maxWidth - 4   // Account for border (2) + padding (2)
-	innerHeight := maxHeight - 4 // Account for border (2) + padding (2)
-
-	// Container style with border - full width/height like a framed panel
-	containerStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
-		Background(theme.Background).
-		Padding(1, horizontalPadding).
-		Width(maxWidth).
-		Height(maxHeight)
-
-	var contentBuilder strings.Builder
-
-	// ── Header: title + scope badges ─────────────────────────────
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(theme.Accent).
-		Background(theme.Background)
-	contentBuilder.WriteString(titleStyle.Render(fmt.Sprintf("Resume Session (%s)", ss.scope)))
-	contentBuilder.WriteString("\n")
-
-	// ── Help / keybindings ───────────────────────────────────────
-	helpStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Background(theme.Background)
-	if innerWidth >= 75 {
-		contentBuilder.WriteString(helpStyle.Render("tab: scope  N: named  D: delete  R: rename  type to search  esc: cancel"))
-	} else if innerWidth >= 50 {
-		contentBuilder.WriteString(helpStyle.Render("tab scope  N named  D del  type to search  esc"))
-	} else {
-		contentBuilder.WriteString(helpStyle.Render("tab N D esc"))
-	}
-	contentBuilder.WriteString("\n")
-
-	// ── Search (only shown when active) ──────────────────────────
-	if ss.search != "" {
-		searchStyle := lipgloss.NewStyle().
-			Foreground(theme.Info).
-			Background(theme.Background)
-		contentBuilder.WriteString(searchStyle.Render(fmt.Sprintf("> %s", ss.search)))
-		contentBuilder.WriteString("\n")
-	}
-
-	// Separator line
-	sepWidth := innerWidth
-	contentBuilder.WriteString(
-		lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background).
-			Render(strings.Repeat("─", sepWidth)))
-	contentBuilder.WriteString("\n")
-
-	// ── Delete confirmation ──────────────────────────────────────
+	// Compose dynamic footer extras: scope + filter + (delete confirm).
+	extra := fmt.Sprintf("scope: %s • filter: %s", ss.scope, ss.filter)
 	if ss.confirmDelete >= 0 && ss.confirmDelete < len(ss.filtered) {
-		warnStyle := lipgloss.NewStyle().
-			Foreground(theme.Error).
-			Bold(true).
-			Background(theme.Background)
-		name := sessionDisplayName(ss.filtered[ss.confirmDelete])
-		contentBuilder.WriteString(warnStyle.Render(fmt.Sprintf("Delete %q? (y/N)", truncateRunes(name, 40))))
-		contentBuilder.WriteString("\n")
+		name := truncateRunes(sessionDisplayName(ss.filtered[ss.confirmDelete]), 30)
+		extra = fmt.Sprintf("delete %q? y/N", name)
 	}
+	ss.popup.Title = fmt.Sprintf("Resume Session (%s)", ss.scope)
+	ss.popup.ExtraFooter = extra
 
-	// ── Session list ─────────────────────────────────────────────
-	if len(ss.filtered) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background)
-		if ss.search != "" {
-			contentBuilder.WriteString(emptyStyle.Render(fmt.Sprintf("No sessions matching %q", ss.search)))
-		} else if ss.filter == SessionFilterNamed {
-			contentBuilder.WriteString(emptyStyle.Render("No named sessions. Press N to show all."))
-		} else if ss.scope == SessionScopeCwd {
-			contentBuilder.WriteString(emptyStyle.Render("No sessions in current folder. Press tab to view all."))
-		} else {
-			contentBuilder.WriteString(emptyStyle.Render("No sessions found"))
-		}
-		contentBuilder.WriteString("\n")
-	} else {
-		// Compute visible window based on inner container height
-		// Chrome: header(2) + separator(1) + footer separator(1) + footer(1) = 5
-		chromeLines := 5
-		if ss.search != "" {
-			chromeLines++
-		}
-		if ss.confirmDelete >= 0 {
-			chromeLines++
-		}
-		visH := max(innerHeight-chromeLines, 3)
-
-		// Center the cursor in the visible window.
-		startIdx := max(0, min(ss.cursor-visH/2, len(ss.filtered)-visH))
-		endIdx := min(startIdx+visH, len(ss.filtered))
-
-		for i := startIdx; i < endIdx; i++ {
-			info := ss.filtered[i]
-			isCursor := i == ss.cursor
-			isCurrent := info.Path == ss.currentPath
-			isDeleting := i == ss.confirmDelete
-			line := ss.renderEntry(info, isCursor, isCurrent, isDeleting, innerWidth)
-			contentBuilder.WriteString(line)
-			contentBuilder.WriteString("\n")
-		}
-
-		// Scroll position indicator.
-		if len(ss.filtered) > visH {
-			posStyle := lipgloss.NewStyle().
-				Foreground(theme.Muted).
-				Background(theme.Background)
-			contentBuilder.WriteString(posStyle.Render(fmt.Sprintf("(%d/%d)", ss.cursor+1, len(ss.filtered))))
-			contentBuilder.WriteString("\n")
-		}
-	}
-
-	// Footer separator
-	contentBuilder.WriteString(
-		lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Background(theme.Background).
-			Render(strings.Repeat("─", sepWidth)))
-	contentBuilder.WriteString("\n")
-
-	// Footer with filter info
-	footerStyle := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Background(theme.Background)
-	contentBuilder.WriteString(footerStyle.Render(fmt.Sprintf("Filter: %s", ss.filter)))
-
-	// Apply the bordered container
-	content := contentBuilder.String()
-	borderedContent := containerStyle.Render(content)
-
-	v := tea.NewView(borderedContent)
+	rendered := ss.popup.RenderCentered(ss.width, ss.height)
+	v := tea.NewView(rendered)
 	v.AltScreen = true
 	return v
 }
@@ -408,20 +249,9 @@ func (ss *SessionSelectorComponent) IsActive() bool {
 
 // --- Internal helpers ---
 
-func (ss *SessionSelectorComponent) visibleHeight() int {
-	// Reserve: title(1) + help(1) + blank(1) + scroll indicator(1) = 4.
-	// Optional: search(1), delete confirm(1).
-	chrome := 4
-	if ss.search != "" {
-		chrome++
-	}
-	if ss.confirmDelete >= 0 {
-		chrome++
-	}
-	return max(ss.height-chrome, 3)
-}
-
-func (ss *SessionSelectorComponent) rebuildFiltered() {
+// rebuild applies the scope and filter selections, then publishes the
+// resulting session list to the popup.
+func (ss *SessionSelectorComponent) rebuild() {
 	var source []session.SessionInfo
 	if ss.scope == SessionScopeCwd {
 		source = ss.cwdSessions
@@ -439,23 +269,33 @@ func (ss *SessionSelectorComponent) rebuildFiltered() {
 		source = named
 	}
 
-	if ss.search != "" {
-		query := strings.ToLower(ss.search)
-		var matches []session.SessionInfo
-		for _, s := range source {
-			haystack := strings.ToLower(s.Name + " " + s.FirstMessage + " " + s.Cwd)
-			if strings.Contains(haystack, query) {
-				matches = append(matches, s)
-			}
+	// Build PopupItems. The Label holds a haystack string (name + first
+	// message + cwd) so PopupList's default filter can match against any
+	// of those fields. We render each row with a custom RenderItem.
+	items := make([]PopupItem, len(source))
+	for i, s := range source {
+		haystack := strings.TrimSpace(s.Name + " " + s.FirstMessage + " " + s.Cwd)
+		items[i] = PopupItem{
+			Label:  haystack,
+			Active: s.Path == ss.currentPath,
+			Meta:   s,
 		}
-		ss.filtered = matches
-	} else {
-		ss.filtered = source
 	}
+	ss.popup.SetItems(items)
+	ss.syncFiltered()
+}
 
-	if ss.cursor >= len(ss.filtered) {
-		ss.cursor = max(len(ss.filtered)-1, 0)
+// syncFiltered refreshes the filtered slice from popup.Items() so cursor
+// indices map back to session.SessionInfo for the parent.
+func (ss *SessionSelectorComponent) syncFiltered() {
+	items := ss.popup.Items()
+	out := make([]session.SessionInfo, 0, len(items))
+	for _, it := range items {
+		if s, ok := it.Meta.(session.SessionInfo); ok {
+			out = append(out, s)
+		}
 	}
+	ss.filtered = out
 }
 
 func (ss *SessionSelectorComponent) removeSession(path string) {
@@ -473,87 +313,74 @@ func removeByPath(sessions []session.SessionInfo, path string) []session.Session
 	return result
 }
 
-// renderEntry renders a single session line with right-aligned metadata.
-// Layout: [cursor 2] [message ...variable...] [padding] [count age] [cwd?]
-func (ss *SessionSelectorComponent) renderEntry(info session.SessionInfo, isCursor, isCurrent, isDeleting bool, width int) string {
+// renderEntry is the RenderItem callback handed to PopupList. It produces a
+// single-line entry with left-aligned message text and right-aligned
+// metadata (message count + relative time, plus optional cwd in "All" scope).
+//
+// When isCursor we return a plain (unstyled) string so PopupList's outer
+// row style can paint one continuous fg+bg span. Mixing inner lipgloss
+// Render calls with an outer Background() breaks the highlight into bars,
+// because each inner Render emits an ANSI reset that drops the background.
+func (ss *SessionSelectorComponent) renderEntry(item PopupItem, innerWidth int, isCursor bool) string {
 	theme := style.GetTheme()
+	info, ok := item.Meta.(session.SessionInfo)
+	if !ok {
+		return item.Label
+	}
+	isCurrent := info.Path == ss.currentPath
+	isDeleting := ss.confirmDelete >= 0 && ss.confirmDelete < len(ss.filtered) &&
+		ss.filtered[ss.confirmDelete].Path == info.Path
 
-	// ── Cursor indicator (2 chars) ───────────────────────────────
-	cursorStr := "  "
+	// Cursor indicator (2 cells).
+	indicator := "  "
 	if isCursor {
-		cursorStr = lipgloss.NewStyle().Foreground(theme.Accent).Render("> ")
+		indicator = "> "
 	}
-	const cursorW = 2
 
-	// ── Right part: message count + relative time (+ optional cwd) ──
+	// Right-hand metadata.
 	age := relativeTime(info.Modified)
-	msgCount := fmt.Sprintf("%d", info.MessageCount)
-	rightPart := msgCount + " " + age
+	right := fmt.Sprintf("%d %s", info.MessageCount, age)
 	if ss.scope == SessionScopeAll && info.Cwd != "" {
-		shortCwd := shortenPath(info.Cwd)
-		if len(shortCwd) > 25 {
-			shortCwd = "..." + shortCwd[len(shortCwd)-22:]
-		}
-		rightPart = shortCwd + " " + rightPart
+		shortCwd := truncateRunes(shortenPath(info.Cwd), 25)
+		right = shortCwd + " " + right
 	}
-	rightW := utf8.RuneCountInString(rightPart)
+	rightW := lipgloss.Width(right)
 
-	// ── Message text ─────────────────────────────────────────────
+	// Message text width: innerWidth minus indicator(2) minus right minus gap(2).
+	availForMsg := max(innerWidth-2-rightW-2, 10)
+
 	displayText := sessionDisplayName(info)
-	// Strip control characters and collapse whitespace.
 	displayText = controlCharsRe.ReplaceAllString(displayText, " ")
 	displayText = strings.Join(strings.Fields(displayText), " ")
+	displayText = truncateRunes(displayText, availForMsg)
 
-	availableForMsg := max(width-cursorW-rightW-2, 10) // 2 for min spacing
-	displayText = truncateRunes(displayText, availableForMsg)
-	msgW := utf8.RuneCountInString(displayText)
+	msgW := lipgloss.Width(displayText)
+	spacing := max(innerWidth-2-msgW-rightW, 1)
 
-	// ── Style the message ────────────────────────────────────────
-	var msgStyle lipgloss.Style
+	// Selected row: raw string, outer row style paints it.
+	if isCursor {
+		return indicator + displayText + strings.Repeat(" ", spacing) + right
+	}
+
+	// Color the message text by state.
+	var msgStyle, rightStyle lipgloss.Style
 	switch {
 	case isDeleting:
 		msgStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	case isCurrent:
-		msgStyle = lipgloss.NewStyle().Foreground(theme.Accent)
+		msgStyle = lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
 	case info.Name != "":
 		msgStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	default:
 		msgStyle = lipgloss.NewStyle().Foreground(theme.Text)
 	}
-
-	// ── Style the right part ─────────────────────────────────────
-	rightColor := theme.Muted
 	if isDeleting {
-		rightColor = theme.Error
-	}
-	var styledRight string
-
-	// ── Assemble with spacing ────────────────────────────────────
-	spacing := max(width-cursorW-msgW-rightW, 1)
-
-	// If selected, use inverted colors like PopupList
-	if isCursor {
-		// Inverted colors for selected item
-		msgStyle = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.Background).
-			Bold(true)
-		styledRight = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(rightColor).
-			Render(rightPart)
-		cursorStr = lipgloss.NewStyle().
-			Background(theme.Primary).
-			Foreground(theme.Accent).
-			Render("> ")
+		rightStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	} else {
-		styledRight = lipgloss.NewStyle().Foreground(rightColor).Render(rightPart)
+		rightStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	}
 
-	styledMsg := msgStyle.Render(displayText)
-	line := cursorStr + styledMsg + strings.Repeat(" ", spacing) + styledRight
-
-	return line
+	return indicator + msgStyle.Render(displayText) + strings.Repeat(" ", spacing) + rightStyle.Render(right)
 }
 
 // --- Package helpers ---
@@ -570,7 +397,7 @@ func sessionDisplayName(info session.SessionInfo) string {
 	return "(empty session)"
 }
 
-// truncateRunes truncates a string to at most maxRunes runes, appending "..."
+// truncateRunes truncates a string to at most maxRunes runes, appending "…"
 // if truncated.
 func truncateRunes(s string, maxRunes int) string {
 	if maxRunes <= 0 {
