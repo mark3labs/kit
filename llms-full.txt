@@ -2252,6 +2252,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 |----------|--------|-------------|
 | **Anthropic** | `anthropic/` | Claude models (native, prompt caching, OAuth) |
 | **OpenAI** | `openai/` | GPT models |
+| **GitHub Copilot** | `copilot/` | Copilot models through GitHub device login (experimental) |
 | **Google** | `google/` or `gemini/` | Gemini models |
 | **Ollama** | `ollama/` | Local models |
 | **Azure OpenAI** | `azure/` | Azure-hosted OpenAI |
@@ -2268,6 +2269,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 provider/model            # Standard format
 anthropic/claude-sonnet-latest
 openai/gpt-4o
+copilot/gpt-5.5
 ollama/llama3
 google/gemini-2.5-flash
 ```
@@ -2356,13 +2358,18 @@ kit --provider-api-key "sk-..." --model openai/gpt-4o
 
 ### OAuth
 
-For providers that support OAuth (e.g., Anthropic):
+For providers that support OAuth:
 
 ```bash
-kit auth login anthropic     # Start OAuth flow
+kit auth login anthropic     # Anthropic OAuth
+kit auth login openai        # ChatGPT/Codex OAuth
+kit auth login copilot       # GitHub Copilot device login (experimental)
 kit auth status              # Check authentication status
-kit auth logout anthropic    # Remove credentials
+kit auth logout copilot      # Remove credentials
 ```
+
+The experimental `copilot/` provider requires an active GitHub Copilot subscription
+and uses GitHub device login; no OpenAI account or OpenAI API key is required.
 
 ### Custom provider URL
 

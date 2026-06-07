@@ -1,4 +1,4 @@
-const a={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
+const s={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
 <p>Kit supports a wide range of LLM providers through a unified <code>provider/model</code> string format.</p>
 <h2 id="supported-providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#supported-providers"><span class="icon icon-link"></span></a>Supported providers</h2>
 <table>
@@ -19,6 +19,11 @@ const a={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <td><strong>OpenAI</strong></td>
 <td><code>openai/</code></td>
 <td>GPT models</td>
+</tr>
+<tr>
+<td><strong>GitHub Copilot</strong></td>
+<td><code>copilot/</code></td>
+<td>Copilot models through GitHub device login (experimental)</td>
 </tr>
 <tr>
 <td><strong>Google</strong></td>
@@ -71,6 +76,7 @@ const a={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">provider/model</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Standard format</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">anthropic/claude-sonnet-latest</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">openai/gpt-4o</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">copilot/gpt-5.5</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">ollama/llama3</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">google/gemini-2.5-flash</span></span></code></pre>
 <h2 id="model-aliases"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-aliases"><span class="icon icon-link"></span></a>Model aliases</h2>
@@ -119,10 +125,14 @@ const a={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <p>Or pass it directly:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-api-key</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "sk-..."</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span></code></pre>
 <h3 id="oauth"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#oauth"><span class="icon icon-link"></span></a>OAuth</h3>
-<p>For providers that support OAuth (e.g., Anthropic):</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # Start OAuth flow</span></span>
+<p>For providers that support OAuth:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # Anthropic OAuth</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # ChatGPT/Codex OAuth</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> copilot</span><span style="color:#6A737D;--shiki-dark:#6A737D">       # GitHub Copilot device login (experimental)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> status</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # Check authentication status</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> logout</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic</span><span style="color:#6A737D;--shiki-dark:#6A737D">    # Remove credentials</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> logout</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> copilot</span><span style="color:#6A737D;--shiki-dark:#6A737D">      # Remove credentials</span></span></code></pre>
+<p>The experimental <code>copilot/</code> provider requires an active GitHub Copilot subscription
+and uses GitHub device login; no OpenAI account or OpenAI API key is required.</p>
 <h3 id="custom-provider-url"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-provider-url"><span class="icon icon-link"></span></a>Custom provider URL</h3>
 <p>For self-hosted or proxy endpoints:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "https://my-proxy.example.com/v1"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span></code></pre>
@@ -203,6 +213,7 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 |----------|--------|-------------|
 | **Anthropic** | \`anthropic/\` | Claude models (native, prompt caching, OAuth) |
 | **OpenAI** | \`openai/\` | GPT models |
+| **GitHub Copilot** | \`copilot/\` | Copilot models through GitHub device login (experimental) |
 | **Google** | \`google/\` or \`gemini/\` | Gemini models |
 | **Ollama** | \`ollama/\` | Local models |
 | **Azure OpenAI** | \`azure/\` | Azure-hosted OpenAI |
@@ -219,6 +230,7 @@ Kit supports a wide range of LLM providers through a unified \`provider/model\` 
 provider/model            # Standard format
 anthropic/claude-sonnet-latest
 openai/gpt-4o
+copilot/gpt-5.5
 ollama/llama3
 google/gemini-2.5-flash
 \`\`\`
@@ -307,13 +319,18 @@ kit --provider-api-key "sk-..." --model openai/gpt-4o
 
 ### OAuth
 
-For providers that support OAuth (e.g., Anthropic):
+For providers that support OAuth:
 
 \`\`\`bash
-kit auth login anthropic     # Start OAuth flow
+kit auth login anthropic     # Anthropic OAuth
+kit auth login openai        # ChatGPT/Codex OAuth
+kit auth login copilot       # GitHub Copilot device login (experimental)
 kit auth status              # Check authentication status
-kit auth logout anthropic    # Remove credentials
+kit auth logout copilot      # Remove credentials
 \`\`\`
+
+The experimental \`copilot/\` provider requires an active GitHub Copilot subscription
+and uses GitHub device login; no OpenAI account or OpenAI API key is required.
 
 ### Custom provider URL
 
@@ -386,4 +403,4 @@ kit models --all             # Show all providers
 kit update-models            # Update from models.dev
 kit update-models embedded   # Reset to bundled database
 \`\`\`
-`};export{a as default};
+`};export{s as default};
