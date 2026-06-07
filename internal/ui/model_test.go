@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -85,6 +86,10 @@ func (s *stubAppController) Steer(prompt string) int {
 func (s *stubAppController) SteerWithFiles(prompt string, _ []kit.LLMFilePart) int {
 	s.runCalls = append(s.runCalls, prompt)
 	return s.queueLen
+}
+
+func (s *stubAppController) PopLastUserMessage() (string, []kit.LLMFilePart, error) {
+	return "", nil, fmt.Errorf("no user message to retry")
 }
 
 // --------------------------------------------------------------------------

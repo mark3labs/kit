@@ -168,6 +168,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/cp"},
 	},
 	{
+		Name:        "/retry",
+		Description: "Resubmit the last user message (e.g. after a provider error)",
+		Category:    "System",
+		Aliases:     []string{"/rt"},
+	},
+	{
 		Name:        "/edit",
 		Description: "Open a file in $EDITOR (fuzzy-find a path, then edit)",
 		Category:    "System",

@@ -13,6 +13,7 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/session"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
@@ -341,6 +342,90 @@ func (a *App) SwitchTreeSession(ts *session.TreeManager) {
 	if ts != nil {
 		a.store.Replace(ts.GetLLMMessages())
 	}
+}
+
+// PopLastUserMessage truncates the tree session back to the parent of the
+// most recent user message on the current branch, syncs the in-memory
+// message store, and returns the user prompt text plus any image file
+// parts so the caller can resubmit via Run/RunWithFiles.
+//
+// This is the building block for /retry: the user message and any orphaned
+// assistant/tool entries produced by a failed turn become unreachable on
+// the current branch (they remain in the session file under a different
+// leaf) and are excluded from the next LLM context.
+//
+// Returns an error when:
+//   - the agent is currently working (busy)
+//   - the app has been closed
+//   - no tree session is active (sessions disabled via --no-session)
+//   - no user message exists on the current branch
+//
+// Satisfies ui.AppController.
+func (a *App) PopLastUserMessage() (string, []kit.LLMFilePart, error) {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return "", nil, fmt.Errorf("app is closed")
+	}
+	if a.busy {
+		a.mu.Unlock()
+		return "", nil, fmt.Errorf("cannot retry while the agent is working")
+	}
+	a.mu.Unlock()
+
+	ts := a.opts.TreeSession
+	if ts == nil {
+		return "", nil, fmt.Errorf("no tree session active; /retry requires a session")
+	}
+
+	// Walk the current branch backwards to find the most recent user message.
+	branch := ts.GetBranch("")
+	var target *session.MessageEntry
+	for i := len(branch) - 1; i >= 0; i-- {
+		me, ok := branch[i].(*session.MessageEntry)
+		if !ok {
+			continue
+		}
+		if me.Role == string(message.RoleUser) {
+			target = me
+			break
+		}
+	}
+	if target == nil {
+		return "", nil, fmt.Errorf("no user message to retry")
+	}
+
+	// Extract the prompt text and any image parts from the target entry.
+	msg, err := target.ToMessage()
+	if err != nil {
+		return "", nil, fmt.Errorf("decode user message: %w", err)
+	}
+	prompt := msg.Content()
+	var files []kit.LLMFilePart
+	for _, part := range msg.Parts {
+		if ic, ok := part.(message.ImageContent); ok {
+			files = append(files, kit.LLMFilePart{
+				Data:      ic.Data,
+				MediaType: ic.MediaType,
+			})
+		}
+	}
+
+	// Move the leaf to the parent of the user message. The failed turn's
+	// entries (user message + any partial assistant/tool entries) are still
+	// in the tree file but no longer on the active branch, so they will not
+	// be re-sent to the LLM. runTurn() will append a fresh user message on
+	// the next call.
+	if err := ts.Branch(target.ParentID); err != nil {
+		return "", nil, fmt.Errorf("branch to parent: %w", err)
+	}
+
+	// Sync the in-memory store with the new branch position so subsequent
+	// reads (and ReloadMessagesFromTree() consumers) see the truncated view.
+	a.store.Clear()
+	a.store.Replace(ts.GetLLMMessages())
+
+	return prompt, files, nil
 }
 
 // AddContextMessage adds a user-role message to the conversation history

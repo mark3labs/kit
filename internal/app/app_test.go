@@ -9,7 +9,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/fantasy"
 	kit "github.com/mark3labs/kit/pkg/kit"
+
+	"github.com/mark3labs/kit/internal/session"
 )
 
 // --------------------------------------------------------------------------
@@ -967,5 +970,148 @@ func TestReleaseBusyAfterCompact_dropsQueueWhenClosed(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if n := stub.callCount(); n != 0 {
 		t.Fatalf("expected 0 PromptFunc calls on closed app, got %d", n)
+	}
+}
+
+// --------------------------------------------------------------------------
+// PopLastUserMessage (/retry building block)
+// --------------------------------------------------------------------------
+
+// TestPopLastUserMessage_NoTreeSession verifies that PopLastUserMessage
+// returns an error when no tree session is active.
+func TestPopLastUserMessage_NoTreeSession(t *testing.T) {
+	app := newTestApp(newStub())
+	defer app.Close()
+
+	prompt, files, err := app.PopLastUserMessage()
+	if err == nil {
+		t.Fatal("expected error when no tree session is active")
+	}
+	if prompt != "" || files != nil {
+		t.Fatalf("expected zero values on error, got prompt=%q files=%v", prompt, files)
+	}
+}
+
+// TestPopLastUserMessage_WhileBusy verifies that PopLastUserMessage
+// refuses to truncate while the agent is busy (would race with executeBatch).
+func TestPopLastUserMessage_WhileBusy(t *testing.T) {
+	app := newTestApp(newStub())
+	defer app.Close()
+
+	app.mu.Lock()
+	app.busy = true
+	app.mu.Unlock()
+
+	_, _, err := app.PopLastUserMessage()
+	if err == nil {
+		t.Fatal("expected error when agent is busy")
+	}
+	if !strings.Contains(err.Error(), "working") {
+		t.Fatalf("expected error mentioning busy/working, got %q", err.Error())
+	}
+}
+
+// TestPopLastUserMessage_WhenClosed verifies that PopLastUserMessage
+// returns an error after Close().
+func TestPopLastUserMessage_WhenClosed(t *testing.T) {
+	app := newTestApp(newStub())
+	app.Close()
+
+	_, _, err := app.PopLastUserMessage()
+	if err == nil {
+		t.Fatal("expected error on closed app")
+	}
+}
+
+// TestPopLastUserMessage_TruncatesAndReturnsPrompt verifies the happy path:
+// a real tree session with user→assistant→user→assistant entries is
+// truncated back to before the most recent user message, and that user's
+// text is returned.
+func TestPopLastUserMessage_TruncatesAndReturnsPrompt(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := session.CreateTreeSession(dir)
+	if err != nil {
+		t.Fatalf("create tree session: %v", err)
+	}
+	defer func() { _ = ts.Close() }()
+
+	// Build history: user "first" → assistant "ack 1" → user "second" → assistant "ack 2".
+	if _, err := ts.AppendLLMMessage(fantasy.NewUserMessage("first")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.AppendLLMMessage(fantasy.Message{
+		Role:    fantasy.MessageRoleAssistant,
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "ack 1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.AppendLLMMessage(fantasy.NewUserMessage("second")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.AppendLLMMessage(fantasy.Message{
+		Role:    fantasy.MessageRoleAssistant,
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "ack 2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	app := New(Options{TreeSession: ts, PromptFunc: newStub().fn}, nil)
+	defer app.Close()
+
+	prompt, files, err := app.PopLastUserMessage()
+	if err != nil {
+		t.Fatalf("PopLastUserMessage: %v", err)
+	}
+	if prompt != "second" {
+		t.Fatalf("expected prompt=%q, got %q", "second", prompt)
+	}
+	if files != nil {
+		t.Fatalf("expected no files, got %v", files)
+	}
+
+	// After truncation the branch should only contain the first user
+	// message and its assistant response (the "second" turn is orphaned).
+	msgs := ts.GetLLMMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages on truncated branch, got %d", len(msgs))
+	}
+	if got := messageText(msgs[0]); got != "first" {
+		t.Fatalf("expected first message %q, got %q", "first", got)
+	}
+	if got := messageText(msgs[1]); got != "ack 1" {
+		t.Fatalf("expected second message %q, got %q", "ack 1", got)
+	}
+}
+
+// messageText extracts concatenated TextPart content from a fantasy.Message.
+func messageText(m fantasy.Message) string {
+	var out strings.Builder
+	for _, p := range m.Content {
+		if tp, ok := p.(fantasy.TextPart); ok {
+			out.WriteString(tp.Text)
+		}
+	}
+	return out.String()
+}
+
+// TestPopLastUserMessage_NoUserOnBranch verifies that an empty tree (no
+// user messages at all) returns a friendly error rather than panicking.
+func TestPopLastUserMessage_NoUserOnBranch(t *testing.T) {
+	dir := t.TempDir()
+	ts, err := session.CreateTreeSession(dir)
+	if err != nil {
+		t.Fatalf("create tree session: %v", err)
+	}
+	defer func() { _ = ts.Close() }()
+
+	app := New(Options{TreeSession: ts, PromptFunc: newStub().fn}, nil)
+	defer app.Close()
+
+	_, _, err = app.PopLastUserMessage()
+	if err == nil {
+		t.Fatal("expected error when no user message exists on branch")
+	}
+	if !strings.Contains(err.Error(), "no user message") {
+		t.Fatalf("expected error mentioning missing user message, got %q", err.Error())
 	}
 }

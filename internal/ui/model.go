@@ -126,6 +126,14 @@ type AppController interface {
 	// attachments (e.g. pasted images) into the currently running agent
 	// turn. Behaves like Steer but includes file parts alongside the text.
 	SteerWithFiles(prompt string, files []kit.LLMFilePart) int
+	// PopLastUserMessage truncates the tree session at the parent of the
+	// most recent user message on the current branch, syncs the in-memory
+	// message store, and returns that user prompt (plus any image file
+	// parts) so the caller can resubmit it. Used by /retry to recover from
+	// provider errors (overloaded, timeout) without duplicating the user
+	// message in context. Returns an error if the agent is busy, no tree
+	// session is active, or no user message exists on the current branch.
+	PopLastUserMessage() (string, []kit.LLMFilePart, error)
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -3288,6 +3296,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleExportCommand(args)
 	case "/copy":
 		return m.handleCopyCommand()
+	case "/retry":
+		return m.handleRetryCommand()
 	case "/edit":
 		return m.handleEditCommand(args)
 	case "/share":
@@ -3715,6 +3725,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
 		"- `/clear`: Clear message history\n" +
 		"- `/copy`: Copy the last message to the system clipboard\n" +
+		"- `/retry`: Resubmit the last user message (e.g. after a provider error)\n" +
 		"- `/edit [path]`: Open a file in `$EDITOR` (fuzzy-find from cwd)\n" +
 		"- `/export [path]`: Export session as JSONL\n" +
 		"- `/import <path.jsonl>`: Import session from JSONL file\n" +
@@ -4564,6 +4575,79 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 		"Copied last %s message to clipboard (%d chars).", role, len(text),
 	))
 	return clipboard.CopyToClipboard(text)
+}
+
+// handleRetryCommand resubmits the most recent user message on the current
+// branch. Used to recover from transient provider errors (overloaded,
+// timeout) without users having to retype — and without the duplicate-user-
+// message bloat that retyping creates.
+//
+// Flow:
+//  1. App.PopLastUserMessage() truncates the tree at the parent of the last
+//     user message and returns its text + any image parts. The failed turn's
+//     entries become orphaned (still on disk, off-branch) so they will not
+//     be re-sent to the LLM.
+//  2. The visible message list is rebuilt from the truncated branch so the
+//     prior user message + any partial assistant + error rendering vanish.
+//  3. The prompt is resubmitted via Run/RunWithFiles, mirroring the normal
+//     SubmitMsg display path (badge formatting, pending-prints flush,
+//     stateWorking transition).
+func (m *AppModel) handleRetryCommand() tea.Cmd {
+	if m.appCtrl == nil {
+		m.printSystemMessage("App controller unavailable.")
+		return nil
+	}
+
+	prompt, files, err := m.appCtrl.PopLastUserMessage()
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Cannot retry: %v", err))
+		return nil
+	}
+
+	// Rebuild the visible ScrollList from the truncated branch so the failed
+	// turn's user message and any partial assistant/error rendering disappear
+	// before the resubmit prints a fresh user message.
+	m.messages = []MessageItem{}
+	m.renderSessionHistory()
+
+	// Mirror SubmitMsg's badge formatting for the display text.
+	var imageCount, fileOnlyCount int
+	for _, f := range files {
+		if strings.HasPrefix(f.MediaType, "image/") {
+			imageCount++
+		} else {
+			fileOnlyCount++
+		}
+	}
+	displayText := prompt
+	if imageCount > 0 || fileOnlyCount > 0 {
+		var badges []string
+		if imageCount > 0 {
+			badges = append(badges, fmt.Sprintf("%d image(s) pasted", imageCount))
+		}
+		if fileOnlyCount > 0 {
+			badges = append(badges, fmt.Sprintf("%d file(s) attached", fileOnlyCount))
+		}
+		displayText = fmt.Sprintf("%s\n[%s]", prompt, strings.Join(badges, ", "))
+	}
+
+	var qLen int
+	if len(files) > 0 {
+		qLen = m.appCtrl.RunWithFiles(prompt, files)
+	} else {
+		qLen = m.appCtrl.Run(prompt)
+	}
+	if qLen > 0 {
+		m.queuedMessages = append(m.queuedMessages, displayText)
+		m.layoutDirty = true
+	} else {
+		m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+		m.flushStreamAndPendingUserMessages()
+	}
+	if m.state != stateWorking {
+		m.state = stateWorking
+	}
+	return nil
 }
 
 // handleEditCommand opens the supplied path in $EDITOR via tea.ExecProcess,
