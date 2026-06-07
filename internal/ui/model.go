@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -2411,6 +2412,16 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.layoutDirty = true
 		}
 
+	case editFileMsg:
+		// User returned from $EDITOR after `/edit <path>`. The file was
+		// edited directly on disk — no textarea changes. Report the result.
+		if msg.err != nil {
+			m.printSystemMessage(fmt.Sprintf("Editor exited with error: %v", msg.err))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Edited `%s`", msg.path))
+		}
+		m.layoutDirty = true
+
 	case extReloadResultMsg:
 		if msg.err != nil {
 			m.printSystemMessage(fmt.Sprintf("Extension reload failed: %v", msg.err))
@@ -3277,6 +3288,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleExportCommand(args)
 	case "/copy":
 		return m.handleCopyCommand()
+	case "/edit":
+		return m.handleEditCommand(args)
 	case "/share":
 		return m.handleShareCommand()
 	case "/import":
@@ -3702,6 +3715,7 @@ func (m *AppModel) printHelpMessage() {
 		"- `/compact [instructions]`: Summarise older messages to free context space\n" +
 		"- `/clear`: Clear message history\n" +
 		"- `/copy`: Copy the last message to the system clipboard\n" +
+		"- `/edit [path]`: Open a file in `$EDITOR` (fuzzy-find from cwd)\n" +
 		"- `/export [path]`: Export session as JSONL\n" +
 		"- `/import <path.jsonl>`: Import session from JSONL file\n" +
 		"- `/reset-usage`: Reset usage statistics\n" +
@@ -4552,6 +4566,68 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 	return clipboard.CopyToClipboard(text)
 }
 
+// handleEditCommand opens the supplied path in $EDITOR via tea.ExecProcess,
+// pausing the TUI for the duration of the editor session. The path is
+// resolved relative to cwd; ~/ and absolute paths are honoured. Non-existent
+// paths are allowed — most editors will create the file on save.
+//
+// On exit an editFileMsg is emitted with the resolved path (or error) so the
+// Update loop can report the result. The textarea is not touched — use
+// Ctrl+X e if you want to round-trip a prompt through $EDITOR instead.
+func (m *AppModel) handleEditCommand(args string) tea.Cmd {
+	path := strings.TrimSpace(args)
+	if path == "" {
+		m.printSystemMessage("Usage: `/edit <path>` — or type `/edit ` and pick a file from the popup.")
+		return nil
+	}
+
+	// Strip optional surrounding double-quotes (the autocomplete inserts
+	// these when a path contains spaces).
+	if len(path) >= 2 && strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
+		path = path[1 : len(path)-1]
+	}
+
+	// Resolve ~/, relative, and absolute paths against cwd.
+	resolved := path
+	if strings.HasPrefix(resolved, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			resolved = filepath.Join(home, resolved[2:])
+		}
+	}
+	if !filepath.IsAbs(resolved) {
+		cwd, err := os.Getwd()
+		if err == nil {
+			resolved = filepath.Join(cwd, resolved)
+		}
+	}
+	resolved = filepath.Clean(resolved)
+
+	// Reject paths that exist but are directories — $EDITOR semantics vary.
+	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+		m.printSystemMessage(fmt.Sprintf("`%s` is a directory, not a file.", resolved))
+		return nil
+	}
+
+	editorApp := os.Getenv("VISUAL")
+	if editorApp == "" {
+		editorApp = os.Getenv("EDITOR")
+	}
+	if editorApp == "" {
+		m.printSystemMessage("Set `$EDITOR` or `$VISUAL` to use `/edit`")
+		return nil
+	}
+
+	editorCmd, cmdErr := editor.Command(editorApp, resolved)
+	if cmdErr != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to open editor: %v", cmdErr))
+		return nil
+	}
+
+	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+		return editFileMsg{path: resolved, err: err}
+	})
+}
+
 // handleExportCommand exports the current session to a file.
 // Usage: /export          — copies the JSONL file to cwd with a descriptive name.
 //
@@ -4959,6 +5035,14 @@ func ctrlCResetCmd() tea.Cmd {
 // composing a prompt via the Ctrl+X e chord.
 type externalEditorMsg struct {
 	text string
+	err  error
+}
+
+// editFileMsg is sent when the user returns from $EDITOR after invoking the
+// /edit slash command on a specific file. Unlike externalEditorMsg, no text
+// is read back — the user edited the file directly on disk.
+type editFileMsg struct {
+	path string
 	err  error
 }
 

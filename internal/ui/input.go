@@ -55,9 +55,15 @@ type InputComponent struct {
 	// file path, the popup shows file/directory suggestions from the cwd.
 	fileMode        bool                    // true when showing @file completions
 	filePrefix      string                  // current text after @ being matched
-	fileAtStartIdx  int                     // byte offset of @ in the textarea value
+	fileAtStartIdx  int                     // byte offset of @ (or path start in /edit mode) in the textarea value
 	fileSuggestions []FileSuggestion        // backing storage for file entries
 	fileSynthCmds   []commands.SlashCommand // synthetic commands.SlashCommands wrapping file entries
+
+	// fileEditMode is true when fileMode was activated by the /edit slash
+	// command rather than an @ trigger. Selecting a file submits the line
+	// (running $EDITOR on it); selecting a directory drills further like @
+	// does. MCP resources are excluded in this mode.
+	fileEditMode bool
 
 	// cwd is the working directory used for @file path resolution and
 	// autocomplete suggestions. Set by the parent via SetCwd.
@@ -452,10 +458,17 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					s.showPopup = false
 					s.fileMode = false
+					s.fileEditMode = false
 				}
 			} else if len(lines) == 1 && strings.HasPrefix(lines[0], "/") {
 				s.fileMode = false
-				if !strings.Contains(lines[0], " ") {
+				s.fileEditMode = false
+				if cmdLen, pathPrefix, isEdit := ExtractEditPrefix(lines[0]); isEdit {
+					// /edit fuzzy-file picker. Behaves like @ except
+					// MCP resources are excluded and selecting a file
+					// submits the line (running $EDITOR).
+					s.updateEditFilePopup(cmdLen, pathPrefix)
+				} else if !strings.Contains(lines[0], " ") {
 					// Command name completion.
 					s.showPopup = true
 					s.argMode = false
@@ -475,6 +488,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.showPopup = false
 				s.argMode = false
 				s.fileMode = false
+				s.fileEditMode = false
 			}
 		}
 		return s, cmd
@@ -959,6 +973,7 @@ func (s *InputComponent) Clear() bool {
 	s.showPopup = false
 	s.argMode = false
 	s.fileMode = false
+	s.fileEditMode = false
 	s.browsingHistory = false
 	s.savedInput = ""
 	return hadContent
@@ -968,6 +983,11 @@ func (s *InputComponent) Clear() bool {
 // file or MCP resource suggestion. For directories, it keeps the popup open
 // for further drilling. For files and resources, it closes the popup and adds
 // a trailing space.
+//
+// When fileEditMode is active the same path-replacement happens against the
+// /edit (or alias) command prefix instead of an @ trigger. Selecting a file
+// also arms submitNext so the next tick runs $EDITOR on it; selecting a
+// directory keeps the popup open for drill-down.
 func (s *InputComponent) applyFileCompletion(idx int) {
 	if idx >= len(s.fileSuggestions) {
 		return
@@ -986,7 +1006,17 @@ func (s *InputComponent) applyFileCompletion(idx int) {
 	beforeAt := lastLine[:s.fileAtStartIdx]
 
 	var replacement string
-	if suggestion.IsMCPResource {
+	switch {
+	case s.fileEditMode:
+		// /edit path mode — no @ prefix; the path is the bare argument.
+		// MCP resources are excluded upstream, so only file/dir entries reach here.
+		needsQuote := strings.Contains(suggestion.RelPath, " ")
+		if needsQuote {
+			replacement = `"` + suggestion.RelPath + `"`
+		} else {
+			replacement = suggestion.RelPath
+		}
+	case suggestion.IsMCPResource:
 		// MCP resources use @mcp:server:uri format.
 		// Quote if the URI contains spaces.
 		ref := "mcp:" + suggestion.MCPServerName + ":" + suggestion.MCPResourceURI
@@ -996,7 +1026,7 @@ func (s *InputComponent) applyFileCompletion(idx int) {
 			replacement = "@" + ref
 		}
 		replacement += " "
-	} else {
+	default:
 		needsQuote := strings.Contains(suggestion.RelPath, " ")
 		if needsQuote {
 			replacement = `@"` + suggestion.RelPath + `"`
@@ -1022,9 +1052,61 @@ func (s *InputComponent) applyFileCompletion(idx int) {
 	if suggestion.IsDir && !suggestion.IsMCPResource {
 		// Keep popup open — trigger a refresh for the new directory.
 		s.lastValue = "" // force re-evaluation on next update tick
-	} else {
+		return
+	}
+
+	s.showPopup = false
+	s.fileMode = false
+	s.selected = 0
+
+	if s.fileEditMode {
+		// A file was selected via /edit — submit on the next tick so the
+		// popup dismisses cleanly before $EDITOR takes the terminal.
+		s.fileEditMode = false
+		s.submitNext = true
+	}
+}
+
+// updateEditFilePopup queries the file-suggestion engine for the /edit path
+// prefix and populates the popup state. cmdLen is the byte offset of the path
+// argument within the current line (i.e. length of "/edit " or "/ed ").
+// Directories are kept so the user can drill down; MCP resources are skipped.
+func (s *InputComponent) updateEditFilePopup(cmdLen int, pathPrefix string) {
+	var suggestions []FileSuggestion
+	if s.cwd != "" {
+		suggestions = GetFileSuggestions(pathPrefix, s.cwd)
+	}
+	if len(suggestions) == 0 {
 		s.showPopup = false
 		s.fileMode = false
-		s.selected = 0
+		s.fileEditMode = false
+		return
 	}
+
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].Score > suggestions[j].Score
+	})
+	if len(suggestions) > maxFileSuggestions {
+		suggestions = suggestions[:maxFileSuggestions]
+	}
+
+	s.showPopup = true
+	s.fileMode = true
+	s.fileEditMode = true
+	s.argMode = false
+	s.filePrefix = pathPrefix
+	s.fileAtStartIdx = cmdLen
+	s.fileSuggestions = suggestions
+	s.fileSynthCmds = make([]commands.SlashCommand, len(suggestions))
+	s.filtered = make([]FuzzyMatch, len(suggestions))
+	for i, fs := range suggestions {
+		name := fs.RelPath
+		desc := ""
+		if fs.IsDir {
+			desc = "directory"
+		}
+		s.fileSynthCmds[i] = commands.SlashCommand{Name: name, Description: desc}
+		s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
+	}
+	s.selected = 0
 }

@@ -168,6 +168,15 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/cp"},
 	},
 	{
+		Name:        "/edit",
+		Description: "Open a file in $EDITOR (fuzzy-find a path, then edit)",
+		Category:    "System",
+		Aliases:     []string{"/ed"},
+		HasArgs:     true,
+		// Note: no Complete callback — file fuzzy-finding is driven directly
+		// by InputComponent (mirroring the @file popup with directory drill).
+	},
+	{
 		Name:        "/export",
 		Description: "Export session (JSONL by default, or /export path.jsonl)",
 		Category:    "System",

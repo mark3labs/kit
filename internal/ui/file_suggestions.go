@@ -125,6 +125,33 @@ func ExtractAtPrefix(line string, cursorCol int) (hasAt bool, prefix string, sta
 	return true, raw, atIdx
 }
 
+// editTriggerPrefixes lists the command tokens (including trailing space)
+// that activate the /edit fuzzy-file picker. Aliases come first so the
+// longer alias "/edit " is matched before a hypothetical superset.
+var editTriggerPrefixes = []string{"/edit ", "/ed "}
+
+// ExtractEditPrefix detects when the input value is a single-line /edit (or
+// alias) invocation and returns the path-portion the user has typed so far.
+//
+// Returns:
+//   - cmdLen: byte offset where the path argument begins (i.e. length of
+//     the matched command token, including its trailing space)
+//   - pathPrefix: text the user has typed after the command token
+//   - ok: true when the value matches one of the /edit triggers
+//
+// Multi-line values never match — /edit only makes sense as a single line.
+func ExtractEditPrefix(value string) (cmdLen int, pathPrefix string, ok bool) {
+	if strings.Contains(value, "\n") {
+		return 0, "", false
+	}
+	for _, p := range editTriggerPrefixes {
+		if strings.HasPrefix(value, p) {
+			return len(p), value[len(p):], true
+		}
+	}
+	return 0, "", false
+}
+
 // GetFileSuggestions returns file/directory suggestions matching the given
 // prefix. It tries `git ls-files` first (fast, respects .gitignore), then
 // falls back to a simple directory walk.
