@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// CredentialStore holds all stored credentials for various providers.
+// CredentialStore holds stored credentials for Anthropic, OpenAI, and GitHub Copilot.
 type CredentialStore struct {
 	Anthropic *AnthropicCredentials `json:"anthropic,omitempty"`
 	OpenAI    *OpenAICredentials    `json:"openai,omitempty"`

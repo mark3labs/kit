@@ -81,6 +81,24 @@ func HasCopilotCredentials() bool {
 	return has
 }
 
+// GetCopilotCredentials retrieves stored GitHub Copilot credentials.
+func GetCopilotCredentials() (*CopilotCredentials, error) {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return nil, err
+	}
+	return cm.GetCopilotCredentials()
+}
+
+// GetValidCopilotAccessToken returns a fresh GitHub Copilot access token.
+func GetValidCopilotAccessToken() (string, error) {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return "", err
+	}
+	return cm.GetValidCopilotAccessToken()
+}
+
 // GetOpenAIAPIKey resolves the OpenAI API key using the standard
 // resolution order: stored credentials -> OPENAI_API_KEY env var.
 // Returns an empty string if no key is found.

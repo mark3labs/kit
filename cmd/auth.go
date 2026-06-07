@@ -571,7 +571,10 @@ func loginCopilot(ctx context.Context) error {
 			Negative("No").
 			Value(&reauth).
 			Run()
-		if err != nil || !reauth {
+		if err != nil {
+			return fmt.Errorf("failed to prompt for re-authentication: %w", err)
+		}
+		if !reauth {
 			fmt.Println("Authentication cancelled.")
 			return nil
 		}
@@ -581,6 +584,7 @@ func loginCopilot(ctx context.Context) error {
 
 	fmt.Println("🔐 Starting GitHub Copilot authentication...")
 	fmt.Println("This uses GitHub device login and requires an active GitHub Copilot subscription.")
+	fmt.Println("Experimental: this uses VS Code Copilot Chat client identifiers.")
 	fmt.Println()
 
 	deviceCode, err := client.StartDeviceFlow(ctx)
@@ -780,6 +784,7 @@ func logoutCopilot() error {
 
 	fmt.Println("✓ Successfully logged out from GitHub Copilot!")
 	fmt.Println("You will need to authenticate again with 'kit auth login copilot'.")
+	fmt.Println("Tip: this removes local credentials only. Revoke the GitHub OAuth grant at https://github.com/settings/applications")
 
 	return nil
 }
