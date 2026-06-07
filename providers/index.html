@@ -7,7 +7,7 @@
 <meta name="description" content="Supported LLM providers and model configuration.">
 <link rel="canonical" href="/providers">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DbtwSydt.js"></script>
+<script type="module" src="/assets/index-BbQ_p9l4.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Providers","description":"Supported LLM providers and model configuration.","url":"https://go-kit.dev/providers","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -142,6 +142,15 @@ For self-hosted or proxy endpoints:
 ```bash
 kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
 ```
+
+When `--provider-url` is set with an explicit `--model`, Kit routes through the
+`custom` (OpenAI-compatible) wire and strips any provider prefix from the model
+name. So `openai/gpt-4o`, `google/gemma-4-12b`, and bare `gpt-4o` all resolve
+to the same endpoint — Kit treats `--provider-url` as authoritative about *where*
+to send the request, and the model string as just the upstream model id.
+
+This avoids name collisions when a local server (LM Studio, Ollama, vLLM, ...)
+happens to expose a model whose name matches a known cloud provider.
 
 When `--provider-url` is provided without `--model`, Kit automatically defaults to `custom/custom`:
 

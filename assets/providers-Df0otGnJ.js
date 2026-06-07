@@ -1,4 +1,4 @@
-const s={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
+const a={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
 <p>Kit supports a wide range of LLM providers through a unified <code>provider/model</code> string format.</p>
 <h2 id="supported-providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#supported-providers"><span class="icon icon-link"></span></a>Supported providers</h2>
 <table>
@@ -126,6 +126,13 @@ const s={frontmatter:{title:"Providers",description:"Supported LLM providers and
 <h3 id="custom-provider-url"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-provider-url"><span class="icon icon-link"></span></a>Custom provider URL</h3>
 <p>For self-hosted or proxy endpoints:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "https://my-proxy.example.com/v1"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span></code></pre>
+<p>When <code>--provider-url</code> is set with an explicit <code>--model</code>, Kit routes through the
+<code>custom</code> (OpenAI-compatible) wire and strips any provider prefix from the model
+name. So <code>openai/gpt-4o</code>, <code>google/gemma-4-12b</code>, and bare <code>gpt-4o</code> all resolve
+to the same endpoint — Kit treats <code>--provider-url</code> as authoritative about <em>where</em>
+to send the request, and the model string as just the upstream model id.</p>
+<p>This avoids name collisions when a local server (LM Studio, Ollama, vLLM, ...)
+happens to expose a model whose name matches a known cloud provider.</p>
 <p>When <code>--provider-url</code> is provided without <code>--model</code>, Kit automatically defaults to <code>custom/custom</code>:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "http://localhost:8080/v1"</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
 <p>The <code>custom/custom</code> model has zero cost, 262K context window, and supports reasoning. It routes through the <code>openaicompat</code> provider and accepts any OpenAI-compatible API endpoint.</p>
@@ -316,6 +323,15 @@ For self-hosted or proxy endpoints:
 kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
 \`\`\`
 
+When \`--provider-url\` is set with an explicit \`--model\`, Kit routes through the
+\`custom\` (OpenAI-compatible) wire and strips any provider prefix from the model
+name. So \`openai/gpt-4o\`, \`google/gemma-4-12b\`, and bare \`gpt-4o\` all resolve
+to the same endpoint — Kit treats \`--provider-url\` as authoritative about *where*
+to send the request, and the model string as just the upstream model id.
+
+This avoids name collisions when a local server (LM Studio, Ollama, vLLM, ...)
+happens to expose a model whose name matches a known cloud provider.
+
 When \`--provider-url\` is provided without \`--model\`, Kit automatically defaults to \`custom/custom\`:
 
 \`\`\`bash
@@ -370,4 +386,4 @@ kit models --all             # Show all providers
 kit update-models            # Update from models.dev
 kit update-models embedded   # Reset to bundled database
 \`\`\`
-`};export{s as default};
+`};export{a as default};
