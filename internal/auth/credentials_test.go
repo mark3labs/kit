@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestCredentialManager(t *testing.T) {
@@ -215,6 +216,7 @@ func TestCredentialStorePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	credentialsPath := filepath.Join(tempDir, "credentials.json")
@@ -250,5 +252,100 @@ func TestCredentialStorePersistence(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0600 {
 		t.Errorf("Expected file permissions 0600, got %v", info.Mode().Perm())
+	}
+}
+
+func TestCopilotCredentials(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kit-auth-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	cm := &CredentialManager{
+		credentialsPath: filepath.Join(tempDir, "credentials.json"),
+	}
+
+	creds := &CopilotCredentials{
+		Type:               "oauth",
+		GitHubToken:        "github-token",
+		CopilotAccessToken: "copilot-token",
+		ExpiresAt:          time.Now().Add(time.Hour).Unix(),
+		CreatedAt:          time.Now(),
+	}
+
+	if err := cm.SetCopilotOAuthCredentials(creds); err != nil {
+		t.Fatalf("SetCopilotOAuthCredentials failed: %v", err)
+	}
+
+	hasAuth, err := cm.HasCopilotCredentials()
+	if err != nil {
+		t.Fatalf("HasCopilotCredentials failed: %v", err)
+	}
+	if !hasAuth {
+		t.Fatal("Expected Copilot credentials")
+	}
+
+	token, err := cm.GetValidCopilotAccessToken()
+	if err != nil {
+		t.Fatalf("GetValidCopilotAccessToken failed: %v", err)
+	}
+	if token != creds.CopilotAccessToken {
+		t.Fatalf("Expected Copilot token %q, got %q", creds.CopilotAccessToken, token)
+	}
+
+	if err := cm.RemoveCopilotCredentials(); err != nil {
+		t.Fatalf("RemoveCopilotCredentials failed: %v", err)
+	}
+	hasAuth, err = cm.HasCopilotCredentials()
+	if err != nil {
+		t.Fatalf("HasCopilotCredentials after removal failed: %v", err)
+	}
+	if hasAuth {
+		t.Fatal("Expected no Copilot credentials after removal")
+	}
+}
+
+func TestRemoveCredentialsPreservesOtherProviders(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "kit-auth-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	cm := &CredentialManager{
+		credentialsPath: filepath.Join(tempDir, "credentials.json"),
+	}
+
+	if err := cm.SetOpenAIOAuthCredentials(&OpenAICredentials{
+		Type:         "oauth",
+		AccessToken:  "openai-token",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+		AccountID:    "account",
+		CreatedAt:    time.Now(),
+	}); err != nil {
+		t.Fatalf("SetOpenAIOAuthCredentials failed: %v", err)
+	}
+	if err := cm.SetCopilotOAuthCredentials(&CopilotCredentials{
+		Type:               "oauth",
+		GitHubToken:        "github-token",
+		CopilotAccessToken: "copilot-token",
+		ExpiresAt:          time.Now().Add(time.Hour).Unix(),
+		CreatedAt:          time.Now(),
+	}); err != nil {
+		t.Fatalf("SetCopilotOAuthCredentials failed: %v", err)
+	}
+
+	if err := cm.RemoveCopilotCredentials(); err != nil {
+		t.Fatalf("RemoveCopilotCredentials failed: %v", err)
+	}
+
+	hasOpenAI, err := cm.HasOpenAICredentials()
+	if err != nil {
+		t.Fatalf("HasOpenAICredentials failed: %v", err)
+	}
+	if !hasOpenAI {
+		t.Fatal("Expected OpenAI credentials to remain after removing Copilot credentials")
 	}
 }

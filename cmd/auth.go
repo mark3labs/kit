@@ -31,10 +31,12 @@ using OAuth flows. Stored credentials take precedence over environment variables
 Available providers:
   - anthropic: Anthropic Claude API (OAuth)
   - openai:    OpenAI API (OAuth and API key)
+  - copilot:   GitHub Copilot (GitHub device login)
 
 Examples:
   kit auth login anthropic
   kit auth login openai
+  kit auth login copilot
   kit auth logout anthropic
   kit auth status`,
 }
@@ -54,6 +56,7 @@ environment variables when making API calls.
 Available providers:
   - anthropic: Anthropic Claude API (OAuth)
   - openai:    OpenAI ChatGPT Plus/Pro (Codex OAuth)
+  - copilot:   GitHub Copilot (GitHub device login, experimental)
 
 Flags:
   --set-default   Set this provider's default model as the system default
@@ -61,7 +64,8 @@ Flags:
 Examples:
   kit auth login anthropic
   kit auth login openai
-  kit auth login openai --set-default`,
+  kit auth login copilot
+  kit auth login copilot --set-default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogin,
 }
@@ -80,10 +84,12 @@ You will need to use environment variables or command-line flags for authenticat
 Available providers:
   - anthropic: Anthropic Claude API
   - openai:    OpenAI API
+  - copilot:   GitHub Copilot
 
 Example:
   kit auth logout anthropic
-  kit auth logout openai`,
+  kit auth logout openai
+  kit auth logout copilot`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogout,
 }
@@ -113,6 +119,7 @@ var (
 var defaultModels = map[string]string{
 	"anthropic": "anthropic/claude-sonnet-4-5-20250929",
 	"openai":    "openai/gpt-5.4",
+	"copilot":   "copilot/gpt-5.5",
 }
 
 // setDefaultModelIfRequested sets the default model for the given provider
@@ -143,6 +150,7 @@ func init() {
 	authLoginCmd.Flags().BoolVar(&loginSetDefault, "set-default", false, "Set this provider's default model as the system default after login")
 }
 
+// runAuthLogin dispatches OAuth login to the selected provider.
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	provider := strings.ToLower(args[0])
 
@@ -151,8 +159,10 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 		return loginAnthropic()
 	case "openai":
 		return loginOpenAI()
+	case "copilot":
+		return loginCopilot(cmd.Context())
 	default:
-		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai", provider)
+		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai, copilot", provider)
 	}
 }
 
@@ -164,8 +174,10 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		return logoutAnthropic()
 	case "openai":
 		return logoutOpenAI()
+	case "copilot":
+		return logoutCopilot()
 	default:
-		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai", provider)
+		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai, copilot", provider)
 	}
 }
 
@@ -244,9 +256,31 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check GitHub Copilot credentials
+	fmt.Print("\nGitHub Copilot: ")
+	if hasCopilotCreds, err := cm.HasCopilotCredentials(); err != nil {
+		fmt.Printf("Error checking credentials: %v\n", err)
+	} else if hasCopilotCreds {
+		if creds, err := cm.GetCopilotCredentials(); err != nil {
+			fmt.Printf("Error reading credentials: %v\n", err)
+		} else {
+			status := "✓ Authenticated"
+			if creds.IsExpired() {
+				status = "⚠️  Token expired (will refresh automatically)"
+			} else if creds.NeedsRefresh() {
+				status = "⚠️  Token expires soon (will refresh automatically)"
+			}
+
+			fmt.Printf("%s (GitHub OAuth, stored %s)\n", status, creds.CreatedAt.Format("2006-01-02 15:04:05"))
+		}
+	} else {
+		fmt.Println("✗ Not authenticated")
+	}
+
 	fmt.Println("\nTo authenticate with a provider:")
 	fmt.Println("  kit auth login anthropic")
 	fmt.Println("  kit auth login openai")
+	fmt.Println("  kit auth login copilot")
 
 	return nil
 }
@@ -517,6 +551,85 @@ func loginOpenAI() error {
 	return nil
 }
 
+// loginCopilot authenticates GitHub Copilot using GitHub device flow.
+func loginCopilot(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	cm, err := kit.NewCredentialManager()
+	if err != nil {
+		return fmt.Errorf("failed to initialize credential manager: %w", err)
+	}
+
+	if hasAuth, err := cm.HasCopilotCredentials(); err == nil && hasAuth {
+		var reauth bool
+		err := huh.NewConfirm().
+			Title("You are already authenticated with GitHub Copilot").
+			Description("Do you want to re-authenticate?").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&reauth).
+			Run()
+		if err != nil {
+			return fmt.Errorf("failed to prompt for re-authentication: %w", err)
+		}
+		if !reauth {
+			fmt.Println("Authentication cancelled.")
+			return nil
+		}
+	}
+
+	client := auth.NewCopilotOAuthClient()
+
+	fmt.Println("🔐 Starting GitHub Copilot authentication...")
+	fmt.Println("This uses GitHub device login and requires an active GitHub Copilot subscription.")
+	fmt.Println("Experimental: this uses VS Code Copilot Chat client identifiers.")
+	fmt.Println()
+
+	deviceCode, err := client.StartDeviceFlow(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start GitHub device login: %w", err)
+	}
+
+	fmt.Println("📱 Open this page and enter the code:")
+	fmt.Printf("\n%s\n\n", deviceCode.VerificationURI)
+	fmt.Printf("Code: %s\n\n", deviceCode.UserCode)
+	auth.TryOpenBrowser(deviceCode.VerificationURI)
+
+	fmt.Println("Waiting for GitHub authorization...")
+	githubToken, err := client.PollDeviceToken(ctx, deviceCode)
+	if err != nil {
+		return fmt.Errorf("failed to complete GitHub device login: %w", err)
+	}
+
+	fmt.Println("\n🔄 Exchanging GitHub token for Copilot access token...")
+	creds, err := client.ExchangeGitHubToken(ctx, githubToken)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub Copilot token: %w", err)
+	}
+
+	if err := cm.SetCopilotOAuthCredentials(creds); err != nil {
+		return fmt.Errorf("failed to store credentials: %w", err)
+	}
+
+	fmt.Println("✅ Successfully authenticated with GitHub Copilot!")
+	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
+	fmt.Println("\n🎉 Your GitHub Copilot credentials will now be used for copilot/* models.")
+	fmt.Println("💡 You can check your authentication status with: kit auth status")
+
+	if err := setDefaultModelIfRequested("copilot"); err != nil {
+		return err
+	}
+
+	if !loginSetDefault {
+		fmt.Println("\n💡 To set Copilot as your default model, run:")
+		fmt.Println("   kit auth login copilot --set-default")
+	}
+
+	return nil
+}
+
 // callbackServer holds the HTTP server and channel for receiving the OAuth callback
 type callbackServer struct {
 	Server   *http.Server
@@ -632,6 +745,46 @@ func logoutOpenAI() error {
 
 	fmt.Println("✓ Successfully logged out from OpenAI!")
 	fmt.Println("You will need to use environment variables or command-line flags for authentication.")
+
+	return nil
+}
+
+func logoutCopilot() error {
+	cm, err := kit.NewCredentialManager()
+	if err != nil {
+		return fmt.Errorf("failed to initialize credential manager: %w", err)
+	}
+
+	hasAuth, err := cm.HasCopilotCredentials()
+	if err != nil {
+		return fmt.Errorf("failed to check authentication status: %w", err)
+	}
+
+	if !hasAuth {
+		fmt.Println("You are not currently authenticated with GitHub Copilot.")
+		return nil
+	}
+
+	var confirm bool
+	err = huh.NewConfirm().
+		Title("Remove GitHub Copilot credentials").
+		Description("Are you sure you want to remove your stored credentials?").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&confirm).
+		Run()
+	if err != nil || !confirm {
+		fmt.Println("Logout cancelled.")
+		return nil
+	}
+
+	if err := cm.RemoveCopilotCredentials(); err != nil {
+		return fmt.Errorf("failed to remove credentials: %w", err)
+	}
+
+	fmt.Println("✓ Successfully logged out from GitHub Copilot!")
+	fmt.Println("You will need to authenticate again with 'kit auth login copilot'.")
+	fmt.Println("Tip: this removes local credentials only. Revoke the GitHub OAuth grant at https://github.com/settings/applications")
 
 	return nil
 }

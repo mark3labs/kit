@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/fantasy"
@@ -33,6 +34,24 @@ import (
 const (
 	// ClaudeCodePrompt is the required system prompt for OAuth authentication.
 	ClaudeCodePrompt = "You are Claude Code, Anthropic's official CLI for Claude."
+
+	// copilotProviderID is the canonical models.dev provider key. The CLI also
+	// accepts the shorter "copilot" alias for user-facing model strings.
+	copilotProviderID = "github-copilot"
+	// copilotAliasProviderID is the short provider prefix accepted by kit.
+	copilotAliasProviderID = "copilot"
+	// copilotBaseURL is the fallback API URL if the model catalog has no API URL.
+	copilotBaseURL = "https://api.githubcopilot.com"
+
+	// GitHub Copilot currently expects VS Code Copilot Chat client identifiers.
+	// Keep these centralized so they are easy to audit and update when GitHub
+	// changes accepted client metadata.
+	copilotIntegrationID       = "vscode-chat"
+	copilotEditorVersion       = "vscode/1.104.1"
+	copilotEditorPluginVersion = "copilot-chat/0.31.0"
+	copilotUserAgent           = "GitHubCopilotChat/0.31.0"
+	copilotOpenAIIntent        = "conversation-agent"
+	copilotGitHubAPIVersion    = "2026-01-09"
 )
 
 // resolveModelAlias resolves model aliases to their full names using the registry
@@ -215,6 +234,20 @@ func ParseModelString(modelString string) (provider, model string, err error) {
 	return "", "", fmt.Errorf("invalid model format %q: expected provider/model (e.g. anthropic/claude-sonnet-4-5)", modelString)
 }
 
+// isCopilotProvider reports whether provider is the canonical catalog key or
+// the user-facing shorthand alias.
+func isCopilotProvider(provider string) bool {
+	return provider == copilotAliasProviderID || provider == copilotProviderID
+}
+
+// catalogProviderID maps supported provider aliases to their models.dev keys.
+func catalogProviderID(provider string) string {
+	if isCopilotProvider(provider) {
+		return copilotProviderID
+	}
+	return provider
+}
+
 // CreateProvider creates a fantasy LanguageModel based on the provider configuration.
 // Model metadata is looked up from the models.dev database for cost tracking and
 // capability detection, but unknown models are passed through to the provider
@@ -238,17 +271,30 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	}
 
 	registry := GetGlobalRegistry()
+	lookupProvider := catalogProviderID(provider)
 
-	// Look up model metadata (advisory, not blocking).
+	// Look up model metadata (advisory for most providers, strict for Copilot).
 	// When the model is known we validate config limits and print
 	// suggestions on likely typos; when unknown we let the provider
-	// API be the authority.
-	modelInfo := registry.LookupModel(provider, modelName)
-	if modelInfo == nil && provider != "ollama" && config.ProviderURL == "" {
+	// API be the authority except for Copilot, whose non-GPT catalog entries
+	// require unsupported wire protocols.
+	modelInfo := registry.LookupModel(lookupProvider, modelName)
+	if isCopilotProvider(provider) {
+		providerInfo := registry.GetProviderInfo(copilotProviderID)
+		if providerInfo == nil {
+			return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", copilotProviderID)
+		}
+		if modelInfo == nil {
+			if suggestions := registry.SuggestModels(copilotProviderID, modelName); len(suggestions) > 0 {
+				return nil, fmt.Errorf("model %q not found for provider %s. Did you mean one of: %s", modelName, copilotProviderID, strings.Join(suggestions, ", "))
+			}
+			return nil, fmt.Errorf("model %q not found for provider %s", modelName, copilotProviderID)
+		}
+	} else if modelInfo == nil && provider != "ollama" && config.ProviderURL == "" {
 		// Model not in database — warn with suggestions but don't block.
-		if suggestions := registry.SuggestModels(provider, modelName); len(suggestions) > 0 {
+		if suggestions := registry.SuggestModels(lookupProvider, modelName); len(suggestions) > 0 {
 			fmt.Fprintf(os.Stderr, "Warning: model %q not found in model database for provider %s. Similar models: %s\n",
-				modelName, provider, strings.Join(suggestions, ", "))
+				modelName, lookupProvider, strings.Join(suggestions, ", "))
 		}
 	}
 
@@ -282,6 +328,8 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		result, createErr = createAnthropicProvider(ctx, config, modelName)
 	case "openai":
 		result, createErr = createOpenAIProvider(ctx, config, modelName)
+	case "copilot", "github-copilot":
+		result, createErr = createCopilotProvider(ctx, config, modelName)
 	case "google", "gemini":
 		result, createErr = createGoogleProvider(ctx, config, modelName)
 	case "ollama":
@@ -1023,6 +1071,72 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
 }
 
+// createCopilotProvider builds a GitHub Copilot provider through fantasy's
+// OpenAI-compatible provider. The catalog key is github-copilot, but the public
+// model prefix may be either copilot/ or github-copilot/.
+//
+// Only gpt-* Copilot models are enabled here. The catalog also lists Claude and
+// Gemini Copilot models, but those require different wire protocols and must be
+// routed explicitly before they can be safely accepted.
+func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
+	if !strings.HasPrefix(modelName, "gpt-") {
+		return nil, fmt.Errorf("GitHub Copilot model %q is not supported yet: only gpt-* models use the OpenAI-compatible protocol", modelName)
+	}
+
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize credential manager: %w", err)
+	}
+
+	token, err := cm.GetValidCopilotAccessTokenContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub Copilot credentials not available. Use 'kit auth login copilot': %w", err)
+	}
+
+	expiresAt := int64(0)
+	if creds, err := cm.GetCopilotCredentials(); err == nil && creds != nil && creds.CopilotAccessToken == token {
+		expiresAt = creds.ExpiresAt
+	}
+
+	baseURL := copilotBaseURL
+	if providerInfo := GetGlobalRegistry().GetProviderInfo(copilotProviderID); providerInfo != nil && providerInfo.API != "" {
+		baseURL = providerInfo.API
+	}
+	if config.ProviderURL != "" {
+		baseURL = config.ProviderURL
+	}
+
+	opts := []openai.Option{
+		openai.WithName(copilotAliasProviderID),
+		openai.WithBaseURL(baseURL),
+		openai.WithAPIKey(token),
+		openai.WithHTTPClient(createCopilotHTTPClient(token, expiresAt, config.TLSSkipVerify)),
+		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(copilotUsesResponsesAPI),
+		openai.WithObjectMode(fantasy.ObjectModeTool),
+	}
+
+	provider, err := openai.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub Copilot provider: %w", err)
+	}
+
+	model, err := provider.LanguageModel(ctx, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub Copilot model: %w", err)
+	}
+
+	providerOpts := buildOpenAIProviderOptions(config, modelName)
+
+	return &ProviderResult{Model: model, ProviderOptions: providerOpts}, nil
+}
+
+// copilotUsesResponsesAPI selects the OpenAI Responses API for Copilot models
+// known to support it. Non-gpt models are rejected before provider creation.
+func copilotUsesResponsesAPI(modelID string) bool {
+	return strings.HasPrefix(modelID, "gpt-5")
+}
+
 // createOpenAICodexProvider creates a provider for ChatGPT/Codex OAuth tokens.
 // Uses the chatgpt.com/backend-api/codex endpoint with special headers.
 func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, modelName, token, accountID string) (*ProviderResult, error) {
@@ -1150,6 +1264,87 @@ func (t *codexTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	newReq.Header.Set("Pragma", "no-cache")
 
 	return t.base.RoundTrip(newReq)
+}
+
+// createCopilotHTTPClient returns an HTTP client that injects Copilot-specific
+// authorization and client metadata headers. The token and expiry are cached in
+// the transport so streaming requests do not hit credentials.json on every
+// RoundTrip; the credential manager is consulted only near expiry.
+func createCopilotHTTPClient(token string, expiresAt int64, skipVerify bool) *http.Client {
+	var base http.RoundTripper
+	if skipVerify {
+		base = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	} else {
+		base = http.DefaultTransport
+	}
+
+	return &http.Client{
+		Transport: &copilotTransport{
+			base:      base,
+			token:     token,
+			expiresAt: expiresAt,
+		},
+		Timeout: 120 * time.Second,
+	}
+}
+
+// copilotTransport decorates requests for api.githubcopilot.com.
+//
+// It owns a cached Copilot access token. When the token is still valid, the hot
+// path is in-memory only. Near expiry it refreshes through CredentialManager,
+// which updates both the cache here and credentials.json.
+type copilotTransport struct {
+	base      http.RoundTripper
+	token     string
+	expiresAt int64
+	mu        sync.Mutex
+}
+
+func (t *copilotTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	token := t.cachedToken(req.Context())
+
+	newReq := req.Clone(req.Context())
+	newReq.Header.Set("Authorization", "Bearer "+token)
+	newReq.Header.Set("Copilot-Integration-Id", copilotIntegrationID)
+	newReq.Header.Set("Editor-Version", copilotEditorVersion)
+	newReq.Header.Set("Editor-Plugin-Version", copilotEditorPluginVersion)
+	newReq.Header.Set("Openai-Intent", copilotOpenAIIntent)
+	newReq.Header.Set("User-Agent", copilotUserAgent)
+	newReq.Header.Set("X-GitHub-Api-Version", copilotGitHubAPIVersion)
+
+	return t.base.RoundTrip(newReq)
+}
+
+// cachedToken returns the cached token unless it is within the five-minute
+// refresh window. Refresh errors fall back to the last token so the request can
+// surface any authoritative auth failure from the Copilot API.
+func (t *copilotTransport) cachedToken(ctx context.Context) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.expiresAt == 0 || time.Now().Unix() < t.expiresAt-300 {
+		return t.token
+	}
+
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return t.token
+	}
+
+	fresh, err := cm.GetValidCopilotAccessTokenContext(ctx)
+	if err != nil || fresh == "" {
+		return t.token
+	}
+
+	t.token = fresh
+	if creds, err := cm.GetCopilotCredentials(); err == nil && creds != nil && creds.CopilotAccessToken == fresh {
+		t.expiresAt = creds.ExpiresAt
+	}
+	return t.token
 }
 
 func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
