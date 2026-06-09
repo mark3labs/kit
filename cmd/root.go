@@ -74,6 +74,11 @@ var (
 	noCoreToolsFlag  bool
 	extensionPaths   []string
 
+	// Skills control
+	noSkillsFlag bool
+	skillsPaths  []string
+	skillsDir    string
+
 	// TLS configuration
 	tlsSkipVerify bool
 
@@ -283,6 +288,14 @@ func init() {
 		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)")
 	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
+
+	// Skills flags
+	rootCmd.PersistentFlags().
+		BoolVar(&noSkillsFlag, "no-skills", false, "disable skill loading (auto-discovery and explicit)")
+	rootCmd.PersistentFlags().
+		StringSliceVar(&skillsPaths, "skill", nil, "load skill file or directory (repeatable)")
+	rootCmd.PersistentFlags().
+		StringVar(&skillsDir, "skills-dir", "", "override the project-local skills directory for auto-discovery")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -799,6 +812,9 @@ func runNormalMode(ctx context.Context) error {
 		AutoCompact:      autoCompactFlag,
 		MCPAuthHandler:   authHandler,
 		DisableCoreTools: viper.GetBool("no-core-tools"),
+		NoSkills:         noSkillsFlag,
+		Skills:           skillsPaths,
+		SkillsDir:        skillsDir,
 		// This callback is called when each MCP server finishes loading.
 		// We use a closure that captures appInstancePtr which is set after
 		// app.New() is called below.
