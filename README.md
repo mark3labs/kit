@@ -203,6 +203,11 @@ mcpServers:
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
 
+# Skills
+--skill                  Load skill file or directory (repeatable)
+--skills-dir             Override the project-local skills directory for auto-discovery
+--no-skills              Disable skill loading (auto-discovery and explicit)
+
 # Generation parameters
 --max-tokens             Maximum tokens in response (default: 8192, auto-raised up to 32768 for models with larger known output limits)
 --temperature            Randomness 0.0-1.0 (default: 0.7)
