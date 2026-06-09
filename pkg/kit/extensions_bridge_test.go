@@ -108,6 +108,16 @@ func TestLLMUsageMeta_NilKit(t *testing.T) {
 	}
 }
 
+// TestIsAnthropicOAuth_NonAnthropic verifies the helper short-circuits for any
+// provider other than "anthropic" without touching the credential store.
+func TestIsAnthropicOAuth_NonAnthropic(t *testing.T) {
+	for _, provider := range []string{"openai", "google", "openrouter", ""} {
+		if isAnthropicOAuth(nil, provider) {
+			t.Errorf("isAnthropicOAuth(nil, %q) = true, want false", provider)
+		}
+	}
+}
+
 func TestExtStateSidecarPath(t *testing.T) {
 	tests := []struct {
 		name string

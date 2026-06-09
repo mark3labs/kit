@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 )
@@ -24,6 +25,15 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 	// Per-turn aggregator: collects tool/LLM/usage signals between AgentStart
 	// and AgentEnd so the enriched AgentEndEvent can be populated without
 	// requiring extensions to maintain parallel bookkeeping.
+	//
+	// NOTE: this aggregator assumes a single in-flight turn per *Kit instance,
+	// which is the current contract — runTurn does not serialize callers and
+	// the SDK's TurnStartEvent/TurnEndEvent do not carry a turn ID, so two
+	// concurrent Prompt() calls on the same *Kit would clobber the counters.
+	// All current callers (TUI app layer, CLI runner, SDK examples) serialize
+	// turns above this layer. If concurrent turns become a supported use case,
+	// extend TurnStartEvent/TurnEndEvent with a turn ID and key this map per
+	// turn instead.
 	turnAgg := &turnAggregator{kit: m}
 	m.Subscribe(func(e Event) {
 		switch ev := e.(type) {
@@ -530,8 +540,12 @@ func (a *turnAggregator) consume() turnSnapshot {
 
 // llmUsageMeta returns the current provider, model id, and computed cost for
 // the given usage values using the Kit instance's active model. Cost is zero
-// when the model is not in the registry (e.g. custom fine-tunes, unknown
-// providers) or pricing fields are unset.
+// in any of the following cases:
+//   - the *Kit pointer is nil or has no active model;
+//   - the model is not in the registry (custom fine-tunes, unknown providers);
+//   - the model has no pricing fields set;
+//   - the active credential is an Anthropic OAuth token (matches the
+//     existing usage_tracker behavior of suppressing cost for OAuth users).
 func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float64) {
 	if m == nil {
 		return "", "", 0
@@ -549,6 +563,9 @@ func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float6
 	if info == nil {
 		return provider, modelID, 0
 	}
+	if isAnthropicOAuth(m, provider) {
+		return provider, modelID, 0
+	}
 	cost = float64(usage.InputTokens) * info.Cost.Input / 1_000_000
 	cost += float64(usage.OutputTokens) * info.Cost.Output / 1_000_000
 	if info.Cost.CacheRead != nil {
@@ -558,6 +575,21 @@ func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float6
 		cost += float64(usage.CacheCreationTokens) * (*info.Cost.CacheWrite) / 1_000_000
 	}
 	return provider, modelID, cost
+}
+
+// isAnthropicOAuth reports whether the current Anthropic credential resolves
+// to a stored OAuth token (in which case the user is not billed per-token).
+// Mirrors the OAuth detection in cmd/extension_context.go's usage tracker
+// update path so OnLLMUsage cost reporting agrees with ctx.GetSessionUsage().
+func isAnthropicOAuth(m *Kit, provider string) bool {
+	if m == nil || provider != "anthropic" {
+		return false
+	}
+	_, source, err := auth.GetAnthropicAPIKey(m.v.GetString("provider-api-key"))
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(source, "stored OAuth")
 }
 
 // llmToContextMessages converts a slice of LLM messages to extension

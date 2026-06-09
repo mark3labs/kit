@@ -104,6 +104,7 @@ type Runner struct {
 	configStore     *viper.Viper              // per-instance config store (nil = global)
 	state           map[string]string         // session-scoped extension state (last-write-wins)
 	stateMu         sync.RWMutex              // guards state independently of mu
+	saverMu         sync.Mutex                // serializes stateSaver invocations so atomic-rename writes don't interleave
 	stateSaver      func()                    // optional persistence hook invoked after each state mutation
 	mu              sync.RWMutex
 }
@@ -770,6 +771,11 @@ func (r *Runner) GetMessageRenderer(name string) *MessageRendererConfig {
 // SetState records a key-value pair in the runner's session-scoped extension
 // state store. The store is in-memory; callers wire SetStateSaver to persist
 // changes to a sidecar file. Thread-safe.
+//
+// When a saver is installed, concurrent SetState/DeleteState invocations are
+// serialized through saverMu so that overlapping snapshot-and-rename writes
+// cannot interleave (which would otherwise race on the shared tmp file and
+// risk persisting an older snapshot after a newer one).
 func (r *Runner) SetState(key, value string) {
 	r.stateMu.Lock()
 	if r.state == nil {
@@ -779,7 +785,9 @@ func (r *Runner) SetState(key, value string) {
 	saver := r.stateSaver
 	r.stateMu.Unlock()
 	if saver != nil {
+		r.saverMu.Lock()
 		saver()
+		r.saverMu.Unlock()
 	}
 }
 
@@ -793,7 +801,8 @@ func (r *Runner) GetState(key string) (string, bool) {
 }
 
 // DeleteState removes a key from the state store. No-op if the key is
-// missing. Thread-safe.
+// missing. Thread-safe. Saver invocations are serialized via saverMu — see
+// SetState for the rationale.
 func (r *Runner) DeleteState(key string) {
 	r.stateMu.Lock()
 	_, existed := r.state[key]
@@ -803,7 +812,9 @@ func (r *Runner) DeleteState(key string) {
 	saver := r.stateSaver
 	r.stateMu.Unlock()
 	if existed && saver != nil {
+		r.saverMu.Lock()
 		saver()
+		r.saverMu.Unlock()
 	}
 }
 
@@ -847,17 +858,25 @@ func (r *Runner) SnapshotState() map[string]string {
 
 // LoadStateFromFile reads a JSON map from path and replaces the in-memory
 // state store with its contents. Missing or empty files are treated as
-// "no prior state" (not an error). Malformed JSON returns the parse error
-// without touching the existing store. Thread-safe.
+// "no prior state": the in-memory store is replaced with an empty map so
+// callers can safely switch sessions without leaking keys from a prior
+// session into a new one. Malformed JSON returns the parse error without
+// touching the existing store. Thread-safe.
 func (r *Runner) LoadStateFromFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			r.stateMu.Lock()
+			r.state = map[string]string{}
+			r.stateMu.Unlock()
 			return nil
 		}
 		return fmt.Errorf("reading extension state: %w", err)
 	}
 	if len(data) == 0 {
+		r.stateMu.Lock()
+		r.state = map[string]string{}
+		r.stateMu.Unlock()
 		return nil
 	}
 	var loaded map[string]string

@@ -101,15 +101,37 @@ func TestRunner_State_SaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRunner_State_LoadMissingFileIsNoop(t *testing.T) {
+func TestRunner_State_LoadMissingFileClearsState(t *testing.T) {
+	// LoadStateFromFile is documented to "replace the in-memory state store
+	// with its contents"; for a missing file that means clearing the store.
+	// This is what makes session-switching safe: a new session that has not
+	// yet written a sidecar must not inherit keys from a prior session.
 	r := NewRunner(nil)
 	r.SetState("a", "1")
 	if err := r.LoadStateFromFile(filepath.Join(t.TempDir(), "does-not-exist.json")); err != nil {
 		t.Errorf("expected nil error for missing file, got %v", err)
 	}
-	// Existing in-memory state is left alone when file doesn't exist.
-	if v, ok := r.GetState("a"); !ok || v != "1" {
-		t.Errorf("expected pre-existing state preserved, got (%q,%v)", v, ok)
+	if _, ok := r.GetState("a"); ok {
+		t.Error("expected pre-existing state to be cleared when target file is missing")
+	}
+	if keys := r.ListState(); keys != nil {
+		t.Errorf("expected ListState() to be nil after clearing, got %v", keys)
+	}
+}
+
+func TestRunner_State_LoadEmptyFileClearsState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(nil)
+	r.SetState("a", "1")
+	if err := r.LoadStateFromFile(path); err != nil {
+		t.Errorf("expected nil error for empty file, got %v", err)
+	}
+	if _, ok := r.GetState("a"); ok {
+		t.Error("expected pre-existing state to be cleared when target file is empty")
 	}
 }
 
