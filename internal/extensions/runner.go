@@ -784,11 +784,7 @@ func (r *Runner) SetState(key, value string) {
 	r.state[key] = value
 	saver := r.stateSaver
 	r.stateMu.Unlock()
-	if saver != nil {
-		r.saverMu.Lock()
-		saver()
-		r.saverMu.Unlock()
-	}
+	r.runSaver(saver)
 }
 
 // GetState returns the value previously stored via SetState, plus a bool
@@ -811,11 +807,23 @@ func (r *Runner) DeleteState(key string) {
 	}
 	saver := r.stateSaver
 	r.stateMu.Unlock()
-	if existed && saver != nil {
-		r.saverMu.Lock()
-		saver()
-		r.saverMu.Unlock()
+	if !existed {
+		return
 	}
+	r.runSaver(saver)
+}
+
+// runSaver invokes the optional persistence callback under saverMu so
+// concurrent SetState/DeleteState writers cannot race on the shared tmp
+// file used by SaveStateToFile's atomic rename. The deferred Unlock
+// guarantees saverMu is released even if the saver panics.
+func (r *Runner) runSaver(saver func()) {
+	if saver == nil {
+		return
+	}
+	r.saverMu.Lock()
+	defer r.saverMu.Unlock()
+	saver()
 }
 
 // ListState returns all keys currently in the state store, in unspecified

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestRunner_State_BasicSetGetDelete(t *testing.T) {
@@ -217,5 +218,45 @@ func TestRunner_State_ContextNoOpsWhenUnset(t *testing.T) {
 	_, err := r.Emit(SessionStartEvent{})
 	if err != nil {
 		t.Fatalf("emit: %v", err)
+	}
+}
+
+func TestRunner_State_SaverPanicReleasesSaverMu(t *testing.T) {
+	// If the saver callback panics (e.g. disk full mid-write), runSaver
+	// must still release saverMu so subsequent SetState/DeleteState calls
+	// can make progress. Without `defer Unlock()` the lock would be
+	// permanently held and the next write would deadlock.
+	r := NewRunner(nil)
+	var calls int
+	r.SetStateSaver(func() {
+		calls++
+		if calls == 1 {
+			panic("simulated disk-write failure")
+		}
+	})
+
+	// First call panics. Recover, then verify a follow-up call still works
+	// without blocking (proving saverMu was released).
+	func() {
+		defer func() {
+			if rec := recover(); rec == nil {
+				t.Fatal("expected panic from first saver invocation")
+			}
+		}()
+		r.SetState("a", "1")
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		r.SetState("b", "2") // would deadlock if saverMu were still held
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetState after saver panic blocked — saverMu was not released")
+	}
+	if calls != 2 {
+		t.Errorf("expected saver to fire twice (panic + recovery write), got %d", calls)
 	}
 }
