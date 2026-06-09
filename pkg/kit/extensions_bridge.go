@@ -3,8 +3,10 @@ package kit
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/models"
 )
 
 // bridgeExtensions registers extension event handlers as SDK hooks and
@@ -19,6 +21,21 @@ import (
 // wrapper (internal/extensions/wrapper.go) which composes underneath the SDK
 // hook wrapper.
 func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
+	// Per-turn aggregator: collects tool/LLM/usage signals between AgentStart
+	// and AgentEnd so the enriched AgentEndEvent can be populated without
+	// requiring extensions to maintain parallel bookkeeping.
+	turnAgg := &turnAggregator{kit: m}
+	m.Subscribe(func(e Event) {
+		switch ev := e.(type) {
+		case TurnStartEvent:
+			turnAgg.start()
+		case ToolResultEvent:
+			turnAgg.recordTool(ev.ToolName)
+		case StepFinishEvent:
+			turnAgg.recordStep(ev.Usage)
+		}
+	})
+
 	// --- Interception hooks ---
 
 	// Extension Input → BeforeTurn hook (high priority, runs first).
@@ -109,9 +126,19 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 				} else if stopReason == "" {
 					stopReason = "completed"
 				}
+				agg := turnAgg.consume()
 				_, _ = runner.Emit(extensions.AgentEndEvent{
-					Response:   response,
-					StopReason: stopReason,
+					Response:              response,
+					StopReason:            stopReason,
+					ToolCallCount:         agg.toolCallCount,
+					ToolNames:             agg.toolNames,
+					LLMCallCount:          agg.llmCallCount,
+					InputTokensDelta:      agg.inputTokens,
+					OutputTokensDelta:     agg.outputTokens,
+					CacheReadTokensDelta:  agg.cacheReadTokens,
+					CacheWriteTokensDelta: agg.cacheWriteTokens,
+					CostDelta:             agg.cost,
+					DurationMs:            agg.durationMs(),
 				})
 			}
 		})
@@ -302,6 +329,32 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		}
 	})
 
+	// LLMUsage: derive per-call usage from StepFinish. Each step corresponds
+	// to one LLM provider call, so the step's usage is the per-call delta.
+	// Cost is computed from the current model's pricing (zero when unknown
+	// or OAuth credentials are in use). RequestID is left empty until the
+	// SDK surfaces a correlation id from the underlying provider.
+	if runner.HasHandlers(extensions.LLMUsage) {
+		m.Subscribe(func(e Event) {
+			ev, ok := e.(StepFinishEvent)
+			if !ok {
+				return
+			}
+			provider, modelID, cost := llmUsageMeta(m, ev.Usage)
+			_, _ = runner.Emit(extensions.LLMUsageEvent{
+				InputTokens:      int(ev.Usage.InputTokens),
+				OutputTokens:     int(ev.Usage.OutputTokens),
+				CacheReadTokens:  int(ev.Usage.CacheReadTokens),
+				CacheWriteTokens: int(ev.Usage.CacheCreationTokens),
+				Cost:             cost,
+				Model:            modelID,
+				Provider:         provider,
+				StepNumber:       ev.StepNumber,
+				FinishReason:     ev.FinishReason,
+			})
+		})
+	}
+
 	bridgeObserve(m, runner, extensions.ReasoningStart, func(ev ReasoningStartEvent) extensions.Event {
 		return extensions.ReasoningStartEvent{ID: ev.ID}
 	})
@@ -361,6 +414,150 @@ func bridgeObserve[In Event](m *Kit, runner *extensions.Runner, kind extensions.
 			_, _ = runner.Emit(conv(ev))
 		}
 	})
+}
+
+// turnAggregator collects per-turn signals (tool calls, LLM round-trips, token
+// usage, wall-clock duration) so that the enriched AgentEndEvent can be
+// populated without requiring extensions to maintain parallel bookkeeping.
+//
+// The aggregator resets on each TurnStartEvent and is consumed (snapshotted +
+// reset) on TurnEndEvent. All access is serialized via a mutex because the
+// underlying event bus may fan handlers across goroutines in the future.
+type turnAggregator struct {
+	mu               sync.Mutex
+	started          time.Time
+	ended            time.Time
+	toolCallCount    int
+	toolNames        []string
+	llmCallCount     int
+	inputTokens      int
+	outputTokens     int
+	cacheReadTokens  int
+	cacheWriteTokens int
+	cost             float64
+	kit              *Kit
+}
+
+type turnSnapshot struct {
+	started          time.Time
+	ended            time.Time
+	toolCallCount    int
+	toolNames        []string
+	llmCallCount     int
+	inputTokens      int
+	outputTokens     int
+	cacheReadTokens  int
+	cacheWriteTokens int
+	cost             float64
+}
+
+func (s turnSnapshot) durationMs() int64 {
+	if s.started.IsZero() {
+		return 0
+	}
+	end := s.ended
+	if end.IsZero() {
+		end = time.Now()
+	}
+	return end.Sub(s.started).Milliseconds()
+}
+
+// start resets all counters and records the turn's start time. Called from
+// the TurnStartEvent subscriber.
+func (a *turnAggregator) start() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.started = time.Now()
+	a.ended = time.Time{}
+	a.toolCallCount = 0
+	a.toolNames = nil
+	a.llmCallCount = 0
+	a.inputTokens = 0
+	a.outputTokens = 0
+	a.cacheReadTokens = 0
+	a.cacheWriteTokens = 0
+	a.cost = 0
+}
+
+func (a *turnAggregator) recordTool(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.toolCallCount++
+	if name != "" {
+		a.toolNames = append(a.toolNames, name)
+	}
+}
+
+func (a *turnAggregator) recordStep(usage LLMUsage) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.llmCallCount++
+	a.inputTokens += int(usage.InputTokens)
+	a.outputTokens += int(usage.OutputTokens)
+	a.cacheReadTokens += int(usage.CacheReadTokens)
+	a.cacheWriteTokens += int(usage.CacheCreationTokens)
+	if a.kit != nil {
+		_, _, c := llmUsageMeta(a.kit, usage)
+		a.cost += c
+	}
+}
+
+// consume returns a snapshot of the current turn and marks it ended.
+// Subsequent start() calls clear the snapshot.
+func (a *turnAggregator) consume() turnSnapshot {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ended = time.Now()
+	names := a.toolNames
+	if len(names) > 0 {
+		copied := make([]string, len(names))
+		copy(copied, names)
+		names = copied
+	}
+	return turnSnapshot{
+		started:          a.started,
+		ended:            a.ended,
+		toolCallCount:    a.toolCallCount,
+		toolNames:        names,
+		llmCallCount:     a.llmCallCount,
+		inputTokens:      a.inputTokens,
+		outputTokens:     a.outputTokens,
+		cacheReadTokens:  a.cacheReadTokens,
+		cacheWriteTokens: a.cacheWriteTokens,
+		cost:             a.cost,
+	}
+}
+
+// llmUsageMeta returns the current provider, model id, and computed cost for
+// the given usage values using the Kit instance's active model. Cost is zero
+// when the model is not in the registry (e.g. custom fine-tunes, unknown
+// providers) or pricing fields are unset.
+func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float64) {
+	if m == nil {
+		return "", "", 0
+	}
+	modelString := m.GetModelString()
+	if modelString == "" {
+		return "", "", 0
+	}
+	p, id, err := models.ParseModelString(modelString)
+	if err != nil {
+		return "", "", 0
+	}
+	provider, modelID = p, id
+	info := models.GetGlobalRegistry().LookupModel(provider, modelID)
+	if info == nil {
+		return provider, modelID, 0
+	}
+	cost = float64(usage.InputTokens) * info.Cost.Input / 1_000_000
+	cost += float64(usage.OutputTokens) * info.Cost.Output / 1_000_000
+	if info.Cost.CacheRead != nil {
+		cost += float64(usage.CacheReadTokens) * (*info.Cost.CacheRead) / 1_000_000
+	}
+	if info.Cost.CacheWrite != nil {
+		cost += float64(usage.CacheCreationTokens) * (*info.Cost.CacheWrite) / 1_000_000
+	}
+	return provider, modelID, cost
 }
 
 // llmToContextMessages converts a slice of LLM messages to extension

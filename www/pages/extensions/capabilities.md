@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 26 lifecycle events:
+Extensions can hook into 27 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -15,7 +15,8 @@ Extensions can hook into 26 lifecycle events:
 | `OnSessionShutdown` | Session ending |
 | `OnBeforeAgentStart` | Before the agent loop begins |
 | `OnAgentStart` | Agent loop started |
-| `OnAgentEnd` | Agent loop completed |
+| `OnAgentEnd` | Agent loop completed (carries per-turn aggregates: tool counts, token deltas, cost, duration) |
+| `OnLLMUsage` | Per-LLM-call token + cost delta (fires once per provider round-trip) |
 | `OnToolCall` | Tool call requested by the model |
 | `OnToolCallInputStart` | LLM began generating tool call arguments (tool name known, args streaming) |
 | `OnToolCallInputDelta` | Streamed JSON fragment of tool call arguments |
@@ -45,10 +46,51 @@ api.OnToolCall(func(event ext.ToolCallEvent, ctx ext.Context) {
     ctx.PrintInfo("Calling tool: " + event.Name)
 })
 
-api.OnAgentEnd(func(_ ext.AgentEndEvent, ctx ext.Context) {
-    ctx.PrintInfo("Agent finished")
+api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
+    // Per-turn aggregates populated by Kit's runtime — no parallel
+    // bookkeeping required in the handler.
+    ctx.PrintInfo(fmt.Sprintf(
+        "Turn finished: %d tool calls (%v), %d LLM round-trips, $%.4f, %dms",
+        e.ToolCallCount, e.ToolNames, e.LLMCallCount, e.CostDelta, e.DurationMs,
+    ))
+})
+
+// Per-LLM-call usage — fires multiple times per turn (once per round-trip).
+// Use for accurate budget enforcement between calls.
+api.OnLLMUsage(func(e ext.LLMUsageEvent, ctx ext.Context) {
+    ctx.PrintInfo(fmt.Sprintf(
+        "%s/%s step=%d tokens=↑%d ↓%d cost=$%.4f (%s)",
+        e.Provider, e.Model, e.StepNumber,
+        e.InputTokens, e.OutputTokens, e.Cost, e.FinishReason,
+    ))
 })
 ```
+
+**`AgentEndEvent` fields** (in addition to `Response` and `StopReason`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ToolCallCount` | `int` | Total tool invocations during the turn |
+| `ToolNames` | `[]string` | Tool names in call order (duplicates preserved) |
+| `LLMCallCount` | `int` | LLM round-trips / tool-loop iterations |
+| `InputTokensDelta` | `int` | Sum of input tokens across all LLM calls this turn |
+| `OutputTokensDelta` | `int` | Sum of output tokens across all LLM calls this turn |
+| `CacheReadTokensDelta` | `int` | Sum of cache-read tokens this turn |
+| `CacheWriteTokensDelta` | `int` | Sum of cache-write tokens this turn |
+| `CostDelta` | `float64` | Cost in USD (zero when pricing is unknown or OAuth credentials) |
+| `DurationMs` | `int64` | Wall-clock time from `AgentStart` to `AgentEnd` |
+
+**`LLMUsageEvent` fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `InputTokens` / `OutputTokens` | `int` | Per-call token deltas |
+| `CacheReadTokens` / `CacheWriteTokens` | `int` | Per-call cache token deltas |
+| `Cost` | `float64` | Per-call USD cost (zero when pricing unknown) |
+| `Model` / `Provider` | `string` | Model used for this specific call — may differ from earlier calls if `ctx.SetModel` was called mid-turn |
+| `StepNumber` | `int` | Zero-based step index within the turn |
+| `FinishReason` | `string` | Provider finish reason for this call (`"stop"`, `"tool_calls"`, `"length"`, ...) |
+| `RequestID` | `string` | Optional provider correlation id (may be empty) |
 
 ## Tools
 
@@ -337,6 +379,36 @@ api.OnCustomEvent("my-extension:data-ready", func(data any, ctx ext.Context) {
     // handle event
 })
 ```
+
+## Session state
+
+Last-write-wins key-value store, scoped to the current session and persisted to a sidecar file (`<session>.ext-state.json`) outside the conversation tree:
+
+```go
+ctx.SetState("myext:budget-cap", "10.00")
+
+if cap, ok := ctx.GetState("myext:budget-cap"); ok {
+    // ...
+}
+
+ctx.DeleteState("myext:budget-cap")
+keys := ctx.ListState()  // []string, unspecified order
+```
+
+Reads are O(1) (no branch walk), writes don't grow the session JSONL, and the store is not duplicated when the conversation forks. State is invisible to the LLM and survives session resume.
+
+### When to use which persistence primitive
+
+| Need | Use | Why |
+|------|-----|-----|
+| Snapshot state ("current value of X") | `SetState` / `GetState` | O(1) reads, sidecar file, last-write-wins |
+| Audit log / event history | `AppendEntry` / `GetEntries` | Append-only, lives in conversation tree, fork-aware |
+| One-shot per-turn signal | Enriched `AgentEndEvent` fields | No persistence needed; runtime tracks it for you |
+| Per-LLM-call observation | `OnLLMUsage` event | Already attributed to model/provider/step |
+
+Using `AppendEntry` for snapshot state has a cost: it's O(branch_length) to read, fsyncs into the JSONL on every write, and the entry list duplicates on every fork. Prefer `SetState` for "what's the current value of X?"-style data.
+
+For ephemeral / in-memory sessions (no JSONL path) the state lives only in memory for the lifetime of the runner.
 
 ## Bridged SDK APIs
 

@@ -189,5 +189,11 @@ func NewTestAPI(ext *LoadedExtension) API {
 				return nil
 			})
 		},
+		onLLMUsage: func(h func(LLMUsageEvent, Context)) {
+			reg(LLMUsage, func(e Event, c Context) Result {
+				h(e.(LLMUsageEvent), c)
+				return nil
+			})
+		},
 	}
 }
