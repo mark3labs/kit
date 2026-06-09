@@ -65,7 +65,8 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Model** — `ctx.SetModel(...)`, `ctx.GetAvailableModels()`
 - **Tools** — `ctx.GetAllTools()`, `ctx.SetActiveTools(...)`
 - **Context stats** — `ctx.GetContextStats()`
-- **Session data** — `ctx.AppendEntry(...)`, `ctx.GetEntries(...)`
+- **Session data** — `ctx.AppendEntry(...)`, `ctx.GetEntries(...)` (append-only, in conversation tree)
+- **Session state** — `ctx.SetState(...)`, `ctx.GetState(...)`, `ctx.DeleteState(...)`, `ctx.ListState()` (last-write-wins, sidecar file)
 - **Subagents** — `ctx.SpawnSubagent(...)`
 - **LLM completion** — `ctx.Complete(...)`
 - **Custom events** — `ctx.EmitCustomEvent(...)`

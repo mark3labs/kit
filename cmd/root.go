@@ -931,6 +931,9 @@ func runNormalMode(ctx context.Context) error {
 			startupExtensionMessages = append(startupExtensionMessages, text)
 		}
 		kitInstance.Extensions().SetContext(extCtx)
+		if err := kitInstance.Extensions().InitStatePersistence(); err != nil {
+			log.Printf("WARN extension state init failed: %v", err)
+		}
 		kitInstance.Extensions().EmitSessionStart()
 
 		// Restore normal print functions for runtime use.

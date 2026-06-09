@@ -1104,6 +1104,19 @@ if extAPI.HasExtensions() {
     tools := extAPI.GetToolInfos()
     extAPI.SetActiveTools([]string{"bash", "read"})
 
+    // Session-scoped extension state (last-write-wins key-value store).
+    // Backed by an in-memory map and a per-session sidecar file
+    // (<session>.ext-state.json) outside the conversation tree.
+    extAPI.SetState("myext:budget-cap", "10.00")
+    val, ok := extAPI.GetState("myext:budget-cap")
+    extAPI.DeleteState("myext:budget-cap")
+    keys := extAPI.ListState()
+
+    // Load any existing state from the sidecar and install a saver hook so
+    // subsequent SetState/DeleteState mutations are flushed atomically.
+    // No-op for ephemeral / in-memory sessions. Safe to call multiple times.
+    _ = extAPI.InitStatePersistence()
+
     // Events
     extAPI.EmitSessionStart()
     extAPI.EmitModelChange("new/model", "old/model", "extension")

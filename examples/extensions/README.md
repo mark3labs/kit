@@ -58,6 +58,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `project-rules.go` | Project-specific rules | Session data, file reading |
 | `protected-paths.go` | Block dangerous operations | `OnToolCall` with blocking |
 | `permission-gate.go` | Confirm destructive actions | `OnToolCall` with confirmation |
+| `usage-budget.go` | Soft cost cap + per-turn report | `OnLLMUsage`, `SetState`/`GetState`, enriched `AgentEndEvent` |
 
 ### Tools & Commands
 

@@ -50,6 +50,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`context-inject.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/context-inject.go) | Inject context into conversations |
 | [`summarize.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/summarize.go) | Conversation summarization |
 | [`lsp-diagnostics.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/lsp-diagnostics.go) | LSP diagnostic integration |
+| [`usage-budget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/usage-budget.go) | Per-call usage callback (`OnLLMUsage`), session state (`SetState`/`GetState`), and enriched `OnAgentEnd` per-turn report |
 
 ## Bridged SDK APIs
 

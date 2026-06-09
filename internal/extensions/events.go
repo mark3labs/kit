@@ -125,6 +125,11 @@ const (
 	// after steering messages are injected and before messages are sent
 	// to the LLM. Handlers can replace the context window for this step.
 	PrepareStep EventType = "prepare_step"
+
+	// LLMUsage fires after each LLM provider call with the token and cost
+	// deltas for that single call. Extensions use it to attribute usage to
+	// specific calls/models and to drive budget enforcement between calls.
+	LLMUsage EventType = "llm_usage"
 )
 
 // AllEventTypes returns every supported event type.
@@ -139,7 +144,7 @@ func AllEventTypes() []EventType {
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 		SubagentStart, SubagentChunk, SubagentEnd,
 		StepStart, StepFinish, ReasoningStart, Warnings, Source, Error, Retry,
-		PrepareStep,
+		PrepareStep, LLMUsage,
 	}
 }
 

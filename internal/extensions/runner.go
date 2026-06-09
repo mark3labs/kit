@@ -2,9 +2,12 @@ package extensions
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -99,6 +102,10 @@ type Runner struct {
 	customEventSubs map[string][]func(string) // inter-extension event bus
 	optionOverrides map[string]string         // runtime option overrides
 	configStore     *viper.Viper              // per-instance config store (nil = global)
+	state           map[string]string         // session-scoped extension state (last-write-wins)
+	stateMu         sync.RWMutex              // guards state independently of mu
+	saverMu         sync.Mutex                // serializes stateSaver invocations so atomic-rename writes don't interleave
+	stateSaver      func()                    // optional persistence hook invoked after each state mutation
 	mu              sync.RWMutex
 }
 
@@ -263,6 +270,18 @@ func normalizeContext(ctx Context) Context {
 	}
 	if ctx.GetEntries == nil {
 		ctx.GetEntries = func(string) []ExtensionEntry { return nil }
+	}
+	if ctx.SetState == nil {
+		ctx.SetState = func(string, string) {}
+	}
+	if ctx.GetState == nil {
+		ctx.GetState = func(string) (string, bool) { return "", false }
+	}
+	if ctx.DeleteState == nil {
+		ctx.DeleteState = func(string) {}
+	}
+	if ctx.ListState == nil {
+		ctx.ListState = func() []string { return nil }
 	}
 	if ctx.GetOption == nil {
 		ctx.GetOption = func(string) string { return "" }
@@ -746,6 +765,168 @@ func (r *Runner) GetMessageRenderer(name string) *MessageRendererConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Extension state store (session-scoped, last-write-wins)
+// ---------------------------------------------------------------------------
+
+// SetState records a key-value pair in the runner's session-scoped extension
+// state store. The store is in-memory; callers wire SetStateSaver to persist
+// changes to a sidecar file. Thread-safe.
+//
+// When a saver is installed, concurrent SetState/DeleteState invocations are
+// serialized through saverMu so that overlapping snapshot-and-rename writes
+// cannot interleave (which would otherwise race on the shared tmp file and
+// risk persisting an older snapshot after a newer one).
+func (r *Runner) SetState(key, value string) {
+	r.stateMu.Lock()
+	if r.state == nil {
+		r.state = make(map[string]string)
+	}
+	r.state[key] = value
+	saver := r.stateSaver
+	r.stateMu.Unlock()
+	r.runSaver(saver)
+}
+
+// GetState returns the value previously stored via SetState, plus a bool
+// indicating whether the key was present. Thread-safe.
+func (r *Runner) GetState(key string) (string, bool) {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	v, ok := r.state[key]
+	return v, ok
+}
+
+// DeleteState removes a key from the state store. No-op if the key is
+// missing. Thread-safe. Saver invocations are serialized via saverMu — see
+// SetState for the rationale.
+func (r *Runner) DeleteState(key string) {
+	r.stateMu.Lock()
+	_, existed := r.state[key]
+	if existed {
+		delete(r.state, key)
+	}
+	saver := r.stateSaver
+	r.stateMu.Unlock()
+	if !existed {
+		return
+	}
+	r.runSaver(saver)
+}
+
+// runSaver invokes the optional persistence callback under saverMu so
+// concurrent SetState/DeleteState writers cannot race on the shared tmp
+// file used by SaveStateToFile's atomic rename. The deferred Unlock
+// guarantees saverMu is released even if the saver panics.
+func (r *Runner) runSaver(saver func()) {
+	if saver == nil {
+		return
+	}
+	r.saverMu.Lock()
+	defer r.saverMu.Unlock()
+	saver()
+}
+
+// ListState returns all keys currently in the state store, in unspecified
+// order. Thread-safe.
+func (r *Runner) ListState() []string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	if len(r.state) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(r.state))
+	for k := range r.state {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// SetStateSaver installs an optional persistence hook invoked after each
+// mutation to the state store (SetState / DeleteState / LoadStateFromFile).
+// Pass nil to disable persistence. Thread-safe.
+func (r *Runner) SetStateSaver(saver func()) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	r.stateSaver = saver
+}
+
+// SnapshotState returns a copy of the current state store as a
+// fresh map. Useful for persisting to disk without holding the lock.
+// Thread-safe.
+func (r *Runner) SnapshotState() map[string]string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	if len(r.state) == 0 {
+		return nil
+	}
+	copyMap := make(map[string]string, len(r.state))
+	maps.Copy(copyMap, r.state)
+	return copyMap
+}
+
+// LoadStateFromFile reads a JSON map from path and replaces the in-memory
+// state store with its contents. Missing or empty files are treated as
+// "no prior state": the in-memory store is replaced with an empty map so
+// callers can safely switch sessions without leaking keys from a prior
+// session into a new one. Malformed JSON returns the parse error without
+// touching the existing store. Thread-safe.
+func (r *Runner) LoadStateFromFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			r.stateMu.Lock()
+			r.state = map[string]string{}
+			r.stateMu.Unlock()
+			return nil
+		}
+		return fmt.Errorf("reading extension state: %w", err)
+	}
+	if len(data) == 0 {
+		r.stateMu.Lock()
+		r.state = map[string]string{}
+		r.stateMu.Unlock()
+		return nil
+	}
+	var loaded map[string]string
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return fmt.Errorf("parsing extension state: %w", err)
+	}
+	r.stateMu.Lock()
+	r.state = loaded
+	r.stateMu.Unlock()
+	return nil
+}
+
+// SaveStateToFile writes the current state store to path as JSON, creating
+// parent directories as needed. An empty store writes an empty object so
+// that consumers can distinguish "loaded but empty" from "never saved".
+// Writes are atomic via a tmp-file-and-rename sequence. Thread-safe.
+func (r *Runner) SaveStateToFile(path string) error {
+	snap := r.SnapshotState()
+	if snap == nil {
+		snap = map[string]string{}
+	}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling extension state: %w", err)
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("creating state directory: %w", err)
+		}
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("writing extension state: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("renaming extension state: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Hot-reload
 // ---------------------------------------------------------------------------
 
@@ -768,7 +949,9 @@ func (r *Runner) Reload(exts []LoadedExtension) {
 	r.uiVisibility = nil
 	r.disabledTools = nil
 	r.customEventSubs = nil
-	// optionOverrides are intentionally preserved.
+	// optionOverrides and state are intentionally preserved across reloads:
+	// they represent user/session intent (not extension code) and would be
+	// surprising to lose on a hot-reload.
 }
 
 // ---------------------------------------------------------------------------

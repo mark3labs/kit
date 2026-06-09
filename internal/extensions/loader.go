@@ -669,6 +669,12 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 				return *r
 			})
 		},
+		onLLMUsage: func(h func(LLMUsageEvent, Context)) {
+			reg(LLMUsage, func(e Event, c Context) Result {
+				h(e.(LLMUsageEvent), c)
+				return nil
+			})
+		},
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.

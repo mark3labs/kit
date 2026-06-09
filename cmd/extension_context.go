@@ -190,6 +190,18 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		GetEntries: func(entryType string) []extensions.ExtensionEntry {
 			return kitInstance.Extensions().GetEntries(entryType)
 		},
+		SetState: func(key string, value string) {
+			kitInstance.Extensions().SetState(key, value)
+		},
+		GetState: func(key string) (string, bool) {
+			return kitInstance.Extensions().GetState(key)
+		},
+		DeleteState: func(key string) {
+			kitInstance.Extensions().DeleteState(key)
+		},
+		ListState: func() []string {
+			return kitInstance.Extensions().ListState()
+		},
 		SetEditorText: func(text string) {
 			appInstance.SetEditorTextFromExtension(text)
 		},

@@ -2,6 +2,8 @@ package kit
 
 import (
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/message"
@@ -95,6 +97,23 @@ type ExtensionAPI interface {
 	GetSessionMessages() []ExtensionSessionMessage
 	AppendEntry(extType, data string) (string, error)
 	GetEntries(extType string) []ExtensionEntry
+
+	// Session-scoped extension state (last-write-wins key-value store).
+	// Backed by an in-memory map and (optionally) a sidecar file per session;
+	// state lives outside the conversation tree and is not visible to the LLM.
+	SetState(key, value string)
+	GetState(key string) (string, bool)
+	DeleteState(key string)
+	ListState() []string
+
+	// InitStatePersistence loads any existing state from the per-session
+	// sidecar file and installs a saver hook so that subsequent SetState /
+	// DeleteState mutations are flushed to disk. Safe to call multiple times;
+	// repeat calls simply reload and reinstall the saver.
+	//
+	// For ephemeral or in-memory sessions (no session file path), the call
+	// is a no-op and state remains in memory for the lifetime of the runner.
+	InitStatePersistence() error
 
 	// Status bar
 	SetStatus(entry ExtensionStatusBarEntry)
@@ -330,6 +349,67 @@ func (e *extensionAPI) AppendEntry(extType, data string) (string, error) {
 		return "", fmt.Errorf("no session available")
 	}
 	return e.kit.session.AppendExtensionData(extType, data)
+}
+
+func (e *extensionAPI) SetState(key, value string) {
+	if e.kit.extRunner != nil {
+		e.kit.extRunner.SetState(key, value)
+	}
+}
+
+func (e *extensionAPI) GetState(key string) (string, bool) {
+	if e.kit.extRunner == nil {
+		return "", false
+	}
+	return e.kit.extRunner.GetState(key)
+}
+
+func (e *extensionAPI) DeleteState(key string) {
+	if e.kit.extRunner != nil {
+		e.kit.extRunner.DeleteState(key)
+	}
+}
+
+func (e *extensionAPI) ListState() []string {
+	if e.kit.extRunner == nil {
+		return nil
+	}
+	return e.kit.extRunner.ListState()
+}
+
+func (e *extensionAPI) InitStatePersistence() error {
+	if e.kit.extRunner == nil {
+		return nil
+	}
+	path := extStateSidecarPath(e.kit.GetSessionPath())
+	if path == "" {
+		// Ephemeral or in-memory session; no on-disk state.
+		e.kit.extRunner.SetStateSaver(nil)
+		return nil
+	}
+	if err := e.kit.extRunner.LoadStateFromFile(path); err != nil {
+		return err
+	}
+	runner := e.kit.extRunner
+	runner.SetStateSaver(func() {
+		if err := runner.SaveStateToFile(path); err != nil {
+			log.Printf("WARN extension state save failed: path=%s err=%v", path, err)
+		}
+	})
+	return nil
+}
+
+// extStateSidecarPath returns the path to the per-session extension state
+// sidecar file derived from the session's JSONL path. Returns empty for
+// ephemeral / in-memory sessions where no JSONL is being written.
+func extStateSidecarPath(sessionPath string) string {
+	if sessionPath == "" {
+		return ""
+	}
+	if trimmed, ok := strings.CutSuffix(sessionPath, ".jsonl"); ok {
+		return trimmed + ".ext-state.json"
+	}
+	return sessionPath + ".ext-state.json"
 }
 
 func (e *extensionAPI) GetEntries(extType string) []ExtensionEntry {

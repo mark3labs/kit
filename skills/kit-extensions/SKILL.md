@@ -88,7 +88,8 @@ api.OnAgentStart(func(e ext.AgentStartEvent, ctx ext.Context) {
     // e.Prompt string
 })
 
-// Agent finished responding.
+// Agent finished responding. Carries per-turn aggregates so observer-style
+// extensions don't need to maintain parallel bookkeeping.
 api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
     // e.Response string
     // e.StopReason string — "error" (on failure), "completed" (when LLM returns
@@ -96,6 +97,33 @@ api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
     //   (e.g. "stop", "length" (max output tokens hit), "tool-calls", "content-filter").
     //   To detect errors, check e.StopReason == "error".
     //   Do NOT compare against "completed" for success — instead check != "error".
+    //
+    // Per-turn aggregates (computed by Kit's runtime):
+    // e.ToolCallCount          int       — total tool invocations this turn
+    // e.ToolNames              []string  — tool names in call order (duplicates preserved)
+    // e.LLMCallCount           int       — LLM round-trips / tool-loop iterations
+    // e.InputTokensDelta       int       — sum of input tokens across LLM calls this turn
+    // e.OutputTokensDelta      int
+    // e.CacheReadTokensDelta   int
+    // e.CacheWriteTokensDelta  int
+    // e.CostDelta              float64   — USD cost (zero when pricing unknown / OAuth)
+    // e.DurationMs             int64     — wall-clock duration AgentStart→AgentEnd
+})
+
+// Per-LLM-call usage — fires after each provider round-trip with token + cost
+// deltas attributed to that specific call. A single turn typically produces
+// multiple LLMUsageEvents (one per tool-loop iteration). Use this for accurate
+// budget enforcement that needs to react between calls instead of waiting
+// for the turn to finish.
+api.OnLLMUsage(func(e ext.LLMUsageEvent, ctx ext.Context) {
+    // e.InputTokens, e.OutputTokens             int
+    // e.CacheReadTokens, e.CacheWriteTokens     int
+    // e.Cost                                    float64  — USD; zero when pricing unknown / OAuth
+    // e.Model, e.Provider                       string   — model used for THIS call
+    //                                                      (may differ across calls if SetModel was called)
+    // e.StepNumber                              int      — zero-based step index in this turn
+    // e.FinishReason                            string   — "stop" / "tool_calls" / "length" / ...
+    // e.RequestID                               string   — optional provider correlation id (may be empty)
 })
 ```
 
@@ -528,10 +556,37 @@ stats := ctx.GetContextStats()     // .EstimatedTokens, .ContextLimit, .UsagePer
 msgs := ctx.GetMessages()          // []ext.SessionMessage on current branch
 path := ctx.GetSessionPath()       // file path of session JSONL
 
-// Persist custom data in the session tree:
+// Append-only log in the session tree (fork-aware, walked on every branch read):
 id, err := ctx.AppendEntry("my-type", "data string")
 entries := ctx.GetEntries("my-type")  // []ext.ExtensionEntry{ID, EntryType, Data, Timestamp}
 ```
+
+### Session State (last-write-wins)
+
+Key-value store scoped to the session, persisted to a sidecar file
+(`<session>.ext-state.json`) outside the conversation tree. Reads are O(1)
+(no branch walk), writes don't grow the JSONL, and the store is not
+duplicated on fork. State is invisible to the LLM and survives session
+resume. For ephemeral / in-memory sessions, state lives only in memory.
+
+```go
+ctx.SetState("myext:budget-cap", "10.00")          // last write wins
+val, ok := ctx.GetState("myext:budget-cap")        // (string, bool)
+ctx.DeleteState("myext:budget-cap")                // no-op if missing
+keys := ctx.ListState()                            // []string, unspecified order
+```
+
+**When to use which:**
+
+| Need | Use |
+|------|-----|
+| Snapshot state ("current value of X") | `SetState` / `GetState` |
+| Audit log / event history | `AppendEntry` / `GetEntries` |
+| One-shot per-turn signal | enriched `AgentEndEvent` fields |
+| Per-LLM-call observation | `OnLLMUsage` event |
+
+Namespace keys with your extension name (e.g. `"myext:budget-cap"`) to avoid
+collisions across extensions.
 
 ### Model Management
 
