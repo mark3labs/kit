@@ -291,8 +291,8 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// DisableCoreTools allows explicitly having zero tools (for chat-only mode).
 	var coreTools []fantasy.AgentTool
 	if agentConfig.DisableCoreTools && len(agentConfig.CoreTools) == 0 {
-		// Explicitly zero tools - chat-only mode
-		coreTools = nil
+		// Explicitly subagent tool only - chat-only mode
+		coreTools = core.SubagentTool()
 	} else if len(agentConfig.CoreTools) > 0 {
 		// Custom tools provided - use them
 		coreTools = agentConfig.CoreTools

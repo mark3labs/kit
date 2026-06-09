@@ -100,6 +100,12 @@ func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	}
 }
 
+func SubagentTool(opts ...ToolOption) []fantasy.AgentTool {
+	return []fantasy.AgentTool{
+		NewSubagentTool(opts...),
+	}
+}
+
 // AllTools returns all available core tools.
 func AllTools(opts ...ToolOption) []fantasy.AgentTool {
 	return append(SubagentTools(opts...), NewSubagentTool(opts...))
