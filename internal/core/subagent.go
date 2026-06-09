@@ -10,6 +10,7 @@ import (
 
 const defaultSubagentTimeout = 5 * time.Minute
 const maxSubagentTimeout = 30 * time.Minute
+const SubagentToolName = "subagent"
 
 // ---------------------------------------------------------------------------
 // Context-based subagent spawner
@@ -63,7 +64,7 @@ type subagentArgs struct {
 func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{
-			Name: "subagent",
+			Name: SubagentToolName,
 			Description: `Spawn a subagent to perform a task autonomously.
 
 The subagent runs as a separate in-process Kit instance with full tool access

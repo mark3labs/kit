@@ -143,7 +143,7 @@ func (m *Kit) GetToolNames() []string {
 func (m *Kit) GetToolsForSubagent() []Tool {
 	var tools []Tool
 	for _, t := range m.agent.GetTools() {
-		if t.Info().Name == "subagent" {
+		if t.Info().Name == core.SubagentToolName {
 			continue
 		}
 		tools = append(tools, t)
