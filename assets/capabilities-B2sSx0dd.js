@@ -1,6 +1,6 @@
 const s={frontmatter:{title:"Capabilities",description:"All extension capabilities — lifecycle events, tools, commands, widgets, and more.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 26 lifecycle events:</p>
+<p>Extensions can hook into 27 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -27,7 +27,11 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 </tr>
 <tr>
 <td><code>OnAgentEnd</code></td>
-<td>Agent loop completed</td>
+<td>Agent loop completed (carries per-turn aggregates: tool counts, token deltas, cost, duration)</td>
+</tr>
+<tr>
+<td><code>OnLLMUsage</code></td>
+<td>Per-LLM-call token + cost delta (fires once per provider round-trip)</td>
 </tr>
 <tr>
 <td><code>OnToolCall</code></td>
@@ -120,9 +124,128 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Calling tool: "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> event.Name)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnAgentEnd</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">_</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AgentEndEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Agent finished"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnAgentEnd</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AgentEndEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Per-turn aggregates populated by Kit's runtime — no parallel</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // bookkeeping required in the handler.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "Turn finished: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> tool calls (</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%v</span><span style="color:#032F62;--shiki-dark:#9ECBFF">), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> LLM round-trips, $</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.4f</span><span style="color:#032F62;--shiki-dark:#9ECBFF">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF">ms"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        e.ToolCallCount, e.ToolNames, e.LLMCallCount, e.CostDelta, e.DurationMs,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ))</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Per-LLM-call usage — fires multiple times per turn (once per round-trip).</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Use for accurate budget enforcement between calls.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnLLMUsage</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LLMUsageEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> step=</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> tokens=↑</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ↓</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> cost=$</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.4f</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> (</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">)"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        e.Provider, e.Model, e.StepNumber,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        e.InputTokens, e.OutputTokens, e.Cost, e.FinishReason,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ))</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><strong><code>AgentEndEvent</code> fields</strong> (in addition to <code>Response</code> and <code>StopReason</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ToolCallCount</code></td>
+<td><code>int</code></td>
+<td>Total tool invocations during the turn</td>
+</tr>
+<tr>
+<td><code>ToolNames</code></td>
+<td><code>[]string</code></td>
+<td>Tool names in call order (duplicates preserved)</td>
+</tr>
+<tr>
+<td><code>LLMCallCount</code></td>
+<td><code>int</code></td>
+<td>LLM round-trips / tool-loop iterations</td>
+</tr>
+<tr>
+<td><code>InputTokensDelta</code></td>
+<td><code>int</code></td>
+<td>Sum of input tokens across all LLM calls this turn</td>
+</tr>
+<tr>
+<td><code>OutputTokensDelta</code></td>
+<td><code>int</code></td>
+<td>Sum of output tokens across all LLM calls this turn</td>
+</tr>
+<tr>
+<td><code>CacheReadTokensDelta</code></td>
+<td><code>int</code></td>
+<td>Sum of cache-read tokens this turn</td>
+</tr>
+<tr>
+<td><code>CacheWriteTokensDelta</code></td>
+<td><code>int</code></td>
+<td>Sum of cache-write tokens this turn</td>
+</tr>
+<tr>
+<td><code>CostDelta</code></td>
+<td><code>float64</code></td>
+<td>Cost in USD (zero when pricing is unknown or OAuth credentials)</td>
+</tr>
+<tr>
+<td><code>DurationMs</code></td>
+<td><code>int64</code></td>
+<td>Wall-clock time from <code>AgentStart</code> to <code>AgentEnd</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>LLMUsageEvent</code> fields</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>InputTokens</code> / <code>OutputTokens</code></td>
+<td><code>int</code></td>
+<td>Per-call token deltas</td>
+</tr>
+<tr>
+<td><code>CacheReadTokens</code> / <code>CacheWriteTokens</code></td>
+<td><code>int</code></td>
+<td>Per-call cache token deltas</td>
+</tr>
+<tr>
+<td><code>Cost</code></td>
+<td><code>float64</code></td>
+<td>Per-call USD cost (zero when pricing unknown)</td>
+</tr>
+<tr>
+<td><code>Model</code> / <code>Provider</code></td>
+<td><code>string</code></td>
+<td>Model used for this specific call — may differ from earlier calls if <code>ctx.SetModel</code> was called mid-turn</td>
+</tr>
+<tr>
+<td><code>StepNumber</code></td>
+<td><code>int</code></td>
+<td>Zero-based step index within the turn</td>
+</tr>
+<tr>
+<td><code>FinishReason</code></td>
+<td><code>string</code></td>
+<td>Provider finish reason for this call (<code>"stop"</code>, <code>"tool_calls"</code>, <code>"length"</code>, ...)</td>
+</tr>
+<tr>
+<td><code>RequestID</code></td>
+<td><code>string</code></td>
+<td>Optional provider correlation id (may be empty)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tools"><span class="icon icon-link"></span></a>Tools</h2>
 <p>Register custom tools that the LLM can invoke:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterTool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolDef</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -324,6 +447,51 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnCustomEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-extension:data-ready"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">data</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // handle event</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h2 id="session-state"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-state"><span class="icon icon-link"></span></a>Session state</h2>
+<p>Last-write-wins key-value store, scoped to the current session and persisted to a sidecar file (<code>&lt;session&gt;.ext-state.json</code>) outside the conversation tree:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetState</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"myext:budget-cap"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"10.00"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> cap, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetState</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"myext:budget-cap"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">); ok {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // ...</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DeleteState</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"myext:budget-cap"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">keys </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListState</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// []string, unspecified order</span></span></code></pre>
+<p>Reads are O(1) (no branch walk), writes don't grow the session JSONL, and the store is not duplicated when the conversation forks. State is invisible to the LLM and survives session resume.</p>
+<h3 id="when-to-use-which-persistence-primitive"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#when-to-use-which-persistence-primitive"><span class="icon icon-link"></span></a>When to use which persistence primitive</h3>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Use</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Snapshot state ("current value of X")</td>
+<td><code>SetState</code> / <code>GetState</code></td>
+<td>O(1) reads, sidecar file, last-write-wins</td>
+</tr>
+<tr>
+<td>Audit log / event history</td>
+<td><code>AppendEntry</code> / <code>GetEntries</code></td>
+<td>Append-only, lives in conversation tree, fork-aware</td>
+</tr>
+<tr>
+<td>One-shot per-turn signal</td>
+<td>Enriched <code>AgentEndEvent</code> fields</td>
+<td>No persistence needed; runtime tracks it for you</td>
+</tr>
+<tr>
+<td>Per-LLM-call observation</td>
+<td><code>OnLLMUsage</code> event</td>
+<td>Already attributed to model/provider/step</td>
+</tr>
+</tbody>
+</table>
+<p>Using <code>AppendEntry</code> for snapshot state has a cost: it's O(branch_length) to read, fsyncs into the JSONL on every write, and the entry list duplicates on every fork. Prefer <code>SetState</code> for "what's the current value of X?"-style data.</p>
+<p>For ephemeral / in-memory sessions (no JSONL path) the state lives only in memory for the lifetime of the runner.</p>
 <h2 id="bridged-sdk-apis"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#bridged-sdk-apis"><span class="icon icon-link"></span></a>Bridged SDK APIs</h2>
 <p>Extensions can access powerful internal SDK capabilities that enable advanced features like conversation tree navigation, dynamic skill loading, template parsing, and model resolution.</p>
 <h3 id="tree-navigation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tree-navigation"><span class="icon icon-link"></span></a>Tree Navigation</h3>
@@ -422,12 +590,12 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get current provider/model ID</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">provider </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentProvider</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "anthropic"</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">modelID </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentModelID</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "claude-sonnet-4"</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">modelID </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentModelID</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "claude-sonnet-4"</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
 
-Extensions can hook into 26 lifecycle events:
+Extensions can hook into 27 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -435,7 +603,8 @@ Extensions can hook into 26 lifecycle events:
 | \`OnSessionShutdown\` | Session ending |
 | \`OnBeforeAgentStart\` | Before the agent loop begins |
 | \`OnAgentStart\` | Agent loop started |
-| \`OnAgentEnd\` | Agent loop completed |
+| \`OnAgentEnd\` | Agent loop completed (carries per-turn aggregates: tool counts, token deltas, cost, duration) |
+| \`OnLLMUsage\` | Per-LLM-call token + cost delta (fires once per provider round-trip) |
 | \`OnToolCall\` | Tool call requested by the model |
 | \`OnToolCallInputStart\` | LLM began generating tool call arguments (tool name known, args streaming) |
 | \`OnToolCallInputDelta\` | Streamed JSON fragment of tool call arguments |
@@ -465,10 +634,51 @@ api.OnToolCall(func(event ext.ToolCallEvent, ctx ext.Context) {
     ctx.PrintInfo("Calling tool: " + event.Name)
 })
 
-api.OnAgentEnd(func(_ ext.AgentEndEvent, ctx ext.Context) {
-    ctx.PrintInfo("Agent finished")
+api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
+    // Per-turn aggregates populated by Kit's runtime — no parallel
+    // bookkeeping required in the handler.
+    ctx.PrintInfo(fmt.Sprintf(
+        "Turn finished: %d tool calls (%v), %d LLM round-trips, $%.4f, %dms",
+        e.ToolCallCount, e.ToolNames, e.LLMCallCount, e.CostDelta, e.DurationMs,
+    ))
+})
+
+// Per-LLM-call usage — fires multiple times per turn (once per round-trip).
+// Use for accurate budget enforcement between calls.
+api.OnLLMUsage(func(e ext.LLMUsageEvent, ctx ext.Context) {
+    ctx.PrintInfo(fmt.Sprintf(
+        "%s/%s step=%d tokens=↑%d ↓%d cost=$%.4f (%s)",
+        e.Provider, e.Model, e.StepNumber,
+        e.InputTokens, e.OutputTokens, e.Cost, e.FinishReason,
+    ))
 })
 \`\`\`
+
+**\`AgentEndEvent\` fields** (in addition to \`Response\` and \`StopReason\`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| \`ToolCallCount\` | \`int\` | Total tool invocations during the turn |
+| \`ToolNames\` | \`[]string\` | Tool names in call order (duplicates preserved) |
+| \`LLMCallCount\` | \`int\` | LLM round-trips / tool-loop iterations |
+| \`InputTokensDelta\` | \`int\` | Sum of input tokens across all LLM calls this turn |
+| \`OutputTokensDelta\` | \`int\` | Sum of output tokens across all LLM calls this turn |
+| \`CacheReadTokensDelta\` | \`int\` | Sum of cache-read tokens this turn |
+| \`CacheWriteTokensDelta\` | \`int\` | Sum of cache-write tokens this turn |
+| \`CostDelta\` | \`float64\` | Cost in USD (zero when pricing is unknown or OAuth credentials) |
+| \`DurationMs\` | \`int64\` | Wall-clock time from \`AgentStart\` to \`AgentEnd\` |
+
+**\`LLMUsageEvent\` fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| \`InputTokens\` / \`OutputTokens\` | \`int\` | Per-call token deltas |
+| \`CacheReadTokens\` / \`CacheWriteTokens\` | \`int\` | Per-call cache token deltas |
+| \`Cost\` | \`float64\` | Per-call USD cost (zero when pricing unknown) |
+| \`Model\` / \`Provider\` | \`string\` | Model used for this specific call — may differ from earlier calls if \`ctx.SetModel\` was called mid-turn |
+| \`StepNumber\` | \`int\` | Zero-based step index within the turn |
+| \`FinishReason\` | \`string\` | Provider finish reason for this call (\`"stop"\`, \`"tool_calls"\`, \`"length"\`, ...) |
+| \`RequestID\` | \`string\` | Optional provider correlation id (may be empty) |
 
 ## Tools
 
@@ -757,6 +967,36 @@ api.OnCustomEvent("my-extension:data-ready", func(data any, ctx ext.Context) {
     // handle event
 })
 \`\`\`
+
+## Session state
+
+Last-write-wins key-value store, scoped to the current session and persisted to a sidecar file (\`<session>.ext-state.json\`) outside the conversation tree:
+
+\`\`\`go
+ctx.SetState("myext:budget-cap", "10.00")
+
+if cap, ok := ctx.GetState("myext:budget-cap"); ok {
+    // ...
+}
+
+ctx.DeleteState("myext:budget-cap")
+keys := ctx.ListState()  // []string, unspecified order
+\`\`\`
+
+Reads are O(1) (no branch walk), writes don't grow the session JSONL, and the store is not duplicated when the conversation forks. State is invisible to the LLM and survives session resume.
+
+### When to use which persistence primitive
+
+| Need | Use | Why |
+|------|-----|-----|
+| Snapshot state ("current value of X") | \`SetState\` / \`GetState\` | O(1) reads, sidecar file, last-write-wins |
+| Audit log / event history | \`AppendEntry\` / \`GetEntries\` | Append-only, lives in conversation tree, fork-aware |
+| One-shot per-turn signal | Enriched \`AgentEndEvent\` fields | No persistence needed; runtime tracks it for you |
+| Per-LLM-call observation | \`OnLLMUsage\` event | Already attributed to model/provider/step |
+
+Using \`AppendEntry\` for snapshot state has a cost: it's O(branch_length) to read, fsyncs into the JSONL on every write, and the entry list duplicates on every fork. Prefer \`SetState\` for "what's the current value of X?"-style data.
+
+For ephemeral / in-memory sessions (no JSONL path) the state lives only in memory for the lifetime of the runner.
 
 ## Bridged SDK APIs
 

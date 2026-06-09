@@ -163,6 +163,8 @@
         "LLM completion",
         "Themes",
         "Custom events",
+        "Session state",
+        "When to use which persistence primitive",
         "Bridged SDK APIs",
         "Tree Navigation",
         "Skill Loading",
@@ -170,7 +172,7 @@
         "Model Resolution"
       ],
       "tags": [],
-      "wordCount": 1525
+      "wordCount": 2084
     },
     {
       "id": "extensions/examples",
@@ -190,7 +192,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 480
+      "wordCount": 496
     },
     {
       "id": "extensions/loading",
@@ -223,7 +225,7 @@
         "The Context object"
       ],
       "tags": [],
-      "wordCount": 288
+      "wordCount": 303
     },
     {
       "id": "extensions/testing",
