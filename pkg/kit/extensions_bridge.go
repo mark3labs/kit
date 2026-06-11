@@ -578,18 +578,13 @@ func llmUsageMeta(m *Kit, usage LLMUsage) (provider, modelID string, cost float6
 }
 
 // isAnthropicOAuth reports whether the current Anthropic credential resolves
-// to a stored OAuth token (in which case the user is not billed per-token).
-// Mirrors the OAuth detection in cmd/extension_context.go's usage tracker
-// update path so OnLLMUsage cost reporting agrees with ctx.GetSessionUsage().
+// to a stored OAuth token (in which case the user is not billed per-token),
+// so OnLLMUsage cost reporting agrees with ctx.GetSessionUsage().
 func isAnthropicOAuth(m *Kit, provider string) bool {
 	if m == nil || provider != "anthropic" {
 		return false
 	}
-	_, source, err := auth.GetAnthropicAPIKey(m.v.GetString("provider-api-key"))
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(source, "stored OAuth")
+	return auth.IsAnthropicOAuth(m.v.GetString("provider-api-key"))
 }
 
 // llmToContextMessages converts a slice of LLM messages to extension

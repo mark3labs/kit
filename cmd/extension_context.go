@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
 	"github.com/mark3labs/kit/internal/app"
-	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/extbridge"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
@@ -238,23 +236,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			// Fire OnModelChange event to extensions.
 			kitInstance.Extensions().EmitModelChange(modelString, previousModel, "extension")
 			// Update usage tracker with new model info for correct token counting.
-			if usageTracker != nil {
-				newProvider, newModel, _ := models.ParseModelString(modelString)
-				if newProvider != "unknown" && newModel != "unknown" && newProvider != "ollama" {
-					registry := models.GetGlobalRegistry()
-					if modelInfo := registry.LookupModel(newProvider, newModel); modelInfo != nil {
-						// Check OAuth status for Anthropic models
-						isOAuth := false
-						if newProvider == "anthropic" {
-							_, source, err := auth.GetAnthropicAPIKey(viper.GetString("provider-api-key"))
-							if err == nil && strings.HasPrefix(source, "stored OAuth") {
-								isOAuth = true
-							}
-						}
-						usageTracker.UpdateModelInfo(modelInfo, newProvider, isOAuth)
-					}
-				}
-			}
+			ui.UpdateUsageTrackerForModel(usageTracker, modelString, viper.GetString("provider-api-key"))
 			return nil
 		},
 		GetAvailableModels: func() []extensions.ModelInfoEntry {

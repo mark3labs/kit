@@ -932,7 +932,7 @@ func createAnthropicProvider(ctx context.Context, config *ProviderConfig, modelN
 	}
 
 	// Handle OAuth vs API key authentication
-	if strings.HasPrefix(source, "stored OAuth") {
+	if source == auth.CredentialSourceOAuth {
 		httpClient := createOAuthHTTPClient(apiKey, config.TLSSkipVerify)
 		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 		// Note: For OAuth, the API key is set as a placeholder; the transport handles auth

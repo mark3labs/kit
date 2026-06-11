@@ -513,6 +513,20 @@ func validateAnthropicAPIKey(apiKey string) error {
 	return nil
 }
 
+// CredentialSourceOAuth is the source description returned by
+// GetAnthropicAPIKey when the key resolves to stored OAuth credentials.
+// Consumers should compare against this constant (or use IsAnthropicOAuth)
+// rather than matching the string literal.
+const CredentialSourceOAuth = "stored OAuth credentials"
+
+// IsAnthropicOAuth reports whether the active Anthropic credential resolves
+// to a stored OAuth token (in which case the user is not billed per-token).
+// flagValue is the --provider-api-key flag value (may be empty).
+func IsAnthropicOAuth(flagValue string) bool {
+	_, source, err := GetAnthropicAPIKey(flagValue)
+	return err == nil && source == CredentialSourceOAuth
+}
+
 // GetAnthropicAPIKey retrieves an Anthropic API key from multiple sources in priority order:
 // 1. Command-line flag value (highest priority)
 // 2. Stored credentials (OAuth or API key)
@@ -535,7 +549,7 @@ func GetAnthropicAPIKey(flagValue string) (string, string, error) {
 				if err != nil {
 					return "", "", fmt.Errorf("failed to get valid OAuth token: %w", err)
 				}
-				return token, "stored OAuth credentials", nil
+				return token, CredentialSourceOAuth, nil
 			} else if creds.Type == "api_key" && creds.APIKey != "" {
 				return creds.APIKey, "stored API key", nil
 			}

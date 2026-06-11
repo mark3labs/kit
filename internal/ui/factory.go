@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/models"
@@ -44,26 +43,37 @@ func parseModelName(modelString string) (provider, model string) {
 // ollama or unrecognised models). This is used by the interactive TUI path
 // which doesn't go through SetupCLI.
 func CreateUsageTracker(modelString, providerAPIKey string) *UsageTracker {
-	provider, model := parseModelName(modelString)
-	if provider == "unknown" || model == "unknown" || provider == "ollama" {
-		return nil
-	}
-
-	registry := models.GetGlobalRegistry()
-	modelInfo := registry.LookupModel(provider, model)
+	modelInfo, provider := lookupTrackableModel(modelString)
 	if modelInfo == nil {
 		return nil
 	}
-
-	isOAuth := false
-	if provider == "anthropic" {
-		_, source, err := auth.GetAnthropicAPIKey(providerAPIKey)
-		if err == nil && strings.HasPrefix(source, "stored OAuth") {
-			isOAuth = true
-		}
-	}
-
+	isOAuth := provider == "anthropic" && auth.IsAnthropicOAuth(providerAPIKey)
 	return NewUsageTracker(modelInfo, provider, 80, isOAuth)
+}
+
+// UpdateUsageTrackerForModel refreshes an existing tracker after a model
+// switch so token counting and cost reporting use the new model's metadata.
+// No-op for a nil tracker or untrackable models (unknown/ollama).
+func UpdateUsageTrackerForModel(t *UsageTracker, modelString, providerAPIKey string) {
+	if t == nil {
+		return
+	}
+	modelInfo, provider := lookupTrackableModel(modelString)
+	if modelInfo == nil {
+		return
+	}
+	isOAuth := provider == "anthropic" && auth.IsAnthropicOAuth(providerAPIKey)
+	t.UpdateModelInfo(modelInfo, provider, isOAuth)
+}
+
+// lookupTrackableModel resolves a model string to registry metadata, returning
+// nil for models without usage tracking support (unknown or ollama models).
+func lookupTrackableModel(modelString string) (*models.ModelInfo, string) {
+	provider, model := parseModelName(modelString)
+	if provider == "unknown" || model == "unknown" || provider == "ollama" {
+		return nil, provider
+	}
+	return models.GetGlobalRegistry().LookupModel(provider, model), provider
 }
 
 // SetupCLI creates, configures, and initializes a CLI instance with the provided
@@ -89,24 +99,8 @@ func SetupCLI(opts *CLISetupOptions) (*CLI, error) {
 	}
 
 	// Set up usage tracking for supported providers
-	if provider != "unknown" && model != "unknown" {
-		// Skip usage tracking for ollama as it's not in models.dev
-		if provider != "ollama" {
-			registry := models.GetGlobalRegistry()
-			if modelInfo := registry.LookupModel(provider, model); modelInfo != nil {
-				// Check if OAuth credentials are being used for Anthropic models
-				isOAuth := false
-				if provider == "anthropic" {
-					_, source, err := auth.GetAnthropicAPIKey(opts.ProviderAPIKey)
-					if err == nil && strings.HasPrefix(source, "stored OAuth") {
-						isOAuth = true
-					}
-				}
-
-				usageTracker := NewUsageTracker(modelInfo, provider, 80, isOAuth) // Will be updated with actual width
-				cli.SetUsageTracker(usageTracker)
-			}
-		}
+	if usageTracker := CreateUsageTracker(opts.ModelString, opts.ProviderAPIKey); usageTracker != nil {
+		cli.SetUsageTracker(usageTracker)
 	}
 
 	// Display model info (the system message block provides its own spacing).
