@@ -347,6 +347,9 @@ func init() {
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
+	_ = viper.BindPFlag("no-skills", rootCmd.PersistentFlags().Lookup("no-skills"))
+	_ = viper.BindPFlag("skill", rootCmd.PersistentFlags().Lookup("skill"))
+	_ = viper.BindPFlag("skills-dir", rootCmd.PersistentFlags().Lookup("skills-dir"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 

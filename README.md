@@ -128,6 +128,12 @@ temperature: 0.7
 stream: true
 thinking-level: off       # off, none, minimal, low, medium, high
 no-core-tools: false      # set to true to disable all built-in core tools
+
+# Skills — all three keys are optional
+no-skills: false          # set to true to disable all skill loading
+skill:                    # explicit skill files/dirs (disables auto-discovery)
+  - /path/to/skill.md
+skills-dir: ""            # override project-local directory for auto-discovery
 ```
 
 All of the above keys can also be set programmatically via the SDK

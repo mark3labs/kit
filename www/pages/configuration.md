@@ -47,6 +47,9 @@ stream: true
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 | `prompt-templates` | bool | `true` | Enable prompt template loading |
 | `prompt-template` | string | — | Specific template to load by name |
+| `no-skills` | bool | `false` | Disable skill loading (auto-discovery and explicit) |
+| `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
+| `skills-dir` | string | — | Override the project-local directory used for skill auto-discovery |
 
 ## Environment variables
 
