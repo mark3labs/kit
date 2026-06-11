@@ -4795,61 +4795,11 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		return r
 	}, name)
 
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
+	tmpPath, err := buildShareFile(name, data, sysPromptJSON)
 	if err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to create temp file: %v", err))
+		m.printSystemMessage(fmt.Sprintf("Failed to share session: %v", err))
 		return nil
 	}
-	tmpPath := tmpFile.Name()
-
-	// Write the session data with the system prompt entry inserted after the header.
-	// The header is the first line, so we write:
-	// 1. First line (header) from original data
-	// 2. System prompt entry
-	// 3. Remaining lines from original data
-	lines := strings.Split(string(data), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1] // Remove trailing empty line
-	}
-
-	if len(lines) > 0 {
-		// Write header (first line)
-		if _, err := tmpFile.WriteString(lines[0] + "\n"); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-			return nil
-		}
-
-		// Write system prompt entry
-		if _, err := tmpFile.Write(sysPromptJSON); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write system prompt: %v", err))
-			return nil
-		}
-		if _, err := tmpFile.WriteString("\n"); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-			return nil
-		}
-
-		// Write remaining lines
-		for i := 1; i < len(lines); i++ {
-			if lines[i] == "" {
-				continue // Skip empty lines
-			}
-			if _, err := tmpFile.WriteString(lines[i] + "\n"); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpPath)
-				m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-				return nil
-			}
-		}
-	}
-
-	_ = tmpFile.Close()
 
 	m.printSystemMessage("Uploading session to GitHub Gist...")
 
@@ -4873,6 +4823,56 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		viewerURL := fmt.Sprintf("https://go-kit.dev/session/#%s", gistID)
 		return shareResultMsg{gistURL: gistURL, viewerURL: viewerURL}
 	}
+}
+
+// buildShareFile assembles a temp JSONL file containing the session data
+// with the system-prompt entry inserted after the header line. On success
+// the caller owns the returned file and must remove it when done; on error
+// any partially-written temp file has already been cleaned up.
+func buildShareFile(name string, data, sysPromptJSON []byte) (tmpPath string, err error) {
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath = tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		if err != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	// Write the session data with the system prompt entry inserted after the
+	// header. The header is the first line, so we write:
+	// 1. First line (header) from original data
+	// 2. System prompt entry
+	// 3. Remaining lines from original data
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // Remove trailing empty line
+	}
+	if len(lines) == 0 {
+		return tmpPath, nil
+	}
+
+	if _, err = tmpFile.WriteString(lines[0] + "\n"); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	if _, err = tmpFile.Write(sysPromptJSON); err != nil {
+		return "", fmt.Errorf("write system prompt: %w", err)
+	}
+	if _, err = tmpFile.WriteString("\n"); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] == "" {
+			continue // Skip empty lines
+		}
+		if _, err = tmpFile.WriteString(lines[i] + "\n"); err != nil {
+			return "", fmt.Errorf("write temp file: %w", err)
+		}
+	}
+	return tmpPath, nil
 }
 
 // handleImportCommand imports a session from a JSONL file.
