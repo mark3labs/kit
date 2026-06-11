@@ -16,7 +16,8 @@ import (
 // ---------------------------------------------------------------------------
 
 // ParseTemplate extracts {{variables}} from template content. The template
-// grammar is shared with skill prompt templates (see internal/skills).
+// grammar is shared with skill prompt templates, so a template parses
+// identically regardless of which API loads it.
 func ParseTemplate(name, content string) extensions.PromptTemplate {
 	tpl := skills.NewPromptTemplate(name, content)
 	vars := tpl.Variables

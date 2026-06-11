@@ -106,8 +106,8 @@ type Event interface {
 // for execute tools) and file trackers to identify which results contain
 // modifications.
 //
-// The canonical classification lives in internal/extensions; these constants
-// re-export it so SDK events and extension events always agree.
+// These constants re-export the canonical classification used by extension
+// events, so SDK events and extension events always agree.
 const (
 	ToolKindExecute  = extensions.ToolKindExecute  // Shell execution (bash)
 	ToolKindEdit     = extensions.ToolKindEdit     // File modification (edit, write)

@@ -737,6 +737,9 @@ func (m *MCPToolManager) withOAuthRetry(ctx context.Context, serverName, toolNam
 // marshalToolResult converts an MCP CallToolResult into the JSON-encoded
 // MCPToolResult shape returned to the agent.
 func marshalToolResult(result *mcp.CallToolResult) (*MCPToolResult, error) {
+	if result == nil {
+		return nil, errors.New("mcp tool call returned nil result")
+	}
 	marshaled, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", err)
