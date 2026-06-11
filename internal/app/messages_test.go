@@ -29,7 +29,7 @@ func textOf(msg kit.LLMMessage) string {
 // --------------------------------------------------------------------------
 
 func TestNewMessageStore_empty(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	if s == nil {
 		t.Fatal("expected non-nil store")
 	}
@@ -72,7 +72,7 @@ func TestNewMessageStoreWithMessages_isolatesInput(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestAdd_appendsMessage(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	s.Add(makeTextMsg("user", "first"))
 	s.Add(makeTextMsg("assistant", "second"))
 
@@ -82,7 +82,7 @@ func TestAdd_appendsMessage(t *testing.T) {
 }
 
 func TestAdd_preservesOrder(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	texts := []string{"a", "b", "c"}
 	for _, t2 := range texts {
 		s.Add(makeTextMsg("user", t2))
@@ -100,7 +100,7 @@ func TestAdd_preservesOrder(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestReplace_swapsHistory(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	s.Add(makeTextMsg("user", "old"))
 
 	replacement := []kit.LLMMessage{
@@ -120,7 +120,7 @@ func TestReplace_swapsHistory(t *testing.T) {
 
 // Replace must deep-copy the incoming slice.
 func TestReplace_isolatesInput(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	replacement := []kit.LLMMessage{makeTextMsg("user", "original")}
 	s.Replace(replacement)
 
@@ -137,7 +137,7 @@ func TestReplace_isolatesInput(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestGetAll_returnsCopy(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	s.Add(makeTextMsg("user", "hello"))
 
 	got := s.GetAll()
@@ -151,7 +151,7 @@ func TestGetAll_returnsCopy(t *testing.T) {
 }
 
 func TestGetAll_emptyStore(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	got := s.GetAll()
 	if len(got) != 0 {
 		t.Fatalf("expected empty slice, got %d elements", len(got))
@@ -163,7 +163,7 @@ func TestGetAll_emptyStore(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestClear_removesAllMessages(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	s.Add(makeTextMsg("user", "a"))
 	s.Add(makeTextMsg("user", "b"))
 	s.Clear()
@@ -174,7 +174,7 @@ func TestClear_removesAllMessages(t *testing.T) {
 }
 
 func TestClear_allowsSubsequentAdds(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	s.Add(makeTextMsg("user", "before"))
 	s.Clear()
 	s.Add(makeTextMsg("user", "after"))
@@ -193,7 +193,7 @@ func TestClear_allowsSubsequentAdds(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestConcurrentAccess(t *testing.T) {
-	s := NewMessageStore()
+	s := NewMessageStoreWithMessages(nil)
 	done := make(chan struct{})
 
 	// Writer goroutine.

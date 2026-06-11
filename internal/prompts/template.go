@@ -325,8 +325,3 @@ func (t *PromptTemplate) Expand(argsInput string) string {
 	args := ParseCommandArgs(argsInput)
 	return SubstituteArgs(t.Content, args)
 }
-
-// ExpandWithArgs substitutes the provided arguments into the template content.
-func (t *PromptTemplate) ExpandWithArgs(args []string) string {
-	return SubstituteArgs(t.Content, args)
-}

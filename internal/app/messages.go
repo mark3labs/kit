@@ -13,11 +13,6 @@ type MessageStore struct {
 	messages []kit.LLMMessage
 }
 
-// NewMessageStore creates an empty MessageStore.
-func NewMessageStore() *MessageStore {
-	return &MessageStore{}
-}
-
 // NewMessageStoreWithMessages creates a MessageStore pre-populated with the
 // given messages. This is used when loading an existing session at startup.
 func NewMessageStoreWithMessages(msgs []kit.LLMMessage) *MessageStore {

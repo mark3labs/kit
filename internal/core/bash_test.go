@@ -183,7 +183,7 @@ func TestRewriteSudoForStdin(t *testing.T) {
 
 func TestSudoPasswordFromContext(t *testing.T) {
 	// Test with password in context
-	ctx := ContextWithSudoPassword(context.Background(), "secret123")
+	ctx := context.WithValue(context.Background(), sudoPasswordKey, "secret123")
 	pw := sudoPasswordFromContext(ctx)
 	if pw != "secret123" {
 		t.Errorf("expected password 'secret123', got %q", pw)

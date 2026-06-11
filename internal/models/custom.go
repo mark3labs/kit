@@ -69,13 +69,6 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 	return info
 }
 
-// LoadModelSettingsFromConfig loads per-model generation parameter overrides
-// from the process-global viper store. Keys are "provider/model" strings.
-// Returns nil if no model settings are configured.
-func LoadModelSettingsFromConfig() map[string]*GenerationParams {
-	return LoadModelSettingsFrom(viper.GetViper())
-}
-
 // LoadModelSettingsFrom loads per-model generation parameter overrides from the
 // supplied per-instance store. When v is nil the process-global store is used.
 // Keys are "provider/model" strings. Returns nil if no model settings are
