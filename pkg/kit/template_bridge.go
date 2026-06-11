@@ -7,45 +7,36 @@ import (
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/prompts"
+	"github.com/mark3labs/kit/internal/skills"
 )
 
 // ---------------------------------------------------------------------------
 // Template Parsing Bridge for Extensions (Phase 3)
 // ---------------------------------------------------------------------------
 
-// varRegex matches {{variable}} placeholders in templates.
-var varRegex = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
-
-// ParseTemplate extracts {{variables}} from template content.
+// ParseTemplate extracts {{variables}} from template content. The template
+// grammar is shared with skill prompt templates, so a template parses
+// identically regardless of which API loads it.
 func ParseTemplate(name, content string) extensions.PromptTemplate {
-	matches := varRegex.FindAllStringSubmatch(content, -1)
-	vars := make([]string, 0, len(matches))
-	seen := make(map[string]bool)
-	for _, m := range matches {
-		if len(m) > 1 && !seen[m[1]] {
-			seen[m[1]] = true
-			vars = append(vars, m[1])
-		}
+	tpl := skills.NewPromptTemplate(name, content)
+	vars := tpl.Variables
+	if vars == nil {
+		vars = []string{}
 	}
 	return extensions.PromptTemplate{
-		Name:      name,
-		Content:   content,
+		Name:      tpl.Name,
+		Content:   tpl.Content,
 		Variables: vars,
 	}
 }
 
 // RenderTemplate substitutes variables into template content.
-// Handles {{name}} and {{ name }} (any whitespace) placeholders.
+// Handles {{name}} and {{ name }} (any whitespace) placeholders; missing
+// variables are left as-is.
 func RenderTemplate(tpl extensions.PromptTemplate, vars map[string]string) string {
-	return varRegex.ReplaceAllStringFunc(tpl.Content, func(m string) string {
-		sub := varRegex.FindStringSubmatch(m)
-		if len(sub) > 1 {
-			if v, ok := vars[sub[1]]; ok {
-				return v
-			}
-		}
-		return m
-	})
+	t := skills.PromptTemplate{Content: tpl.Content}
+	return t.Expand(vars)
 }
 
 // ParseArguments parses command-line style arguments.
@@ -183,44 +174,12 @@ func SimpleParseArguments(input string, count int) []string {
 	return result
 }
 
-// parseFields splits input respecting quoted strings.
+// parseFields splits input into arguments respecting quoted strings and
+// backslash escaping. It delegates to the canonical tokenizer in
+// internal/prompts so extension argument parsing and builtin prompt-template
+// parsing agree on grammar.
 func parseFields(input string) []string {
-	var fields []string
-	var current strings.Builder
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, r := range input {
-		switch r {
-		case '"', '\'':
-			if !inQuote {
-				inQuote = true
-				quoteChar = r
-			} else if r == quoteChar {
-				inQuote = false
-				quoteChar = 0
-			} else {
-				current.WriteRune(r)
-			}
-		case ' ', '\t':
-			if inQuote {
-				current.WriteRune(r)
-			} else {
-				if current.Len() > 0 {
-					fields = append(fields, current.String())
-					current.Reset()
-				}
-			}
-		default:
-			current.WriteRune(r)
-		}
-	}
-
-	if current.Len() > 0 {
-		fields = append(fields, current.String())
-	}
-
-	return fields
+	return prompts.ParseCommandArgs(input)
 }
 
 // EvaluateModelConditional checks if condition matches current model.
@@ -417,21 +376,18 @@ func MatchModelGlob(model, pattern string) bool {
 }
 
 // ExtractProviderFromPath extracts provider from a path-like model string.
+//
+// Deprecated: Use GetCurrentProvider instead.
 func ExtractProviderFromPath(model string) string {
-	parts := strings.Split(model, "/")
-	if len(parts) >= 2 {
-		return parts[0]
-	}
-	return ""
+	return GetCurrentProvider(model)
 }
 
 // ExtractModelFromPath extracts model ID from a path-like model string.
+//
+// Deprecated: Use RemoveProviderFromModel instead, which correctly handles
+// model IDs containing "/" (e.g. "openrouter/meta/llama").
 func ExtractModelFromPath(model string) string {
-	parts := strings.Split(model, "/")
-	if len(parts) >= 2 {
-		return parts[1]
-	}
-	return model
+	return RemoveProviderFromModel(model)
 }
 
 // IsBareModelID checks if a string is a bare model ID (no provider).

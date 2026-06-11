@@ -641,30 +641,16 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 			Request: mcp.Request{Method: "tools/call"},
 			Params:  callParams,
 		}
-		result, callErr := conn.client.CallTool(ctx, callRequest)
-		if callErr != nil {
-			if m.connectionPool.oauthFlow != nil && IsOAuthError(callErr) {
-				if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, callErr); flowErr != nil {
-					return nil, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", mapping.originalName, flowErr)
-				}
-				result, callErr = conn.client.CallTool(ctx, callRequest)
-				if callErr != nil {
-					m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
-					return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", callErr)
-				}
-			} else {
-				m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
-				return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
-			}
+		var result *mcp.CallToolResult
+		err := m.withOAuthRetry(ctx, mapping.serverName, mapping.originalName, func() error {
+			var callErr error
+			result, callErr = conn.client.CallTool(ctx, callRequest)
+			return callErr
+		})
+		if err != nil {
+			return nil, err
 		}
-		marshaledResult, mErr := json.Marshal(result)
-		if mErr != nil {
-			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
-		}
-		return &MCPToolResult{
-			Content: string(marshaledResult),
-			IsError: result.IsError,
-		}, nil
+		return marshalToolResult(result)
 	}
 
 	// Task-augmented path. Bypass the upstream CallTool helper because its
@@ -683,40 +669,25 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 			m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
 			return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
 		}
-		marshaledResult, mErr := json.Marshal(result)
-		if mErr != nil {
-			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
-		}
-		return &MCPToolResult{Content: string(marshaledResult), IsError: result.IsError}, nil
+		return marshalToolResult(result)
 	}
 
-	callResult, taskResult, callErr := callToolWithTask(ctx, rawClient, callParams)
-	if callErr != nil {
-		if m.connectionPool.oauthFlow != nil && IsOAuthError(callErr) {
-			if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, mapping.serverName, callErr); flowErr != nil {
-				return nil, fmt.Errorf("OAuth re-authorization failed for tool %s: %w", mapping.originalName, flowErr)
-			}
-			callResult, taskResult, callErr = callToolWithTask(ctx, rawClient, callParams)
-			if callErr != nil {
-				m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
-				return nil, fmt.Errorf("failed to call mcp tool after re-auth: %w", callErr)
-			}
-		} else {
-			m.connectionPool.HandleConnectionError(mapping.serverName, callErr)
-			return nil, fmt.Errorf("failed to call mcp tool: %w", callErr)
-		}
+	var (
+		callResult *mcp.CallToolResult
+		taskResult *mcp.CreateTaskResult
+	)
+	err = m.withOAuthRetry(ctx, mapping.serverName, mapping.originalName, func() error {
+		var callErr error
+		callResult, taskResult, callErr = callToolWithTask(ctx, rawClient, callParams)
+		return callErr
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	// Server chose to answer synchronously — same shape as the no-task path.
 	if callResult != nil {
-		marshaledResult, mErr := json.Marshal(callResult)
-		if mErr != nil {
-			return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
-		}
-		return &MCPToolResult{
-			Content: string(marshaledResult),
-			IsError: callResult.IsError,
-		}, nil
+		return marshalToolResult(callResult)
 	}
 
 	// Asynchronous task path: poll until terminal, then return the result.
@@ -732,18 +703,50 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 	}
 
 	// Adapt TaskResultResult → CallToolResult for downstream JSON shape parity.
-	adapted := &mcp.CallToolResult{
+	return marshalToolResult(&mcp.CallToolResult{
 		Content:           final.Content,
 		StructuredContent: final.StructuredContent,
 		IsError:           final.IsError,
+	})
+}
+
+// withOAuthRetry runs call once; when it fails with an OAuth error and an
+// OAuth flow is configured, it re-authorizes the server and retries once.
+// Connection failures are reported to the pool and wrapped uniformly. This
+// consolidates the retry/error chain shared by the synchronous and
+// task-augmented tool-call paths.
+func (m *MCPToolManager) withOAuthRetry(ctx context.Context, serverName, toolName string, call func() error) error {
+	callErr := call()
+	if callErr == nil {
+		return nil
 	}
-	marshaledResult, mErr := json.Marshal(adapted)
-	if mErr != nil {
-		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", mErr)
+	if m.connectionPool.oauthFlow != nil && IsOAuthError(callErr) {
+		if flowErr := m.connectionPool.oauthFlow.RunAuthFlow(ctx, serverName, callErr); flowErr != nil {
+			return fmt.Errorf("OAuth re-authorization failed for tool %s: %w", toolName, flowErr)
+		}
+		if callErr = call(); callErr != nil {
+			m.connectionPool.HandleConnectionError(serverName, callErr)
+			return fmt.Errorf("failed to call mcp tool after re-auth: %w", callErr)
+		}
+		return nil
+	}
+	m.connectionPool.HandleConnectionError(serverName, callErr)
+	return fmt.Errorf("failed to call mcp tool: %w", callErr)
+}
+
+// marshalToolResult converts an MCP CallToolResult into the JSON-encoded
+// MCPToolResult shape returned to the agent.
+func marshalToolResult(result *mcp.CallToolResult) (*MCPToolResult, error) {
+	if result == nil {
+		return nil, errors.New("mcp tool call returned nil result")
+	}
+	marshaled, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal mcp tool result: %w", err)
 	}
 	return &MCPToolResult{
-		Content: string(marshaledResult),
-		IsError: final.IsError,
+		Content: string(marshaled),
+		IsError: result.IsError,
 	}, nil
 }
 

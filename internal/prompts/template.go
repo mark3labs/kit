@@ -70,7 +70,8 @@ func ParseTemplate(path string) (*PromptTemplate, error) {
 }
 
 // ParseCommandArgs splits a command line into arguments respecting quotes.
-// It handles single quotes, double quotes, and backslash escaping.
+// It handles single quotes, double quotes, backslash escaping, and splits on
+// spaces and tabs.
 func ParseCommandArgs(input string) []string {
 	var args []string
 	var current strings.Builder
@@ -78,7 +79,7 @@ func ParseCommandArgs(input string) []string {
 	inDoubleQuote := false
 	escaped := false
 
-	for i, r := range input {
+	for _, r := range input {
 		if escaped {
 			current.WriteRune(r)
 			escaped = false
@@ -101,7 +102,7 @@ func ParseCommandArgs(input string) []string {
 			continue
 		}
 
-		if r == ' ' && !inSingleQuote && !inDoubleQuote {
+		if (r == ' ' || r == '\t') && !inSingleQuote && !inDoubleQuote {
 			if current.Len() > 0 {
 				args = append(args, current.String())
 				current.Reset()
@@ -110,7 +111,6 @@ func ParseCommandArgs(input string) []string {
 		}
 
 		current.WriteRune(r)
-		_ = i // silence unused warning when we need position later
 	}
 
 	if current.Len() > 0 {
@@ -323,10 +323,5 @@ func (t *PromptTemplate) RequiredArgs() int {
 // It first parses args from the input string, then substitutes them into the template.
 func (t *PromptTemplate) Expand(argsInput string) string {
 	args := ParseCommandArgs(argsInput)
-	return SubstituteArgs(t.Content, args)
-}
-
-// ExpandWithArgs substitutes the provided arguments into the template content.
-func (t *PromptTemplate) ExpandWithArgs(args []string) string {
 	return SubstituteArgs(t.Content, args)
 }

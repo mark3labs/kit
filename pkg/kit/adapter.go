@@ -11,12 +11,12 @@ import (
 // treeManagerAdapter adapts TreeManager to SessionManager interface.
 // This is unexported - users don't interact with it directly.
 type treeManagerAdapter struct {
-	inner *session.TreeManager
+	inner *TreeManager
 }
 
 // NewTreeManagerAdapter creates an adapter (exported for use in New function).
 // This is used by the SDK when no custom SessionManager is provided.
-func NewTreeManagerAdapter(tm *session.TreeManager) SessionManager {
+func NewTreeManagerAdapter(tm *TreeManager) SessionManager {
 	return &treeManagerAdapter{inner: tm}
 }
 

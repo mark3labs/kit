@@ -12,7 +12,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mark3labs/kit/internal/app"
-	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
@@ -677,8 +676,8 @@ func globalShortcutsProviderForUI(k *kit.Kit) func() map[string]func() {
 	}
 }
 
-func runNormalMode(ctx context.Context) error {
-	// Validate flag combinations
+// validateModeFlags rejects invalid flag combinations for the root command.
+func validateModeFlags() error {
 	if quietFlag && positionalPrompt == "" {
 		return fmt.Errorf("--quiet requires a prompt (e.g. kit \"your question\" --quiet)")
 	}
@@ -691,21 +690,14 @@ func runNormalMode(ctx context.Context) error {
 	if noExitFlag && positionalPrompt == "" {
 		return fmt.Errorf("--no-exit requires a prompt (e.g. kit \"your question\" --no-exit)")
 	}
+	return nil
+}
 
-	// Set up logging
-	if debugMode {
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
-	}
-
-	// Update debug mode from viper
-	if viper.GetBool("debug") && !debugMode {
-		debugMode = viper.GetBool("debug")
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
-	}
-
-	// Restore persisted model preference when no explicit --model flag or
-	// config file model is set. Precedence: CLI flag > config file > saved
-	// preference > built-in default. This mirrors how themes are persisted.
+// restorePersistedPreferences applies saved model / thinking-level
+// preferences into viper when neither a CLI flag nor a config-file value
+// takes precedence. Precedence: CLI flag > config file > saved preference >
+// built-in default. This mirrors how themes are persisted.
+func restorePersistedPreferences() {
 	// Skip custom/* models unless --provider-url is also provided, since the
 	// custom provider requires a URL that was only valid for the previous session.
 	if !modelFlagChanged && !viper.InConfig("model") {
@@ -724,6 +716,15 @@ func runNormalMode(ctx context.Context) error {
 			viper.Set("thinking-level", pref)
 		}
 	}
+}
+
+// applyProviderURLRouting rewrites the model in viper when --provider-url
+// is set, routing requests through the "custom" (OpenAI-compatible)
+// provider. Must run after restorePersistedPreferences.
+func applyProviderURLRouting() {
+	if viper.GetString("provider-url") == "" {
+		return
+	}
 
 	// When --provider-url is set but no explicit --model was provided,
 	// default to "custom/custom" so the user doesn't need to remember a
@@ -731,7 +732,7 @@ func runNormalMode(ctx context.Context) error {
 	// This intentionally overrides saved preferences but respects config-file
 	// models — if you specify a model in ~/.kit.yml, it will be used with
 	// custom/custom's provider routing.
-	if viper.GetString("provider-url") != "" && !modelFlagChanged && !viper.InConfig("model") {
+	if !modelFlagChanged && !viper.InConfig("model") {
 		viper.Set("model", "custom/custom")
 	}
 
@@ -746,7 +747,7 @@ func runNormalMode(ctx context.Context) error {
 	// to point a non-OpenAI wire (Anthropic, Google, ...) at a proxy URL,
 	// use the explicit `custom/<name>` form to opt out of the rewrite by
 	// configuring the proxy as that provider in your config file instead.
-	if viper.GetString("provider-url") != "" && modelFlagChanged {
+	if modelFlagChanged {
 		model := viper.GetString("model")
 		if model != "" {
 			name := model
@@ -758,6 +759,26 @@ func runNormalMode(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func runNormalMode(ctx context.Context) error {
+	if err := validateModeFlags(); err != nil {
+		return err
+	}
+
+	// Set up logging
+	if debugMode {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+
+	// Update debug mode from viper
+	if viper.GetBool("debug") && !debugMode {
+		debugMode = viper.GetBool("debug")
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+
+	restorePersistedPreferences()
+	applyProviderURLRouting()
 
 	// Load MCP configuration.
 	mcpConfig, err := config.LoadAndValidateConfig()
@@ -1164,23 +1185,7 @@ func runNormalMode(ctx context.Context) error {
 		// NotifyModelChanged calls prog.Send() which deadlocks. The UI layer
 		// updates m.providerName and m.modelName directly after setModel returns.
 		// Update usage tracker with new model info for correct token counting.
-		if usageTracker != nil {
-			newProvider, newModel, _ := models.ParseModelString(modelString)
-			if newProvider != "unknown" && newModel != "unknown" && newProvider != "ollama" {
-				registry := models.GetGlobalRegistry()
-				if modelInfo := registry.LookupModel(newProvider, newModel); modelInfo != nil {
-					// Check OAuth status for Anthropic models
-					isOAuth := false
-					if newProvider == "anthropic" {
-						_, source, err := auth.GetAnthropicAPIKey(viper.GetString("provider-api-key"))
-						if err == nil && strings.HasPrefix(source, "stored OAuth") {
-							isOAuth = true
-						}
-					}
-					usageTracker.UpdateModelInfo(modelInfo, newProvider, isOAuth)
-				}
-			}
-		}
+		ui.UpdateUsageTrackerForModel(usageTracker, modelString, viper.GetString("provider-api-key"))
 		return nil
 	}
 	emitModelChangeForUI := func(newModel, previousModel, source string) {

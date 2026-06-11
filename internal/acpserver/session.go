@@ -73,111 +73,70 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 
 	// Wire extension context with headless implementations so extensions
 	// work in ACP mode. TUI-dependent features (widgets, prompts, editor)
-	// become no-ops or return cancelled; all data/model/tool APIs work
-	// identically to interactive mode.
+	// become no-ops or return cancelled; all data/model/tool APIs come from
+	// extbridge.BaseContext and work identically to interactive mode.
 	if kitInstance.Extensions().HasExtensions() {
-		kitInstance.Extensions().SetContext(extensions.Context{
-			SessionID:   sessionID,
-			CWD:         cwd,
-			Model:       kitInstance.GetModelString(),
-			Interactive: false,
+		// Use a background context for subagent spawns: the create() ctx is
+		// request-scoped and may be cancelled before extensions spawn anything.
+		ec := extbridge.BaseContext(context.Background(), kitInstance)
 
-			// Output — route through structured logger.
-			Print:      func(text string) { log.Debug("extension: print", "text", text) },
-			PrintInfo:  func(text string) { log.Info("extension: info", "text", text) },
-			PrintError: func(text string) { log.Error("extension: error", "text", text) },
-			PrintBlock: func(opts extensions.PrintBlockOpts) {
-				log.Info("extension: block", "subtitle", opts.Subtitle, "text", opts.Text)
-			},
+		ec.SessionID = sessionID
+		ec.CWD = cwd
+		ec.Model = kitInstance.GetModelString()
+		ec.Interactive = false
 
-			// Message injection — no-ops for now; ACP clients drive prompts.
-			SendMessage:   func(string) {},
-			CancelAndSend: func(string) {},
-			Exit:          func() {},
+		// Output — route through structured logger.
+		ec.Print = func(text string) { log.Debug("extension: print", "text", text) }
+		ec.PrintInfo = func(text string) { log.Info("extension: info", "text", text) }
+		ec.PrintError = func(text string) { log.Error("extension: error", "text", text) }
+		ec.PrintBlock = func(opts extensions.PrintBlockOpts) {
+			log.Info("extension: block", "subtitle", opts.Subtitle, "text", opts.Text)
+		}
 
-			// TUI widgets/chrome — silent no-ops (no TUI in ACP).
-			SetWidget:       func(extensions.WidgetConfig) {},
-			RemoveWidget:    func(string) {},
-			SetHeader:       func(extensions.HeaderFooterConfig) {},
-			RemoveHeader:    func() {},
-			SetFooter:       func(extensions.HeaderFooterConfig) {},
-			RemoveFooter:    func() {},
-			SetEditor:       func(extensions.EditorConfig) {},
-			ResetEditor:     func() {},
-			SetEditorText:   func(string) {},
-			SetUIVisibility: func(extensions.UIVisibility) {},
-			SetStatus:       func(string, string, int) {},
-			RemoveStatus:    func(string) {},
+		// Message injection — no-ops for now; ACP clients drive prompts.
+		ec.SendMessage = func(string) {}
+		ec.CancelAndSend = func(string) {}
+		ec.Exit = func() {}
 
-			// Interactive prompts — return cancelled (no user to prompt).
-			PromptSelect: func(extensions.PromptSelectConfig) extensions.PromptSelectResult {
-				return extensions.PromptSelectResult{Cancelled: true}
-			},
-			PromptConfirm: func(extensions.PromptConfirmConfig) extensions.PromptConfirmResult {
-				return extensions.PromptConfirmResult{Cancelled: true}
-			},
-			PromptInput: func(extensions.PromptInputConfig) extensions.PromptInputResult {
-				return extensions.PromptInputResult{Cancelled: true}
-			},
-			ShowOverlay: func(extensions.OverlayConfig) extensions.OverlayResult {
-				return extensions.OverlayResult{Cancelled: true, Index: -1}
-			},
-			SuspendTUI: func(callback func()) error { callback(); return nil },
+		// TUI widgets/chrome — silent no-ops (no TUI in ACP).
+		ec.SetWidget = func(extensions.WidgetConfig) {}
+		ec.RemoveWidget = func(string) {}
+		ec.SetHeader = func(extensions.HeaderFooterConfig) {}
+		ec.RemoveHeader = func() {}
+		ec.SetFooter = func(extensions.HeaderFooterConfig) {}
+		ec.RemoveFooter = func() {}
+		ec.SetEditor = func(extensions.EditorConfig) {}
+		ec.ResetEditor = func() {}
+		ec.SetEditorText = func(string) {}
+		ec.SetUIVisibility = func(extensions.UIVisibility) {}
+		ec.SetStatus = func(string, string, int) {}
+		ec.RemoveStatus = func(string) {}
 
-			// Data access — delegate to Kit instance.
-			GetContextStats: func() extensions.ContextStats {
-				s := kitInstance.GetContextStats()
-				return extensions.ContextStats{
-					EstimatedTokens: s.EstimatedTokens,
-					ContextLimit:    s.ContextLimit,
-					UsagePercent:    s.UsagePercent,
-					MessageCount:    s.MessageCount,
-				}
-			},
-			GetMessages:    func() []extensions.SessionMessage { return kitInstance.Extensions().GetSessionMessages() },
-			GetSessionPath: func() string { return kitInstance.GetSessionPath() },
-			AppendEntry: func(entryType, data string) (string, error) {
-				return kitInstance.Extensions().AppendEntry(entryType, data)
-			},
-			GetEntries: func(entryType string) []extensions.ExtensionEntry {
-				return kitInstance.Extensions().GetEntries(entryType)
-			},
+		// Interactive prompts — return cancelled (no user to prompt).
+		ec.PromptSelect = func(extensions.PromptSelectConfig) extensions.PromptSelectResult {
+			return extensions.PromptSelectResult{Cancelled: true}
+		}
+		ec.PromptConfirm = func(extensions.PromptConfirmConfig) extensions.PromptConfirmResult {
+			return extensions.PromptConfirmResult{Cancelled: true}
+		}
+		ec.PromptInput = func(extensions.PromptInputConfig) extensions.PromptInputResult {
+			return extensions.PromptInputResult{Cancelled: true}
+		}
+		ec.ShowOverlay = func(extensions.OverlayConfig) extensions.OverlayResult {
+			return extensions.OverlayResult{Cancelled: true, Index: -1}
+		}
+		ec.SuspendTUI = func(callback func()) error { callback(); return nil }
 
-			// Options, model, and tool management.
-			GetOption: func(name string) string { return kitInstance.Extensions().GetOption(name) },
-			SetOption: func(name, value string) { kitInstance.Extensions().SetOption(name, value) },
-			SetModel: func(modelString string) error {
-				previousModel := kitInstance.Extensions().GetContext().Model
-				if err := kitInstance.SetModel(context.Background(), modelString); err != nil {
-					return err
-				}
-				kitInstance.Extensions().UpdateContextModel(modelString)
-				kitInstance.Extensions().EmitModelChange(modelString, previousModel, "extension")
-				return nil
-			},
-			GetAvailableModels: func() []extensions.ModelInfoEntry { return kitInstance.GetAvailableModels() },
-			EmitCustomEvent:    func(name, data string) { kitInstance.Extensions().EmitCustomEvent(name, data) },
-			GetAllTools:        func() []extensions.ToolInfo { return kitInstance.Extensions().GetToolInfos() },
-			SetActiveTools:     func(names []string) { kitInstance.Extensions().SetActiveTools(names) },
+		// Render — fall back to logging.
+		ec.RenderMessage = func(name, content string) {
+			renderer := kitInstance.Extensions().GetMessageRenderer(name)
+			if renderer != nil && renderer.Render != nil {
+				content = renderer.Render(content, 80)
+			}
+			log.Info("extension: message", "renderer", name, "content", content)
+		}
 
-			// LLM completions and subagents.
-			Complete: func(req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
-				return kitInstance.ExecuteCompletion(context.Background(), req)
-			},
-			SpawnSubagent: func(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
-				return extbridge.SpawnSubagent(context.Background(), kitInstance, config)
-			},
-
-			// Render — fall back to logging.
-			RenderMessage: func(name, content string) {
-				renderer := kitInstance.Extensions().GetMessageRenderer(name)
-				if renderer != nil && renderer.Render != nil {
-					content = renderer.Render(content, 80)
-				}
-				log.Info("extension: message", "renderer", name, "content", content)
-			},
-			ReloadExtensions: func() error { return kitInstance.Extensions().Reload() },
-		})
+		kitInstance.Extensions().SetContext(ec)
 		kitInstance.Extensions().EmitSessionStart()
 	}
 

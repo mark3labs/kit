@@ -56,9 +56,3 @@ func (e *EnvSubstituter) SubstituteEnvVars(content string) (string, error) {
 
 	return result, nil
 }
-
-// HasEnvVars checks if content contains environment variable patterns (${env://...}).
-// This is useful for determining if substitution is needed before processing.
-func HasEnvVars(content string) bool {
-	return envVarPattern.MatchString(content)
-}

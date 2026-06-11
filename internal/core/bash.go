@@ -59,12 +59,6 @@ func passwordPromptFromContext(ctx context.Context) PasswordPromptCallback {
 	return nil
 }
 
-// ContextWithSudoPassword returns a new context with the sudo password set.
-// When present, the bash tool will use sudo -S to pipe this password to sudo commands.
-func ContextWithSudoPassword(ctx context.Context, password string) context.Context {
-	return context.WithValue(ctx, sudoPasswordKey, password)
-}
-
 // sudoPasswordFromContext retrieves the sudo password from context.
 func sudoPasswordFromContext(ctx context.Context) string {
 	if pw, ok := ctx.Value(sudoPasswordKey).(string); ok {

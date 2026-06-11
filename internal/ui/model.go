@@ -1208,53 +1208,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modelSelector = nil
 		m.state = stateInput
 		if m.setModel != nil {
-			previousModel := m.providerName + "/" + m.modelName
-
-			// Check if thinking level needs adjustment for the new model.
-			// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
-			if m.thinkingLevel != "" && m.thinkingLevel != "off" {
-				parts := strings.SplitN(msg.ModelString, "/", 2)
-				if len(parts) == 2 {
-					modelName := parts[1]
-					currentLevel := models.ParseThinkingLevel(m.thinkingLevel)
-					if !models.IsValidThinkingLevelForModel(currentLevel, modelName) {
-						fallback := models.SuggestThinkingLevelFallback(currentLevel, modelName)
-						if fallback != models.ThinkingOff {
-							m.printSystemMessage(fmt.Sprintf(
-								"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
-								modelName, currentLevel, fallback,
-							))
-							m.thinkingLevel = string(fallback)
-							if m.setThinkingLevel != nil {
-								_ = m.setThinkingLevel(string(fallback))
-							}
-							go func() { _ = prefs.SaveThinkingLevelPreference(string(fallback)) }()
-						}
-					}
-				}
-			}
-
-			if err := m.setModel(msg.ModelString); err != nil {
-				m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
-			} else {
-				// Update display state directly — we cannot use
-				// NotifyModelChanged (prog.Send) from inside Update()
-				// without deadlocking BubbleTea.
-				parts := strings.SplitN(msg.ModelString, "/", 2)
-				if len(parts) == 2 {
-					m.providerName = parts[0]
-					m.modelName = parts[1]
-				}
-				m.printSystemMessage(fmt.Sprintf("Switched to %s", msg.ModelString))
-				// Persist model selection for next launch.
-				go func() { _ = prefs.SaveModelPreference(msg.ModelString) }()
-				if m.emitModelChange != nil {
-					emit := m.emitModelChange
-					newModel := msg.ModelString
-					prev := previousModel
-					go emit(newModel, prev, "user")
-				}
-			}
+			m.switchModel(msg.ModelString)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -4211,11 +4165,31 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	// Direct model switch with the provided model string.
+	m.switchModel(args)
+	return nil
+}
+
+// switchModel performs a direct model switch, shared by the model selector
+// overlay and the /model slash command: it adjusts the thinking level when
+// the new model doesn't support the current one, calls the setModel
+// callback, updates display state, persists preferences, and emits the
+// ModelChange extension event.
+//
+// Display state is updated directly — we cannot use NotifyModelChanged
+// (prog.Send) from inside Update() without deadlocking BubbleTea.
+func (m *AppModel) switchModel(modelString string) {
+	if m.setModel == nil {
+		m.printSystemMessage("Model switching is not available.")
+		return
+	}
+
+	previousModel := m.providerName + "/" + m.modelName
+
 	// Check if thinking level needs adjustment for the new model.
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
 	if m.thinkingLevel != "" && m.thinkingLevel != "off" {
-		parts := strings.SplitN(args, "/", 2)
-		if len(parts) == 2 {
+		if parts := strings.SplitN(modelString, "/", 2); len(parts) == 2 {
 			modelName := parts[1]
 			currentLevel := models.ParseThinkingLevel(m.thinkingLevel)
 			if !models.IsValidThinkingLevelForModel(currentLevel, modelName) {
@@ -4235,32 +4209,26 @@ func (m *AppModel) handleModelCommand(args string) tea.Cmd {
 		}
 	}
 
-	// Direct model switch with the provided model string.
-	previousModel := m.providerName + "/" + m.modelName
-	if err := m.setModel(args); err != nil {
+	if err := m.setModel(modelString); err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to switch model: %v", err))
-		return nil
+		return
 	}
 
 	// Update display state directly (cannot use prog.Send from Update).
-	parts := strings.SplitN(args, "/", 2)
-	if len(parts) == 2 {
+	if parts := strings.SplitN(modelString, "/", 2); len(parts) == 2 {
 		m.providerName = parts[0]
 		m.modelName = parts[1]
 	}
 
-	if m.emitModelChange != nil {
-		emit := m.emitModelChange
-		prev := previousModel
-		newModel := args
-		go emit(newModel, prev, "user")
-	}
+	m.printSystemMessage(fmt.Sprintf("Switched to %s", modelString))
 
 	// Persist model selection for next launch.
-	go func() { _ = prefs.SaveModelPreference(args) }()
+	go func() { _ = prefs.SaveModelPreference(modelString) }()
 
-	m.printSystemMessage(fmt.Sprintf("Switched to %s", args))
-	return nil
+	if m.emitModelChange != nil {
+		emit := m.emitModelChange
+		go emit(modelString, previousModel, "user")
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -4827,61 +4795,11 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		return r
 	}, name)
 
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
+	tmpPath, err := buildShareFile(name, data, sysPromptJSON)
 	if err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to create temp file: %v", err))
+		m.printSystemMessage(fmt.Sprintf("Failed to share session: %v", err))
 		return nil
 	}
-	tmpPath := tmpFile.Name()
-
-	// Write the session data with the system prompt entry inserted after the header.
-	// The header is the first line, so we write:
-	// 1. First line (header) from original data
-	// 2. System prompt entry
-	// 3. Remaining lines from original data
-	lines := strings.Split(string(data), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1] // Remove trailing empty line
-	}
-
-	if len(lines) > 0 {
-		// Write header (first line)
-		if _, err := tmpFile.WriteString(lines[0] + "\n"); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-			return nil
-		}
-
-		// Write system prompt entry
-		if _, err := tmpFile.Write(sysPromptJSON); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write system prompt: %v", err))
-			return nil
-		}
-		if _, err := tmpFile.WriteString("\n"); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-			return nil
-		}
-
-		// Write remaining lines
-		for i := 1; i < len(lines); i++ {
-			if lines[i] == "" {
-				continue // Skip empty lines
-			}
-			if _, err := tmpFile.WriteString(lines[i] + "\n"); err != nil {
-				_ = tmpFile.Close()
-				_ = os.Remove(tmpPath)
-				m.printSystemMessage(fmt.Sprintf("Failed to write temp file: %v", err))
-				return nil
-			}
-		}
-	}
-
-	_ = tmpFile.Close()
 
 	m.printSystemMessage("Uploading session to GitHub Gist...")
 
@@ -4905,6 +4823,56 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		viewerURL := fmt.Sprintf("https://go-kit.dev/session/#%s", gistID)
 		return shareResultMsg{gistURL: gistURL, viewerURL: viewerURL}
 	}
+}
+
+// buildShareFile assembles a temp JSONL file containing the session data
+// with the system-prompt entry inserted after the header line. On success
+// the caller owns the returned file and must remove it when done; on error
+// any partially-written temp file has already been cleaned up.
+func buildShareFile(name string, data, sysPromptJSON []byte) (tmpPath string, err error) {
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath = tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		if err != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	// Write the session data with the system prompt entry inserted after the
+	// header. The header is the first line, so we write:
+	// 1. First line (header) from original data
+	// 2. System prompt entry
+	// 3. Remaining lines from original data
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // Remove trailing empty line
+	}
+	if len(lines) == 0 {
+		return tmpPath, nil
+	}
+
+	if _, err = tmpFile.WriteString(lines[0] + "\n"); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	if _, err = tmpFile.Write(sysPromptJSON); err != nil {
+		return "", fmt.Errorf("write system prompt: %w", err)
+	}
+	if _, err = tmpFile.WriteString("\n"); err != nil {
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] == "" {
+			continue // Skip empty lines
+		}
+		if _, err = tmpFile.WriteString(lines[i] + "\n"); err != nil {
+			return "", fmt.Errorf("write temp file: %w", err)
+		}
+	}
+	return tmpPath, nil
 }
 
 // handleImportCommand imports a session from a JSONL file.

@@ -18,8 +18,11 @@ type PromptTemplate struct {
 	Variables []string
 }
 
-// variableRe matches {{variable_name}} placeholders.
-var variableRe = regexp.MustCompile(`\{\{(\w+)\}\}`)
+// variableRe matches {{variable_name}} placeholders, tolerating surrounding
+// whitespace inside the braces (e.g. {{ name }}). This is the canonical
+// template grammar shared by skill prompts and the extension template API
+// (pkg/kit ParseTemplate/RenderTemplate delegate here).
+var variableRe = regexp.MustCompile(`\{\{\s*(\w+)\s*\}\}`)
 
 // NewPromptTemplate creates a PromptTemplate, automatically extracting
 // variable names from {{...}} placeholders in content.
@@ -50,11 +53,13 @@ func LoadPromptTemplate(path string) (*PromptTemplate, error) {
 // Expand replaces all {{variable}} placeholders with values from the
 // provided map.  Missing variables are left as-is (no error).
 func (t *PromptTemplate) Expand(values map[string]string) string {
-	result := t.Content
-	for k, v := range values {
-		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
-	}
-	return result
+	return variableRe.ReplaceAllStringFunc(t.Content, func(m string) string {
+		name := variableRe.FindStringSubmatch(m)[1]
+		if v, ok := values[name]; ok {
+			return v
+		}
+		return m
+	})
 }
 
 // ExpandStrict replaces all {{variable}} placeholders and returns an error

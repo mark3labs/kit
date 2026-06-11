@@ -1160,7 +1160,7 @@ type CLIOptions struct {
 //   - Continue:    resume most recent session for SessionDir (or cwd)
 //   - SessionPath: open a specific JSONL session file
 //   - default:     create a new tree session for SessionDir (or cwd)
-func InitTreeSession(opts *Options) (*session.TreeManager, error) {
+func InitTreeSession(opts *Options) (*TreeManager, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
