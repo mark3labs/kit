@@ -40,27 +40,6 @@ func ExtensionToolsAsLLMTools(defs []ToolDef, runner *Runner) []fantasy.AgentToo
 	return tools
 }
 
-// coreToolKinds maps built-in tool names to their kind classification.
-var coreToolKinds = map[string]string{
-	"bash":     "execute",
-	"edit":     "edit",
-	"write":    "edit",
-	"read":     "read",
-	"ls":       "read",
-	"grep":     "search",
-	"find":     "search",
-	"subagent": "agent",
-}
-
-// toolKindFor returns the ToolKind for a given tool name, defaulting to
-// "execute" for unknown tools (including MCP tools).
-func toolKindFor(toolName string) string {
-	if kind, ok := coreToolKinds[toolName]; ok {
-		return kind
-	}
-	return "execute"
-}
-
 // parseToolArgsJSON attempts to parse JSON-encoded tool args into a map.
 // Returns nil on failure (non-fatal convenience parsing).
 func parseToolArgsJSON(input string) map[string]any {
@@ -93,7 +72,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			fmt.Sprintf("Error: tool %q is currently disabled", toolName)), nil
 	}
 
-	kind := toolKindFor(toolName)
+	kind := ToolKindFor(toolName)
 
 	// 1. Emit ToolCall — extensions can block execution.
 	if w.runner.HasHandlers(ToolCall) {
