@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
+	"github.com/mark3labs/kit/internal/prompts"
 )
 
 // ---------------------------------------------------------------------------
@@ -183,44 +184,12 @@ func SimpleParseArguments(input string, count int) []string {
 	return result
 }
 
-// parseFields splits input respecting quoted strings.
+// parseFields splits input into arguments respecting quoted strings and
+// backslash escaping. It delegates to the canonical tokenizer in
+// internal/prompts so extension argument parsing and builtin prompt-template
+// parsing agree on grammar.
 func parseFields(input string) []string {
-	var fields []string
-	var current strings.Builder
-	inQuote := false
-	quoteChar := rune(0)
-
-	for _, r := range input {
-		switch r {
-		case '"', '\'':
-			if !inQuote {
-				inQuote = true
-				quoteChar = r
-			} else if r == quoteChar {
-				inQuote = false
-				quoteChar = 0
-			} else {
-				current.WriteRune(r)
-			}
-		case ' ', '\t':
-			if inQuote {
-				current.WriteRune(r)
-			} else {
-				if current.Len() > 0 {
-					fields = append(fields, current.String())
-					current.Reset()
-				}
-			}
-		default:
-			current.WriteRune(r)
-		}
-	}
-
-	if current.Len() > 0 {
-		fields = append(fields, current.String())
-	}
-
-	return fields
+	return prompts.ParseCommandArgs(input)
 }
 
 // EvaluateModelConditional checks if condition matches current model.
@@ -417,21 +386,18 @@ func MatchModelGlob(model, pattern string) bool {
 }
 
 // ExtractProviderFromPath extracts provider from a path-like model string.
+//
+// Deprecated: Use GetCurrentProvider instead.
 func ExtractProviderFromPath(model string) string {
-	parts := strings.Split(model, "/")
-	if len(parts) >= 2 {
-		return parts[0]
-	}
-	return ""
+	return GetCurrentProvider(model)
 }
 
 // ExtractModelFromPath extracts model ID from a path-like model string.
+//
+// Deprecated: Use RemoveProviderFromModel instead, which correctly handles
+// model IDs containing "/" (e.g. "openrouter/meta/llama").
 func ExtractModelFromPath(model string) string {
-	parts := strings.Split(model, "/")
-	if len(parts) >= 2 {
-		return parts[1]
-	}
-	return model
+	return RemoveProviderFromModel(model)
 }
 
 // IsBareModelID checks if a string is a bare model ID (no provider).
