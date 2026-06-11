@@ -205,6 +205,9 @@ func TestEnsureConfigExists(t *testing.T) {
 		"type: \"local\"",
 		"type: \"remote\"",
 		"Core tools",
+		"# Skills configuration",
+		"no-skills:",
+		"skills-dir:",
 	}
 
 	for _, expected := range expectedSections {

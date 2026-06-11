@@ -20,3 +20,9 @@ func (m *Kit) ConfigFloatForTest(key string) float64 { return m.v.GetFloat64(key
 // ConfigBoolForTest returns the bool value of key from this Kit's isolated
 // configuration store.
 func (m *Kit) ConfigBoolForTest(key string) bool { return m.v.GetBool(key) }
+
+// ConfigStringSliceForTest returns the string slice value of key from this
+// Kit's isolated configuration store.
+func (m *Kit) ConfigStringSliceForTest(key string) []string {
+	return m.v.GetStringSlice(key)
+}
