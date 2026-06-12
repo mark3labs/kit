@@ -227,10 +227,11 @@ type GenerationParams struct {
 // or other custom/ prefixed models. These models are loaded from the config file
 // and merged into the custom provider in the model registry.
 type CustomModelConfig struct {
-	Name        string      `json:"name" yaml:"name"`
-	BaseURL     string      `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey      string      `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	Family      string      `json:"family,omitempty" yaml:"family,omitempty"`
+	Name          string      `json:"name" yaml:"name"`
+	BaseURL       string      `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey        string      `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	APIModelName  string      `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
+	Family        string      `json:"family,omitempty" yaml:"family,omitempty"`
 	Attachment  bool        `json:"attachment,omitempty" yaml:"attachment,omitempty"`
 	Reasoning   bool        `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
 	Temperature bool        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
