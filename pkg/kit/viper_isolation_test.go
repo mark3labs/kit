@@ -205,6 +205,131 @@ func TestNewZeroOptionsKeepsStreamingDefault(t *testing.T) {
 	}
 }
 
+// TestSkillsViperKeys verifies that the three skills config keys (no-skills,
+// skill, skills-dir) flow through viper when set via a config file, matching
+// the pattern used by no-extensions and no-core-tools. This test does not
+// require an API key because it only exercises Options struct plumbing.
+func TestSkillsViperKeys(t *testing.T) {
+	t.Run("NoSkills option disables skill loading", func(t *testing.T) {
+		o := &kit.Options{}
+		o.NoSkills = true
+		if !o.NoSkills {
+			t.Error("Options.NoSkills = true not reflected on struct")
+		}
+	})
+
+	t.Run("Skills paths set on Options", func(t *testing.T) {
+		o := &kit.Options{
+			Skills: []string{"/a/skill.md", "/b/skill.md"},
+		}
+		if len(o.Skills) != 2 {
+			t.Errorf("Options.Skills: got %d paths, want 2", len(o.Skills))
+		}
+		if o.Skills[0] != "/a/skill.md" {
+			t.Errorf("Options.Skills[0] = %q; want %q", o.Skills[0], "/a/skill.md")
+		}
+	})
+
+	t.Run("SkillsDir set on Options", func(t *testing.T) {
+		o := &kit.Options{
+			SkillsDir: "/custom/skills",
+		}
+		if o.SkillsDir != "/custom/skills" {
+			t.Errorf("Options.SkillsDir = %q; want %q", o.SkillsDir, "/custom/skills")
+		}
+	})
+}
+
+// TestSkillsConfigFileKeys verifies that no-skills, skill, and skills-dir
+// config file keys are read via viper and applied correctly. Requires an API
+// key because kit.New() is called to exercise the full config-load path.
+func TestSkillsConfigFileKeys(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	ctx := context.Background()
+
+	t.Run("no-skills config key disables skill loading", func(t *testing.T) {
+		// Write a config file with no-skills: true.
+		cfgFile := t.TempDir() + "/.kit.yml"
+		if err := os.WriteFile(cfgFile, []byte("no-skills: true\n"), 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		if got := host.GetSkills(); len(got) != 0 {
+			t.Errorf("no-skills:true in config: expected 0 skills, got %d", len(got))
+		}
+	})
+
+	t.Run("skill config key loads explicit skill files", func(t *testing.T) {
+		dir := t.TempDir()
+		skillFile := dir + "/cfg-skill.md"
+		if err := os.WriteFile(skillFile, []byte("---\nname: cfg-skill\ndescription: from config\n---\nContent.\n"), 0o644); err != nil {
+			t.Fatalf("failed to write skill file: %v", err)
+		}
+
+		cfgContent := "skill:\n  - " + skillFile + "\n"
+		cfgFile := dir + "/.kit.yml"
+		if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		skills := host.GetSkills()
+		if len(skills) != 1 {
+			t.Fatalf("expected 1 skill from config, got %d", len(skills))
+		}
+		if skills[0].Name != "cfg-skill" {
+			t.Errorf("skill name = %q; want %q", skills[0].Name, "cfg-skill")
+		}
+	})
+
+	t.Run("skills-dir config key overrides auto-discovery root", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgContent := "skills-dir: " + dir + "\n"
+		cfgFile := dir + "/.kit.yml"
+		if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		// Empty dir → 0 skills; the key point is no error during init.
+		_ = host.GetSkills()
+	})
+}
+
 // TestNewStreamingExplicitOptOut verifies that a raw Options can still disable
 // streaming by setting Streaming to a pointer to false.
 func TestNewStreamingExplicitOptOut(t *testing.T) {

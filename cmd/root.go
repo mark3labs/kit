@@ -73,6 +73,11 @@ var (
 	noCoreToolsFlag  bool
 	extensionPaths   []string
 
+	// Skills control
+	noSkillsFlag bool
+	skillsPaths  []string
+	skillsDir    string
+
 	// TLS configuration
 	tlsSkipVerify bool
 
@@ -283,6 +288,14 @@ func init() {
 	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
+	// Skills flags
+	rootCmd.PersistentFlags().
+		BoolVar(&noSkillsFlag, "no-skills", false, "disable skill loading (auto-discovery and explicit)")
+	rootCmd.PersistentFlags().
+		StringSliceVar(&skillsPaths, "skill", nil, "load skill file or directory (repeatable)")
+	rootCmd.PersistentFlags().
+		StringVar(&skillsDir, "skills-dir", "", "override the project-local skills directory for auto-discovery")
+
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
 	flags.StringVar(&providerAPIKey, "provider-api-key", "", "API key for the provider (applies to OpenAI, Anthropic, and Google)")
@@ -333,6 +346,9 @@ func init() {
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
+	_ = viper.BindPFlag("no-skills", rootCmd.PersistentFlags().Lookup("no-skills"))
+	_ = viper.BindPFlag("skill", rootCmd.PersistentFlags().Lookup("skill"))
+	_ = viper.BindPFlag("skills-dir", rootCmd.PersistentFlags().Lookup("skills-dir"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -820,6 +836,9 @@ func runNormalMode(ctx context.Context) error {
 		AutoCompact:      autoCompactFlag,
 		MCPAuthHandler:   authHandler,
 		DisableCoreTools: viper.GetBool("no-core-tools"),
+		NoSkills:         noSkillsFlag,
+		Skills:           skillsPaths,
+		SkillsDir:        skillsDir,
 		// This callback is called when each MCP server finishes loading.
 		// We use a closure that captures appInstancePtr which is set after
 		// app.New() is called below.

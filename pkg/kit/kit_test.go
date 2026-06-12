@@ -365,6 +365,81 @@ func TestNewSystemPromptFilePath(t *testing.T) {
 	}
 }
 
+// TestNewWithSkillsOptions verifies that the three skills-related Options
+// fields (NoSkills, Skills, SkillsDir) are wired correctly into kit.New().
+func TestNewWithSkillsOptions(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	ctx := context.Background()
+
+	t.Run("NoSkills disables skill loading", func(t *testing.T) {
+		host, err := kit.New(ctx, &kit.Options{
+			Model:     "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:     true,
+			NoSession: true,
+			NoSkills:  true,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		if got := host.GetSkills(); len(got) != 0 {
+			t.Errorf("NoSkills=true: expected 0 skills, got %d", len(got))
+		}
+	})
+
+	t.Run("SkillsDir propagates", func(t *testing.T) {
+		// Use a non-existent dir — no skills will load but the option must be
+		// accepted without error and result in zero skills.
+		dir := t.TempDir()
+		host, err := kit.New(ctx, &kit.Options{
+			Model:     "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:     true,
+			NoSession: true,
+			SkillsDir: dir,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		// Empty dir → no skills; the important thing is no error.
+		_ = host.GetSkills()
+	})
+
+	t.Run("explicit Skills paths load correctly", func(t *testing.T) {
+		// Write a minimal skill file to a temp dir.
+		dir := t.TempDir()
+		skillFile := dir + "/my-skill.md"
+		content := "---\nname: test-skill\ndescription: A test skill\n---\nDo the thing.\n"
+		if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("failed to write skill file: %v", err)
+		}
+
+		host, err := kit.New(ctx, &kit.Options{
+			Model:     "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:     true,
+			NoSession: true,
+			Skills:    []string{skillFile},
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		skills := host.GetSkills()
+		if len(skills) != 1 {
+			t.Fatalf("expected 1 skill, got %d", len(skills))
+		}
+		if skills[0].Name != "test-skill" {
+			t.Errorf("skill name = %q; want %q", skills[0].Name, "test-skill")
+		}
+	})
+}
+
 // TestNewSystemPromptInline confirms that inline system-prompt strings still
 // flow through unchanged after the file-path resolution change.
 func TestNewSystemPromptInline(t *testing.T) {

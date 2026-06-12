@@ -1330,9 +1330,25 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 
 		// Load skills — either from explicit paths or via auto-discovery.
-		if !opts.NoSkills {
+		// Merge viper config with opts: CLI flag / config file values are
+		// already bound to viper by cmd/root.go, so v.GetBool("no-skills"),
+		// v.GetStringSlice("skill"), and v.GetString("skills-dir") capture
+		// both --flag and .kit.yml keys transparently.
+		noSkills := opts.NoSkills || v.GetBool("no-skills")
+		skillPaths := opts.Skills
+		if len(skillPaths) == 0 {
+			skillPaths = v.GetStringSlice("skill")
+		}
+		skillsDir := opts.SkillsDir
+		if skillsDir == "" {
+			skillsDir = v.GetString("skills-dir")
+		}
+		if !noSkills {
+			mergedOpts := *opts
+			mergedOpts.Skills = skillPaths
+			mergedOpts.SkillsDir = skillsDir
 			var err error
-			loadedSkills, err = loadSkills(opts)
+			loadedSkills, err = loadSkills(&mergedOpts)
 			if err != nil {
 				return fmt.Errorf("failed to load skills: %w", err)
 			}

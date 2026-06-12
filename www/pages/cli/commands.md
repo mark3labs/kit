@@ -56,6 +56,26 @@ kit install --all            # Install all extensions without prompting
 kit skill                    # Install the Kit extensions skill via skills.sh
 ```
 
+### Skills CLI flags
+
+Control which skills are loaded at startup:
+
+```bash
+# Load a specific skill file
+kit --skill path/to/skill.md "prompt"
+
+# Load multiple skill files or directories (flag is repeatable)
+kit --skill ./skill1.md --skill ./skill2.md "prompt"
+
+# Load all skills from a custom directory instead of the default locations
+kit --skills-dir /path/to/skills "prompt"
+
+# Disable all skill loading (auto-discovery and explicit)
+kit --no-skills "prompt"
+```
+
+Skills are auto-discovered from `~/.config/kit/skills/`, `.kit/skills/`, and `.agents/skills/` by default. Use `--skills-dir` to override the project-local search root, or `--skill` to load files explicitly (which disables auto-discovery). `--no-skills` suppresses all skill loading regardless of other flags.
+
 ## Interactive slash commands
 
 These commands are available inside the Kit TUI during an interactive session:

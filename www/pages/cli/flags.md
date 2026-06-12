@@ -48,6 +48,14 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--prompt-template` | — | — | Load a specific prompt template by name |
 | `--no-prompt-templates` | — | `false` | Disable prompt template loading |
 
+## Skills
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--skill` | — | — | Load skill file or directory (repeatable) |
+| `--skills-dir` | — | — | Override the project-local skills directory for auto-discovery |
+| `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
+
 ## Generation parameters
 
 | Flag | Short | Default | Description |

@@ -493,6 +493,12 @@ mcpServers:
 #     maxTokens: 16384
 #     systemPrompt: "You are a deep reasoning assistant."  # or a file path
 
+# Skills configuration (all optional)
+# no-skills: false                          # Set to true to disable all skill loading
+# skill:                                    # Explicit skill files/dirs (disables auto-discovery)
+#   - "/path/to/skill.md"
+# skills-dir: "/path/to/skills"            # Override project-local directory for auto-discovery
+
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google
 # provider-url: "https://api.openai.com/v1" # Base URL for OpenAI, Anthropic, or Ollama
