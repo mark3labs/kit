@@ -63,6 +63,7 @@
         "Extension management",
         "Installing extensions from git",
         "Skills",
+        "Skills CLI flags",
         "Interactive slash commands",
         "Prompt history",
         "Cancelling operations",
@@ -77,7 +78,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 1053
+      "wordCount": 1156
     },
     {
       "id": "cli/flags",
@@ -89,11 +90,12 @@
         "Session management",
         "Behavior",
         "Extensions",
+        "Skills",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 505
+      "wordCount": 560
     },
     {
       "id": "configuration",
@@ -116,7 +118,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1492
+      "wordCount": 1539
     },
     {
       "id": "development",

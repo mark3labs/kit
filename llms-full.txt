@@ -397,6 +397,26 @@ kit install --all            # Install all extensions without prompting
 kit skill                    # Install the Kit extensions skill via skills.sh
 ```
 
+### Skills CLI flags
+
+Control which skills are loaded at startup:
+
+```bash
+# Load a specific skill file
+kit --skill path/to/skill.md "prompt"
+
+# Load multiple skill files or directories (flag is repeatable)
+kit --skill ./skill1.md --skill ./skill2.md "prompt"
+
+# Load all skills from a custom directory instead of the default locations
+kit --skills-dir /path/to/skills "prompt"
+
+# Disable all skill loading (auto-discovery and explicit)
+kit --no-skills "prompt"
+```
+
+Skills are auto-discovered from `~/.config/kit/skills/`, `.kit/skills/`, and `.agents/skills/` by default. Use `--skills-dir` to override the project-local search root, or `--skill` to load files explicitly (which disables auto-discovery). `--no-skills` suppresses all skill loading regardless of other flags.
+
 ## Interactive slash commands
 
 These commands are available inside the Kit TUI during an interactive session:
@@ -572,6 +592,14 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--prompt-template` | — | — | Load a specific prompt template by name |
 | `--no-prompt-templates` | — | `false` | Disable prompt template loading |
 
+## Skills
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--skill` | — | — | Load skill file or directory (repeatable) |
+| `--skills-dir` | — | — | Override the project-local skills directory for auto-discovery |
+| `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
+
 ## Generation parameters
 
 | Flag | Short | Default | Description |
@@ -641,6 +669,9 @@ stream: true
 | `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
 | `prompt-templates` | bool | `true` | Enable prompt template loading |
 | `prompt-template` | string | — | Specific template to load by name |
+| `no-skills` | bool | `false` | Disable skill loading (auto-discovery and explicit) |
+| `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
+| `skills-dir` | string | — | Override the project-local directory used for skill auto-discovery |
 
 ## Environment variables
 

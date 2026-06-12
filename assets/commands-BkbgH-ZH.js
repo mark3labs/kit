@@ -29,6 +29,20 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Install all extensions without prompting</span></span></code></pre>
 <h2 id="skills"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skills"><span class="icon icon-link"></span></a>Skills</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> skill</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # Install the Kit extensions skill via skills.sh</span></span></code></pre>
+<h3 id="skills-cli-flags"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skills-cli-flags"><span class="icon icon-link"></span></a>Skills CLI flags</h3>
+<p>Control which skills are loaded at startup:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load a specific skill file</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> path/to/skill.md</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load multiple skill files or directories (flag is repeatable)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ./skill1.md</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ./skill2.md</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load all skills from a custom directory instead of the default locations</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skills-dir</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> /path/to/skills</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Disable all skill loading (auto-discovery and explicit)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-skills</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span></code></pre>
+<p>Skills are auto-discovered from <code>~/.config/kit/skills/</code>, <code>.kit/skills/</code>, and <code>.agents/skills/</code> by default. Use <code>--skills-dir</code> to override the project-local search root, or <code>--skill</code> to load files explicitly (which disables auto-discovery). <code>--no-skills</code> suppresses all skill loading regardless of other flags.</p>
 <h2 id="interactive-slash-commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-slash-commands"><span class="icon icon-link"></span></a>Interactive slash commands</h2>
 <p>These commands are available inside the Kit TUI during an interactive session:</p>
 <table>
@@ -212,7 +226,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:3,text:"Skills CLI flags",id:"skills-cli-flags"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -265,6 +279,26 @@ kit install --all            # Install all extensions without prompting
 \`\`\`bash
 kit skill                    # Install the Kit extensions skill via skills.sh
 \`\`\`
+
+### Skills CLI flags
+
+Control which skills are loaded at startup:
+
+\`\`\`bash
+# Load a specific skill file
+kit --skill path/to/skill.md "prompt"
+
+# Load multiple skill files or directories (flag is repeatable)
+kit --skill ./skill1.md --skill ./skill2.md "prompt"
+
+# Load all skills from a custom directory instead of the default locations
+kit --skills-dir /path/to/skills "prompt"
+
+# Disable all skill loading (auto-discovery and explicit)
+kit --no-skills "prompt"
+\`\`\`
+
+Skills are auto-discovered from \`~/.config/kit/skills/\`, \`.kit/skills/\`, and \`.agents/skills/\` by default. Use \`--skills-dir\` to override the project-local search root, or \`--skill\` to load files explicitly (which disables auto-discovery). \`--no-skills\` suppresses all skill loading regardless of other flags.
 
 ## Interactive slash commands
 
