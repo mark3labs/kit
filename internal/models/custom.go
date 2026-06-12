@@ -44,13 +44,14 @@ func loadCustomModelsFrom(v *viper.Viper) map[string]ModelInfo {
 // modelConfigToModelInfo converts a CustomModelConfig to a ModelInfo.
 func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 	info := ModelInfo{
-		ID:          modelID,
-		Name:        cfg.Name,
-		Attachment:  cfg.Attachment,
-		Reasoning:   cfg.Reasoning,
-		Temperature: cfg.Temperature,
-		BaseURL:     cfg.BaseURL,
-		APIKey:      cfg.APIKey,
+		ID:           modelID,
+		Name:         cfg.Name,
+		Attachment:   cfg.Attachment,
+		Reasoning:    cfg.Reasoning,
+		Temperature:  cfg.Temperature,
+		BaseURL:      cfg.BaseURL,
+		APIKey:       cfg.APIKey,
+		APIModelName: cfg.APIModelName,
 		Cost: Cost{
 			Input:  cfg.Cost.Input,
 			Output: cfg.Cost.Output,
@@ -287,17 +288,18 @@ type GenerationParams struct {
 // CustomModelConfig defines a custom model configuration loaded from the config file.
 // This is a duplicate here to avoid circular dependencies with internal/config.
 type CustomModelConfig struct {
-	Name        string                 `json:"name" yaml:"name"`
-	BaseURL     string                 `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey      string                 `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	Family      string                 `json:"family,omitempty" yaml:"family,omitempty"`
-	Attachment  bool                   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
-	Reasoning   bool                   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
-	Temperature bool                   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	Knowledge   string                 `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
-	Cost        CostConfig             `json:"cost" yaml:"cost"`
-	Limit       LimitConfig            `json:"limit" yaml:"limit"`
-	Params      GenerationParamsConfig `json:"params,omitzero" yaml:"params,omitempty"`
+	Name         string                 `json:"name" yaml:"name"`
+	BaseURL      string                 `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey       string                 `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	APIModelName string                 `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
+	Family       string                 `json:"family,omitempty" yaml:"family,omitempty"`
+	Attachment   bool                   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Reasoning    bool                   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	Temperature  bool                   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Knowledge    string                 `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	Cost         CostConfig             `json:"cost" yaml:"cost"`
+	Limit        LimitConfig            `json:"limit" yaml:"limit"`
+	Params       GenerationParamsConfig `json:"params,omitzero" yaml:"params,omitempty"`
 }
 
 // GenerationParamsConfig is the JSON/YAML-serializable form of generation

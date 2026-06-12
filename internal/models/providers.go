@@ -1533,7 +1533,12 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 		return nil, wrapProviderErr("custom", "provider", err)
 	}
 
-	model, err := p.LanguageModel(ctx, modelName)
+	apiModelName := modelName
+	if modelInfo != nil && modelInfo.APIModelName != "" {
+		apiModelName = modelInfo.APIModelName
+	}
+
+	model, err := p.LanguageModel(ctx, apiModelName)
 	if err != nil {
 		return nil, wrapProviderErr("custom", "model", err)
 	}
