@@ -148,6 +148,7 @@ customModels:
     name: "My Custom Model"
     baseUrl: "http://localhost:8080/v1"
     apiKey: "my-secret-key"
+    apiModelName: "gpt-4-turbo"
     reasoning: true
     temperature: true
     cost:
@@ -165,6 +166,7 @@ customModels:
 | `name` | string | Yes | Display name for the model |
 | `baseUrl` | string | No | Per-model base URL override; when set, `--provider-url` is not required |
 | `apiKey` | string | No | Per-model API key override |
+| `apiModelName` | string | No | Overrides the model identifier sent in API requests; defaults to the config key |
 | `reasoning` | bool | No | Whether the model supports reasoning/thinking |
 | `temperature` | bool | No | Whether the model supports temperature adjustment |
 | `cost.input` | float | No | Cost per 1K input tokens |
