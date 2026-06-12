@@ -16,17 +16,18 @@ var embeddedModelsJSON []byte
 
 // ModelInfo represents information about a specific model.
 type ModelInfo struct {
-	ID          string
-	Name        string
-	Family      string // Model family (e.g., "claude", "gpt", "gemini")
-	Attachment  bool
-	Reasoning   bool
-	Temperature bool
-	Cost        Cost
-	Limit       Limit
-	ProviderNPM string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
-	BaseURL     string // Per-model base URL override (custom models only)
-	APIKey      string // Per-model API key override (custom models only)
+	ID            string
+	Name          string
+	Family        string // Model family (e.g., "claude", "gpt", "gemini")
+	Attachment    bool
+	Reasoning     bool
+	Temperature   bool
+	Cost          Cost
+	Limit         Limit
+	ProviderNPM   string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	BaseURL       string // Per-model base URL override (custom models only)
+	APIKey        string // Per-model API key override (custom models only)
+	APIModelName  string // Per-model API model name override (custom models only)
 
 	// Params holds per-model generation parameter defaults. These are applied
 	// when the user hasn't explicitly set the corresponding CLI flag or global
