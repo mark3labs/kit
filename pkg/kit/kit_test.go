@@ -375,6 +375,7 @@ func TestNewWithSkillsOptions(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("NoSkills disables skill loading", func(t *testing.T) {
+		defer resetViper()
 		host, err := kit.New(ctx, &kit.Options{
 			Model:     "anthropic/claude-sonnet-4-5-20250929",
 			Quiet:     true,
@@ -392,6 +393,7 @@ func TestNewWithSkillsOptions(t *testing.T) {
 	})
 
 	t.Run("SkillsDir propagates", func(t *testing.T) {
+		defer resetViper()
 		// Use a non-existent dir — no skills will load but the option must be
 		// accepted without error and result in zero skills.
 		dir := t.TempDir()
@@ -411,6 +413,7 @@ func TestNewWithSkillsOptions(t *testing.T) {
 	})
 
 	t.Run("explicit Skills paths load correctly", func(t *testing.T) {
+		defer resetViper()
 		// Write a minimal skill file to a temp dir.
 		dir := t.TempDir()
 		skillFile := dir + "/my-skill.md"
