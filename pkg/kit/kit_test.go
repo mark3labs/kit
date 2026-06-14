@@ -472,3 +472,32 @@ func TestNewSystemPromptInline(t *testing.T) {
 		t.Errorf("composed system-prompt missing inline content; got %q", composed)
 	}
 }
+
+// TestDisableCoreTools verifies that setting Options.DisableCoreTools to true
+// limits the available tools to only the 'subagent' tool.
+func TestDisableCoreTools(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+	defer resetViper()
+
+	ctx := context.Background()
+	host, err := kit.New(ctx, &kit.Options{
+		Model:            "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:            true,
+		NoSession:        true,
+		NoExtensions:     true,
+		DisableCoreTools: true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit with DisableCoreTools: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	tools := host.GetToolNames()
+	if len(tools) != 1 {
+		t.Errorf("Expected 1 tool when DisableCoreTools is true, got %d: %v", len(tools), tools)
+	} else if len(tools) > 0 && tools[0] != "subagent" {
+		t.Errorf("Expected only 'subagent' tool, got %q", tools[0])
+	}
+}
