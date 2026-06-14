@@ -55,7 +55,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Tools
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
-    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+    DisableCoreTools: true,                // Use no core tools except for the subagent tool (for chat-only)
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
@@ -158,7 +158,7 @@ when embedding Kit as a library.
 |-------|------|---------|-------------|
 | `Tools` | `[]Tool` | — | Replace the entire default tool set |
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
-| `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
+| `DisableCoreTools` | `bool` | `false` | Use no core tools except for the subagent tool (for chat-only) |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 

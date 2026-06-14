@@ -107,7 +107,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Tools
     Tools:            []kit.Tool{kit.NewBashTool()}, // REPLACES entire default tool set
     ExtraTools:       []kit.Tool{myTool},            // ADDS alongside core/MCP/extension tools
-    DisableCoreTools: true,                        // Use no core tools (0 tools, for chat-only)
+    DisableCoreTools: true,                        // Use no core tools except for the subagent tool (for chat-only)
 
     // Configuration
     SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)

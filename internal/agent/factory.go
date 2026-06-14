@@ -45,9 +45,10 @@ type AgentCreationOptions struct {
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used.
 	CoreTools []fantasy.AgentTool
-	// DisableCoreTools, when true, prevents loading any core tools.
+	// DisableCoreTools, when true, prevents loading any core tools except for
+	// the subagent tool.
 	// If both DisableCoreTools is true and CoreTools is empty, the agent
-	// will have no tools (useful for simple chat completions).
+	// will only have the subagent tool (useful for simple chat completions).
 	DisableCoreTools bool
 	// ToolWrapper wraps the combined tool list before agent creation.
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
