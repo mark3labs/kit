@@ -205,7 +205,7 @@ mcpServers:
 # Extensions and tools
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
---no-core-tools          Disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)
+--no-core-tools          Disable built-in core tools except subagent: (bash, read, write, edit, grep, find, ls)
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
 
@@ -602,7 +602,8 @@ host, err := kit.New(ctx, &kit.Options{
     // Tool options
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
-    DisableCoreTools: true,                // Disable all built-in core tools; also controllable via
+    DisableCoreTools: true,                // Disable all built-in core tools except for the
+                                           // subagent tool; also controllable via
                                            // --no-core-tools flag, KIT_NO_CORE_TOOLS env var,
                                            // or no-core-tools: true in .kit.yml
 
