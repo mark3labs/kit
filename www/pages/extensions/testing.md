@@ -392,6 +392,25 @@ harness2.LoadFile("ext2.go")
 // Events to one don't affect the other
 ```
 
+### Testing extensions that read environment variables
+
+The harness seeds the interpreter with the process environment, mirroring the
+production loader, so an extension's `os.Getenv` / `os.LookupEnv` / `os.Environ`
+calls work in tests. Set test-specific variables with `t.Setenv` **before**
+loading the extension, since the environment is snapshotted at load time:
+
+```go
+func TestReadsEnv(t *testing.T) {
+    t.Setenv("MY_API_KEY", "test-value")
+
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go") // snapshots the env, incl. MY_API_KEY
+
+    harness.Emit(extensions.SessionStartEvent{SessionID: "s1"})
+    // assert on behavior that depends on MY_API_KEY
+}
+```
+
 ### Running Tests
 
 Run all tests in your extension directory:

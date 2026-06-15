@@ -83,6 +83,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | Extension | Description | Key API |
 |-----------|-------------|---------|
 | `kit-telegram/` | Telegram relay for remote monitoring & control | `RegisterCommand`, `OnAgentStart/End`, `SetStatus`, `SendMessage` |
+| `github-handler/` | Run Kit as a GitHub collaborator inside Actions (`/kit` comments → reviews & PRs) | `OnSessionStart`, `OnAgentEnd`, `SendMessage`, `RegisterOption` |
 
 ### Themes
 
@@ -145,6 +146,15 @@ Full-featured Telegram integration:
 - Remote command handling from Telegram
 - Status bar and widget updates
 - Config persistence with atomic writes
+
+### github-handler/
+Run Kit as a GitHub collaborator inside GitHub Actions:
+- Parses the triggering event from `GITHUB_EVENT_PATH`
+- Permission gate on `author_association` (write/admin only)
+- 👀 reaction lifecycle on the trigger comment
+- Issue-thread / PR-diff context extraction via `gh`
+- Drives the agent, posts the response, and opens a PR for any changes
+- `KIT_GITHUB_DRY_RUN` mode for safe, deterministic testing
 
 ## Multi-File Extension Example
 

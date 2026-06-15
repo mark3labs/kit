@@ -117,3 +117,34 @@ func Init(api ext.API) {
     })
 }
 ```
+
+### Standard library access
+
+Extensions can import the full Go standard library, plus `os/exec` for spawning
+subprocesses. Environment variables are also readable: `os.Getenv`,
+`os.LookupEnv`, and `os.Environ` return Kit's process environment, so extensions
+can pick up CI-provided variables (for example `GITHUB_EVENT_PATH` or a provider
+API key) and any vars the user exported before launching Kit.
+
+```go
+package main
+
+import (
+    "os"
+    "kit/ext"
+)
+
+func Init(api ext.API) {
+    api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+        if eventPath := os.Getenv("GITHUB_EVENT_PATH"); eventPath != "" {
+            ctx.PrintInfo("Running in GitHub Actions: " + eventPath)
+        }
+    })
+}
+```
+
+Environment access is read-only from the host's perspective: the environment is
+snapshotted when the extension loads, and calls to `os.Setenv` mutate only the
+extension's sandboxed copy — they never change Kit's process environment or the
+host. This keeps extensions from leaking state into Kit or other extensions
+while still letting them read the configuration they need.

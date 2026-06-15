@@ -99,6 +99,8 @@ The generated workflow:
 
 After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
 
+The runtime that reads the event context, enforces permissions, drives the agent, and posts the response back is the [`github-handler`](/extensions/examples) example extension.
+
 | Flag | Description |
 |------|-------------|
 | `--model` | Provider/model to write into the workflow |
