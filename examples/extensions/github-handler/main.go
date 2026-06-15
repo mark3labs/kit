@@ -27,6 +27,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,6 +41,10 @@ import (
 // commandToken is the mention that triggers Kit from a comment, mirroring the
 // `if:` guard in the generated workflow (.github/workflows/kit.yml).
 const commandToken = "/kit"
+
+// subprocessTimeout bounds each git/gh invocation so a stalled network call or
+// an unexpected auth prompt cannot hang the Actions job indefinitely.
+const subprocessTimeout = 30 * time.Second
 
 // botName / botEmail are the dedicated identity commits are attributed to, so
 // Kit's changes are clearly distinguishable from human authors in history.
@@ -259,9 +264,10 @@ func buildTrigger(event *ghEvent) (*trigger, error) {
 }
 
 // extractRequest pulls the instruction text out of a comment body that mentions
-// the command token. It accepts the token at the start of the body or after a
-// leading space (mirroring the workflow guard), and returns the remainder of
-// that line as the request.
+// the command token. It only recognizes the token at the start of a line
+// (mirroring the workflow guard) or at the very end, so incidental mid-sentence
+// mentions like "please review /kit behavior" do not trigger the handler. It
+// returns the remainder of the matching line as the request.
 func extractRequest(body string) (string, bool) {
 	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -271,14 +277,10 @@ func extractRequest(body string) (string, bool) {
 			return "", true
 		case strings.HasPrefix(trimmed, commandToken+" "):
 			rest = trimmed[len(commandToken):]
+		case strings.HasSuffix(trimmed, " "+commandToken):
+			return "", true
 		default:
-			if idx := strings.Index(trimmed, " "+commandToken+" "); idx >= 0 {
-				rest = trimmed[idx+len(commandToken)+1:]
-			} else if strings.HasSuffix(trimmed, " "+commandToken) {
-				return "", true
-			} else {
-				continue
-			}
+			continue
 		}
 		return strings.TrimSpace(rest), true
 	}
@@ -446,7 +448,9 @@ func runGit(ctx ext.Context, args ...string) {
 
 // gitOutput runs a read-only git command and returns its stdout.
 func gitOutput(ctx ext.Context, args ...string) string {
-	cmd := exec.Command("git", args...)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), subprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "git", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		ctx.PrintError(fmt.Sprintf("kit-github: git %s failed: %v", strings.Join(args, " "), err))
@@ -457,7 +461,9 @@ func gitOutput(ctx ext.Context, args ...string) string {
 
 // ghOutput runs a gh command and returns its stdout.
 func ghOutput(ctx ext.Context, args ...string) string {
-	cmd := exec.Command("gh", args...)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), subprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "gh", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		ctx.PrintError(fmt.Sprintf("kit-github: gh %s failed: %v", strings.Join(args, " "), err))
@@ -468,7 +474,9 @@ func ghOutput(ctx ext.Context, args ...string) string {
 
 // runCmd runs a command for its side effects, surfacing failures via PrintError.
 func runCmd(ctx ext.Context, name string, args ...string) {
-	cmd := exec.Command(name, args...)
+	cmdCtx, cancel := context.WithTimeout(context.Background(), subprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, name, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		ctx.PrintError(fmt.Sprintf("kit-github: %s failed: %v\n%s", name, err, strings.TrimSpace(string(out))))
 	}

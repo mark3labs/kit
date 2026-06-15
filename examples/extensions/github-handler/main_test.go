@@ -120,6 +120,21 @@ func TestGitHubHandler_CommentWithoutToken(t *testing.T) {
 	}
 }
 
+func TestGitHubHandler_MidSentenceMentionIgnored(t *testing.T) {
+	// An incidental mid-sentence mention of the token must not trigger Kit.
+	writeEvent(t, strings.Replace(issueCommentEvent,
+		`"/kit fix the broken parser"`, `"please review /kit behavior in the docs"`, 1))
+
+	harness := test.New(t)
+	harness.LoadFile("main.go")
+	if _, err := harness.Emit(extensions.SessionStartEvent{SessionID: "s1"}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if msgs := harness.Context().Messages; len(msgs) != 0 {
+		t.Fatalf("mid-sentence /kit mention must not drive the agent, got %v", msgs)
+	}
+}
+
 func TestGitHubHandler_PullRequestReviewComment(t *testing.T) {
 	writeEvent(t, `{
   "action": "created",
