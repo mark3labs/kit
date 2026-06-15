@@ -95,7 +95,32 @@ const s={frontmatter:{title:"Loading Extensions",description:"How Kit discovers 
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            },</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    })</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>`,headings:[{depth:2,text:"Auto-discovery",id:"auto-discovery"},{depth:2,text:"Explicit loading",id:"explicit-loading"},{depth:2,text:"Disabling extensions",id:"disabling-extensions"},{depth:2,text:"Installing from git",id:"installing-from-git"},{depth:2,text:"Extension structure",id:"extension-structure"},{depth:3,text:"Single-file extensions",id:"single-file-extensions"},{depth:3,text:"Subdirectory extensions",id:"subdirectory-extensions"},{depth:3,text:"Package-level state",id:"package-level-state"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<h3 id="standard-library-access"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#standard-library-access"><span class="icon icon-link"></span></a>Standard library access</h3>
+<p>Extensions can import the full Go standard library, plus <code>os/exec</code> for spawning
+subprocesses. Environment variables are also readable: <code>os.Getenv</code>,
+<code>os.LookupEnv</code>, and <code>os.Environ</code> return Kit's process environment, so extensions
+can pick up CI-provided variables (for example <code>GITHUB_EVENT_PATH</code> or a provider
+API key) and any vars the user exported before launching Kit.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">package</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> main</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">os</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit/ext</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> Init</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">api</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">API</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnSessionStart</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">_</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SessionStartEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> eventPath </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> os.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Getenv</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"GITHUB_EVENT_PATH"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">); eventPath </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Running in GitHub Actions: "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> eventPath)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    })</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Environment access is read-only from the host's perspective: the environment is
+snapshotted when the extension loads, and calls to <code>os.Setenv</code> mutate only the
+extension's sandboxed copy — they never change Kit's process environment or the
+host. This keeps extensions from leaking state into Kit or other extensions
+while still letting them read the configuration they need.</p>`,headings:[{depth:2,text:"Auto-discovery",id:"auto-discovery"},{depth:2,text:"Explicit loading",id:"explicit-loading"},{depth:2,text:"Disabling extensions",id:"disabling-extensions"},{depth:2,text:"Installing from git",id:"installing-from-git"},{depth:2,text:"Extension structure",id:"extension-structure"},{depth:3,text:"Single-file extensions",id:"single-file-extensions"},{depth:3,text:"Subdirectory extensions",id:"subdirectory-extensions"},{depth:3,text:"Package-level state",id:"package-level-state"},{depth:3,text:"Standard library access",id:"standard-library-access"}],raw:`
 # Loading Extensions
 
 ## Auto-discovery
@@ -210,4 +235,35 @@ func Init(api ext.API) {
     })
 }
 \`\`\`
+
+### Standard library access
+
+Extensions can import the full Go standard library, plus \`os/exec\` for spawning
+subprocesses. Environment variables are also readable: \`os.Getenv\`,
+\`os.LookupEnv\`, and \`os.Environ\` return Kit's process environment, so extensions
+can pick up CI-provided variables (for example \`GITHUB_EVENT_PATH\` or a provider
+API key) and any vars the user exported before launching Kit.
+
+\`\`\`go
+package main
+
+import (
+    "os"
+    "kit/ext"
+)
+
+func Init(api ext.API) {
+    api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+        if eventPath := os.Getenv("GITHUB_EVENT_PATH"); eventPath != "" {
+            ctx.PrintInfo("Running in GitHub Actions: " + eventPath)
+        }
+    })
+}
+\`\`\`
+
+Environment access is read-only from the host's perspective: the environment is
+snapshotted when the extension loads, and calls to \`os.Setenv\` mutate only the
+extension's sandboxed copy — they never change Kit's process environment or the
+host. This keeps extensions from leaking state into Kit or other extensions
+while still letting them read the configuration they need.
 `};export{s as default};

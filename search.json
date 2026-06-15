@@ -79,7 +79,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 1409
+      "wordCount": 1431
     },
     {
       "id": "cli/flags",
@@ -195,7 +195,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 496
+      "wordCount": 523
     },
     {
       "id": "extensions/loading",
@@ -210,10 +210,11 @@
         "Extension structure",
         "Single-file extensions",
         "Subdirectory extensions",
-        "Package-level state"
+        "Package-level state",
+        "Standard library access"
       ],
       "tags": [],
-      "wordCount": 302
+      "wordCount": 448
     },
     {
       "id": "extensions/overview",
@@ -261,13 +262,14 @@
         "Advanced Usage",
         "Accessing the Mock Context",
         "Testing Multiple Extensions",
+        "Testing extensions that read environment variables",
         "Running Tests",
         "Best Practices",
         "Limitations",
         "Complete Example"
       ],
       "tags": [],
-      "wordCount": 1366
+      "wordCount": 1444
     },
     {
       "id": "index",

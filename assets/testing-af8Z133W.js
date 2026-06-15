@@ -397,6 +397,20 @@ const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests f
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">harness2.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"ext2.go"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Events to one don't affect the other</span></span></code></pre>
+<h3 id="testing-extensions-that-read-environment-variables"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#testing-extensions-that-read-environment-variables"><span class="icon icon-link"></span></a>Testing extensions that read environment variables</h3>
+<p>The harness seeds the interpreter with the process environment, mirroring the
+production loader, so an extension's <code>os.Getenv</code> / <code>os.LookupEnv</code> / <code>os.Environ</code>
+calls work in tests. Set test-specific variables with <code>t.Setenv</code> <strong>before</strong>
+loading the extension, since the environment is snapshotted at load time:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> TestReadsEnv</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">t</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">T</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    t.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Setenv</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"MY_API_KEY"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"test-value"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    harness </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> test.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(t)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    harness.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-ext.go"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshots the env, incl. MY_API_KEY</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    harness.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Emit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">extensions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SessionStartEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{SessionID: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"s1"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // assert on behavior that depends on MY_API_KEY</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <h3 id="running-tests"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#running-tests"><span class="icon icon-link"></span></a>Running Tests</h3>
 <p>Run all tests in your extension directory:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> examples/extensions</span></span>
@@ -435,7 +449,7 @@ const s={frontmatter:{title:"Testing Extensions",description:"Write unit tests f
 <li>Unknown command handling</li>
 <li>Concurrent operations (race condition check)</li>
 <li>Real file logging verification</li>
-</ul>`,headings:[{depth:2,text:"Overview",id:"overview"},{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic Usage",id:"basic-usage"},{depth:3,text:"Testing an Extension File",id:"testing-an-extension-file"},{depth:3,text:"Testing Inline Extension Code",id:"testing-inline-extension-code"},{depth:2,text:"Common Testing Patterns",id:"common-testing-patterns"},{depth:3,text:"Testing Handler Registration",id:"testing-handler-registration"},{depth:3,text:"Testing Tool Registration",id:"testing-tool-registration"},{depth:3,text:"Testing Commands",id:"testing-commands"},{depth:3,text:"Testing Widgets",id:"testing-widgets"},{depth:3,text:"Testing Input Handling",id:"testing-input-handling"},{depth:3,text:"Testing Headers and Footers",id:"testing-headers-and-footers"},{depth:3,text:"Testing Status Bar",id:"testing-status-bar"},{depth:3,text:"Testing Print Output",id:"testing-print-output"},{depth:3,text:"Testing with Prompts",id:"testing-with-prompts"},{depth:3,text:"Testing Complete Session Flow",id:"testing-complete-session-flow"},{depth:2,text:"Available Assertions",id:"available-assertions"},{depth:3,text:"Event Results",id:"event-results"},{depth:3,text:"Context Interactions",id:"context-interactions"},{depth:3,text:"Registration",id:"registration"},{depth:3,text:"Messaging",id:"messaging"},{depth:2,text:"Helper Functions",id:"helper-functions"},{depth:2,text:"Advanced Usage",id:"advanced-usage"},{depth:3,text:"Accessing the Mock Context",id:"accessing-the-mock-context"},{depth:3,text:"Testing Multiple Extensions",id:"testing-multiple-extensions"},{depth:3,text:"Running Tests",id:"running-tests"},{depth:2,text:"Best Practices",id:"best-practices"},{depth:2,text:"Limitations",id:"limitations"},{depth:2,text:"Complete Example",id:"complete-example"}],raw:`
+</ul>`,headings:[{depth:2,text:"Overview",id:"overview"},{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic Usage",id:"basic-usage"},{depth:3,text:"Testing an Extension File",id:"testing-an-extension-file"},{depth:3,text:"Testing Inline Extension Code",id:"testing-inline-extension-code"},{depth:2,text:"Common Testing Patterns",id:"common-testing-patterns"},{depth:3,text:"Testing Handler Registration",id:"testing-handler-registration"},{depth:3,text:"Testing Tool Registration",id:"testing-tool-registration"},{depth:3,text:"Testing Commands",id:"testing-commands"},{depth:3,text:"Testing Widgets",id:"testing-widgets"},{depth:3,text:"Testing Input Handling",id:"testing-input-handling"},{depth:3,text:"Testing Headers and Footers",id:"testing-headers-and-footers"},{depth:3,text:"Testing Status Bar",id:"testing-status-bar"},{depth:3,text:"Testing Print Output",id:"testing-print-output"},{depth:3,text:"Testing with Prompts",id:"testing-with-prompts"},{depth:3,text:"Testing Complete Session Flow",id:"testing-complete-session-flow"},{depth:2,text:"Available Assertions",id:"available-assertions"},{depth:3,text:"Event Results",id:"event-results"},{depth:3,text:"Context Interactions",id:"context-interactions"},{depth:3,text:"Registration",id:"registration"},{depth:3,text:"Messaging",id:"messaging"},{depth:2,text:"Helper Functions",id:"helper-functions"},{depth:2,text:"Advanced Usage",id:"advanced-usage"},{depth:3,text:"Accessing the Mock Context",id:"accessing-the-mock-context"},{depth:3,text:"Testing Multiple Extensions",id:"testing-multiple-extensions"},{depth:3,text:"Testing extensions that read environment variables",id:"testing-extensions-that-read-environment-variables"},{depth:3,text:"Running Tests",id:"running-tests"},{depth:2,text:"Best Practices",id:"best-practices"},{depth:2,text:"Limitations",id:"limitations"},{depth:2,text:"Complete Example",id:"complete-example"}],raw:`
 # Testing Extensions
 
 Kit provides a testing package (\`github.com/mark3labs/kit/pkg/extensions/test\`) that enables you to write unit tests for your extensions. Tests run outside the Yaegi interpreter but load your extension code into an isolated interpreter instance, allowing you to verify behavior without running the full Kit TUI.
@@ -823,6 +837,25 @@ harness2 := test.New(t)
 harness2.LoadFile("ext2.go")
 
 // Events to one don't affect the other
+\`\`\`
+
+### Testing extensions that read environment variables
+
+The harness seeds the interpreter with the process environment, mirroring the
+production loader, so an extension's \`os.Getenv\` / \`os.LookupEnv\` / \`os.Environ\`
+calls work in tests. Set test-specific variables with \`t.Setenv\` **before**
+loading the extension, since the environment is snapshotted at load time:
+
+\`\`\`go
+func TestReadsEnv(t *testing.T) {
+    t.Setenv("MY_API_KEY", "test-value")
+
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go") // snapshots the env, incl. MY_API_KEY
+
+    harness.Emit(extensions.SessionStartEvent{SessionID: "s1"})
+    // assert on behavior that depends on MY_API_KEY
+}
 \`\`\`
 
 ### Running Tests

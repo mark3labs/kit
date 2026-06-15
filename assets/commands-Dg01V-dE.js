@@ -59,6 +59,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <li>Authenticates git/PR operations with the built-in <code>secrets.GITHUB_TOKEN</code> and the provider via a repository secret (e.g. <code>ANTHROPIC_API_KEY</code>).</li>
 </ul>
 <p>After committing the workflow and setting the provider secret, comment <code>/kit &lt;your request&gt;</code> on any issue or pull request to trigger Kit.</p>
+<p>The runtime that reads the event context, enforces permissions, drives the agent, and posts the response back is the <a href="/extensions/examples"><code>github-handler</code></a> example extension.</p>
 <table>
 <thead>
 <tr>
@@ -360,6 +361,8 @@ The generated workflow:
 - Authenticates git/PR operations with the built-in \`secrets.GITHUB_TOKEN\` and the provider via a repository secret (e.g. \`ANTHROPIC_API_KEY\`).
 
 After committing the workflow and setting the provider secret, comment \`/kit <your request>\` on any issue or pull request to trigger Kit.
+
+The runtime that reads the event context, enforces permissions, drives the agent, and posts the response back is the [\`github-handler\`](/extensions/examples) example extension.
 
 | Flag | Description |
 |------|-------------|
