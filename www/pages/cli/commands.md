@@ -76,6 +76,34 @@ kit --no-skills "prompt"
 
 Skills are auto-discovered from `~/.config/kit/skills/`, `.kit/skills/`, and `.agents/skills/` by default. Use `--skills-dir` to override the project-local search root, or `--skill` to load files explicitly (which disables auto-discovery). `--no-skills` suppresses all skill loading regardless of other flags.
 
+## GitHub integration
+
+Scaffold a GitHub Actions workflow that runs Kit as an automated collaborator/reviewer. The workflow triggers when someone comments `/kit ...` on an issue or pull request review, runs the agent non-interactively in the runner, and lets it respond.
+
+```bash
+kit github install           # Scaffold .github/workflows/kit.yml
+kit github install --model anthropic/claude-sonnet-4-5-20250929  # Skip the model prompt
+kit github install --force   # Overwrite an existing workflow file
+kit github install --no-secret # Skip the offer to set the provider secret via the gh CLI
+```
+
+By default the command prompts for the model (pre-filled with a sensible default). If the [`gh` CLI](https://cli.github.com/) is detected on your `PATH` and the provider API key is present in your environment, you'll be offered the option to store it as a repository secret automatically.
+
+The generated workflow:
+
+- Triggers only on `issue_comment` and `pull_request_review_comment` (`types: [created]`).
+- Gates execution on comments starting with (or containing ` `) `/kit`.
+- Uses least-privilege `permissions` and `persist-credentials: false`.
+- Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
+
+After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
+
+| Flag | Description |
+|------|-------------|
+| `--model` | Provider/model to write into the workflow |
+| `--force` | Overwrite an existing workflow file |
+| `--no-secret` | Skip the offer to set the provider secret via the `gh` CLI |
+
 ## Interactive slash commands
 
 These commands are available inside the Kit TUI during an interactive session:

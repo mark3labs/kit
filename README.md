@@ -28,6 +28,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Interactive TUI**: Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management**: Tree-based conversation history with branching support
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
+- **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
@@ -260,6 +261,12 @@ kit install --uninstall <pkg> # Remove an installed package
 # Skills
 kit skill                    # Install the Kit extensions skill via skills.sh
 
+# GitHub integration
+kit github install           # Scaffold .github/workflows/kit.yml (run Kit on '/kit' comments)
+kit github install --model anthropic/claude-sonnet-4-5-20250929
+kit github install --force   # Overwrite an existing workflow file
+kit github install --no-secret # Skip the offer to set the provider secret via the gh CLI
+
 # ACP server
 kit acp                      # Start as ACP agent (stdio JSON-RPC)
 kit acp --debug              # With debug logging to stderr
@@ -477,6 +484,40 @@ Focus on $1 specifically.
 Placeholders inside fenced code blocks (```) and inline code spans are ignored.
 
 Disable templates with `--no-prompt-templates` or load a specific template with `--prompt-template <name>`.
+
+## GitHub Integration
+
+Kit can run as an automated collaborator/reviewer inside GitHub Actions. The
+`kit github install` command scaffolds a workflow that triggers when someone
+comments `/kit ...` on an issue or pull request review, runs the agent
+non-interactively in the runner, and lets it respond.
+
+```bash
+kit github install
+```
+
+This writes `.github/workflows/kit.yml`. By default the command prompts for the
+model (pre-filled with a sensible default); pass `--model` to skip the prompt.
+If the [`gh` CLI](https://cli.github.com/) is detected on your `PATH` and the
+provider API key is present in your environment, you'll be offered the option to
+store it as a repository secret automatically.
+
+The generated workflow:
+
+- Triggers only on `issue_comment` and `pull_request_review_comment` (`types: [created]`).
+- Gates execution on comments starting with (or containing ` `) `/kit`.
+- Uses least-privilege `permissions` and `persist-credentials: false`.
+- Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and
+  the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
+
+After committing the workflow and setting the provider secret, comment
+`/kit <your request>` on any issue or pull request to trigger Kit.
+
+| Flag | Description |
+| --- | --- |
+| `--model` | Provider/model to write into the workflow |
+| `--force` | Overwrite an existing workflow file |
+| `--no-secret` | Skip the offer to set the provider secret via the `gh` CLI |
 
 ## Session Management
 

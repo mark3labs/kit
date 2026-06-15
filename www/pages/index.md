@@ -20,6 +20,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support
 - **Non-Interactive Mode** — Script-friendly positional args with JSON output
+- **GitHub Integration** — Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server** — Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
 - **Go SDK** — Embed Kit in your own applications
 
