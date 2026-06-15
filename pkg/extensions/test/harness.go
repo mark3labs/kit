@@ -91,8 +91,10 @@ func (h *Harness) LoadString(src string, path string) *extensions.LoadedExtensio
 func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtension {
 	h.t.Helper()
 
-	// Create a fresh interpreter
-	i := interp.New(interp.Options{})
+	// Create a fresh interpreter. Seed the virtualized environment with the
+	// process environment so extensions can read env vars via os.Getenv,
+	// mirroring the production loader (see internal/extensions/loader.go).
+	i := interp.New(interp.Options{Env: os.Environ()})
 
 	// Expose Go stdlib
 	if err := i.Use(stdlib.Symbols); err != nil {

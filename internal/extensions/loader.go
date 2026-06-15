@@ -372,8 +372,12 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		Handlers: make(map[EventType][]HandlerFunc),
 	}
 
-	// Create a fresh interpreter.
-	i := interp.New(interp.Options{})
+	// Create a fresh interpreter. Yaegi runs extensions in restricted mode,
+	// where os.Getenv/os.LookupEnv/os.Environ read from a virtualized
+	// environment rather than the real one. Seed it with the process
+	// environment so extensions can read variables (e.g. CI-provided ones
+	// like GITHUB_EVENT_PATH) without being able to mutate the host's env.
+	i := interp.New(interp.Options{Env: os.Environ()})
 
 	// Expose the Go stdlib. The base set covers most packages; the
 	// unrestricted set adds os/exec so extensions can spawn processes.

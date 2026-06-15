@@ -90,6 +90,7 @@ These examples demonstrate the new bridged SDK APIs that give extensions access 
 |-----------|-------------|
 | [`kit-kit-agents/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-kit-agents) | Multi-agent orchestration example |
 | [`kit-telegram/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/kit-telegram) | Telegram bot integration |
+| [`github-handler/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/github-handler) | Run Kit as a GitHub collaborator inside Actions — parses the event, gates on `author_association`, drives the agent, posts comments, and opens PRs |
 | [`status-tools/`](https://github.com/mark3labs/kit/tree/master/examples/extensions/status-tools) | Status bar tool examples |
 
 ## Project-local example
