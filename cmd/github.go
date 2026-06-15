@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -81,7 +82,7 @@ func init() {
 	rootCmd.AddCommand(githubCmd)
 }
 
-func runGitHubInstall(_ *cobra.Command, _ []string) error {
+func runGitHubInstall(cmd *cobra.Command, _ []string) error {
 	model, err := resolveGitHubModel()
 	if err != nil {
 		return err
@@ -99,7 +100,7 @@ func runGitHubInstall(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("✅ Wrote %s\n", githubWorkflowPath)
 
-	maybeSetProviderSecret(secretName)
+	maybeSetProviderSecret(cmd.Context(), secretName)
 
 	printGitHubInstallNextSteps(secretName)
 	log.Info("github workflow scaffolded", "model", model, "secret", secretName)
@@ -158,8 +159,11 @@ on:
 jobs:
   kit:
     if: |
-      startsWith(github.event.comment.body, '/kit') ||
-      contains(github.event.comment.body, ' /kit')
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR') &&
+      (startsWith(github.event.comment.body, '/kit ') ||
+       github.event.comment.body == '/kit')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -202,7 +206,7 @@ func writeGitHubWorkflow(model, secretName string, force bool) error {
 // maybeSetProviderSecret offers to set the provider API key as a repository
 // secret via the gh CLI when it is available, interactive, the secret value is
 // present in the environment, and the user did not pass --no-secret.
-func maybeSetProviderSecret(secretName string) {
+func maybeSetProviderSecret(ctx context.Context, secretName string) {
 	if githubInstallNoSecret || !isInteractive() {
 		return
 	}
@@ -227,7 +231,10 @@ func maybeSetProviderSecret(secretName string) {
 		return
 	}
 
-	cmd := exec.Command("gh", "secret", "set", secretName, "--body", value)
+	// Feed the secret value via stdin rather than a command-line argument so
+	// the API key never appears in the process argument list.
+	cmd := exec.CommandContext(ctx, "gh", "secret", "set", secretName)
+	cmd.Stdin = strings.NewReader(value)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

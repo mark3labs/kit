@@ -92,7 +92,8 @@ By default the command prompts for the model (pre-filled with a sensible default
 The generated workflow:
 
 - Triggers only on `issue_comment` and `pull_request_review_comment` (`types: [created]`).
-- Gates execution on comments starting with (or containing ` `) `/kit`.
+- Runs only when the comment begins with the `/kit` command token.
+- Restricts triggers to repository owners, members, and collaborators (via `author_association`).
 - Uses least-privilege `permissions` and `persist-credentials: false`.
 - Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
 
