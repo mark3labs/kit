@@ -12,6 +12,7 @@ const t={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
 <li><strong>Interactive TUI</strong> — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering</li>
 <li><strong>Session Management</strong> — Tree-based conversation history with branching support</li>
 <li><strong>Non-Interactive Mode</strong> — Script-friendly positional args with JSON output</li>
+<li><strong>GitHub Integration</strong> — Scaffold a GitHub Actions workflow with <code>kit github install</code> to run Kit as a collaborator/reviewer on <code>/kit</code> comments</li>
 <li><strong>ACP Server</strong> — Run Kit as an <a href="https://agentclientprotocol.com">Agent Client Protocol</a> agent over stdio</li>
 <li><strong>Go SDK</strong> — Embed Kit in your own applications</li>
 </ul>
@@ -62,6 +63,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support
 - **Non-Interactive Mode** — Script-friendly positional args with JSON output
+- **GitHub Integration** — Scaffold a GitHub Actions workflow with \`kit github install\` to run Kit as a collaborator/reviewer on \`/kit\` comments
 - **ACP Server** — Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
 - **Go SDK** — Embed Kit in your own applications
 

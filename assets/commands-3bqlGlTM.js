@@ -43,6 +43,44 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Disable all skill loading (auto-discovery and explicit)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-skills</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span></code></pre>
 <p>Skills are auto-discovered from <code>~/.config/kit/skills/</code>, <code>.kit/skills/</code>, and <code>.agents/skills/</code> by default. Use <code>--skills-dir</code> to override the project-local search root, or <code>--skill</code> to load files explicitly (which disables auto-discovery). <code>--no-skills</code> suppresses all skill loading regardless of other flags.</p>
+<h2 id="github-integration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#github-integration"><span class="icon icon-link"></span></a>GitHub integration</h2>
+<p>Scaffold a GitHub Actions workflow that runs Kit as an automated collaborator/reviewer. The workflow triggers when someone comments <code>/kit ...</code> on an issue or pull request review, runs the agent non-interactively in the runner, and lets it respond.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#6A737D;--shiki-dark:#6A737D">           # Scaffold .github/workflows/kit.yml</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic/claude-sonnet-4-5-20250929</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # Skip the model prompt</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --force</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Overwrite an existing workflow file</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-secret</span><span style="color:#6A737D;--shiki-dark:#6A737D"> # Skip the offer to set the provider secret via the gh CLI</span></span></code></pre>
+<p>By default the command prompts for the model (pre-filled with a sensible default). If the <a href="https://cli.github.com/"><code>gh</code> CLI</a> is detected on your <code>PATH</code> and the provider API key is present in your environment, you'll be offered the option to store it as a repository secret automatically.</p>
+<p>The generated workflow:</p>
+<ul>
+<li>Triggers only on <code>issue_comment</code> and <code>pull_request_review_comment</code> (<code>types: [created]</code>).</li>
+<li>Runs only when the comment begins with the <code>/kit</code> command token.</li>
+<li>Restricts triggers to repository owners, members, and collaborators (via <code>author_association</code>).</li>
+<li>Uses least-privilege <code>permissions</code> and <code>persist-credentials: false</code>.</li>
+<li>Authenticates git/PR operations with the built-in <code>secrets.GITHUB_TOKEN</code> and the provider via a repository secret (e.g. <code>ANTHROPIC_API_KEY</code>).</li>
+</ul>
+<p>After committing the workflow and setting the provider secret, comment <code>/kit &lt;your request&gt;</code> on any issue or pull request to trigger Kit.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model</code></td>
+<td>Provider/model to write into the workflow</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td>Overwrite an existing workflow file</td>
+</tr>
+<tr>
+<td><code>--no-secret</code></td>
+<td>Skip the offer to set the provider secret via the <code>gh</code> CLI</td>
+</tr>
+</tbody>
+</table>
 <h2 id="interactive-slash-commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-slash-commands"><span class="icon icon-link"></span></a>Interactive slash commands</h2>
 <p>These commands are available inside the Kit TUI during an interactive session:</p>
 <table>
@@ -226,7 +264,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:3,text:"Skills CLI flags",id:"skills-cli-flags"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:3,text:"Skills CLI flags",id:"skills-cli-flags"},{depth:2,text:"GitHub integration",id:"github-integration"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -299,6 +337,35 @@ kit --no-skills "prompt"
 \`\`\`
 
 Skills are auto-discovered from \`~/.config/kit/skills/\`, \`.kit/skills/\`, and \`.agents/skills/\` by default. Use \`--skills-dir\` to override the project-local search root, or \`--skill\` to load files explicitly (which disables auto-discovery). \`--no-skills\` suppresses all skill loading regardless of other flags.
+
+## GitHub integration
+
+Scaffold a GitHub Actions workflow that runs Kit as an automated collaborator/reviewer. The workflow triggers when someone comments \`/kit ...\` on an issue or pull request review, runs the agent non-interactively in the runner, and lets it respond.
+
+\`\`\`bash
+kit github install           # Scaffold .github/workflows/kit.yml
+kit github install --model anthropic/claude-sonnet-4-5-20250929  # Skip the model prompt
+kit github install --force   # Overwrite an existing workflow file
+kit github install --no-secret # Skip the offer to set the provider secret via the gh CLI
+\`\`\`
+
+By default the command prompts for the model (pre-filled with a sensible default). If the [\`gh\` CLI](https://cli.github.com/) is detected on your \`PATH\` and the provider API key is present in your environment, you'll be offered the option to store it as a repository secret automatically.
+
+The generated workflow:
+
+- Triggers only on \`issue_comment\` and \`pull_request_review_comment\` (\`types: [created]\`).
+- Runs only when the comment begins with the \`/kit\` command token.
+- Restricts triggers to repository owners, members, and collaborators (via \`author_association\`).
+- Uses least-privilege \`permissions\` and \`persist-credentials: false\`.
+- Authenticates git/PR operations with the built-in \`secrets.GITHUB_TOKEN\` and the provider via a repository secret (e.g. \`ANTHROPIC_API_KEY\`).
+
+After committing the workflow and setting the provider secret, comment \`/kit <your request>\` on any issue or pull request to trigger Kit.
+
+| Flag | Description |
+|------|-------------|
+| \`--model\` | Provider/model to write into the workflow |
+| \`--force\` | Overwrite an existing workflow file |
+| \`--no-secret\` | Skip the offer to set the provider secret via the \`gh\` CLI |
 
 ## Interactive slash commands
 

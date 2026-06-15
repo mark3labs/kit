@@ -64,6 +64,7 @@
         "Installing extensions from git",
         "Skills",
         "Skills CLI flags",
+        "GitHub integration",
         "Interactive slash commands",
         "Prompt history",
         "Cancelling operations",
@@ -78,7 +79,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 1156
+      "wordCount": 1409
     },
     {
       "id": "cli/flags",
@@ -278,7 +279,7 @@
         "Quick links"
       ],
       "tags": [],
-      "wordCount": 240
+      "wordCount": 262
     },
     {
       "id": "installation",
