@@ -514,9 +514,12 @@ The generated workflow:
 After committing the workflow and setting the provider secret, comment
 `/kit <your request>` on any issue or pull request to trigger Kit.
 
-The runtime that reads the event context, enforces permissions, drives the agent,
-and posts the response back is the
-[`github-handler`](examples/extensions/github-handler) example extension.
+The generated workflow uses the bundled [`mark3labs/kit`](action.yml) composite
+action, which installs the Kit binary and runs `kit github run`. That command
+reads the triggering event, enforces permissions, reacts with an emoji, runs the
+agent against the issue thread or pull request, posts the response as a comment,
+and — if the agent changed files — pushes a `kit-agent[bot]` branch and opens a
+pull request.
 
 | Flag | Description |
 | --- | --- |

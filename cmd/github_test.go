@@ -40,7 +40,7 @@ func TestRenderGitHubWorkflow(t *testing.T) {
 		"github.event.comment.author_association == 'OWNER'",
 		"github.event.comment.author_association == 'COLLABORATOR'",
 		"persist-credentials: false",
-		"uses: mark3labs/kit-action@v1",
+		"uses: mark3labs/kit@v0",
 		"model: anthropic/claude-sonnet-4-5-20250929",
 		"GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
 		"ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",

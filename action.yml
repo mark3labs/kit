@@ -1,0 +1,75 @@
+name: "Kit"
+description: "Run Kit as an automated collaborator/reviewer on GitHub issues and pull requests."
+author: "mark3labs"
+branding:
+  icon: "git-merge"
+  color: "purple"
+
+inputs:
+  model:
+    description: "Provider/model Kit should use (e.g. anthropic/claude-sonnet-4-5-20250929). Defaults to Kit's built-in default."
+    required: false
+    default: ""
+  version:
+    description: "Kit version to install (e.g. v0.77.0). Defaults to the latest release."
+    required: false
+    default: "latest"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Kit
+      shell: bash
+      env:
+        KIT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        VERSION="${KIT_VERSION:-latest}"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+          VERSION="$(curl -fsSL https://api.github.com/repos/mark3labs/kit/releases/latest \
+            | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)"
+        fi
+        if [ -z "$VERSION" ]; then
+          echo "::error::could not determine Kit version to install" >&2
+          exit 1
+        fi
+        VER="${VERSION#v}"
+
+        case "$(uname -s)" in
+          Linux)  OS=linux ;;
+          Darwin) OS=darwin ;;
+          *) echo "::error::unsupported OS $(uname -s)" >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64)  ARCH=amd64 ;;
+          aarch64|arm64) ARCH=arm64 ;;
+          *) echo "::error::unsupported arch $(uname -m)" >&2; exit 1 ;;
+        esac
+
+        URL="https://github.com/mark3labs/kit/releases/download/${VERSION}/kit_${VER}_${OS}_${ARCH}.tar.gz"
+        echo "Installing Kit ${VERSION} from ${URL}"
+
+        TMP="$(mktemp -d)"
+        curl -fsSL "$URL" | tar -xz -C "$TMP"
+        mkdir -p "$HOME/.kit/bin"
+        mv "$TMP/kit" "$HOME/.kit/bin/kit"
+        chmod +x "$HOME/.kit/bin/kit"
+        echo "$HOME/.kit/bin" >> "$GITHUB_PATH"
+        rm -rf "$TMP"
+
+    - name: Verify Kit
+      shell: bash
+      run: kit --version
+
+    - name: Run Kit
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+      run: |
+        set -euo pipefail
+        ARGS=()
+        if [ -n "${MODEL:-}" ]; then
+          ARGS+=(--model "$MODEL")
+        fi
+        kit github run ${ARGS[@]+"${ARGS[@]}"}

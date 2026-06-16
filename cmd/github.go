@@ -173,7 +173,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: mark3labs/kit-action@v1
+      - uses: mark3labs/kit@v0
         with:
           model: %s
         env:

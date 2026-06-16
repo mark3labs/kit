@@ -39,6 +39,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Keep floating major/minor tags (e.g. v1, v1.2) pointing at the latest
+  # release so the composite action can be referenced as `mark3labs/kit@v1`.
+  action-tags:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    if: ${{ github.event_name == 'push' && needs.goreleaser.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update floating major/minor tags
+        env:
+          FULL_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # FULL_TAG looks like v1.2.3 — derive v1 and v1.2.
+          VER="${FULL_TAG#v}"
+          MAJOR="v${VER%%.*}"
+          MINOR="v${VER%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for t in "$MAJOR" "$MINOR"; do
+            echo "Pointing $t at $FULL_TAG"
+            git tag -f "$t" "$FULL_TAG"
+            git push -f origin "refs/tags/$t"
+          done
+
   npm-publish:
     runs-on: ubuntu-latest
     needs: goreleaser
