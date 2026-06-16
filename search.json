@@ -79,7 +79,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 1431
+      "wordCount": 1472
     },
     {
       "id": "cli/flags",
@@ -195,7 +195,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 523
+      "wordCount": 496
     },
     {
       "id": "extensions/loading",

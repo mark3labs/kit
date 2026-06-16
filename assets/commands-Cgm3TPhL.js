@@ -59,7 +59,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <li>Authenticates git/PR operations with the built-in <code>secrets.GITHUB_TOKEN</code> and the provider via a repository secret (e.g. <code>ANTHROPIC_API_KEY</code>).</li>
 </ul>
 <p>After committing the workflow and setting the provider secret, comment <code>/kit &lt;your request&gt;</code> on any issue or pull request to trigger Kit.</p>
-<p>The runtime that reads the event context, enforces permissions, drives the agent, and posts the response back is the <a href="/extensions/examples"><code>github-handler</code></a> example extension.</p>
+<p>The generated workflow uses the bundled <a href="https://github.com/mark3labs/kit/blob/master/action.yml"><code>mark3labs/kit</code></a> composite action, which installs the Kit binary and runs <code>kit github run</code>. That command reads the triggering event, enforces permissions, reacts with an emoji, runs the agent against the issue thread or PR, posts the response as a comment, and — if the agent changed files — pushes a <code>kit-agent[bot]</code> branch and opens a pull request.</p>
 <table>
 <thead>
 <tr>
@@ -362,7 +362,7 @@ The generated workflow:
 
 After committing the workflow and setting the provider secret, comment \`/kit <your request>\` on any issue or pull request to trigger Kit.
 
-The runtime that reads the event context, enforces permissions, drives the agent, and posts the response back is the [\`github-handler\`](/extensions/examples) example extension.
+The generated workflow uses the bundled [\`mark3labs/kit\`](https://github.com/mark3labs/kit/blob/master/action.yml) composite action, which installs the Kit binary and runs \`kit github run\`. That command reads the triggering event, enforces permissions, reacts with an emoji, runs the agent against the issue thread or PR, posts the response as a comment, and — if the agent changed files — pushes a \`kit-agent[bot]\` branch and opens a pull request.
 
 | Flag | Description |
 |------|-------------|
