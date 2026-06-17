@@ -69,6 +69,9 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		}
 		appInstance.RunWithFiles(text, parts)
 	}
+	ec.NewSession = func(prompt string) error {
+		return appInstance.RequestNewSessionFromExtension(prompt)
+	}
 	ec.GetSessionUsage = func() extensions.SessionUsage {
 		if usageTracker == nil {
 			return extensions.SessionUsage{}

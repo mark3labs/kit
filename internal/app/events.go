@@ -247,6 +247,21 @@ type EditorTextSetEvent struct {
 	Text string
 }
 
+// NewSessionRequestEvent is sent when an extension calls ctx.NewSession to
+// end the current session and start a fresh one. The TUI routes this into
+// the same /new code path (including the BeforeSessionSwitch hook and any
+// @file expansion in InitialPrompt). ResponseCh, when non-nil, receives a
+// single result so the extension goroutine can observe success or failure.
+type NewSessionRequestEvent struct {
+	// InitialPrompt, when non-empty, is the first user turn to submit
+	// after the session switch. @file references are expanded.
+	InitialPrompt string
+	// ResponseCh receives the outcome (nil error on success). Must be
+	// buffered (cap >= 1) so the TUI never blocks. May be nil if the
+	// caller does not need the result.
+	ResponseCh chan<- error
+}
+
 // ExtensionPrintEvent is sent when an extension calls ctx.Print, ctx.PrintInfo,
 // ctx.PrintError, or ctx.PrintBlock. The TUI renders it via the appropriate
 // renderer and tea.Println (scrollback); the CLI handler uses

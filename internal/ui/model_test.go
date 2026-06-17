@@ -1144,3 +1144,128 @@ func TestRenderQueuedMessages_truncatesLongMessages(t *testing.T) {
 		t.Fatalf("expected truncated output to be ≤10 lines, got %d lines", lines)
 	}
 }
+
+// --------------------------------------------------------------------------
+// /new <prompt> and ctx.NewSession
+// --------------------------------------------------------------------------
+
+// TestNewCommand_noPrompt verifies that /new without an argument resets the
+// session (clears messages, prints the system message) and does NOT submit
+// any prompt to the controller.
+func TestNewCommand_noPrompt(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.cwd = t.TempDir()
+
+	_ = m.handleNewCommand("")
+
+	if len(ctrl.runCalls) != 0 {
+		t.Fatalf("expected no Run calls for empty prompt, got %v", ctrl.runCalls)
+	}
+	if ctrl.clearMsgCalled == 0 {
+		t.Fatal("expected ClearMessages to be called when no tree session is active")
+	}
+}
+
+// TestNewCommand_withPrompt verifies that /new <prompt> submits the prompt
+// to AppController.Run after clearing the session.
+func TestNewCommand_withPrompt(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.cwd = t.TempDir()
+
+	_ = m.handleNewCommand("continue from where we left off")
+
+	if len(ctrl.runCalls) != 1 {
+		t.Fatalf("expected exactly 1 Run call, got %d (%v)", len(ctrl.runCalls), ctrl.runCalls)
+	}
+	if ctrl.runCalls[0] != "continue from where we left off" {
+		t.Fatalf("unexpected prompt submitted: %q", ctrl.runCalls[0])
+	}
+}
+
+// TestNewCommand_whitespacePromptIsEmpty verifies that an all-whitespace
+// prompt is treated as empty (no Run call).
+func TestNewCommand_whitespacePromptIsEmpty(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.cwd = t.TempDir()
+
+	_ = m.handleNewCommand("   \n\t  ")
+
+	if len(ctrl.runCalls) != 0 {
+		t.Fatalf("expected no Run calls for whitespace-only prompt, got %v", ctrl.runCalls)
+	}
+}
+
+// TestNewSessionRequestEvent_signalsResponseCh verifies that
+// app.NewSessionRequestEvent runs the same /new pipeline and delivers a
+// nil error to the response channel on success.
+func TestNewSessionRequestEvent_signalsResponseCh(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.cwd = t.TempDir()
+
+	ch := make(chan error, 1)
+	m = sendMsg(m, app.NewSessionRequestEvent{
+		InitialPrompt: "hello from extension",
+		ResponseCh:    ch,
+	})
+
+	select {
+	case err := <-ch:
+		if err != nil {
+			t.Fatalf("expected nil error on success, got %v", err)
+		}
+	default:
+		t.Fatal("expected ResponseCh to receive a value")
+	}
+	if len(ctrl.runCalls) != 1 || ctrl.runCalls[0] != "hello from extension" {
+		t.Fatalf("expected prompt to be submitted to Run, got %v", ctrl.runCalls)
+	}
+	if m.newSessionResultCh != nil {
+		t.Fatal("expected newSessionResultCh to be cleared after signaling")
+	}
+}
+
+// TestNewSessionRequestEvent_cancelledByExtension verifies that when the
+// before-session-switch hook cancels, the response channel receives an
+// error.
+func TestNewSessionRequestEvent_cancelledByExtension(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m.cwd = t.TempDir()
+	m.emitBeforeSessionSwitch = func(reason, prompt string) (bool, string) {
+		return true, "vetoed by test"
+	}
+
+	ch := make(chan error, 1)
+	m = sendMsg(m, app.NewSessionRequestEvent{
+		InitialPrompt: "should be cancelled",
+		ResponseCh:    ch,
+	})
+	// The before-hook runs in a goroutine, which sends back a
+	// beforeSessionSwitchResultMsg. Pump that synchronously by reading
+	// the SendEvent call indirectly: SendEvent on stub is a no-op so we
+	// need to dispatch the message ourselves to simulate the round trip.
+	sendMsg(m, beforeSessionSwitchResultMsg{
+		cancelled:     true,
+		reason:        "vetoed by test",
+		initialPrompt: "should be cancelled",
+	})
+
+	select {
+	case err := <-ch:
+		if err == nil {
+			t.Fatal("expected non-nil error on cancellation")
+		}
+		if !strings.Contains(err.Error(), "vetoed by test") {
+			t.Fatalf("expected error to mention the veto reason, got %v", err)
+		}
+	default:
+		t.Fatal("expected ResponseCh to receive a value")
+	}
+	if len(ctrl.runCalls) != 0 {
+		t.Fatalf("expected no Run calls when cancelled, got %v", ctrl.runCalls)
+	}
+}

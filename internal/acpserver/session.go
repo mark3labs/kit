@@ -96,6 +96,9 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 		// Message injection — no-ops for now; ACP clients drive prompts.
 		ec.SendMessage = func(string) {}
 		ec.CancelAndSend = func(string) {}
+		ec.NewSession = func(string) error {
+			return fmt.Errorf("new session not available in ACP mode")
+		}
 		ec.Exit = func() {}
 
 		// TUI widgets/chrome — silent no-ops (no TUI in ACP).

@@ -146,9 +146,10 @@ var SlashCommands = []SlashCommand{
 	},
 	{
 		Name:        "/new",
-		Description: "Start a new session",
+		Description: "Start a new session (optionally with an initial prompt)",
 		Category:    "Navigation",
 		Aliases:     []string{"/n"},
+		HasArgs:     true,
 	},
 	{
 		Name:        "/name",

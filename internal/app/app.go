@@ -1230,6 +1230,30 @@ func (a *App) SetEditorTextFromExtension(text string) {
 	}
 }
 
+// RequestNewSessionFromExtension sends a NewSessionRequestEvent to the TUI
+// to end the current session and start a fresh one. If initialPrompt is
+// non-empty it is submitted as the first user turn of the new session.
+// Returns an error when running headless (no TUI attached), when the agent
+// is busy, or when a BeforeSessionSwitch extension hook cancels the switch.
+//
+// This is the implementation behind ctx.NewSession(prompt) for the
+// interactive TUI. It blocks the caller until the TUI processes the
+// switch, so it must be invoked from a goroutine outside Update().
+func (a *App) RequestNewSessionFromExtension(initialPrompt string) error {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog == nil {
+		return fmt.Errorf("new session unavailable: no interactive TUI attached")
+	}
+	if a.IsBusy() {
+		return fmt.Errorf("cannot start new session while agent is busy")
+	}
+	ch := make(chan error, 1)
+	prog.Send(NewSessionRequestEvent{InitialPrompt: initialPrompt, ResponseCh: ch})
+	return <-ch
+}
+
 // NotifyModelChanged sends a ModelChangedEvent to the TUI so it updates
 // the model name in the status bar and message attribution.
 func (a *App) NotifyModelChanged(provider, model string) {

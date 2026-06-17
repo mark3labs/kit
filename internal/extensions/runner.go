@@ -192,6 +192,9 @@ func normalizeContext(ctx Context) Context {
 	if ctx.SendMultimodalMessage == nil {
 		ctx.SendMultimodalMessage = func(string, []FilePart) {}
 	}
+	if ctx.NewSession == nil {
+		ctx.NewSession = func(string) error { return fmt.Errorf("new session not available") }
+	}
 	if ctx.GetSessionUsage == nil {
 		ctx.GetSessionUsage = func() SessionUsage { return SessionUsage{} }
 	}

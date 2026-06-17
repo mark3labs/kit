@@ -445,9 +445,12 @@ type AppModelOptions struct {
 	EmitBeforeFork func(targetID string, isUserMsg bool, userText string) (bool, string)
 
 	// EmitBeforeSessionSwitch, if non-nil, is called before switching
-	// to a new session branch (e.g. /new, /clear). Returns (cancelled,
-	// reason). May be nil if no extensions are loaded.
-	EmitBeforeSessionSwitch func(reason string) (bool, string)
+	// to a new session branch (e.g. /new, /clear). reason is the trigger
+	// ("new", "clear", "extension"); initialPrompt is the user prompt
+	// that will run as the first turn of the new session (empty when
+	// /new is called without arguments). Returns (cancelled, reason).
+	// May be nil if no extensions are loaded.
+	EmitBeforeSessionSwitch func(reason, initialPrompt string) (bool, string)
 
 	// GetGlobalShortcuts, if non-nil, returns extension-registered global
 	// keyboard shortcuts. Keys are binding strings (e.g., "ctrl+p").
@@ -575,6 +578,13 @@ type AppModel struct {
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
 
+	// newSessionResultCh, when non-nil, receives the outcome of an
+	// in-flight extension-triggered NewSession request. Set when an
+	// app.NewSessionRequestEvent arrives; cleared (with a result sent)
+	// in performNewSession success/failure paths or in the
+	// beforeSessionSwitchResultMsg cancellation path.
+	newSessionResultCh chan<- error
+
 	// canceling tracks whether the user has pressed ESC once during stateWorking.
 	// A second ESC within 2 seconds will cancel the current step.
 	canceling bool
@@ -677,7 +687,7 @@ type AppModel struct {
 
 	// emitBeforeSessionSwitch emits a before-session-switch event to extensions.
 	// Returns (cancelled, reason). May be nil if no extensions are loaded.
-	emitBeforeSessionSwitch func(reason string) (bool, string)
+	emitBeforeSessionSwitch func(reason, initialPrompt string) (bool, string)
 
 	// thinkingLevel is the current extended thinking level.
 	thinkingLevel string
@@ -2192,6 +2202,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ic.textarea.CursorEnd()
 		}
 
+	case app.NewSessionRequestEvent:
+		// Extension wants to end the current session and start a fresh
+		// one (with an optional initial prompt). Stash the response
+		// channel so performNewSession (or the before-hook cancellation
+		// path) can signal completion, then run the same /new pipeline
+		// the user would trigger.
+		if msg.ResponseCh != nil {
+			// Only one new-session request in flight at a time. If a
+			// previous response channel is still pending, fail it before
+			// replacing it so the prior extension goroutine unblocks.
+			if m.newSessionResultCh != nil {
+				m.newSessionResultCh <- fmt.Errorf("superseded by a newer NewSession request")
+			}
+			m.newSessionResultCh = msg.ResponseCh
+		}
+		if cmd := m.handleNewCommand(msg.InitialPrompt); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case app.PasswordPromptEvent:
 		// Sudo password prompt - show a modal input prompt
 		// If already in prompt state, cancel the new request
@@ -2397,8 +2426,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// session reset if the hook did not cancel.
 		if msg.cancelled {
 			m.printSystemMessage(msg.reason)
+			m.signalNewSessionResult(fmt.Errorf("session switch cancelled: %s", msg.reason))
 		} else {
-			cmds = append(cmds, m.performNewSession())
+			cmds = append(cmds, m.performNewSession(msg.initialPrompt))
 		}
 
 	case beforeForkResultMsg:
@@ -3241,7 +3271,7 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 	case "/fork":
 		return m.handleForkCommand()
 	case "/new":
-		return m.handleNewCommand()
+		return m.handleNewCommand(args)
 	case "/name":
 		return m.handleNameCommand(args)
 	case "/resume":
@@ -3672,7 +3702,7 @@ func (m *AppModel) printHelpMessage() {
 		"**Navigation:**\n" +
 		"- `/tree`: Navigate session tree (switch branches)\n" +
 		"- `/fork`: Branch from an earlier message\n" +
-		"- `/new`: Start a new session (discards context, saves old session)\n" +
+		"- `/new [prompt]`: Start a new session (discards context, saves old session). With a prompt, runs it as the first message; supports `@file` attachments.\n" +
 		"- `/resume`: Open session picker to switch sessions\n" +
 		"- `/name <name>`: Set a display name for this session\n\n" +
 		"**System:**\n" +
@@ -4368,7 +4398,12 @@ func (m *AppModel) handleForkCommand() tea.Cmd {
 
 // handleNewCommand starts a completely new session (Pi-style /new behavior).
 // Creates a new session file, discarding all context from the previous conversation.
-func (m *AppModel) handleNewCommand() tea.Cmd {
+// If initialPrompt is non-empty it is submitted as the first user turn of the
+// new session, with @file references expanded the same way they are for
+// regular user input.
+func (m *AppModel) handleNewCommand(initialPrompt string) tea.Cmd {
+	initialPrompt = strings.TrimSpace(initialPrompt)
+
 	// Emit before-session-switch event in a goroutine so that extension
 	// handlers can call blocking operations (e.g. ctx.PromptConfirm) without
 	// deadlocking the BubbleTea event loop.
@@ -4376,23 +4411,25 @@ func (m *AppModel) handleNewCommand() tea.Cmd {
 		emit := m.emitBeforeSessionSwitch
 		ctrl := m.appCtrl
 		go func() {
-			cancelled, reason := emit("new")
+			cancelled, reason := emit("new", initialPrompt)
 			ctrl.SendEvent(beforeSessionSwitchResultMsg{
-				cancelled: cancelled,
-				reason:    reason,
+				cancelled:     cancelled,
+				reason:        reason,
+				initialPrompt: initialPrompt,
 			})
 		}()
 		return noopCmd
 	}
 
-	return m.performNewSession()
+	return m.performNewSession(initialPrompt)
 }
 
 // performNewSession performs the actual session reset. Called either directly
 // (when no before-hook exists) or after the async hook completes.
 // Matches Pi behavior: creates a completely new session file, discarding all
-// context from the previous conversation.
-func (m *AppModel) performNewSession() tea.Cmd {
+// context from the previous conversation. If initialPrompt is non-empty it
+// is submitted as the first user turn (with @file expansion).
+func (m *AppModel) performNewSession(initialPrompt string) tea.Cmd {
 	ts := m.appCtrl.GetTreeSession()
 	if ts == nil {
 		// No tree session — just clear messages.
@@ -4406,13 +4443,16 @@ func (m *AppModel) performNewSession() tea.Cmd {
 		// Clear the ScrollList so the new session starts fresh.
 		m.messages = []MessageItem{}
 		m.printSystemMessage("Conversation cleared. Starting fresh.")
-		return nil
+		cmd := m.submitInitialPrompt(initialPrompt)
+		m.signalNewSessionResult(nil)
+		return cmd
 	}
 
 	// Create a brand new session file (Pi-style /new behavior)
 	newTs, err := session.CreateTreeSession(m.cwd)
 	if err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to create new session: %v", err))
+		m.signalNewSessionResult(fmt.Errorf("create new session: %w", err))
 		return nil
 	}
 
@@ -4425,6 +4465,67 @@ func (m *AppModel) performNewSession() tea.Cmd {
 	// Clear the ScrollList so the new session starts fresh.
 	m.messages = []MessageItem{}
 	m.printSystemMessage("New session started. Previous conversation saved.")
+	cmd := m.submitInitialPrompt(initialPrompt)
+	m.signalNewSessionResult(nil)
+	return cmd
+}
+
+// signalNewSessionResult delivers the outcome of an extension-triggered
+// NewSession request (if one is in flight) and clears the response channel.
+// Safe to call when no request is pending.
+func (m *AppModel) signalNewSessionResult(err error) {
+	if m.newSessionResultCh == nil {
+		return
+	}
+	ch := m.newSessionResultCh
+	m.newSessionResultCh = nil
+	// Channel is buffered (cap >= 1) by contract — send is non-blocking.
+	ch <- err
+}
+
+// submitInitialPrompt is the shared submission path used by /new <prompt>
+// and ctx.NewSession(prompt). It mirrors the SubmitMsg handler: @file
+// references are expanded via fileutil.ProcessFileAttachments and the
+// resulting prompt is forwarded to AppController.Run / RunWithFiles.
+// Returns nil when prompt is empty.
+func (m *AppModel) submitInitialPrompt(prompt string) tea.Cmd {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" || m.appCtrl == nil {
+		return nil
+	}
+
+	processedText := prompt
+	var fileParts []kit.LLMFilePart
+	if m.cwd != "" {
+		result := fileutil.ProcessFileAttachments(prompt, m.cwd, m.mcpResourceReader)
+		processedText = result.ProcessedText
+		for _, fp := range result.FileParts {
+			fileParts = append(fileParts, kit.LLMFilePart{
+				Filename:  fp.Filename,
+				Data:      fp.Data,
+				MediaType: fp.MediaType,
+			})
+		}
+	}
+
+	displayText := prompt
+	if len(fileParts) > 0 {
+		displayText = fmt.Sprintf("%s\n[%d file(s) attached]", prompt, len(fileParts))
+	}
+
+	var qLen int
+	if len(fileParts) > 0 {
+		qLen = m.appCtrl.RunWithFiles(processedText, fileParts)
+	} else {
+		qLen = m.appCtrl.Run(processedText)
+	}
+	if qLen > 0 {
+		m.queuedMessages = append(m.queuedMessages, displayText)
+		m.layoutDirty = true
+	} else {
+		m.pendingUserPrints = append(m.pendingUserPrints, displayText)
+		m.flushStreamAndPendingUserMessages()
+	}
 	return nil
 }
 
@@ -5133,8 +5234,9 @@ type mcpPromptResultMsg struct {
 // executed before-session-switch hook. The hook runs in a goroutine so that
 // blocking operations like ctx.PromptConfirm() do not deadlock the TUI.
 type beforeSessionSwitchResultMsg struct {
-	cancelled bool
-	reason    string
+	cancelled     bool
+	reason        string
+	initialPrompt string
 }
 
 // beforeForkResultMsg carries the result of an asynchronously executed

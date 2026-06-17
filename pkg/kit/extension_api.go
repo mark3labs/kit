@@ -137,6 +137,7 @@ type ExtensionAPI interface {
 	EmitCustomEvent(name, data string)
 	EmitBeforeFork(targetID string, isUserMsg bool, userText string) (cancelled bool, reason string)
 	EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string)
+	EmitBeforeSessionSwitchWithPrompt(switchReason, initialPrompt string) (cancelled bool, reason string)
 
 	// Commands
 	Commands() []ExtensionCommandDef
@@ -567,11 +568,20 @@ func (e *extensionAPI) EmitBeforeFork(targetID string, isUserMsg bool, userText 
 }
 
 func (e *extensionAPI) EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string) {
+	return e.EmitBeforeSessionSwitchWithPrompt(switchReason, "")
+}
+
+// EmitBeforeSessionSwitchWithPrompt is like EmitBeforeSessionSwitch but also
+// supplies the initial user prompt (if any) that will be submitted as the
+// first turn of the new session. Extensions inspecting BeforeSessionSwitchEvent
+// see this value in the event's InitialPrompt field.
+func (e *extensionAPI) EmitBeforeSessionSwitchWithPrompt(switchReason, initialPrompt string) (cancelled bool, reason string) {
 	if e.kit.extRunner == nil || !e.kit.extRunner.HasHandlers(extensions.BeforeSessionSwitch) {
 		return false, ""
 	}
 	result, _ := e.kit.extRunner.Emit(extensions.BeforeSessionSwitchEvent{
-		Reason: switchReason,
+		Reason:        switchReason,
+		InitialPrompt: initialPrompt,
 	})
 	if r, ok := result.(extensions.BeforeSessionSwitchResult); ok && r.Cancel {
 		reason := r.Reason

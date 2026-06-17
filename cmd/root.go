@@ -670,13 +670,16 @@ func beforeForkProviderForUI(k *kit.Kit) func(string, bool, string) (bool, strin
 
 // beforeSessionSwitchProviderForUI returns a callback that emits a
 // BeforeSessionSwitch event and returns (cancelled, reason). Returns nil
-// if extensions are disabled — the UI treats nil as "no hook".
-func beforeSessionSwitchProviderForUI(k *kit.Kit) func(string) (bool, string) {
+// if extensions are disabled — the UI treats nil as "no hook". The
+// initialPrompt argument is forwarded to the event so extensions can
+// inspect the prompt that will be submitted as the first turn of the
+// new session.
+func beforeSessionSwitchProviderForUI(k *kit.Kit) func(switchReason, initialPrompt string) (bool, string) {
 	if !k.Extensions().HasExtensions() {
 		return nil
 	}
-	return func(switchReason string) (bool, string) {
-		return k.Extensions().EmitBeforeSessionSwitch(switchReason)
+	return func(switchReason, initialPrompt string) (bool, string) {
+		return k.Extensions().EmitBeforeSessionSwitchWithPrompt(switchReason, initialPrompt)
 	}
 }
 
@@ -1487,7 +1490,7 @@ type runModeDeps struct {
 	getUIVisibility          func() *ui.UIVisibility
 	getStatusBarEntries      func() []ui.StatusBarEntryData
 	emitBeforeFork           func(string, bool, string) (bool, string)
-	emitBeforeSessionSwitch  func(string) (bool, string)
+	emitBeforeSessionSwitch  func(string, string) (bool, string)
 	getGlobalShortcuts       func() map[string]func()
 	getExtensionCommands     func() []commands.ExtensionCommand
 	setModel                 func(string) error

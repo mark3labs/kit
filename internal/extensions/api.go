@@ -124,6 +124,32 @@ type Context struct {
 	//   })
 	SendMultimodalMessage func(text string, files []FilePart)
 
+	// NewSession ends the current session and starts a fresh one (matching
+	// the /new slash command). When prompt is non-empty it is submitted as
+	// the first user turn of the new session, with @file references
+	// expanded the same way they are for normal user input. Pass an empty
+	// string to start an empty session.
+	//
+	// Returns an error if the agent is currently busy, if a registered
+	// BeforeSessionSwitch handler cancels the switch, or if the new
+	// session file cannot be created. In non-interactive (ACP / headless)
+	// mode this is a no-op that returns an error.
+	//
+	// Typical pattern — start a fresh session at the end of a phase by
+	// reading a handoff file:
+	//
+	//   api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
+	//       msgs := ctx.GetMessages()
+	//       if len(msgs) == 0 {
+	//           return
+	//       }
+	//       last := msgs[len(msgs)-1].Content
+	//       if strings.Contains(last, "<HANDOFF_READY>") {
+	//           _ = ctx.NewSession("Read @HANDOFF.md and continue the next phase.")
+	//       }
+	//   })
+	NewSession func(prompt string) error
+
 	// GetSessionUsage returns aggregated token usage and cost statistics
 	// for the current session. This includes total input/output tokens,
 	// cache read/write tokens, total cost, and request count.
@@ -2296,6 +2322,12 @@ type BeforeSessionSwitchEvent struct {
 	// Reason describes why the switch is happening: "new" for /new command,
 	// "clear" for /clear command.
 	Reason string
+	// InitialPrompt, when non-empty, is the prompt that will be submitted
+	// as the first user turn of the new session. Set when /new is invoked
+	// with an argument (e.g. "/new continue from HANDOFF.md") or when an
+	// extension calls ctx.NewSession(prompt). Extensions may inspect this
+	// to decide whether to allow the switch.
+	InitialPrompt string
 }
 
 func (e BeforeSessionSwitchEvent) Type() EventType { return BeforeSessionSwitch }
