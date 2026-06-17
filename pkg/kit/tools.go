@@ -344,6 +344,7 @@ func NewFindTool(opts ...ToolOption) Tool { return core.NewFindTool(opts...) }
 func NewLsTool(opts ...ToolOption) Tool { return core.NewLsTool(opts...) }
 
 // --- Tool bundles ---
+func ListAllCoreToolNames() []string { return core.ListAllCoreToolNames() }
 
 // AllTools returns all available core tools.
 func AllTools(opts ...ToolOption) []Tool { return core.AllTools(opts...) }

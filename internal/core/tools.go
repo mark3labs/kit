@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 
 	"charm.land/fantasy"
 )
@@ -62,6 +64,25 @@ func parseArgs(input string, target any) error {
 		return fmt.Errorf("invalid arguments: %w", err)
 	}
 	return nil
+}
+
+type initTool func(...ToolOption) fantasy.AgentTool
+
+var coreTools = map[string]initTool{
+	"bash":     NewBashTool,
+	"read":     NewReadTool,
+	"write":    NewWriteTool,
+	"edit":     NewEditTool,
+	"grep":     NewGrepTool,
+	"find":     NewFindTool,
+	"ls":       NewLsTool,
+	"subagent": NewSubagentTool,
+}
+
+// ListAllCoreToolNames always returns the full list of available core
+// tools. It can be used to validate a user provided tool list.
+func ListAllCoreToolNames() []string {
+	return slices.Collect(maps.Keys(coreTools))
 }
 
 // CodingTools returns the default set of core tools for a coding agent:
