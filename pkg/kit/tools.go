@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"slices"
 	"strings"
 	"sync"
 
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/core"
+	"github.com/spf13/viper"
 )
 
 // Tool is the interface that all Kit tools implement.
@@ -22,6 +25,32 @@ type ToolOption = core.ToolOption
 // WithWorkDir sets the working directory for file-based tools.
 // If empty, os.Getwd() is used at execution time.
 var WithWorkDir = core.WithWorkDir
+
+// --- Core Tool Validation ---
+// processes a list of tool names, if disableCoreTools is true, return an
+// empty list. Otherwise if coreTools is not empty, it will return a list of
+// all valid names ie those found in ListAllCoreToolNames(),
+// otherwise, it will return all of ListAllCoreToolNames().
+func handleCoreToolList(coreTools []string, disableCoreTools bool) []string {
+	var result []string
+	if disableCoreTools {
+		return result
+	}
+	allTools := ListAllCoreToolNames()
+	if len(coreTools) > 0 {
+		for _, tool := range allTools {
+			for _, t := range coreTools {
+				if t == tool {
+					result = append(result, t)
+					continue
+				}
+			}
+		}
+		return result
+	} else {
+		return allTools
+	}
+}
 
 // --- Custom tool creation ---
 
@@ -361,3 +390,40 @@ func ReadOnlyTools(opts ...ToolOption) []Tool { return core.ReadOnlyTools(opts..
 // creating child Kit instances (in-process subagents) to prevent infinite
 // recursion.
 func SubagentTools(opts ...ToolOption) []Tool { return core.SubagentTools(opts...) }
+
+// --- Tool helper ---
+func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
+	// Core tool filtering
+	includeTools := v.GetStringSlice("include-core-tools")
+	excludeTools := v.GetStringSlice("exclude-core-tools")
+	if len(includeTools) > 0 && len(excludeTools) > 0 {
+		return nil, fmt.Errorf("cannot use both include-core-tools and exclude-core-tools options")
+	}
+
+	var coreToolList []string
+	if len(includeTools) > 0 || len(excludeTools) > 0 {
+		allCoreTools := ListAllCoreToolNames()
+		if len(includeTools) > 0 {
+			for _, t := range includeTools {
+				if !slices.Contains(allCoreTools, t) {
+					log.Printf("Warning: invalid core tool: %s", t)
+					continue
+				}
+			}
+			coreToolList = includeTools
+		} else {
+			for _, t := range excludeTools {
+				if !slices.Contains(allCoreTools, t) {
+					log.Printf("Warning: invalid core tool: %s", t)
+					continue
+				}
+			}
+			for _, t := range allCoreTools {
+				if !slices.Contains(excludeTools, t) {
+					coreToolList = append(coreToolList, t)
+				}
+			}
+		}
+	}
+	return coreToolList, nil
+}

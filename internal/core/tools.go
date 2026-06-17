@@ -121,6 +121,14 @@ func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	}
 }
 
+func ListedTools(toolList []string, opts ...ToolOption) []fantasy.AgentTool {
+	var result = []fantasy.AgentTool{}
+	for _, t := range toolList {
+		result = append(result, coreTools[t](opts...))
+	}
+	return result
+}
+
 // AllTools returns all available core tools.
 func AllTools(opts ...ToolOption) []fantasy.AgentTool {
 	return append(SubagentTools(opts...), NewSubagentTool(opts...))

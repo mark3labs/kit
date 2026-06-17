@@ -45,10 +45,10 @@ type AgentCreationOptions struct {
 	// CoreTools overrides the default core tool set. If empty, core.AllTools()
 	// is used.
 	CoreTools []fantasy.AgentTool
-	// DisableCoreTools, when true, prevents loading any core tools.
-	// If both DisableCoreTools is true and CoreTools is empty, the agent
+	// CoreToolList lists core tool names to add. Overridden by CoreTools.
+	// If both CoreToolList is true and CoreTools is empty, the agent
 	// will have no tools (useful for simple chat completions).
-	DisableCoreTools bool
+	CoreToolList []string
 	// ToolWrapper wraps the combined tool list before agent creation.
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 	// ExtraTools are additional tools to include (e.g. from extensions).
@@ -74,7 +74,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		AuthHandler:       opts.AuthHandler,
 		TokenStoreFactory: opts.TokenStoreFactory,
 		CoreTools:         opts.CoreTools,
-		DisableCoreTools:  opts.DisableCoreTools,
+		CoreToolList:      opts.CoreToolList,
 		ToolWrapper:       opts.ToolWrapper,
 		ExtraTools:        opts.ExtraTools,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,

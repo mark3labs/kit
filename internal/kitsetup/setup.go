@@ -30,13 +30,13 @@ type AgentSetupOptions struct {
 	UseBufferedLogger bool
 	// Quiet suppresses output. Replaces the cmd package's quietFlag variable.
 	Quiet bool
-	// CoreTools overrides the default core tool set. If empty, core.AllTools()
+	// CoreTools overrides the default core tool set. If empty, CoreToolList
 	// is used. Allows SDK users to pass custom tools (e.g. with WithWorkDir).
 	CoreTools []fantasy.AgentTool
-	// DisableCoreTools, when true, prevents loading any core tools.
-	// If both DisableCoreTools is true and CoreTools is empty, the agent
+	// CoreToolList lists core tool names to add. Overridden by CoreTools.
+	// If both CoreToolList is true and CoreTools is empty, the agent
 	// will have no tools (useful for simple chat completions).
-	DisableCoreTools bool
+	CoreToolList []string
 	// ExtraTools are additional tools added alongside core, MCP, and extension
 	// tools. They do not replace the defaults — they extend them.
 	ExtraTools []fantasy.AgentTool
@@ -255,7 +255,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		AuthHandler:       opts.AuthHandler,
 		TokenStoreFactory: opts.TokenStoreFactory,
 		CoreTools:         opts.CoreTools,
-		DisableCoreTools:  opts.DisableCoreTools,
+		CoreToolList:      opts.CoreToolList,
 		ToolWrapper:       toolWrapper,
 		ExtraTools:        extraTools,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,

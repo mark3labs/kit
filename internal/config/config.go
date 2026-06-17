@@ -516,6 +516,13 @@ mcpServers:
 #   tags: [example]                         # Kit extension
 #   when: on-demand                         # Kit extension
 
+# Internal Core tools
+# no-core-tools: false                     # true: disable all core tools
+# include-core-tools:                      # list of core tool names to include
+# exclude-core-tools:                      # list of core tool name to exclude
+                                           # include-/exclude-core-tools are mutually exclusive
+                                           # no-core-tools has precedence
+
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google
 # provider-url: "https://api.openai.com/v1" # Base URL for OpenAI, Anthropic, or Ollama
