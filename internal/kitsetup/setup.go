@@ -53,6 +53,11 @@ type AgentSetupOptions struct {
 	// Debug enables debug logging. When zero-value, viper is consulted.
 	// Only meaningful when ProviderConfig is also set.
 	Debug bool
+	// DebugLogger, if non-nil, is used directly as the engine/MCP debug
+	// logger — overriding the built-in SimpleDebugLogger / BufferedDebugLogger
+	// selected by Debug + UseBufferedLogger. Callers supply this when they
+	// want to route debug output into their own logging system.
+	DebugLogger tools.DebugLogger
 	// NoExtensions skips extension loading. When false, viper is consulted.
 	// Only meaningful when ProviderConfig is also set.
 	NoExtensions bool
@@ -192,7 +197,12 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	// Create the appropriate debug logger.
 	var debugLogger tools.DebugLogger
 	var bufferedLogger *tools.BufferedDebugLogger
-	if debugEnabled {
+	switch {
+	case opts.DebugLogger != nil:
+		// Caller-supplied logger wins unconditionally. Its IsDebugEnabled()
+		// is the source of truth for whether downstream code emits messages.
+		debugLogger = opts.DebugLogger
+	case debugEnabled:
 		if opts.UseBufferedLogger {
 			bufferedLogger = tools.NewBufferedDebugLogger(true)
 			debugLogger = bufferedLogger

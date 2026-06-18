@@ -1047,8 +1047,24 @@ type Options struct {
 	AutoCompact       bool               // Auto-compact when near context limit
 	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
 
-	// Debug enables debug logging for the SDK.
+	// Debug enables debug logging for the SDK. When DebugLogger is nil this
+	// flag selects between the default no-op SimpleDebugLogger (Debug=false)
+	// and the built-in console/buffered logger (Debug=true). When DebugLogger
+	// is non-nil this flag is ignored — the supplied logger's
+	// IsDebugEnabled() controls whether downstream code emits messages.
 	Debug bool
+
+	// DebugLogger, if non-nil, routes low-level debug output from the engine
+	// and the MCP tool plumbing to a caller-supplied implementation. This is
+	// the SDK escape hatch for embedders that want to forward debug output
+	// into their own logging system (zap, slog, log/charm, an in-app TUI
+	// panel, etc.) instead of the built-in console logger.
+	//
+	// When nil (default) the Debug bool controls whether the built-in logger
+	// is installed. When non-nil this logger is used unconditionally and the
+	// Debug bool is ignored; the supplied logger's IsDebugEnabled() reports
+	// whether downstream code should bother formatting messages.
+	DebugLogger DebugLogger
 
 	// MCPAuthHandler handles OAuth authorization for remote MCP servers.
 	// When set, remote transports (streamable HTTP, SSE) are configured
@@ -1514,6 +1530,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
 		Debug:             debug,
+		DebugLogger:       opts.DebugLogger,
 		NoExtensions:      noExtensions,
 		MaxSteps:          maxSteps,
 		StreamingEnabled:  streaming,
