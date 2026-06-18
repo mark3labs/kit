@@ -5,16 +5,16 @@ go 1.26.4
 require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.7
-	charm.land/fantasy v0.31.0
+	charm.land/fantasy v0.32.0
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.4
-	github.com/alecthomas/chroma/v2 v2.26.1
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/fang v1.0.0
 	github.com/charmbracelet/log v1.0.0
-	github.com/charmbracelet/openai-go v0.0.0-20260319145158-d0740cc34266
+	github.com/charmbracelet/openai-go v0.0.0-20260617131321-5e4b9c18c4be
 	github.com/charmbracelet/ultraviolet v0.0.0-20260615092913-2399af76d5b1
 	github.com/charmbracelet/x/editor v0.2.0
 	github.com/clipperhouse/displaywidth v0.11.0
@@ -23,7 +23,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/indaco/herald v0.13.0
 	github.com/indaco/herald-md v0.3.0
-	github.com/mark3labs/mcp-go v0.54.1
+	github.com/mark3labs/mcp-go v0.55.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/traefik/yaegi v0.16.1
@@ -85,13 +85,13 @@ require (
 	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/kaptinlin/jsonpointer v0.4.26 // indirect
-	github.com/kaptinlin/jsonschema v0.8.0 // indirect
+	github.com/kaptinlin/jsonschema v0.8.1 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/mango v0.2.0 // indirect
 	github.com/muesli/mango-cobra v1.3.0 // indirect
 	github.com/muesli/mango-pflag v0.2.0 // indirect
 	github.com/muesli/roff v0.1.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
@@ -116,8 +116,8 @@ require (
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/api v0.284.0 // indirect
-	google.golang.org/genai v1.60.0 // indirect
+	google.golang.org/api v0.285.0 // indirect
+	google.golang.org/genai v1.61.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260615183401-62b3387ff324 // indirect
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
