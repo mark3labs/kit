@@ -7,7 +7,7 @@
 <meta name="description" content="Session management in the Kit Go SDK.">
 <link rel="canonical" href="/sdk/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-Cjh4VUrO.js"></script>
+<script type="module" src="/assets/index-CO3x1J7D.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Sessions","description":"Session management in the Kit Go SDK.","url":"https://go-kit.dev/sdk/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -109,7 +109,13 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
-The interface requires methods for message storage, branching, compaction, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+The interface requires methods for message storage, branching, compaction, branch summaries, extension data, and lifecycle management. See the [`SessionManager` interface definition](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionManager) for the complete method set.
+
+The `AppendBranchSummary(fromID, summary)` method backs `host.CollapseBranch`,
+which collapses a branch range into a single summary entry. Custom managers
+that don't track branch summaries can return `kit.ErrBranchSummaryNotSupported`
+from that method; `host.CollapseBranch` then surfaces the same sentinel so
+callers can detect it with `errors.Is`.
 
 When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.</div>
 </body>

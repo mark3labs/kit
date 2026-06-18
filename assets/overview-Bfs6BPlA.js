@@ -165,11 +165,15 @@ no external synchronization required.</p>
 </tr>
 <tr>
 <td><code>PromptWithOptions(ctx, message, opts)</code></td>
-<td>With per-call options</td>
+<td>With per-call options (model, tools, thinking level, provider creds)</td>
 </tr>
 <tr>
 <td><code>PromptResult(ctx, message)</code></td>
 <td>Returns full <code>TurnResult</code> with usage stats</td>
+</tr>
+<tr>
+<td><code>PromptResultWithOptions(ctx, message, opts)</code></td>
+<td>Per-call options variant that returns the full <code>TurnResult</code></td>
 </tr>
 <tr>
 <td><code>PromptResultWithFiles(ctx, message, files)</code></td>
@@ -185,6 +189,23 @@ no external synchronization required.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="per-call-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#per-call-overrides"><span class="icon icon-link"></span></a>Per-call overrides</h3>
+<p><code>PromptOptions</code> scopes configuration to a <strong>single call</strong> and restores the
+agent's prior state afterwards — no need to rebuild a <code>*Kit</code> per request. This
+suits multi-tenant hosts that resolve the model, credentials, or tool set per
+request:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptResultWithOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Summarise this ticket"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptOptions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemMessage:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a concise triage assistant."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// prepended for this call</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:          </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-3-5-20241022"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// overrides the default model</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ThinkingLevel:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"low"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                                 </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "off" | "low" | "medium" | "high"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ExtraTools:     []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Tool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{lookupTool},                </span><span style="color:#6A737D;--shiki-dark:#6A737D">// added on top of the core set</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderURL:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://proxy.tenant-a/v1"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,           </span><span style="color:#6A737D;--shiki-dark:#6A737D">// per-tenant endpoint</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderAPIKey: tenantKey,                             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// per-tenant credential</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Every field is optional; a zero value means "use the agent's default." The
+prior model, thinking level, provider credentials, and tool set are all
+restored before the call returns, and concurrent option-driven prompts are
+serialized so the apply/restore window of one call never races another.</p>
 <h2 id="custom-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-tools"><span class="icon icon-link"></span></a>Custom tools</h2>
 <p>Create custom tools with <code>kit.NewTool</code>. The JSON schema is auto-generated from the input struct — no external dependencies required:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> WeatherInput</span><span style="color:#D73A49;--shiki-dark:#F97583"> struct</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
@@ -236,6 +257,52 @@ no external synchronization required.</p>
 </table>
 <p>Binary data (images, audio, etc.) in <code>ToolOutput.Data</code> is automatically forwarded to the LLM when <code>MediaType</code> is set. For advanced use, return a <code>kit.ToolOutput</code> struct directly with <code>Data</code>, <code>MediaType</code>, and <code>Metadata</code> fields.</p>
 <p>Use <code>kit.NewParallelTool</code> for tools that are safe to run concurrently. Use <code>kit.ToolCallIDFromContext(ctx)</code> to retrieve the LLM-assigned call ID for logging or tracing.</p>
+<h3 id="schema-driven-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#schema-driven-tools"><span class="icon icon-link"></span></a>Schema-driven tools</h3>
+<p>When the tool's input shape isn't known at compile time — tools sourced from
+JSON Schema definitions in skill files, MCP server catalogs, or user-supplied
+definitions — use <code>kit.NewRawTool</code>. It takes a JSON Schema and a handler that
+receives the decoded arguments as a <code>map[string]any</code>, so no Go input type is
+required:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">schema </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "type"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"object"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "properties"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "city"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"type"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"string"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"description"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"City name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "required"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"city"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">weatherTool </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewRawTool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"get_weather"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Get current weather for a city"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, schema,</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">args</span><span style="color:#D73A49;--shiki-dark:#F97583"> map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">any</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolOutput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TextResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"72°F, sunny in "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> args[</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"city"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">].(</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p>The <code>schema</code> is advertised to the model as the tool's parameter schema. If the
+model sends arguments that aren't a valid JSON object, the call short-circuits
+with an error result before your handler runs.</p>
+<h3 id="halting-the-agent-loop"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#halting-the-agent-loop"><span class="icon icon-link"></span></a>Halting the agent loop</h3>
+<p>For structured-result patterns — the model calls a <code>finish(...)</code> tool with a
+typed argument and the loop should terminate, returning that value to the
+caller — set <code>Halt</code> and <code>FinalValue</code> on the returned <code>ToolOutput</code> instead of
+smuggling the value out through a side-channel:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">finishTool </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewTool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"finish"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Return the final structured answer"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">input</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> AnswerInput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolOutput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolOutput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            Content:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"done"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            Halt:       </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,       </span><span style="color:#6A737D;--shiki-dark:#6A737D">// terminate the agent loop after this call</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            FinalValue: input,      </span><span style="color:#6A737D;--shiki-dark:#6A737D">// surfaced to the caller</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Extract the order details"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.HaltedByTool </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "finish"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    answer </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.FinalValue.(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AnswerInput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// the typed value your handler stored</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    _ </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> answer</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>TurnResult.HaltedByTool</code> names the tool that halted the turn (empty if the
+turn ended for any other reason), and <code>TurnResult.FinalValue</code> carries whatever
+your handler placed in <code>ToolOutput.FinalValue</code>. <code>Halt</code>/<code>FinalValue</code> work with
+<code>NewTool</code>, <code>NewParallelTool</code>, and <code>NewRawTool</code> alike.</p>
 <h2 id="generation--provider-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#generation--provider-overrides"><span class="icon icon-link"></span></a>Generation &amp; provider overrides</h2>
 <p>SDK consumers can configure generation parameters and provider endpoints
 entirely in-code via <code>Options</code>, without touching <code>.kit.yml</code> or <code>viper.Set()</code>:</p>
@@ -340,23 +407,45 @@ updated instructions — no restart, no file shuffling.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctxFiles </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
 <p>Key points:</p>
 <ul>
-<li><strong>Auto-refresh.</strong> Every <code>Add*</code> / <code>Remove*</code> / <code>Set*</code> call recomposes the system
+<li>
+<p><strong>Auto-refresh.</strong> Every <code>Add*</code> / <code>Remove*</code> / <code>Set*</code> call recomposes the system
 prompt against the captured base prompt (preserving per-model overrides and
 <code>--system-prompt</code> resolution) and pushes the result onto the agent. Call
 <code>host.RefreshSystemPrompt()</code> only if you mutate state through a different
-path and need to force a re-render.</li>
-<li><strong>Dedup keys.</strong> Skills dedupe by <code>Name</code>; context files dedupe by <code>Path</code>.
-Re-adding the same key replaces the entry instead of appending a duplicate.</li>
-<li><strong>Path is opaque.</strong> <code>ContextFile.Path</code> does not have to point at a real file
+path and need to force a re-render.</p>
+</li>
+<li>
+<p><strong>Dedup keys.</strong> Skills dedupe by <code>Name</code>; context files dedupe by <code>Path</code>.
+Re-adding the same key replaces the entry instead of appending a duplicate.</p>
+</li>
+<li>
+<p><strong>Path is opaque.</strong> <code>ContextFile.Path</code> does not have to point at a real file
 — it's only used for dedup and for the <code>Instructions from: &lt;Path&gt;</code> header
-injected into the prompt. URIs like <code>session://user-123/AGENTS.md</code> work fine.</li>
-<li><strong>Thread safety.</strong> All readers and mutators are safe to call concurrently
+injected into the prompt. URIs like <code>session://user-123/AGENTS.md</code> work fine.</p>
+</li>
+<li>
+<p><strong>Thread safety.</strong> All readers and mutators are safe to call concurrently
 from multiple goroutines; the underlying state is guarded by an internal
-<code>RWMutex</code>.</li>
-<li><strong>Init-time options still apply.</strong> <code>Options.Skills</code>, <code>Options.SkillsDir</code>,
+<code>RWMutex</code>.</p>
+</li>
+<li>
+<p><strong>Init-time options still apply.</strong> <code>Options.Skills</code>, <code>Options.SkillsDir</code>,
 <code>Options.NoSkills</code>, and <code>Options.NoContextFiles</code> continue to control the
 startup set; the runtime API mutates from whatever state <code>New()</code> produced.
-See <a href="/sdk/options#skills--configuration">SDK options</a>.</li>
+See <a href="/sdk/options#skills--configuration">SDK options</a>.</p>
+</li>
+<li>
+<p><strong><code>fs.FS</code>-backed discovery.</strong> The package-level loaders <code>kit.LoadSkill</code>,
+<code>kit.LoadSkillsFromDir</code>, and <code>kit.LoadSkills</code> are path-string based;
+<code>kit.LoadSkillsFromFS(fsys, root)</code> is the <code>fs.FS</code>-typed counterpart for
+<code>embed.FS</code> distribution, <code>fstest.MapFS</code> tests, or per-tenant virtual
+filesystems. Feed the result into <code>host.SetSkills(...)</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">//go:embed skills</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">var</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> skillsFS </span><span style="color:#6F42C1;--shiki-dark:#B392F0">embed</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">FS</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">loaded, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkillsFromFS</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(skillsFS, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"skills"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(loaded)</span></span></code></pre>
+</li>
 </ul>
 <h2 id="mcp-prompts-and-resources"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-prompts-and-resources"><span class="icon icon-link"></span></a>MCP prompts and resources</h2>
 <p>Query prompts and resources exposed by connected MCP servers:</p>
@@ -396,6 +485,65 @@ for the full surface.</p>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShouldCompact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Compact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<h2 id="provider-error-classification"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-error-classification"><span class="icon icon-link"></span></a>Provider error classification</h2>
+<p>Provider failures are wrapped with exported sentinels so you can branch on the
+failure category with <code>errors.Is</code> instead of string-matching the underlying
+HTTP error. <code>PromptResult</code> / <code>Prompt</code> already return classified errors; you can
+also classify any provider error yourself with <code>kit.ClassifyProviderError</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, prompt)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrContextOverflow):</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Compact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// compact and retry</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrRateLimit):</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    backoffAndRetry</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrAuth):</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    rePromptForKey</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrProviderUnavailable):</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    retryLater</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrInvalidRequest):</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"non-retryable: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%v</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th>Sentinel</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kit.ErrContextOverflow</code></td>
+<td>Request exceeded the model's context window</td>
+</tr>
+<tr>
+<td><code>kit.ErrRateLimit</code></td>
+<td>Provider throttled the request</td>
+</tr>
+<tr>
+<td><code>kit.ErrAuth</code></td>
+<td>Credential / authorization failure</td>
+</tr>
+<tr>
+<td><code>kit.ErrProviderUnavailable</code></td>
+<td>Transient upstream failure (5xx, network, timeout)</td>
+</tr>
+<tr>
+<td><code>kit.ErrInvalidRequest</code></td>
+<td>Structurally invalid request — retrying won't help</td>
+</tr>
+</tbody>
+</table>
+<p>The original error stays reachable via <code>errors.Is</code>, so you never lose the
+provider's detail message.</p>
+<h2 id="graceful-shutdown"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#graceful-shutdown"><span class="icon icon-link"></span></a>Graceful shutdown</h2>
+<p><code>Close()</code> releases MCP connections, model resources, and the session file
+handle. When shutdown must be bounded by a deadline, use <code>CloseContext</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">shutdownCtx, cancel </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> context.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithTimeout</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(context.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Background</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">5</span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8">time.Second)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> cancel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CloseContext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(shutdownCtx); err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"shutdown: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%v</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>Close()</code> is equivalent to <code>CloseContext(context.Background())</code>.</p>
 <h2 id="in-process-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#in-process-subagents"><span class="icon icon-link"></span></a>In-process subagents</h2>
 <p>Spawn child Kit instances without subprocess overhead:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -404,7 +552,7 @@ for the full surface.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -532,11 +680,35 @@ The SDK provides several prompt variants:
 | Method | Description |
 |--------|-------------|
 | \`Prompt(ctx, message)\` | Simple prompt, returns response string |
-| \`PromptWithOptions(ctx, message, opts)\` | With per-call options |
+| \`PromptWithOptions(ctx, message, opts)\` | With per-call options (model, tools, thinking level, provider creds) |
 | \`PromptResult(ctx, message)\` | Returns full \`TurnResult\` with usage stats |
+| \`PromptResultWithOptions(ctx, message, opts)\` | Per-call options variant that returns the full \`TurnResult\` |
 | \`PromptResultWithFiles(ctx, message, files)\` | Multimodal with file attachments |
 | \`Steer(ctx, instruction)\` | System-level steering without user message |
 | \`FollowUp(ctx, text)\` | Continue without new user input |
+
+### Per-call overrides
+
+\`PromptOptions\` scopes configuration to a **single call** and restores the
+agent's prior state afterwards — no need to rebuild a \`*Kit\` per request. This
+suits multi-tenant hosts that resolve the model, credentials, or tool set per
+request:
+
+\`\`\`go
+result, err := host.PromptResultWithOptions(ctx, "Summarise this ticket", kit.PromptOptions{
+    SystemMessage:  "You are a concise triage assistant.", // prepended for this call
+    Model:          "anthropic/claude-haiku-3-5-20241022", // overrides the default model
+    ThinkingLevel:  "low",                                 // "off" | "low" | "medium" | "high"
+    ExtraTools:     []kit.Tool{lookupTool},                // added on top of the core set
+    ProviderURL:    "https://proxy.tenant-a/v1",           // per-tenant endpoint
+    ProviderAPIKey: tenantKey,                             // per-tenant credential
+})
+\`\`\`
+
+Every field is optional; a zero value means "use the agent's default." The
+prior model, thinking level, provider credentials, and tool set are all
+restored before the call returns, and concurrent option-driven prompts are
+serialized so the apply/restore window of one call never races another.
 
 ## Custom tools
 
@@ -577,6 +749,64 @@ Return values:
 Binary data (images, audio, etc.) in \`ToolOutput.Data\` is automatically forwarded to the LLM when \`MediaType\` is set. For advanced use, return a \`kit.ToolOutput\` struct directly with \`Data\`, \`MediaType\`, and \`Metadata\` fields.
 
 Use \`kit.NewParallelTool\` for tools that are safe to run concurrently. Use \`kit.ToolCallIDFromContext(ctx)\` to retrieve the LLM-assigned call ID for logging or tracing.
+
+### Schema-driven tools
+
+When the tool's input shape isn't known at compile time — tools sourced from
+JSON Schema definitions in skill files, MCP server catalogs, or user-supplied
+definitions — use \`kit.NewRawTool\`. It takes a JSON Schema and a handler that
+receives the decoded arguments as a \`map[string]any\`, so no Go input type is
+required:
+
+\`\`\`go
+schema := map[string]any{
+    "type": "object",
+    "properties": map[string]any{
+        "city": map[string]any{"type": "string", "description": "City name"},
+    },
+    "required": []any{"city"},
+}
+
+weatherTool := kit.NewRawTool("get_weather", "Get current weather for a city", schema,
+    func(ctx context.Context, args map[string]any) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + args["city"].(string)), nil
+    },
+)
+\`\`\`
+
+The \`schema\` is advertised to the model as the tool's parameter schema. If the
+model sends arguments that aren't a valid JSON object, the call short-circuits
+with an error result before your handler runs.
+
+### Halting the agent loop
+
+For structured-result patterns — the model calls a \`finish(...)\` tool with a
+typed argument and the loop should terminate, returning that value to the
+caller — set \`Halt\` and \`FinalValue\` on the returned \`ToolOutput\` instead of
+smuggling the value out through a side-channel:
+
+\`\`\`go
+finishTool := kit.NewTool("finish", "Return the final structured answer",
+    func(ctx context.Context, input AnswerInput) (kit.ToolOutput, error) {
+        return kit.ToolOutput{
+            Content:    "done",
+            Halt:       true,       // terminate the agent loop after this call
+            FinalValue: input,      // surfaced to the caller
+        }, nil
+    },
+)
+
+result, _ := host.PromptResult(ctx, "Extract the order details")
+if result.HaltedByTool == "finish" {
+    answer := result.FinalValue.(AnswerInput) // the typed value your handler stored
+    _ = answer
+}
+\`\`\`
+
+\`TurnResult.HaltedByTool\` names the tool that halted the turn (empty if the
+turn ended for any other reason), and \`TurnResult.FinalValue\` carries whatever
+your handler placed in \`ToolOutput.FinalValue\`. \`Halt\`/\`FinalValue\` work with
+\`NewTool\`, \`NewParallelTool\`, and \`NewRawTool\` alike.
 
 ## Generation & provider overrides
 
@@ -730,6 +960,19 @@ Key points:
   \`Options.NoSkills\`, and \`Options.NoContextFiles\` continue to control the
   startup set; the runtime API mutates from whatever state \`New()\` produced.
   See [SDK options](/sdk/options#skills--configuration).
+- **\`fs.FS\`-backed discovery.** The package-level loaders \`kit.LoadSkill\`,
+  \`kit.LoadSkillsFromDir\`, and \`kit.LoadSkills\` are path-string based;
+  \`kit.LoadSkillsFromFS(fsys, root)\` is the \`fs.FS\`-typed counterpart for
+  \`embed.FS\` distribution, \`fstest.MapFS\` tests, or per-tenant virtual
+  filesystems. Feed the result into \`host.SetSkills(...)\`:
+
+  \`\`\`go
+  //go:embed skills
+  var skillsFS embed.FS
+
+  loaded, _ := kit.LoadSkillsFromFS(skillsFS, "skills")
+  host.SetSkills(loaded)
+  \`\`\`
 
 ## MCP prompts and resources
 
@@ -784,6 +1027,55 @@ if host.ShouldCompact() {
     result, err := host.Compact(ctx, nil, "")
 }
 \`\`\`
+
+## Provider error classification
+
+Provider failures are wrapped with exported sentinels so you can branch on the
+failure category with \`errors.Is\` instead of string-matching the underlying
+HTTP error. \`PromptResult\` / \`Prompt\` already return classified errors; you can
+also classify any provider error yourself with \`kit.ClassifyProviderError\`:
+
+\`\`\`go
+_, err := host.PromptResult(ctx, prompt)
+switch {
+case errors.Is(err, kit.ErrContextOverflow):
+    host.Compact(ctx, nil, "") // compact and retry
+case errors.Is(err, kit.ErrRateLimit):
+    backoffAndRetry()
+case errors.Is(err, kit.ErrAuth):
+    rePromptForKey()
+case errors.Is(err, kit.ErrProviderUnavailable):
+    retryLater()
+case errors.Is(err, kit.ErrInvalidRequest):
+    log.Printf("non-retryable: %v", err)
+}
+\`\`\`
+
+| Sentinel | Meaning |
+|----------|---------|
+| \`kit.ErrContextOverflow\` | Request exceeded the model's context window |
+| \`kit.ErrRateLimit\` | Provider throttled the request |
+| \`kit.ErrAuth\` | Credential / authorization failure |
+| \`kit.ErrProviderUnavailable\` | Transient upstream failure (5xx, network, timeout) |
+| \`kit.ErrInvalidRequest\` | Structurally invalid request — retrying won't help |
+
+The original error stays reachable via \`errors.Is\`, so you never lose the
+provider's detail message.
+
+## Graceful shutdown
+
+\`Close()\` releases MCP connections, model resources, and the session file
+handle. When shutdown must be bounded by a deadline, use \`CloseContext\`:
+
+\`\`\`go
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+if err := host.CloseContext(shutdownCtx); err != nil {
+    log.Printf("shutdown: %v", err)
+}
+\`\`\`
+
+\`Close()\` is equivalent to \`CloseContext(context.Background())\`.
 
 ## In-process subagents
 

@@ -21,7 +21,7 @@
         "Go SDK"
       ],
       "tags": [],
-      "wordCount": 331
+      "wordCount": 395
     },
     {
       "id": "advanced/subagents",
@@ -351,10 +351,11 @@
         "PrepareStep — intercept messages between steps",
         "Hook priorities",
         "All event types",
+        "Compaction telemetry",
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 958
+      "wordCount": 1037
     },
     {
       "id": "sdk/options",
@@ -396,7 +397,10 @@
         "Per-instance config isolation",
         "Multi-turn conversations",
         "Additional prompt methods",
+        "Per-call overrides",
         "Custom tools",
+        "Schema-driven tools",
+        "Halting the agent loop",
         "Generation &amp; provider overrides",
         "Event system",
         "Model management",
@@ -406,10 +410,12 @@
         "MCP prompts and resources",
         "MCP tasks (long-running tools)",
         "Context and compaction",
+        "Provider error classification",
+        "Graceful shutdown",
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 1537
+      "wordCount": 2235
     },
     {
       "id": "sdk/sessions",
@@ -426,7 +432,7 @@
         "Custom session manager"
       ],
       "tags": [],
-      "wordCount": 322
+      "wordCount": 366
     },
     {
       "id": "sessions",

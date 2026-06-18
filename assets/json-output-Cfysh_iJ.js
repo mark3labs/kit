@@ -146,7 +146,21 @@ const s={frontmatter:{title:"JSON Output",description:"Machine-readable JSON out
 <p>For Go programs, use the SDK's <code>PromptResult</code> method instead of parsing JSON:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Count files"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(result.Response)</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(result.Usage.TotalTokens)</span></span></code></pre>`,headings:[{depth:2,text:"Response format",id:"response-format"},{depth:2,text:"Fields",id:"fields"},{depth:3,text:"Top-level",id:"top-level"},{depth:3,text:"Usage",id:"usage"},{depth:3,text:"Message parts",id:"message-parts"},{depth:2,text:"Parsing in scripts",id:"parsing-in-scripts"},{depth:3,text:"bash + jq",id:"bash--jq"},{depth:3,text:"Go SDK",id:"go-sdk"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(result.Usage.TotalTokens)</span></span></code></pre>
+<p><code>PromptResult</code> blocks until end-of-turn regardless of streaming mode. When
+streaming is enabled, every delta observed during the turn is also captured in
+order in <code>result.Stream</code> (<code>[]kit.StreamEvent</code>), so you can assert streamed
+ordering deterministically without wiring an <code>OnMessageUpdate</code> collector:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, ev </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.Stream {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ev.Kind {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.StreamEventTextDelta:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ev.Text)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.StreamEventReasoningDelta:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ev.Reasoning)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.StreamEventToolCallChunk:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"[</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> %s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">]"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, ev.ToolName, ev.Args)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>`,headings:[{depth:2,text:"Response format",id:"response-format"},{depth:2,text:"Fields",id:"fields"},{depth:3,text:"Top-level",id:"top-level"},{depth:3,text:"Usage",id:"usage"},{depth:3,text:"Message parts",id:"message-parts"},{depth:2,text:"Parsing in scripts",id:"parsing-in-scripts"},{depth:3,text:"bash + jq",id:"bash--jq"},{depth:3,text:"Go SDK",id:"go-sdk"}],raw:`
 # JSON Output
 
 Use the \`--json\` flag to get structured output for scripting and automation:
@@ -236,5 +250,23 @@ For Go programs, use the SDK's \`PromptResult\` method instead of parsing JSON:
 result, err := host.PromptResult(ctx, "Count files")
 fmt.Println(result.Response)
 fmt.Println(result.Usage.TotalTokens)
+\`\`\`
+
+\`PromptResult\` blocks until end-of-turn regardless of streaming mode. When
+streaming is enabled, every delta observed during the turn is also captured in
+order in \`result.Stream\` (\`[]kit.StreamEvent\`), so you can assert streamed
+ordering deterministically without wiring an \`OnMessageUpdate\` collector:
+
+\`\`\`go
+for _, ev := range result.Stream {
+    switch ev.Kind {
+    case kit.StreamEventTextDelta:
+        fmt.Print(ev.Text)
+    case kit.StreamEventReasoningDelta:
+        fmt.Print(ev.Reasoning)
+    case kit.StreamEventToolCallChunk:
+        fmt.Printf("[%s %s]", ev.ToolName, ev.Args)
+    }
+}
 \`\`\`
 `};export{s as default};
