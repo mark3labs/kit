@@ -93,20 +93,25 @@ func (t *activateSkillTool) Run(_ context.Context, call fantasy.ToolCall) (fanta
 		return fantasy.NewTextErrorResponse("name is required"), nil
 	}
 
-	// Deduplicate: a skill already activated this session need not be
-	// re-injected (agentskills.io spec, gap #14).
+	// Hold the lock across the whole activation so the dedup check and the
+	// subsequent mark are atomic — two concurrent calls cannot both pass the
+	// check and double-activate the same skill (gap #14). The skill is only
+	// marked activated on success, so a failed load can be retried.
 	t.mu.Lock()
-	already := t.activated[name]
-	t.mu.Unlock()
-	if already {
+	defer t.mu.Unlock()
+
+	if t.activated[name] {
 		return fantasy.NewTextResponse(
 			fmt.Sprintf("Skill %q was already loaded earlier in this session.", name)), nil
 	}
 
-	// Resolve the skill path from the current provider snapshot.
+	// Resolve the skill path from the current provider snapshot. Skills with
+	// disable-model-invocation set are not activatable by the model (they
+	// remain available via the /skill: command), mirroring their exclusion
+	// from the catalog and the tool's name enum.
 	var path string
 	for _, s := range t.provider() {
-		if s.Name == name {
+		if s.Name == name && !s.DisableModelInvocation {
 			path = s.Path
 			break
 		}
@@ -131,9 +136,7 @@ func (t *activateSkillTool) Run(_ context.Context, call fantasy.ToolCall) (fanta
 	}
 	buf.WriteString("\n</skill_content>")
 
-	t.mu.Lock()
 	t.activated[name] = true
-	t.mu.Unlock()
 
 	return fantasy.NewTextResponse(buf.String()), nil
 }

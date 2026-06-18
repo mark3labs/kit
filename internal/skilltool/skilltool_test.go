@@ -83,6 +83,24 @@ func TestActivateSkill_UnknownSkill(t *testing.T) {
 	}
 }
 
+// TestActivateSkill_DisabledNotActivatable verifies a skill flagged
+// disable-model-invocation cannot be activated through the model-facing tool.
+func TestActivateSkill_DisabledNotActivatable(t *testing.T) {
+	dir := t.TempDir()
+	s := writeSkillFile(t, dir, "extract")
+	s.DisableModelInvocation = true
+	provider := func() []*skills.Skill { return []*skills.Skill{s} }
+
+	tool := New([]string{"extract"}, provider)
+	resp, err := tool.Run(context.Background(), fantasy.ToolCall{Input: `{"name":"extract"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(responseText(resp), "unknown skill") {
+		t.Errorf("disabled skill should not be activatable, got: %q", responseText(resp))
+	}
+}
+
 // responseText extracts the text from a tool response.
 func responseText(resp fantasy.ToolResponse) string {
 	return resp.Content

@@ -414,11 +414,22 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 func LoadUserSkills() []*Skill {
 	var loaded []*Skill
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		ss, _ := LoadSkillsFromDir(filepath.Join(home, ".agents", "skills"))
+		dir := filepath.Join(home, ".agents", "skills")
+		ss, loadErr := LoadSkillsFromDir(dir)
+		if loadErr != nil {
+			// Missing directories are already swallowed by LoadSkillsFromDir,
+			// so a non-nil error here is genuine (permission denied, read
+			// failure, or a malformed skill file) and would otherwise yield a
+			// silently partial catalog.
+			log.Warn("failed to load some user skills", "dir", dir, "err", loadErr)
+		}
 		loaded = append(loaded, ss...)
 	}
 	if g := globalSkillsDir(); g != "" {
-		ss, _ := LoadSkillsFromDir(g)
+		ss, loadErr := LoadSkillsFromDir(g)
+		if loadErr != nil {
+			log.Warn("failed to load some user skills", "dir", g, "err", loadErr)
+		}
 		loaded = append(loaded, ss...)
 	}
 	for _, s := range loaded {
@@ -445,7 +456,10 @@ func LoadProjectSkills(cwd string) []*Skill {
 		filepath.Join(cwd, ".agents", "skills"),
 		filepath.Join(cwd, ".kit", "skills"),
 	} {
-		ss, _ := LoadSkillsFromDir(dir)
+		ss, loadErr := LoadSkillsFromDir(dir)
+		if loadErr != nil {
+			log.Warn("failed to load some project skills", "dir", dir, "err", loadErr)
+		}
 		loaded = append(loaded, ss...)
 	}
 	for _, s := range loaded {
