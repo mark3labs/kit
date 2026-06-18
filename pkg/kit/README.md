@@ -74,7 +74,8 @@ host, err := kit.NewAgent(ctx,
 
 Helpers: `WithModel`, `WithSystemPrompt`, `WithStreaming`, `WithMaxTokens`,
 `WithThinkingLevel`, `WithTools`, `WithExtraTools`, `WithProviderAPIKey`,
-`WithProviderURL`, `WithConfigFile`, `WithDebug`, and `Ephemeral`. `Option` is
+`WithProviderURL`, `WithConfigFile`, `WithDebug`, `WithDebugLogger`, and
+`Ephemeral`. `Option` is
 a plain `func(*Options)`, so you can define your own. For fields without a
 `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task
 tuning) construct an `Options` value and call `kit.New`.

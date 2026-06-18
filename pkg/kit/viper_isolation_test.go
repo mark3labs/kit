@@ -63,6 +63,52 @@ func TestOptionFunctionsPlumbing(t *testing.T) {
 	}
 }
 
+// recordingDebugLogger is a kit.DebugLogger used to verify WithDebugLogger
+// plumbs the supplied logger into Options. It records each LogDebug call.
+type recordingDebugLogger struct {
+	enabled  bool
+	messages []string
+}
+
+func (l *recordingDebugLogger) LogDebug(m string)    { l.messages = append(l.messages, m) }
+func (l *recordingDebugLogger) IsDebugEnabled() bool { return l.enabled }
+
+// TestWithDebugLoggerPlumbing verifies that kit.WithDebugLogger assigns the
+// supplied logger to Options.DebugLogger. End-to-end propagation into the
+// engine is covered indirectly by the existing kitsetup tests; this test
+// pins the SDK-surface contract.
+func TestWithDebugLoggerPlumbing(t *testing.T) {
+	l := &recordingDebugLogger{enabled: true}
+	o := &kit.Options{}
+	kit.WithDebugLogger(l)(o)
+	if o.DebugLogger == nil {
+		t.Fatal("WithDebugLogger: expected Options.DebugLogger to be set")
+	}
+	if o.DebugLogger != l {
+		t.Error("WithDebugLogger: expected the supplied logger to be installed verbatim")
+	}
+	// Sanity: the installed logger satisfies the SDK interface contract.
+	if !o.DebugLogger.IsDebugEnabled() {
+		t.Error("installed logger IsDebugEnabled() returned false")
+	}
+	o.DebugLogger.LogDebug("hello")
+	if len(l.messages) != 1 || l.messages[0] != "hello" {
+		t.Errorf("LogDebug not forwarded; got %v", l.messages)
+	}
+}
+
+// TestWithDebugLoggerNilClears verifies that passing a nil logger to
+// WithDebugLogger clears any previously-installed logger. This lets later
+// options override earlier ones the same way WithModel / WithStreaming do.
+func TestWithDebugLoggerNilClears(t *testing.T) {
+	o := &kit.Options{}
+	kit.WithDebugLogger(&recordingDebugLogger{enabled: true})(o)
+	kit.WithDebugLogger(nil)(o)
+	if o.DebugLogger != nil {
+		t.Errorf("WithDebugLogger(nil): expected DebugLogger to be cleared; got %#v", o.DebugLogger)
+	}
+}
+
 // TestOptionOrderingOverrides verifies later options override earlier ones.
 func TestOptionOrderingOverrides(t *testing.T) {
 	o := &kit.Options{}
