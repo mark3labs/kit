@@ -12,6 +12,7 @@ package skills
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -122,7 +123,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	}
 
 	var skills []*Skill
-	var errs []string
+	var errs []error
 
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
@@ -132,7 +133,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			if ext == ".md" || ext == ".txt" {
 				s, err := LoadSkill(full)
 				if err != nil {
-					errs = append(errs, err.Error())
+					errs = append(errs, err)
 					continue
 				}
 				skills = append(skills, s)
@@ -149,7 +150,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			if !se.IsDir() && strings.EqualFold(se.Name(), "SKILL.md") {
 				s, err := LoadSkill(filepath.Join(full, se.Name()))
 				if err != nil {
-					errs = append(errs, err.Error())
+					errs = append(errs, err)
 					continue
 				}
 				skills = append(skills, s)
@@ -159,7 +160,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	}
 
 	if len(errs) > 0 {
-		return skills, fmt.Errorf("some skills failed to load: %s", strings.Join(errs, "; "))
+		return skills, fmt.Errorf("some skills failed to load: %w", errors.Join(errs...))
 	}
 	return skills, nil
 }
@@ -181,7 +182,7 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 	}
 
 	var skills []*Skill
-	var errs []string
+	var errs []error
 
 	walkErr := fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -202,12 +203,12 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 		}
 		data, readErr := fs.ReadFile(fsys, p)
 		if readErr != nil {
-			errs = append(errs, fmt.Sprintf("reading skill %s: %v", p, readErr))
+			errs = append(errs, fmt.Errorf("reading skill %s: %w", p, readErr))
 			return nil
 		}
 		s, parseErr := parseSkill(data, p, p)
 		if parseErr != nil {
-			errs = append(errs, parseErr.Error())
+			errs = append(errs, parseErr)
 			return nil
 		}
 		skills = append(skills, s)
@@ -217,7 +218,7 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 		return skills, fmt.Errorf("walking skills fs at %s: %w", root, walkErr)
 	}
 	if len(errs) > 0 {
-		return skills, fmt.Errorf("some skills failed to load: %s", strings.Join(errs, "; "))
+		return skills, fmt.Errorf("some skills failed to load: %w", errors.Join(errs...))
 	}
 	return skills, nil
 }

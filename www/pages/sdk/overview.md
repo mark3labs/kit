@@ -508,7 +508,7 @@ case errors.Is(err, kit.ErrInvalidRequest):
 | `kit.ErrProviderUnavailable` | Transient upstream failure (5xx, network, timeout) |
 | `kit.ErrInvalidRequest` | Structurally invalid request — retrying won't help |
 
-The original error stays reachable via `errors.Unwrap`, so you never lose the
+The original error stays reachable via `errors.Is`, so you never lose the
 provider's detail message.
 
 ## Graceful shutdown

@@ -219,6 +219,11 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 // Returns an error if the session is unavailable or the operation fails.
 // Custom SessionManagers that do not support branch summaries surface
 // [ErrBranchSummaryNotSupported].
+//
+// The branch is always collapsed from fromID to the current leaf; the toID
+// parameter is currently unused (the underlying AppendBranchSummary primitive
+// only supports collapsing to the leaf) and is retained for forward
+// compatibility.
 func (m *Kit) CollapseBranch(fromID, toID, summary string) error {
 	if m.session == nil {
 		return fmt.Errorf("no session available")

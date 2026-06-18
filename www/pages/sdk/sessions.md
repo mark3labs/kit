@@ -99,7 +99,7 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
-The interface requires methods for message storage, branching, compaction, branch summaries, extension data, and lifecycle management. See the [SDK skill reference](https://github.com/mark3labs/kit) for the complete interface definition.
+The interface requires methods for message storage, branching, compaction, branch summaries, extension data, and lifecycle management. See the [`SessionManager` interface definition](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionManager) for the complete method set.
 
 The `AppendBranchSummary(fromID, summary)` method backs `host.CollapseBranch`,
 which collapses a branch range into a single summary entry. Custom managers

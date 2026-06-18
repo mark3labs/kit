@@ -33,8 +33,8 @@ var (
 // ClassifyProviderError inspects err and returns it wrapped with the matching
 // provider-error sentinel ([ErrContextOverflow], [ErrRateLimit], [ErrAuth],
 // [ErrProviderUnavailable], or [ErrInvalidRequest]) when the underlying cause
-// can be recognized. The original error remains reachable via errors.Unwrap,
-// and the returned error satisfies errors.Is against the sentinel.
+// can be recognized. The returned error satisfies errors.Is against both the
+// sentinel and the original cause, so the full chain stays inspectable.
 //
 // When err is nil it returns nil. When the cause cannot be classified the
 // original err is returned unchanged so callers never lose information.
@@ -63,7 +63,7 @@ func ClassifyProviderError(err error) error {
 }
 
 // wrapSentinel returns an error that satisfies errors.Is(_, sentinel) while
-// preserving the original error for errors.Unwrap.
+// keeping the original cause inspectable via errors.Is.
 func wrapSentinel(sentinel, cause error) error {
 	return &sentinelError{sentinel: sentinel, cause: cause}
 }

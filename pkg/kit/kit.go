@@ -2794,9 +2794,9 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 		}
 		if err := m.SetModel(ctx, targetModel); err != nil {
 			// Revert config keys we may have set, then unwind prior restores.
-			m.v.Set("thinking-level", prevThinking)
-			m.v.Set("provider-url", prevURL)
-			m.v.Set("provider-api-key", prevKey)
+			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
+			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
+			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
 			restore()
 			return nil, err
 		}
@@ -2804,7 +2804,10 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
 			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
 			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
-			_ = m.SetModel(ctx, prevModel)
+			// Use a fresh context: the rollback must complete even if the
+			// caller's ctx was canceled or expired during the call, otherwise
+			// the per-call model override would leak into subsequent calls.
+			_ = m.SetModel(context.Background(), prevModel)
 		})
 	}
 
