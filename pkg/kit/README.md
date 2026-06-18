@@ -403,7 +403,8 @@ Key `Options` fields for SDK usage:
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
 | `InProcessMCPServers` | Map of name → `*kit.MCPServer` for in-process MCP servers |
-| `Debug` | Enable debug logging |
+| `Debug` | Enable debug logging via the built-in console logger (ignored when `DebugLogger` is set) |
+| `DebugLogger` | Custom `DebugLogger` implementation — routes engine + MCP debug output into your own logging system |
 
 ## Environment Variables
 
