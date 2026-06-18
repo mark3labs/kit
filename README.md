@@ -130,11 +130,13 @@ stream: true
 thinking-level: off       # off, none, minimal, low, medium, high
 no-core-tools: false      # set to true to disable all built-in core tools
 
-# Skills — all three keys are optional
+# Skills — all keys are optional
 no-skills: false          # set to true to disable all skill loading
 skill:                    # explicit skill files/dirs (disables auto-discovery)
   - /path/to/skill.md
-skills-dir: ""            # override project-local directory for auto-discovery
+skills-dir: ""            # scan this directory directly for skills (overrides auto-discovery)
+skill-disable:            # hide skills from the model catalog by name (still usable via /skill:)
+  - some-skill
 ```
 
 All of the above keys can also be set programmatically via the SDK
@@ -212,7 +214,8 @@ mcpServers:
 
 # Skills
 --skill                  Load skill file or directory (repeatable)
---skills-dir             Override the project-local skills directory for auto-discovery
+--skills-dir             Scan this directory directly for skills (overrides auto-discovery)
+--skill-disable          Hide a skill from the model catalog by name (repeatable); still usable via /skill:
 --no-skills              Disable skill loading (auto-discovery and explicit)
 
 # Generation parameters
@@ -889,6 +892,11 @@ host.AddContextFileContent(
 // Tear down session-specific state on logout.
 host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Hide a skill from the model catalog without unloading it (still usable
+// via /skill:); EnableSkill reverses it.
+host.DisableSkill("refund-policy")
+host.EnableSkill("refund-policy")
 
 // Or replace the whole set atomically.
 host.SetSkills(activeSkillsForUser)

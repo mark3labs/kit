@@ -49,7 +49,8 @@ stream: true
 | `prompt-template` | string | — | Specific template to load by name |
 | `no-skills` | bool | `false` | Disable skill loading (auto-discovery and explicit) |
 | `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
-| `skills-dir` | string | — | Override the project-local directory used for skill auto-discovery |
+| `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
+| `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
 
 ## Environment variables
 

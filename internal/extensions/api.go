@@ -777,7 +777,8 @@ type Context struct {
 	LoadSkillsFromDir func(dir string) SkillLoadResult
 
 	// DiscoverSkills finds skills in standard locations.
-	// Checks ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+	// Checks ~/.agents/skills/, ~/.config/kit/skills/, <project>/.agents/skills/,
+	// and <project>/.kit/skills/.
 	DiscoverSkills func() SkillLoadResult
 
 	// InjectSkillAsContext sends a skill's content as a system message.
@@ -909,9 +910,24 @@ type Skill struct {
 	Content string
 	// Path is the absolute filesystem path.
 	Path string
-	// Tags are optional labels for categorization.
+	// License is an optional SPDX license identifier (agentskills.io field).
+	License string
+	// Compatibility is an optional note describing targeted environments
+	// (agentskills.io field).
+	Compatibility string
+	// Metadata is an optional bag of arbitrary string key/value pairs
+	// (agentskills.io field).
+	Metadata map[string]string
+	// AllowedTools optionally restricts which tools the skill may use
+	// (experimental agentskills.io field).
+	AllowedTools string
+	// DisableModelInvocation hides the skill from the model-facing catalog
+	// while keeping it available via explicit activation (agentskills.io field).
+	DisableModelInvocation bool
+	// Tags are optional labels for categorization. Kit extension.
 	Tags []string
 	// When controls automatic inclusion: "always", "on-demand", or file-glob.
+	// Kit extension.
 	When string
 }
 
