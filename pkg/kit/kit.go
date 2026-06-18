@@ -115,6 +115,11 @@ type Kit struct {
 	steerMu       sync.Mutex
 	steerCh       chan agent.SteerMessage
 	leftoverSteer []agent.SteerMessage // unconsumed steer messages from the last turn
+
+	// promptOptsMu serializes per-call PromptOptions overrides that mutate
+	// shared agent state (model, thinking level, provider creds, extra tools)
+	// so the apply/restore window of one call never races another.
+	promptOptsMu sync.Mutex
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -1841,6 +1846,58 @@ type TurnResult struct {
 	// any tool call/result messages added during the agent loop.
 	// Each message carries role and plain-text content.
 	Messages []LLMMessage
+
+	// FinalValue is set when a tool returned a [ToolOutput] with Halt=true
+	// during the turn. The dynamic type is whatever the tool handler placed
+	// in [ToolOutput.FinalValue]. Nil when no tool halted the turn.
+	FinalValue any
+
+	// HaltedByTool is the name of the tool that returned Halt=true, or empty
+	// if the turn ended for any other reason.
+	HaltedByTool string
+
+	// Stream contains every delta event observed during the turn in emit
+	// order. It is populated regardless of streaming mode (in non-streaming
+	// mode it carries the coarse-grained events the provider reported).
+	// PromptResult and the other turn-returning entry points always block
+	// until end-of-turn, so Stream is complete when they return.
+	Stream []StreamEvent
+}
+
+// StreamEventKind classifies a [StreamEvent] captured during a turn.
+type StreamEventKind string
+
+// Stream event kinds captured in [TurnResult.Stream].
+const (
+	StreamEventTextDelta      StreamEventKind = "text_delta"
+	StreamEventReasoningStart StreamEventKind = "reasoning_start"
+	StreamEventReasoningDelta StreamEventKind = "reasoning_delta"
+	StreamEventReasoningEnd   StreamEventKind = "reasoning_end"
+	StreamEventToolCallChunk  StreamEventKind = "tool_call_chunk"
+)
+
+// StreamEvent is a single delta observed during a turn, captured in
+// [TurnResult.Stream]. It lets embedders assert streamed ordering
+// deterministically without re-implementing an OnMessageUpdate collector.
+type StreamEvent struct {
+	// Kind classifies the event.
+	Kind StreamEventKind
+
+	// Text carries the assistant text for StreamEventTextDelta.
+	Text string
+
+	// Reasoning carries the reasoning text for StreamEventReasoningDelta.
+	Reasoning string
+
+	// ToolName is the tool name for StreamEventToolCallChunk.
+	ToolName string
+
+	// ToolID is the tool call ID for StreamEventToolCallChunk.
+	ToolID string
+
+	// Args carries the (accumulating) tool-call argument JSON for
+	// StreamEventToolCallChunk.
+	Args string
 }
 
 // ---------------------------------------------------------------------------
@@ -2081,6 +2138,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 // All prompt modes (Prompt, Steer, FollowUp, PromptWithOptions) share this
 // single code path so callback wiring is never duplicated.
 func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.GenerateWithLoopResult, error) {
+	// Capture the per-turn stream collector (set by runTurn) so streamed
+	// deltas are recorded into TurnResult.Stream in emit order.
+	collector := streamCollectorFromContext(ctx)
 	// Create a per-turn steer channel and attach it to the context so the
 	// agent's PrepareStep can inject steering messages between steps.
 	steerCh := make(chan agent.SteerMessage, 16)
@@ -2198,24 +2258,30 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 						i := strings.Index(remaining, thinkClose)
 						if i == -1 {
 							m.events.emit(ReasoningDeltaEvent{Delta: remaining})
+							collector.add(StreamEvent{Kind: StreamEventReasoningDelta, Reasoning: remaining})
 							return
 						}
 						if i > 0 {
 							m.events.emit(ReasoningDeltaEvent{Delta: remaining[:i]})
+							collector.add(StreamEvent{Kind: StreamEventReasoningDelta, Reasoning: remaining[:i]})
 						}
 						inThinkTag = false
 						m.events.emit(ReasoningCompleteEvent{})
+						collector.add(StreamEvent{Kind: StreamEventReasoningEnd})
 						remaining = remaining[i+len(thinkClose):]
 					} else {
 						i := strings.Index(remaining, thinkOpen)
 						if i == -1 {
 							m.events.emit(MessageUpdateEvent{Chunk: remaining})
+							collector.add(StreamEvent{Kind: StreamEventTextDelta, Text: remaining})
 							return
 						}
 						if i > 0 {
 							m.events.emit(MessageUpdateEvent{Chunk: remaining[:i]})
+							collector.add(StreamEvent{Kind: StreamEventTextDelta, Text: remaining[:i]})
 						}
 						inThinkTag = true
+						collector.add(StreamEvent{Kind: StreamEventReasoningStart})
 						remaining = remaining[i+len(thinkOpen):]
 					}
 				}
@@ -2223,9 +2289,11 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		}(),
 		OnReasoningDelta: func(delta string) {
 			m.events.emit(ReasoningDeltaEvent{Delta: delta})
+			collector.add(StreamEvent{Kind: StreamEventReasoningDelta, Reasoning: delta})
 		},
 		OnReasoningComplete: func() {
 			m.events.emit(ReasoningCompleteEvent{})
+			collector.add(StreamEvent{Kind: StreamEventReasoningEnd})
 		},
 		OnToolOutput: func(toolCallID, toolName, chunk string, isStderr bool) {
 			m.events.emit(ToolOutputEvent{
@@ -2272,12 +2340,14 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				ToolName:   toolName,
 				ToolKind:   toolKindFor(toolName),
 			})
+			collector.add(StreamEvent{Kind: StreamEventToolCallChunk, ToolID: toolCallID, ToolName: toolName})
 		},
 		OnToolCallDelta: func(toolCallID, delta string) {
 			m.events.emit(ToolCallDeltaEvent{
 				ToolCallID: toolCallID,
 				Delta:      delta,
 			})
+			collector.add(StreamEvent{Kind: StreamEventToolCallChunk, ToolID: toolCallID, Args: delta})
 		},
 		OnToolCallEnd: func(toolCallID string) {
 			m.events.emit(ToolCallEndEvent{
@@ -2429,6 +2499,14 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 
 	sentCount := len(messages)
 
+	// Attach a per-turn stream collector and halt holder so generate's
+	// callbacks can capture delta events (TurnResult.Stream) and tools can
+	// signal loop termination (TurnResult.FinalValue / HaltedByTool).
+	collector := &streamCollector{}
+	holder := &haltHolder{}
+	ctx = context.WithValue(ctx, streamCollectorKey{}, collector)
+	ctx = context.WithValue(ctx, haltHolderKey{}, holder)
+
 	m.events.emit(TurnStartEvent{Prompt: promptLabel})
 	m.events.emit(MessageStartEvent{})
 
@@ -2451,7 +2529,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		m.events.emit(TurnEndEvent{Error: err})
 		// Run AfterTurn hooks even on error.
 		m.afterTurn.run(AfterTurnHook{Error: err})
-		return nil, err
+		return nil, ClassifyProviderError(err)
 	}
 
 	responseText := result.FinalResponse.Content.Text()
@@ -2502,6 +2580,13 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	if result.FinalResponse != nil {
 		finalUsage := result.FinalResponse.Usage
 		turnResult.FinalUsage = &finalUsage
+	}
+
+	// Surface captured stream deltas and any tool-driven halt signal.
+	turnResult.Stream = collector.drain()
+	if halted, toolName, value := holder.snapshot(); halted {
+		turnResult.HaltedByTool = toolName
+		turnResult.FinalValue = value
 	}
 
 	return turnResult, nil
@@ -2645,28 +2730,158 @@ type PromptOptions struct {
 	// Use it to inject per-call instructions or context without permanently
 	// modifying the agent's system prompt.
 	SystemMessage string
+
+	// Model overrides the agent's configured model for this call only. Empty
+	// string means "use the agent's default". The previous model is restored
+	// after the call returns.
+	Model string
+
+	// ThinkingLevel overrides the agent's reasoning level for this call only
+	// (e.g. "off", "low", "medium", "high"). Empty string means "use the
+	// agent's default". The previous level is restored after the call.
+	ThinkingLevel string
+
+	// ExtraTools are added to the effective tool set for this call only and
+	// removed afterwards.
+	ExtraTools []Tool
+
+	// ProviderURL overrides the provider base URL for this call only. Useful
+	// for multi-tenant embedders that resolve endpoints per request. The
+	// previous value is restored after the call.
+	ProviderURL string
+
+	// ProviderAPIKey overrides the provider credential for this call only.
+	// The previous value is restored after the call.
+	ProviderAPIKey string
+}
+
+// applyPromptOptions applies the per-call overrides in opts to the shared
+// agent state and returns a restore function that reverts every change. It
+// holds promptOptsMu for the lifetime of the override window (the returned
+// restore releases it), so concurrent option-driven prompts are serialized.
+// On error nothing is changed and the lock is released.
+func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(), error) {
+	needsModelRebuild := opts.Model != "" || opts.ThinkingLevel != "" ||
+		opts.ProviderURL != "" || opts.ProviderAPIKey != ""
+	if !needsModelRebuild && len(opts.ExtraTools) == 0 {
+		return func() {}, nil
+	}
+
+	m.promptOptsMu.Lock()
+	var restores []func()
+	restore := func() {
+		for i := len(restores) - 1; i >= 0; i-- {
+			restores[i]()
+		}
+		m.promptOptsMu.Unlock()
+	}
+
+	// Extra tools (additive) — restored by re-setting the prior slice.
+	if len(opts.ExtraTools) > 0 {
+		prev := m.agent.GetExtraTools()
+		merged := make([]Tool, 0, len(prev)+len(opts.ExtraTools))
+		merged = append(merged, prev...)
+		merged = append(merged, opts.ExtraTools...)
+		m.agent.SetExtraTools(merged)
+		restores = append(restores, func() { m.agent.SetExtraTools(prev) })
+	}
+
+	if needsModelRebuild {
+		prevModel := m.modelString
+		prevThinkingSet := m.v.IsSet("thinking-level")
+		prevThinking := m.v.GetString("thinking-level")
+		prevURLSet := m.v.IsSet("provider-url")
+		prevURL := m.v.GetString("provider-url")
+		prevKeySet := m.v.IsSet("provider-api-key")
+		prevKey := m.v.GetString("provider-api-key")
+
+		if opts.ThinkingLevel != "" {
+			m.v.Set("thinking-level", opts.ThinkingLevel)
+		}
+		if opts.ProviderURL != "" {
+			m.v.Set("provider-url", opts.ProviderURL)
+		}
+		if opts.ProviderAPIKey != "" {
+			m.v.Set("provider-api-key", opts.ProviderAPIKey)
+		}
+
+		targetModel := opts.Model
+		if targetModel == "" {
+			targetModel = prevModel
+		}
+		if err := m.SetModel(ctx, targetModel); err != nil {
+			// Revert config keys we may have set, then unwind prior restores.
+			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
+			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
+			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
+			restore()
+			return nil, err
+		}
+		restores = append(restores, func() {
+			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
+			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
+			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
+			// Use a fresh context: the rollback must complete even if the
+			// caller's ctx was canceled or expired during the call, otherwise
+			// the per-call model override would leak into subsequent calls.
+			_ = m.SetModel(context.Background(), prevModel)
+		})
+	}
+
+	return restore, nil
+}
+
+// restoreViperString restores a config key to its prior value, clearing it
+// back to the unset state when it was not explicitly set before.
+func restoreViperString(v *viper.Viper, key, prev string, wasSet bool) {
+	if wasSet {
+		v.Set(key, prev)
+		return
+	}
+	v.Set(key, "")
 }
 
 // PromptWithOptions sends a message with per-call configuration. It behaves
-// like Prompt but allows injecting an additional system message before the
-// user prompt. Both messages are persisted to the session.
+// like Prompt but applies the overrides in opts (system message, model,
+// thinking level, provider credentials, extra tools) for this call only,
+// restoring the agent's prior state afterwards.
 func (m *Kit) PromptWithOptions(ctx context.Context, msg string, opts PromptOptions) (string, error) {
-	var preMessages []fantasy.Message
-	if opts.SystemMessage != "" {
-		preMessages = append(preMessages, fantasy.NewSystemMessage(opts.SystemMessage))
-	}
-	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
-
-	result, err := m.runTurn(ctx, msg, msg, preMessages)
+	result, err := m.PromptResultWithOptions(ctx, msg, opts)
 	if err != nil {
 		return "", err
 	}
 	return result.Response, nil
 }
 
+// PromptResultWithOptions is the [TurnResult]-returning counterpart of
+// PromptWithOptions. Like all turn-returning entry points it blocks until
+// end-of-turn, so the returned TurnResult (including TurnResult.Stream) is
+// complete when it returns. Per-call overrides in opts are applied for this
+// call only and the agent's prior state is restored before returning.
+func (m *Kit) PromptResultWithOptions(ctx context.Context, msg string, opts PromptOptions) (*TurnResult, error) {
+	restore, err := m.applyPromptOptions(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer restore()
+
+	var preMessages []fantasy.Message
+	if opts.SystemMessage != "" {
+		preMessages = append(preMessages, fantasy.NewSystemMessage(opts.SystemMessage))
+	}
+	preMessages = append(preMessages, fantasy.NewUserMessage(msg))
+
+	return m.runTurn(ctx, msg, msg, preMessages)
+}
+
 // PromptResult sends a message and returns the full turn result including
 // usage statistics and conversation messages. Use this instead of Prompt()
 // when you need more than just the response text.
+//
+// PromptResult blocks until end-of-turn regardless of whether streaming is
+// enabled. When streaming is enabled, every delta observed during the turn is
+// also captured in order in [TurnResult.Stream], so callers can assert
+// streamed ordering deterministically without an OnMessageUpdate collector.
 func (m *Kit) PromptResult(ctx context.Context, message string) (*TurnResult, error) {
 	return m.runTurn(ctx, message, message, []fantasy.Message{
 		fantasy.NewUserMessage(message),
@@ -2804,7 +3019,18 @@ func extractFileParts(msg fantasy.Message) []fantasy.FilePart {
 // Close cleans up resources including MCP server connections, model resources,
 // and the tree session file handle. Should be called when the Kit instance is
 // no longer needed. Returns an error if cleanup fails.
+//
+// Close is equivalent to CloseContext(context.Background()). Use
+// [Kit.CloseContext] when shutdown must be bounded by a deadline.
 func (m *Kit) Close() error {
+	return m.CloseContext(context.Background())
+}
+
+// CloseContext is like [Kit.Close] but accepts a context so graceful shutdown
+// can be bounded by a deadline or cancellation. The context is honored on a
+// best-effort basis: if it is already done when CloseContext is called, the
+// context error is returned after a best-effort cleanup pass.
+func (m *Kit) CloseContext(ctx context.Context) error {
 	// Emit SessionShutdown for extensions.
 	if m.extRunner != nil && m.extRunner.HasHandlers(extensions.SessionShutdown) {
 		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
@@ -2816,7 +3042,11 @@ func (m *Kit) Close() error {
 	if closer, ok := m.authHandler.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
-	return m.agent.Close()
+	err := m.agent.Close()
+	if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
+		return ctxErr
+	}
+	return err
 }
 
 // Conversion helpers are defined in adapter.go.

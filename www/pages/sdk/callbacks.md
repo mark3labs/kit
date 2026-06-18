@@ -176,11 +176,29 @@ Lower values run first. First non-nil result wins.
 | `SourceEvent` | `OnSource` | LLM referenced a source (e.g., web search) |
 | `ErrorEvent` | `OnError` | Agent-level error during streaming |
 | `RetryEvent` | `OnRetry` | LLM request retried after transient error |
-| `CompactionEvent` | `OnCompaction` | Conversation compacted |
+| `CompactionEvent` | `OnCompaction` | Conversation compacted (fires on success **and** failure — check `Err`) |
 | `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |
 | `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |
 
 > **Note:** `OnStreaming` is a deprecated alias for `OnMessageUpdate` and will be removed in a future release.
+
+### Compaction telemetry
+
+`CompactionEvent` fires after every compaction attempt. On success `Err` is
+`nil` and the summary/token/file fields are populated; on failure `Err` is
+non-nil and the rest are zero-valued. This lets you wire symmetric
+start/end lifecycle telemetry without hand-rolling the failure path:
+
+```go
+host.OnCompaction(func(e kit.CompactionEvent) {
+    if e.Err != nil {
+        log.Printf("compaction failed: %v", e.Err)
+        return
+    }
+    log.Printf("compacted %d → %d tokens (%d messages removed)",
+        e.OriginalTokens, e.CompactedTokens, e.MessagesRemoved)
+})
+```
 
 ## Subagent event monitoring
 

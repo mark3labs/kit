@@ -1,8 +1,13 @@
 package kit
 
 import (
+	"errors"
 	"time"
 )
+
+// ErrBranchSummaryNotSupported is returned by SessionManager implementations
+// that do not support collapsing a branch range into a summary entry.
+var ErrBranchSummaryNotSupported = errors.New("session manager does not support branch summaries")
 
 // SessionManager defines the contract for conversation storage backends.
 // Implementations can use files (default), databases, cloud storage, etc.
@@ -88,6 +93,12 @@ type SessionManager interface {
 	// returned by BuildContext, in the same order. Used by compaction to
 	// determine which entries to summarize.
 	GetContextEntryIDs() []string
+
+	// AppendBranchSummary collapses the range from fromID to the current leaf
+	// on the active branch into a single summary entry and returns the new
+	// entry ID. It backs [Kit.CollapseBranch]. Managers that do not track
+	// branch summaries should return [ErrBranchSummaryNotSupported].
+	AppendBranchSummary(fromID, summary string) (entryID string, err error)
 
 	// Close releases resources (database connections, file handles, etc.).
 	Close() error

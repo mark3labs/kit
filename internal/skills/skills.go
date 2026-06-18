@@ -12,8 +12,11 @@ package skills
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -55,7 +58,14 @@ func LoadSkill(path string) (*Skill, error) {
 		abs = path
 	}
 
-	skill := &Skill{Path: abs}
+	return parseSkill(data, path, abs)
+}
+
+// parseSkill parses skill bytes that originated from srcPath (used for error
+// messages and name derivation) and records storePath as the skill's Path.
+// It is shared by the os-backed and fs.FS-backed loaders.
+func parseSkill(data []byte, srcPath, storePath string) (*Skill, error) {
+	skill := &Skill{Path: storePath}
 
 	content := string(data)
 
@@ -70,7 +80,7 @@ func LoadSkill(path string) (*Skill, error) {
 			body = strings.TrimPrefix(body, "\n")
 
 			if err := yaml.Unmarshal([]byte(frontmatter), skill); err != nil {
-				return nil, fmt.Errorf("parsing frontmatter in %s: %w", path, err)
+				return nil, fmt.Errorf("parsing frontmatter in %s: %w", srcPath, err)
 			}
 			skill.Content = strings.TrimSpace(body)
 		} else {
@@ -83,12 +93,12 @@ func LoadSkill(path string) (*Skill, error) {
 
 	// Fallback: derive name from filename if frontmatter didn't set one.
 	if skill.Name == "" {
-		base := filepath.Base(path)
+		base := filepath.Base(srcPath)
 		ext := filepath.Ext(base)
 		skill.Name = strings.TrimSuffix(base, ext)
 		// Convert SKILL → directory name for SKILL.md files.
 		if strings.EqualFold(skill.Name, "SKILL") || strings.EqualFold(skill.Name, "skill") {
-			skill.Name = filepath.Base(filepath.Dir(path))
+			skill.Name = filepath.Base(filepath.Dir(srcPath))
 		}
 	}
 
@@ -113,7 +123,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	}
 
 	var skills []*Skill
-	var errs []string
+	var errs []error
 
 	for _, entry := range entries {
 		full := filepath.Join(dir, entry.Name())
@@ -123,7 +133,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			if ext == ".md" || ext == ".txt" {
 				s, err := LoadSkill(full)
 				if err != nil {
-					errs = append(errs, err.Error())
+					errs = append(errs, err)
 					continue
 				}
 				skills = append(skills, s)
@@ -140,7 +150,7 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 			if !se.IsDir() && strings.EqualFold(se.Name(), "SKILL.md") {
 				s, err := LoadSkill(filepath.Join(full, se.Name()))
 				if err != nil {
-					errs = append(errs, err.Error())
+					errs = append(errs, err)
 					continue
 				}
 				skills = append(skills, s)
@@ -150,7 +160,65 @@ func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	}
 
 	if len(errs) > 0 {
-		return skills, fmt.Errorf("some skills failed to load: %s", strings.Join(errs, "; "))
+		return skills, fmt.Errorf("some skills failed to load: %w", errors.Join(errs...))
+	}
+	return skills, nil
+}
+
+// LoadSkillsFromFS is the fs.FS-typed counterpart of LoadSkillsFromDir. It
+// walks fsys starting at root (which may be "." or a subdirectory), finds
+// *.md and *.txt files plus SKILL.md files in subdirectories, parses YAML
+// frontmatter + markdown body, and returns the loaded skills.
+//
+// Because fs.FS has no notion of an absolute on-disk path, each loaded skill's
+// Path is set to its slash-separated path within fsys. Files that fail to
+// parse are skipped and reported via the returned error.
+func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
+	if fsys == nil {
+		return nil, nil
+	}
+	if root == "" {
+		root = "."
+	}
+
+	var skills []*Skill
+	var errs []error
+
+	walkErr := fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries rather than aborting the walk
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		ext := strings.ToLower(path.Ext(name))
+		if ext != ".md" && ext != ".txt" {
+			return nil
+		}
+		// Top-level .md/.txt files, or SKILL.md anywhere.
+		isTopLevel := path.Dir(p) == root
+		if !isTopLevel && !strings.EqualFold(name, "SKILL.md") {
+			return nil
+		}
+		data, readErr := fs.ReadFile(fsys, p)
+		if readErr != nil {
+			errs = append(errs, fmt.Errorf("reading skill %s: %w", p, readErr))
+			return nil
+		}
+		s, parseErr := parseSkill(data, p, p)
+		if parseErr != nil {
+			errs = append(errs, parseErr)
+			return nil
+		}
+		skills = append(skills, s)
+		return nil
+	})
+	if walkErr != nil {
+		return skills, fmt.Errorf("walking skills fs at %s: %w", root, walkErr)
+	}
+	if len(errs) > 0 {
+		return skills, fmt.Errorf("some skills failed to load: %w", errors.Join(errs...))
 	}
 	return skills, nil
 }

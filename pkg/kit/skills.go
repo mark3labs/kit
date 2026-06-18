@@ -2,6 +2,7 @@ package kit
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -34,6 +35,19 @@ func LoadSkill(path string) (*Skill, error) {
 // subdirectories.
 func LoadSkillsFromDir(dir string) ([]*Skill, error) {
 	return skills.LoadSkillsFromDir(dir)
+}
+
+// LoadSkillsFromFS is the [fs.FS]-typed counterpart of [LoadSkillsFromDir].
+// It walks fsys starting at root (which may be "." or a subdirectory), finds
+// *.md/*.txt files and SKILL.md files in subdirectories, parses YAML
+// frontmatter + markdown body, and returns the loaded skills. Use it when
+// skill discovery is wrapped in an fs.FS abstraction (embed.FS distribution,
+// fstest.MapFS tests, or per-tenant virtual filesystems).
+//
+// Each loaded skill's Path is its slash-separated path within fsys, since
+// fs.FS has no notion of an absolute on-disk path.
+func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
+	return skills.LoadSkillsFromFS(fsys, root)
 }
 
 // LoadSkills auto-discovers skills from standard directories:

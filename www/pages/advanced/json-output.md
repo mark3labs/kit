@@ -93,3 +93,21 @@ result, err := host.PromptResult(ctx, "Count files")
 fmt.Println(result.Response)
 fmt.Println(result.Usage.TotalTokens)
 ```
+
+`PromptResult` blocks until end-of-turn regardless of streaming mode. When
+streaming is enabled, every delta observed during the turn is also captured in
+order in `result.Stream` (`[]kit.StreamEvent`), so you can assert streamed
+ordering deterministically without wiring an `OnMessageUpdate` collector:
+
+```go
+for _, ev := range result.Stream {
+    switch ev.Kind {
+    case kit.StreamEventTextDelta:
+        fmt.Print(ev.Text)
+    case kit.StreamEventReasoningDelta:
+        fmt.Print(ev.Reasoning)
+    case kit.StreamEventToolCallChunk:
+        fmt.Printf("[%s %s]", ev.ToolName, ev.Args)
+    }
+}
+```

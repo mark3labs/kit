@@ -364,15 +364,28 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `Option` - Functional option (`func(*Options)`) for `NewAgent`
 - `Message` - Conversation message with typed content parts
 - `Tool` - Agent tool interface
-- `TurnResult` - Full result from a prompt including usage stats
+- `TurnResult` - Full result from a prompt including usage stats, captured
+  stream deltas (`Stream`), and any tool-driven halt (`FinalValue` /
+  `HaltedByTool`)
+- `StreamEvent` / `StreamEventKind` - Ordered delta events captured in
+  `TurnResult.Stream`
+- `ToolOutput` - Custom tool return value; set `Halt`/`FinalValue` to end the
+  agent loop and surface a typed result
+- Provider-error sentinels - `ErrContextOverflow`, `ErrRateLimit`, `ErrAuth`,
+  `ErrProviderUnavailable`, `ErrInvalidRequest`; classify with
+  `ClassifyProviderError(err)` and match via `errors.Is`
 
 ### Key Methods
 
 - `New(ctx, opts)` - Create new Kit instance
 - `NewAgent(ctx, ...Option)` - Create a Kit via functional options (streaming on by default)
 - `Prompt(ctx, message)` - Send message and get response string
-- `PromptResult(ctx, message)` - Send message and get full TurnResult
+- `PromptResult(ctx, message)` - Send message and get full TurnResult (blocks
+  until end-of-turn; populates `TurnResult.Stream` in streaming mode)
 - `PromptWithOptions(ctx, message, opts)` - Prompt with per-call options
+  (system message, model, thinking level, provider credentials, extra tools)
+- `PromptResultWithOptions(ctx, message, opts)` - Per-call options variant that
+  returns the full TurnResult
 - `Steer(ctx, instruction)` - System-level steering
 - `FollowUp(ctx, text)` - Continue without new user input
 - `SetModel(ctx, model)` - Switch model at runtime
@@ -384,7 +397,15 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `AddSkill(*Skill)` / `LoadAndAddSkill(path)` / `RemoveSkill(name)` / `SetSkills([])` - Manage skills at runtime
 - `AddContextFile(*ContextFile)` / `AddContextFileContent(path, content)` / `LoadAndAddContextFile(path)` / `RemoveContextFile(path)` / `SetContextFiles([])` - Manage AGENTS.md-style context files at runtime
 - `RefreshSystemPrompt()` - Re-apply the composed system prompt to the agent
+- `NewTool[T]` / `NewParallelTool[T]` - Create a typed custom tool
+- `NewRawTool(name, desc, schema, fn)` - Create a schema-driven tool when the
+  input shape isn't known at compile time (skill/MCP catalogs)
+- `LoadSkillsFromFS(fsys, root)` - `fs.FS`-typed skill loader (embed.FS,
+  fstest.MapFS, per-tenant virtual filesystems)
+- `CollapseBranch(fromID, toID, summary)` - Collapse a branch range into a
+  summary (works with any `SessionManager` via `AppendBranchSummary`)
 - `Close()` - Clean up resources
+- `CloseContext(ctx)` - Clean up resources with a shutdown deadline
 
 ### Options
 

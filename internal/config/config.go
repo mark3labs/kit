@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -554,7 +555,7 @@ func FilepathOr[T any](key string, value *T) error {
 				absPath = filepath.Join(home, absPath[2:])
 			}
 			if !filepath.IsAbs(absPath) {
-				base := configPath
+				base := GetConfigPath()
 				if base == "" {
 					fmt.Fprintf(os.Stderr, "unable to build relative path to config.")
 					os.Exit(1)
@@ -581,11 +582,24 @@ func FilepathOr[T any](key string, value *T) error {
 	return nil
 }
 
-var configPath string
+var (
+	configPathMu sync.RWMutex
+	configPath   string
+)
 
 // SetConfigPath sets the configuration file path for resolving relative paths
 // in configuration values. This should be called when the configuration file
-// location is known.
+// location is known. It is safe for concurrent use.
 func SetConfigPath(path string) {
+	configPathMu.Lock()
+	defer configPathMu.Unlock()
 	configPath = path
+}
+
+// GetConfigPath returns the configuration file path previously set via
+// SetConfigPath. It is safe for concurrent use.
+func GetConfigPath() string {
+	configPathMu.RLock()
+	defer configPathMu.RUnlock()
+	return configPath
 }

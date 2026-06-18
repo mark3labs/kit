@@ -153,6 +153,11 @@ func (a *treeManagerAdapter) GetContextEntryIDs() []string {
 	return a.inner.GetContextEntryIDs()
 }
 
+// AppendBranchSummary implements SessionManager.
+func (a *treeManagerAdapter) AppendBranchSummary(fromID, summary string) (string, error) {
+	return a.inner.AppendBranchSummary(fromID, summary)
+}
+
 // Close implements SessionManager.
 func (a *treeManagerAdapter) Close() error {
 	return a.inner.Close()
