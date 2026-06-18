@@ -112,8 +112,20 @@ func (m *Kit) Compact(ctx context.Context, opts *CompactionOptions, customInstru
 }
 
 // compactInternal is the shared compaction implementation. The isAutomatic
-// flag distinguishes auto-triggered compaction from manual /compact.
+// flag distinguishes user-triggered from auto-compaction for hooks/events.
+// On failure it emits a CompactionEvent carrying the error so embedders can
+// observe the failure path symmetrically with the success path.
 func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, customInstructions string, isAutomatic bool) (*CompactionResult, error) {
+	result, err := m.compactImpl(ctx, opts, customInstructions, isAutomatic)
+	if err != nil {
+		m.events.emit(CompactionEvent{Err: err})
+	}
+	return result, err
+}
+
+// compactImpl performs the actual compaction work. On success it emits a
+// CompactionEvent via persistAndEmitCompaction.
+func (m *Kit) compactImpl(ctx context.Context, opts *CompactionOptions, customInstructions string, isAutomatic bool) (*CompactionResult, error) {
 	if opts == nil {
 		if m.compactionOpts != nil {
 			opts = m.compactionOpts

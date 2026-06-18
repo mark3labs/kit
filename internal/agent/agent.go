@@ -1105,6 +1105,18 @@ func (a *Agent) GetExtensionToolCount() int {
 	return len(a.extraTools)
 }
 
+// GetExtraTools returns the agent's current extra tools (e.g.
+// extension-registered tools). The returned slice is a copy so callers can
+// snapshot and later restore it via SetExtraTools.
+func (a *Agent) GetExtraTools() []fantasy.AgentTool {
+	if len(a.extraTools) == 0 {
+		return nil
+	}
+	out := make([]fantasy.AgentTool, len(a.extraTools))
+	copy(out, a.extraTools)
+	return out
+}
+
 // SetExtraTools replaces the agent's extra tools (e.g. extension-registered
 // tools) and rebuilds the internal agent with the updated tool list. The
 // model, system prompt, and all other configuration are preserved.

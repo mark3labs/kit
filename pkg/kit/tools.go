@@ -2,7 +2,10 @@ package kit
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 
 	"charm.land/fantasy"
 
@@ -40,6 +43,20 @@ type ToolOutput struct {
 	// Metadata is optional opaque metadata attached to the response.
 	// It is not sent to the LLM but may be consumed by hooks or the UI.
 	Metadata any
+
+	// FinalValue, when Halt is true, is propagated to the turn's
+	// [TurnResult.FinalValue] so the caller can recover a typed result
+	// produced by the tool (e.g. a structured "finish" tool). The dynamic
+	// type is whatever the tool handler stored. Ignored when Halt is false.
+	FinalValue any
+
+	// Halt, when true, signals that the agent loop should terminate after
+	// this tool call. Content is still returned to the model for the current
+	// step, but [TurnResult.FinalValue] and [TurnResult.HaltedByTool] are
+	// populated so embedders building structured-result extraction patterns
+	// (model calls a finish(...) tool, the loop ends, the typed value is
+	// returned) no longer need a side-channel.
+	Halt bool
 }
 
 // TextResult creates a successful text [ToolOutput].
@@ -71,6 +88,49 @@ func MediaResult(content string, data []byte, mediaType string) ToolOutput {
 
 // toolCallIDKey is the context key for the tool call ID.
 type toolCallIDKey struct{}
+
+// haltHolderKey is the context key for the per-turn halt holder. It is
+// injected by runTurn so tool handlers created with [NewTool],
+// [NewParallelTool], and [NewRawTool] can signal loop termination and carry a
+// final value out to the [TurnResult] without an embedder-side side-channel.
+type haltHolderKey struct{}
+
+// haltHolder captures a Halt signal raised by a tool handler during a turn.
+type haltHolder struct {
+	mu       sync.Mutex
+	halted   bool
+	toolName string
+	value    any
+}
+
+func (h *haltHolder) set(toolName string, value any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// First halt wins so the earliest finishing tool determines the result.
+	if h.halted {
+		return
+	}
+	h.halted = true
+	h.toolName = toolName
+	h.value = value
+}
+
+func (h *haltHolder) snapshot() (bool, string, any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.halted, h.toolName, h.value
+}
+
+// recordHalt records a Halt signal from a tool handler onto the per-turn halt
+// holder, if one is present in the context.
+func recordHalt(ctx context.Context, toolName string, result ToolOutput) {
+	if !result.Halt {
+		return
+	}
+	if holder, ok := ctx.Value(haltHolderKey{}).(*haltHolder); ok && holder != nil {
+		holder.set(toolName, result.FinalValue)
+	}
+}
 
 // ToolCallIDFromContext extracts the tool call ID from the context.
 // The call ID is set automatically by [NewTool] and [NewParallelTool]
@@ -144,6 +204,7 @@ func NewTool[TInput any](name, description string, fn func(ctx context.Context, 
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
+			recordHalt(ctx, name, result)
 			return toolOutputToResponse(result), nil
 		},
 	)
@@ -160,9 +221,96 @@ func NewParallelTool[TInput any](name, description string, fn func(ctx context.C
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
+			recordHalt(ctx, name, result)
 			return toolOutputToResponse(result), nil
 		},
 	)
+}
+
+// rawToolInput is the decoded carrier used by [NewRawTool]. Using
+// json.RawMessage lets the typed-tool machinery in fantasy generate a
+// permissive object schema while we forward the raw arguments to the handler
+// as a decoded map.
+type rawToolInput = json.RawMessage
+
+// NewRawTool is the schema-driven counterpart to [NewTool]. Use it when the
+// tool's input shape isn't known at compile time — for example tools loaded
+// from JSON Schema definitions in skill files or MCP server catalogs.
+//
+// schema must be a valid JSON Schema describing the tool's input object; it is
+// advertised to the model as the tool's parameter schema. fn receives the
+// decoded JSON arguments as a map and returns a [ToolOutput]. Like [NewTool],
+// the tool call ID is injected into the context and can be retrieved with
+// [ToolCallIDFromContext], and [ToolOutput.Halt] is honored.
+//
+// If the model sends arguments that are not a valid JSON object the call
+// short-circuits with an error [ToolResponse] before fn is invoked.
+func NewRawTool(
+	name, description string,
+	schema map[string]any,
+	fn func(ctx context.Context, args map[string]any) (ToolOutput, error),
+) Tool {
+	tool := fantasy.NewAgentTool(name, description,
+		func(ctx context.Context, input rawToolInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx = context.WithValue(ctx, toolCallIDKey{}, call.ID)
+			args := map[string]any{}
+			if len(input) > 0 && string(input) != "null" {
+				if err := json.Unmarshal(input, &args); err != nil {
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid arguments for tool %q: %v", name, err)), nil
+				}
+			}
+			result, err := fn(ctx, args)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+			recordHalt(ctx, name, result)
+			return toolOutputToResponse(result), nil
+		},
+	)
+	// Override the auto-generated schema with the caller-supplied one so the
+	// model sees the real input shape instead of the permissive raw-message
+	// schema.
+	if len(schema) > 0 {
+		info := tool.Info()
+		info.Parameters = schema
+		info.Required = requiredFromSchema(schema)
+		tool = &schemaOverrideTool{AgentTool: tool, info: info}
+	}
+	return tool
+}
+
+// schemaOverrideTool wraps an [fantasy.AgentTool] to advertise a
+// caller-supplied JSON Schema instead of the auto-generated one. Used by
+// [NewRawTool].
+type schemaOverrideTool struct {
+	fantasy.AgentTool
+	info fantasy.ToolInfo
+}
+
+// Info returns the tool info carrying the overridden parameter schema.
+func (t *schemaOverrideTool) Info() fantasy.ToolInfo { return t.info }
+
+// requiredFromSchema extracts the top-level "required" array from a JSON
+// Schema object, tolerating both []string and []any element types.
+func requiredFromSchema(schema map[string]any) []string {
+	raw, ok := schema["required"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, e := range v {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // --- Individual tool constructors ---

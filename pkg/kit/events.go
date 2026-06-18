@@ -370,7 +370,10 @@ type StepUsageEvent struct {
 // EventType implements Event.
 func (e StepUsageEvent) EventType() EventType { return EventStepUsage }
 
-// CompactionEvent fires after a successful compaction.
+// CompactionEvent fires after a compaction attempt. On success Err is nil and
+// the summary/token/file fields are populated. On failure Err is non-nil and
+// the remaining fields are zero-valued, so embedders can wire symmetric
+// start/end lifecycle telemetry around both outcomes.
 type CompactionEvent struct {
 	Summary         string
 	OriginalTokens  int
@@ -378,6 +381,10 @@ type CompactionEvent struct {
 	MessagesRemoved int
 	ReadFiles       []string
 	ModifiedFiles   []string
+
+	// Err is non-nil when compaction failed. On the failure path the other
+	// fields are zero-valued.
+	Err error
 }
 
 // EventType implements Event.

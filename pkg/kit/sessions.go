@@ -217,19 +217,14 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 
 // CollapseBranch replaces a branch range with a summary entry.
 // Returns an error if the session is unavailable or the operation fails.
+// Custom SessionManagers that do not support branch summaries surface
+// [ErrBranchSummaryNotSupported].
 func (m *Kit) CollapseBranch(fromID, toID, summary string) error {
 	if m.session == nil {
 		return fmt.Errorf("no session available")
 	}
-	// Note: This operation is not directly supported by SessionManager interface
-	// as it requires AppendBranchSummary which is TreeManager-specific.
-	// For custom SessionManagers, this would need to be implemented differently.
-	// For now, we try to use the underlying TreeManager if available.
-	if adapter, ok := m.session.(*treeManagerAdapter); ok {
-		_, err := adapter.inner.AppendBranchSummary(fromID, summary)
-		return err
-	}
-	return fmt.Errorf("CollapseBranch not supported by custom session manager")
+	_, err := m.session.AppendBranchSummary(fromID, summary)
+	return err
 }
 
 // branchEntryToTreeNode converts a BranchEntry to a TreeNode.
