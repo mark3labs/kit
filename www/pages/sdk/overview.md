@@ -80,6 +80,7 @@ Available options:
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
+| `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
 | `Ephemeral()` | `Options.NoSession = true` |
 
 Options are applied in order, so later options override earlier ones. `Option`

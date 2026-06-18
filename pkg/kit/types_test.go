@@ -264,30 +264,31 @@ func TestConvertFromLLMMessage(t *testing.T) {
 	}
 }
 
-// TestAgentConfigNoFantasyImport verifies AgentConfig can be populated with
-// every field — including CoreTools, ExtraTools, and ToolWrapper — using
-// only SDK-owned types. This test deliberately does not import
-// "charm.land/fantasy"; the package compiling at all is the proof that the
-// SDK no longer leaks the dependency name through AgentConfig.
+// TestOptionsNoFantasyImport verifies Options can be populated with the
+// tool-related fields — Tools and ExtraTools — using only SDK-owned types.
+// This test deliberately does not import "charm.land/fantasy"; the package
+// compiling at all is the proof that the SDK no longer leaks the dependency
+// name through the Options surface.
+//
+// Tool-call interception (formerly the AgentConfig.ToolWrapper escape hatch)
+// is covered by the hook system — [Kit.OnBeforeToolCall] /
+// [Kit.OnAfterToolResult] — whose hook payload types also use only
+// SDK-owned identifiers; see hooks_test.go.
 //
 // Regression test for https://github.com/mark3labs/kit/issues/30.
-func TestAgentConfigNoFantasyImport(t *testing.T) {
+func TestOptionsNoFantasyImport(t *testing.T) {
 	myTool := kit.NewTool[struct{}]("noop", "does nothing", func(_ context.Context, _ struct{}) (kit.ToolOutput, error) {
 		return kit.TextResult("ok"), nil
 	})
 
-	wrapperCalled := false
-	cfg := kit.AgentConfig{
-		SystemPrompt:     "you are a tester",
-		MaxSteps:         5,
-		StreamingEnabled: true,
-		CoreTools:        []kit.Tool{myTool},
-		ExtraTools:       []kit.Tool{myTool},
-		DisableCoreTools: false,
-		ToolWrapper: func(in []kit.Tool) []kit.Tool {
-			wrapperCalled = true
-			return in
-		},
+	streaming := true
+	cfg := kit.Options{
+		SystemPrompt:      "you are a tester",
+		MaxSteps:          5,
+		Streaming:         &streaming,
+		Tools:             []kit.Tool{myTool},
+		ExtraTools:        []kit.Tool{myTool},
+		DisableCoreTools:  false,
 		OnMCPServerLoaded: func(_ string, _ int, _ error) {},
 	}
 
@@ -297,36 +298,29 @@ func TestAgentConfigNoFantasyImport(t *testing.T) {
 	if cfg.MaxSteps != 5 {
 		t.Errorf("MaxSteps = %d, want 5", cfg.MaxSteps)
 	}
-	if !cfg.StreamingEnabled {
-		t.Error("StreamingEnabled = false, want true")
+	if cfg.Streaming == nil || !*cfg.Streaming {
+		t.Error("Streaming = false/nil, want true")
 	}
-	if len(cfg.CoreTools) != 1 {
-		t.Errorf("CoreTools len = %d, want 1", len(cfg.CoreTools))
+	if len(cfg.Tools) != 1 {
+		t.Errorf("Tools len = %d, want 1", len(cfg.Tools))
 	}
 	if len(cfg.ExtraTools) != 1 {
 		t.Errorf("ExtraTools len = %d, want 1", len(cfg.ExtraTools))
 	}
-
-	// Exercise the wrapper to confirm the func type is usable.
-	out := cfg.ToolWrapper(cfg.CoreTools)
-	if !wrapperCalled {
-		t.Error("ToolWrapper was not invoked")
-	}
-	if len(out) != 1 {
-		t.Errorf("wrapped tool list len = %d, want 1", len(out))
-	}
 }
 
-// TestAgentConfigToolWrapperSignature documents that AgentConfig.ToolWrapper
-// uses kit.Tool (not the underlying provider type) in its signature.
-func TestAgentConfigToolWrapperSignature(t *testing.T) {
-	//nolint:staticcheck // QF1011: explicit type asserts the SDK-side func signature.
-	var _ func([]kit.Tool) []kit.Tool = func(in []kit.Tool) []kit.Tool { return in }
-	cfg := kit.AgentConfig{
-		ToolWrapper: func(in []kit.Tool) []kit.Tool { return in },
-	}
-	if cfg.ToolWrapper == nil {
-		t.Fatal("ToolWrapper assignment failed")
+// TestToolSliceSignature documents that the kit.Tool alias — used by every
+// SDK tool-related surface (Options.Tools, Options.ExtraTools, WithTools,
+// WithExtraTools, hook payloads) — is referenced under its SDK-owned name
+// in user code, without any fantasy import.
+func TestToolSliceSignature(t *testing.T) {
+	var tools []kit.Tool
+	tools = append(tools, kit.NewTool[struct{}]("noop", "",
+		func(_ context.Context, _ struct{}) (kit.ToolOutput, error) {
+			return kit.TextResult("ok"), nil
+		}))
+	if len(tools) != 1 {
+		t.Fatalf("unexpected tool slice length: %d", len(tools))
 	}
 }
 

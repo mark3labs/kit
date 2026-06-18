@@ -691,10 +691,10 @@ host, err := kit.NewAgent(ctx,
 
 Available options: `WithModel`, `WithSystemPrompt`, `WithStreaming`,
 `WithMaxTokens`, `WithThinkingLevel`, `WithTools`, `WithExtraTools`,
-`WithProviderAPIKey`, `WithProviderURL`, `WithConfigFile`, `WithDebug`, and
-`Ephemeral`. For advanced configuration not covered by the helpers (custom MCP
-config, in-process MCP servers, session backends, MCP task tuning) construct an
-`Options` value explicitly and call `kit.New`.
+`WithProviderAPIKey`, `WithProviderURL`, `WithConfigFile`, `WithDebug`,
+`WithDebugLogger`, and `Ephemeral`. For advanced configuration not covered by
+the helpers (custom MCP config, in-process MCP servers, session backends, MCP
+task tuning) construct an `Options` value explicitly and call `kit.New`.
 
 ### Per-instance config isolation
 

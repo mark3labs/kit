@@ -5,13 +5,11 @@ import (
 
 	"charm.land/fantasy"
 
-	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/compaction"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
-	"github.com/mark3labs/kit/internal/tools"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -83,9 +81,10 @@ type MCPServerConfig = config.MCPServerConfig
 // concurrent use.
 //
 // Most consumers do not need to provide one; pass [Options.Debug] = true
-// to use the default logger. DebugLogger is exposed for the low-level
-// [AgentConfig] path and for embedders that want to route debug output
-// into their own logging system.
+// (or use [WithDebug]) to install the built-in console logger. DebugLogger
+// is the escape hatch for embedders that want to route debug output into
+// their own logging system — install one via [Options.DebugLogger] or
+// [WithDebugLogger].
 type DebugLogger interface {
 	// LogDebug records a single debug message. Implementations may drop,
 	// buffer, or render the message however they choose.
@@ -93,109 +92,6 @@ type DebugLogger interface {
 	// IsDebugEnabled reports whether debug logging is active. Callers may
 	// check this before doing expensive formatting work.
 	IsDebugEnabled() bool
-}
-
-// AgentConfig holds configuration options for constructing an agent at the
-// SDK boundary. All fields use SDK-owned types, so consumers can populate
-// this struct without importing any underlying LLM-provider package.
-//
-// For most use cases, prefer the high-level [New] entry point with
-// [Options]. AgentConfig is exposed for advanced consumers that need
-// direct access to the lower-level agent configuration shape.
-type AgentConfig struct {
-	// ModelConfig holds the LLM provider configuration. A nil value means
-	// that the default provider/model resolution will be used.
-	ModelConfig *ProviderConfig
-
-	// MCPConfig describes any MCP servers whose tools should be loaded
-	// alongside core tools.
-	MCPConfig *Config
-
-	// SystemPrompt is the system prompt sent to the LLM.
-	SystemPrompt string
-
-	// MaxSteps caps the number of LLM iterations per turn. A value of
-	// zero means no cap is applied at this layer.
-	MaxSteps int
-
-	// StreamingEnabled controls whether the agent streams responses.
-	StreamingEnabled bool
-
-	// AuthHandler handles OAuth authorization for remote MCP servers.
-	// When nil, remote MCP servers requiring OAuth will fail to connect.
-	AuthHandler MCPAuthHandler
-
-	// TokenStoreFactory, if non-nil, creates a custom token store for each
-	// remote MCP server's OAuth tokens. When nil, the default file-based
-	// token store is used.
-	TokenStoreFactory MCPTokenStoreFactory
-
-	// CoreTools overrides the default core tool set. If empty, [AllTools]
-	// is used. Provide a custom tool set (e.g. [CodingTools] or tools
-	// built with a custom WorkDir) to scope agent capabilities.
-	CoreTools []Tool
-
-	// DisableCoreTools, when true, prevents loading any core tools.
-	// Combined with empty CoreTools this yields a chat-only agent with
-	// no built-in tools.
-	DisableCoreTools bool
-
-	// ExtraTools are additional tools loaded alongside core and MCP tools.
-	ExtraTools []Tool
-
-	// ToolWrapper, if non-nil, wraps the combined tool list before it is
-	// handed to the LLM. Used to intercept tool calls or results.
-	ToolWrapper func([]Tool) []Tool
-
-	// OnMCPServerLoaded, if non-nil, is invoked once for each MCP server
-	// when its tools have finished loading (or failed). Called from a
-	// background goroutine.
-	OnMCPServerLoaded func(serverName string, toolCount int, err error)
-
-	// DebugLogger receives low-level debug output from the engine and the
-	// MCP tool plumbing. Nil means no debug output is emitted at this
-	// layer (regardless of [Options.Debug], which feeds the higher-level
-	// [New] entry point). Pass an implementation here when wiring a custom
-	// logger through the lower-level AgentConfig path.
-	DebugLogger DebugLogger
-
-	// MCPTaskConfig configures task-aware MCP tools/call execution — mode
-	// overrides, polling intervals, timeouts, and the progress handler.
-	// The zero value preserves historical synchronous-only behaviour for
-	// any server that didn't advertise task support during initialize.
-	MCPTaskConfig MCPTaskConfig
-}
-
-// toInternal converts an AgentConfig to its internal representation.
-// Slice and function fields convert without allocation because [Tool]
-// is a type alias for the underlying LLM-tool type.
-func (c *AgentConfig) toInternal() *agent.AgentConfig {
-	if c == nil {
-		return nil
-	}
-	out := &agent.AgentConfig{
-		ModelConfig:       c.ModelConfig,
-		MCPConfig:         c.MCPConfig,
-		SystemPrompt:      c.SystemPrompt,
-		MaxSteps:          c.MaxSteps,
-		StreamingEnabled:  c.StreamingEnabled,
-		CoreTools:         c.CoreTools,
-		DisableCoreTools:  c.DisableCoreTools,
-		ExtraTools:        c.ExtraTools,
-		ToolWrapper:       c.ToolWrapper,
-		OnMCPServerLoaded: c.OnMCPServerLoaded,
-	}
-	if c.AuthHandler != nil {
-		out.AuthHandler = c.AuthHandler
-	}
-	if c.TokenStoreFactory != nil {
-		out.TokenStoreFactory = tools.TokenStoreFactory(c.TokenStoreFactory)
-	}
-	if c.DebugLogger != nil {
-		out.DebugLogger = c.DebugLogger
-	}
-	out.MCPTaskConfig = c.MCPTaskConfig.toToolsConfig()
-	return out
 }
 
 // ToolCallHandler is invoked when the LLM produces a tool call. It receives

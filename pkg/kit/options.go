@@ -83,6 +83,17 @@ func WithConfigFile(path string) Option { return func(o *Options) { o.ConfigFile
 // WithDebug enables SDK debug logging.
 func WithDebug() Option { return func(o *Options) { o.Debug = true } }
 
+// WithDebugLogger installs a caller-supplied [DebugLogger] for low-level
+// engine and MCP tool plumbing output. When set this overrides the built-in
+// logger selected by [WithDebug] — messages flow into the supplied logger
+// unconditionally, and the logger's IsDebugEnabled reports whether downstream
+// code should bother formatting them. Use this to forward Kit's debug output
+// into your application's logging system (slog, zap, charm/log, an in-app
+// panel, etc.).
+func WithDebugLogger(l DebugLogger) Option {
+	return func(o *Options) { o.DebugLogger = l }
+}
+
 // Ephemeral configures an in-memory session with no persistence (equivalent to
 // Options.NoSession = true).
 func Ephemeral() Option { return func(o *Options) { o.NoSession = true } }

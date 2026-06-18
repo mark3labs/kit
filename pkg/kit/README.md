@@ -74,7 +74,8 @@ host, err := kit.NewAgent(ctx,
 
 Helpers: `WithModel`, `WithSystemPrompt`, `WithStreaming`, `WithMaxTokens`,
 `WithThinkingLevel`, `WithTools`, `WithExtraTools`, `WithProviderAPIKey`,
-`WithProviderURL`, `WithConfigFile`, `WithDebug`, and `Ephemeral`. `Option` is
+`WithProviderURL`, `WithConfigFile`, `WithDebug`, `WithDebugLogger`, and
+`Ephemeral`. `Option` is
 a plain `func(*Options)`, so you can define your own. For fields without a
 `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task
 tuning) construct an `Options` value and call `kit.New`.
@@ -329,7 +330,6 @@ kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 // Agent configuration — concrete Kit-owned structs and function types.
 // All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct
 // these without importing any LLM-provider package.
-kit.AgentConfig              // Lower-level agent config — prefer Options unless you need direct control
 kit.DebugLogger              // Interface: LogDebug(string) / IsDebugEnabled() bool
 kit.MCPTaskConfig            // Task-aware MCP tools/call config (modes, polling, progress)
 kit.ToolCallHandler          // func(toolCallID, toolName, toolArgs string)
@@ -403,7 +403,8 @@ Key `Options` fields for SDK usage:
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
 | `InProcessMCPServers` | Map of name → `*kit.MCPServer` for in-process MCP servers |
-| `Debug` | Enable debug logging |
+| `Debug` | Enable debug logging via the built-in console logger (ignored when `DebugLogger` is set) |
+| `DebugLogger` | Custom `DebugLogger` implementation — routes engine + MCP debug output into your own logging system |
 
 ## Environment Variables
 
