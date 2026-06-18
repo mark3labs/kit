@@ -1,5 +1,24 @@
 package extensions
 
+import (
+	"errors"
+)
+
+// ErrAgentBusy is returned (wrapped) when an extension API call that requires
+// the agent to be idle cannot proceed because the agent is still processing a
+// turn or post-turn hooks. Most notably, ctx.NewSession waits for idle
+// internally; if its wait deadline elapses it returns an error that wraps
+// this sentinel.
+//
+// Extensions can detect the condition with errors.Is:
+//
+//	if err := ctx.NewSession(prompt); err != nil {
+//	    if errors.Is(err, ext.ErrAgentBusy) {
+//	        // agent never settled — fall back to a queued message instead
+//	    }
+//	}
+var ErrAgentBusy = errors.New("agent is busy")
+
 // ---------------------------------------------------------------------------
 // Internal types (used by runner, NOT exposed to Yaegi)
 // ---------------------------------------------------------------------------
@@ -130,10 +149,24 @@ type Context struct {
 	// expanded the same way they are for normal user input. Pass an empty
 	// string to start an empty session.
 	//
-	// Returns an error if the agent is currently busy, if a registered
-	// BeforeSessionSwitch handler cancels the switch, or if the new
-	// session file cannot be created. In non-interactive (ACP / headless)
-	// mode this is a no-op that returns an error.
+	// If the agent is currently busy when NewSession is called (for example,
+	// from an OnAgentEnd hook that fires before the agent fully settles, or
+	// while post-turn formatters/linters are still running), the call blocks
+	// until the agent transitions to idle. This avoids the v0.79.0
+	// phase-handoff race where NewSession from OnAgentEnd would fail with
+	// "agent is busy" because TurnEnd fires before the busy flag clears.
+	// The wait has a generous internal timeout; if it elapses the returned
+	// error wraps ErrAgentBusy (detectable with errors.Is).
+	//
+	// Returns an error if the agent does not become idle within the wait
+	// window, if a registered BeforeSessionSwitch handler cancels the
+	// switch, or if the new session file cannot be created. In
+	// non-interactive (ACP / headless) mode this is a no-op that returns
+	// an error.
+	//
+	// Because NewSession may block, call it from a goroutine — not
+	// directly from inside an event handler that the agent loop is waiting
+	// on.
 	//
 	// Typical pattern — start a fresh session at the end of a phase by
 	// reading a handoff file:
@@ -145,7 +178,9 @@ type Context struct {
 	//       }
 	//       last := msgs[len(msgs)-1].Content
 	//       if strings.Contains(last, "<HANDOFF_READY>") {
-	//           _ = ctx.NewSession("Read @HANDOFF.md and continue the next phase.")
+	//           go func() {
+	//               _ = ctx.NewSession("Read @HANDOFF.md and continue the next phase.")
+	//           }()
 	//       }
 	//   })
 	NewSession func(prompt string) error

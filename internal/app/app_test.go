@@ -794,7 +794,7 @@ func TestReleaseBusyAfterCompact_flushesQueuedMessages(t *testing.T) {
 	// summarising. (Run() would have appended them and returned a queue
 	// length > 0 to the caller.)
 	app.mu.Lock()
-	app.busy = true
+	app.setBusyLocked(true)
 	app.queue = append(app.queue,
 		queueItem{Prompt: "queued during compact #1"},
 		queueItem{Prompt: "queued during compact #2"},
@@ -834,7 +834,7 @@ func TestReleaseBusyAfterCompact_idleWhenQueueEmpty(t *testing.T) {
 	defer app.Close()
 
 	app.mu.Lock()
-	app.busy = true
+	app.setBusyLocked(true)
 	app.mu.Unlock()
 
 	app.releaseBusyAfterCompact()
@@ -901,7 +901,7 @@ func TestReleaseBusyAfterCompact_splicesSteerAheadOfQueue(t *testing.T) {
 	// Simulate the state at the end of compaction: busy is set and a couple
 	// of regular Run() prompts have piled up after the steer messages.
 	app.mu.Lock()
-	app.busy = true
+	app.setBusyLocked(true)
 	app.queue = append(app.queue,
 		queueItem{Prompt: "queued-1"},
 		queueItem{Prompt: "queued-2"},
@@ -950,7 +950,7 @@ func TestReleaseBusyAfterCompact_dropsQueueWhenClosed(t *testing.T) {
 	app := newTestApp(stub)
 
 	app.mu.Lock()
-	app.busy = true
+	app.setBusyLocked(true)
 	app.queue = append(app.queue, queueItem{Prompt: "would have run"})
 	app.closed = true
 	app.mu.Unlock()
@@ -999,7 +999,7 @@ func TestPopLastUserMessage_WhileBusy(t *testing.T) {
 	defer app.Close()
 
 	app.mu.Lock()
-	app.busy = true
+	app.setBusyLocked(true)
 	app.mu.Unlock()
 
 	_, _, err := app.PopLastUserMessage()
@@ -1113,5 +1113,283 @@ func TestPopLastUserMessage_NoUserOnBranch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no user message") {
 		t.Fatalf("expected error mentioning missing user message, got %q", err.Error())
+	}
+}
+
+// --------------------------------------------------------------------------
+// WaitForIdle / RequestNewSessionFromExtension (issue #63)
+// --------------------------------------------------------------------------
+
+// TestWaitForIdle_AlreadyIdle verifies the fast path: a freshly constructed
+// App is idle and WaitForIdle returns immediately without consulting the
+// timeout.
+func TestWaitForIdle_AlreadyIdle(t *testing.T) {
+	app := newTestApp(newStub())
+	defer app.Close()
+
+	start := time.Now()
+	if err := app.WaitForIdle(2 * time.Second); err != nil {
+		t.Fatalf("WaitForIdle on idle app: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("WaitForIdle blocked for %s on already-idle app", elapsed)
+	}
+}
+
+// TestWaitForIdle_BlocksUntilDrain reproduces the issue #63 race: while
+// drainQueue holds busy==true the call should block, then return nil as soon
+// as the drain completes.
+func TestWaitForIdle_BlocksUntilDrain(t *testing.T) {
+	gate := make(chan struct{})
+	var gateOnce sync.Once
+	closeGate := func() { gateOnce.Do(func() { close(gate) }) }
+	stub := newStubWithFuncs(
+		func(ctx context.Context) (*kit.TurnResult, error) {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return turnResult("done"), nil
+		},
+	)
+	app := newTestApp(stub)
+	t.Cleanup(func() {
+		closeGate()
+		app.Close()
+	})
+
+	app.Run("hello")
+
+	// Confirm the agent is busy before we start waiting.
+	if !waitForCondition(2*time.Second, func() bool { return app.IsBusy() }) {
+		t.Fatal("app never became busy after Run()")
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- app.WaitForIdle(5 * time.Second)
+	}()
+
+	// Should not return while the stub is blocked.
+	select {
+	case err := <-errCh:
+		t.Fatalf("WaitForIdle returned early (err=%v) while agent still busy", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	closeGate()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("WaitForIdle: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("WaitForIdle did not return after drain completed")
+	}
+
+	if app.IsBusy() {
+		t.Fatal("app still reports busy after WaitForIdle returned")
+	}
+}
+
+// TestWaitForIdle_TimeoutReturnsErrAgentBusy verifies that a slow turn yields
+// ErrAgentBusy (detectable via errors.Is) when the deadline elapses.
+func TestWaitForIdle_TimeoutReturnsErrAgentBusy(t *testing.T) {
+	gate := make(chan struct{})
+	stub := newStubWithFuncs(
+		func(ctx context.Context) (*kit.TurnResult, error) {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return turnResult("done"), nil
+		},
+	)
+	app := newTestApp(stub)
+	// Release the stub before Close so wg.Wait() can return.
+	t.Cleanup(func() {
+		close(gate)
+		app.Close()
+	})
+
+	app.Run("hello")
+	if !waitForCondition(2*time.Second, func() bool { return app.IsBusy() }) {
+		t.Fatal("app never became busy after Run()")
+	}
+
+	err := app.WaitForIdle(50 * time.Millisecond)
+	if !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("expected ErrAgentBusy on timeout, got %v", err)
+	}
+}
+
+// TestWaitForIdle_ZeroTimeoutWaitsIndefinitely verifies that a non-positive
+// timeout still blocks until idle (or shutdown) — not an instant ErrAgentBusy.
+func TestWaitForIdle_ZeroTimeoutWaitsIndefinitely(t *testing.T) {
+	gate := make(chan struct{})
+	var gateOnce sync.Once
+	closeGate := func() { gateOnce.Do(func() { close(gate) }) }
+	stub := newStubWithFuncs(
+		func(ctx context.Context) (*kit.TurnResult, error) {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return turnResult("done"), nil
+		},
+	)
+	app := newTestApp(stub)
+	t.Cleanup(func() {
+		closeGate()
+		app.Close()
+	})
+
+	app.Run("hello")
+	if !waitForCondition(2*time.Second, func() bool { return app.IsBusy() }) {
+		t.Fatal("app never became busy after Run()")
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- app.WaitForIdle(0) }()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("WaitForIdle(0) returned early with %v while agent was busy", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	closeGate()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("WaitForIdle(0) returned %v after idle", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("WaitForIdle(0) did not return after drain completed")
+	}
+}
+
+// TestWaitForIdle_AppClose verifies that shutting down the app while a
+// caller is blocked in WaitForIdle releases the wait.
+func TestWaitForIdle_AppClose(t *testing.T) {
+	gate := make(chan struct{})
+	stub := newStubWithFuncs(
+		func(ctx context.Context) (*kit.TurnResult, error) {
+			select {
+			case <-gate:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return turnResult("done"), nil
+		},
+	)
+	app := newTestApp(stub)
+
+	app.Run("hello")
+	if !waitForCondition(2*time.Second, func() bool { return app.IsBusy() }) {
+		t.Fatal("app never became busy after Run()")
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- app.WaitForIdle(5 * time.Second) }()
+
+	// Give the goroutine a moment to enter the wait.
+	time.Sleep(50 * time.Millisecond)
+
+	// rootCancel is called by Close, which should release the waiter
+	// before drainQueue itself observes the cancellation and clears busy.
+	go func() {
+		// Unblock the stub so Close() can proceed past wg.Wait().
+		close(gate)
+	}()
+	app.Close()
+
+	select {
+	case err := <-errCh:
+		// Either rootCtx cancellation propagated first (err = context.Canceled)
+		// or the drain finished cleanly first (err == nil); both are
+		// acceptable terminations. The key invariant is that WaitForIdle
+		// does not hang past Close.
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("WaitForIdle returned unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("WaitForIdle did not return after Close()")
+	}
+}
+
+// TestRequestNewSessionFromExtension_NoTUI verifies the headless guard: with
+// no Bubble Tea program registered the call fails fast (no busy-wait).
+func TestRequestNewSessionFromExtension_NoTUI(t *testing.T) {
+	app := newTestApp(newStub())
+	defer app.Close()
+
+	err := app.RequestNewSessionFromExtension("hello")
+	if err == nil {
+		t.Fatal("expected error in headless mode")
+	}
+	if !strings.Contains(err.Error(), "no interactive TUI") {
+		t.Fatalf("expected 'no interactive TUI' error, got %q", err.Error())
+	}
+}
+
+// TestBusyTransitionsSignalIdleCh exercises the setBusyLocked invariants
+// directly: a fresh App is idle (closed channel); Run() opens a new channel
+// that is then closed when drainQueue exits.
+func TestBusyTransitionsSignalIdleCh(t *testing.T) {
+	app := newTestApp(newStub("ok"))
+	defer app.Close()
+
+	// Initial state: closed channel, busy==false.
+	busy, ch := app.idleSnapshot()
+	if busy {
+		t.Fatal("freshly constructed App should not be busy")
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("initial idleCh should already be closed")
+	}
+
+	gate := make(chan struct{})
+	var gateOnce sync.Once
+	closeGate := func() { gateOnce.Do(func() { close(gate) }) }
+	stub := newStubWithFuncs(func(ctx context.Context) (*kit.TurnResult, error) {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return turnResult("ok"), nil
+	})
+	app2 := newTestApp(stub)
+	t.Cleanup(func() {
+		closeGate()
+		app2.Close()
+	})
+
+	app2.Run("hello")
+	if !waitForCondition(2*time.Second, func() bool { return app2.IsBusy() }) {
+		t.Fatal("app2 never became busy")
+	}
+
+	_, ch2 := app2.idleSnapshot()
+	select {
+	case <-ch2:
+		t.Fatal("idleCh should be open while busy")
+	default:
+	}
+
+	closeGate()
+
+	select {
+	case <-ch2:
+	case <-time.After(3 * time.Second):
+		t.Fatal("idleCh was never closed after drain completed")
 	}
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -23,6 +24,26 @@ type queueItem struct {
 	Prompt string
 	Files  []kit.LLMFilePart
 }
+
+// ErrAgentBusy is returned when an operation cannot proceed because the agent
+// is still processing a turn (including any post-turn extension hooks) and did
+// not become idle before the operation's deadline.
+//
+// This is an alias for extensions.ErrAgentBusy so the extension API and the
+// app layer share a single sentinel value — callers can detect the condition
+// with errors.Is(err, app.ErrAgentBusy) without substring-matching the error
+// message.
+var ErrAgentBusy = extensions.ErrAgentBusy
+
+// DefaultNewSessionIdleWait bounds how long RequestNewSessionFromExtension
+// will block waiting for the agent to settle. It needs to be generous enough
+// to cover real-world post-turn tooling (project formatters, on-save linters,
+// hidden tool calls) which routinely hold the busy flag for seconds and
+// occasionally minutes — yet still short enough to surface a wedged agent.
+//
+// Issue #63 reported workloads where the busy window regularly exceeded
+// 6 seconds; ten minutes is the same bound the workaround in that issue used.
+const DefaultNewSessionIdleWait = 10 * time.Minute
 
 // App is the application-layer orchestrator. It owns the agentic loop,
 // conversation history (via MessageStore), and queue management. It is
@@ -55,10 +76,24 @@ type App struct {
 	// each new step and called by CancelCurrentStep().
 	cancelStep context.CancelFunc
 
-	// mu protects busy, queue, and cancelStep.
+	// mu protects busy, queue, cancelStep, and idleCh.
 	mu    sync.Mutex
 	busy  bool
 	queue []queueItem
+
+	// idleCh is closed when the agent transitions from busy back to idle.
+	// While the agent is idle the channel is already closed (recv returns
+	// immediately). When busy transitions to true a fresh open channel is
+	// allocated so callers blocked on the previous one are released. All
+	// transitions are funnelled through setBusyLocked to keep the channel
+	// pointer in sync with the busy flag.
+	//
+	// This is the underlying primitive WaitForIdle and
+	// RequestNewSessionFromExtension wait on to fix the AgentEnd→NewSession
+	// race described in issue #63: AgentEnd is emitted from inside the agent
+	// loop, before drainQueue clears busy, so any extension hook that calls
+	// ctx.NewSession synchronously would otherwise observe busy==true.
+	idleCh chan struct{}
 
 	// wg tracks in-flight goroutines; Close() waits on it.
 	wg sync.WaitGroup
@@ -95,6 +130,10 @@ type App struct {
 // initialMessages may be nil or empty for a fresh session.
 func New(opts Options, initialMessages []kit.LLMMessage) *App {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
+	// idleCh starts already closed: the freshly constructed App is idle, so
+	// any caller blocking on it via WaitForIdle should be released immediately.
+	idleCh := make(chan struct{})
+	close(idleCh)
 	return &App{
 		opts:       opts,
 		store:      NewMessageStoreWithMessages(initialMessages),
@@ -102,6 +141,90 @@ func New(opts Options, initialMessages []kit.LLMMessage) *App {
 		rootCancel: rootCancel,
 		// cancelStep starts as a no-op so CancelCurrentStep() is always safe.
 		cancelStep: func() {},
+		idleCh:     idleCh,
+	}
+}
+
+// setBusyLocked is the single chokepoint for mutating a.busy. It keeps the
+// idleCh signalling channel in sync with the busy flag:
+//
+//   - false → true: allocate a fresh open channel so future WaitForIdle
+//     callers block until the next idle transition.
+//   - true  → false: close the current channel so any waiters wake up.
+//
+// No-op when the requested state already matches. The caller must hold a.mu.
+func (a *App) setBusyLocked(busy bool) {
+	if a.busy == busy {
+		return
+	}
+	a.busy = busy
+	if busy {
+		a.idleCh = make(chan struct{})
+	} else {
+		close(a.idleCh)
+	}
+}
+
+// idleSnapshot returns the current busy state and the channel that will be
+// closed on the next idle transition. The snapshot is taken under a.mu so the
+// pair is consistent (busy==true ⇒ ch is the open channel for *this* busy
+// cycle, not a stale one).
+func (a *App) idleSnapshot() (busy bool, ch chan struct{}) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.busy, a.idleCh
+}
+
+// WaitForIdle blocks until the agent is idle, the given timeout elapses, or
+// the app shuts down. Returns nil on idle, ErrAgentBusy on timeout, or the
+// rootCtx error if the app is closing.
+//
+// A non-positive timeout disables the deadline and waits indefinitely (until
+// idle or app shutdown). Safe to call from any goroutine, but never from
+// inside the Bubble Tea Update() loop — it blocks.
+//
+// Idiomatic use from extensions:
+//
+//	if err := app.WaitForIdle(0); err != nil { /* shutdown */ }
+//
+// The loop guards against the agent re-arming itself between wakeups: if
+// another prompt is queued (or a steer message lands) while we're waiting,
+// setBusyLocked allocates a fresh idleCh and we wait again.
+func (a *App) WaitForIdle(timeout time.Duration) error {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for {
+		busy, ch := a.idleSnapshot()
+		if !busy {
+			return nil
+		}
+		var timer *time.Timer
+		var timerCh <-chan time.Time
+		if timeout > 0 {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return ErrAgentBusy
+			}
+			timer = time.NewTimer(remaining)
+			timerCh = timer.C
+		}
+		select {
+		case <-ch:
+			// Idle transition observed — loop and re-check under the
+			// mutex in case a new busy cycle started immediately after.
+		case <-timerCh:
+			return ErrAgentBusy
+		case <-a.rootCtx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
+			return a.rootCtx.Err()
+		}
+		if timer != nil {
+			timer.Stop()
+		}
 	}
 }
 
@@ -155,7 +278,7 @@ func (a *App) RunWithFiles(prompt string, files []kit.LLMFilePart) int {
 		return qLen
 	}
 
-	a.busy = true
+	a.setBusyLocked(true)
 	a.wg.Add(1)
 	a.mu.Unlock()
 	go a.drainQueue(item)
@@ -235,7 +358,7 @@ func (a *App) SteerWithFiles(prompt string, files []kit.LLMFilePart) int {
 	if !a.busy {
 		// Not busy — start immediately, same as RunWithFiles().
 		item := queueItem{Prompt: prompt, Files: files}
-		a.busy = true
+		a.setBusyLocked(true)
 		a.wg.Add(1)
 		a.mu.Unlock()
 		go a.drainQueue(item)
@@ -271,7 +394,7 @@ func (a *App) InterruptAndSend(prompt string) {
 
 	if !a.busy {
 		// Not busy — start immediately, same as Run().
-		a.busy = true
+		a.setBusyLocked(true)
 		a.wg.Add(1)
 		a.mu.Unlock()
 		go a.drainQueue(item)
@@ -470,7 +593,7 @@ func (a *App) CompactConversation(customInstructions string) error {
 		a.mu.Unlock()
 		return fmt.Errorf("SDK instance not available")
 	}
-	a.busy = true
+	a.setBusyLocked(true)
 	a.wg.Add(1)
 	a.mu.Unlock()
 
@@ -532,7 +655,7 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 		a.mu.Unlock()
 		return fmt.Errorf("SDK instance not available")
 	}
-	a.busy = true
+	a.setBusyLocked(true)
 	a.wg.Add(1)
 	a.mu.Unlock()
 
@@ -621,7 +744,7 @@ func (a *App) releaseBusyAfterCompact() {
 	// in just before closed was set.
 	if a.closed {
 		a.queue = a.queue[:0]
-		a.busy = false
+		a.setBusyLocked(false)
 		a.mu.Unlock()
 		return
 	}
@@ -633,7 +756,7 @@ func (a *App) releaseBusyAfterCompact() {
 	a.queue = a.queue[:0]
 
 	if len(pending) == 0 {
-		a.busy = false
+		a.setBusyLocked(false)
 		a.mu.Unlock()
 		return
 	}
@@ -850,7 +973,7 @@ func (a *App) drainQueue(first queueItem) {
 
 	// Mark as no longer busy
 	a.mu.Lock()
-	a.busy = false
+	a.setBusyLocked(false)
 	a.mu.Unlock()
 }
 
@@ -1233,8 +1356,17 @@ func (a *App) SetEditorTextFromExtension(text string) {
 // RequestNewSessionFromExtension sends a NewSessionRequestEvent to the TUI
 // to end the current session and start a fresh one. If initialPrompt is
 // non-empty it is submitted as the first user turn of the new session.
-// Returns an error when running headless (no TUI attached), when the agent
-// is busy, or when a BeforeSessionSwitch extension hook cancels the switch.
+//
+// If the agent is currently busy (e.g. the caller is an OnAgentEnd hook that
+// fires before drainQueue clears the busy flag, or there are queued prompts
+// still being processed) the call blocks until the agent becomes idle, up to
+// DefaultNewSessionIdleWait. If that deadline elapses, ErrAgentBusy is
+// returned and callers can detect it with errors.Is. This wait-then-send
+// behavior fixes the v0.79.0 phase-handoff race documented in issue #63.
+//
+// Returns an error when running headless (no TUI attached), when the wait
+// for idle times out (ErrAgentBusy), when the app is shutting down, or when
+// a BeforeSessionSwitch extension hook cancels the switch.
 //
 // This is the implementation behind ctx.NewSession(prompt) for the
 // interactive TUI. It blocks the caller until the TUI processes the
@@ -1246,8 +1378,11 @@ func (a *App) RequestNewSessionFromExtension(initialPrompt string) error {
 	if prog == nil {
 		return fmt.Errorf("new session unavailable: no interactive TUI attached")
 	}
-	if a.IsBusy() {
-		return fmt.Errorf("cannot start new session while agent is busy")
+	if err := a.WaitForIdle(DefaultNewSessionIdleWait); err != nil {
+		if errors.Is(err, ErrAgentBusy) {
+			return fmt.Errorf("cannot start new session: %w", err)
+		}
+		return err
 	}
 	ch := make(chan error, 1)
 	prog.Send(NewSessionRequestEvent{InitialPrompt: initialPrompt, ResponseCh: ch})

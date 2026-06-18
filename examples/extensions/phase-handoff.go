@@ -54,8 +54,12 @@ func Init(api ext.API) {
 			return
 		}
 
-		// NewSession blocks until the TUI completes the switch; run it in
-		// a goroutine so the agent's turn-end pipeline isn't stalled.
+		// NewSession blocks while the agent finishes settling and then while
+		// the TUI completes the switch; run it in a goroutine so the agent's
+		// turn-end pipeline isn't stalled. The internal wait-for-idle (added
+		// in response to issue #63) makes this reliable even when post-turn
+		// tooling (formatters, on-save hooks, hidden tool calls) extends the
+		// busy window past AgentEnd.
 		go func() {
 			if err := ctx.NewSession(HANDOFFPrompt); err != nil {
 				ctx.PrintError("phase-handoff: " + err.Error())
