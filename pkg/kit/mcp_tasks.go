@@ -102,10 +102,11 @@ type MCPTaskProgressHandler func(MCPTaskProgress)
 // are optional; the zero value disables progress callbacks and applies
 // sensible polling defaults inside the engine.
 //
-// For most consumers, the flat [Options] fields (`MCPTaskMode`,
-// `MCPTaskTTL`, `MCPTaskPollInterval`, `MCPTaskMaxPollInterval`,
-// `MCPTaskTimeout`, `MCPTaskProgress`) are the preferred entry point.
-// MCPTaskConfig is exposed for the low-level [AgentConfig] path.
+// Most consumers configure these via the flat [Options] fields
+// (`MCPTaskMode`, `MCPTaskTTL`, `MCPTaskPollInterval`,
+// `MCPTaskMaxPollInterval`, `MCPTaskTimeout`, `MCPTaskProgress`). The
+// MCPTaskConfig type itself is retained for downstream consumers that
+// receive it on engine-facing call sites.
 type MCPTaskConfig struct {
 	// PerServerMode overrides the per-server task mode resolved from
 	// [MCPServerConfig]. Keys are server names. Missing entries fall back
@@ -131,35 +132,6 @@ type MCPTaskConfig struct {
 	// Progress, if non-nil, receives every status transition observed by
 	// the polling loop.
 	Progress MCPTaskProgressHandler
-}
-
-// toToolsConfig converts the SDK-level [MCPTaskConfig] to the internal
-// tools-package representation. Keeps the dependency arrow internal-only.
-func (c MCPTaskConfig) toToolsConfig() tools.MCPTaskConfig {
-	cfg := tools.MCPTaskConfig{
-		DefaultTTL:      c.DefaultTTL,
-		PollInterval:    c.PollInterval,
-		MaxPollInterval: c.MaxPollInterval,
-		Timeout:         c.Timeout,
-	}
-	if len(c.PerServerMode) > 0 {
-		cfg.PerServerMode = make(map[string]tools.MCPTaskMode, len(c.PerServerMode))
-		for k, v := range c.PerServerMode {
-			cfg.PerServerMode[k] = tools.MCPTaskMode(v)
-		}
-	}
-	if c.Progress != nil {
-		h := c.Progress
-		cfg.Progress = func(p tools.MCPTaskProgress) {
-			h(MCPTaskProgress{
-				Server:  p.Server,
-				TaskID:  p.TaskID,
-				Status:  MCPTaskStatus(p.Status),
-				Message: p.Message,
-			})
-		}
-	}
-	return cfg
 }
 
 // mcpTaskOptions carries SDK consumer configuration into the agent setup.

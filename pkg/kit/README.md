@@ -330,7 +330,6 @@ kit.LLMFilePart     // {Filename, Data []byte, MediaType}
 // Agent configuration — concrete Kit-owned structs and function types.
 // All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct
 // these without importing any LLM-provider package.
-kit.AgentConfig              // Lower-level agent config — prefer Options unless you need direct control
 kit.DebugLogger              // Interface: LogDebug(string) / IsDebugEnabled() bool
 kit.MCPTaskConfig            // Task-aware MCP tools/call config (modes, polling, progress)
 kit.ToolCallHandler          // func(toolCallID, toolName, toolArgs string)
