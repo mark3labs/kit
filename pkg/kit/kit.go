@@ -23,6 +23,7 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
+	"github.com/mark3labs/kit/internal/skilltool"
 	"github.com/mark3labs/kit/internal/tools"
 
 	"github.com/spf13/viper"
@@ -1009,8 +1010,23 @@ type Options struct {
 
 	// Skills
 	Skills    []string // Explicit skill files/dirs to load (empty = auto-discover)
-	SkillsDir string   // Override default project-local skills directory
+	SkillsDir string   // Direct skills directory to scan (overrides auto-discovery; scanned as-is)
 	NoSkills  bool     // Disable skill loading entirely (auto-discovery and explicit)
+
+	// SkillsDisable names skills (by Name) to exclude from the model-facing
+	// catalog. Disabled skills remain available via the /skill: slash command.
+	SkillsDisable []string
+
+	// SkillTrustPrompt is an optional callback invoked the first time Kit
+	// auto-discovers project-local skills (under <project>/.agents/skills or
+	// <project>/.kit/skills) in a directory that is not yet on the trust
+	// allowlist. It receives the project directory and the number of skills
+	// found, and returns a TrustDecision controlling whether the skills load.
+	//
+	// When nil, project-local skills are loaded without prompting (historical
+	// behaviour). Directories trusted via TrustProject are persisted to
+	// ~/.config/kit/trusted-projects.json and not prompted again.
+	SkillTrustPrompt func(projectDir string, skillCount int) TrustDecision
 
 	// NoExtensions disables Yaegi extension loading entirely.
 	NoExtensions bool
@@ -1373,6 +1389,15 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			if err != nil {
 				return fmt.Errorf("failed to load skills: %w", err)
 			}
+
+			// Apply per-skill disable list (--skill-disable / skill-disable
+			// config key). Disabled skills stay loaded (so /skill: still
+			// works) but are hidden from the model-facing catalog.
+			disable := opts.SkillsDisable
+			if len(disable) == 0 {
+				disable = v.GetStringSlice("skill-disable")
+			}
+			applySkillDisableList(loadedSkills, disable)
 		}
 
 		// Always compose the system prompt with runtime context: base prompt +
@@ -1526,12 +1551,37 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	// Build agent setup options, pulling CLI-specific fields when available.
 	// Pass the pre-built ProviderConfig and scalar viper snapshots so
 	// SetupAgent doesn't need to re-read viper (which would require the lock).
+
+	// Register the dedicated activate_skill tool when at least one skill is
+	// loaded (issue #65, gaps #13/#14). The provider closure reads the live
+	// skill set from the Kit instance once it exists so runtime additions
+	// resolve; skillToolKit is assigned after construction below.
+	var skillToolKit *Kit
+	extraTools := opts.ExtraTools
+	if len(loadedSkills) > 0 {
+		names := make([]string, 0, len(loadedSkills))
+		for _, s := range loadedSkills {
+			if !s.DisableModelInvocation {
+				names = append(names, s.Name)
+			}
+		}
+		provider := func() []*skills.Skill {
+			if skillToolKit == nil {
+				return loadedSkills
+			}
+			return skillToolKit.GetSkills()
+		}
+		if t := skilltool.New(names, provider); t != nil {
+			extraTools = append(extraTools, t)
+		}
+	}
+
 	setupOpts := kitsetup.AgentSetupOptions{
 		MCPConfig:         mcpConfig,
 		Quiet:             opts.Quiet,
 		CoreTools:         opts.Tools,
 		DisableCoreTools:  disableCoreTools,
-		ExtraTools:        opts.ExtraTools,
+		ExtraTools:        extraTools,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
 		Debug:             debug,
@@ -1630,6 +1680,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		beforeCompact:         beforeCompact,
 		prepareStep:           prepareStep,
 	}
+
+	// Point the activate_skill provider closure at the live Kit instance so it
+	// resolves skills mutated after construction.
+	skillToolKit = k
 
 	// Bridge extension events to SDK hooks.
 	if agentResult.ExtRunner != nil {
@@ -1741,6 +1795,14 @@ func (m *Kit) expandSkillCommand(prompt string) string {
 	fmt.Fprintf(&buf, "<skill name=%q location=%q>\n", loaded.Name, loaded.Path)
 	fmt.Fprintf(&buf, "References are relative to %s.\n\n", baseDir)
 	buf.WriteString(loaded.Content)
+
+	// Enumerate bundled resources (scripts/, references/, assets/) so the model
+	// knows what it can read without listing the directory itself.
+	if res := skills.FormatResources(loaded.Resources()); res != "" {
+		buf.WriteString("\n\n")
+		buf.WriteString(res)
+	}
+
 	buf.WriteString("\n</skill>")
 
 	args = strings.TrimSpace(args)
@@ -1757,18 +1819,33 @@ func (m *Kit) expandSkillCommand(prompt string) string {
 // ---------------------------------------------------------------------------
 
 // loadSkills loads skills based on Options. If explicit paths are provided
-// they are loaded directly; otherwise auto-discovery runs.
+// they are loaded directly. If SkillsDir is set it is treated as a direct
+// skills directory (scanned as-is, not as a parent of .agents/.kit). Otherwise
+// auto-discovery runs against the standard scopes rooted at SessionDir.
 func loadSkills(opts *Options) ([]*skills.Skill, error) {
 	if len(opts.Skills) > 0 {
 		return loadExplicitSkills(opts.Skills)
 	}
 
-	// Auto-discover from standard directories.
-	cwd := opts.SkillsDir
-	if cwd == "" {
-		cwd = opts.SessionDir
+	// An explicit --skills-dir is a direct skills directory: scan it as-is
+	// rather than appending .agents/skills and .kit/skills beneath it.
+	if opts.SkillsDir != "" {
+		return skills.LoadSkillsFromDir(opts.SkillsDir)
 	}
-	return skills.LoadSkills(cwd)
+
+	// Auto-discover from the standard scopes rooted at the session directory.
+	// Project-local skills are injected into the system prompt, so they are
+	// gated on a trust decision when a SkillTrustPrompt is configured.
+	cwd := opts.SessionDir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	user := skills.LoadUserSkills()
+	project := skills.LoadProjectSkills(cwd)
+	if len(project) > 0 && !projectSkillsTrusted(opts, cwd, len(project)) {
+		project = nil
+	}
+	return skills.Combine(user, project), nil
 }
 
 // loadExplicitSkills loads skills from a list of explicit paths. Each path

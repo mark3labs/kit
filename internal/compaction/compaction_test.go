@@ -439,3 +439,25 @@ func TestSortedKeys_Empty(t *testing.T) {
 		t.Errorf("sortedKeys(nil) = %v, want nil", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Skill-content protection (issue #65, gap #7)
+// ---------------------------------------------------------------------------
+
+func TestIsProtectedMessage(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{`<skill name="foo" location="/x">body</skill>`, true},
+		{`<skill_content name="foo">body</skill_content>`, true},
+		{"just a normal message", false},
+		{"talking about skills in general", false},
+	}
+	for _, c := range cases {
+		msg := makeTextMessage(fantasy.MessageRoleUser, c.text)
+		if got := isProtectedMessage(msg); got != c.want {
+			t.Errorf("isProtectedMessage(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}

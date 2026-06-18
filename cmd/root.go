@@ -74,9 +74,10 @@ var (
 	extensionPaths   []string
 
 	// Skills control
-	noSkillsFlag bool
-	skillsPaths  []string
-	skillsDir    string
+	noSkillsFlag  bool
+	skillsPaths   []string
+	skillsDir     string
+	skillsDisable []string
 
 	// TLS configuration
 	tlsSkipVerify bool
@@ -294,7 +295,9 @@ func init() {
 	rootCmd.PersistentFlags().
 		StringSliceVar(&skillsPaths, "skill", nil, "load skill file or directory (repeatable)")
 	rootCmd.PersistentFlags().
-		StringVar(&skillsDir, "skills-dir", "", "override the project-local skills directory for auto-discovery")
+		StringVar(&skillsDir, "skills-dir", "", "scan this directory directly for skills (overrides auto-discovery)")
+	rootCmd.PersistentFlags().
+		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -349,6 +352,7 @@ func init() {
 	_ = viper.BindPFlag("no-skills", rootCmd.PersistentFlags().Lookup("no-skills"))
 	_ = viper.BindPFlag("skill", rootCmd.PersistentFlags().Lookup("skill"))
 	_ = viper.BindPFlag("skills-dir", rootCmd.PersistentFlags().Lookup("skills-dir"))
+	_ = viper.BindPFlag("skill-disable", rootCmd.PersistentFlags().Lookup("skill-disable"))
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -842,6 +846,8 @@ func runNormalMode(ctx context.Context) error {
 		NoSkills:         noSkillsFlag,
 		Skills:           skillsPaths,
 		SkillsDir:        skillsDir,
+		SkillsDisable:    skillsDisable,
+		SkillTrustPrompt: skillTrustPrompt(),
 		// This callback is called when each MCP server finishes loading.
 		// We use a closure that captures appInstancePtr which is set after
 		// app.New() is called below.

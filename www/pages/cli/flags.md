@@ -53,7 +53,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--skill` | — | — | Load skill file or directory (repeatable) |
-| `--skills-dir` | — | — | Override the project-local skills directory for auto-discovery |
+| `--skills-dir` | — | — | Scan this directory directly for skills (overrides auto-discovery) |
+| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/skill:` |
 | `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
 
 ## Generation parameters

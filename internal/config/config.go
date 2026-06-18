@@ -499,7 +499,22 @@ mcpServers:
 # no-skills: false                          # Set to true to disable all skill loading
 # skill:                                    # Explicit skill files/dirs (disables auto-discovery)
 #   - "/path/to/skill.md"
-# skills-dir: "/path/to/skills"            # Override project-local directory for auto-discovery
+# skills-dir: "/path/to/skills"            # Scan this directory directly for skills (overrides auto-discovery)
+# skill-disable:                            # Hide skills from the model catalog by name (still usable via /skill:)
+#   - "some-skill"
+#
+# Skill files follow the agentskills.io spec. A SKILL.md frontmatter block
+# supports these fields:
+#   name: my-skill                          # required
+#   description: Use when ...               # required (basis for model discovery)
+#   license: MIT                            # optional SPDX identifier
+#   compatibility: claude-code, cursor      # optional targeted-environment note
+#   allowed-tools: read, bash               # optional (experimental) tool restriction
+#   disable-model-invocation: false         # optional; true hides from the catalog
+#   metadata:                               # optional arbitrary key/value pairs
+#     author: you
+#   tags: [example]                         # Kit extension
+#   when: on-demand                         # Kit extension
 
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google

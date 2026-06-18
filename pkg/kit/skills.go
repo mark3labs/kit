@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/skills"
+	"github.com/mark3labs/kit/internal/trust"
 )
 
 // ==== Skills Types ====
@@ -51,11 +52,14 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 }
 
 // LoadSkills auto-discovers skills from standard directories:
-//   - Global: $XDG_CONFIG_HOME/kit/skills/ (default ~/.config/kit/skills/)
-//   - Project-local: <cwd>/.kit/skills/
+//   - User-level: ~/.agents/skills/ (cross-client convention)
+//   - User-level: $XDG_CONFIG_HOME/kit/skills/ (default ~/.config/kit/skills/)
+//   - Project-local: <cwd>/.agents/skills/ (cross-client convention)
+//   - Project-local: <cwd>/.kit/skills/ (Kit-specific)
 //
-// cwd is the working directory for project-local discovery; if empty the
-// current working directory is used.
+// Project-level skills take precedence over user-level skills with the same
+// name. cwd is the working directory for project-local discovery; if empty
+// the current working directory is used.
 func LoadSkills(cwd string) ([]*Skill, error) {
 	return skills.LoadSkills(cwd)
 }
@@ -127,12 +131,17 @@ func (m *Kit) LoadSkillsFromDirForExtension(dir string) extensions.SkillLoadResu
 // convertSkill converts internal skill to extension-facing format.
 func (m *Kit) convertSkill(s *skills.Skill) *extensions.Skill {
 	return &extensions.Skill{
-		Name:        s.Name,
-		Description: s.Description,
-		Content:     s.Content,
-		Path:        s.Path,
-		Tags:        s.Tags,
-		When:        s.When,
+		Name:                   s.Name,
+		Description:            s.Description,
+		Content:                s.Content,
+		Path:                   s.Path,
+		License:                s.License,
+		Compatibility:          s.Compatibility,
+		Metadata:               s.Metadata,
+		AllowedTools:           s.AllowedTools,
+		DisableModelInvocation: s.DisableModelInvocation,
+		Tags:                   s.Tags,
+		When:                   s.When,
 	}
 }
 
@@ -299,4 +308,108 @@ func (m *Kit) applyComposedSystemPrompt() {
 // SetContextFiles all refresh automatically.
 func (m *Kit) RefreshSystemPrompt() {
 	m.applyComposedSystemPrompt()
+}
+
+// ---------------------------------------------------------------------------
+// Per-skill disable (Issue #65, gap #10)
+// ---------------------------------------------------------------------------
+
+// applySkillDisableList sets DisableModelInvocation on every skill whose Name
+// appears in names. Disabled skills remain loaded (so explicit /skill:
+// activation still works) but are hidden from the model-facing catalog.
+func applySkillDisableList(skillList []*skills.Skill, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	disabled := make(map[string]bool, len(names))
+	for _, n := range names {
+		disabled[n] = true
+	}
+	for _, s := range skillList {
+		if disabled[s.Name] {
+			s.DisableModelInvocation = true
+		}
+	}
+}
+
+// DisableSkill hides the named skill from the model-facing catalog while
+// keeping it loaded (so it can still be activated explicitly via /skill:).
+// The system prompt is recomposed and applied. Returns true when a skill with
+// that name was found.
+func (m *Kit) DisableSkill(name string) bool {
+	return m.setSkillModelInvocation(name, true)
+}
+
+// EnableSkill re-exposes a previously disabled skill in the model-facing
+// catalog. The system prompt is recomposed and applied. Returns true when a
+// skill with that name was found.
+func (m *Kit) EnableSkill(name string) bool {
+	return m.setSkillModelInvocation(name, false)
+}
+
+// setSkillModelInvocation toggles DisableModelInvocation on the named skill
+// and refreshes the system prompt. Returns true when the skill was found.
+func (m *Kit) setSkillModelInvocation(name string, disabled bool) bool {
+	m.runtimeMu.Lock()
+	found := false
+	for _, s := range m.skills {
+		if s.Name == name {
+			s.DisableModelInvocation = disabled
+			found = true
+			break
+		}
+	}
+	m.runtimeMu.Unlock()
+
+	if !found {
+		return false
+	}
+	m.ClearSkillCache()
+	m.applyComposedSystemPrompt()
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// Project-skill trust gate (Issue #65, gap #8)
+// ---------------------------------------------------------------------------
+
+// TrustDecision is the outcome of a project-skill trust prompt.
+type TrustDecision = trust.Decision
+
+// Trust-prompt outcomes. They mirror the trust package decisions.
+const (
+	// SkipProjectSkills declines to load project skills this session.
+	SkipProjectSkills = trust.Skip
+	// TrustProject loads project skills and persists the directory as trusted.
+	TrustProject = trust.Trust
+	// TrustProjectOnce loads project skills this session without persisting.
+	TrustProjectOnce = trust.TrustOnce
+)
+
+// projectSkillsTrusted decides whether project-local skills discovered in dir
+// should be loaded. When no SkillTrustPrompt is configured the directory is
+// trusted by default (preserving historical behaviour). Otherwise a persisted
+// allowlist is consulted first, then the prompt is invoked for an unknown
+// directory and the decision is persisted when the user chooses TrustProject.
+func projectSkillsTrusted(opts *Options, dir string, count int) bool {
+	if opts.SkillTrustPrompt == nil {
+		return true
+	}
+
+	store, err := trust.Load("")
+	if err == nil && store.IsTrusted(dir) {
+		return true
+	}
+
+	switch opts.SkillTrustPrompt(dir, count) {
+	case TrustProject:
+		if store != nil {
+			_ = store.Trust(dir)
+		}
+		return true
+	case TrustProjectOnce:
+		return true
+	default:
+		return false
+	}
 }

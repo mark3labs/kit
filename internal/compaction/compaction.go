@@ -389,6 +389,30 @@ func roleLabel(role fantasy.MessageRole) string {
 	}
 }
 
+// skillContentMarkers are substrings that identify a message carrying
+// explicitly-activated skill content. Such messages are exempt from
+// compaction pruning per the agentskills.io spec (issue #65, gap #7): an
+// activated skill must remain in context verbatim instead of being folded
+// into a lossy summary.
+var skillContentMarkers = []string{"<skill ", "<skill>", "<skill_content"}
+
+// isProtectedMessage reports whether msg carries explicitly-activated skill
+// content that must survive compaction unchanged.
+func isProtectedMessage(msg fantasy.Message) bool {
+	for _, part := range msg.Content {
+		tp, ok := part.(fantasy.TextPart)
+		if !ok {
+			continue
+		}
+		for _, marker := range skillContentMarkers {
+			if strings.Contains(tp.Text, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // serializeMessages converts a slice of fantasy messages into a plain-text
 // representation suitable for sending to the summarisation LLM. Tool result
 // text is truncated to maxToolResultChars to keep the summarisation request
@@ -518,6 +542,14 @@ func Compact(
 
 	newMessages := make([]fantasy.Message, 0, 1+len(recentMessages))
 	newMessages = append(newMessages, summaryMessage)
+	// Carry forward any explicitly-activated skill content from the
+	// summarised range verbatim — skill instructions must not be lost to
+	// compaction (issue #65, gap #7).
+	for _, msg := range oldMessages {
+		if isProtectedMessage(msg) {
+			newMessages = append(newMessages, msg)
+		}
+	}
 	newMessages = append(newMessages, recentMessages...)
 
 	compactedTokens := EstimateMessageTokens(newMessages)

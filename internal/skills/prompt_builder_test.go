@@ -50,7 +50,7 @@ func TestPromptBuilder_WithSkills(t *testing.T) {
 	if !strings.Contains(result, "<description>Write code</description>") {
 		t.Error("missing skill description in XML")
 	}
-	if !strings.Contains(result, "<location>file:///tmp/coding/SKILL.md</location>") {
+	if !strings.Contains(result, "<location>/tmp/coding/SKILL.md</location>") {
 		t.Error("missing skill location")
 	}
 }

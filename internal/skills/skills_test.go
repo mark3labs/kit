@@ -243,15 +243,24 @@ func TestLoadSkillsFromDir_CaseInsensitiveSKILLmd(t *testing.T) {
 // LoadSkills (auto-discovery)
 // ---------------------------------------------------------------------------
 
+func writeSkill(t *testing.T, path, name, desc, body string) {
+	t.Helper()
+	content := "---\nname: " + name + "\ndescription: " + desc + "\n---\n" + body
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadSkills_ProjectLocal(t *testing.T) {
 	dir := t.TempDir()
+	// Isolate user-level scopes so the host machine's skills don't leak in.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
+	t.Setenv("HOME", filepath.Join(dir, "home"))
 	skillsDir := filepath.Join(dir, ".kit", "skills")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(skillsDir, "local.md"), []byte("Local skill"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSkill(t, filepath.Join(skillsDir, "local.md"), "local", "A local skill", "Local skill")
 
 	skills, err := LoadSkills(dir)
 	if err != nil {
@@ -265,37 +274,64 @@ func TestLoadSkills_ProjectLocal(t *testing.T) {
 	}
 }
 
-func TestLoadSkills_Deduplication(t *testing.T) {
+// TestLoadSkills_SkipsMissingDescription verifies that a skill without a
+// required description is skipped during auto-discovery (gap #2).
+func TestLoadSkills_SkipsMissingDescription(t *testing.T) {
 	dir := t.TempDir()
-
-	// Set XDG_CONFIG_HOME to our temp dir so global and local overlap.
-	t.Setenv("XDG_CONFIG_HOME", dir)
-
-	globalDir := filepath.Join(dir, "kit", "skills")
-	localDir := filepath.Join(dir, ".kit", "skills")
-
-	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg"))
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+	skillsDir := filepath.Join(dir, ".kit", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(localDir, 0o755); err != nil {
+	// No description — should be skipped.
+	if err := os.WriteFile(filepath.Join(skillsDir, "nodesc.md"), []byte("Just a body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	// Same content in both directories but different paths — both should load.
-	if err := os.WriteFile(filepath.Join(globalDir, "shared.md"), []byte("Global version"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(localDir, "shared.md"), []byte("Local version"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeSkill(t, filepath.Join(skillsDir, "good.md"), "good", "Has a description", "Body")
 
 	skills, err := LoadSkills(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Different absolute paths = both loaded.
-	if len(skills) != 2 {
-		t.Fatalf("expected 2 skills (different paths), got %d", len(skills))
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill (missing-description skipped), got %d", len(skills))
+	}
+	if skills[0].Name != "good" {
+		t.Errorf("Name = %q, want %q", skills[0].Name, "good")
+	}
+}
+
+// TestLoadSkills_NameCollisionPrecedence verifies project-level skills override
+// user-level skills with the same name (gap #5).
+func TestLoadSkills_NameCollisionPrecedence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set XDG_CONFIG_HOME so the user-level skill lives under our temp dir.
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+
+	userDir := filepath.Join(dir, "kit", "skills")
+	projectDir := filepath.Join(dir, ".kit", "skills")
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeSkill(t, filepath.Join(userDir, "shared.md"), "shared", "User version", "USER")
+	writeSkill(t, filepath.Join(projectDir, "shared.md"), "shared", "Project version", "PROJECT")
+
+	skills, err := LoadSkills(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill (deduped by name), got %d", len(skills))
+	}
+	if !strings.Contains(skills[0].Content, "PROJECT") {
+		t.Errorf("expected project version to win, got content %q", skills[0].Content)
 	}
 }
 
@@ -321,8 +357,8 @@ func TestFormatForPrompt_SingleSkill(t *testing.T) {
 	if !strings.Contains(result, "<description>A test</description>") {
 		t.Errorf("result should contain description in XML")
 	}
-	if !strings.Contains(result, "<location>file:///tmp/test-skill/SKILL.md</location>") {
-		t.Errorf("result should contain file location")
+	if !strings.Contains(result, "<location>/tmp/test-skill/SKILL.md</location>") {
+		t.Errorf("result should contain bare file location (no file:// prefix)")
 	}
 	if !strings.Contains(result, "<available_skills>") {
 		t.Errorf("result should contain available_skills root element")
@@ -350,5 +386,151 @@ func TestFormatForPrompt_MultipleSkills(t *testing.T) {
 	}
 	if !strings.Contains(result, "Use the read tool") {
 		t.Error("missing preamble instructions")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// agentskills.io spec compliance (issue #65)
+// ---------------------------------------------------------------------------
+
+// TestFormatForPrompt_XMLEscaping verifies special characters in name and
+// description are escaped so the catalog is valid XML (gap #1).
+func TestFormatForPrompt_XMLEscaping(t *testing.T) {
+	skills := []*Skill{
+		{Name: "a&b", Description: "use when <tag> & \"quoted\"", Path: "/tmp/x"},
+	}
+	result := FormatForPrompt(skills)
+	if strings.Contains(result, "<tag>") {
+		t.Errorf("raw < should have been escaped, got: %q", result)
+	}
+	if !strings.Contains(result, "&lt;tag&gt;") {
+		t.Errorf("expected escaped <tag>, got: %q", result)
+	}
+	if !strings.Contains(result, "a&amp;b") {
+		t.Errorf("expected escaped ampersand in name, got: %q", result)
+	}
+}
+
+// TestFormatForPrompt_DisableModelInvocation verifies that a skill flagged
+// disable-model-invocation is omitted from the catalog (gap #10).
+func TestFormatForPrompt_DisableModelInvocation(t *testing.T) {
+	skills := []*Skill{
+		{Name: "visible", Description: "shown", Path: "/tmp/a"},
+		{Name: "hidden", Description: "not shown", Path: "/tmp/b", DisableModelInvocation: true},
+	}
+	result := FormatForPrompt(skills)
+	if !strings.Contains(result, "<name>visible</name>") {
+		t.Error("visible skill should be in catalog")
+	}
+	if strings.Contains(result, "<name>hidden</name>") {
+		t.Error("disable-model-invocation skill should be omitted from catalog")
+	}
+}
+
+// TestLoadSkill_NewSpecFields verifies the new frontmatter fields parse (gap #6).
+func TestLoadSkill_NewSpecFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.md")
+	content := `---
+name: spec-skill
+description: A spec-compliant skill
+license: MIT
+compatibility: claude-code, cursor
+allowed-tools: read, bash
+disable-model-invocation: true
+metadata:
+  author: jane
+  version: "1.2"
+---
+Body.`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSkill(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.License != "MIT" {
+		t.Errorf("License = %q, want MIT", s.License)
+	}
+	if s.Compatibility != "claude-code, cursor" {
+		t.Errorf("Compatibility = %q", s.Compatibility)
+	}
+	if s.AllowedTools != "read, bash" {
+		t.Errorf("AllowedTools = %q", s.AllowedTools)
+	}
+	if !s.DisableModelInvocation {
+		t.Error("DisableModelInvocation should be true")
+	}
+	if s.Metadata["author"] != "jane" || s.Metadata["version"] != "1.2" {
+		t.Errorf("Metadata = %v", s.Metadata)
+	}
+}
+
+// TestLoadSkill_UnquotedColonFallback verifies the YAML repair fallback for
+// the common `description: Use when: ...` mistake (gap #9).
+func TestLoadSkill_UnquotedColonFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "colon.md")
+	content := "---\nname: colon-skill\ndescription: Use when: extracting tables from PDFs\n---\nBody."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSkill(path)
+	if err != nil {
+		t.Fatalf("expected unquoted-colon fallback to succeed, got error: %v", err)
+	}
+	if s.Name != "colon-skill" {
+		t.Errorf("Name = %q", s.Name)
+	}
+	if !strings.Contains(s.Description, "extracting tables") {
+		t.Errorf("Description = %q", s.Description)
+	}
+}
+
+// TestValidate verifies the Validate diagnostics (gaps #2, #15).
+func TestValidate(t *testing.T) {
+	missing := &Skill{Name: "x"}
+	diags := missing.Validate()
+	if !hasError(diags) {
+		t.Error("expected an error diagnostic for missing description")
+	}
+
+	ok := &Skill{Name: "x", Description: "y"}
+	if len(ok.Validate()) != 0 {
+		t.Error("expected no diagnostics for a complete skill")
+	}
+}
+
+// TestSkillResources verifies bundled-resource enumeration (gaps #11, #15).
+func TestSkillResources(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "scripts", "run.py"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "references", "REF.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Skill{Name: "my-skill", Path: filepath.Join(skillDir, "SKILL.md")}
+	res := s.Resources()
+	if len(res) != 2 {
+		t.Fatalf("expected 2 resources, got %d: %v", len(res), res)
+	}
+	if s.BaseDir() != skillDir {
+		t.Errorf("BaseDir = %q, want %q", s.BaseDir(), skillDir)
+	}
+	formatted := FormatResources(res)
+	if !strings.Contains(formatted, "<file>references/REF.md</file>") {
+		t.Errorf("FormatResources output missing reference: %q", formatted)
+	}
+	if !strings.Contains(formatted, "<file>scripts/run.py</file>") {
+		t.Errorf("FormatResources output missing script: %q", formatted)
 	}
 }
