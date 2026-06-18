@@ -7,7 +7,7 @@
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="canonical" href="/extensions/capabilities">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CO3x1J7D.js"></script>
+<script type="module" src="/assets/index-B6tF_bpk.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Capabilities","description":"All extension capabilities — lifecycle events, tools, commands, widgets, and more.","url":"https://go-kit.dev/extensions/capabilities","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -457,11 +457,14 @@ Load and inject skills dynamically at runtime:
 ```go
 // Discover skills from standard locations
 result := ctx.DiscoverSkills()  // ext.SkillLoadResult{Skills, Error}
-// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+// Standard locations: ~/.agents/skills/, ~/.config/kit/skills/,
+//                     <project>/.agents/skills/, <project>/.kit/skills/
 
 // Load a specific skill file
 skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
-// skill.Name, skill.Description, skill.Content, skill.Tags, skill.When
+// Spec fields: skill.Name, skill.Description, skill.License, skill.Compatibility,
+//              skill.Metadata, skill.AllowedTools, skill.DisableModelInvocation
+// Plus content/path and Kit extensions: skill.Content, skill.Path, skill.Tags, skill.When
 
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult

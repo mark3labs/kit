@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CO3x1J7D.js"></script>
+<script type="module" src="/assets/index-B6tF_bpk.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -75,9 +75,10 @@ host, err := kit.New(ctx, &kit.Options{
     AutoCompact:  true,
 
     // Skills
-    Skills:       []string{"/path/to/skill.md"},
-    SkillsDir:    "/path/to/skills/",
-    NoSkills:     true,
+    Skills:        []string{"/path/to/skill.md"},
+    SkillsDir:     "/path/to/skills/",
+    SkillsDisable: []string{"noisy-skill"},
+    NoSkills:      true,
 
     // Feature toggles
     NoExtensions:   true,               // disable Yaegi extension loading
@@ -180,13 +181,48 @@ when embedding Kit as a library.
 |-------|------|---------|-------------|
 | `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
-| `SkillsDir` | `string` | — | Override default skills directory |
+| `SkillsDir` | `string` | — | Scan this directory directly for skills (overrides auto-discovery; scanned as-is) |
+| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+| `SkillTrustPrompt` | `func(projectDir string, skillCount int) TrustDecision` | `nil` | Callback gating project-local skill loading on a trust decision (see below) |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
+
+#### Project-skill trust gate
+
+Project-local skills (under `<project>/.agents/skills/` or `<project>/.kit/skills/`)
+are injected into the system prompt, so loading them from an untrusted, freshly
+cloned repository is a prompt-injection vector. Set `SkillTrustPrompt` to gate
+that first load on an explicit decision. When `nil` (the default), project
+skills load without prompting — preserving historical behaviour.
+
+```go
+opts := &kit.Options{
+    SkillTrustPrompt: func(projectDir string, skillCount int) kit.TrustDecision {
+        // Consult your own UI / policy here.
+        if userApproves(projectDir, skillCount) {
+            return kit.TrustProject     // load and persist the directory as trusted
+        }
+        return kit.SkipProjectSkills    // do not load project skills
+    },
+}
+```
+
+The callback returns one of three `TrustDecision` values:
+
+| Decision | Effect |
+|----------|--------|
+| `kit.TrustProject` | Load project skills and persist `projectDir` to `~/.config/kit/trusted-projects.json` (not prompted again) |
+| `kit.TrustProjectOnce` | Load project skills for this run only, without persisting |
+| `kit.SkipProjectSkills` | Do not load project skills |
+
+A directory already on the persisted allowlist is trusted without invoking the
+callback. The Kit CLI wires this to an interactive terminal prompt automatically
+for TTY sessions.
 
 These fields only control the **initial** skill and context-file set picked
 up by `New()`. To add, remove, or replace skills and `AGENTS.md`-style
 context files at runtime (e.g. per user or per session), use the
-`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` and
+`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` /
+`DisableSkill` / `EnableSkill` and
 `AddContextFile` / `AddContextFileContent` / `RemoveContextFile` /
 `SetContextFiles` methods on `*kit.Kit`. See
 [Runtime skills and context files](/sdk/overview#runtime-skills-and-context-files).

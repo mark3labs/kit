@@ -519,11 +519,14 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <p>Load and inject skills dynamically at runtime:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Discover skills from standard locations</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DiscoverSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.SkillLoadResult{Skills, Error}</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Standard locations: ~/.agents/skills/, ~/.config/kit/skills/,</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">//                     &lt;project&gt;/.agents/skills/, &lt;project&gt;/.kit/skills/</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Load a specific skill file</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">skill, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skill.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// (*ext.Skill, error string)</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// skill.Name, skill.Description, skill.Content, skill.Tags, skill.When</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Spec fields: skill.Name, skill.Description, skill.License, skill.Compatibility,</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">//              skill.Metadata, skill.AllowedTools, skill.DisableModelInvocation</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Plus content/path and Kit extensions: skill.Content, skill.Path, skill.Tags, skill.When</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Load all skills from a directory</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkillsFromDir</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skills"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.SkillLoadResult</span></span>
@@ -1035,11 +1038,14 @@ Load and inject skills dynamically at runtime:
 \`\`\`go
 // Discover skills from standard locations
 result := ctx.DiscoverSkills()  // ext.SkillLoadResult{Skills, Error}
-// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+// Standard locations: ~/.agents/skills/, ~/.config/kit/skills/,
+//                     <project>/.agents/skills/, <project>/.kit/skills/
 
 // Load a specific skill file
 skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
-// skill.Name, skill.Description, skill.Content, skill.Tags, skill.When
+// Spec fields: skill.Name, skill.Description, skill.License, skill.Compatibility,
+//              skill.Metadata, skill.AllowedTools, skill.DisableModelInvocation
+// Plus content/path and Kit extensions: skill.Content, skill.Path, skill.Tags, skill.When
 
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult

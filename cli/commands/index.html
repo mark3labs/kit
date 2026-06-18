@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CO3x1J7D.js"></script>
+<script type="module" src="/assets/index-B6tF_bpk.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Commands","description":"Complete reference for all Kit CLI subcommands.","url":"https://go-kit.dev/cli/commands","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -77,14 +77,61 @@ kit --skill path/to/skill.md "prompt"
 # Load multiple skill files or directories (flag is repeatable)
 kit --skill ./skill1.md --skill ./skill2.md "prompt"
 
-# Load all skills from a custom directory instead of the default locations
+# Scan a directory directly for skills (overrides auto-discovery)
 kit --skills-dir /path/to/skills "prompt"
+
+# Hide a skill from the model catalog by name (still usable via /skill:)
+kit --skill-disable noisy-skill "prompt"
 
 # Disable all skill loading (auto-discovery and explicit)
 kit --no-skills "prompt"
 ```
 
-Skills are auto-discovered from `~/.config/kit/skills/`, `.kit/skills/`, and `.agents/skills/` by default. Use `--skills-dir` to override the project-local search root, or `--skill` to load files explicitly (which disables auto-discovery). `--no-skills` suppresses all skill loading regardless of other flags.
+Skills follow the [agentskills.io](https://agentskills.io/specification) convention. They are auto-discovered from four canonical scopes:
+
+| Scope | Location |
+|-------|----------|
+| User-level (cross-client) | `~/.agents/skills/` |
+| User-level (Kit) | `~/.config/kit/skills/` (honors `$XDG_CONFIG_HOME`) |
+| Project-local (cross-client) | `<project>/.agents/skills/` |
+| Project-local (Kit) | `<project>/.kit/skills/` |
+
+When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
+
+Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/skill:<name>` command.
+
+### Skill frontmatter
+
+A skill is a markdown file (`SKILL.md` in a directory, or a standalone `.md`/`.txt` file) with optional YAML frontmatter. Kit reads the full [agentskills.io](https://agentskills.io/specification) field set plus two Kit-specific extensions:
+
+```yaml
+---
+name: pdf-extractor                 # required
+description: Use when extracting tables from PDFs   # required (drives model discovery)
+license: MIT                        # optional, SPDX identifier
+compatibility: claude-code, cursor  # optional, targeted environments
+allowed-tools: read, bash           # optional (experimental) tool restriction
+disable-model-invocation: false     # optional; true hides from the catalog
+metadata:                           # optional arbitrary key/value pairs
+  author: you
+tags: [pdf, data]                   # Kit extension
+when: on-demand                     # Kit extension
+---
+```
+
+`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
+
+### Project trust prompt
+
+Because project-local skills are injected into the system prompt, entering a repository that ships `.agents/skills/` or `.kit/skills/` for the first time prompts you to trust it before any project skill loads — a safeguard against a freshly cloned, untrusted repo smuggling instructions into the agent:
+
+```
+This project provides 2 skills under .agents/skills or .kit/skills:
+  /path/to/repo
+Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
+```
+
+Choosing **trust always** persists the directory to `~/.config/kit/trusted-projects.json` so you are not asked again. The prompt is skipped (skills load silently) in non-interactive runs — when a prompt is passed positionally, `--quiet` is set, or stdin is not a TTY.
 
 ## GitHub integration
 

@@ -37,12 +37,65 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load multiple skill files or directories (flag is repeatable)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ./skill1.md</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ./skill2.md</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Load all skills from a custom directory instead of the default locations</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Scan a directory directly for skills (overrides auto-discovery)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skills-dir</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> /path/to/skills</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Hide a skill from the model catalog by name (still usable via /skill:)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --skill-disable</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> noisy-skill</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Disable all skill loading (auto-discovery and explicit)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --no-skills</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "prompt"</span></span></code></pre>
-<p>Skills are auto-discovered from <code>~/.config/kit/skills/</code>, <code>.kit/skills/</code>, and <code>.agents/skills/</code> by default. Use <code>--skills-dir</code> to override the project-local search root, or <code>--skill</code> to load files explicitly (which disables auto-discovery). <code>--no-skills</code> suppresses all skill loading regardless of other flags.</p>
+<p>Skills follow the <a href="https://agentskills.io/specification">agentskills.io</a> convention. They are auto-discovered from four canonical scopes:</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User-level (cross-client)</td>
+<td><code>~/.agents/skills/</code></td>
+</tr>
+<tr>
+<td>User-level (Kit)</td>
+<td><code>~/.config/kit/skills/</code> (honors <code>$XDG_CONFIG_HOME</code>)</td>
+</tr>
+<tr>
+<td>Project-local (cross-client)</td>
+<td><code>&lt;project&gt;/.agents/skills/</code></td>
+</tr>
+<tr>
+<td>Project-local (Kit)</td>
+<td><code>&lt;project&gt;/.kit/skills/</code></td>
+</tr>
+</tbody>
+</table>
+<p>When two skills share the same <code>name</code>, the project-level one takes precedence over the user-level one. Use <code>--skills-dir</code> to scan one directory directly instead (it is <strong>not</strong> treated as a parent of <code>.agents</code>/<code>.kit</code> — the directory itself is scanned). <code>--skill</code> loads files explicitly (which disables auto-discovery), and <code>--no-skills</code> suppresses all skill loading regardless of other flags.</p>
+<p>Disabled skills (<code>--skill-disable</code>, the <code>skill-disable</code> config key, or <code>disable-model-invocation: true</code> in a skill's frontmatter) are hidden from the model-facing <code>&lt;available_skills&gt;</code> catalog but remain available for explicit activation via the <code>/skill:&lt;name&gt;</code> command.</p>
+<h3 id="skill-frontmatter"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skill-frontmatter"><span class="icon icon-link"></span></a>Skill frontmatter</h3>
+<p>A skill is a markdown file (<code>SKILL.md</code> in a directory, or a standalone <code>.md</code>/<code>.txt</code> file) with optional YAML frontmatter. Kit reads the full <a href="https://agentskills.io/specification">agentskills.io</a> field set plus two Kit-specific extensions:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">---</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">pdf-extractor</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # required</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">description</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">Use when extracting tables from PDFs</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # required (drives model discovery)</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">license</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">MIT</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # optional, SPDX identifier</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">compatibility</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">claude-code, cursor</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # optional, targeted environments</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">allowed-tools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">read, bash</span><span style="color:#6A737D;--shiki-dark:#6A737D">           # optional (experimental) tool restriction</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">disable-model-invocation</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">false</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # optional; true hides from the catalog</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">metadata</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:                           </span><span style="color:#6A737D;--shiki-dark:#6A737D"># optional arbitrary key/value pairs</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  author</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">you</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">tags</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">pdf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">data</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]                   </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Kit extension</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">when</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">on-demand</span><span style="color:#6A737D;--shiki-dark:#6A737D">                     # Kit extension</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">---</span></span></code></pre>
+<p><code>name</code> and <code>description</code> are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like <code>&lt;</code>, <code>&gt;</code>, and <code>&amp;</code> are safe. A skill directory may bundle <code>scripts/</code>, <code>references/</code>, and <code>assets/</code> subdirectories; when a skill is activated those files are enumerated in a <code>&lt;skill_resources&gt;</code> block so the model knows what it can read.</p>
+<h3 id="project-trust-prompt"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#project-trust-prompt"><span class="icon icon-link"></span></a>Project trust prompt</h3>
+<p>Because project-local skills are injected into the system prompt, entering a repository that ships <code>.agents/skills/</code> or <code>.kit/skills/</code> for the first time prompts you to trust it before any project skill loads — a safeguard against a freshly cloned, untrusted repo smuggling instructions into the agent:</p>
+<pre><code>This project provides 2 skills under .agents/skills or .kit/skills:
+  /path/to/repo
+Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
+</code></pre>
+<p>Choosing <strong>trust always</strong> persists the directory to <code>~/.config/kit/trusted-projects.json</code> so you are not asked again. The prompt is skipped (skills load silently) in non-interactive runs — when a prompt is passed positionally, <code>--quiet</code> is set, or stdin is not a TTY.</p>
 <h2 id="github-integration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#github-integration"><span class="icon icon-link"></span></a>GitHub integration</h2>
 <p>Scaffold a GitHub Actions workflow that runs Kit as an automated collaborator/reviewer. The workflow triggers when someone comments <code>/kit ...</code> on an issue or pull request review, runs the agent non-interactively in the runner, and lets it respond.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#6A737D;--shiki-dark:#6A737D">           # Scaffold .github/workflows/kit.yml</span></span>
@@ -265,7 +318,7 @@ const e={frontmatter:{title:"Commands",description:"Complete reference for all K
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:3,text:"Skills CLI flags",id:"skills-cli-flags"},{depth:2,text:"GitHub integration",id:"github-integration"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:"Authentication",id:"authentication"},{depth:2,text:"Model database",id:"model-database"},{depth:2,text:"Extension management",id:"extension-management"},{depth:3,text:"Installing extensions from git",id:"installing-extensions-from-git"},{depth:2,text:"Skills",id:"skills"},{depth:3,text:"Skills CLI flags",id:"skills-cli-flags"},{depth:3,text:"Skill frontmatter",id:"skill-frontmatter"},{depth:3,text:"Project trust prompt",id:"project-trust-prompt"},{depth:2,text:"GitHub integration",id:"github-integration"},{depth:2,text:"Interactive slash commands",id:"interactive-slash-commands"},{depth:3,text:"Prompt history",id:"prompt-history"},{depth:3,text:"Cancelling operations",id:"cancelling-operations"},{depth:3,text:"External editor",id:"external-editor"},{depth:3,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:3,text:"Image attachments",id:"image-attachments"},{depth:2,text:"Prompt templates",id:"prompt-templates"},{depth:3,text:"Creating templates",id:"creating-templates"},{depth:3,text:"Using templates",id:"using-templates"},{depth:3,text:"Argument placeholders",id:"argument-placeholders"},{depth:3,text:"CLI flags",id:"cli-flags"},{depth:2,text:"ACP server",id:"acp-server"}],raw:`
 # Commands
 
 ## Authentication
@@ -330,14 +383,61 @@ kit --skill path/to/skill.md "prompt"
 # Load multiple skill files or directories (flag is repeatable)
 kit --skill ./skill1.md --skill ./skill2.md "prompt"
 
-# Load all skills from a custom directory instead of the default locations
+# Scan a directory directly for skills (overrides auto-discovery)
 kit --skills-dir /path/to/skills "prompt"
+
+# Hide a skill from the model catalog by name (still usable via /skill:)
+kit --skill-disable noisy-skill "prompt"
 
 # Disable all skill loading (auto-discovery and explicit)
 kit --no-skills "prompt"
 \`\`\`
 
-Skills are auto-discovered from \`~/.config/kit/skills/\`, \`.kit/skills/\`, and \`.agents/skills/\` by default. Use \`--skills-dir\` to override the project-local search root, or \`--skill\` to load files explicitly (which disables auto-discovery). \`--no-skills\` suppresses all skill loading regardless of other flags.
+Skills follow the [agentskills.io](https://agentskills.io/specification) convention. They are auto-discovered from four canonical scopes:
+
+| Scope | Location |
+|-------|----------|
+| User-level (cross-client) | \`~/.agents/skills/\` |
+| User-level (Kit) | \`~/.config/kit/skills/\` (honors \`$XDG_CONFIG_HOME\`) |
+| Project-local (cross-client) | \`<project>/.agents/skills/\` |
+| Project-local (Kit) | \`<project>/.kit/skills/\` |
+
+When two skills share the same \`name\`, the project-level one takes precedence over the user-level one. Use \`--skills-dir\` to scan one directory directly instead (it is **not** treated as a parent of \`.agents\`/\`.kit\` — the directory itself is scanned). \`--skill\` loads files explicitly (which disables auto-discovery), and \`--no-skills\` suppresses all skill loading regardless of other flags.
+
+Disabled skills (\`--skill-disable\`, the \`skill-disable\` config key, or \`disable-model-invocation: true\` in a skill's frontmatter) are hidden from the model-facing \`<available_skills>\` catalog but remain available for explicit activation via the \`/skill:<name>\` command.
+
+### Skill frontmatter
+
+A skill is a markdown file (\`SKILL.md\` in a directory, or a standalone \`.md\`/\`.txt\` file) with optional YAML frontmatter. Kit reads the full [agentskills.io](https://agentskills.io/specification) field set plus two Kit-specific extensions:
+
+\`\`\`yaml
+---
+name: pdf-extractor                 # required
+description: Use when extracting tables from PDFs   # required (drives model discovery)
+license: MIT                        # optional, SPDX identifier
+compatibility: claude-code, cursor  # optional, targeted environments
+allowed-tools: read, bash           # optional (experimental) tool restriction
+disable-model-invocation: false     # optional; true hides from the catalog
+metadata:                           # optional arbitrary key/value pairs
+  author: you
+tags: [pdf, data]                   # Kit extension
+when: on-demand                     # Kit extension
+---
+\`\`\`
+
+\`name\` and \`description\` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like \`<\`, \`>\`, and \`&\` are safe. A skill directory may bundle \`scripts/\`, \`references/\`, and \`assets/\` subdirectories; when a skill is activated those files are enumerated in a \`<skill_resources>\` block so the model knows what it can read.
+
+### Project trust prompt
+
+Because project-local skills are injected into the system prompt, entering a repository that ships \`.agents/skills/\` or \`.kit/skills/\` for the first time prompts you to trust it before any project skill loads — a safeguard against a freshly cloned, untrusted repo smuggling instructions into the agent:
+
+\`\`\`
+This project provides 2 skills under .agents/skills or .kit/skills:
+  /path/to/repo
+Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
+\`\`\`
+
+Choosing **trust always** persists the directory to \`~/.config/kit/trusted-projects.json\` so you are not asked again. The prompt is skipped (skills load silently) in non-interactive runs — when a prompt is passed positionally, \`--quiet\` is set, or stdin is not a TTY.
 
 ## GitHub integration
 

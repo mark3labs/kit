@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CO3x1J7D.js"></script>
+<script type="module" src="/assets/index-B6tF_bpk.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -392,6 +392,11 @@ host.LoadAndAddContextFile("/etc/agents/tenant-acme.md")
 host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
+// Hide a skill from the model-facing catalog without unloading it — it stays
+// available for explicit /skill: activation. EnableSkill reverses this.
+host.DisableSkill("refund-policy")
+host.EnableSkill("refund-policy")
+
 // Or replace the whole set in one call.
 host.SetSkills(activeSkillsForUser)
 host.SetContextFiles(activeContextForUser)
@@ -417,9 +422,22 @@ Key points:
   from multiple goroutines; the underlying state is guarded by an internal
   `RWMutex`.
 - **Init-time options still apply.** `Options.Skills`, `Options.SkillsDir`,
-  `Options.NoSkills`, and `Options.NoContextFiles` continue to control the
-  startup set; the runtime API mutates from whatever state `New()` produced.
+  `Options.SkillsDisable`, `Options.SkillTrustPrompt`, `Options.NoSkills`, and
+  `Options.NoContextFiles` continue to control the startup set; the runtime API
+  mutates from whatever state `New()` produced.
   See [SDK options](/sdk/options#skills--configuration).
+- **Auto-discovery scopes.** When no explicit `Skills`/`SkillsDir` are given,
+  `New()` scans four [agentskills.io](https://agentskills.io/specification)
+  locations: `~/.agents/skills/`, `~/.config/kit/skills/`,
+  `<project>/.agents/skills/`, and `<project>/.kit/skills/`. Project-level
+  skills override user-level skills of the same `name`. Skills missing a
+  `description` are skipped with a logged warning, and a skill's
+  `disable-model-invocation: true` (or `Options.SkillsDisable`) hides it from
+  the catalog while keeping it available for explicit activation.
+- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory) and
+  `Resources()` (the files bundled under `scripts/`, `references/`, and
+  `assets/`), which power the `<skill_resources>` enumeration shown when a skill
+  is activated.
 - **`fs.FS`-backed discovery.** The package-level loaders `kit.LoadSkill`,
   `kit.LoadSkillsFromDir`, and `kit.LoadSkills` are path-string based;
   `kit.LoadSkillsFromFS(fsys, root)` is the `fs.FS`-typed counterpart for

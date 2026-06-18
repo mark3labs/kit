@@ -398,6 +398,11 @@ updated instructions — no restart, no file shuffling.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"polite-french"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveContextFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"session://</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/AGENTS.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, userID))</span></span>
 <span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Hide a skill from the model-facing catalog without unloading it — it stays</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// available for explicit /skill: activation. EnableSkill reverses this.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DisableSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"refund-policy"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EnableSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"refund-policy"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or replace the whole set in one call.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetSkills</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(activeSkillsForUser)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetContextFiles</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(activeContextForUser)</span></span>
@@ -430,9 +435,26 @@ from multiple goroutines; the underlying state is guarded by an internal
 </li>
 <li>
 <p><strong>Init-time options still apply.</strong> <code>Options.Skills</code>, <code>Options.SkillsDir</code>,
-<code>Options.NoSkills</code>, and <code>Options.NoContextFiles</code> continue to control the
-startup set; the runtime API mutates from whatever state <code>New()</code> produced.
+<code>Options.SkillsDisable</code>, <code>Options.SkillTrustPrompt</code>, <code>Options.NoSkills</code>, and
+<code>Options.NoContextFiles</code> continue to control the startup set; the runtime API
+mutates from whatever state <code>New()</code> produced.
 See <a href="/sdk/options#skills--configuration">SDK options</a>.</p>
+</li>
+<li>
+<p><strong>Auto-discovery scopes.</strong> When no explicit <code>Skills</code>/<code>SkillsDir</code> are given,
+<code>New()</code> scans four <a href="https://agentskills.io/specification">agentskills.io</a>
+locations: <code>~/.agents/skills/</code>, <code>~/.config/kit/skills/</code>,
+<code>&lt;project&gt;/.agents/skills/</code>, and <code>&lt;project&gt;/.kit/skills/</code>. Project-level
+skills override user-level skills of the same <code>name</code>. Skills missing a
+<code>description</code> are skipped with a logged warning, and a skill's
+<code>disable-model-invocation: true</code> (or <code>Options.SkillsDisable</code>) hides it from
+the catalog while keeping it available for explicit activation.</p>
+</li>
+<li>
+<p><strong>Skill helpers.</strong> A <code>kit.Skill</code> exposes <code>BaseDir()</code> (its directory) and
+<code>Resources()</code> (the files bundled under <code>scripts/</code>, <code>references/</code>, and
+<code>assets/</code>), which power the <code>&lt;skill_resources&gt;</code> enumeration shown when a skill
+is activated.</p>
 </li>
 <li>
 <p><strong><code>fs.FS</code>-backed discovery.</strong> The package-level loaders <code>kit.LoadSkill</code>,
@@ -932,6 +954,11 @@ host.LoadAndAddContextFile("/etc/agents/tenant-acme.md")
 host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
+// Hide a skill from the model-facing catalog without unloading it — it stays
+// available for explicit /skill: activation. EnableSkill reverses this.
+host.DisableSkill("refund-policy")
+host.EnableSkill("refund-policy")
+
 // Or replace the whole set in one call.
 host.SetSkills(activeSkillsForUser)
 host.SetContextFiles(activeContextForUser)
@@ -957,9 +984,22 @@ Key points:
   from multiple goroutines; the underlying state is guarded by an internal
   \`RWMutex\`.
 - **Init-time options still apply.** \`Options.Skills\`, \`Options.SkillsDir\`,
-  \`Options.NoSkills\`, and \`Options.NoContextFiles\` continue to control the
-  startup set; the runtime API mutates from whatever state \`New()\` produced.
+  \`Options.SkillsDisable\`, \`Options.SkillTrustPrompt\`, \`Options.NoSkills\`, and
+  \`Options.NoContextFiles\` continue to control the startup set; the runtime API
+  mutates from whatever state \`New()\` produced.
   See [SDK options](/sdk/options#skills--configuration).
+- **Auto-discovery scopes.** When no explicit \`Skills\`/\`SkillsDir\` are given,
+  \`New()\` scans four [agentskills.io](https://agentskills.io/specification)
+  locations: \`~/.agents/skills/\`, \`~/.config/kit/skills/\`,
+  \`<project>/.agents/skills/\`, and \`<project>/.kit/skills/\`. Project-level
+  skills override user-level skills of the same \`name\`. Skills missing a
+  \`description\` are skipped with a logged warning, and a skill's
+  \`disable-model-invocation: true\` (or \`Options.SkillsDisable\`) hides it from
+  the catalog while keeping it available for explicit activation.
+- **Skill helpers.** A \`kit.Skill\` exposes \`BaseDir()\` (its directory) and
+  \`Resources()\` (the files bundled under \`scripts/\`, \`references/\`, and
+  \`assets/\`), which power the \`<skill_resources>\` enumeration shown when a skill
+  is activated.
 - **\`fs.FS\`-backed discovery.** The package-level loaders \`kit.LoadSkill\`,
   \`kit.LoadSkillsFromDir\`, and \`kit.LoadSkills\` are path-string based;
   \`kit.LoadSkillsFromFS(fsys, root)\` is the \`fs.FS\`-typed counterpart for
