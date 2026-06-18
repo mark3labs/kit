@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -254,8 +255,14 @@ func NewRawTool(
 		func(ctx context.Context, input rawToolInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			ctx = context.WithValue(ctx, toolCallIDKey{}, call.ID)
 			args := map[string]any{}
-			if len(input) > 0 && string(input) != "null" {
-				if err := json.Unmarshal(input, &args); err != nil {
+			// Normalise whitespace before the null/empty guard so values like
+			// " null " or "\tnull\n" take the same skip-unmarshal path as the
+			// bare "null" and the handler always receives a non-nil empty map.
+			// (fantasy currently trims via its RawMessage decode, but this keeps
+			// the guard correct independent of that upstream behaviour.)
+			trimmed := bytes.TrimSpace(input)
+			if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
+				if err := json.Unmarshal(trimmed, &args); err != nil {
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid arguments for tool %q: %v", name, err)), nil
 				}
 			}

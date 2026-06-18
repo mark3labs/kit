@@ -70,3 +70,33 @@ func TestNewRawToolInvalidArgs(t *testing.T) {
 		t.Fatalf("expected error response for invalid args")
 	}
 }
+
+// Contract: null / whitespace-padded-null inputs must hand the handler a
+// non-nil empty map (not a nil map), so handlers can read or write keys
+// without a nil-map panic. Inputs are normalised before reaching the handler.
+func TestNewRawToolNullArgs(t *testing.T) {
+	for _, input := range []string{"null", " null ", "\tnull\n"} {
+		called := false
+		var gotNil bool
+		tool := kit.NewRawTool("t", "d", nil,
+			func(ctx context.Context, args map[string]any) (kit.ToolOutput, error) {
+				called = true
+				gotNil = args == nil
+				return kit.TextResult("ok"), nil
+			},
+		)
+		resp, err := tool.Run(context.Background(), fantasy.ToolCall{ID: "x", Input: input})
+		if err != nil {
+			t.Fatalf("input %q: Run error: %v", input, err)
+		}
+		if resp.IsError {
+			t.Fatalf("input %q: unexpected error response: %q", input, resp.Content)
+		}
+		if !called {
+			t.Fatalf("input %q: handler not called", input)
+		}
+		if gotNil {
+			t.Fatalf("input %q: args was nil, want non-nil empty map", input)
+		}
+	}
+}
