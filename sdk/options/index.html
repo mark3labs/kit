@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DhDpWIV8.js"></script>
+<script type="module" src="/assets/index-Cjh4VUrO.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -41,6 +41,7 @@ host, err := kit.New(ctx, &kit.Options{
     Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off
     Quiet:        true,
     Debug:        true,
+    DebugLogger:  myLogger,       // optional; overrides Debug + built-in logger when non-nil
 
     // Generation parameters (override env/config/per-model defaults)
     MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
@@ -113,7 +114,8 @@ host, err := kit.New(ctx, &kit.Options{
 | `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |
 | `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
 | `Quiet` | `bool` | `false` | Suppress output |
-| `Debug` | `bool` | `false` | Enable debug logging |
+| `Debug` | `bool` | `false` | Enable debug logging via the built-in console / buffered logger. Ignored when `DebugLogger` is non-nil. |
+| `DebugLogger` | `DebugLogger` | `nil` | Caller-supplied logger that receives low-level engine + MCP tool plumbing debug output. When non-nil this overrides `Debug` — the supplied logger's `IsDebugEnabled()` controls downstream emission. See [Custom debug logger](#custom-debug-logger). |
 
 ### Generation parameters
 
@@ -355,6 +357,45 @@ loaded MCP server that advertises the corresponding capability.
 
 Context cancellation also works end-to-end: cancelling the `ctx` passed to a
 tool execution triggers a best-effort `tasks/cancel` before the call returns.
+
+## Custom debug logger
+
+Kit's engine and MCP tool plumbing emit low-level debug output through a
+`DebugLogger` interface. By default, setting `Debug: true` (or calling
+`WithDebug()`) installs the built-in console logger. To route the same output
+into your application's logging system instead, provide a custom
+implementation via `Options.DebugLogger` or `WithDebugLogger`.
+
+```go
+type DebugLogger interface {
+    LogDebug(message string)
+    IsDebugEnabled() bool
+}
+```
+
+When `DebugLogger` is non-nil it takes precedence over `Debug` — the
+supplied logger's `IsDebugEnabled()` reports whether downstream code should
+bother formatting messages.
+
+**Example: forward to `log/slog`:**
+
+```go
+import "log/slog"
+
+type slogDebugLogger struct{ l *slog.Logger }
+
+func (s *slogDebugLogger) LogDebug(m string)    { s.l.Debug(m) }
+func (s *slogDebugLogger) IsDebugEnabled() bool { return true }
+
+host, _ := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithDebugLogger(&slogDebugLogger{l: slog.Default()}),
+)
+```
+
+Implementations must be safe for concurrent use — messages can arrive
+from the engine goroutine, MCP connection pool, and tool execution paths
+simultaneously.
 
 ## Precedence
 

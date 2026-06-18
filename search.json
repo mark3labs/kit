@@ -376,11 +376,12 @@
         "Per-server mode",
         "Progress callbacks",
         "Inspecting and cancelling tasks",
+        "Custom debug logger",
         "Precedence",
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2292
+      "wordCount": 2497
     },
     {
       "id": "sdk/overview",
@@ -408,7 +409,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 1518
+      "wordCount": 1537
     },
     {
       "id": "sdk/sessions",

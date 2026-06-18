@@ -99,6 +99,10 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 <td><code>Options.Debug = true</code></td>
 </tr>
 <tr>
+<td><code>WithDebugLogger(DebugLogger)</code></td>
+<td><code>Options.DebugLogger</code> (route engine + MCP debug output into a custom logger; overrides <code>WithDebug</code> when set)</td>
+</tr>
+<tr>
 <td><code>Ephemeral()</code></td>
 <td><code>Options.NoSession = true</code></td>
 </tr>
@@ -478,6 +482,7 @@ Available options:
 | \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
 | \`WithConfigFile(string)\` | \`Options.ConfigFile\` |
 | \`WithDebug()\` | \`Options.Debug = true\` |
+| \`WithDebugLogger(DebugLogger)\` | \`Options.DebugLogger\` (route engine + MCP debug output into a custom logger; overrides \`WithDebug\` when set) |
 | \`Ephemeral()\` | \`Options.NoSession = true\` |
 
 Options are applied in order, so later options override earlier ones. \`Option\`

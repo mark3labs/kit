@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-DhDpWIV8.js"></script>
+<script type="module" src="/assets/index-Cjh4VUrO.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -90,6 +90,7 @@ Available options:
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
+| `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
 | `Ephemeral()` | `Options.NoSession = true` |
 
 Options are applied in order, so later options override earlier ones. `Option`
