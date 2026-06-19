@@ -69,9 +69,11 @@ var (
 	mainGPU int32
 
 	// Extensions control
-	noExtensionsFlag bool
-	noCoreToolsFlag  bool
-	extensionPaths   []string
+	noExtensionsFlag     bool
+	noCoreToolsFlag      bool
+	includeCoreToolsFlag []string
+	excludeCoreToolsFlag []string
+	extensionPaths       []string
 
 	// Skills control
 	noSkillsFlag  bool
@@ -287,6 +289,10 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)")
 	rootCmd.PersistentFlags().
+		StringSliceVar(&includeCoreToolsFlag, "include-core-tools", nil, "comma-separated list of core tools to include")
+	rootCmd.PersistentFlags().
+		StringSliceVar(&excludeCoreToolsFlag, "exclude-core-tools", nil, "comma-separated list of core tools to exclude")
+	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
 	// Skills flags
@@ -346,6 +352,8 @@ func init() {
 	_ = viper.BindPFlag("tls-skip-verify", rootCmd.PersistentFlags().Lookup("tls-skip-verify"))
 	_ = viper.BindPFlag("no-extensions", rootCmd.PersistentFlags().Lookup("no-extensions"))
 	_ = viper.BindPFlag("no-core-tools", rootCmd.PersistentFlags().Lookup("no-core-tools"))
+	_ = viper.BindPFlag("include-core-tools", rootCmd.PersistentFlags().Lookup("include-core-tools"))
+	_ = viper.BindPFlag("exclude-core-tools", rootCmd.PersistentFlags().Lookup("exclude-core-tools"))
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
@@ -829,6 +837,10 @@ func runNormalMode(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create OAuth handler: %v\n", authErr)
 	}
 
+	coreToolList, err := kit.CoreToolFilterHelper(viper.GetViper())
+	if err != nil {
+		return err
+	}
 	// appInstancePtr is used to break the circular dependency between
 	// kit.New (which needs the OnMCPServerLoaded callback) and app.New
 	// (which is needed by the callback to send events to the TUI).
@@ -843,6 +855,7 @@ func runNormalMode(ctx context.Context) error {
 		AutoCompact:      autoCompactFlag,
 		MCPAuthHandler:   authHandler,
 		DisableCoreTools: viper.GetBool("no-core-tools"),
+		CoreToolList:     coreToolList,
 		NoSkills:         noSkillsFlag,
 		Skills:           skillsPaths,
 		SkillsDir:        skillsDir,
