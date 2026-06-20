@@ -212,6 +212,9 @@ mcpServers:
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
 --no-core-tools          Disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)
+--include-core-tools
+--exclude-core-tools     Mutually exclusive lists of core tool names to include or not to include in agent
+
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
 
