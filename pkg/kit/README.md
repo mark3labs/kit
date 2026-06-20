@@ -102,6 +102,7 @@ host, err := kit.New(ctx, &kit.Options{
     Tools:            []kit.Tool{kit.NewBashTool()}, // Replace default tool set
     ExtraTools:       []kit.Tool{myTool},            // Add alongside defaults
     DisableCoreTools: true,                        // Use no core tools (0 tools)
+    CoreToolList      []string,                    // List of core tools to include, if empty (default) use all.
 
     // Configuration
     SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)
@@ -420,6 +421,7 @@ Key `Options` fields for SDK usage:
 | `Tools` | Replace core tools with custom set |
 | `ExtraTools` | Add tools alongside defaults |
 | `DisableCoreTools` | Use no core tools (0 tools, for chat-only) |
+| `CoreToolList` | List of core tools to include, if empty (default) use all. |
 | `NoSession` | Ephemeral mode (no session persistence) |
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
