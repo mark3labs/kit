@@ -42,10 +42,10 @@ type AgentConfig struct {
 	// CodingTools or tools with a custom WorkDir).
 	CoreTools []fantasy.AgentTool
 
-	// DisableCoreTools, when true, prevents loading any core tools.
-	// If both DisableCoreTools is true and CoreTools is empty, the agent
+	// CoreToolList lists core tool names to add. Overridden by CoreTools.
+	// If both CoreToolList is true and CoreTools is empty, the agent
 	// will have no tools (useful for simple chat completions).
-	DisableCoreTools bool
+	CoreToolList []string
 
 	// ToolWrapper is an optional function that wraps the combined tool list
 	// before it is passed to the LLM agent. Used by the extensions system
@@ -287,10 +287,10 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	}
 
 	// Register core tools (direct AgentTool implementations, no MCP overhead).
-	// Use caller-provided tools if set, otherwise default to all core tools.
-	// DisableCoreTools allows explicitly having zero tools (for chat-only mode).
+	// Use caller-provided tools if set, otherwise default to core tools
+	// listed in CoreToolList.
 	var coreTools []fantasy.AgentTool
-	if agentConfig.DisableCoreTools && len(agentConfig.CoreTools) == 0 {
+	if len(agentConfig.CoreToolList) == 0 && len(agentConfig.CoreTools) == 0 {
 		// Explicitly zero tools - chat-only mode
 		coreTools = nil
 	} else if len(agentConfig.CoreTools) > 0 {
@@ -298,7 +298,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		coreTools = agentConfig.CoreTools
 	} else {
 		// Default: load all core tools
-		coreTools = core.AllTools()
+		coreTools = core.ListedTools(agentConfig.CoreToolList)
 	}
 
 	// Build the initial tool list: core tools + extension tools (no MCP yet).

@@ -129,6 +129,9 @@ temperature: 0.7
 stream: true
 thinking-level: off       # off, none, minimal, low, medium, high
 no-core-tools: false      # set to true to disable all built-in core tools
+exclude-core-tools:       # List of core tools to exclude, mutually exclusive to `include-core-tools`
+#include-core-tools:
+# - "bash"                # List of core tools to exclude, mutually exclusive to `exclude-core-tools`
 
 # Skills — all keys are optional
 no-skills: false          # set to true to disable all skill loading
@@ -209,6 +212,9 @@ mcpServers:
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
 --no-core-tools          Disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)
+--include-core-tools
+--exclude-core-tools     Mutually exclusive lists of core tool names to include or not to include in agent
+
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
 
@@ -657,6 +663,8 @@ host, err := kit.New(ctx, &kit.Options{
     DisableCoreTools: true,                // Disable all built-in core tools; also controllable via
                                            // --no-core-tools flag, KIT_NO_CORE_TOOLS env var,
                                            // or no-core-tools: true in .kit.yml
+    CoreToolList      []string,            // List of core tool names to  register. If empty (default), include all.
+                                           // DisableCoreTools has precedence.
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)

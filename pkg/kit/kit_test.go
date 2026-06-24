@@ -3,6 +3,7 @@ package kit_test
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -471,4 +472,193 @@ func TestNewSystemPromptInline(t *testing.T) {
 	if composed := host.ConfigStringForTest("system-prompt"); !strings.Contains(composed, inline) {
 		t.Errorf("composed system-prompt missing inline content; got %q", composed)
 	}
+}
+
+// TestDisableCoreTools verifies that setting Options.DisableCoreTools to true
+// does not set any tools even when tools are explicitly listed in the kit.Options.ToolList.
+func TestDisableCoreTools(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	ctx := context.Background()
+	t.Run("DisableCoreTools true with empty CoreToolList", func(t *testing.T) {
+		defer resetViper()
+		host, err := kit.New(ctx, &kit.Options{
+			Model:            "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:            true,
+			NoSession:        true,
+			NoExtensions:     true,
+			DisableCoreTools: true,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create Kit with DisableCoreTools: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		tools := host.GetToolNames()
+		if len(tools) != 0 {
+			t.Errorf("Expected 0 tool when DisableCoreTools is true, got %d: %v", len(tools), tools)
+		}
+	})
+	t.Run("DisableCoreTools true with populated CoreToolList", func(t *testing.T) {
+		defer resetViper()
+		host, err := kit.New(ctx, &kit.Options{
+			Model:            "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:            true,
+			NoSession:        true,
+			NoExtensions:     true,
+			DisableCoreTools: true,
+			CoreToolList:     []string{"subagent", "bash"},
+		})
+		if err != nil {
+			t.Fatalf("Failed to create Kit with DisableCoreTools and Tool list: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		tools := host.GetToolNames()
+		if len(tools) != 0 {
+			t.Errorf("Expected 0 tool when DisableCoreTools is true, got %d: %v", len(tools), tools)
+		}
+	})
+}
+
+func TestCoreToolList(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+
+	ctx := context.Background()
+	t.Run("Test wether empty CoreToolList adds all tools", func(t *testing.T) {
+		defer resetViper()
+		host, err := kit.New(ctx, &kit.Options{
+			Quiet:        true,
+			NoSession:    true,
+			NoExtensions: true,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create Kit with DisableCoreTools: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		tools := host.GetToolNames()
+		if len(tools) != len(kit.ListAllCoreToolNames()) {
+			t.Errorf("Expected %d tool when DisableCoreTools is true, got %d: %v",
+				len(kit.ListAllCoreToolNames()), len(tools), tools)
+		}
+	})
+	t.Run("Test ToolList populated with two valid and one invalid tool name", func(t *testing.T) {
+		defer resetViper()
+		host, err := kit.New(ctx, &kit.Options{
+			Quiet:            true,
+			NoSession:        true,
+			NoExtensions:     true,
+			DisableCoreTools: true,
+			CoreToolList:     []string{"subagent", "bash", "deadbeef"},
+		})
+		if err != nil {
+			t.Fatalf("Failed to create Kit with DisableCoreTools and Tool list: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+
+		tools := host.GetToolNames()
+		if len(tools) != 0 {
+			t.Errorf("Expected 2 tools with 2 valid and 1 invalid tool name, got %d: %v", len(tools), tools)
+		}
+		for _, s := range tools {
+			if s != "subagent" && s != "bash" {
+				t.Errorf("Expected tool to be 'bash' or 'subagent' but got %s", s)
+			}
+		}
+	})
+}
+
+func TestCoreToolListOption(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+	ctx := context.Background()
+	t.Run("Test whether exclude-core-tools and include-core-tools combined generates failure", func(t *testing.T) {
+		cfgFile := t.TempDir() + "/.kit.yml"
+		txt := []byte(`include-core-tools:
+   - "subagent"
+exclude-core-tools:
+   - "bash"`)
+		if err := os.WriteFile(cfgFile, txt, 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			if err.Error() != "cannot use both include-core-tools and exclude-core-tools options" {
+				t.Errorf("kit.New: unexpected error %v", err)
+			}
+		} else {
+			defer func() { _ = host.Close() }()
+			t.Errorf("kit.New was expected to fail with both include-core-tools and exclude-core-tools specified")
+		}
+	})
+	t.Run("Test whether include-core-tools works", func(t *testing.T) {
+		cfgFile := t.TempDir() + "/.kit.yml"
+		txt := []byte(`include-core-tools:
+   - "subagent"
+   - "deadbeef"
+   - "bash"`)
+		if err := os.WriteFile(cfgFile, txt, 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+		tools := host.GetToolNames()
+		for _, tool := range tools {
+			if tool != "bash" && tool != "subagent" {
+				t.Errorf("include-core-tools expected to have only 'bash' and 'subagent' tools but have %s", tool)
+			}
+		}
+	})
+	t.Run("Test whether exclude-core-tools works", func(t *testing.T) {
+		cfgFile := t.TempDir() + "/.kit.yml"
+		txt := []byte(`exclude-core-tools:
+   - "subagent"
+   - "deadbeef"
+   - "bash"`)
+		if err := os.WriteFile(cfgFile, txt, 0o644); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+		host, err := kit.New(ctx, &kit.Options{
+			Model:      "anthropic/claude-sonnet-4-5-20250929",
+			Quiet:      true,
+			NoSession:  true,
+			ConfigFile: cfgFile,
+		})
+		if err != nil {
+			t.Fatalf("kit.New failed: %v", err)
+		}
+		defer func() { _ = host.Close() }()
+		var registeredTools []string
+		for _, tool := range kit.ListAllCoreToolNames() {
+			if tool != "bash" && tool != "subagent" {
+				registeredTools = append(registeredTools, tool)
+			}
+		}
+		tools := host.GetToolNames()
+		for _, tool := range tools {
+			if slices.Contains(registeredTools, tool) {
+				continue
+			}
+			t.Errorf("exclude-core-tools added unexpected %s tool", tool)
+		}
+	})
 }

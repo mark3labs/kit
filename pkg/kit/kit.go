@@ -996,6 +996,10 @@ type Options struct {
 	// are still applied. Use this for fully programmatic configuration.
 	SkipConfig bool
 
+	// List of tools to include, when empty, include all available core
+	// tools.
+	CoreToolList []string
+
 	// DisableCoreTools, when true, prevents loading any core tools.
 	// Use with Tools or ExtraTools to provide only custom tools.
 	// If both DisableCoreTools is true and Tools is empty, the agent
@@ -1266,7 +1270,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		mcpConfig             *config.Config
 		debug                 bool
 		noExtensions          bool
-		disableCoreTools      bool
+		toolList              []string
 		maxSteps              int
 		streaming             bool
 		hasCustomSystemPrompt bool
@@ -1497,7 +1501,15 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		modelString = v.GetString("model")
 		debug = v.GetBool("debug")
 		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
-		disableCoreTools = opts.DisableCoreTools || v.GetBool("no-core-tools")
+		toolList = opts.CoreToolList
+		if toolList == nil {
+			var err error
+			toolList, err = CoreToolFilterHelper(v)
+			if err != nil {
+				return err
+			}
+		}
+		toolList = handleCoreToolList(toolList, opts.DisableCoreTools || v.GetBool("no-core-tools"))
 		maxSteps = v.GetInt("max-steps")
 		streaming = v.GetBool("stream")
 
@@ -1580,7 +1592,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		MCPConfig:         mcpConfig,
 		Quiet:             opts.Quiet,
 		CoreTools:         opts.Tools,
-		DisableCoreTools:  disableCoreTools,
+		CoreToolList:      toolList,
 		ExtraTools:        extraTools,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
