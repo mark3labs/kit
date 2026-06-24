@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-B6tF_bpk.js"></script>
+<script type="module" src="/assets/index-8-6JeKNC.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -67,6 +67,7 @@ host, err := kit.New(ctx, &kit.Options{
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
     DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+    CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)

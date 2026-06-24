@@ -3075,6 +3075,7 @@ host, err := kit.New(ctx, &kit.Options{
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
     DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+    CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
