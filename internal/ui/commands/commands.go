@@ -175,6 +175,12 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/rt"},
 	},
 	{
+		Name:        "/undo",
+		Description: "Remove the last user message and its assistant/tool responses",
+		Category:    "System",
+		Aliases:     []string{"/un"},
+	},
+	{
 		Name:        "/edit",
 		Description: "Open a file in $EDITOR (fuzzy-find a path, then edit)",
 		Category:    "System",

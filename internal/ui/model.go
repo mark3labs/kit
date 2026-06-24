@@ -3282,6 +3282,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleCopyCommand()
 	case "/retry":
 		return m.handleRetryCommand()
+	case "/undo":
+		return m.handleUndoCommand()
 	case "/edit":
 		return m.handleEditCommand(args)
 	case "/share":
@@ -3735,7 +3737,9 @@ func (m *AppModel) printHelpMessage() {
 			if i > 0 {
 				skillHelp.WriteString(", ")
 			}
-			skillHelp.WriteString("`" + si.Name + "`")
+			skillHelp.WriteString("`")
+			skillHelp.WriteString(si.Name)
+			skillHelp.WriteString("`")
 		}
 		skillHelp.WriteString("\n\n")
 		help += skillHelp.String()
@@ -4716,6 +4720,49 @@ func (m *AppModel) handleRetryCommand() tea.Cmd {
 	if m.state != stateWorking {
 		m.state = stateWorking
 	}
+	return nil
+}
+
+// handleUndoCommand removes the most recent user message on the current
+// branch along with any assistant/tool responses that followed it, then
+// restores the popped prompt text into the input textarea so the user can
+// edit and resubmit (or simply discard it).
+//
+// Unlike /retry, no resubmit is performed — this is a pure rollback of the
+// last turn. The orphaned entries remain in the session file under a
+// different leaf (so they are recoverable via /tree), but they are no
+// longer on the active branch and will not be re-sent to the LLM.
+func (m *AppModel) handleUndoCommand() tea.Cmd {
+	if m.appCtrl == nil {
+		m.printSystemMessage("App controller unavailable.")
+		return nil
+	}
+
+	prompt, files, err := m.appCtrl.PopLastUserMessage()
+	if err != nil {
+		m.printSystemMessage(fmt.Sprintf("Cannot undo: %v", err))
+		return nil
+	}
+
+	// Rebuild the visible ScrollList from the truncated branch so the
+	// popped user message and any assistant/tool rendering disappear.
+	m.messages = []MessageItem{}
+	m.renderSessionHistory()
+
+	// Restore the popped prompt text into the input so the user can edit
+	// and resubmit. Mirrors how /fork handles a user message. Image/file
+	// attachments cannot be re-inserted into the textarea, so we surface a
+	// note when any are dropped.
+	if ic, ok := m.input.(*InputComponent); ok {
+		ic.textarea.SetValue(prompt)
+		ic.textarea.CursorEnd()
+	}
+
+	msg := "Removed the last user message and any responses."
+	if len(files) > 0 {
+		msg = fmt.Sprintf("%s (%d attached file(s) were dropped — re-attach if needed)", msg, len(files))
+	}
+	m.printSystemMessage(msg)
 	return nil
 }
 
