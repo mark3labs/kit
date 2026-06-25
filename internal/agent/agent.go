@@ -252,6 +252,12 @@ type Agent struct {
 	// callers (e.g. Kit.applyComposedSystemPrompt invoked from multiple
 	// goroutines) don't race on a.systemPrompt / a.fantasyAgent.
 	promptMu sync.Mutex
+
+	// toolsMu guards extraTools so the live tool set can be re-read each
+	// step (via composeAllTools) from inside an in-flight Stream while a
+	// concurrent SetExtraTools mutates it. Without this, mid-turn AddTools/
+	// RemoveTools would race on the extraTools slice header.
+	toolsMu sync.RWMutex
 }
 
 // GenerateWithLoopResult contains the result and conversation history from an agent interaction.
@@ -430,17 +436,7 @@ func (a *Agent) ensureMCPTools() {
 // tool set (core + MCP + extension tools). Used after MCP tools arrive
 // asynchronously and by SetModel.
 func (a *Agent) rebuildFantasyAgent() {
-	allTools := make([]fantasy.AgentTool, len(a.coreTools))
-	copy(allTools, a.coreTools)
-	if a.toolManager != nil {
-		allTools = append(allTools, mcpToolsToAgentTools(a.toolManager.GetTools(), a.toolManager)...)
-	}
-	if len(a.extraTools) > 0 {
-		allTools = append(allTools, a.extraTools...)
-	}
-	if a.toolWrapper != nil {
-		allTools = a.toolWrapper(allTools)
-	}
+	allTools := a.composeAllTools()
 
 	providerResult := &models.ProviderResult{
 		Model:               a.model,
@@ -454,6 +450,29 @@ func (a *Agent) rebuildFantasyAgent() {
 	}, providerResult, allTools)
 
 	a.fantasyAgent = fantasy.NewAgent(a.model, agentOpts...)
+}
+
+// composeAllTools builds the full live tool set (core + MCP + extra tools)
+// with the tool wrapper applied, matching the tools baked into the fantasy
+// agent by rebuildFantasyAgent. It re-reads the current extraTools under
+// toolsMu so callers (notably the per-step PrepareStep callback) observe
+// runtime AddTools/RemoveTools changes mid-turn.
+func (a *Agent) composeAllTools() []fantasy.AgentTool {
+	a.toolsMu.RLock()
+	defer a.toolsMu.RUnlock()
+
+	allTools := make([]fantasy.AgentTool, len(a.coreTools))
+	copy(allTools, a.coreTools)
+	if a.toolManager != nil {
+		allTools = append(allTools, mcpToolsToAgentTools(a.toolManager.GetTools(), a.toolManager)...)
+	}
+	if len(a.extraTools) > 0 {
+		allTools = append(allTools, a.extraTools...)
+	}
+	if a.toolWrapper != nil {
+		allTools = a.toolWrapper(allTools)
+	}
+	return allTools
 }
 
 // buildAgentOptions constructs the fantasy.AgentOption slice from config,
@@ -825,60 +844,71 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 			},
 		}
 
-		// Always wire up PrepareStep to handle both steering and the
-		// OnPrepareStep hook. Steering drains its channel first, then
-		// OnPrepareStep hooks run against the (possibly already steered)
-		// messages.
+		// Always wire up PrepareStep. It serves three purposes:
+		//   1. Re-read the live tool set each step so runtime AddTools/
+		//      RemoveTools (and MCP server changes) take effect at the next
+		//      LLM step of the *current* turn, as documented. The entire
+		//      multi-step loop runs inside a single fantasy Stream call that
+		//      otherwise captures the tool snapshot taken when Stream began;
+		//      populating PrepareStepResult.Tools makes fantasy re-read tools
+		//      per step instead.
+		//   2. Steering: drain queued steer messages.
+		//   3. The OnPrepareStep hook.
+		// Steering drains its channel first, then OnPrepareStep hooks run
+		// against the (possibly already steered) messages.
 		steerCh := steerChFromContext(ctx)
 		onConsumed := steerConsumedFromContext(ctx)
 		hasSteering := steerCh != nil
 		hasPrepareStepHook := cb.OnPrepareStep != nil
 
-		if hasSteering || hasPrepareStepHook {
-			streamCall.PrepareStep = func(
-				stepCtx context.Context,
-				opts fantasy.PrepareStepFunctionOptions,
-			) (context.Context, fantasy.PrepareStepResult, error) {
-				result := fantasy.PrepareStepResult{
-					Model:    opts.Model,
-					Messages: opts.Messages,
-				}
-
-				// Phase 1: Drain steering channel (if present).
-				if hasSteering {
-					var steered []SteerMessage
-					for {
-						select {
-						case msg := <-steerCh:
-							steered = append(steered, msg)
-						default:
-							goto done
-						}
-					}
-				done:
-					if len(steered) > 0 {
-						for _, sm := range steered {
-							result.Messages = append(result.Messages,
-								fantasy.NewUserMessage(sm.Text, sm.Files...))
-						}
-						if onConsumed != nil {
-							onConsumed(len(steered))
-						}
-					}
-				}
-
-				// Phase 2: Run OnPrepareStep hook (if registered).
-				if hasPrepareStepHook {
-					if replacement := cb.OnPrepareStep(opts.StepNumber, result.Messages); replacement != nil {
-						result.Messages = replacement
-					}
-				}
-
-				// Apply message-level cache control for Anthropic models.
-				result.Messages = applyCacheControlToMessages(result.Messages)
-
-				return stepCtx, result, nil
+		streamCall.PrepareStep = func(
+			stepCtx context.Context,
+			opts fantasy.PrepareStepFunctionOptions,
+		) (context.Context, fantasy.PrepareStepResult, error) {
+			result := fantasy.PrepareStepResult{
+				Model:    opts.Model,
+				Messages: opts.Messages,
+				// Re-read the live tool set so mid-turn tool changes are
+				// honored. composeAllTools matches the composition baked
+				// into the fantasy agent, so in the steady state this is
+				// identical to the snapshot fantasy would have used.
+				Tools: a.composeAllTools(),
 			}
+
+			// Phase 1: Drain steering channel (if present).
+			if hasSteering {
+				var steered []SteerMessage
+				for {
+					select {
+					case msg := <-steerCh:
+						steered = append(steered, msg)
+					default:
+						goto done
+					}
+				}
+			done:
+				if len(steered) > 0 {
+					for _, sm := range steered {
+						result.Messages = append(result.Messages,
+							fantasy.NewUserMessage(sm.Text, sm.Files...))
+					}
+					if onConsumed != nil {
+						onConsumed(len(steered))
+					}
+				}
+			}
+
+			// Phase 2: Run OnPrepareStep hook (if registered).
+			if hasPrepareStepHook {
+				if replacement := cb.OnPrepareStep(opts.StepNumber, result.Messages); replacement != nil {
+					result.Messages = replacement
+				}
+			}
+
+			// Apply message-level cache control for Anthropic models.
+			result.Messages = applyCacheControlToMessages(result.Messages)
+
+			return stepCtx, result, nil
 		}
 
 		// Wire OnRetry callback if provided.
@@ -1076,6 +1106,8 @@ func extractMCPContentText(result string) string {
 // GetTools returns the list of available tools loaded in the agent,
 // including core tools, MCP tools, and extension-registered tools.
 func (a *Agent) GetTools() []fantasy.AgentTool {
+	a.toolsMu.RLock()
+	defer a.toolsMu.RUnlock()
 	allTools := make([]fantasy.AgentTool, len(a.coreTools))
 	copy(allTools, a.coreTools)
 	if a.toolManager != nil {
@@ -1102,6 +1134,8 @@ func (a *Agent) GetMCPToolCount() int {
 
 // GetExtensionToolCount returns the number of tools registered by extensions.
 func (a *Agent) GetExtensionToolCount() int {
+	a.toolsMu.RLock()
+	defer a.toolsMu.RUnlock()
 	return len(a.extraTools)
 }
 
@@ -1109,6 +1143,8 @@ func (a *Agent) GetExtensionToolCount() int {
 // extension-registered tools). The returned slice is a copy so callers can
 // snapshot and later restore it via SetExtraTools.
 func (a *Agent) GetExtraTools() []fantasy.AgentTool {
+	a.toolsMu.RLock()
+	defer a.toolsMu.RUnlock()
 	if len(a.extraTools) == 0 {
 		return nil
 	}
@@ -1121,7 +1157,9 @@ func (a *Agent) GetExtraTools() []fantasy.AgentTool {
 // tools) and rebuilds the internal agent with the updated tool list. The
 // model, system prompt, and all other configuration are preserved.
 func (a *Agent) SetExtraTools(extraTools []fantasy.AgentTool) {
+	a.toolsMu.Lock()
 	a.extraTools = extraTools
+	a.toolsMu.Unlock()
 	a.rebuildFantasyAgent()
 }
 

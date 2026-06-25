@@ -166,14 +166,16 @@ func (m *Kit) GetToolsForSubagent() []Tool {
 }
 
 // AddTools additively registers native Go tools on the live host. Added tools
-// persist for the session and become visible to the model on the next turn.
+// persist for the session and become visible to the model at the next LLM
+// step (see below).
 // If a provided tool shares a name with a tool that is already in the
 // extra-tool set, the new tool replaces the previous one (last-write-wins).
 // Core tools and MCP tools are not affected.
 //
 // AddTools is safe to call while the agent is idle. If a turn is in progress
 // ([Kit.IsGenerating] returns true), the change takes effect starting from the
-// next LLM step.
+// next LLM step of the current turn — a tool added from within a tool handler
+// is callable by the model on its next step without waiting for a new turn.
 func (m *Kit) AddTools(tools ...Tool) {
 	m.promptOptsMu.Lock()
 	defer m.promptOptsMu.Unlock()
