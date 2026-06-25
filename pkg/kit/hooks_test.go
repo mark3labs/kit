@@ -561,6 +561,7 @@ func TestPrepareStepHookRegistry(t *testing.T) {
 	result := hr.run(input)
 	if result == nil {
 		t.Fatal("expected non-nil result for step 0")
+		return
 	}
 	if len(result.Messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(result.Messages))

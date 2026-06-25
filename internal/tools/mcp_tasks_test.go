@@ -96,6 +96,7 @@ func TestConnectionPoolAdvertisesTaskCapability(t *testing.T) {
 	init := conn.InitializeResult()
 	if init == nil {
 		t.Fatal("InitializeResult is nil after GetConnection")
+		return
 	}
 	if init.Capabilities.Tasks == nil {
 		t.Fatal("server did not advertise Tasks capability — initialize handshake regressed")

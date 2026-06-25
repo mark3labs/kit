@@ -152,6 +152,7 @@ func TestLoadServerPrompts_Basic(t *testing.T) {
 	}
 	if reviewPR == nil {
 		t.Fatal("review-pr prompt not found")
+		return
 	}
 	if reviewPR.Description != "Review a pull request" {
 		t.Errorf("unexpected description: %q", reviewPR.Description)

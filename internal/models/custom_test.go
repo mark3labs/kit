@@ -22,6 +22,7 @@ func TestConvertGenerationParams(t *testing.T) {
 		p := convertGenerationParams(cfg)
 		if p == nil {
 			t.Fatal("expected non-nil")
+			return
 		}
 		if p.Temperature == nil || *p.Temperature != 0.7 {
 			t.Errorf("expected temperature 0.7, got %v", p.Temperature)
@@ -51,6 +52,7 @@ func TestConvertGenerationParams(t *testing.T) {
 		p := convertGenerationParams(cfg)
 		if p == nil {
 			t.Fatal("expected non-nil")
+			return
 		}
 		if p.MaxTokens == nil || *p.MaxTokens != 8192 {
 			t.Errorf("expected maxTokens 8192, got %v", p.MaxTokens)
@@ -83,6 +85,7 @@ func TestConvertGenerationParams(t *testing.T) {
 		p := convertGenerationParams(cfg)
 		if p == nil {
 			t.Fatal("expected non-nil")
+			return
 		}
 		if p.ThinkingLevel != ThinkingMedium {
 			t.Errorf("expected thinking level medium, got %v", p.ThinkingLevel)
@@ -93,6 +96,7 @@ func TestConvertGenerationParams(t *testing.T) {
 		p := convertGenerationParams(cfg)
 		if p == nil {
 			t.Fatal("expected non-nil")
+			return
 		}
 		if p.SystemPrompt != "You are helpful." {
 			t.Errorf("expected system prompt, got %q", p.SystemPrompt)
