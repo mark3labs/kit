@@ -55,7 +55,7 @@ host, err := kit.New(ctx, &kit.Options{
 
     // Tools
     Tools:            []kit.Tool{...},     // Replace default tool set entirely
-    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults
+    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)
     DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
     CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
 
