@@ -257,6 +257,7 @@ serialized so the apply/restore window of one call never races another.</p>
 </table>
 <p>Binary data (images, audio, etc.) in <code>ToolOutput.Data</code> is automatically forwarded to the LLM when <code>MediaType</code> is set. For advanced use, return a <code>kit.ToolOutput</code> struct directly with <code>Data</code>, <code>MediaType</code>, and <code>Metadata</code> fields.</p>
 <p>Use <code>kit.NewParallelTool</code> for tools that are safe to run concurrently. Use <code>kit.ToolCallIDFromContext(ctx)</code> to retrieve the LLM-assigned call ID for logging or tracing.</p>
+<p><code>Options.ExtraTools</code> fixes the native tool set at construction time. To add or remove native tools on a live host, see <a href="#runtime-native-tools">Runtime native tools</a>.</p>
 <h3 id="schema-driven-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#schema-driven-tools"><span class="icon icon-link"></span></a>Schema-driven tools</h3>
 <p>When the tool's input shape isn't known at compile time — tools sourced from
 JSON Schema definitions in skill files, MCP server catalogs, or user-supplied
@@ -370,6 +371,53 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or at runtime</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">n, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddInProcessMCPServer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"docs"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, mcpSrv)</span></span></code></pre>
+<h2 id="runtime-native-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#runtime-native-tools"><span class="icon icon-link"></span></a>Runtime native tools</h2>
+<p><code>Options.Tools</code> / <code>Options.ExtraTools</code> freeze the native Go tool set at
+construction time. For progressive disclosure (loading a domain's tools only
+when the model asks for them) or multi-tenant hosts that swap tool catalogs per
+request, mutate the native tool set on a live host — mirroring the runtime MCP
+and skill APIs. No host rebuild, so session history, MCP connections, and the
+system-prompt snapshot all survive.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">weatherTool </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewTool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"get_weather"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Get current weather for a city"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">input</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> WeatherInput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolOutput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TextResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"72°F, sunny in "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> input.City), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Add tools that persist for the session (visible on the next turn).</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddTools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(weatherTool)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Drop tools by name when a domain is no longer needed.</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveTools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"get_weather"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">); err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"remove tools: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%v</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Replace the entire native extra-tool set in one call.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetExtraTools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(activeToolsForUser</span><span style="color:#D73A49;--shiki-dark:#F97583">...</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inspect the current set (snapshot copy — safe to mutate).</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">extra </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetExtraTools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<p>Key points:</p>
+<ul>
+<li><strong>Scope is <code>extraTools</code> only.</strong> These methods manage the same slice as
+<code>Options.ExtraTools</code>. Core tools, MCP tools, and extension-registered tools are
+never touched, and <code>GetExtraTools</code> excludes extension tools.</li>
+<li><strong>Last-write-wins on name.</strong> <code>AddTools</code> replaces any existing extra tool that
+shares a <code>Info().Name</code>, then appends the rest. Duplicate names within a single
+call also resolve to the last one provided.</li>
+<li><strong><code>RemoveTools</code> is atomic.</strong> If any supplied name is not currently registered,
+it returns an error listing the missing names (deduped and sorted) and leaves
+the tool set unchanged.</li>
+<li><strong>Next-step visibility.</strong> Mutations apply from the next LLM step. If a turn is
+in progress, the running step finishes with its existing tool set.</li>
+<li><strong>Composes with per-call tools.</strong> <a href="#per-call-overrides"><code>PromptOptions.ExtraTools</code></a>
+still layers on top for a single call and is reverted afterwards, snapshotting
+around whatever persistent set is active.</li>
+<li><strong>Thread safety.</strong> All four methods are safe to call concurrently; the
+extra-tool state is guarded by an internal <code>RWMutex</code>.</li>
+<li><strong>Not session-persisted.</strong> Native tool <em>definitions</em> are not serialized into
+session state. Re-add them on session resume, just as with <code>Options.ExtraTools</code>.</li>
+</ul>
 <h2 id="runtime-skills-and-context-files"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#runtime-skills-and-context-files"><span class="icon icon-link"></span></a>Runtime skills and context files</h2>
 <p>Kit auto-discovers skills and <code>AGENTS.md</code>-style context files during <code>New()</code>,
 but multi-tenant hosts (chatbots, web services, per-user agents) often need
@@ -574,7 +622,7 @@ handle. When shutdown must be bounded by a deadline, use <code>CloseContext</cod
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">2</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime native tools",id:"runtime-native-tools"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -772,6 +820,8 @@ Binary data (images, audio, etc.) in \`ToolOutput.Data\` is automatically forwar
 
 Use \`kit.NewParallelTool\` for tools that are safe to run concurrently. Use \`kit.ToolCallIDFromContext(ctx)\` to retrieve the LLM-assigned call ID for logging or tracing.
 
+\`Options.ExtraTools\` fixes the native tool set at construction time. To add or remove native tools on a live host, see [Runtime native tools](#runtime-native-tools).
+
 ### Schema-driven tools
 
 When the tool's input shape isn't known at compile time — tools sourced from
@@ -922,6 +972,58 @@ host, _ := kit.New(ctx, &kit.Options{
 // Or at runtime
 n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
 \`\`\`
+
+## Runtime native tools
+
+\`Options.Tools\` / \`Options.ExtraTools\` freeze the native Go tool set at
+construction time. For progressive disclosure (loading a domain's tools only
+when the model asks for them) or multi-tenant hosts that swap tool catalogs per
+request, mutate the native tool set on a live host — mirroring the runtime MCP
+and skill APIs. No host rebuild, so session history, MCP connections, and the
+system-prompt snapshot all survive.
+
+\`\`\`go
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+// Add tools that persist for the session (visible on the next turn).
+host.AddTools(weatherTool)
+
+// Drop tools by name when a domain is no longer needed.
+if err := host.RemoveTools("get_weather"); err != nil {
+    log.Printf("remove tools: %v", err)
+}
+
+// Replace the entire native extra-tool set in one call.
+host.SetExtraTools(activeToolsForUser...)
+
+// Inspect the current set (snapshot copy — safe to mutate).
+extra := host.GetExtraTools()
+\`\`\`
+
+Key points:
+
+- **Scope is \`extraTools\` only.** These methods manage the same slice as
+  \`Options.ExtraTools\`. Core tools, MCP tools, and extension-registered tools are
+  never touched, and \`GetExtraTools\` excludes extension tools.
+- **Last-write-wins on name.** \`AddTools\` replaces any existing extra tool that
+  shares a \`Info().Name\`, then appends the rest. Duplicate names within a single
+  call also resolve to the last one provided.
+- **\`RemoveTools\` is atomic.** If any supplied name is not currently registered,
+  it returns an error listing the missing names (deduped and sorted) and leaves
+  the tool set unchanged.
+- **Next-step visibility.** Mutations apply from the next LLM step. If a turn is
+  in progress, the running step finishes with its existing tool set.
+- **Composes with per-call tools.** [\`PromptOptions.ExtraTools\`](#per-call-overrides)
+  still layers on top for a single call and is reverted afterwards, snapshotting
+  around whatever persistent set is active.
+- **Thread safety.** All four methods are safe to call concurrently; the
+  extra-tool state is guarded by an internal \`RWMutex\`.
+- **Not session-persisted.** Native tool *definitions* are not serialized into
+  session state. Re-add them on session resume, just as with \`Options.ExtraTools\`.
 
 ## Runtime skills and context files
 
