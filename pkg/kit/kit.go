@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -117,10 +118,11 @@ type Kit struct {
 	steerCh       chan agent.SteerMessage
 	leftoverSteer []agent.SteerMessage // unconsumed steer messages from the last turn
 
-	// promptOptsMu serializes per-call PromptOptions overrides that mutate
-	// shared agent state (model, thinking level, provider creds, extra tools)
-	// so the apply/restore window of one call never races another.
-	promptOptsMu sync.Mutex
+	// promptOptsMu protects shared agent state that can be mutated at runtime
+	// (model, thinking level, provider creds, extra tools). It serializes
+	// writers so the apply/restore window of one call never races another, while
+	// allowing concurrent readers of the extra-tool set.
+	promptOptsMu sync.RWMutex
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -155,6 +157,121 @@ func (m *Kit) GetToolsForSubagent() []Tool {
 		tools = append(tools, t)
 	}
 	return tools
+}
+
+// AddTools additively registers native Go tools on the live host. Added tools
+// persist for the session and become visible to the model on the next turn.
+// If a provided tool shares a name with a tool that is already in the
+// extra-tool set, the new tool replaces the previous one (last-write-wins).
+// Core tools and MCP tools are not affected.
+//
+// AddTools is safe to call while the agent is idle. If a turn is in progress
+// ([Kit.IsGenerating] returns true), the change takes effect starting from the
+// next LLM step.
+func (m *Kit) AddTools(tools ...Tool) {
+	m.promptOptsMu.Lock()
+	defer m.promptOptsMu.Unlock()
+
+	cur := m.agent.GetExtraTools()
+	if len(cur) == 0 && len(tools) == 0 {
+		return
+	}
+
+	replacements := make(map[string]Tool, len(tools))
+	for _, t := range tools {
+		replacements[t.Info().Name] = t
+	}
+
+	seen := make(map[string]struct{}, len(cur)+len(tools))
+	merged := make([]Tool, 0, len(cur)+len(tools))
+	for _, t := range cur {
+		if r, ok := replacements[t.Info().Name]; ok {
+			merged = append(merged, r)
+		} else {
+			merged = append(merged, t)
+		}
+		seen[t.Info().Name] = struct{}{}
+	}
+	for _, t := range tools {
+		if _, ok := seen[t.Info().Name]; !ok {
+			merged = append(merged, t)
+			seen[t.Info().Name] = struct{}{}
+		}
+	}
+
+	m.agent.SetExtraTools(merged)
+}
+
+// RemoveTools removes previously-added native Go tools by name. Core tools and
+// MCP tools are unaffected. If any of the supplied names is not currently in
+// the extra-tool set, an error is returned listing the missing names and no
+// tools are removed.
+//
+// RemoveTools is safe to call while the agent is idle. If a turn is in
+// progress, the tools are removed at the next LLM step.
+func (m *Kit) RemoveTools(names ...string) error {
+	m.promptOptsMu.Lock()
+	defer m.promptOptsMu.Unlock()
+
+	cur := m.agent.GetExtraTools()
+	if len(cur) == 0 {
+		if len(names) == 0 {
+			return nil
+		}
+		return fmt.Errorf("tool(s) not found: %s", strings.Join(names, ", "))
+	}
+
+	drop := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		drop[n] = struct{}{}
+	}
+
+	missing := make(map[string]struct{}, len(names))
+	for n := range drop {
+		missing[n] = struct{}{}
+	}
+
+	kept := make([]Tool, 0, len(cur))
+	for _, t := range cur {
+		if _, ok := drop[t.Info().Name]; ok {
+			delete(missing, t.Info().Name)
+			continue
+		}
+		kept = append(kept, t)
+	}
+
+	if len(missing) > 0 {
+		list := make([]string, 0, len(missing))
+		for n := range missing {
+			list = append(list, n)
+		}
+		sort.Strings(list)
+		return fmt.Errorf("tool(s) not found: %s", strings.Join(list, ", "))
+	}
+
+	m.agent.SetExtraTools(kept)
+	return nil
+}
+
+// SetExtraTools replaces the entire native extra-tool set in one call. Core
+// tools and MCP tools are unaffected. Pass an empty slice to clear all
+// extra tools.
+//
+// SetExtraTools is safe to call while the agent is idle. If a turn is in
+// progress, the change takes effect starting from the next LLM step.
+func (m *Kit) SetExtraTools(tools ...Tool) {
+	m.promptOptsMu.Lock()
+	defer m.promptOptsMu.Unlock()
+	m.agent.SetExtraTools(tools)
+}
+
+// GetExtraTools returns a snapshot of the currently registered native
+// extra tools. The returned slice is a copy; modifying it does not affect the
+// tools registered on the host.
+func (m *Kit) GetExtraTools() []Tool {
+	m.promptOptsMu.RLock()
+	defer m.promptOptsMu.RUnlock()
+	return m.agent.GetExtraTools()
 }
 
 // GetLoadingMessage returns the agent's startup info message (e.g. GPU
@@ -775,7 +892,9 @@ func (m *Kit) ReloadExtensions() error {
 	// Update extension tools on the agent so the LLM sees changes.
 	if m.agent != nil {
 		extTools := extensions.ExtensionToolsAsLLMTools(m.extRunner.RegisteredTools(), m.extRunner)
+		m.promptOptsMu.Lock()
 		m.agent.SetExtraTools(extTools)
+		m.promptOptsMu.Unlock()
 	}
 
 	// Re-set context and emit SessionStart.

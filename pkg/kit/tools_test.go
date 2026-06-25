@@ -2,6 +2,9 @@ package kit_test
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"sync"
 	"testing"
 
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -261,5 +264,143 @@ func TestNewParallelTool_BinaryImageResponse(t *testing.T) {
 	}
 	if resp.Type != "image" {
 		t.Errorf("ToolResponse.Type = %q, want %q", resp.Type, "image")
+	}
+}
+
+func makeTestTool(name string) kit.Tool {
+	return kit.NewTool(name, "test tool "+name,
+		func(ctx context.Context, input struct{}) (kit.ToolOutput, error) {
+			return kit.TextResult("ok"), nil
+		},
+	)
+}
+
+func sortedStrings(s []string) []string {
+	c := make([]string, len(s))
+	copy(c, s)
+	slices.Sort(c)
+	return c
+}
+
+// TestRuntimeToolMutation verifies that native Go tools can be added, removed,
+// replaced, and enumerated on a live Kit host.
+func TestRuntimeToolMutation(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	ctx := context.Background()
+
+	host, err := kit.New(ctx, &kit.Options{
+		Model:            "openai/gpt-4o-mini",
+		Quiet:            true,
+		NoSession:        true,
+		NoExtensions:     true,
+		DisableCoreTools: true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	if got := host.GetExtraTools(); len(got) != 0 {
+		t.Fatalf("expected no extra tools initially, got %d", len(got))
+	}
+	if got := host.GetToolNames(); len(got) != 0 {
+		t.Fatalf("expected no tools initially, got %d: %v", len(got), got)
+	}
+
+	// Add two tools.
+	host.AddTools(makeTestTool("alpha"), makeTestTool("beta"))
+	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"alpha", "beta"}) {
+		t.Errorf("after AddTools: expected [alpha beta], got %v", got)
+	}
+	if got := host.GetExtraTools(); len(got) != 2 {
+		t.Errorf("expected 2 extra tools, got %d", len(got))
+	}
+
+	// Adding a duplicate by name replaces it in place without growing the set.
+	host.AddTools(makeTestTool("alpha"))
+	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"alpha", "beta"}) {
+		t.Errorf("after duplicate AddTools: expected [alpha beta], got %v", got)
+	}
+	if got := host.GetExtraTools(); len(got) != 2 {
+		t.Errorf("expected 2 extra tools after duplicate add, got %d", len(got))
+	}
+
+	// Removing a missing name returns an error and leaves tools untouched.
+	if err := host.RemoveTools("missing"); err == nil {
+		t.Error("RemoveTools(missing) expected error, got nil")
+	}
+	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"alpha", "beta"}) {
+		t.Errorf("after failed RemoveTools: expected [alpha beta], got %v", got)
+	}
+
+	// Remove one tool.
+	if err := host.RemoveTools("alpha"); err != nil {
+		t.Errorf("RemoveTools(alpha) unexpected error: %v", err)
+	}
+	if got := host.GetToolNames(); !slices.Equal(got, []string{"beta"}) {
+		t.Errorf("after RemoveTools(alpha): expected [beta], got %v", got)
+	}
+
+	// Replace the whole extra-tool set.
+	host.SetExtraTools(makeTestTool("x"), makeTestTool("y"), makeTestTool("z"))
+	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"x", "y", "z"}) {
+		t.Errorf("after SetExtraTools: expected [x y z], got %v", got)
+	}
+
+	// Remove multiple tools, one missing should fail atomically.
+	if err := host.RemoveTools("x", "notfound"); err == nil {
+		t.Error("RemoveTools(x, notfound) expected error, got nil")
+	}
+	if got := sortedStrings(host.GetToolNames()); !slices.Equal(got, []string{"x", "y", "z"}) {
+		t.Errorf("after failed multi-RemoveTools: expected [x y z], got %v", got)
+	}
+
+	// Remove remaining tools.
+	if err := host.RemoveTools("x", "y", "z"); err != nil {
+		t.Errorf("RemoveTools(x, y, z) unexpected error: %v", err)
+	}
+	if got := host.GetToolNames(); len(got) != 0 {
+		t.Errorf("after removing all tools: expected none, got %v", got)
+	}
+}
+
+// TestRuntimeToolMutationConcurrent exercises the runtime tool mutators from
+// multiple goroutines to verify locking and snapshotting are race-free.
+func TestRuntimeToolMutationConcurrent(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	ctx := context.Background()
+
+	host, err := kit.New(ctx, &kit.Options{
+		Model:            "openai/gpt-4o-mini",
+		Quiet:            true,
+		NoSession:        true,
+		NoExtensions:     true,
+		DisableCoreTools: true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	const n = 20
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("tool-%d", i)
+			host.AddTools(makeTestTool(name))
+			_ = host.GetExtraTools()
+			if i%2 == 0 {
+				_ = host.RemoveTools(name)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Even-numbered tools were removed; odd ones remain.
+	got := host.GetToolNames()
+	if len(got) != n/2 {
+		t.Errorf("expected %d tools after concurrent mutation, got %d: %v", n/2, len(got), got)
 	}
 }
