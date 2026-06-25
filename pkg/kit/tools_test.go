@@ -294,6 +294,9 @@ func TestRuntimeToolMutation(t *testing.T) {
 		NoSession:        true,
 		NoExtensions:     true,
 		DisableCoreTools: true,
+		SkipConfig:       true,
+		NoSkills:         true,
+		NoContextFiles:   true,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create Kit: %v", err)
@@ -376,6 +379,9 @@ func TestRuntimeToolMutationConcurrent(t *testing.T) {
 		NoSession:        true,
 		NoExtensions:     true,
 		DisableCoreTools: true,
+		SkipConfig:       true,
+		NoSkills:         true,
+		NoContextFiles:   true,
 	})
 	if err != nil {
 		t.Fatalf("Failed to create Kit: %v", err)
@@ -398,9 +404,14 @@ func TestRuntimeToolMutationConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Even-numbered tools were removed; odd ones remain.
-	got := host.GetToolNames()
-	if len(got) != n/2 {
-		t.Errorf("expected %d tools after concurrent mutation, got %d: %v", n/2, len(got), got)
+	// Even-numbered tools were removed; only odd-numbered tools remain.
+	got := sortedStrings(host.GetToolNames())
+	want := make([]string, 0, n/2)
+	for i := 1; i < n; i += 2 {
+		want = append(want, fmt.Sprintf("tool-%d", i))
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("expected odd-numbered tools after concurrent mutation\n got: %v\nwant: %v", got, want)
 	}
 }

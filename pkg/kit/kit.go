@@ -123,6 +123,12 @@ type Kit struct {
 	// writers so the apply/restore window of one call never races another, while
 	// allowing concurrent readers of the extra-tool set.
 	promptOptsMu sync.RWMutex
+
+	// runtimeExtraTools holds native tools added via AddTools / SetExtraTools /
+	// RemoveTools and via Options.ExtraTools at construction. Extension tools
+	// are kept separately on the extension runner and recomposed with this
+	// slice when either side changes.
+	runtimeExtraTools []Tool
 }
 
 // Subscribe registers an EventListener that will be called for every lifecycle
@@ -172,7 +178,7 @@ func (m *Kit) AddTools(tools ...Tool) {
 	m.promptOptsMu.Lock()
 	defer m.promptOptsMu.Unlock()
 
-	cur := m.agent.GetExtraTools()
+	cur := m.runtimeExtraTools
 	if len(cur) == 0 && len(tools) == 0 {
 		return
 	}
@@ -194,12 +200,13 @@ func (m *Kit) AddTools(tools ...Tool) {
 	}
 	for _, t := range tools {
 		if _, ok := seen[t.Info().Name]; !ok {
-			merged = append(merged, t)
+			merged = append(merged, replacements[t.Info().Name])
 			seen[t.Info().Name] = struct{}{}
 		}
 	}
 
-	m.agent.SetExtraTools(merged)
+	m.runtimeExtraTools = merged
+	m.recomposeExtraTools()
 }
 
 // RemoveTools removes previously-added native Go tools by name. Core tools and
@@ -213,13 +220,7 @@ func (m *Kit) RemoveTools(names ...string) error {
 	m.promptOptsMu.Lock()
 	defer m.promptOptsMu.Unlock()
 
-	cur := m.agent.GetExtraTools()
-	if len(cur) == 0 {
-		if len(names) == 0 {
-			return nil
-		}
-		return fmt.Errorf("tool(s) not found: %s", strings.Join(names, ", "))
-	}
+	cur := m.runtimeExtraTools
 
 	drop := make(map[string]struct{}, len(names))
 	for _, n := range names {
@@ -249,7 +250,8 @@ func (m *Kit) RemoveTools(names ...string) error {
 		return fmt.Errorf("tool(s) not found: %s", strings.Join(list, ", "))
 	}
 
-	m.agent.SetExtraTools(kept)
+	m.runtimeExtraTools = kept
+	m.recomposeExtraTools()
 	return nil
 }
 
@@ -262,16 +264,38 @@ func (m *Kit) RemoveTools(names ...string) error {
 func (m *Kit) SetExtraTools(tools ...Tool) {
 	m.promptOptsMu.Lock()
 	defer m.promptOptsMu.Unlock()
-	m.agent.SetExtraTools(tools)
+	m.runtimeExtraTools = append([]Tool(nil), tools...)
+	m.recomposeExtraTools()
 }
 
-// GetExtraTools returns a snapshot of the currently registered native
-// extra tools. The returned slice is a copy; modifying it does not affect the
-// tools registered on the host.
+// GetExtraTools returns a snapshot of the native extra tools that were added
+// via AddTools / SetExtraTools / RemoveTools or Options.ExtraTools. Extension
+// tools are not included. The returned slice is a copy; modifying it does not
+// affect the tools registered on the host.
 func (m *Kit) GetExtraTools() []Tool {
 	m.promptOptsMu.RLock()
 	defer m.promptOptsMu.RUnlock()
-	return m.agent.GetExtraTools()
+	if len(m.runtimeExtraTools) == 0 {
+		return nil
+	}
+	out := make([]Tool, len(m.runtimeExtraTools))
+	copy(out, m.runtimeExtraTools)
+	return out
+}
+
+// recomposeExtraTools rebuilds the agent's extra-tool list from extension
+// tools plus runtime native tools. Callers must hold promptOptsMu.
+func (m *Kit) recomposeExtraTools() {
+	var combined []Tool
+	if m.extRunner != nil {
+		extTools := extensions.ExtensionToolsAsLLMTools(m.extRunner.RegisteredTools(), m.extRunner)
+		if len(extTools) > 0 {
+			combined = make([]Tool, 0, len(extTools)+len(m.runtimeExtraTools))
+			combined = append(combined, extTools...)
+		}
+	}
+	combined = append(combined, m.runtimeExtraTools...)
+	m.agent.SetExtraTools(combined)
 }
 
 // GetLoadingMessage returns the agent's startup info message (e.g. GPU
@@ -891,9 +915,8 @@ func (m *Kit) ReloadExtensions() error {
 
 	// Update extension tools on the agent so the LLM sees changes.
 	if m.agent != nil {
-		extTools := extensions.ExtensionToolsAsLLMTools(m.extRunner.RegisteredTools(), m.extRunner)
 		m.promptOptsMu.Lock()
-		m.agent.SetExtraTools(extTools)
+		m.recomposeExtraTools()
 		m.promptOptsMu.Unlock()
 	}
 
@@ -1810,7 +1833,12 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		contextPrepare:        contextPrepare,
 		beforeCompact:         beforeCompact,
 		prepareStep:           prepareStep,
+		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
+
+	// Ensure the agent's extra-tool list reflects the current extension tools
+	// plus the runtime native tools captured above.
+	k.recomposeExtraTools()
 
 	// Point the activate_skill provider closure at the live Kit instance so it
 	// resolves skills mutated after construction.

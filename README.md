@@ -929,7 +929,9 @@ multi-tenant hosts that need to swap tool catalogs without rebuilding the host.
 host.AddTools(crmTools...)
 
 // Drop a domain when it is no longer needed.
-host.RemoveTools("crm_search_contacts", "crm_create_deal")
+if err := host.RemoveTools("crm_search_contacts", "crm_create_deal"); err != nil {
+    log.Printf("remove tools: %v", err)
+}
 
 // Replace the entire extra-tool set wholesale.
 host.SetExtraTools(activeTools...)
