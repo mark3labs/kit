@@ -1155,11 +1155,17 @@ func (a *Agent) GetExtraTools() []fantasy.AgentTool {
 
 // SetExtraTools replaces the agent's extra tools (e.g. extension-registered
 // tools) and rebuilds the internal agent with the updated tool list. The
-// model, system prompt, and all other configuration are preserved.
+// model, system prompt, and all other configuration are preserved. The
+// incoming slice is cloned so later caller mutations cannot bypass toolsMu
+// and race composeAllTools. The rebuild is serialized under promptMu so it
+// can't race other fantasyAgent rebuilds (SetSystemPrompt, SetModel, MCP).
 func (a *Agent) SetExtraTools(extraTools []fantasy.AgentTool) {
 	a.toolsMu.Lock()
-	a.extraTools = extraTools
+	a.extraTools = append([]fantasy.AgentTool(nil), extraTools...)
 	a.toolsMu.Unlock()
+
+	a.promptMu.Lock()
+	defer a.promptMu.Unlock()
 	a.rebuildFantasyAgent()
 }
 
