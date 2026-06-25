@@ -917,6 +917,34 @@ mutators and readers (`GetSkills`, `GetContextFiles`) are safe to call
 concurrently from multiple goroutines. See the [SDK overview docs](/sdk/overview#runtime-skills-and-context-files)
 for the full reference.
 
+### Runtime Native Tools
+
+Native Go tools can also be added and removed on a live host, mirroring the
+runtime MCP-server and skill APIs. This is useful for progressive disclosure
+(dynamically loading a domain toolset only when the model asks for it) and for
+multi-tenant hosts that need to swap tool catalogs without rebuilding the host.
+
+```go
+// Add tools that persist for the session.
+host.AddTools(crmTools...)
+
+// Drop a domain when it is no longer needed.
+if err := host.RemoveTools("crm_search_contacts", "crm_create_deal"); err != nil {
+    log.Printf("remove tools: %v", err)
+}
+
+// Replace the entire extra-tool set wholesale.
+host.SetExtraTools(activeTools...)
+
+// Read back the currently registered extra tools.
+extra := host.GetExtraTools()
+```
+
+`AddTools` replaces existing extra tools by name (last-write-wins) and appends
+new ones. `RemoveTools` is atomic: if any supplied name is not currently
+registered, it returns an error and leaves the tool set unchanged. Core tools
+and MCP tools are unaffected. Mutations take effect on the next LLM step.
+
 ## Advanced Usage
 
 ### Subagent Pattern

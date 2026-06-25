@@ -200,6 +200,8 @@ Binary data (images, audio, etc.) in `ToolOutput.Data` is automatically forwarde
 
 Use `kit.NewParallelTool` for tools that are safe to run concurrently. Use `kit.ToolCallIDFromContext(ctx)` to retrieve the LLM-assigned call ID for logging or tracing.
 
+`Options.ExtraTools` fixes the native tool set at construction time. To add or remove native tools on a live host, see [Runtime native tools](#runtime-native-tools).
+
 ### Schema-driven tools
 
 When the tool's input shape isn't known at compile time — tools sourced from
@@ -350,6 +352,58 @@ host, _ := kit.New(ctx, &kit.Options{
 // Or at runtime
 n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
 ```
+
+## Runtime native tools
+
+`Options.Tools` / `Options.ExtraTools` freeze the native Go tool set at
+construction time. For progressive disclosure (loading a domain's tools only
+when the model asks for them) or multi-tenant hosts that swap tool catalogs per
+request, mutate the native tool set on a live host — mirroring the runtime MCP
+and skill APIs. No host rebuild, so session history, MCP connections, and the
+system-prompt snapshot all survive.
+
+```go
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+// Add tools that persist for the session (visible on the next turn).
+host.AddTools(weatherTool)
+
+// Drop tools by name when a domain is no longer needed.
+if err := host.RemoveTools("get_weather"); err != nil {
+    log.Printf("remove tools: %v", err)
+}
+
+// Replace the entire native extra-tool set in one call.
+host.SetExtraTools(activeToolsForUser...)
+
+// Inspect the current set (snapshot copy — safe to mutate).
+extra := host.GetExtraTools()
+```
+
+Key points:
+
+- **Scope is `extraTools` only.** These methods manage the same slice as
+  `Options.ExtraTools`. Core tools, MCP tools, and extension-registered tools are
+  never touched, and `GetExtraTools` excludes extension tools.
+- **Last-write-wins on name.** `AddTools` replaces any existing extra tool that
+  shares a `Info().Name`, then appends the rest. Duplicate names within a single
+  call also resolve to the last one provided.
+- **`RemoveTools` is atomic.** If any supplied name is not currently registered,
+  it returns an error listing the missing names (deduped and sorted) and leaves
+  the tool set unchanged.
+- **Next-step visibility.** Mutations apply from the next LLM step. If a turn is
+  in progress, the running step finishes with its existing tool set.
+- **Composes with per-call tools.** [`PromptOptions.ExtraTools`](#per-call-overrides)
+  still layers on top for a single call and is reverted afterwards, snapshotting
+  around whatever persistent set is active.
+- **Thread safety.** All four methods are safe to call concurrently; the
+  extra-tool state is guarded by an internal `RWMutex`.
+- **Not session-persisted.** Native tool *definitions* are not serialized into
+  session state. Re-add them on session resume, just as with `Options.ExtraTools`.
 
 ## Runtime skills and context files
 
