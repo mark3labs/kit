@@ -42,23 +42,38 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to immutable commit SHAs (comments preserve the
+      # human-readable version) so an upstream retag can't alter this
+      # package-publishing pipeline.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Resolve kit version
         id: kitver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          INPUT_KIT_VERSION: ${{ inputs.kit_version || '' }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "version=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.kit_version }}" ]; then
-            echo "version=${{ inputs.kit_version }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "release" ]; then
+            version="$RELEASE_TAG"
+          elif [ -n "$INPUT_KIT_VERSION" ]; then
+            version="$INPUT_KIT_VERSION"
           else
-            echo "version=latest" >> "$GITHUB_OUTPUT"
+            version="latest"
           fi
+          # Reject anything that could smuggle shell/newlines into later steps.
+          case "$version" in
+            *$'\n'*|*$'\r'*|*' '*|*';'*|*'&'*|*'|'*|*'$'*|*'`'*)
+              echo "invalid kit version: $version" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -66,18 +81,20 @@ jobs:
 
       - name: Docker metadata (tags + labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # prefix=v keeps release image tags as vX.Y.Z / vX.Y; without it
+          # docker/metadata-action strips the leading v (v1.2.3 -> 1.2.3).
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=sha,format=short
-            type=semver,pattern={{version}},event=release
-            type=semver,pattern={{major}}.{{minor}},event=release
+            type=semver,pattern={{version}},prefix=v,event=release
+            type=semver,pattern={{major}}.{{minor}},prefix=v,event=release
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/sandbox/Dockerfile
