@@ -831,10 +831,20 @@ func runNormalMode(ctx context.Context) error {
 
 	// Build Kit options from CLI flags and create the SDK instance.
 	// kit.New() handles: config → skills → agent → session → extension bridge.
-	authHandler, authErr := kit.NewCLIMCPAuthHandler()
+	// Note: NewCLIMCPAuthHandler binds a TCP listener on localhost. In sandbox
+	// VMs where `localhost` is not in /etc/hosts this can fail. We treat that
+	// as non-fatal (OAuth simply isn't available for remote MCP servers) and
+	// must funnel the failure through a true nil interface — assigning a typed
+	// nil *CLIMCPAuthHandler into Options.MCPAuthHandler (an interface) would
+	// produce a non-nil interface wrapping a nil pointer, which panics on the
+	// first method dispatch downstream.
+	var authHandler kit.MCPAuthHandler
+	cliAuthHandler, authErr := kit.NewCLIMCPAuthHandler()
 	if authErr != nil {
-		// Non-fatal: OAuth just won't be available for remote MCP servers.
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create OAuth handler: %v\n", authErr)
+		cliAuthHandler = nil
+	} else {
+		authHandler = cliAuthHandler
 	}
 
 	coreToolList, err := kit.CoreToolFilterHelper(viper.GetViper())
@@ -957,8 +967,8 @@ func runNormalMode(ctx context.Context) error {
 	defer appInstance.Close()
 
 	// Wire OAuth handler to route messages through the TUI once it's running.
-	if authHandler != nil {
-		authHandler.NotifyFunc = func(serverName, message string) {
+	if cliAuthHandler != nil {
+		cliAuthHandler.NotifyFunc = func(serverName, message string) {
 			appInstance.PrintFromExtension("info", message)
 		}
 	}
