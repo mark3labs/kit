@@ -55,7 +55,9 @@ Tags published: `latest` (default branch), `sha-<short>`, branch name, and
 ## Register it as a workdir custom image
 
 Once published, register the OCI image with workdir
-([API reference](https://github.com/mv37-org/workdir/blob/main/docs/API.md#images-spec-10-11)):
+([API reference](https://github.com/mv37-org/workdir/blob/main/docs/API.md#images-spec-10-11)).
+Pin an **immutable** tag (a release `vX.Y.Z` or a `sha-<short>` tag) rather than
+`latest`, so the workdir image definition is reproducible:
 
 ```bash
 curl -fsSL -X POST https://api.workdir.dev/v1/images \
@@ -63,7 +65,7 @@ curl -fsSL -X POST https://api.workdir.dev/v1/images \
   -H "Content-Type: application/json" \
   -d '{
     "source": { "type": "oci",
-                "image_ref": "ghcr.io/mark3labs/kit-sandbox:latest" },
+                "image_ref": "ghcr.io/mark3labs/kit-sandbox:v0.82.1" },
     "name": "custom/mark3labs/kit-sandbox",
     "resources_hint": { "cpu": 2, "memory_mb": 4096, "disk_gb": 16 }
   }'
