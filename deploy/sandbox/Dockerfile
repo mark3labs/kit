@@ -53,11 +53,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Go toolchain -> /usr/local/go, on PATH for all later layers and at runtime.
+# Symlink the binaries into /usr/local/bin too: workdir's guest agent runs
+# `exec` commands with a fixed PATH and does NOT honour this image's `ENV PATH`,
+# so `go` must live on the default PATH (/usr/local/bin) to be runnable there.
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
       -o /tmp/go.tgz \
     && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tgz \
-    && rm /tmp/go.tgz
+    && rm /tmp/go.tgz \
+    && ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/root/go/bin:$PATH
 ENV GOPATH=/root/go
 ENV GOTOOLCHAIN=auto
@@ -94,10 +99,10 @@ RUN curl -fsSL "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux
     && install -m755 /tmp/tea /usr/local/bin/tea \
     && rm -f /tmp/tea
 
-# Kit's OAuth callback listener binds localhost; without this entry it fails to
-# create the listener and nil-panics on cleanup. Bake it in so the runtime
-# doesn't have to patch /etc/hosts on every boot.
-RUN grep -q localhost /etc/hosts || echo '127.0.0.1 localhost' >> /etc/hosts
+# NOTE: the `127.0.0.1 localhost` /etc/hosts entry Kit's OAuth listener needs
+# CANNOT be baked here — Docker bind-mounts /etc/hosts during build, so a
+# `RUN echo >> /etc/hosts` never persists into the exported rootfs. The consumer
+# (workdir runtime) must add it at sandbox-create time.
 
 # Default workspace the agent clones into.
 RUN mkdir -p /workspace
