@@ -1,0 +1,92 @@
+name: Sandbox Image
+
+# Build the official Kit sandbox image and publish it to GHCR. The image is a
+# ready-to-run Linux userland (Go + kit + gh/glab/tea + git/ssh) intended to be
+# registered as a workdir.dev custom image:
+#
+#   POST /v1/images
+#   { "source": { "type": "oci",
+#                 "image_ref": "ghcr.io/mark3labs/kit-sandbox:latest" },
+#     "name": "custom/mark3labs/kit-sandbox" }
+#
+# Then create sandboxes with { "image": "custom/mark3labs/kit-sandbox", ... }.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "deploy/sandbox/**"
+      - ".github/workflows/sandbox-image.yml"
+  # Rebuild on every release so the image tracks the latest kit binary.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      kit_version:
+        description: "kit version to install (go install ...@VERSION)"
+        required: false
+        default: "latest"
+
+concurrency:
+  group: sandbox-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-sandbox # ghcr.io/mark3labs/kit-sandbox
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve kit version
+        id: kitver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.kit_version }}" ]; then
+            echo "version=${{ inputs.kit_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}},event=release
+            type=semver,pattern={{major}}.{{minor}},event=release
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/sandbox/Dockerfile
+          # workdir runs x86_64 Firecracker microVMs.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            KIT_VERSION=${{ steps.kitver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
