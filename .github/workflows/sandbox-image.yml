@@ -1,0 +1,109 @@
+name: Sandbox Image
+
+# Build the official Kit sandbox image and publish it to GHCR. The image is a
+# ready-to-run Linux userland (Go + kit + gh/glab/tea + git/ssh) intended to be
+# registered as a workdir.dev custom image:
+#
+#   POST /v1/images
+#   { "source": { "type": "oci",
+#                 "image_ref": "ghcr.io/mark3labs/kit-sandbox:latest" },
+#     "name": "custom/mark3labs/kit-sandbox" }
+#
+# Then create sandboxes with { "image": "custom/mark3labs/kit-sandbox", ... }.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "deploy/sandbox/**"
+      - ".github/workflows/sandbox-image.yml"
+  # Rebuild on every release so the image tracks the latest kit binary.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      kit_version:
+        description: "kit version to install (go install ...@VERSION)"
+        required: false
+        default: "latest"
+
+concurrency:
+  group: sandbox-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-sandbox # ghcr.io/mark3labs/kit-sandbox
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Actions are pinned to immutable commit SHAs (comments preserve the
+      # human-readable version) so an upstream retag can't alter this
+      # package-publishing pipeline.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve kit version
+        id: kitver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          INPUT_KIT_VERSION: ${{ inputs.kit_version || '' }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            version="$RELEASE_TAG"
+          elif [ -n "$INPUT_KIT_VERSION" ]; then
+            version="$INPUT_KIT_VERSION"
+          else
+            version="latest"
+          fi
+          # Reject anything that could smuggle shell/newlines into later steps.
+          case "$version" in
+            *$'\n'*|*$'\r'*|*' '*|*';'*|*'&'*|*'|'*|*'$'*|*'`'*)
+              echo "invalid kit version: $version" >&2; exit 1 ;;
+          esac
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # prefix=v keeps release image tags as vX.Y.Z / vX.Y; without it
+          # docker/metadata-action strips the leading v (v1.2.3 -> 1.2.3).
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}},prefix=v,event=release
+            type=semver,pattern={{major}}.{{minor}},prefix=v,event=release
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: deploy/sandbox/Dockerfile
+          # workdir runs x86_64 Firecracker microVMs.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            KIT_VERSION=${{ steps.kitver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
