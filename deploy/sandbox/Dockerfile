@@ -9,6 +9,7 @@
 #
 #   * Go (compiler + toolchain) and the Kit CLI (`kit`)
 #   * The three git-forge CLIs: gh (GitHub), glab (GitLab), tea (Gitea)
+#   * uv (Python package manager) and bun (JS runtime + package manager)
 #   * git + openssh-client for SSH-based clones
 #   * the `127.0.0.1 localhost` /etc/hosts entry Kit's OAuth listener needs
 #
@@ -40,6 +41,10 @@ ARG GLAB_VERSION=1.105.0
 ARG GLAB_SHA256=d8c92c640d7adf84c9dd01d1621fca45471fb61454f025c2fa3046dfc52d0d2f
 ARG TEA_VERSION=0.14.1
 ARG TEA_SHA256=3cf7c5d1c20808c9ba2efb9ac125cee10d969daf398e653ea2b33cde201ea317
+ARG UV_VERSION=0.11.25
+ARG UV_SHA256=1db18b5e76fa645a7f3865773139bdec8e2d46adbdbb35e7410b34fa8015ccd2
+ARG BUN_VERSION=1.3.14
+ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
 
 # amd64 only (checksums above are amd64; FROM pins the platform).
 ARG TARGETARCH=amd64
@@ -94,6 +99,25 @@ RUN curl -fsSL "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux
     && install -m755 /tmp/tea /usr/local/bin/tea \
     && rm -f /tmp/tea
 
+# uv — Astral's fast Python package/installer manager (single static binary).
+RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+      -o /tmp/uv.tgz \
+    && echo "${UV_SHA256}  /tmp/uv.tgz" | sha256sum -c - \
+    && mkdir -p /tmp/uv \
+    && tar -C /tmp/uv -xzf /tmp/uv.tgz \
+    && install -m755 /tmp/uv/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv \
+    && install -m755 /tmp/uv/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/uvx \
+    && rm -rf /tmp/uv.tgz /tmp/uv
+
+# bun — fast JavaScript runtime & package manager (single static binary).
+RUN curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" \
+      -o /tmp/bun.zip \
+    && echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - \
+    && unzip -q /tmp/bun.zip -d /tmp/bun \
+    && install -m755 /tmp/bun/bun-linux-x64/bun /usr/local/bin/bun \
+    && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
+    && rm -rf /tmp/bun.zip /tmp/bun
+
 # Kit's OAuth callback listener binds localhost; without this entry it fails to
 # create the listener and nil-panics on cleanup. Bake it in so the runtime
 # doesn't have to patch /etc/hosts on every boot.
@@ -110,6 +134,8 @@ RUN set -e; \
     kit --version; \
     gh --version; \
     glab --version; \
-    tea --version
+    tea --version; \
+    uv --version; \
+    bun --version
 
 CMD ["/bin/bash"]
