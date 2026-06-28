@@ -662,3 +662,54 @@ exclude-core-tools:
 		}
 	})
 }
+
+func TestGetToolsForSubagent(t *testing.T) {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
+	}
+	defer resetViper()
+
+	ctx := context.Background()
+	type HelloInput struct {
+		Query string `json:"query,omitempty" description:"Hello request"`
+	}
+	helloTool := kit.NewTool("hello", "Say \"Hello!\"",
+		func(ctx context.Context, input HelloInput) (kit.ToolOutput, error) {
+			return kit.TextResult("Hello!"), nil
+		},
+	)
+
+	host, err := kit.New(ctx, &kit.Options{
+		Model:        "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:        true,
+		NoSession:    true,
+		NoExtensions: true,
+		CoreToolList: []string{"subagent", "bash"},
+		ExtraTools:   []kit.Tool{helloTool},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+	toolsForSubagent := host.GetToolsForSubagent()
+	if len(toolsForSubagent) != 2 {
+		t.Fatalf("`GetToolsForSubagent()` should return 2 tools but has: %d", len(toolsForSubagent))
+	}
+	hasTool := func(name string) bool {
+		for _, tool := range toolsForSubagent {
+			if tool.Info().Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if hasTool("subagent") {
+		t.Errorf("`GetToolsForSubagent()` unexpectedly includes the `subagent` tool")
+	}
+	if !hasTool("hello") {
+		t.Errorf("`GetToolsForSubagent()` is missing the `hello` tool")
+	}
+	if !hasTool("bash") {
+		t.Errorf("`GetToolsForSubagent()` is missing the `bash` tool")
+	}
+}
