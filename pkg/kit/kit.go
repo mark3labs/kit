@@ -320,6 +320,13 @@ func (m *Kit) GetMCPToolCount() int {
 	return m.agent.GetMCPToolCount()
 }
 
+// GetMCPToolNames returns the prefixed names (serverName__toolName) of all
+// tools currently loaded from external MCP servers. Returns nil when no MCP
+// servers are configured or none have finished loading yet.
+func (m *Kit) GetMCPToolNames() []string {
+	return m.agent.GetMCPToolNames()
+}
+
 // WaitForMCPTools blocks until background MCP tool loading completes.
 // Returns nil if no MCP servers are configured or if loading succeeded.
 // Returns the loading error if all servers failed. Safe to call multiple times.
@@ -2238,6 +2245,26 @@ func inheritProviderConfig(child *Options, v *viper.Viper) {
 	}
 }
 
+// toolsIncludeMCP reports whether the provided tool set already contains any
+// of the parent's loaded MCP tools (matched by prefixed name). Used to decide
+// whether a spawned subagent needs to re-load MCP servers or can rely on the
+// inherited tools. Returns false when there are no MCP tool names to match.
+func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
+	if len(mcpNames) == 0 || len(tools) == 0 {
+		return false
+	}
+	mcpSet := make(map[string]struct{}, len(mcpNames))
+	for _, n := range mcpNames {
+		mcpSet[n] = struct{}{}
+	}
+	for _, t := range tools {
+		if _, ok := mcpSet[t.Info().Name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Subagent spawns an in-process child Kit instance to perform a task. The
 // child gets its own session, event bus, and agent loop but shares the
 // parent's config (API keys, provider settings) and defaults to the parent's
@@ -2306,6 +2333,31 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		tools = SubagentTools()
 	}
 
+	// Decide whether the child should re-load MCP servers. When the caller
+	// passes an explicit tool set that ALREADY contains the parent's loaded
+	// MCP tools (the internal agent-loop spawner does this via
+	// GetToolsForSubagent), re-loading MCP would spin up a second set of MCP
+	// server connections in the child. The inherited MCP AgentTools are
+	// closures bound to the PARENT's live tool manager, so the child can call
+	// them directly through the parent's existing connections — no re-load
+	// needed. Detect that case and suppress the child's MCP loading.
+	//
+	// Note: we must pass a non-nil config with no MCPServers rather than nil.
+	// A nil MCPConfig makes New() fall back to loading .kit.yml from disk,
+	// which would re-spawn exactly the servers we are trying to avoid. An
+	// explicit empty config takes the "pre-loaded" branch in New() and loads
+	// zero servers.
+	childMCPConfig := m.mcpConfig
+	if cfg.Tools != nil && toolsIncludeMCP(tools, m.GetMCPToolNames()) {
+		if m.mcpConfig != nil {
+			cp := *m.mcpConfig
+			cp.MCPServers = nil
+			childMCPConfig = &cp
+		} else {
+			childMCPConfig = &config.Config{}
+		}
+	}
+
 	// Create child Kit instance. Pass the parent's loaded MCP config to
 	// avoid re-loading and re-validating config for the child.
 	// Streaming is enabled explicitly — without it, non-streaming can hit
@@ -2320,7 +2372,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		NoSession:    cfg.NoSession,
 		Quiet:        true,
 		Streaming:    &streamOn,
-		MCPConfig:    m.mcpConfig,
+		MCPConfig:    childMCPConfig,
 	}
 
 	// Inherit the parent's effective provider/runtime configuration. Since #40

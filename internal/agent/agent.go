@@ -472,7 +472,30 @@ func (a *Agent) composeAllTools() []fantasy.AgentTool {
 	if a.toolWrapper != nil {
 		allTools = a.toolWrapper(allTools)
 	}
-	return allTools
+	// Dedupe by tool name. The same tool can arrive from multiple sources —
+	// most notably when a subagent inherits the parent's active tools (which
+	// already include prefixed MCP tools) AND also inherits the parent's
+	// MCPConfig, causing the child to re-load the same MCP servers. Without
+	// this guard the LLM request carries duplicate tool names and providers
+	// like Anthropic reject the turn ("every tool name must be unique").
+	return dedupeToolsByName(allTools)
+}
+
+// dedupeToolsByName returns tools with duplicate names removed, preserving the
+// first occurrence of each name (core/inherited tools take precedence over
+// later, freshly-loaded duplicates). Order is otherwise preserved.
+func dedupeToolsByName(tools []fantasy.AgentTool) []fantasy.AgentTool {
+	seen := make(map[string]struct{}, len(tools))
+	out := tools[:0:0]
+	for _, t := range tools {
+		name := t.Info().Name
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, t)
+	}
+	return out
 }
 
 // buildAgentOptions constructs the fantasy.AgentOption slice from config,
@@ -1116,7 +1139,7 @@ func (a *Agent) GetTools() []fantasy.AgentTool {
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
 	}
-	return allTools
+	return dedupeToolsByName(allTools)
 }
 
 // GetCoreToolCount returns the number of core tools.
@@ -1130,6 +1153,24 @@ func (a *Agent) GetMCPToolCount() int {
 		return 0
 	}
 	return len(a.toolManager.GetTools())
+}
+
+// GetMCPToolNames returns the prefixed names (serverName__toolName) of all
+// tools currently loaded from external MCP servers. Returns nil when no MCP
+// tool manager is configured or no tools have loaded yet.
+func (a *Agent) GetMCPToolNames() []string {
+	if a.toolManager == nil {
+		return nil
+	}
+	mcpTools := a.toolManager.GetTools()
+	if len(mcpTools) == 0 {
+		return nil
+	}
+	names := make([]string, len(mcpTools))
+	for i, t := range mcpTools {
+		names[i] = t.Name
+	}
+	return names
 }
 
 // GetExtensionToolCount returns the number of tools registered by extensions.
