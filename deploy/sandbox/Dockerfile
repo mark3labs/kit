@@ -10,6 +10,7 @@
 #   * Go (compiler + toolchain) and the Kit CLI (`kit`)
 #   * The three git-forge CLIs: gh (GitHub), glab (GitLab), tea (Gitea)
 #   * uv (Python package manager) and bun (JS runtime + package manager)
+#   * nix (single-user, flakes enabled) + direnv for flake/.envrc dev shells
 #   * git + openssh-client for SSH-based clones
 #   * the `127.0.0.1 localhost` /etc/hosts entry Kit's OAuth listener needs
 #
@@ -45,6 +46,11 @@ ARG UV_VERSION=0.11.25
 ARG UV_SHA256=1db18b5e76fa645a7f3865773139bdec8e2d46adbdbb35e7410b34fa8015ccd2
 ARG BUN_VERSION=1.3.14
 ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
+ARG DIRENV_VERSION=2.37.1
+ARG DIRENV_SHA256=1f1b93dd6f38523fde26dfac96151ef9d31a374e3005cd3345fb93555ae0c9b5
+# Nix release tarball checksum: releases.nixos.org/nix/nix-<v>/...-x86_64-linux.tar.xz.sha256
+ARG NIX_VERSION=2.31.2
+ARG NIX_SHA256=d1f67c86eed016214864ba08bfb9529c307aea7e8fafb74853f96fcc3bfd8a60
 
 # amd64 only (checksums above are amd64; FROM pins the platform).
 ARG TARGETARCH=amd64
@@ -118,6 +124,40 @@ RUN curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERS
     && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
     && rm -rf /tmp/bun.zip /tmp/bun
 
+# direnv — per-directory environment loader (single static binary). Whitelist
+# /workspace so the agent's .envrc files load without a manual `direnv allow`.
+RUN curl -fsSL "https://github.com/direnv/direnv/releases/download/v${DIRENV_VERSION}/direnv.linux-${TARGETARCH}" \
+      -o /tmp/direnv \
+    && echo "${DIRENV_SHA256}  /tmp/direnv" | sha256sum -c - \
+    && install -m755 /tmp/direnv /usr/local/bin/direnv \
+    && rm -f /tmp/direnv \
+    && mkdir -p /root/.config/direnv \
+    && printf '[whitelist]\nprefix = ["/workspace"]\n' > /root/.config/direnv/direnv.toml
+
+# Nix — single-user install (no daemon: the workdir microVM has no systemd to
+# supervise nix-daemon, and the agent runs as root, so a single-user store under
+# /nix needs no background process). The installer's bundled config defaults
+# build-users-group to the (nonexistent) `nixbld` group, which aborts a
+# single-user install; NIX_CONFIG clears it (and enables flakes) for the
+# install-time nix-env calls. We then persist the runtime config to
+# /etc/nix/nix.conf so flakes + the new `nix` CLI are on for every invocation.
+RUN curl -fsSL "https://releases.nixos.org/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz" \
+      -o /tmp/nix.tar.xz \
+    && echo "${NIX_SHA256}  /tmp/nix.tar.xz" | sha256sum -c - \
+    && mkdir -p /tmp/nixinstall \
+    && tar -xJf /tmp/nix.tar.xz -C /tmp/nixinstall --strip-components=1 \
+    && NIX_CONFIG="$(printf 'build-users-group =\nexperimental-features = nix-command flakes')" \
+         /tmp/nixinstall/install --no-daemon --no-channel-add --yes \
+    && mkdir -p /etc/nix \
+    && printf 'experimental-features = nix-command flakes\nbuild-users-group =\n' > /etc/nix/nix.conf \
+    && rm -rf /tmp/nixinstall /tmp/nix.tar.xz
+
+# Put the single-user nix profile on PATH and point nix at the system CA bundle.
+# Kit's bash tool runs non-login `bash -c`, so nix's profile script (sourced from
+# ~/.bash_profile) never runs — these ENVs replace what it would have exported.
+ENV PATH=/root/.nix-profile/bin:$PATH
+ENV NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 # Kit's OAuth callback listener binds localhost; without this entry it fails to
 # create the listener and nil-panics on cleanup. Bake it in so the runtime
 # doesn't have to patch /etc/hosts on every boot.
@@ -136,6 +176,8 @@ RUN set -e; \
     glab --version; \
     tea --version; \
     uv --version; \
-    bun --version
+    bun --version; \
+    direnv version; \
+    nix --version
 
 CMD ["/bin/bash"]

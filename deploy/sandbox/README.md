@@ -17,6 +17,8 @@ Based on `ubuntu:24.04`, mirroring workdir's curated base apt layer, plus:
 | **gh** | GitHub CLI — open PRs, manage repos |
 | **glab** | GitLab CLI — open MRs |
 | **tea** | Gitea CLI |
+| **nix** | single-user install, flakes + new `nix` CLI enabled (for `nix develop` dev shells) |
+| **direnv** | per-directory env loader; `/workspace` is whitelisted so `.envrc` loads without `direnv allow` |
 | **git**, **openssh-client** | SSH-based clones |
 | python3, node/npm, build-essential, jq, curl, … | general dev userland |
 
@@ -38,7 +40,7 @@ docker buildx build --platform linux/amd64 \
 ```
 
 Override pinned versions with `--build-arg` (`GO_VERSION`, `KIT_VERSION`,
-`GH_VERSION`, `GLAB_VERSION`, `TEA_VERSION`).
+`GH_VERSION`, `GLAB_VERSION`, `TEA_VERSION`, `DIRENV_VERSION`, `NIX_VERSION`).
 
 ## CI / publishing
 
