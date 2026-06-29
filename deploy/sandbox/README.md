@@ -17,13 +17,23 @@ Based on `ubuntu:24.04`, mirroring workdir's curated base apt layer, plus:
 | **gh** | GitHub CLI — open PRs, manage repos |
 | **glab** | GitLab CLI — open MRs |
 | **tea** | Gitea CLI |
-| **nix** | single-user install, flakes + new `nix` CLI enabled (for `nix develop` dev shells) |
+| **nix** | single-user install (root-owned store), flakes + new `nix` CLI enabled. Symlinked into `/usr/local/bin` so it's on the default PATH for every user/shell. See the note below. |
 | **direnv** | per-directory env loader; `/workspace` is whitelisted so `.envrc` loads without `direnv allow` |
 | **git**, **openssh-client** | SSH-based clones |
 | python3, node/npm, build-essential, jq, curl, … | general dev userland |
 
 It also bakes the `127.0.0.1 localhost` `/etc/hosts` entry Kit's OAuth listener
 requires, and creates `/workspace`.
+
+> **Nix is single-user / root-only.** The store lives at `/nix` owned by root
+> with no `nix-daemon` (these microVMs have no systemd to supervise one). The
+> `nix` CLIs are symlinked into `/usr/local/bin` so they resolve on the default
+> PATH for **every** user and every shell type (non-login `bash -c`, login
+> shells, relocated `$HOME`) — not just via root's `~/.nix-profile`. A non-root
+> user can *find and run* `nix`, but **cannot build into the root-owned store**
+> (nix chmods its own profile dirs and rejects other UIDs). If you need non-root
+> builds, switch to a multi-user **daemon** install and start `nix-daemon` from
+> the platform's init.
 
 > **Note:** this image intentionally does **not** ship workdir's
 > `sandbox-guest-agent` / `sandbox-init`. workdir's custom-image builder injects

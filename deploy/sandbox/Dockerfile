@@ -141,6 +141,15 @@ RUN curl -fsSL "https://github.com/direnv/direnv/releases/download/v${DIRENV_VER
 # single-user install; NIX_CONFIG clears it (and enables flakes) for the
 # install-time nix-env calls. We then persist the runtime config to
 # /etc/nix/nix.conf so flakes + the new `nix` CLI are on for every invocation.
+#
+# Discovery must not depend on root's ~/.nix-profile: sandbox platforms launch
+# processes with their own (often sanitized) PATH and may relocate $HOME, so a
+# `PATH=/root/.nix-profile/bin` ENV alone is fragile. Instead we symlink the
+# nix CLIs from the *shared* default profile into /usr/local/bin (already on the
+# base PATH for every user and every shell type), so `nix` resolves regardless
+# of PATH/HOME/login state. NOTE: this is still a single-user store owned by
+# root — only root can build into it; multi-user (non-root) use would require a
+# daemon install, which these no-systemd microVMs can't supervise.
 RUN curl -fsSL "https://releases.nixos.org/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz" \
       -o /tmp/nix.tar.xz \
     && echo "${NIX_SHA256}  /tmp/nix.tar.xz" | sha256sum -c - \
@@ -150,13 +159,16 @@ RUN curl -fsSL "https://releases.nixos.org/nix/nix-${NIX_VERSION}/nix-${NIX_VERS
          /tmp/nixinstall/install --no-daemon --no-channel-add --yes \
     && mkdir -p /etc/nix \
     && printf 'experimental-features = nix-command flakes\nbuild-users-group =\n' > /etc/nix/nix.conf \
+    && for b in /nix/var/nix/profiles/default/bin/*; do ln -sf "$b" /usr/local/bin/; done \
     && rm -rf /tmp/nixinstall /tmp/nix.tar.xz
 
-# Put the single-user nix profile on PATH and point nix at the system CA bundle.
-# Kit's bash tool runs non-login `bash -c`, so nix's profile script (sourced from
-# ~/.bash_profile) never runs — these ENVs replace what it would have exported.
-ENV PATH=/root/.nix-profile/bin:$PATH
+# nix is found via the /usr/local/bin symlinks above (on the base PATH for all
+# users). Point nix at the system CA bundle for TLS fetches: ENV covers the
+# image default env; the profile.d hook re-exports it for login shells that
+# reset the environment from /etc/profile.
 ENV NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+RUN printf 'export NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\n' \
+      > /etc/profile.d/nix-sandbox.sh
 
 # Kit's OAuth callback listener binds localhost; without this entry it fails to
 # create the listener and nil-panics on cleanup. Bake it in so the runtime
