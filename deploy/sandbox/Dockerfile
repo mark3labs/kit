@@ -36,6 +36,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG GO_VERSION=1.26.4
 ARG GO_SHA256=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
 ARG KIT_VERSION=latest
+# Go developer tooling installed via `go install` (verified through the Go module
+# checksum database). Bump these to pull newer releases.
+ARG GOPLS_VERSION=v0.22.0
+ARG GOLANGCI_LINT_VERSION=v2.12.2
+ARG DELVE_VERSION=v1.27.0
+ARG STATICCHECK_VERSION=2026.1
+ARG GOIMPORTS_VERSION=latest
 ARG GH_VERSION=2.95.0
 ARG GH_SHA256=25d1e4729e8808c9ed3d613e96ebd3f3e44446f2d368c89d878a71a36ddb3d8c
 ARG GLAB_VERSION=1.105.0
@@ -80,6 +87,21 @@ RUN GOBIN=/usr/local/bin go install \
       -ldflags "-s -w -X main.version=${KIT_VERSION}" \
       "github.com/mark3labs/kit/cmd/kit@${KIT_VERSION}" \
     && kit --version
+
+# Go developer tooling. Installed with `go install` so each module + its
+# dependencies are verified against the Go checksum database (sum.golang.org)
+# during the build. Binaries land in $GOPATH/bin (/root/go/bin, already on PATH).
+#   * gopls          — the Go language server (LSP)
+#   * golangci-lint  — aggregate linter runner
+#   * dlv            — Delve debugger
+#   * staticcheck    — advanced static analysis
+#   * goimports      — import management / formatting
+RUN go install "golang.org/x/tools/gopls@${GOPLS_VERSION}" \
+    && go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}" \
+    && go install "github.com/go-delve/delve/cmd/dlv@${DELVE_VERSION}" \
+    && go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}" \
+    && go install "golang.org/x/tools/cmd/goimports@${GOIMPORTS_VERSION}" \
+    && go clean -cache -modcache
 
 # GitHub CLI (gh).
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
@@ -183,6 +205,11 @@ WORKDIR /workspace
 # `kit` is the main payload, so a broken binary must fail the build.
 RUN set -e; \
     go version; \
+    gopls version; \
+    golangci-lint --version; \
+    dlv version; \
+    staticcheck --version; \
+    goimports -h 2>/dev/null || true; \
     kit --version; \
     gh --version; \
     glab --version; \
