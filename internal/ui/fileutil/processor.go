@@ -243,6 +243,15 @@ func wrapFileContent(absPath string, content []byte) string {
 func detectMediaType(path string, content []byte) string {
 	// Extension-based detection is more reliable for well-known types.
 	ext := strings.ToLower(filepath.Ext(path))
+
+	// Some system MIME databases return legacy or inconsistent types
+	// (e.g. audio/x-wav instead of audio/wav). Force canonical types
+	// for extensions we explicitly support.
+	switch ext {
+	case ".wav":
+		return "audio/wav"
+	}
+
 	if mt := mime.TypeByExtension(ext); mt != "" {
 		// mime.TypeByExtension returns types like "image/png; charset=utf-8"
 		// — strip parameters.
