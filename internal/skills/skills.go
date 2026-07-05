@@ -514,13 +514,18 @@ func finalizeSkills(loaded []*Skill) []*Skill {
 
 		if idx, ok := byName[s.Name]; ok {
 			existing := result[idx]
-			// Project-level skills override user-level skills.
+			// Project-level skills override user-level skills. A name
+			// collision is a routine, expected outcome (e.g. a skill copied
+			// into ~/.agents/skills that also exists project-locally), so it
+			// is reported at Info level rather than Warn — a warning here is
+			// visually alarming and, during a hot-reload while the TUI owns
+			// the alt-screen, corrupts the display.
 			if s.project && !existing.project {
-				log.Warn("skill name collision: project skill overrides user skill",
+				log.Info("skill name collision: project skill overrides user skill",
 					"name", s.Name, "project", s.Path, "user", existing.Path)
 				result[idx] = s
 			} else {
-				log.Warn("skill name collision: keeping earlier skill, ignoring duplicate",
+				log.Info("skill name collision: keeping earlier skill, ignoring duplicate",
 					"name", s.Name, "kept", existing.Path, "ignored", s.Path)
 			}
 			continue

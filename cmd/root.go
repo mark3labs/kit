@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/extensions"
@@ -1636,6 +1637,13 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 	logFile, logErr := tea.LogToFile(filepath.Join(logDir, "kit.log"), "kit")
 	if logErr == nil {
 		defer func() { _ = logFile.Close() }()
+		// tea.LogToFile only redirects the stdlib log package. The
+		// charmbracelet/log default logger (used by internal packages such
+		// as skills for collision diagnostics) still writes to stderr,
+		// which corrupts the alt-screen when a hot-reload fires while the
+		// TUI is running. Point it at the same file so no structured log
+		// output reaches the terminal.
+		charmlog.SetOutput(logFile)
 	}
 
 	// Determine terminal size; fall back gracefully.
