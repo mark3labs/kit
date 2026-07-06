@@ -26,6 +26,13 @@ type UsageUpdater interface {
 	// OutputTokens. With Anthropic prompt caching, InputTokens can be
 	// near-zero while CacheReadTokens holds the bulk of the context.
 	SetContextTokens(tokens int)
+	// SetUsageUnreported records whether the active provider failed to
+	// report token usage on the most recent turn (e.g. an OpenAI-compatible
+	// proxy that omits `usage` from the final streaming chunk). When true,
+	// the UI shows an honest "⚠ usage not reported by provider" notice
+	// instead of a misleading bare zero. Called once per turn from
+	// updateUsageFromTurnResult.
+	SetUsageUnreported(unreported bool)
 }
 
 // Options configures an App instance.

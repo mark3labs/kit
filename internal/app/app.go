@@ -1677,6 +1677,20 @@ func (a *App) updateUsageFromTurnResult(result *kit.TurnResult, userPrompt strin
 	if a.opts.Debug {
 		log.Printf("[DEBUG] updateUsageFromTurnResult: hasTotalUsage=%v", hasTotalUsage)
 	}
+
+	// Surface whether the provider reported ANY usage this turn. When neither
+	// incremental StepUsageEvents nor TotalUsage carried real token counts, the
+	// provider (often an OpenAI-compatible proxy that omits `usage` from the
+	// final streaming chunk) gave us nothing to bill or meter. Flag this so
+	// the status bar shows an honest "⚠ usage not reported by provider"
+	// notice instead of a misleading bare zero.
+	providerReportedUsage := sawStepUsage || hasTotalUsage
+	a.opts.UsageTracker.SetUsageUnreported(!providerReportedUsage)
+	if a.opts.Debug {
+		log.Printf("[DEBUG] updateUsageFromTurnResult: providerReportedUsage=%v -> usageUnreported=%v",
+			providerReportedUsage, !providerReportedUsage)
+	}
+
 	if !sawStepUsage && hasTotalUsage {
 		if a.opts.Debug {
 			log.Printf("[DEBUG] updateUsageFromTurnResult: calling UpdateUsage input=%d output=%d cacheRead=%d cacheCreate=%d",

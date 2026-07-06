@@ -126,3 +126,67 @@ func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
 		t.Errorf("Expected 'Cost: $0.00' on startup for OAuth, got: %s", oauthRendered)
 	}
 }
+
+// TestUsageTracker_RenderUsageInfo_UnreportedWarning verifies that when the
+// active provider did not report token usage on the last turn (the
+// OpenAI-compatible-proxy / glm-5.2 case), RenderUsageInfo shows a muted
+// "⚠ usage not reported by provider" notice instead of a misleading
+// "Tokens: 0 | Cost: $0.0000". Clearing the flag must restore the normal
+// token/cost display, and Reset must clear it so a fresh session does not
+// pre-show the warning before the first turn.
+func TestUsageTracker_RenderUsageInfo_UnreportedWarning(t *testing.T) {
+	modelInfo := &models.ModelInfo{
+		ID:    "glm-5.2",
+		Name:  "GLM 5.2",
+		Cost:  models.Cost{Input: 1.0, Output: 2.0},
+		Limit: models.Limit{Context: 128000, Output: 8192},
+	}
+
+	tracker := NewUsageTracker(modelInfo, "opencode", 80, false)
+
+	// Default state: no warning, shows the normal bare-zero render.
+	defaultRender := stripAnsi(tracker.RenderUsageInfo())
+	if strings.Contains(defaultRender, "usage not reported") {
+		t.Fatalf("default state should NOT show unreported warning, got: %s", defaultRender)
+	}
+	if !strings.Contains(defaultRender, "Tokens: 0") {
+		t.Fatalf("default state should show 'Tokens: 0', got: %s", defaultRender)
+	}
+
+	// After a turn where the provider reported nothing → warning appears.
+	tracker.SetUsageUnreported(true)
+	warned := stripAnsi(tracker.RenderUsageInfo())
+	if !strings.Contains(warned, "⚠") {
+		t.Fatalf("expected warning icon in unreported render, got: %s", warned)
+	}
+	if !strings.Contains(warned, "usage not reported by provider") {
+		t.Fatalf("expected 'usage not reported by provider' text, got: %s", warned)
+	}
+	// The misleading bare-zero metrics must NOT appear alongside the warning.
+	if strings.Contains(warned, "Tokens:") || strings.Contains(warned, "Cost:") {
+		t.Fatalf("unreported render must not show token/cost metrics, got: %s", warned)
+	}
+
+	// Once the provider reports usage again, the flag clears and normal
+	// metrics render (no warning).
+	tracker.SetUsageUnreported(false)
+	tracker.UpdateUsage(1500, 500, 0, 0)
+	tracker.SetContextTokens(2000)
+	restored := stripAnsi(tracker.RenderUsageInfo())
+	if strings.Contains(restored, "usage not reported") {
+		t.Fatalf("restored state should NOT show unreported warning, got: %s", restored)
+	}
+	if !strings.Contains(restored, "Tokens: 2.0K") {
+		t.Fatalf("restored state should show 'Tokens: 2.0K', got: %s", restored)
+	}
+
+	// Reset (new conversation) must clear the flag so a fresh session with
+	// the same provider doesn't pre-show the warning before the first turn.
+	tracker2 := NewUsageTracker(modelInfo, "opencode", 80, false)
+	tracker2.SetUsageUnreported(true)
+	tracker2.Reset()
+	resetRender := stripAnsi(tracker2.RenderUsageInfo())
+	if strings.Contains(resetRender, "usage not reported") {
+		t.Fatalf("Reset must clear the unreported flag, but warning still shown: %s", resetRender)
+	}
+}

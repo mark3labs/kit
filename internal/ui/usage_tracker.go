@@ -49,6 +49,13 @@ type UsageTracker struct {
 	contextTokens int // approximate current context window utilization (last API call)
 	width         int
 	isOAuth       bool // Whether OAuth credentials are being used (costs should be $0)
+
+	// usageUnreported is true when the last turn's provider did not report
+	// token usage at all (e.g. OpenAI-compatible proxies that omit the
+	// `usage` field from streaming chunks). When true, RenderUsageInfo shows
+	// a muted warning instead of a misleading "Tokens: 0 | Cost: $0.0000".
+	// Managed by the app layer at end-of-turn via SetUsageUnreported.
+	usageUnreported bool
 }
 
 // NewUsageTracker creates and initializes a new UsageTracker for the specified model.
@@ -166,7 +173,19 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 	ut.mu.RLock()
 	defer ut.mu.RUnlock()
 
+	theme := GetTheme()
 	baseStyle := lipgloss.NewStyle()
+
+	// If the active provider did not report token usage on the last turn
+	// (common with OpenAI-compatible proxies that omit the `usage` field
+	// from the final streaming chunk), show a muted warning instead of a
+	// misleading "Tokens: 0 | Cost: $0.0000". This keeps the status bar
+	// honest about why metrics are missing rather than looking broken.
+	if ut.usageUnreported {
+		warnIcon := baseStyle.Foreground(theme.Warning).Render("⚠")
+		warnText := baseStyle.Foreground(theme.Muted).Render(" usage not reported by provider")
+		return warnIcon + warnText
+	}
 
 	// Display the current context window token count (from the last API call),
 	// not the cumulative session total. This keeps the number consistent with
@@ -190,7 +209,6 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 		percentage := float64(displayTokens) / float64(ut.modelInfo.Limit.Context) * 100
 
 		// Color code based on usage percentage
-		theme := GetTheme()
 		if percentage >= 80 {
 			percentageColor = theme.Error // Red
 		} else if percentage >= 60 {
@@ -205,7 +223,6 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 	}
 
 	// Format cost with appropriate styling
-	theme := GetTheme()
 	var costStr string
 	if ut.isOAuth {
 		costStr = baseStyle.
@@ -267,6 +284,7 @@ func (ut *UsageTracker) Reset() {
 	ut.sessionStats = SessionStats{}
 	ut.lastRequest = nil
 	ut.contextTokens = 0
+	ut.usageUnreported = false // new conversation: don't presume the provider is silent
 }
 
 // SetWidth updates the terminal width used for formatting usage information display.
@@ -287,4 +305,19 @@ func (ut *UsageTracker) UpdateModelInfo(modelInfo *models.ModelInfo, provider st
 	ut.modelInfo = modelInfo
 	ut.provider = provider
 	ut.isOAuth = isOAuth
+	// A model switch invalidates the previous provider's "unreported" state;
+	// the next turn re-derives it via SetUsageUnreported.
+	ut.usageUnreported = false
+}
+
+// SetUsageUnreported records whether the active provider failed to report
+// token usage on the most recent turn. When set to true, RenderUsageInfo
+// displays a muted "⚠ usage not reported by provider" notice instead of a
+// bare zero. The app layer calls this once per turn from
+// updateUsageFromTurnResult, passing false when any real usage was observed
+// (via StepUsageEvent callbacks or TurnResult.TotalUsage) and true otherwise.
+func (ut *UsageTracker) SetUsageUnreported(unreported bool) {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+	ut.usageUnreported = unreported
 }

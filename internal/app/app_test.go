@@ -33,6 +33,12 @@ type usageUpdaterStub struct {
 	lastContextTokens    int
 	lastEstimateInput    string
 	lastEstimateOutput   string
+
+	// usageUnreported is the most recent value passed to SetUsageUnreported.
+	// usageUnreportedSet is true once SetUsageUnreported has been called at
+	// least once, so tests can assert the app layer drove the flag.
+	usageUnreported    bool
+	usageUnreportedSet bool
 }
 
 func (s *usageUpdaterStub) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) {
@@ -58,6 +64,13 @@ func (s *usageUpdaterStub) SetContextTokens(tokens int) {
 	defer s.mu.Unlock()
 	s.contextCalls++
 	s.lastContextTokens = tokens
+}
+
+func (s *usageUpdaterStub) SetUsageUnreported(unreported bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usageUnreported = unreported
+	s.usageUnreportedSet = true
 }
 
 // turnResult builds a minimal TurnResult with response text t.
@@ -637,6 +650,60 @@ func TestUpdateUsageFromTurnResult_recordsWhenInputTokensZero(t *testing.T) {
 	if usage.lastUpdateCacheRead != 500 {
 		t.Fatalf("expected cache_read=500, got %d", usage.lastUpdateCacheRead)
 	}
+}
+
+// TestUpdateUsageFromTurnResult_flagsUnreportedWhenNoUsage verifies that the
+// app layer tells the UsageTracker when a provider reported NO usage at all
+// (the glm-5.2 / OpenAI-compatible-proxy case where `usage` is absent from
+// the final streaming chunk). The tracker uses this to render an honest
+// "⚠ usage not reported by provider" notice instead of a misleading bare
+// zero. It must clear the flag whenever real usage IS observed — whether via
+// incremental StepUsageEvents or TurnResult.TotalUsage — so a provider that
+// starts reporting again stops showing the warning.
+func TestUpdateUsageFromTurnResult_flagsUnreportedWhenNoUsage(t *testing.T) {
+	usage := &usageUpdaterStub{}
+	app := New(Options{UsageTracker: usage}, nil)
+	defer app.Close()
+
+	// Case 1: no step usage AND TotalUsage is all-zero → provider is silent.
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response:   "ok",
+		TotalUsage: &kit.LLMUsage{}, // all fields zero
+		FinalUsage: &kit.LLMUsage{},
+	}, "prompt", false)
+
+	usage.mu.Lock()
+	if !usage.usageUnreportedSet || !usage.usageUnreported {
+		t.Fatalf("expected SetUsageUnreported(true) when provider reports nothing, got set=%v unreported=%v",
+			usage.usageUnreportedSet, usage.usageUnreported)
+	}
+	usage.mu.Unlock()
+
+	// Case 2: step usage was seen during the turn → flag must clear.
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response:   "ok",
+		TotalUsage: &kit.LLMUsage{InputTokens: 10, OutputTokens: 5},
+		FinalUsage: &kit.LLMUsage{InputTokens: 10, OutputTokens: 5},
+	}, "prompt", true)
+
+	usage.mu.Lock()
+	if usage.usageUnreported {
+		t.Fatalf("expected SetUsageUnreported(false) when sawStepUsage=true, got unreported=%v", usage.usageUnreported)
+	}
+	usage.mu.Unlock()
+
+	// Case 3: no step usage but TotalUsage carried real tokens → flag clears.
+	app.updateUsageFromTurnResult(&kit.TurnResult{
+		Response:   "ok",
+		TotalUsage: &kit.LLMUsage{OutputTokens: 200},
+		FinalUsage: &kit.LLMUsage{OutputTokens: 200},
+	}, "prompt", false)
+
+	usage.mu.Lock()
+	if usage.usageUnreported {
+		t.Fatalf("expected SetUsageUnreported(false) when TotalUsage has tokens, got unreported=%v", usage.usageUnreported)
+	}
+	usage.mu.Unlock()
 }
 
 // TestUpdateUsageFromTurnResult_contextTokensUsesAllCategories verifies that
