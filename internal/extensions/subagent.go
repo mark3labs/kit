@@ -3,7 +3,6 @@ package extensions
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -27,8 +26,10 @@ type SubagentConfig struct {
 	// Timeout limits execution time. Zero means 5 minute default.
 	Timeout time.Duration
 
-	// OnOutput streams stderr output chunks as the subagent runs.
-	// Called from a goroutine; must be safe for concurrent use.
+	// OnOutput streams the subagent's assistant text chunks as it runs.
+	// It is a convenience alternative to OnEvent for callers that only
+	// care about text output. May be called from a goroutine; must be
+	// safe for concurrent use.
 	OnOutput func(chunk string)
 
 	// OnEvent receives real-time events from the subagent's execution:
@@ -37,12 +38,16 @@ type SubagentConfig struct {
 	OnEvent func(SubagentEvent)
 
 	// OnComplete is called when the subagent finishes (success or error).
-	// Called from a goroutine; must be safe for concurrent use.
+	// For background spawns (Blocking false) it is called from the
+	// subagent's goroutine; must be safe for concurrent use. For blocking
+	// spawns it is called before SpawnSubagent returns.
 	OnComplete func(result SubagentResult)
 
 	// Blocking, when true, makes SpawnSubagent wait for completion and
-	// return the result directly. When false (default), spawns in background
-	// and returns immediately with a handle.
+	// return the result directly (handle is nil). When false (default),
+	// the subagent runs in a background goroutine and SpawnSubagent
+	// returns immediately with a non-nil handle for monitoring and
+	// cancellation (result is nil; use OnComplete or handle.Wait()).
 	Blocking bool
 
 	// NoSession, when true, runs the subagent without persisting a session
@@ -92,7 +97,9 @@ type SubagentResult struct {
 	// Error is set if the subagent failed (nil on success).
 	Error error
 
-	// ExitCode is the subprocess exit code (0 = success).
+	// ExitCode is 0 on success and 1 on failure. The subagent runs
+	// in-process (not as a subprocess); this field mirrors Error for
+	// callers that prefer a numeric status.
 	ExitCode int
 
 	// Elapsed is the total execution time.
@@ -113,24 +120,51 @@ type SubagentUsage struct {
 	OutputTokens int64
 }
 
-// SubagentHandle provides control over a running subagent.
+// SubagentHandle provides control over a background (non-blocking)
+// subagent. The subagent runs in-process in a goroutine; the handle
+// exposes cancellation and completion signalling.
 type SubagentHandle struct {
 	// ID is a unique identifier for this subagent instance.
 	ID string
 
-	proc   *os.Process
-	done   chan struct{}
-	result *SubagentResult
-	mu     sync.Mutex
+	cancel   func()
+	done     chan struct{}
+	result   *SubagentResult
+	complete sync.Once
+	mu       sync.Mutex
 }
 
-// Kill terminates the subagent process.
+// NewSubagentHandle creates a handle for a background subagent run.
+// cancel, when non-nil, is invoked by Kill to abort the run. The host
+// (extension bridge) must call Complete exactly once when the run
+// finishes. Extensions receive handles from SpawnSubagent and should
+// not construct their own.
+func NewSubagentHandle(id string, cancel func()) *SubagentHandle {
+	return &SubagentHandle{
+		ID:     id,
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+}
+
+// Complete records the final result and signals Done/Wait. Called by
+// the host when the background run finishes; subsequent calls are
+// no-ops. Extensions should not call this.
+func (h *SubagentHandle) Complete(result SubagentResult) {
+	h.complete.Do(func() {
+		h.mu.Lock()
+		h.result = &result
+		h.mu.Unlock()
+		close(h.done)
+	})
+}
+
+// Kill cancels the running subagent. The run terminates with a context
+// cancellation error, delivered via OnComplete/Wait as usual. Calling
+// Kill after completion is a no-op.
 func (h *SubagentHandle) Kill() error {
-	h.mu.Lock()
-	proc := h.proc
-	h.mu.Unlock()
-	if proc != nil {
-		return proc.Kill()
+	if h.cancel != nil {
+		h.cancel()
 	}
 	return nil
 }
@@ -143,7 +177,7 @@ func (h *SubagentHandle) Wait() SubagentResult {
 	if h.result != nil {
 		return *h.result
 	}
-	return SubagentResult{Error: fmt.Errorf("subagent completed without result")}
+	return SubagentResult{Error: fmt.Errorf("subagent completed without result"), ExitCode: 1}
 }
 
 // Done returns a channel that closes when the subagent completes.

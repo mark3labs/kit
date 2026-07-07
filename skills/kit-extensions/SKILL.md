@@ -929,7 +929,7 @@ api.RegisterCommand(ext.CommandDef{
 
 ### Pattern: Spawning Kit as a Sub-Agent
 
-Use `ctx.SpawnSubagent` to spawn an isolated child Kit instance. The subagent runs as a subprocess with `--json --no-extensions` flags, ensuring isolation.
+Use `ctx.SpawnSubagent` to spawn an in-process child Kit instance. The subagent gets its own session, event bus, and agent loop, inherits the parent's active tools minus the `subagent` tool (no recursion), and does not load extensions. Its session is persisted by default (set `NoSession: true` for ephemeral runs).
 
 **Blocking mode** — waits for completion:
 
@@ -960,7 +960,7 @@ ctx.PrintInfo("Result:\n" + result.Response)
 handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
     Prompt: "Write unit tests for UserService",
     OnOutput: func(chunk string) {
-        // Live stderr streaming (progress, tool calls, etc.)
+        // Live assistant text chunks
     },
     OnEvent: func(event ext.SubagentEvent) {
         // Real-time events: "text", "reasoning", "tool_call",
@@ -985,10 +985,10 @@ handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 | `Model` | string | Override model ("provider/model"), empty = parent's |
 | `SystemPrompt` | string | Custom system prompt, empty = default |
 | `Timeout` | time.Duration | Execution limit, 0 = 5 minutes |
-| `Blocking` | bool | Wait for completion vs return handle |
+| `Blocking` | bool | true = wait and return result; false (default) = background goroutine + handle |
 | `NoSession` | bool | Don't persist subagent session file |
 | `ParentSessionID` | string | Link to parent session (optional) |
-| `OnOutput` | func(string) | Stderr streaming callback |
+| `OnOutput` | func(string) | Live assistant text chunk callback |
 | `OnEvent` | func(SubagentEvent) | Real-time event callback |
 | `OnComplete` | func(SubagentResult) | Completion callback |
 
@@ -998,7 +998,7 @@ handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 |-------|------|-------------|
 | `Response` | string | Final text response |
 | `Error` | error | Non-nil on failure |
-| `ExitCode` | int | Process exit code (0 = success) |
+| `ExitCode` | int | 0 on success, 1 on failure (runs in-process, mirrors Error) |
 | `Elapsed` | time.Duration | Total execution time |
 | `Usage` | *SubagentUsage | Token usage (InputTokens, OutputTokens) |
 | `SessionID` | string | Subagent's session ID (if persisted) |

@@ -5,6 +5,8 @@ package extbridge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 
 	"github.com/mark3labs/kit/internal/extensions"
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -51,15 +53,59 @@ func SDKEventToSubagentEvent(e kit.Event) extensions.SubagentEvent {
 }
 
 // SpawnSubagent runs a subagent in-process via the Kit SDK and translates
-// the result/events back into the extension-facing types. The returned
-// handle is always nil — the SDK path runs synchronously and does not
-// expose a separate process handle. Callers that need non-blocking
-// behaviour should run this in their own goroutine.
+// the result/events back into the extension-facing types.
+//
+// When cfg.Blocking is true, the call waits for completion and returns
+// (nil, result, err); cfg.OnComplete (if set) is invoked before returning.
+// When cfg.Blocking is false (default), the subagent runs in a background
+// goroutine and the call returns immediately with (handle, nil, nil). The
+// handle supports Wait/Done/Kill; cfg.OnComplete and cfg.OnEvent are
+// invoked asynchronously from the subagent's goroutine.
 //
 // This function consolidates the previously-duplicated wiring in
 // cmd/root.go (interactive + runtime contexts) and
 // internal/acpserver/session.go.
 func SpawnSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
+	run := func(runCtx context.Context) (*extensions.SubagentResult, error) {
+		return runSubagent(runCtx, k, cfg)
+	}
+	return dispatchSubagent(ctx, run, cfg)
+}
+
+// dispatchSubagent implements the blocking/background contract of
+// SpawnSubagent on top of an injectable run function. Split out from
+// SpawnSubagent so the dispatch logic is testable without a real Kit
+// instance.
+func dispatchSubagent(ctx context.Context, run func(context.Context) (*extensions.SubagentResult, error), cfg extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
+	if cfg.Blocking {
+		result, err := run(ctx)
+		if cfg.OnComplete != nil && result != nil {
+			cfg.OnComplete(*result)
+		}
+		return nil, result, err
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	handle := extensions.NewSubagentHandle(newSubagentID(), cancel)
+	go func() {
+		defer cancel()
+		result, _ := run(runCtx)
+		if result == nil {
+			result = &extensions.SubagentResult{ExitCode: 1}
+		}
+		handle.Complete(*result)
+		if cfg.OnComplete != nil {
+			cfg.OnComplete(*result)
+		}
+	}()
+	return handle, nil, nil
+}
+
+// runSubagent executes one subagent run synchronously via the Kit SDK and
+// converts the outcome to the extension-facing result type. The returned
+// result is always non-nil; on failure result.Error and result.ExitCode
+// are set in addition to the returned error.
+func runSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfig) (*extensions.SubagentResult, error) {
 	sdkCfg := kit.SubagentConfig{
 		Prompt:       cfg.Prompt,
 		Model:        cfg.Model,
@@ -68,18 +114,24 @@ func SpawnSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfi
 		NoSession:    cfg.NoSession,
 		Tools:        k.GetToolsForSubagent(),
 	}
-	if cfg.OnEvent != nil {
+	if cfg.OnEvent != nil || cfg.OnOutput != nil {
 		sdkCfg.OnEvent = func(e kit.Event) {
 			se := SDKEventToSubagentEvent(e)
-			if se.Type != "" {
+			if se.Type == "" {
+				return
+			}
+			if cfg.OnEvent != nil {
 				cfg.OnEvent(se)
+			}
+			if cfg.OnOutput != nil && se.Type == "text" && se.Content != "" {
+				cfg.OnOutput(se.Content)
 			}
 		}
 	}
 
 	result, err := k.Subagent(ctx, sdkCfg)
 	if result == nil {
-		return nil, &extensions.SubagentResult{Error: err}, err
+		return &extensions.SubagentResult{Error: err, ExitCode: 1}, err
 	}
 
 	extResult := &extensions.SubagentResult{
@@ -88,11 +140,24 @@ func SpawnSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfi
 		SessionID: result.SessionID,
 		Elapsed:   result.Elapsed,
 	}
+	if err != nil {
+		extResult.ExitCode = 1
+	}
 	if result.Usage != nil {
 		extResult.Usage = &extensions.SubagentUsage{
 			InputTokens:  result.Usage.InputTokens,
 			OutputTokens: result.Usage.OutputTokens,
 		}
 	}
-	return nil, extResult, err
+	return extResult, err
+}
+
+// newSubagentID returns a short random identifier for a background
+// subagent handle.
+func newSubagentID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "subagent-unknown"
+	}
+	return "subagent-" + hex.EncodeToString(b[:])
 }

@@ -275,12 +275,15 @@ api.RegisterOption(ext.OptionDef{
 Spawn in-process child Kit instances:
 
 ```go
-result := ctx.SpawnSubagent(ext.SubagentConfig{
-    Task:         "Analyze the test files and summarize coverage",
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Analyze the test files and summarize coverage",
     Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a test analysis expert.",
+    Blocking:     true,
 })
 ```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (`handle.Wait()`, `handle.Done()`, `handle.Kill()`); use `OnComplete`/`OnEvent` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
 
 ### Monitoring subagents spawned by the main agent
 
