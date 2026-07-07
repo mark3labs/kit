@@ -2,6 +2,7 @@ package compaction
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -59,6 +60,96 @@ func TestEstimateMessageTokens_Empty(t *testing.T) {
 	got := EstimateMessageTokens(nil)
 	if got != 0 {
 		t.Errorf("EstimateMessageTokens(nil) = %d, want 0", got)
+	}
+}
+
+func TestEstimateMessageTokens_AllPartTypes(t *testing.T) {
+	// Tool-heavy message traffic must be counted (issue #83): tool-call
+	// JSON arguments, tool results, reasoning, and file parts all
+	// contribute to the estimate.
+	toolInput := `{"path":"` + strings.Repeat("a", 394) + `"}` // 404 chars
+	msgs := []fantasy.Message{
+		{
+			Role: fantasy.MessageRoleAssistant,
+			Content: []fantasy.MessagePart{
+				fantasy.ReasoningPart{Text: strings.Repeat("r", 400)}, // 100 tokens
+				fantasy.ToolCallPart{
+					ToolCallID: "1",
+					ToolName:   "read",    // 4 chars → 1 token
+					Input:      toolInput, // 404 chars → 101 tokens
+				},
+			},
+		},
+		{
+			Role: fantasy.MessageRoleTool,
+			Content: []fantasy.MessagePart{
+				fantasy.ToolResultPart{
+					ToolCallID: "1",
+					Output:     fantasy.ToolResultOutputContentText{Text: strings.Repeat("o", 800)}, // 200 tokens
+				},
+			},
+		},
+	}
+
+	got := EstimateMessageTokens(msgs)
+	want := 100 + 1 + 101 + 200
+	if got != want {
+		t.Errorf("EstimateMessageTokens = %d, want %d", got, want)
+	}
+}
+
+func TestEstimateMessageTokens_ToolResultVariants(t *testing.T) {
+	errMsg := fantasy.Message{
+		Role: fantasy.MessageRoleTool,
+		Content: []fantasy.MessagePart{
+			fantasy.ToolResultPart{
+				Output: fantasy.ToolResultOutputContentError{Error: errors.New(strings.Repeat("e", 400))},
+			},
+		},
+	}
+	if got := EstimateMessageTokens([]fantasy.Message{errMsg}); got != 100 {
+		t.Errorf("error tool result tokens = %d, want 100", got)
+	}
+
+	mediaMsg := fantasy.Message{
+		Role: fantasy.MessageRoleTool,
+		Content: []fantasy.MessagePart{
+			fantasy.ToolResultPart{
+				Output: fantasy.ToolResultOutputContentMedia{
+					Data: strings.Repeat("D", 400), // base64 payload → 100 tokens
+					Text: strings.Repeat("t", 40),  // 10 tokens
+				},
+			},
+		},
+	}
+	if got := EstimateMessageTokens([]fantasy.Message{mediaMsg}); got != 110 {
+		t.Errorf("media tool result tokens = %d, want 110", got)
+	}
+
+	nilErrMsg := fantasy.Message{
+		Role: fantasy.MessageRoleTool,
+		Content: []fantasy.MessagePart{
+			fantasy.ToolResultPart{Output: fantasy.ToolResultOutputContentError{}},
+		},
+	}
+	if got := EstimateMessageTokens([]fantasy.Message{nilErrMsg}); got != 0 {
+		t.Errorf("nil error tool result tokens = %d, want 0", got)
+	}
+}
+
+func TestEstimateMessageTokens_FilePart(t *testing.T) {
+	msg := fantasy.Message{
+		Role: fantasy.MessageRoleUser,
+		Content: []fantasy.MessagePart{
+			fantasy.FilePart{
+				Filename:  strings.Repeat("f", 8), // 2 tokens
+				Data:      make([]byte, 300),      // 300/3 = 100 tokens
+				MediaType: "image/png",
+			},
+		},
+	}
+	if got := EstimateMessageTokens([]fantasy.Message{msg}); got != 102 {
+		t.Errorf("file part tokens = %d, want 102", got)
 	}
 }
 
@@ -231,6 +322,66 @@ func TestCompactionOptions_DefaultsPreservesExisting(t *testing.T) {
 	}
 	if opts.KeepRecentTokens != 10000 {
 		t.Errorf("KeepRecentTokens = %d, want 10000", opts.KeepRecentTokens)
+	}
+}
+
+func TestCompactionOptions_AdaptiveDefaults(t *testing.T) {
+	// Small-context, small-output model: both budgets scale down.
+	opts := CompactionOptions{ContextWindow: 32768, MaxOutputTokens: 4096}
+	opts.ApplyDefaults()
+
+	if opts.ReserveTokens != 4096 {
+		t.Errorf("ReserveTokens = %d, want 4096 (min(16384, maxOutput))", opts.ReserveTokens)
+	}
+	wantKeep := (32768 - 4096) / 4 // 7168
+	if opts.KeepRecentTokens != wantKeep {
+		t.Errorf("KeepRecentTokens = %d, want %d (usable/4)", opts.KeepRecentTokens, wantKeep)
+	}
+}
+
+func TestAdaptiveReserveTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxOutput int
+		want      int
+	}{
+		{"unknown limit", 0, DefaultReserveTokens},
+		{"negative limit", -1, DefaultReserveTokens},
+		{"small output model", 4096, 4096},
+		{"large output model", 65536, DefaultReserveTokens},
+		{"exactly at default", 16384, 16384},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AdaptiveReserveTokens(tt.maxOutput); got != tt.want {
+				t.Errorf("AdaptiveReserveTokens(%d) = %d, want %d", tt.maxOutput, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdaptiveKeepRecentTokens(t *testing.T) {
+	tests := []struct {
+		name          string
+		contextWindow int
+		reserveTokens int
+		want          int
+	}{
+		{"unknown window", 0, 16384, DefaultKeepRecentTokens},
+		{"reserve swallows window", 8192, 16384, minKeepRecentTokens},
+		{"tiny model floors at minimum", 8192, 4096, minKeepRecentTokens}, // usable/4 = 1024 < 2000
+		{"small model", 32768, 4096, (32768 - 4096) / 4},                  // 7168
+		{"200k model", 200000, 16384, (200000 - 16384) / 4},               // 45904
+		{"1M model scales up", 1000000, 16384, (1000000 - 16384) / 4},     // 245904
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AdaptiveKeepRecentTokens(tt.contextWindow, tt.reserveTokens)
+			if got != tt.want {
+				t.Errorf("AdaptiveKeepRecentTokens(%d, %d) = %d, want %d",
+					tt.contextWindow, tt.reserveTokens, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -437,6 +588,46 @@ func TestSortedKeys_Empty(t *testing.T) {
 	got := sortedKeys(nil)
 	if got != nil {
 		t.Errorf("sortedKeys(nil) = %v, want nil", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Anchored summary prompt (issue #83)
+// ---------------------------------------------------------------------------
+
+func TestBuildSummaryPrompt_NoAnchor(t *testing.T) {
+	prompt := buildSummaryPrompt("[User]:\nhello\n\n", CompactionOptions{}, "", "")
+	if strings.Contains(prompt, "<anchored-summary>") {
+		t.Error("anchored-summary block present without a previous summary")
+	}
+	if !strings.Contains(prompt, "## Goal") {
+		t.Error("default summary prompt missing")
+	}
+}
+
+func TestBuildSummaryPrompt_WithAnchor(t *testing.T) {
+	prev := "## Goal\nShip the widget feature."
+	prompt := buildSummaryPrompt("[User]:\nhello\n\n", CompactionOptions{}, "", prev)
+
+	if !strings.HasPrefix(prompt, "<anchored-summary>\n"+prev+"\n</anchored-summary>") {
+		t.Error("previous summary not anchored at the top of the prompt")
+	}
+	if !strings.Contains(prompt, "Update that anchored summary") {
+		t.Error("anchored update instructions missing")
+	}
+	// The anchor must come before the conversation text.
+	if strings.Index(prompt, "</anchored-summary>") > strings.Index(prompt, "[User]:") {
+		t.Error("anchored summary should precede the conversation text")
+	}
+}
+
+func TestBuildSummaryPrompt_WithAnchorAndCustomInstructions(t *testing.T) {
+	prompt := buildSummaryPrompt("convo", CompactionOptions{}, "Focus on API design", "prior summary")
+	if !strings.Contains(prompt, "Additional instructions: Focus on API design") {
+		t.Error("custom instructions missing")
+	}
+	if !strings.Contains(prompt, "<anchored-summary>") {
+		t.Error("anchored summary missing")
 	}
 }
 
