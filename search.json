@@ -375,6 +375,7 @@
         "Skills &amp; configuration",
         "Project-skill trust gate",
         "Compaction &amp; MCP",
+        "CompactionOptions",
         "MCP OAuth Authorization",
         "MCP Tasks",
         "Per-server mode",
@@ -385,7 +386,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2747
+      "wordCount": 2922
     },
     {
       "id": "sdk/overview",
@@ -419,7 +420,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2715
+      "wordCount": 2777
     },
     {
       "id": "sdk/sessions",
@@ -457,7 +458,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 608
+      "wordCount": 689
     },
     {
       "id": "themes",

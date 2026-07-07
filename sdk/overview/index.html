@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-RGUZn103.js"></script>
+<script type="module" src="/assets/index-tEfwZPyC.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -559,6 +559,13 @@ if host.ShouldCompact() {
     result, err := host.Compact(ctx, nil, "")
 }
 ```
+
+Token estimates count every message part (tool-call arguments, tool results,
+reasoning, file attachments), and after the first turn the real API-reported
+token count is preferred over the heuristic. Compaction budgets adapt to the
+model's context and output limits when left at their zero values; pass a
+`*kit.CompactionOptions` as the second argument to `Compact` to override
+them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
 
 ## Provider error classification
 

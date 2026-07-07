@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-RGUZn103.js"></script>
+<script type="module" src="/assets/index-tEfwZPyC.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -233,7 +233,7 @@ context files at runtime (e.g. per user or per session), use the
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
-| `CompactionOptions` | `*CompactionOptions` | — | Configuration for auto-compaction |
+| `CompactionOptions` | `*CompactionOptions` | — | Configuration for compaction; zero-value budget fields adapt to the model's limits. See [CompactionOptions](#compactionoptions) below. |
 | `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
 | `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
@@ -243,6 +243,24 @@ context files at runtime (e.g. per user or per session), use the
 | `MCPTaskPollInterval` | `time.Duration` | `1s` | Fallback interval between `tasks/get` requests when the server does not suggest one. |
 | `MCPTaskMaxPollInterval` | `time.Duration` | `5s` | Cap on the polling interval (a server-supplied `pollInterval` can otherwise grow without bound). |
 | `MCPTaskProgress` | `MCPTaskProgressHandler` | — | Optional callback invoked once when a task is accepted and on every observed status transition. The final invocation always carries a terminal status. |
+
+### CompactionOptions
+
+`CompactionOptions` controls how conversations are summarized. The token
+budgets are adaptive: leave a field at zero and it scales to the model's
+limits, or set an explicit value to override.
+
+| Field | Type | Zero-value behaviour | Description |
+|-------|------|----------------------|-------------|
+| `ContextWindow` | `int` | auto-populated from the model registry | Model's context window size in tokens |
+| `MaxOutputTokens` | `int` | auto-populated from the model registry | Model's max output tokens; scales the adaptive `ReserveTokens` |
+| `ReserveTokens` | `int` | `min(16384, MaxOutputTokens)` | Tokens reserved for the LLM response |
+| `KeepRecentTokens` | `int` | a quarter of the usable context (`ContextWindow − ReserveTokens`), floored at 2000 | Recent tokens preserved verbatim (not summarized) |
+| `SummaryPrompt` | `string` | built-in structured checkpoint prompt | Custom summarization prompt |
+
+When a session compacts more than once, the previous summary is fed back into
+the summarization prompt and updated incrementally (anchored summaries), so
+detail is preserved across compaction generations.
 
 ## MCP OAuth Authorization
 

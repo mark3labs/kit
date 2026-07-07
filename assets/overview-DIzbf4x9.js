@@ -555,6 +555,12 @@ for the full surface.</p>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShouldCompact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Compact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Token estimates count every message part (tool-call arguments, tool results,
+reasoning, file attachments), and after the first turn the real API-reported
+token count is preferred over the heuristic. Compaction budgets adapt to the
+model's context and output limits when left at their zero values; pass a
+<code>*kit.CompactionOptions</code> as the second argument to <code>Compact</code> to override
+them — see <a href="/sdk/options#compactionoptions">SDK options → CompactionOptions</a>.</p>
 <h2 id="provider-error-classification"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-error-classification"><span class="icon icon-link"></span></a>Provider error classification</h2>
 <p>Provider failures are wrapped with exported sentinels so you can branch on the
 failure category with <code>errors.Is</code> instead of string-matching the underlying
@@ -1169,6 +1175,13 @@ if host.ShouldCompact() {
     result, err := host.Compact(ctx, nil, "")
 }
 \`\`\`
+
+Token estimates count every message part (tool-call arguments, tool results,
+reasoning, file attachments), and after the first turn the real API-reported
+token count is preferred over the heuristic. Compaction budgets adapt to the
+model's context and output limits when left at their zero values; pass a
+\`*kit.CompactionOptions\` as the second argument to \`Compact\` to override
+them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
 
 ## Provider error classification
 
