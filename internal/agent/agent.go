@@ -163,10 +163,21 @@ type ErrorHandler func(err error)
 // RetryHandler is called when the LLM request is retried.
 type RetryHandler func(attempt int, err error)
 
-// PrepareStepHandler is called between steps to allow message modification.
-// It receives the step number and current messages, and returns replacement
-// messages (or nil to keep unchanged).
-type PrepareStepHandler func(stepNumber int, messages []fantasy.Message) []fantasy.Message
+// PrepareStepUpdate carries per-step overrides returned by a
+// PrepareStepHandler. Nil fields leave the corresponding aspect of the step
+// unchanged.
+type PrepareStepUpdate struct {
+	// Messages, when non-nil, replaces the context window for this step.
+	Messages []fantasy.Message
+	// ToolChoice, when non-nil, overrides the tool-choice mode for this step.
+	ToolChoice *fantasy.ToolChoice
+}
+
+// PrepareStepHandler is called between steps to allow message modification
+// and per-step tool-choice control. It receives the step number and current
+// messages, and returns a PrepareStepUpdate (or nil to keep everything
+// unchanged).
+type PrepareStepHandler func(stepNumber int, messages []fantasy.Message) *PrepareStepUpdate
 
 // GenerateCallbacks consolidates all callback functions for
 // GenerateWithCallbacks into a single struct, replacing what was previously
@@ -923,8 +934,13 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 
 			// Phase 2: Run OnPrepareStep hook (if registered).
 			if hasPrepareStepHook {
-				if replacement := cb.OnPrepareStep(opts.StepNumber, result.Messages); replacement != nil {
-					result.Messages = replacement
+				if update := cb.OnPrepareStep(opts.StepNumber, result.Messages); update != nil {
+					if update.Messages != nil {
+						result.Messages = update.Messages
+					}
+					if update.ToolChoice != nil {
+						result.ToolChoice = update.ToolChoice
+					}
 				}
 			}
 

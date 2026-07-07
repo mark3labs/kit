@@ -228,6 +228,26 @@ const (
 // LLMToolInfo describes a tool's name, description, and JSON-Schema parameters.
 type LLMToolInfo = fantasy.ToolInfo
 
+// LLMToolChoice controls which tool (if any) the model is allowed or required
+// to call on a given LLM step. Use the LLMToolChoice* constants for the
+// generic modes, or [LLMSpecificToolChoice] to force a single named tool.
+type LLMToolChoice = fantasy.ToolChoice
+
+// LLMToolChoice mode constants mirror the provider's tool-choice values.
+const (
+	// LLMToolChoiceNone forbids tool calls for the step.
+	LLMToolChoiceNone = fantasy.ToolChoiceNone
+	// LLMToolChoiceAuto lets the model decide whether to call tools. This is
+	// the default behaviour when no tool choice is set.
+	LLMToolChoiceAuto = fantasy.ToolChoiceAuto
+	// LLMToolChoiceRequired forces the model to call some tool on the step.
+	LLMToolChoiceRequired = fantasy.ToolChoiceRequired
+)
+
+// LLMSpecificToolChoice returns a tool choice that forces the model to call
+// the named tool on the step.
+var LLMSpecificToolChoice = fantasy.SpecificToolChoice
+
 // LLMProviderOptions carries provider-specific key/value option maps, keyed
 // by provider name (e.g. "anthropic"). Use this when configuring or
 // inspecting provider-specific tool behaviour.
