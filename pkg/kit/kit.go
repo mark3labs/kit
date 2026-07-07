@@ -2695,15 +2695,18 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			if !m.prepareStep.hasHooks() {
 				return nil
 			}
-			return func(stepNumber int, messages []fantasy.Message) []fantasy.Message {
+			return func(stepNumber int, messages []fantasy.Message) *agent.PrepareStepUpdate {
 				hookResult := m.prepareStep.run(PrepareStepHook{
 					StepNumber: stepNumber,
 					Messages:   messages,
 				})
-				if hookResult != nil && hookResult.Messages != nil {
-					return hookResult.Messages
+				if hookResult == nil || (hookResult.Messages == nil && hookResult.ToolChoice == nil) {
+					return nil
 				}
-				return nil
+				return &agent.PrepareStepUpdate{
+					Messages:   hookResult.Messages,
+					ToolChoice: hookResult.ToolChoice,
+				}
 			}
 		}(),
 	})

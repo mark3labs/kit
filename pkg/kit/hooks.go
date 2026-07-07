@@ -138,11 +138,24 @@ type PrepareStepHook struct {
 	Messages []LLMMessage
 }
 
-// PrepareStepResult can replace the context window between steps.
+// PrepareStepResult can replace the context window and override the
+// tool-choice mode between steps.
 type PrepareStepResult struct {
 	// Messages replaces the entire context window for this step. If nil,
 	// the original messages (including any steering) are used unchanged.
 	Messages []LLMMessage
+	// ToolChoice, when non-nil, overrides the tool-choice mode for this step
+	// only. Use [LLMToolChoiceRequired] or [LLMSpecificToolChoice] to force a
+	// tool call, [LLMToolChoiceNone] to forbid tool calls, or
+	// [LLMToolChoiceAuto] to explicitly restore the default. If nil, the
+	// provider default (auto) is used.
+	//
+	// Note that a turn only ends when the model stops emitting tool calls, so
+	// forcing a tool choice on every step prevents the turn from finishing.
+	// Callers forcing a tool call should flip back to nil (or
+	// LLMToolChoiceAuto) on subsequent steps once the desired call has been
+	// observed.
+	ToolChoice *LLMToolChoice
 }
 
 // ---------------------------------------------------------------------------
@@ -275,12 +288,14 @@ func (m *Kit) OnBeforeCompact(p HookPriority, h func(BeforeCompactHook) *BeforeC
 // OnPrepareStep registers a hook that fires between steps within a multi-step
 // agent turn, after steering messages are injected and before the messages are
 // sent to the LLM. Return a non-nil PrepareStepResult with Messages to replace
-// the entire context window for this step. Hooks execute in priority order;
-// the first non-nil result wins. Returns an unregister function.
+// the entire context window for this step, and/or with ToolChoice to override
+// the tool-choice mode for this step. Hooks execute in priority order; the
+// first non-nil result wins. Returns an unregister function.
 //
 // This is the most powerful interception point in the agent lifecycle. It
 // enables patterns like transforming tool results, dynamic tool filtering,
-// and mid-turn context injection.
+// mid-turn context injection, and forcing a specific tool call on a step
+// (e.g. guaranteeing a structured-output capture tool is invoked).
 func (m *Kit) OnPrepareStep(p HookPriority, h func(PrepareStepHook) *PrepareStepResult) func() {
 	return m.prepareStep.register(p, h)
 }

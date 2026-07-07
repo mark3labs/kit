@@ -578,6 +578,45 @@ func TestPrepareStepHookRegistry(t *testing.T) {
 	}
 }
 
+// TestPrepareStepHookToolChoice verifies that a PrepareStep hook can set a
+// per-step tool-choice override without replacing messages.
+func TestPrepareStepHookToolChoice(t *testing.T) {
+	hr := newHookRegistry[PrepareStepHook, PrepareStepResult]()
+
+	forced := LLMSpecificToolChoice("record_result")
+	hr.register(HookPriorityNormal, func(h PrepareStepHook) *PrepareStepResult {
+		if h.StepNumber == 0 {
+			return &PrepareStepResult{ToolChoice: &forced}
+		}
+		return nil
+	})
+
+	input := PrepareStepHook{
+		StepNumber: 0,
+		Messages:   []LLMMessage{NewLLMUserMessage("hello")},
+	}
+	result := hr.run(input)
+	if result == nil {
+		t.Fatal("expected non-nil result for step 0")
+		return
+	}
+	if result.Messages != nil {
+		t.Errorf("expected nil Messages (unchanged), got %d messages", len(result.Messages))
+	}
+	if result.ToolChoice == nil {
+		t.Fatal("expected ToolChoice to be set")
+	}
+	if *result.ToolChoice != forced {
+		t.Errorf("expected ToolChoice %q, got %q", forced, *result.ToolChoice)
+	}
+
+	// Step 1 — no override.
+	input.StepNumber = 1
+	if result := hr.run(input); result != nil {
+		t.Errorf("expected nil result for step 1, got %+v", result)
+	}
+}
+
 // TestPrepareStepHookPriority verifies that PrepareStep hooks respect priority ordering.
 func TestPrepareStepHookPriority(t *testing.T) {
 	hr := newHookRegistry[PrepareStepHook, PrepareStepResult]()
