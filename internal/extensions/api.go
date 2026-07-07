@@ -703,13 +703,19 @@ type Context struct {
 	//   })
 	ReloadExtensions func() error
 
-	// SpawnSubagent spawns a child Kit instance to perform a task autonomously.
-	// The subagent runs as a separate subprocess with full tool access but
-	// isolated session and extensions (--no-session --no-extensions).
+	// SpawnSubagent spawns an in-process child Kit instance to perform a
+	// task autonomously. The subagent gets its own session, event bus, and
+	// agent loop but shares the parent's provider configuration (API keys,
+	// model settings). It inherits the parent's active tools minus the
+	// subagent tool (no recursion) and does not load extensions. The
+	// child's session is persisted by default so it can be inspected or
+	// replayed; set config.NoSession for ephemeral runs.
 	//
 	// When config.Blocking is true, blocks until completion and returns the
-	// result directly (handle is nil). When false, returns immediately with
-	// a handle for monitoring/cancellation.
+	// result directly (handle is nil). When false (default), the subagent
+	// runs in a background goroutine and SpawnSubagent returns immediately
+	// with a non-nil handle (result is nil); OnComplete and OnEvent fire
+	// asynchronously.
 	//
 	// Example — blocking call:
 	//
@@ -729,13 +735,13 @@ type Context struct {
 	//   handle, _, _ := ctx.SpawnSubagent(ext.SubagentConfig{
 	//       Prompt: "Write unit tests for UserService",
 	//       OnOutput: func(chunk string) {
-	//           // Live output streaming
+	//           // Live assistant text streaming
 	//       },
 	//       OnComplete: func(result ext.SubagentResult) {
 	//           ctx.SendMessage("Subagent finished:\n" + result.Response)
 	//       },
 	//   })
-	//   // handle.Kill() to cancel, handle.Wait() to block
+	//   // handle.Kill() to cancel, handle.Wait() to block, handle.Done() to select
 	SpawnSubagent func(SubagentConfig) (*SubagentHandle, *SubagentResult, error)
 
 	// -------------------------------------------------------------------------

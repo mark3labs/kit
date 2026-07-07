@@ -112,12 +112,17 @@ func Init(api ext.API) {
 			ctx.PrintInfo(fmt.Sprintf("Spawning background subagent for: %s", task))
 
 			start := time.Now()
+			var chunkMu sync.Mutex
+			chunks := 0
 			handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 				Prompt:  task,
 				Timeout: 2 * time.Minute,
 				OnOutput: func(chunk string) {
-					// Live output - could update a widget here
-					fmt.Print(chunk)
+					// Live assistant text - could update a widget here.
+					// (Do not print to stdout: it would corrupt the TUI.)
+					chunkMu.Lock()
+					chunks++
+					chunkMu.Unlock()
 				},
 				OnComplete: func(result ext.SubagentResult) {
 					elapsed := time.Since(start)
@@ -137,7 +142,11 @@ func Init(api ext.API) {
 						return
 					}
 
-					msg := fmt.Sprintf("Background subagent completed in %ds", int(elapsed.Seconds()))
+					chunkMu.Lock()
+					n := chunks
+					chunkMu.Unlock()
+
+					msg := fmt.Sprintf("Background subagent completed in %ds (%d text chunks)", int(elapsed.Seconds()), n)
 					if result.Usage != nil {
 						msg += fmt.Sprintf(" (tokens: %d in / %d out)", result.Usage.InputTokens, result.Usage.OutputTokens)
 					}
@@ -149,6 +158,9 @@ func Init(api ext.API) {
 
 			if err != nil {
 				return fmt.Sprintf("Spawn error: %v", err), nil
+			}
+			if handle == nil {
+				return "Spawn error: no handle returned", nil
 			}
 
 			return fmt.Sprintf("Background subagent spawned (ID: %s). Results will be delivered when complete.", handle.ID), nil

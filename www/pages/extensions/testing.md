@@ -448,7 +448,7 @@ The test harness has these intentional limitations:
 
 - **No TUI rendering** — Widgets are recorded but not rendered visually
 - **Prompts return configured values** — Pre-configure prompt results in tests
-- **Subagents don't spawn real processes** — `SpawnSubagent()` returns nil/empty results
+- **Subagents don't run** — `SpawnSubagent()` returns nil handle/result (no child Kit instance is started)
 - **LLM completions are mocked** — `Complete()` returns empty responses
 - **Some context methods are no-ops** — `Exit()`, `SetActiveTools()`, etc. don't have side effects
 
