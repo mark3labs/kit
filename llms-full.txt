@@ -166,12 +166,32 @@ Subagents run as separate in-process Kit instances with full tool access (except
 Extensions can spawn subagents programmatically:
 
 ```go
-result := ctx.SpawnSubagent(ext.SubagentConfig{
-    Task:         "Review this code for security issues",
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Review this code for security issues",
     Model:        "anthropic/claude-sonnet-latest",
     SystemPrompt: "You are a security auditor.",
+    Blocking:     true,
 })
 ```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (result is nil); use `OnComplete`/`OnEvent` callbacks or the handle to observe the run:
+
+```go
+handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt: "Write unit tests for UserService",
+    OnOutput: func(chunk string) {
+        // Live assistant text chunks (e.g. update a widget)
+    },
+    OnComplete: func(result ext.SubagentResult) {
+        ctx.SendMessage("Subagent finished:\n" + result.Response)
+    },
+})
+// handle.Kill()   — cancel the running subagent
+// handle.Wait()   — block until completion, returns SubagentResult
+// <-handle.Done() — channel that closes on completion
+```
+
+Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the `subagent` tool, and do not load extensions. Sessions are persisted by default; set `NoSession: true` for ephemeral runs.
 
 ### Monitoring subagents from extensions
 
@@ -1351,12 +1371,15 @@ api.RegisterOption(ext.OptionDef{
 Spawn in-process child Kit instances:
 
 ```go
-result := ctx.SpawnSubagent(ext.SubagentConfig{
-    Task:         "Analyze the test files and summarize coverage",
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Analyze the test files and summarize coverage",
     Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a test analysis expert.",
+    Blocking:     true,
 })
 ```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (`handle.Wait()`, `handle.Done()`, `handle.Kill()`); use `OnComplete`/`OnEvent` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
 
 ### Monitoring subagents spawned by the main agent
 
@@ -2380,7 +2403,7 @@ The test harness has these intentional limitations:
 
 - **No TUI rendering** — Widgets are recorded but not rendered visually
 - **Prompts return configured values** — Pre-configure prompt results in tests
-- **Subagents don't spawn real processes** — `SpawnSubagent()` returns nil/empty results
+- **Subagents don't run** — `SpawnSubagent()` returns nil handle/result (no child Kit instance is started)
 - **LLM completions are mocked** — `Complete()` returns empty responses
 - **Some context methods are no-ops** — `Exit()`, `SetActiveTools()`, etc. don't have side effects
 

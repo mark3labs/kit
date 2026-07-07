@@ -7,7 +7,7 @@
 <meta name="description" content="Multi-agent orchestration with Kit subagents.">
 <link rel="canonical" href="/advanced/subagents">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-TAYuvvSh.js"></script>
+<script type="module" src="/assets/index-RGUZn103.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Subagents","description":"Multi-agent orchestration with Kit subagents.","url":"https://go-kit.dev/advanced/subagents","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -62,12 +62,32 @@ Subagents run as separate in-process Kit instances with full tool access (except
 Extensions can spawn subagents programmatically:
 
 ```go
-result := ctx.SpawnSubagent(ext.SubagentConfig{
-    Task:         "Review this code for security issues",
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Review this code for security issues",
     Model:        "anthropic/claude-sonnet-latest",
     SystemPrompt: "You are a security auditor.",
+    Blocking:     true,
 })
 ```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (result is nil); use `OnComplete`/`OnEvent` callbacks or the handle to observe the run:
+
+```go
+handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt: "Write unit tests for UserService",
+    OnOutput: func(chunk string) {
+        // Live assistant text chunks (e.g. update a widget)
+    },
+    OnComplete: func(result ext.SubagentResult) {
+        ctx.SendMessage("Subagent finished:\n" + result.Response)
+    },
+})
+// handle.Kill()   — cancel the running subagent
+// handle.Wait()   — block until completion, returns SubagentResult
+// <-handle.Done() — channel that closes on completion
+```
+
+Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the `subagent` tool, and do not load extensions. Sessions are persisted by default; set `NoSession: true` for ephemeral runs.
 
 ### Monitoring subagents from extensions
 

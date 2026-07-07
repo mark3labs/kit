@@ -52,11 +52,26 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <p>Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.</p>
 <h2 id="extension-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-subagents"><span class="icon icon-link"></span></a>Extension subagents</h2>
 <p>Extensions can spawn subagents programmatically:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Task:         </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Review this code for security issues"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Review this code for security issues"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-latest"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a security auditor."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Blocking:     </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>With <code>Blocking: false</code> (the default), the subagent runs in a background goroutine and <code>SpawnSubagent</code> returns immediately with a non-nil handle (result is nil); use <code>OnComplete</code>/<code>OnEvent</code> callbacks or the handle to observe the run:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">handle, _, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Write unit tests for UserService"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    OnOutput: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">chunk</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Live assistant text chunks (e.g. update a widget)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    OnComplete: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">result</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SendMessage</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Subagent finished:</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.Response)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// handle.Kill()   — cancel the running subagent</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// handle.Wait()   — block until completion, returns SubagentResult</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// &lt;-handle.Done() — channel that closes on completion</span></span></code></pre>
+<p>Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the <code>subagent</code> tool, and do not load extensions. Sessions are persisted by default; set <code>NoSession: true</code> for ephemeral runs.</p>
 <h3 id="monitoring-subagents-from-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-from-extensions"><span class="icon icon-link"></span></a>Monitoring subagents from extensions</h3>
 <p>When the LLM (not the extension itself) spawns a subagent using the <code>subagent</code> tool, extensions can monitor its activity in real-time using three lifecycle event handlers:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Track active subagents and display their output</span></span>
@@ -195,12 +210,32 @@ Subagents run as separate in-process Kit instances with full tool access (except
 Extensions can spawn subagents programmatically:
 
 \`\`\`go
-result := ctx.SpawnSubagent(ext.SubagentConfig{
-    Task:         "Review this code for security issues",
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Review this code for security issues",
     Model:        "anthropic/claude-sonnet-latest",
     SystemPrompt: "You are a security auditor.",
+    Blocking:     true,
 })
 \`\`\`
+
+With \`Blocking: false\` (the default), the subagent runs in a background goroutine and \`SpawnSubagent\` returns immediately with a non-nil handle (result is nil); use \`OnComplete\`/\`OnEvent\` callbacks or the handle to observe the run:
+
+\`\`\`go
+handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt: "Write unit tests for UserService",
+    OnOutput: func(chunk string) {
+        // Live assistant text chunks (e.g. update a widget)
+    },
+    OnComplete: func(result ext.SubagentResult) {
+        ctx.SendMessage("Subagent finished:\\n" + result.Response)
+    },
+})
+// handle.Kill()   — cancel the running subagent
+// handle.Wait()   — block until completion, returns SubagentResult
+// <-handle.Done() — channel that closes on completion
+\`\`\`
+
+Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the \`subagent\` tool, and do not load extensions. Sessions are persisted by default; set \`NoSession: true\` for ephemeral runs.
 
 ### Monitoring subagents from extensions
 
