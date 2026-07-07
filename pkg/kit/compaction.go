@@ -16,15 +16,25 @@ type ContextStats struct {
 	MessageCount    int     // Number of messages in the conversation
 }
 
-// defaultReserveTokens is the number of tokens to keep free in the context
-// window as a safety margin during compaction checks.
-const defaultReserveTokens = 16384
-
 // EstimateContextTokens returns the estimated token count of the current
 // conversation based on session messages.
 func (m *Kit) EstimateContextTokens() int {
 	messages := m.session.GetMessages()
 	return compaction.EstimateMessageTokens(messages)
+}
+
+// reserveTokensForModel returns the response reserve budget: an explicit
+// CompactionOptions override when set, otherwise a value adapted to the
+// model's output limit (min(16384, maxOutput)).
+func (m *Kit) reserveTokensForModel(info *ModelInfo) int {
+	if m.compactionOpts != nil && m.compactionOpts.ReserveTokens > 0 {
+		return m.compactionOpts.ReserveTokens
+	}
+	maxOutput := 0
+	if info != nil {
+		maxOutput = info.Limit.Output
+	}
+	return compaction.AdaptiveReserveTokens(maxOutput)
 }
 
 // ShouldCompact reports whether the conversation is near the model's context
@@ -45,10 +55,7 @@ func (m *Kit) ShouldCompact() bool {
 		return false
 	}
 
-	reserveTokens := defaultReserveTokens
-	if m.compactionOpts != nil && m.compactionOpts.ReserveTokens > 0 {
-		reserveTokens = m.compactionOpts.ReserveTokens
-	}
+	reserveTokens := m.reserveTokensForModel(info)
 
 	// Prefer the real API-reported token count when available.
 	m.lastInputTokensMu.RLock()
@@ -129,18 +136,24 @@ func (m *Kit) compactInternal(ctx context.Context, opts *CompactionOptions, cust
 // compactImpl performs the actual compaction work. On success it emits a
 // CompactionEvent via persistAndEmitCompaction.
 func (m *Kit) compactImpl(ctx context.Context, opts *CompactionOptions, customInstructions string, isAutomatic bool) (*CompactionResult, error) {
-	if opts == nil {
-		if m.compactionOpts != nil {
-			opts = m.compactionOpts
-		} else {
-			opts = &CompactionOptions{}
-		}
+	// Work on a copy so auto-populated model limits never mutate the
+	// caller's (or the instance's shared) options.
+	var optsCopy CompactionOptions
+	if opts != nil {
+		optsCopy = *opts
+	} else if m.compactionOpts != nil {
+		optsCopy = *m.compactionOpts
 	}
+	opts = &optsCopy
 
-	// Auto-populate context window from model info if not set.
-	if opts.ContextWindow <= 0 {
-		if info := m.GetModelInfo(); info != nil {
+	// Auto-populate model limits if not set; compaction.defaults() adapts
+	// the reserve/keep budgets to them (issue #83).
+	if info := m.GetModelInfo(); info != nil {
+		if opts.ContextWindow <= 0 {
 			opts.ContextWindow = info.Limit.Context
+		}
+		if opts.MaxOutputTokens <= 0 {
+			opts.MaxOutputTokens = info.Limit.Output
 		}
 	}
 
@@ -173,10 +186,12 @@ func (m *Kit) compactImpl(ctx context.Context, opts *CompactionOptions, customIn
 		}
 	}
 
-	// Carry forward file tracking from previous compaction.
+	// Carry forward file tracking and the prior summary (for anchored,
+	// incremental re-summarisation) from the previous compaction.
 	var prev *compaction.PreviousCompaction
 	if lastCompaction := m.session.GetLastCompaction(); lastCompaction != nil {
 		prev = &compaction.PreviousCompaction{
+			Summary:       lastCompaction.Summary,
 			ReadFiles:     lastCompaction.ReadFiles,
 			ModifiedFiles: lastCompaction.ModifiedFiles,
 		}
@@ -215,12 +230,16 @@ func (m *Kit) compactImpl(ctx context.Context, opts *CompactionOptions, customIn
 }
 
 // applyCustomCompaction handles compaction when an extension provides a
-// custom summary. It still determines the cut point and persists a
+// custom summary. It still determines the cut point (using the same
+// adaptive budget defaults as regular compaction) and persists a
 // CompactionEntry.
 func (m *Kit) applyCustomCompaction(summary string, messages []LLMMessage, opts *CompactionOptions) (*CompactionResult, error) {
 	originalTokens := compaction.EstimateMessageTokens(convertToLLMMessages(messages))
 
-	cutPoint := compaction.FindCutPoint(convertToLLMMessages(messages), opts.KeepRecentTokens)
+	resolved := *opts
+	resolved.ApplyDefaults()
+
+	cutPoint := compaction.FindCutPoint(convertToLLMMessages(messages), resolved.KeepRecentTokens)
 	if cutPoint == 0 {
 		cutPoint = len(messages) - 1
 		if cutPoint < 1 {

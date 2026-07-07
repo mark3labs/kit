@@ -550,6 +550,13 @@ if host.ShouldCompact() {
 }
 ```
 
+Token estimates count every message part (tool-call arguments, tool results,
+reasoning, file attachments), and after the first turn the real API-reported
+token count is preferred over the heuristic. Compaction budgets adapt to the
+model's context and output limits when left at their zero values; pass a
+`*kit.CompactionOptions` as the second argument to `Compact` to override
+them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
+
 ## Provider error classification
 
 Provider failures are wrapped with exported sentinels so you can branch on the

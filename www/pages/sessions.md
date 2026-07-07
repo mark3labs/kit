@@ -24,6 +24,9 @@ Each line in the session file is a JSON entry representing a message, tool call,
 When conversations grow long, Kit can compact them to free up context window space. The compaction system:
 
 - **Non-destructive**: Old messages remain on disk for history; only the LLM context is summarized
+- **Full-context token estimation**: Estimates count every message part — tool-call arguments, tool results, reasoning, and file attachments — not just plain text, so tool-heavy sessions trigger compaction on time
+- **Adaptive budgets**: The response reserve and keep-recent budgets scale with the model's context window and output limit instead of using fixed constants
+- **Anchored summaries**: When a session compacts more than once, the previous summary is fed back to the LLM and updated incrementally instead of being regenerated from scratch
 - **File tracking**: Tracks which files were read and modified across compactions
 - **Split-turn handling**: Can summarize large single turns by splitting them
 - **Tool result truncation**: Caps tool output during serialization to stay within token budgets

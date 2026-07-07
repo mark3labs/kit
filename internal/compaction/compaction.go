@@ -1,10 +1,12 @@
 // Package compaction provides context window management with token estimation,
 // compaction triggers, and LLM-based conversation summarization.
 //
-// The algorithm preserves a token budget of recent
-// messages (KeepRecentTokens, default 20 000) rather than a fixed message
-// count. Auto-compaction fires when estimated context usage exceeds
-// contextWindow − ReserveTokens.
+// The algorithm preserves a token budget of recent messages
+// (KeepRecentTokens) rather than a fixed message count. Auto-compaction
+// fires when estimated context usage exceeds contextWindow − ReserveTokens.
+// Both budgets adapt to the model's context/output limits when known (see
+// AdaptiveReserveTokens and AdaptiveKeepRecentTokens); explicit values in
+// CompactionOptions override the adaptive computation.
 //
 // Features modelled after pi's compaction system:
 //   - Tool result truncation (2000 char max) during serialisation
@@ -12,6 +14,8 @@
 //     the turn prefix is summarised separately and merged
 //   - Cumulative file tracking: read and modified files extracted from
 //     tool calls and carried forward across compactions
+//   - Anchored summaries: on re-compaction the previous summary is fed
+//     back into the prompt and updated incrementally
 package compaction
 
 import (
@@ -33,7 +37,7 @@ func estimateTokens(text string) int {
 }
 
 // EstimateMessageTokens estimates total tokens across a slice of fantasy
-// messages by summing the estimated tokens for every text part.
+// messages by summing the estimated tokens for every message part.
 func EstimateMessageTokens(messages []fantasy.Message) int {
 	total := 0
 	for _, msg := range messages {
@@ -43,15 +47,46 @@ func EstimateMessageTokens(messages []fantasy.Message) int {
 }
 
 // estimateSingleMessageTokens returns the estimated token count for one
-// message.
+// message. All part types contribute: text, reasoning, tool-call names and
+// JSON arguments, tool results, and file attachments. Tool traffic often
+// dominates agentic sessions, so counting only text parts systematically
+// undercounts context usage and triggers compaction too late (issue #83).
 func estimateSingleMessageTokens(msg fantasy.Message) int {
 	total := 0
 	for _, part := range msg.Content {
-		if tp, ok := part.(fantasy.TextPart); ok {
-			total += estimateTokens(tp.Text)
+		switch p := part.(type) {
+		case fantasy.TextPart:
+			total += estimateTokens(p.Text)
+		case fantasy.ReasoningPart:
+			total += estimateTokens(p.Text)
+		case fantasy.ToolCallPart:
+			total += estimateTokens(p.ToolName) + estimateTokens(p.Input)
+		case fantasy.ToolResultPart:
+			total += estimateToolResultTokens(p)
+		case fantasy.FilePart:
+			// Rough estimate for file/image attachments: base64
+			// encoding expands bytes by ~4/3 and providers tokenise
+			// the encoded payload, so ~3 bytes per token.
+			total += estimateTokens(p.Filename) + len(p.Data)/3
 		}
 	}
 	return total
+}
+
+// estimateToolResultTokens returns the estimated token count for a tool
+// result part, covering text, error, and media output variants.
+func estimateToolResultTokens(p fantasy.ToolResultPart) int {
+	switch out := p.Output.(type) {
+	case fantasy.ToolResultOutputContentText:
+		return estimateTokens(out.Text)
+	case fantasy.ToolResultOutputContentError:
+		if out.Error != nil {
+			return estimateTokens(out.Error.Error())
+		}
+	case fantasy.ToolResultOutputContentMedia:
+		return estimateTokens(out.Text) + len(out.Data)/4
+	}
+	return 0
 }
 
 // ---------------------------------------------------------------------------
@@ -84,22 +119,76 @@ type CompactionResult struct {
 }
 
 // CompactionOptions configures compaction behaviour. Token-based defaults
-// are applied for zero-value fields.
+// are applied for zero-value fields; when model limits (ContextWindow,
+// MaxOutputTokens) are known, the defaults adapt to them.
 type CompactionOptions struct {
-	ContextWindow    int    // Model's context window size (tokens)
-	ReserveTokens    int    // Tokens to reserve for LLM response, default 16384
-	KeepRecentTokens int    // Recent tokens to preserve (not summarised), default 20000
+	ContextWindow    int    // Model's context window size (tokens), 0 = unknown
+	MaxOutputTokens  int    // Model's max output tokens, 0 = unknown; scales the ReserveTokens default
+	ReserveTokens    int    // Tokens to reserve for LLM response, 0 = adaptive (see AdaptiveReserveTokens)
+	KeepRecentTokens int    // Recent tokens to preserve (not summarised), 0 = adaptive (see AdaptiveKeepRecentTokens)
 	SummaryPrompt    string // Custom summary prompt (empty = use default)
 }
 
-// defaults fills zero-value fields with sensible defaults.
+// Budget defaults. Explicit values in CompactionOptions always override the
+// adaptive computation.
+const (
+	// DefaultReserveTokens is the fallback response reserve when the
+	// model's output limit is unknown, and the ceiling when it is known.
+	DefaultReserveTokens = 16384
+	// DefaultKeepRecentTokens is the fallback keep-recent budget when the
+	// model's context window is unknown.
+	DefaultKeepRecentTokens = 20000
+	// minKeepRecentTokens is the floor for the adaptive keep-recent
+	// budget so at least a couple of turns always survive compaction.
+	minKeepRecentTokens = 2000
+)
+
+// AdaptiveReserveTokens returns the response reserve budget for a model with
+// the given maximum output token limit: min(DefaultReserveTokens,
+// maxOutputTokens). A model can never produce more than its output limit in
+// one response, so reserving more than that wastes usable context on
+// small-output models. Returns DefaultReserveTokens when the limit is
+// unknown (<= 0).
+func AdaptiveReserveTokens(maxOutputTokens int) int {
+	if maxOutputTokens <= 0 {
+		return DefaultReserveTokens
+	}
+	return min(DefaultReserveTokens, maxOutputTokens)
+}
+
+// AdaptiveKeepRecentTokens returns the keep-recent budget scaled to the
+// model's usable context (contextWindow − reserveTokens): a quarter of the
+// usable context, floored at 2000 tokens. Fixed budgets are wasteful on
+// small-context models (a 20k keep budget can exceed the whole window) and
+// stingy on large-context ones. Returns DefaultKeepRecentTokens when the
+// context window is unknown (<= 0).
+func AdaptiveKeepRecentTokens(contextWindow, reserveTokens int) int {
+	if contextWindow <= 0 {
+		return DefaultKeepRecentTokens
+	}
+	usable := contextWindow - reserveTokens
+	if usable <= 0 {
+		return minKeepRecentTokens
+	}
+	return max(minKeepRecentTokens, usable/4)
+}
+
+// defaults fills zero-value fields with sensible defaults, adapting to the
+// model's context/output limits when they are known.
 func (o *CompactionOptions) defaults() {
 	if o.ReserveTokens <= 0 {
-		o.ReserveTokens = 16384
+		o.ReserveTokens = AdaptiveReserveTokens(o.MaxOutputTokens)
 	}
 	if o.KeepRecentTokens <= 0 {
-		o.KeepRecentTokens = 20000
+		o.KeepRecentTokens = AdaptiveKeepRecentTokens(o.ContextWindow, o.ReserveTokens)
 	}
+}
+
+// ApplyDefaults fills zero-value fields with sensible defaults, adapting to
+// the model's context/output limits (ContextWindow, MaxOutputTokens) when
+// they are known. Explicit non-zero values are preserved.
+func (o *CompactionOptions) ApplyDefaults() {
+	o.defaults()
 }
 
 // defaultSystemPrompt is the system prompt sent to the summarisation LLM.
@@ -150,6 +239,13 @@ Use this EXACT format:
 </modified-files>
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`
+
+// anchoredSummaryInstructions is appended to the summary prompt when a
+// previous compaction's summary is available, so the LLM updates the
+// anchored summary incrementally instead of re-summarising from scratch.
+const anchoredSummaryInstructions = `
+
+An anchored summary from a previous compaction is provided at the very top inside <anchored-summary> tags. Update that anchored summary using the conversation above: preserve still-true details, remove stale details, and merge in the new facts. Output the complete updated summary in the format specified.`
 
 // ---------------------------------------------------------------------------
 // Tool result truncation
@@ -207,7 +303,7 @@ func FindCutPoint(messages []fantasy.Message, keepRecentTokens int) int {
 		return 0
 	}
 	if keepRecentTokens <= 0 {
-		keepRecentTokens = 20000
+		keepRecentTokens = DefaultKeepRecentTokens
 	}
 
 	accumulated := 0
@@ -445,9 +541,13 @@ func serializeMessages(messages []fantasy.Message) string {
 // Compact
 // ---------------------------------------------------------------------------
 
-// PreviousCompaction carries file tracking state from a prior compaction so
-// that file operations accumulate across multiple compactions.
+// PreviousCompaction carries state from a prior compaction: file tracking so
+// that file operations accumulate across multiple compactions, and the prior
+// summary text so re-compaction updates it incrementally (anchored summary)
+// instead of re-summarising from scratch and losing detail across
+// generations.
 type PreviousCompaction struct {
+	Summary       string // Prior summary text, fed back into the summarisation prompt
 	ReadFiles     []string
 	ModifiedFiles []string
 }
@@ -512,15 +612,22 @@ func Compact(
 	recentOps := extractFileOps(recentMessages)
 	ops.merge(recentOps)
 
+	// Anchored summary: feed the previous compaction's summary back into
+	// the summarisation prompt so it is updated incrementally.
+	previousSummary := ""
+	if prev != nil {
+		previousSummary = prev.Summary
+	}
+
 	// Handle split turns: when the cut lands mid-turn, summarise the turn
 	// prefix separately and merge with the history summary.
 	var summaryText string
 	var err error
 
 	if IsSplitTurn(messages, cutPoint) {
-		summaryText, err = compactSplitTurn(ctx, model, oldMessages, messages, cutPoint, opts, customInstructions, onChunk)
+		summaryText, err = compactSplitTurn(ctx, model, oldMessages, messages, cutPoint, opts, customInstructions, previousSummary, onChunk)
 	} else {
-		summaryText, err = compactNormal(ctx, model, oldMessages, opts, customInstructions, onChunk)
+		summaryText, err = compactNormal(ctx, model, oldMessages, opts, customInstructions, previousSummary, onChunk)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -573,10 +680,11 @@ func compactNormal(
 	oldMessages []fantasy.Message,
 	opts CompactionOptions,
 	customInstructions string,
+	previousSummary string,
 	onChunk StreamCallback,
 ) (string, error) {
 	conversationText := serializeMessages(oldMessages)
-	return generateSummary(ctx, model, conversationText, opts, customInstructions, onChunk)
+	return generateSummary(ctx, model, conversationText, opts, customInstructions, previousSummary, onChunk)
 }
 
 // compactSplitTurn handles the case where the cut point lands mid-turn.
@@ -596,6 +704,7 @@ func compactSplitTurn(
 	cutPoint int,
 	opts CompactionOptions,
 	customInstructions string,
+	previousSummary string,
 	onChunk StreamCallback,
 ) (string, error) {
 	// Find where the split turn starts.
@@ -613,13 +722,17 @@ func compactSplitTurn(
 	var historySummary string
 	var err error
 
-	// Generate history summary if there are complete turns before the split.
+	// Generate history summary if there are complete turns before the
+	// split. The anchored previous summary belongs with the history
+	// portion; when there is no history call it is threaded into the
+	// turn-prefix call below instead.
 	if len(historyMessages) >= 2 {
 		historySummary, err = generateSummary(ctx, model,
-			serializeMessages(historyMessages), opts, "", onChunk)
+			serializeMessages(historyMessages), opts, "", previousSummary, onChunk)
 		if err != nil {
 			return "", fmt.Errorf("split turn history summary failed: %w", err)
 		}
+		previousSummary = ""
 	}
 
 	// Stream the separator between history and turn prefix summaries.
@@ -638,7 +751,7 @@ func compactSplitTurn(
 		turnPrefixPrompt += "\n\nAdditional instructions: " + customInstructions
 	}
 
-	turnPrefixSummary, err := generateSummary(ctx, model, turnPrefixText, opts, turnPrefixPrompt, onChunk)
+	turnPrefixSummary, err := generateSummary(ctx, model, turnPrefixText, opts, turnPrefixPrompt, previousSummary, onChunk)
 	if err != nil {
 		return "", fmt.Errorf("split turn prefix summary failed: %w", err)
 	}
@@ -653,7 +766,32 @@ func compactSplitTurn(
 	return historySummary, nil
 }
 
+// buildSummaryPrompt assembles the full prompt sent to the summarisation
+// LLM: an optional anchored previous summary, the serialised conversation,
+// and the summary instructions (with anchored-update and custom-instruction
+// addenda when applicable).
+func buildSummaryPrompt(conversationText string, opts CompactionOptions, customInstructions, previousSummary string) string {
+	userPrompt := opts.SummaryPrompt
+	if userPrompt == "" {
+		userPrompt = defaultSummaryPrompt
+	}
+	if previousSummary != "" {
+		userPrompt += anchoredSummaryInstructions
+	}
+	if customInstructions != "" {
+		userPrompt += "\n\nAdditional instructions: " + customInstructions
+	}
+
+	prompt := conversationText + "\n\n" + userPrompt
+	if previousSummary != "" {
+		prompt = "<anchored-summary>\n" + previousSummary + "\n</anchored-summary>\n\n" + prompt
+	}
+	return prompt
+}
+
 // generateSummary calls the LLM to produce a structured summary.
+// If previousSummary is non-empty it is included as an anchored summary that
+// the LLM updates with the new conversation instead of starting from scratch.
 // If onChunk is provided, the summary is streamed using Agent.Stream().
 func generateSummary(
 	ctx context.Context,
@@ -661,21 +799,14 @@ func generateSummary(
 	conversationText string,
 	opts CompactionOptions,
 	customInstructions string,
+	previousSummary string,
 	onChunk StreamCallback,
 ) (string, error) {
-	userPrompt := opts.SummaryPrompt
-	if userPrompt == "" {
-		userPrompt = defaultSummaryPrompt
-	}
-	if customInstructions != "" {
-		userPrompt += "\n\nAdditional instructions: " + customInstructions
-	}
+	prompt := buildSummaryPrompt(conversationText, opts, customInstructions, previousSummary)
 
 	summaryAgent := fantasy.NewAgent(model,
 		fantasy.WithSystemPrompt(defaultSystemPrompt),
 	)
-
-	prompt := conversationText + "\n\n" + userPrompt
 
 	// Use streaming if onChunk is provided.
 	if onChunk != nil {
