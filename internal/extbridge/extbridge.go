@@ -79,8 +79,8 @@ func SpawnSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfi
 func dispatchSubagent(ctx context.Context, run func(context.Context) (*extensions.SubagentResult, error), cfg extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
 	if cfg.Blocking {
 		result, err := run(ctx)
-		if cfg.OnComplete != nil && result != nil {
-			cfg.OnComplete(*result)
+		if cfg.OnComplete != nil {
+			cfg.OnComplete(completionResult(result, err))
 		}
 		return nil, result, err
 	}
@@ -89,16 +89,24 @@ func dispatchSubagent(ctx context.Context, run func(context.Context) (*extension
 	handle := extensions.NewSubagentHandle(newSubagentID(), cancel)
 	go func() {
 		defer cancel()
-		result, _ := run(runCtx)
-		if result == nil {
-			result = &extensions.SubagentResult{ExitCode: 1}
-		}
-		handle.Complete(*result)
+		final := completionResult(run(runCtx))
+		handle.Complete(final)
 		if cfg.OnComplete != nil {
-			cfg.OnComplete(*result)
+			cfg.OnComplete(final)
 		}
 	}()
 	return handle, nil, nil
+}
+
+// completionResult normalizes a run outcome for delivery to
+// SubagentHandle.Complete and cfg.OnComplete: a nil result (defensive —
+// runSubagent always returns non-nil) becomes a failure result carrying
+// err, so the error is never silently dropped.
+func completionResult(result *extensions.SubagentResult, err error) extensions.SubagentResult {
+	if result == nil {
+		return extensions.SubagentResult{Error: err, ExitCode: 1}
+	}
+	return *result
 }
 
 // runSubagent executes one subagent run synchronously via the Kit SDK and

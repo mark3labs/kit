@@ -142,8 +142,9 @@ func TestDispatchSubagent_KillCancelsRunContext(t *testing.T) {
 }
 
 func TestDispatchSubagent_NilResultFallback(t *testing.T) {
+	wantErr := errors.New("boom")
 	run := func(context.Context) (*extensions.SubagentResult, error) {
-		return nil, errors.New("boom")
+		return nil, wantErr
 	}
 
 	handle, _, err := dispatchSubagent(context.Background(), run, extensions.SubagentConfig{})
@@ -154,6 +155,38 @@ func TestDispatchSubagent_NilResultFallback(t *testing.T) {
 	got := handle.Wait()
 	if got.ExitCode != 1 {
 		t.Errorf("nil-result fallback exit code = %d, want 1", got.ExitCode)
+	}
+	if !errors.Is(got.Error, wantErr) {
+		t.Errorf("nil-result fallback error = %v, want %v (run error must not be dropped)", got.Error, wantErr)
+	}
+}
+
+func TestDispatchSubagent_BlockingNilResultStillFiresOnComplete(t *testing.T) {
+	wantErr := errors.New("boom")
+	run := func(context.Context) (*extensions.SubagentResult, error) {
+		return nil, wantErr
+	}
+
+	var completed *extensions.SubagentResult
+	cfg := extensions.SubagentConfig{
+		Blocking: true,
+		OnComplete: func(r extensions.SubagentResult) {
+			completed = &r
+		},
+	}
+
+	_, result, err := dispatchSubagent(context.Background(), run, cfg)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("dispatch error = %v, want %v", err, wantErr)
+	}
+	if result != nil {
+		t.Errorf("result = %+v, want nil passthrough", result)
+	}
+	if completed == nil {
+		t.Fatal("OnComplete must fire even when the run returns a nil result")
+	}
+	if !errors.Is(completed.Error, wantErr) || completed.ExitCode != 1 {
+		t.Errorf("OnComplete got %+v, want Error=%v ExitCode=1", completed, wantErr)
 	}
 }
 
