@@ -26,3 +26,30 @@ func (m *Kit) ConfigBoolForTest(key string) bool { return m.v.GetBool(key) }
 func (m *Kit) ConfigStringSliceForTest(key string) []string {
 	return m.v.GetStringSlice(key)
 }
+
+// AdjustPostCompactionTokensForTest exposes adjustPostCompactionTokens to the
+// external kit_test package.
+func AdjustPostCompactionTokensForTest(lastInputTokens, originalTokens, compactedTokens int) int {
+	return adjustPostCompactionTokens(lastInputTokens, originalTokens, compactedTokens)
+}
+
+// SetLastInputTokensForTest sets the API-reported token baseline, simulating
+// a completed API turn.
+func (m *Kit) SetLastInputTokensForTest(n int) {
+	m.lastInputTokensMu.Lock()
+	m.lastInputTokens = n
+	m.lastInputTokensMu.Unlock()
+}
+
+// LastInputTokensForTest returns the current API-reported token baseline.
+func (m *Kit) LastInputTokensForTest() int {
+	m.lastInputTokensMu.RLock()
+	defer m.lastInputTokensMu.RUnlock()
+	return m.lastInputTokens
+}
+
+// PersistAndEmitCompactionForTest exposes persistAndEmitCompaction so tests
+// can exercise the post-compaction token adjustment without an LLM call.
+func (m *Kit) PersistAndEmitCompactionForTest(summary, firstKeptEntryID string, originalTokens, compactedTokens, messagesRemoved int) error {
+	return m.persistAndEmitCompaction(summary, firstKeptEntryID, originalTokens, compactedTokens, messagesRemoved, nil, nil)
+}

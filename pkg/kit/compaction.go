@@ -36,6 +36,9 @@ func (m *Kit) EstimateContextTokens() int {
 // the real count is used instead of the text-based heuristic. This is
 // significantly more accurate because it includes system prompts, tool
 // definitions, and other overhead that the heuristic cannot account for.
+// After compaction the baseline is adjusted down by the estimated reduction
+// rather than discarded, so the overhead stays accounted for until the next
+// API response refreshes the count.
 func (m *Kit) ShouldCompact() bool {
 	info := m.GetModelInfo()
 	if info == nil || info.Limit.Context <= 0 {
@@ -273,11 +276,16 @@ func (m *Kit) persistAndEmitCompaction(
 		return fmt.Errorf("failed to persist compaction entry: %w", err)
 	}
 
-	// Reset the API-reported token count so GetContextStats() and
-	// ShouldCompact() don't use stale pre-compaction values. The next
-	// API call will set the accurate post-compaction count.
+	// Adjust the API-reported token count down by the heuristic reduction
+	// instead of zeroing it. Zeroing forced ShouldCompact() and
+	// GetContextStats() back onto the text-only heuristic, which ignores
+	// the system prompt, tool schemas, and tool traffic — it undercounted
+	// badly enough that auto-compaction never re-fired and the next API
+	// call could overflow the real context window (issue #80). Keeping the
+	// API baseline preserves that overhead; the next API response replaces
+	// the estimate with the accurate post-compaction count.
 	m.lastInputTokensMu.Lock()
-	m.lastInputTokens = 0
+	m.lastInputTokens = adjustPostCompactionTokens(m.lastInputTokens, originalTokens, compactedTokens)
 	m.lastInputTokensMu.Unlock()
 
 	m.events.emit(CompactionEvent{
@@ -289,6 +297,31 @@ func (m *Kit) persistAndEmitCompaction(
 		ModifiedFiles:   modifiedFiles,
 	})
 	return nil
+}
+
+// adjustPostCompactionTokens computes the post-compaction context token
+// baseline from the last API-reported count and the heuristic estimates of
+// the conversation before and after compaction.
+//
+// The API-reported count includes overhead the text heuristic cannot see
+// (system prompt, tool schemas, tool-call traffic), so rather than discarding
+// it we subtract the heuristic reduction (original − compacted) from it:
+//
+//	adjusted = lastInputTokens − (originalTokens − compactedTokens)
+//
+// The result is clamped to at least compactedTokens (the context can never be
+// smaller than the heuristic estimate of the messages actually kept) and, via
+// the non-negative reduction, to at most lastInputTokens.
+//
+// Returns 0 when lastInputTokens is 0 (no API turn has completed yet), in
+// which case callers fall back to the pure heuristic.
+func adjustPostCompactionTokens(lastInputTokens, originalTokens, compactedTokens int) int {
+	if lastInputTokens <= 0 {
+		return 0
+	}
+	reduction := max(originalTokens-compactedTokens, 0)
+	adjusted := max(lastInputTokens-reduction, compactedTokens)
+	return adjusted
 }
 
 // Conversion helpers are in llm_convert.go.
