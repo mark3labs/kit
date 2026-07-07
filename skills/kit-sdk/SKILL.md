@@ -1071,6 +1071,32 @@ host.OnToolCall(func(e kit.ToolCallEvent) {
 })
 ```
 
+### Named agents
+
+Named agents are reusable subagent presets discovered from markdown files
+(`.agents/agents/*.md`, `.kit/agents/*.md`, `~/.config/kit/agents/*.md`)
+plus the built-ins `general` and `explore`. The filename is the agent name;
+YAML frontmatter sets `description` (required), `model`, `tools` (allowlist),
+`temperature`, `timeout` (seconds), `hidden`, `disabled`; the body is the
+system prompt. They are advertised in the subagent tool description so the
+LLM can delegate by name.
+
+```go
+defs := host.GetAgents()             // discovered definitions (snapshot)
+def, ok := host.GetAgent("explore")  // lookup by name
+
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // preset prompt + read-only tool allowlist
+    // Explicit Model/SystemPrompt/Timeout/Temperature override the preset.
+})
+
+// Standalone discovery without a Kit instance:
+defs, err := kit.LoadAgentDefinitions("") // "" = current working directory
+```
+
+Disable discovery with the `no-agents` config key, `KIT_NO_AGENTS=true`, or `kit.Options{NoAgents: true}`.
+
 ---
 
 ## Extension API

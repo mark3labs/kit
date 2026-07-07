@@ -619,4 +619,19 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 })
 ```
 
+Set `Agent` to a named agent definition (discovered from `.agents/agents/*.md`,
+`.kit/agents/*.md`, `~/.config/kit/agents/*.md`, or the built-ins `general` /
+`explore`) to apply its preset system prompt, model, tool allowlist, and
+timeout:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // read-only preset
+})
+```
+
+See [Subagents](/advanced/subagents#named-agents) for definition file format
+and discovery precedence.
+
 See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.

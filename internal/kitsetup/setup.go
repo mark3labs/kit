@@ -11,6 +11,7 @@ import (
 
 	"github.com/mark3labs/kit/internal/agent"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
@@ -40,6 +41,9 @@ type AgentSetupOptions struct {
 	// ExtraTools are additional tools added alongside core, MCP, and extension
 	// tools. They do not replace the defaults — they extend them.
 	ExtraTools []fantasy.AgentTool
+	// NamedAgents lists discovered named agent definitions to advertise in
+	// the subagent tool description.
+	NamedAgents []core.NamedAgentSpec
 	// ToolWrapper is an optional function that wraps tools after extension
 	// wrapping. Used by the SDK hook system. Both wrappers compose:
 	// extension wrapper runs first (inner), then this wrapper (outer).
@@ -258,6 +262,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		CoreToolList:      opts.CoreToolList,
 		ToolWrapper:       toolWrapper,
 		ExtraTools:        extraTools,
+		NamedAgents:       opts.NamedAgents,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 		MCPTaskConfig:     opts.MCPTaskConfig,
 	})

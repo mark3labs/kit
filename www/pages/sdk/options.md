@@ -74,6 +74,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Feature toggles
     NoExtensions:   true,               // disable Yaegi extension loading
     NoContextFiles: true,               // disable automatic AGENTS.md loading
+    NoAgents:       true,               // disable named agent discovery (.agents/agents/, built-ins)
 
     // Session (advanced)
     SessionManager: myCustomSession,    // custom SessionManager implementation
@@ -165,6 +166,7 @@ when embedding Kit as a library.
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+| `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
 
 ### Skills & configuration
 

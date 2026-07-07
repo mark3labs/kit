@@ -39,6 +39,7 @@ Kit includes a built-in `subagent` tool that the LLM can use to delegate tasks t
 ```
 subagent(
     task: "Analyze the test files and summarize coverage",
+    agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
     timeout_seconds: 300                               // optional, max 1800
@@ -46,6 +47,54 @@ subagent(
 ```
 
 Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.
+
+## Named agents
+
+Named agents are reusable subagent presets defined in markdown files. They are advertised in the `subagent` tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.
+
+### Definition files
+
+The filename (minus `.md`) is the agent name; YAML frontmatter configures it; the markdown body is the system prompt:
+
+```markdown
+---
+description: Reviews code for quality and best practices   # required
+model: anthropic/claude-sonnet-4                           # optional model override
+tools: [read, grep, find, ls]                              # optional tool allowlist
+temperature: 0.1                                           # optional
+timeout: 300                                               # optional, seconds
+hidden: false                                              # optional: resolvable but not advertised
+disabled: false                                            # optional: remove this agent (and anything it shadows)
+---
+You are in code review mode. Focus on correctness, security, and
+maintainability. Report findings with file paths and line references.
+```
+
+### Discovery and precedence
+
+Definitions are discovered from (highest to lowest precedence):
+
+| Location | Scope |
+|----------|-------|
+| `<project>/.agents/agents/*.md` | Project-local (cross-client convention) |
+| `<project>/.kit/agents/*.md` | Project-local (Kit-specific) |
+| `~/.config/kit/agents/*.md` | User-level (`$XDG_CONFIG_HOME` aware) |
+| Built-in | Ships with Kit |
+
+Higher-precedence definitions override lower ones by name, so a project can replace — or disable via `disabled: true` — a built-in or user-level agent.
+
+Two built-in agents ship with Kit:
+
+| Agent | Tools | Purpose |
+|-------|-------|---------|
+| `general` | all tools | General-purpose research and multi-step task execution |
+| `explore` | `read`, `grep`, `find`, `ls` | Read-only codebase exploration |
+
+### Tool allowlists
+
+An agent without a `tools:` list gets the default subagent tool set (everything except `subagent`, preventing recursion). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
+
+Disable named-agent discovery entirely with the `no-agents` config key or `KIT_NO_AGENTS=true`.
 
 ## Extension subagents
 
@@ -158,11 +207,30 @@ The SDK provides in-process subagent spawning:
 
 ```go
 result, err := host.Subagent(ctx, kit.SubagentConfig{
-    Task:         "Summarize the changes in this PR",
+    Prompt:       "Summarize the changes in this PR",
     Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a code reviewer.",
     Timeout:      5 * time.Minute,
 })
+```
+
+Set `Agent` to run the task with a [named agent](#named-agents)'s presets; explicitly set fields still win:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // preset prompt + read-only tool allowlist
+})
+```
+
+Inspect the discovered definitions:
+
+```go
+defs := host.GetAgents()             // snapshot of discovered definitions
+def, ok := host.GetAgent("explore")  // lookup by name
+
+// Standalone discovery without a Kit instance:
+defs, err := kit.LoadAgentDefinitions("") // "" = current working directory
 ```
 
 ### Real-time subagent events

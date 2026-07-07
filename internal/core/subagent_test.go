@@ -84,7 +84,7 @@ func TestSpawnContext_SurvivesDeadlineExceededParent(t *testing.T) {
 func TestSpawnContext_PreservesSpawnerValue(t *testing.T) {
 	// Verify the subagent spawner callback survives context detachment.
 	called := false
-	spawner := SubagentSpawnFunc(func(ctx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error) {
+	spawner := SubagentSpawnFunc(func(ctx context.Context, req SubagentSpawnRequest) (*SubagentSpawnResult, error) {
 		called = true
 		return &SubagentSpawnResult{Response: "ok"}, nil
 	})
@@ -102,7 +102,7 @@ func TestSpawnContext_PreservesSpawnerValue(t *testing.T) {
 		t.Fatal("spawner should be recoverable from detached context")
 	}
 
-	result, err := recovered(spawnCtx, "tc1", "test task", "", "", time.Minute)
+	result, err := recovered(spawnCtx, SubagentSpawnRequest{ToolCallID: "tc1", Prompt: "test task", Timeout: time.Minute})
 	if err != nil {
 		t.Fatalf("spawner call failed: %v", err)
 	}

@@ -20,6 +20,9 @@ type ToolOption func(*ToolConfig)
 // ToolConfig holds configuration for tool construction.
 type ToolConfig struct {
 	WorkDir string
+	// NamedAgents lists discovered named agent definitions advertised in
+	// the subagent tool description. Only the subagent tool consumes this.
+	NamedAgents []NamedAgentSpec
 }
 
 // WithWorkDir sets the working directory for file-based tools.
@@ -27,6 +30,14 @@ type ToolConfig struct {
 func WithWorkDir(dir string) ToolOption {
 	return func(c *ToolConfig) {
 		c.WorkDir = dir
+	}
+}
+
+// WithNamedAgents advertises named agent definitions in the subagent tool
+// description so the LLM can delegate tasks to them by name.
+func WithNamedAgents(agents ...NamedAgentSpec) ToolOption {
+	return func(c *ToolConfig) {
+		c.NamedAgents = append(c.NamedAgents, agents...)
 	}
 }
 

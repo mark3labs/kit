@@ -7,6 +7,7 @@ import (
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
 )
@@ -53,6 +54,9 @@ type AgentCreationOptions struct {
 	ToolWrapper func([]fantasy.AgentTool) []fantasy.AgentTool
 	// ExtraTools are additional tools to include (e.g. from extensions).
 	ExtraTools []fantasy.AgentTool
+	// NamedAgents lists discovered named agent definitions to advertise in
+	// the subagent tool description.
+	NamedAgents []core.NamedAgentSpec
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
@@ -77,6 +81,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		CoreToolList:      opts.CoreToolList,
 		ToolWrapper:       opts.ToolWrapper,
 		ExtraTools:        opts.ExtraTools,
+		NamedAgents:       opts.NamedAgents,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 		MCPTaskConfig:     opts.MCPTaskConfig,
 	}
