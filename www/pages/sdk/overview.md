@@ -557,6 +557,11 @@ model's context and output limits when left at their zero values; pass a
 `*kit.CompactionOptions` as the second argument to `Compact` to override
 them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
 
+Estimates can still undercount. When a provider call fails with a
+context-overflow error, the turn loop automatically compacts and replays the
+turn once before surfacing `kit.ErrContextOverflow` — see
+[Reactive compaction](/sdk/options#reactive-compaction-on-context-overflow).
+
 ## Provider error classification
 
 Provider failures are wrapped with exported sentinels so you can branch on the
@@ -568,7 +573,10 @@ also classify any provider error yourself with `kit.ClassifyProviderError`:
 _, err := host.PromptResult(ctx, prompt)
 switch {
 case errors.Is(err, kit.ErrContextOverflow):
-    host.Compact(ctx, nil, "") // compact and retry
+    // Kit already compacted and replayed the turn once before surfacing
+    // this — reaching here means the conversation cannot fit even after
+    // compaction (e.g. start a new session or trim input).
+    handleUnrecoverableOverflow()
 case errors.Is(err, kit.ErrRateLimit):
     backoffAndRetry()
 case errors.Is(err, kit.ErrAuth):
@@ -582,7 +590,7 @@ case errors.Is(err, kit.ErrInvalidRequest):
 
 | Sentinel | Meaning |
 |----------|---------|
-| `kit.ErrContextOverflow` | Request exceeded the model's context window |
+| `kit.ErrContextOverflow` | Request exceeded the model's context window — surfaced only after Kit's automatic compact-and-replay recovery also failed |
 | `kit.ErrRateLimit` | Provider throttled the request |
 | `kit.ErrAuth` | Credential / authorization failure |
 | `kit.ErrProviderUnavailable` | Transient upstream failure (5xx, network, timeout) |

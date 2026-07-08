@@ -107,8 +107,10 @@ host, err := kit.New(ctx, &kit.Options{
     // Configuration
     SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)
 
-    // Compaction
-    AutoCompact:  true,                       // Auto-compact near context limit
+    // Compaction — proactive check before turns near the context limit.
+    // Reactive compact-and-replay on provider context-overflow errors is
+    // always on, independent of this setting.
+    AutoCompact:  true,
 
     // In-process MCP servers (map name → *kit.MCPServer)
     InProcessMCPServers: map[string]*kit.MCPServer{
@@ -374,7 +376,9 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
   agent loop and surface a typed result
 - Provider-error sentinels - `ErrContextOverflow`, `ErrRateLimit`, `ErrAuth`,
   `ErrProviderUnavailable`, `ErrInvalidRequest`; classify with
-  `ClassifyProviderError(err)` and match via `errors.Is`
+  `ClassifyProviderError(err)` and match via `errors.Is`. `ErrContextOverflow`
+  is surfaced only after the turn loop's automatic compact-and-replay
+  recovery also failed
 
 ### Key Methods
 

@@ -37,7 +37,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
-| `--auto-compact` | — | `false` | Auto-compact conversation near context limit |
+| `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
 ## Extensions
 

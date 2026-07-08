@@ -33,6 +33,10 @@ When conversations grow long, Kit can compact them to free up context window spa
 
 Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
 
+### Reactive compaction on overflow
+
+Independent of `--auto-compact`, Kit always recovers from provider context-overflow errors reactively: it compacts the conversation and replays the failed turn once, replacing media attachments with text placeholders in the replayed request. Token estimates inevitably drift from real tokenizer counts, and a single huge mid-turn tool result can overflow the context even when the turn started under the limit — this safety net makes those cases non-fatal. Only when the replay also overflows does the turn fail, with a clear "conversation too large to compact" error.
+
 ## Auto-cleanup
 
 Kit automatically cleans up empty sessions on shutdown and when using `/resume`. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.
