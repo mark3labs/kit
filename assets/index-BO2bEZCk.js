@@ -6,6 +6,7 @@ const t={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
 <ul>
 <li><strong>Multi-Provider LLM Support</strong> — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more</li>
 <li><strong>Built-in Core Tools</strong> — bash (with interactive sudo password prompt), read, write, edit, grep, find, ls, subagent with no MCP overhead</li>
+<li><strong>Named Agents</strong> — reusable subagent presets defined in markdown, with per-agent tool allowlists, advertised to the LLM for delegation</li>
 <li><strong>Smart @ Attachments</strong> — Binary files auto-detected via MIME type, MCP resources via <code>@mcp:server:uri</code></li>
 <li><strong>MCP Integration</strong> — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)</li>
 <li><strong>Extension System</strong> — Write custom tools, commands, widgets, and UI modifications in Go</li>
@@ -57,6 +58,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
 - **Built-in Core Tools** — bash (with interactive sudo password prompt), read, write, edit, grep, find, ls, subagent with no MCP overhead
+- **Named Agents** — reusable subagent presets defined in markdown, with per-agent tool allowlists, advertised to the LLM for delegation
 - **Smart @ Attachments** — Binary files auto-detected via MIME type, MCP resources via \`@mcp:server:uri\`
 - **MCP Integration** — Connect external MCP servers for expanded capabilities (tools, prompts, and resources)
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go

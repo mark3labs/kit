@@ -31,13 +31,17 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Named agents",
+        "Definition files",
+        "Discovery and precedence",
+        "Tool allowlists",
         "Extension subagents",
         "Monitoring subagents from extensions",
         "Go SDK subagents",
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 799
+      "wordCount": 1205
     },
     {
       "id": "advanced/testing",
@@ -98,7 +102,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 583
+      "wordCount": 599
     },
     {
       "id": "configuration",
@@ -121,7 +125,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1589
+      "wordCount": 1605
     },
     {
       "id": "development",
@@ -283,7 +287,7 @@
         "Quick links"
       ],
       "tags": [],
-      "wordCount": 262
+      "wordCount": 282
     },
     {
       "id": "installation",
@@ -386,7 +390,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2922
+      "wordCount": 2956
     },
     {
       "id": "sdk/overview",
@@ -420,7 +424,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2777
+      "wordCount": 2835
     },
     {
       "id": "sdk/sessions",

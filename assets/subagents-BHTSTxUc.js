@@ -44,12 +44,82 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <p>Kit includes a built-in <code>subagent</code> tool that the LLM can use to delegate tasks to independent child agents:</p>
 <pre><code>subagent(
     task: "Analyze the test files and summarize coverage",
+    agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
     timeout_seconds: 300                               // optional, max 1800
 )
 </code></pre>
 <p>Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.</p>
+<h2 id="named-agents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#named-agents"><span class="icon icon-link"></span></a>Named agents</h2>
+<p>Named agents are reusable subagent presets defined in markdown files. They are advertised in the <code>subagent</code> tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.</p>
+<h3 id="definition-files"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#definition-files"><span class="icon icon-link"></span></a>Definition files</h3>
+<p>The filename (minus <code>.md</code>) is the agent name; YAML frontmatter configures it; the markdown body is the system prompt:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">---</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">description</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">Reviews code for quality and best practices</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # required</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">model</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">anthropic/claude-sonnet-4</span><span style="color:#6A737D;--shiki-dark:#6A737D">                           # optional model override</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">tools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">read</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">grep</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">find</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">ls</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]                              </span><span style="color:#6A737D;--shiki-dark:#6A737D"># optional tool allowlist</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">temperature</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">0.1</span><span style="color:#6A737D;--shiki-dark:#6A737D">                                           # optional</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">timeout</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">300</span><span style="color:#6A737D;--shiki-dark:#6A737D">                                               # optional, seconds</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">hidden</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">false</span><span style="color:#6A737D;--shiki-dark:#6A737D">                                              # optional: resolvable but not advertised</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">disabled</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">false</span><span style="color:#6A737D;--shiki-dark:#6A737D">                                            # optional: remove this agent (and anything it shadows)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">---</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">You are in code review mode. Focus on correctness, security, and</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">maintainability. Report findings with file paths and line references.</span></span></code></pre>
+<h3 id="discovery-and-precedence"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#discovery-and-precedence"><span class="icon icon-link"></span></a>Discovery and precedence</h3>
+<p>Definitions are discovered from (highest to lowest precedence):</p>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;project&gt;/.agents/agents/*.md</code></td>
+<td>Project-local (cross-client convention)</td>
+</tr>
+<tr>
+<td><code>&lt;project&gt;/.kit/agents/*.md</code></td>
+<td>Project-local (Kit-specific)</td>
+</tr>
+<tr>
+<td><code>~/.config/kit/agents/*.md</code></td>
+<td>User-level (<code>$XDG_CONFIG_HOME</code> aware)</td>
+</tr>
+<tr>
+<td>Built-in</td>
+<td>Ships with Kit</td>
+</tr>
+</tbody>
+</table>
+<p>Higher-precedence definitions override lower ones by name, so a project can replace — or disable via <code>disabled: true</code> — a built-in or user-level agent.</p>
+<p>Two built-in agents ship with Kit:</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Tools</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>general</code></td>
+<td>all tools</td>
+<td>General-purpose research and multi-step task execution</td>
+</tr>
+<tr>
+<td><code>explore</code></td>
+<td><code>read</code>, <code>grep</code>, <code>find</code>, <code>ls</code></td>
+<td>Read-only codebase exploration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tool-allowlists"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-allowlists"><span class="icon icon-link"></span></a>Tool allowlists</h3>
+<p>An agent without a <code>tools:</code> list gets the default subagent tool set (everything except <code>subagent</code>, preventing recursion). With a <code>tools:</code> allowlist, the subagent is restricted to exactly those tools — a read-only <code>explore</code>-style agent cannot edit files or run commands. Explicit <code>model</code> / <code>system_prompt</code> / <code>timeout_seconds</code> arguments in the tool call override the agent's presets.</p>
+<p>Disable named-agent discovery entirely with <code>--no-agents</code>, the <code>no-agents</code> config key, or <code>KIT_NO_AGENTS=true</code>.</p>
 <h2 id="extension-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-subagents"><span class="icon icon-link"></span></a>Extension subagents</h2>
 <p>Extensions can spawn subagents programmatically:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -138,11 +208,22 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <h2 id="go-sdk-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#go-sdk-subagents"><span class="icon icon-link"></span></a>Go SDK subagents</h2>
 <p>The SDK provides in-process subagent spawning:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Task:         </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Summarize the changes in this PR"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Summarize the changes in this PR"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-haiku-latest"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a code reviewer."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Timeout:      </span><span style="color:#005CC5;--shiki-dark:#79B8FF">5</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Set <code>Agent</code> to run the task with a <a href="#named-agents">named agent</a>'s presets; explicitly set fields still win:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Map out the session persistence flow"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Agent:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// preset prompt + read-only tool allowlist</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Inspect the discovered definitions:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">def, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// lookup by name</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Standalone discovery without a Kit instance:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadAgentDefinitions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "" = current working directory</span></span></code></pre>
 <h3 id="real-time-subagent-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#real-time-subagent-events"><span class="icon icon-link"></span></a>Real-time subagent events</h3>
 <p>Use <code>SubscribeSubagent</code> to receive real-time events from LLM-initiated subagents (i.e., when the model uses the <code>subagent</code> tool). Register inside an <code>OnToolCall</code> handler using the tool call ID:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
@@ -160,7 +241,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in subagent tool",id:"built-in-subagent-tool"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
+<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in subagent tool",id:"built-in-subagent-tool"},{depth:2,text:"Named agents",id:"named-agents"},{depth:3,text:"Definition files",id:"definition-files"},{depth:3,text:"Discovery and precedence",id:"discovery-and-precedence"},{depth:3,text:"Tool allowlists",id:"tool-allowlists"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
@@ -197,6 +278,7 @@ Kit includes a built-in \`subagent\` tool that the LLM can use to delegate tasks
 \`\`\`
 subagent(
     task: "Analyze the test files and summarize coverage",
+    agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
     timeout_seconds: 300                               // optional, max 1800
@@ -204,6 +286,54 @@ subagent(
 \`\`\`
 
 Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.
+
+## Named agents
+
+Named agents are reusable subagent presets defined in markdown files. They are advertised in the \`subagent\` tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.
+
+### Definition files
+
+The filename (minus \`.md\`) is the agent name; YAML frontmatter configures it; the markdown body is the system prompt:
+
+\`\`\`markdown
+---
+description: Reviews code for quality and best practices   # required
+model: anthropic/claude-sonnet-4                           # optional model override
+tools: [read, grep, find, ls]                              # optional tool allowlist
+temperature: 0.1                                           # optional
+timeout: 300                                               # optional, seconds
+hidden: false                                              # optional: resolvable but not advertised
+disabled: false                                            # optional: remove this agent (and anything it shadows)
+---
+You are in code review mode. Focus on correctness, security, and
+maintainability. Report findings with file paths and line references.
+\`\`\`
+
+### Discovery and precedence
+
+Definitions are discovered from (highest to lowest precedence):
+
+| Location | Scope |
+|----------|-------|
+| \`<project>/.agents/agents/*.md\` | Project-local (cross-client convention) |
+| \`<project>/.kit/agents/*.md\` | Project-local (Kit-specific) |
+| \`~/.config/kit/agents/*.md\` | User-level (\`$XDG_CONFIG_HOME\` aware) |
+| Built-in | Ships with Kit |
+
+Higher-precedence definitions override lower ones by name, so a project can replace — or disable via \`disabled: true\` — a built-in or user-level agent.
+
+Two built-in agents ship with Kit:
+
+| Agent | Tools | Purpose |
+|-------|-------|---------|
+| \`general\` | all tools | General-purpose research and multi-step task execution |
+| \`explore\` | \`read\`, \`grep\`, \`find\`, \`ls\` | Read-only codebase exploration |
+
+### Tool allowlists
+
+An agent without a \`tools:\` list gets the default subagent tool set (everything except \`subagent\`, preventing recursion). With a \`tools:\` allowlist, the subagent is restricted to exactly those tools — a read-only \`explore\`-style agent cannot edit files or run commands. Explicit \`model\` / \`system_prompt\` / \`timeout_seconds\` arguments in the tool call override the agent's presets.
+
+Disable named-agent discovery entirely with \`--no-agents\`, the \`no-agents\` config key, or \`KIT_NO_AGENTS=true\`.
 
 ## Extension subagents
 
@@ -316,11 +446,30 @@ The SDK provides in-process subagent spawning:
 
 \`\`\`go
 result, err := host.Subagent(ctx, kit.SubagentConfig{
-    Task:         "Summarize the changes in this PR",
+    Prompt:       "Summarize the changes in this PR",
     Model:        "anthropic/claude-haiku-latest",
     SystemPrompt: "You are a code reviewer.",
     Timeout:      5 * time.Minute,
 })
+\`\`\`
+
+Set \`Agent\` to run the task with a [named agent](#named-agents)'s presets; explicitly set fields still win:
+
+\`\`\`go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // preset prompt + read-only tool allowlist
+})
+\`\`\`
+
+Inspect the discovered definitions:
+
+\`\`\`go
+defs := host.GetAgents()             // snapshot of discovered definitions
+def, ok := host.GetAgent("explore")  // lookup by name
+
+// Standalone discovery without a Kit instance:
+defs, err := kit.LoadAgentDefinitions("") // "" = current working directory
 \`\`\`
 
 ### Real-time subagent events

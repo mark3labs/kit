@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-tEfwZPyC.js"></script>
+<script type="module" src="/assets/index-CFGhtSsg.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -84,6 +84,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Feature toggles
     NoExtensions:   true,               // disable Yaegi extension loading
     NoContextFiles: true,               // disable automatic AGENTS.md loading
+    NoAgents:       true,               // disable named agent discovery (.agents/agents/, .kit/agents/, ~/.config/kit/agents/, and built-ins)
 
     // Session (advanced)
     SessionManager: myCustomSession,    // custom SessionManager implementation
@@ -175,6 +176,7 @@ when embedding Kit as a library.
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+| `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
 
 ### Skills & configuration
 
