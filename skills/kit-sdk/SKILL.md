@@ -1034,6 +1034,14 @@ host, _ := kit.New(ctx, &kit.Options{
 })
 ```
 
+**Reactive compaction (always on):** independent of `AutoCompact`, when a
+provider call fails with a context-overflow error the turn loop compacts the
+conversation and replays the turn once. Media attachments in the replayed
+request are replaced with text placeholders. If the replay still overflows,
+the turn fails with `kit.ErrContextOverflow` ("conversation too large to
+compact"). `AutoCompact: true` additionally compacts *proactively* before
+turns that near the limit.
+
 ---
 
 ## In-Process Subagents

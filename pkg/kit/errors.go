@@ -11,7 +11,10 @@ import (
 // arbitrary provider error to one of these sentinels.
 var (
 	// ErrContextOverflow indicates the request exceeded the model's maximum
-	// context window. Embedders typically respond by compacting and retrying.
+	// context window. Kit's turn loop recovers from this automatically:
+	// it compacts the conversation and replays the turn once before
+	// surfacing the error. When this error still reaches the caller,
+	// compaction was impossible or insufficient.
 	ErrContextOverflow = errors.New("context window exceeded")
 
 	// ErrRateLimit indicates the provider throttled the request. Embedders

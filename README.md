@@ -210,7 +210,7 @@ mcpServers:
 --max-steps              Maximum agent steps (0 for unlimited)
 --stream                 Enable streaming output (default: true)
 --compact                Enable compact output mode
---auto-compact           Auto-compact conversation near context limit
+--auto-compact           Auto-compact conversation near context limit (reactive compact-and-retry on provider context-overflow errors is always on)
 
 # Extensions and tools
 --extension, -e          Load additional extension file(s) (repeatable)
@@ -718,8 +718,10 @@ host, err := kit.New(ctx, &kit.Options{
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
 
-    // Compaction
-    AutoCompact:  true,                // Auto-compact near context limit
+    // Compaction — proactive check before turns near the context limit.
+    // Reactive compaction (compact + replay once on provider context-overflow
+    // errors) is always on, independent of this setting.
+    AutoCompact:  true,
 
     Debug:        true,                // Debug logging
 })

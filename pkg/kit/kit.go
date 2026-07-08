@@ -1227,7 +1227,11 @@ type Options struct {
 	InProcessMCPServers map[string]*MCPServer
 
 	// Compaction
-	AutoCompact       bool               // Auto-compact when near context limit
+	// AutoCompact enables proactive compaction before turns that near the
+	// context limit. Independent of this setting, the turn loop always
+	// compacts reactively and replays the turn once when a provider call
+	// fails with a context-overflow error.
+	AutoCompact       bool
 	CompactionOptions *CompactionOptions // Config for auto-compaction (nil = defaults)
 
 	// Debug enables debug logging for the SDK. When DebugLogger is nil this
@@ -2774,6 +2778,23 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 	})
 }
 
+// persistGenerationRemainder persists messages produced by generation that
+// were not already persisted incrementally by the onStepMessages callback.
+// sentCount is the number of input messages sent to the LLM (the prefix of
+// result.ConversationMessages to skip). Safe to call with a nil result.
+func (m *Kit) persistGenerationRemainder(result *agent.GenerateWithLoopResult, sentCount int) {
+	if result == nil || len(result.ConversationMessages) <= sentCount {
+		return
+	}
+	newMessages := result.ConversationMessages[sentCount:]
+	if result.PersistedMessageCount >= len(newMessages) {
+		return
+	}
+	for _, msg := range newMessages[result.PersistedMessageCount:] {
+		_, _ = m.session.AppendMessage(msg)
+	}
+}
+
 // runTurn is the shared lifecycle for every prompt mode:
 //  1. Run BeforeTurn hooks (can modify prompt, inject messages).
 //  2. Persist pre-generation messages to the tree session.
@@ -2866,21 +2887,39 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	m.events.emit(MessageStartEvent{})
 
 	result, err := m.generate(ctx, messages)
+
+	// Reactive compaction (issue #85): when the provider rejected the
+	// request because the context window was exceeded, compact the
+	// conversation and replay the turn once instead of failing. This is the
+	// safety net for token-estimate drift and huge mid-turn tool results
+	// that the proactive ShouldCompact() check cannot catch. A single-retry
+	// guard (no loop) prevents compact/overflow cycles.
+	if isContextOverflow(err) {
+		// Persist completed-step messages from the failed attempt first so
+		// compaction and the rebuilt context include them — the replay then
+		// resumes from where the turn overflowed rather than restarting.
+		m.persistGenerationRemainder(result, sentCount)
+		result = nil
+
+		if retryMessages, ok := m.prepareOverflowRetry(ctx); ok {
+			// Discard stream deltas captured during the failed attempt so
+			// TurnResult.Stream reflects only the replay.
+			collector.drain()
+			sentCount = len(retryMessages)
+			result, err = m.generate(ctx, retryMessages)
+			if isContextOverflow(err) {
+				err = fmt.Errorf("conversation too large to compact — still exceeds the model context window after compaction: %w", err)
+			}
+		}
+	}
+
 	if err != nil {
 		// Persist any messages from completed steps that were NOT already
 		// persisted incrementally by the onStepMessages callback. The agent
 		// layer only includes fully-paired tool_use + tool_result messages
 		// in completedStepMessages, so there are no orphaned entries that
 		// would break subsequent API requests.
-		if result != nil {
-			newMessages := result.ConversationMessages[sentCount:]
-			alreadyPersisted := result.PersistedMessageCount
-			if alreadyPersisted < len(newMessages) {
-				for _, msg := range newMessages[alreadyPersisted:] {
-					_, _ = m.session.AppendMessage(msg)
-				}
-			}
-		}
+		m.persistGenerationRemainder(result, sentCount)
 		m.events.emit(TurnEndEvent{Error: err})
 		// Run AfterTurn hooks even on error.
 		m.afterTurn.run(AfterTurnHook{Error: err})
@@ -2893,15 +2932,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// by the onStepMessages callback during generation. This handles the
 	// non-streaming path (where onStepMessages is not called) and any edge
 	// cases where the final response messages weren't covered by step callbacks.
-	if len(result.ConversationMessages) > sentCount {
-		newMessages := result.ConversationMessages[sentCount:]
-		alreadyPersisted := result.PersistedMessageCount
-		if alreadyPersisted < len(newMessages) {
-			for _, msg := range newMessages[alreadyPersisted:] {
-				_, _ = m.session.AppendMessage(msg)
-			}
-		}
-	}
+	m.persistGenerationRemainder(result, sentCount)
 
 	// Store the API-reported token count so GetContextStats() matches the
 	// built-in status bar. The context window is filled by all token
