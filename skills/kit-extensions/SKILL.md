@@ -987,7 +987,8 @@ handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 | `Timeout` | time.Duration | Execution limit, 0 = 5 minutes |
 | `Blocking` | bool | true = wait and return result; false (default) = background goroutine + handle |
 | `NoSession` | bool | Don't persist subagent session file |
-| `ParentSessionID` | string | Link to parent session (optional) |
+| `SessionID` | string | Resume an existing subagent session (from a previous `SubagentResult.SessionID`) for multi-turn follow-ups |
+| `ParentSessionID` | string | Override the parent session link (optional; defaults to the host's active persisted session) |
 | `OnOutput` | func(string) | Live assistant text chunk callback |
 | `OnEvent` | func(SubagentEvent) | Real-time event callback |
 | `OnComplete` | func(SubagentResult) | Completion callback |

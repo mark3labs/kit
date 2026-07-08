@@ -47,6 +47,10 @@ type SubagentSpawnRequest struct {
 	// Timeout bounds execution. Zero means "unset": the spawner applies
 	// the named agent's timeout (if any) or the default.
 	Timeout time.Duration
+	// SessionID optionally resumes an existing subagent session (the
+	// subagent_session_id returned by a previous run) instead of starting
+	// fresh, so follow-up tasks reuse the subagent's accumulated context.
+	SessionID string
 }
 
 // SubagentSpawnFunc is a callback that spawns an in-process subagent. The
@@ -80,6 +84,7 @@ type subagentArgs struct {
 	Model          string `json:"model,omitempty"`
 	SystemPrompt   string `json:"system_prompt,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
 }
 
 // NamedAgentSpec summarises a named agent definition for advertisement in
@@ -105,6 +110,11 @@ The subagent runs as a separate in-process Kit instance with full tool access
 
 The subagent result is returned when it completes. For long-running tasks,
 consider breaking them into smaller focused subtasks.
+
+Each successful run returns a subagent_session_id. Pass it back via the
+optional session_id parameter to resume that subagent for follow-up tasks —
+the subagent keeps its accumulated context (files read, findings, state), so
+follow-ups are cheaper than starting a fresh subagent.
 
 Example use cases:
 - "Research the authentication patterns in this codebase"
@@ -159,6 +169,10 @@ func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
 				"timeout_seconds": map[string]any{
 					"type":        "number",
 					"description": "Maximum execution time in seconds (default: 300, max: 1800, minimum recommended: 240)",
+				},
+				"session_id": map[string]any{
+					"type":        "string",
+					"description": "Optional session ID from a previous subagent run (returned as subagent_session_id). Resumes that subagent's session so the follow-up task reuses its accumulated context instead of starting fresh.",
 				},
 			},
 			Required: []string{"task"},
@@ -220,6 +234,7 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		Model:        args.Model,
 		SystemPrompt: args.SystemPrompt,
 		Timeout:      timeout,
+		SessionID:    args.SessionID,
 	})
 	if err != nil || result.Error != nil {
 		spawnErr := err
@@ -243,7 +258,8 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 
 	resp := fantasy.NewTextResponse(response)
 
-	// Attach subagent session ID as metadata when available.
+	// Attach subagent session ID as metadata when available. The LLM can
+	// pass this back via session_id to resume the subagent.
 	if result.SessionID != "" {
 		resp = fantasy.WithResponseMetadata(resp, map[string]any{
 			"subagent_session_id": result.SessionID,

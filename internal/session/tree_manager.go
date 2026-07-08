@@ -312,6 +312,56 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 	return newTm, nil
 }
 
+// SetParentLink records a parent session reference (and, optionally, the
+// originating subagent task) in the session header. It is used when a
+// subagent-backed session is created from a session-backed parent so viewers
+// can navigate the parent/child session tree.
+//
+// For persisted sessions the JSONL file is rewritten in place — the header is
+// the first line of the file, so an update requires rewriting the header
+// followed by all existing entries. Sessions are typically freshly created
+// when this is called, so the entry list is small (usually empty). For
+// in-memory sessions the header is updated in memory only.
+func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagentTask string) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	tm.header.ParentSession = parentSessionPath
+	tm.header.ParentSessionID = parentSessionID
+	if subagentTask != "" {
+		tm.header.SubagentTask = subagentTask
+	}
+
+	if tm.file == nil {
+		return nil // in-memory session: header updated in place
+	}
+
+	// Flush anything buffered, then rewrite the whole file with the updated
+	// header followed by all existing entries.
+	if err := tm.flushLocked(); err != nil {
+		return fmt.Errorf("failed to flush session before header rewrite: %w", err)
+	}
+	if err := tm.file.Close(); err != nil {
+		return fmt.Errorf("failed to close session file for header rewrite: %w", err)
+	}
+	f, err := os.Create(tm.filePath)
+	if err != nil {
+		return fmt.Errorf("failed to recreate session file: %w", err)
+	}
+	tm.file = f
+	tm.writer = bufio.NewWriter(f)
+
+	if err := tm.writeEntry(&tm.header); err != nil {
+		return fmt.Errorf("failed to write session header: %w", err)
+	}
+	for _, entry := range tm.entries {
+		if err := tm.writeEntry(entry); err != nil {
+			return fmt.Errorf("failed to rewrite session entry: %w", err)
+		}
+	}
+	return tm.flushLocked()
+}
+
 // OpenTreeSession opens an existing JSONL session file.
 func OpenTreeSession(path string) (*TreeManager, error) {
 	data, err := os.ReadFile(path)

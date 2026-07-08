@@ -285,6 +285,8 @@ _, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
 
 With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (`handle.Wait()`, `handle.Done()`, `handle.Kill()`); use `OnComplete`/`OnEvent` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
 
+Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
+
 ### Monitoring subagents spawned by the main agent
 
 When the LLM uses the built-in `subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:

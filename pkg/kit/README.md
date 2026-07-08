@@ -401,7 +401,11 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `GetSessionID()` - Get session UUID
 - `AddSkill(*Skill)` / `LoadAndAddSkill(path)` / `RemoveSkill(name)` / `SetSkills([])` - Manage skills at runtime
 - `Subagent(ctx, SubagentConfig)` - Spawn an in-process child Kit instance;
-  set `SubagentConfig.Agent` to apply a named agent definition's presets
+  set `SubagentConfig.Agent` to apply a named agent definition's presets.
+  New child sessions record the parent's session ID in their header
+  (`parent_session_id`), and `SubagentConfig.SessionID` resumes a previous
+  subagent session (from `SubagentResult.SessionID`) for multi-turn
+  follow-ups that reuse the subagent's accumulated context
 - `GetAgents()` / `GetAgent(name)` - Query named agent definitions discovered
   at construction (built-ins plus `.agents/agents/` / `.kit/agents/` /
   `~/.config/kit/agents/` files)

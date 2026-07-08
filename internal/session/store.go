@@ -246,6 +246,9 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan session file: %w", err)
+	}
 
 	if !lastTimestamp.IsZero() {
 		info.Modified = lastTimestamp
@@ -292,4 +295,95 @@ func extractTextPreview(partsJSON json.RawMessage) string {
 // DeleteSession removes a session file from disk.
 func DeleteSession(path string) error {
 	return os.Remove(path)
+}
+
+// FindSessionPathByID locates the JSONL session file whose header ID matches
+// the given session UUID. The session directory for cwd is searched first
+// (the common case for subagent sessions, which live alongside the parent's
+// sessions), then all session directories under ~/.kit/sessions. Only file
+// headers (first line) are read, so the scan is cheap even with many
+// sessions. Returns an error when no session with that ID exists.
+func FindSessionPathByID(cwd, id string) (string, error) {
+	if id == "" {
+		return "", fmt.Errorf("session ID is required")
+	}
+
+	// Fast path: the session directory for the working directory.
+	if path, ok := findSessionInDir(DefaultSessionDir(cwd), id); ok {
+		return path, nil
+	}
+
+	// Fall back to scanning all session directories.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("session %q not found", id)
+	}
+	sessionsRoot := filepath.Join(home, ".kit", "sessions")
+	dirs, err := os.ReadDir(sessionsRoot)
+	if err != nil {
+		return "", fmt.Errorf("session %q not found", id)
+	}
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+		if path, ok := findSessionInDir(filepath.Join(sessionsRoot, dir.Name()), id); ok {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("session %q not found", id)
+}
+
+// findSessionInDir scans a single session directory for a session file whose
+// header ID matches id. Malformed files are skipped.
+func findSessionInDir(dir, id string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		header, err := readSessionHeader(path)
+		if err != nil {
+			continue
+		}
+		if header.ID == id {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+// readSessionHeader reads and parses only the first line (the session header)
+// of a JSONL session file.
+func readSessionHeader(path string) (*SessionHeader, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var h SessionHeader
+		if err := json.Unmarshal([]byte(line), &h); err != nil {
+			return nil, fmt.Errorf("failed to parse header: %w", err)
+		}
+		if h.Type != EntryTypeSession {
+			return nil, fmt.Errorf("first line is not a session header")
+		}
+		return &h, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("empty session file")
 }

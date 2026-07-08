@@ -19,6 +19,8 @@ Path separators in the working directory are replaced with `--`. For example, `/
 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
 
+Sessions created by [subagents](/advanced/subagents) record their parent in the file header (`parent_session_id`, `parent_session`, and the originating `subagent_task`), so delegated work can be traced back to the session that spawned it.
+
 ## Compaction
 
 When conversations grow long, Kit can compact them to free up context window space. The compaction system:

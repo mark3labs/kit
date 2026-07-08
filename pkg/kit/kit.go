@@ -2219,6 +2219,22 @@ type SubagentConfig struct {
 	// replay/inspection.
 	NoSession bool
 
+	// SessionID resumes an existing subagent session instead of creating a
+	// new one. Set it to the SessionID returned by a previous Subagent call
+	// (SubagentResult.SessionID, also surfaced as subagent_session_id in the
+	// subagent tool's response metadata) so follow-up prompts reuse the
+	// subagent's accumulated context instead of re-establishing it from
+	// scratch. Mutually exclusive with NoSession. An unknown ID is an error.
+	SessionID string
+
+	// ParentSessionID overrides the parent session UUID recorded in the
+	// child session's header. Empty (default) uses the calling Kit's active
+	// session ID when one exists. The recorded link enables session-tree
+	// navigation of delegated work (subagent runs nested under the parent).
+	// Only applied when a new child session is created; resumed sessions
+	// (SessionID set) keep their original parent link.
+	ParentSessionID string
+
 	// Timeout limits execution time. Zero means 5 minute default.
 	Timeout time.Duration
 
@@ -2322,8 +2338,25 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	if cfg.Prompt == "" {
 		return nil, fmt.Errorf("subagent prompt is required")
 	}
+	if cfg.SessionID != "" && cfg.NoSession {
+		return nil, fmt.Errorf("subagent SessionID and NoSession are mutually exclusive")
+	}
 
 	start := time.Now()
+
+	// Resolve a resumable session up front: map the session UUID to its
+	// JSONL file so the child opens the existing session instead of creating
+	// a fresh one. Failing fast here gives the calling agent an actionable
+	// error (e.g. a mistyped ID) before any expensive child init.
+	var resumePath string
+	if cfg.SessionID != "" {
+		cwd, _ := os.Getwd()
+		var err error
+		resumePath, err = session.FindSessionPathByID(cwd, cfg.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("cannot resume subagent session: %w", err)
+		}
+	}
 
 	// Resolve a named agent definition: its model, system prompt, tool
 	// allowlist, temperature, and timeout act as defaults that explicitly
@@ -2430,6 +2463,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		NoSession:    cfg.NoSession,
+		SessionPath:  resumePath,
 		Quiet:        true,
 		Streaming:    &streamOn,
 		MCPConfig:    childMCPConfig,
@@ -2458,6 +2492,27 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
 	}
 	defer func() { _ = child.Close() }()
+
+	// Link the child session to the parent so delegated work can be traced
+	// from either direction: the parent receives the child's session ID in
+	// the result (and as subagent_session_id tool metadata), and the child's
+	// header records the parent session. Only newly created sessions are
+	// stamped — resumed sessions keep their original parent link.
+	if cfg.SessionID == "" {
+		parentID := cfg.ParentSessionID
+		if parentID == "" && m.GetSessionPath() != "" {
+			// Only auto-link when the parent session is persisted — a link
+			// to an ephemeral in-memory parent session would never resolve.
+			parentID = m.GetSessionID()
+		}
+		if parentID != "" {
+			if ts := child.GetTreeSession(); ts != nil {
+				if err := ts.SetParentLink(m.GetSessionPath(), parentID, cfg.Prompt); err != nil {
+					log.Printf("Warning: failed to link subagent session to parent: %v", err)
+				}
+			}
+		}
+	}
 
 	// Forward events to parent if requested.
 	if cfg.OnEvent != nil {
@@ -2543,6 +2598,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			Model:        req.Model,
 			SystemPrompt: req.SystemPrompt,
 			Timeout:      req.Timeout,
+			SessionID:    req.SessionID,
 			OnEvent:      onEvent,
 			Tools:        m.GetToolsForSubagent(),
 		})
