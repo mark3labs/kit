@@ -3,12 +3,16 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/fantasy"
 )
 
-const defaultSubagentTimeout = 5 * time.Minute
+// maxSubagentTimeout caps the timeout an LLM can request via
+// timeout_seconds. The 5-minute default (applied downstream when no timeout
+// is requested and no named agent preset supplies one) lives in
+// pkg/kit's Kit.Subagent.
 const maxSubagentTimeout = 30 * time.Minute
 
 // ---------------------------------------------------------------------------
@@ -25,12 +29,30 @@ type SubagentSpawnResult struct {
 	Elapsed      time.Duration
 }
 
+// SubagentSpawnRequest carries the parameters of an in-process subagent
+// spawn from the subagent core tool to the parent Kit instance.
+type SubagentSpawnRequest struct {
+	// ToolCallID is the LLM-assigned ID of the subagent tool call,
+	// enabling the parent to correlate subagent events.
+	ToolCallID string
+	// Prompt is the task for the subagent (required).
+	Prompt string
+	// Agent optionally names a discovered agent definition whose presets
+	// (model, system prompt, tools, timeout) apply as defaults.
+	Agent string
+	// Model optionally overrides the model.
+	Model string
+	// SystemPrompt optionally overrides the system prompt.
+	SystemPrompt string
+	// Timeout bounds execution. Zero means "unset": the spawner applies
+	// the named agent's timeout (if any) or the default.
+	Timeout time.Duration
+}
+
 // SubagentSpawnFunc is a callback that spawns an in-process subagent. The
 // parent Kit instance injects this into the context so the core tool can
 // call back without importing pkg/kit (which would create a cycle).
-// The toolCallID parameter is the LLM-assigned ID of the subagent
-// tool call, enabling the parent to correlate subagent events.
-type SubagentSpawnFunc func(ctx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration) (*SubagentSpawnResult, error)
+type SubagentSpawnFunc func(ctx context.Context, req SubagentSpawnRequest) (*SubagentSpawnResult, error)
 
 type subagentCtxKey struct{}
 
@@ -54,17 +76,26 @@ func getSubagentSpawner(ctx context.Context) SubagentSpawnFunc {
 
 type subagentArgs struct {
 	Task           string `json:"task"`
+	Agent          string `json:"agent,omitempty"`
 	Model          string `json:"model,omitempty"`
 	SystemPrompt   string `json:"system_prompt,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-// NewSubagentTool creates the subagent core tool.
-func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
-	return &coreTool{
-		info: fantasy.ToolInfo{
-			Name: "subagent",
-			Description: `Spawn a subagent to perform a task autonomously.
+// NamedAgentSpec summarises a named agent definition for advertisement in
+// the subagent tool description. It is intentionally minimal so the core
+// package does not depend on the agent discovery machinery.
+type NamedAgentSpec struct {
+	// Name is the value the LLM passes in the "agent" parameter.
+	Name string
+	// Description summarises what the agent does.
+	Description string
+	// Tools lists the tool names the agent may use. Empty means the full
+	// default subagent tool set.
+	Tools []string
+}
+
+const subagentBaseDescription = `Spawn a subagent to perform a task autonomously.
 
 The subagent runs as a separate in-process Kit instance with full tool access
 (except spawning further subagents). Use this to:
@@ -78,11 +109,44 @@ consider breaking them into smaller focused subtasks.
 Example use cases:
 - "Research the authentication patterns in this codebase"
 - "Write unit tests for the UserService class"
-- "Analyze the performance bottlenecks in the database queries"`,
+- "Analyze the performance bottlenecks in the database queries"`
+
+// subagentDescription composes the tool description, appending the list of
+// available named agents (and their tool access) when any are configured.
+func subagentDescription(agents []NamedAgentSpec) string {
+	if len(agents) == 0 {
+		return subagentBaseDescription
+	}
+	var b strings.Builder
+	b.WriteString(subagentBaseDescription)
+	b.WriteString("\n\nAvailable named agents (pass the \"agent\" parameter to use one) and the tools they have access to:\n")
+	for _, a := range agents {
+		tools := "all tools"
+		if len(a.Tools) > 0 {
+			tools = strings.Join(a.Tools, ", ")
+		}
+		fmt.Fprintf(&b, "- %s: %s (tools: %s)\n", a.Name, a.Description, tools)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// NewSubagentTool creates the subagent core tool. When named agents are
+// configured via WithNamedAgents, they are advertised in the tool
+// description so the LLM can delegate to the right specialist.
+func NewSubagentTool(opts ...ToolOption) fantasy.AgentTool {
+	cfg := ApplyOptions(opts)
+	return &coreTool{
+		info: fantasy.ToolInfo{
+			Name:        "subagent",
+			Description: subagentDescription(cfg.NamedAgents),
 			Parameters: map[string]any{
 				"task": map[string]any{
 					"type":        "string",
 					"description": "The complete task description for the subagent to perform",
+				},
+				"agent": map[string]any{
+					"type":        "string",
+					"description": "Optional named agent to run the task with. Named agents provide preset system prompts, models, and tool restrictions. Explicit model/system_prompt/timeout_seconds arguments override the agent's presets.",
 				},
 				"model": map[string]any{
 					"type":        "string",
@@ -115,8 +179,9 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		return fantasy.NewTextErrorResponse("task parameter is required"), nil
 	}
 
-	// Determine timeout.
-	timeout := defaultSubagentTimeout
+	// Determine timeout. Zero means "unset" so downstream resolution can
+	// apply a named agent's preset timeout (or the 5-minute default).
+	var timeout time.Duration
 	if args.TimeoutSeconds > 0 {
 		timeout = min(time.Duration(args.TimeoutSeconds)*time.Second, maxSubagentTimeout)
 	}
@@ -148,7 +213,14 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 	spawnCtx := context.WithoutCancel(valuesContext{parent: ctx})
 
 	// Spawn in-process subagent.
-	result, err := spawner(spawnCtx, call.ID, args.Task, args.Model, args.SystemPrompt, timeout)
+	result, err := spawner(spawnCtx, SubagentSpawnRequest{
+		ToolCallID:   call.ID,
+		Prompt:       args.Task,
+		Agent:        args.Agent,
+		Model:        args.Model,
+		SystemPrompt: args.SystemPrompt,
+		Timeout:      timeout,
+	})
 	if err != nil || result.Error != nil {
 		spawnErr := err
 		if spawnErr == nil {

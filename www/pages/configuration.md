@@ -48,6 +48,7 @@ stream: true
 | `prompt-templates` | bool | `true` | Enable prompt template loading |
 | `prompt-template` | string | — | Specific template to load by name |
 | `no-skills` | bool | `false` | Disable skill loading (auto-discovery and explicit) |
+| `no-agents` | bool | `false` | Disable named agent discovery ([built-ins and definition files](/advanced/subagents#named-agents)) |
 | `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
 | `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
 | `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/skill:`) |

@@ -56,6 +56,11 @@ type AgentConfig struct {
 	// Used by extensions to register custom tools.
 	ExtraTools []fantasy.AgentTool
 
+	// NamedAgents lists discovered named agent definitions to advertise in
+	// the subagent tool description (see core.WithNamedAgents). Only
+	// consumed when core tools are built from CoreToolList.
+	NamedAgents []core.NamedAgentSpec
+
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). The callback receives the server
 	// name, tool count, and any error. Called from the background goroutine.
@@ -315,7 +320,11 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		coreTools = agentConfig.CoreTools
 	} else {
 		// Default: load all core tools
-		coreTools = core.ListedTools(agentConfig.CoreToolList)
+		var toolOpts []core.ToolOption
+		if len(agentConfig.NamedAgents) > 0 {
+			toolOpts = append(toolOpts, core.WithNamedAgents(agentConfig.NamedAgents...))
+		}
+		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}
 
 	// Build the initial tool list: core tools + extension tools (no MCP yet).

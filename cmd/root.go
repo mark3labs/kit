@@ -82,6 +82,9 @@ var (
 	skillsDir     string
 	skillsDisable []string
 
+	// Named agents control
+	noAgentsFlag bool
+
 	// TLS configuration
 	tlsSkipVerify bool
 
@@ -300,6 +303,8 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&noSkillsFlag, "no-skills", false, "disable skill loading (auto-discovery and explicit)")
 	rootCmd.PersistentFlags().
+		BoolVar(&noAgentsFlag, "no-agents", false, "disable named agent discovery (built-ins and .agents/agents, .kit/agents, ~/.config/kit/agents)")
+	rootCmd.PersistentFlags().
 		StringSliceVar(&skillsPaths, "skill", nil, "load skill file or directory (repeatable)")
 	rootCmd.PersistentFlags().
 		StringVar(&skillsDir, "skills-dir", "", "scan this directory directly for skills (overrides auto-discovery)")
@@ -359,6 +364,7 @@ func init() {
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
 	_ = viper.BindPFlag("no-skills", rootCmd.PersistentFlags().Lookup("no-skills"))
+	_ = viper.BindPFlag("no-agents", rootCmd.PersistentFlags().Lookup("no-agents"))
 	_ = viper.BindPFlag("skill", rootCmd.PersistentFlags().Lookup("skill"))
 	_ = viper.BindPFlag("skills-dir", rootCmd.PersistentFlags().Lookup("skills-dir"))
 	_ = viper.BindPFlag("skill-disable", rootCmd.PersistentFlags().Lookup("skill-disable"))
@@ -868,6 +874,7 @@ func runNormalMode(ctx context.Context) error {
 		DisableCoreTools: viper.GetBool("no-core-tools"),
 		CoreToolList:     coreToolList,
 		NoSkills:         noSkillsFlag,
+		NoAgents:         noAgentsFlag,
 		Skills:           skillsPaths,
 		SkillsDir:        skillsDir,
 		SkillsDisable:    skillsDisable,

@@ -396,6 +396,13 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `GetSessionPath()` - Get session file path
 - `GetSessionID()` - Get session UUID
 - `AddSkill(*Skill)` / `LoadAndAddSkill(path)` / `RemoveSkill(name)` / `SetSkills([])` - Manage skills at runtime
+- `Subagent(ctx, SubagentConfig)` - Spawn an in-process child Kit instance;
+  set `SubagentConfig.Agent` to apply a named agent definition's presets
+- `GetAgents()` / `GetAgent(name)` - Query named agent definitions discovered
+  at construction (built-ins plus `.agents/agents/` / `.kit/agents/` /
+  `~/.config/kit/agents/` files)
+- `LoadAgentDefinitions(cwd)` - Standalone named-agent discovery without a Kit
+  instance
 - `AddContextFile(*ContextFile)` / `AddContextFileContent(path, content)` / `LoadAndAddContextFile(path)` / `RemoveContextFile(path)` / `SetContextFiles([])` - Manage AGENTS.md-style context files at runtime
 - `RefreshSystemPrompt()` - Re-apply the composed system prompt to the agent
 - `NewTool[T]` / `NewParallelTool[T]` - Create a typed custom tool
@@ -423,6 +430,7 @@ Key `Options` fields for SDK usage:
 | `DisableCoreTools` | Use no core tools (0 tools, for chat-only) |
 | `CoreToolList` | List of core tools to include, if empty (default) use all. |
 | `NoSession` | Ephemeral mode (no session persistence) |
+| `NoAgents` | Disable named agent discovery (built-ins and definition files) |
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
 | `InProcessMCPServers` | Map of name → `*kit.MCPServer` for in-process MCP servers |

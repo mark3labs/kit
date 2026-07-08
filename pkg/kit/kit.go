@@ -49,6 +49,7 @@ type Kit struct {
 	compactionOpts *CompactionOptions
 	contextFiles   []*ContextFile
 	skills         []*skills.Skill
+	namedAgents    []*AgentDefinition // named agent definitions discovered at construction
 	extRunner      *extensions.Runner
 	bufferedLogger *tools.BufferedDebugLogger
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
@@ -1190,6 +1191,12 @@ type Options struct {
 	// (e.g. AGENTS.md) from the working directory.
 	NoContextFiles bool
 
+	// NoAgents disables discovery of named agent definitions (built-ins and
+	// .agents/agents/ / .kit/agents/ / ~/.config/kit/agents/ files). When
+	// set, the subagent tool advertises no named agents and
+	// [SubagentConfig].Agent cannot resolve.
+	NoAgents bool
+
 	// MCPConfig provides a pre-loaded MCP configuration. When set,
 	// LoadAndValidateConfig is skipped during Kit creation — avoiding
 	// viper access entirely. This is set automatically for in-process
@@ -1418,6 +1425,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		cwd                   string
 		contextFiles          []*ContextFile
 		loadedSkills          []*Skill
+		namedAgents           []*AgentDefinition
 		mcpConfig             *config.Config
 		debug                 bool
 		noExtensions          bool
@@ -1553,6 +1561,19 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 				disable = v.GetStringSlice("skill-disable")
 			}
 			applySkillDisableList(loadedSkills, disable)
+		}
+
+		// Discover named agent definitions (built-ins + .agents/agents/,
+		// .kit/agents/, ~/.config/kit/agents/). They are advertised in the
+		// subagent tool description and resolvable via SubagentConfig.Agent.
+		// Per-file parse failures are non-fatal: usable agents still load and
+		// a warning is printed unless quiet.
+		if !opts.NoAgents && !v.GetBool("no-agents") {
+			var agErr error
+			namedAgents, agErr = LoadAgentDefinitions(cwd)
+			if agErr != nil && !opts.Quiet {
+				fmt.Fprintf(os.Stderr, "Warning: failed to load some agent definitions: %v\n", agErr)
+			}
 		}
 
 		// Always compose the system prompt with runtime context: base prompt +
@@ -1745,6 +1766,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		CoreTools:         opts.Tools,
 		CoreToolList:      toolList,
 		ExtraTools:        extraTools,
+		NamedAgents:       namedAgentSpecs(namedAgents),
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
 		Debug:             debug,
@@ -1826,6 +1848,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		compactionOpts:        opts.CompactionOptions,
 		contextFiles:          contextFiles,
 		skills:                loadedSkills,
+		namedAgents:           namedAgents,
 		extRunner:             agentResult.ExtRunner,
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
@@ -2154,6 +2177,17 @@ type SubagentConfig struct {
 	// Prompt is the task/instruction for the subagent (required).
 	Prompt string
 
+	// Agent optionally names a discovered agent definition (see
+	// [Kit.GetAgents]) whose presets — model, system prompt, tool
+	// allowlist, temperature, and timeout — apply as defaults. Explicitly
+	// set scalar fields on this struct (Model, SystemPrompt, Timeout,
+	// Temperature) override the definition's values. Tools is the
+	// exception: when the definition declares a tool allowlist, Tools acts
+	// as the base set and is intersected with the allowlist — it can narrow
+	// the agent's tool access but never widen it. An unknown name is an
+	// error.
+	Agent string
+
 	// Model overrides the parent's model (e.g. "anthropic/claude-haiku-3-5-20241022").
 	// Empty string uses the parent's current model.
 	Model string
@@ -2170,6 +2204,10 @@ type SubagentConfig struct {
 	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
 	// SDK call sites.
 	// (The subagent tool is dropped to prevent infinite recursion.)
+	//
+	// When Agent names a definition with a tool allowlist, this set is
+	// intersected with that allowlist rather than overriding it — see the
+	// Agent field documentation.
 	Tools []Tool
 
 	// NoSession, when true, uses an in-memory ephemeral session. When false
@@ -2179,6 +2217,10 @@ type SubagentConfig struct {
 
 	// Timeout limits execution time. Zero means 5 minute default.
 	Timeout time.Duration
+
+	// Temperature overrides the sampling temperature for the subagent.
+	// Nil inherits the parent's effective setting.
+	Temperature *float32
 
 	// OnEvent, when set, receives all events from the subagent's event bus.
 	// This enables the parent to stream subagent tool calls, text chunks,
@@ -2279,6 +2321,20 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 
 	start := time.Now()
 
+	// Resolve a named agent definition: its model, system prompt, tool
+	// allowlist, temperature, and timeout act as defaults that explicitly
+	// set cfg fields override. agentRestricted records whether an allowlist
+	// was applied — the child must then not re-load MCP servers, which
+	// would add tools beyond the allowlist.
+	agentRestricted := false
+	if cfg.Agent != "" {
+		var err error
+		agentRestricted, err = m.resolveAgentDefinition(&cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Default timeout.
 	timeout := cfg.Timeout
 	if timeout == 0 {
@@ -2348,7 +2404,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// explicit empty config takes the "pre-loaded" branch in New() and loads
 	// zero servers.
 	childMCPConfig := m.mcpConfig
-	if cfg.Tools != nil && toolsIncludeMCP(tools, m.GetMCPToolNames()) {
+	if agentRestricted || (cfg.Tools != nil && toolsIncludeMCP(tools, m.GetMCPToolNames())) {
 		if m.mcpConfig != nil {
 			cp := *m.mcpConfig
 			cp.MCPServers = nil
@@ -2381,6 +2437,11 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// programmatic Options or runtime setters (e.g. SetThinkingLevel) would
 	// otherwise be lost.
 	inheritProviderConfig(childOpts, m.v)
+	// A per-subagent temperature (explicit or from a named agent definition)
+	// overrides whatever the parent's config store provided.
+	if cfg.Temperature != nil {
+		childOpts.Temperature = cfg.Temperature
+	}
 	// Propagate the parent's MCP task configuration so a child subagent
 	// invoking long-running MCP tools observes the same per-server modes,
 	// timeouts, and progress callback as the parent. Without this, child
@@ -2463,24 +2524,25 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 	// subagent core tool can create child Kit instances without
 	// importing pkg/kit (which would create an import cycle).
 	ctx = core.WithSubagentSpawner(ctx, func(
-		spawnCtx context.Context, toolCallID, prompt, model, systemPrompt string, timeout time.Duration,
+		spawnCtx context.Context, req core.SubagentSpawnRequest,
 	) (*core.SubagentSpawnResult, error) {
 		// Build OnEvent: dispatch to per-tool-call listeners if any are
 		// registered via SubscribeSubagent(). Listeners are cleaned up
 		// after the subagent completes.
 		var onEvent func(Event)
-		if listeners := m.getSubagentListenerSet(toolCallID); listeners != nil {
+		if listeners := m.getSubagentListenerSet(req.ToolCallID); listeners != nil {
 			onEvent = listeners.emit
 		}
 		result, err := m.Subagent(spawnCtx, SubagentConfig{
-			Prompt:       prompt,
-			Model:        model,
-			SystemPrompt: systemPrompt,
-			Timeout:      timeout,
+			Prompt:       req.Prompt,
+			Agent:        req.Agent,
+			Model:        req.Model,
+			SystemPrompt: req.SystemPrompt,
+			Timeout:      req.Timeout,
 			OnEvent:      onEvent,
 			Tools:        m.GetToolsForSubagent(),
 		})
-		m.cleanupSubagentListeners(toolCallID)
+		m.cleanupSubagentListeners(req.ToolCallID)
 		if result == nil {
 			return &core.SubagentSpawnResult{Error: err}, err
 		}
