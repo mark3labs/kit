@@ -86,6 +86,11 @@ func TestSetParentLink_RewritesExistingEntries(t *testing.T) {
 		t.Fatalf("SetParentLink: %v", err)
 	}
 
+	// The atomic rewrite must not leave its temp file behind.
+	if _, err := os.Stat(tm.GetFilePath() + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("temp file left behind after SetParentLink (stat err: %v)", err)
+	}
+
 	// Appends after the rewrite must still work.
 	if _, err := tm.AppendMessage(newTestMessage("third")); err != nil {
 		t.Fatalf("AppendMessage after SetParentLink: %v", err)

@@ -317,11 +317,12 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 // subagent-backed session is created from a session-backed parent so viewers
 // can navigate the parent/child session tree.
 //
-// For persisted sessions the JSONL file is rewritten in place — the header is
-// the first line of the file, so an update requires rewriting the header
-// followed by all existing entries. Sessions are typically freshly created
-// when this is called, so the entry list is small (usually empty). For
-// in-memory sessions the header is updated in memory only.
+// For persisted sessions the header rewrite is atomic: the updated header
+// plus all existing entries are written to a temp file which then replaces
+// the original via rename, so a partial write can never corrupt the session.
+// Sessions are typically freshly created when this is called, so the entry
+// list is small (usually empty). For in-memory sessions the header is
+// updated in memory only.
 func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagentTask string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -336,30 +337,73 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 		return nil // in-memory session: header updated in place
 	}
 
-	// Flush anything buffered, then rewrite the whole file with the updated
-	// header followed by all existing entries.
+	// Flush anything buffered so the on-disk file is complete before rewrite.
 	if err := tm.flushLocked(); err != nil {
 		return fmt.Errorf("failed to flush session before header rewrite: %w", err)
 	}
+
+	// Write the updated header plus all existing entries to a temp file
+	// first. The original file is never truncated, so a failure at any point
+	// before the final rename leaves it fully intact.
+	tmpPath := tm.filePath + ".tmp"
+	tmpFile, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("failed to create temp session file: %w", err)
+	}
+	w := bufio.NewWriter(tmpFile)
+	writeLine := func(v any) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("failed to marshal entry: %w", err)
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+		return w.WriteByte('\n')
+	}
+	rewriteErr := writeLine(&tm.header)
+	for _, entry := range tm.entries {
+		if rewriteErr != nil {
+			break
+		}
+		rewriteErr = writeLine(entry)
+	}
+	if rewriteErr == nil {
+		rewriteErr = w.Flush()
+	}
+	if closeErr := tmpFile.Close(); rewriteErr == nil && closeErr != nil {
+		rewriteErr = closeErr
+	}
+	if rewriteErr != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to write temp session file: %w", rewriteErr)
+	}
+
+	// Close the current handle before the rename (required on Windows), then
+	// swap in the rewritten file and reopen for appending. The original file
+	// stays intact on disk until the rename succeeds.
 	if err := tm.file.Close(); err != nil {
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to close session file for header rewrite: %w", err)
 	}
-	f, err := os.Create(tm.filePath)
+	tm.file = nil
+	tm.writer = nil
+	if err := os.Rename(tmpPath, tm.filePath); err != nil {
+		_ = os.Remove(tmpPath)
+		// Best effort: reopen the original (still intact) for appending.
+		if f, reopenErr := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644); reopenErr == nil {
+			tm.file = f
+			tm.writer = bufio.NewWriter(f)
+		}
+		return fmt.Errorf("failed to replace session file: %w", err)
+	}
+	f, err := os.OpenFile(tm.filePath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to recreate session file: %w", err)
+		return fmt.Errorf("failed to reopen session file after header rewrite: %w", err)
 	}
 	tm.file = f
 	tm.writer = bufio.NewWriter(f)
-
-	if err := tm.writeEntry(&tm.header); err != nil {
-		return fmt.Errorf("failed to write session header: %w", err)
-	}
-	for _, entry := range tm.entries {
-		if err := tm.writeEntry(entry); err != nil {
-			return fmt.Errorf("failed to rewrite session entry: %w", err)
-		}
-	}
-	return tm.flushLocked()
+	return nil
 }
 
 // OpenTreeSession opens an existing JSONL session file.

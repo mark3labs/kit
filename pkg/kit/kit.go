@@ -2350,8 +2350,10 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// error (e.g. a mistyped ID) before any expensive child init.
 	var resumePath string
 	if cfg.SessionID != "" {
-		cwd, _ := os.Getwd()
-		var err error
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("cannot resume subagent session: %w", err)
+		}
 		resumePath, err = session.FindSessionPathByID(cwd, cfg.SessionID)
 		if err != nil {
 			return nil, fmt.Errorf("cannot resume subagent session: %w", err)

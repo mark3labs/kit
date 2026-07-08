@@ -383,7 +383,7 @@ func readSessionHeader(path string) (*SessionHeader, error) {
 		return &h, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to scan session header: %w", err)
 	}
 	return nil, fmt.Errorf("empty session file")
 }
