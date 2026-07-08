@@ -371,6 +371,11 @@ func (tm *TreeManager) SetParentLink(parentSessionPath, parentSessionID, subagen
 	if rewriteErr == nil {
 		rewriteErr = w.Flush()
 	}
+	if rewriteErr == nil {
+		// Force data to stable storage before the rename so a host crash
+		// cannot leave a renamed-but-empty file on some filesystems.
+		rewriteErr = tmpFile.Sync()
+	}
 	if closeErr := tmpFile.Close(); rewriteErr == nil && closeErr != nil {
 		rewriteErr = closeErr
 	}
