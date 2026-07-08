@@ -133,6 +133,16 @@ func newOverflowTestKit(t *testing.T) *Kit {
 	}
 }
 
+// appendTestMessage appends a fixture message to the Kit's session, failing
+// the test immediately when the append errors so broken setup never produces
+// misleading assertions downstream.
+func appendTestMessage(t *testing.T, k *Kit, msg fantasy.Message) {
+	t.Helper()
+	if _, err := k.session.AppendMessage(msg); err != nil {
+		t.Fatalf("append test message: %v", err)
+	}
+}
+
 func TestPrepareOverflowRetry_CompactsAndStripsMedia(t *testing.T) {
 	k := newOverflowTestKit(t)
 
@@ -145,12 +155,12 @@ func TestPrepareOverflowRetry_CompactsAndStripsMedia(t *testing.T) {
 	})
 
 	// Seed a conversation with a media attachment in the latest user turn.
-	_, _ = k.session.AppendMessage(fantasy.NewUserMessage("first question"))
-	_, _ = k.session.AppendMessage(fantasy.Message{
+	appendTestMessage(t, k, fantasy.NewUserMessage("first question"))
+	appendTestMessage(t, k, fantasy.Message{
 		Role:    fantasy.MessageRoleAssistant,
 		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "first answer"}},
 	})
-	_, _ = k.session.AppendMessage(fantasy.Message{
+	appendTestMessage(t, k, fantasy.Message{
 		Role: fantasy.MessageRoleUser,
 		Content: []fantasy.MessagePart{
 			fantasy.TextPart{Text: "analyze this image"},
@@ -158,9 +168,9 @@ func TestPrepareOverflowRetry_CompactsAndStripsMedia(t *testing.T) {
 		},
 	})
 
-	messages, ok := k.prepareOverflowRetry(context.Background())
-	if !ok {
-		t.Fatal("prepareOverflowRetry should succeed")
+	messages, err := k.prepareOverflowRetry(context.Background())
+	if err != nil {
+		t.Fatalf("prepareOverflowRetry should succeed: %v", err)
 	}
 	if len(messages) == 0 {
 		t.Fatal("replay context is empty")
@@ -182,32 +192,36 @@ func TestPrepareOverflowRetry_CompactsAndStripsMedia(t *testing.T) {
 	}
 }
 
-func TestPrepareOverflowRetry_CompactionFailureReturnsFalse(t *testing.T) {
+func TestPrepareOverflowRetry_CompactionFailureReturnsError(t *testing.T) {
 	k := newOverflowTestKit(t)
 
 	// Fewer than 2 messages — compactImpl refuses, so recovery must report
-	// failure and let the caller surface the original provider error.
-	_, _ = k.session.AppendMessage(fantasy.NewUserMessage("only message"))
+	// the failure; runTurn then wraps it with the original provider error.
+	appendTestMessage(t, k, fantasy.NewUserMessage("only message"))
 
-	if _, ok := k.prepareOverflowRetry(context.Background()); ok {
+	if _, err := k.prepareOverflowRetry(context.Background()); err == nil {
 		t.Fatal("prepareOverflowRetry should fail when compaction is impossible")
+	} else if !strings.Contains(err.Error(), "compaction failed") {
+		t.Errorf("error should explain the compaction failure: %v", err)
 	}
 }
 
-func TestPrepareOverflowRetry_CancelledCompactionReturnsFalse(t *testing.T) {
+func TestPrepareOverflowRetry_CancelledCompactionReturnsError(t *testing.T) {
 	k := newOverflowTestKit(t)
 	k.OnBeforeCompact(HookPriorityNormal, func(BeforeCompactHook) *BeforeCompactResult {
 		return &BeforeCompactResult{Cancel: true, Reason: "no compaction in tests"}
 	})
 
-	_, _ = k.session.AppendMessage(fantasy.NewUserMessage("q"))
-	_, _ = k.session.AppendMessage(fantasy.Message{
+	appendTestMessage(t, k, fantasy.NewUserMessage("q"))
+	appendTestMessage(t, k, fantasy.Message{
 		Role:    fantasy.MessageRoleAssistant,
 		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "a"}},
 	})
 
-	if _, ok := k.prepareOverflowRetry(context.Background()); ok {
+	if _, err := k.prepareOverflowRetry(context.Background()); err == nil {
 		t.Fatal("cancelled compaction should abort the retry")
+	} else if !strings.Contains(err.Error(), "no compaction in tests") {
+		t.Errorf("error should carry the cancellation reason: %v", err)
 	}
 }
 
@@ -222,16 +236,53 @@ func TestPrepareOverflowRetry_RunsContextPrepareHooks(t *testing.T) {
 		return nil
 	})
 
-	_, _ = k.session.AppendMessage(fantasy.NewUserMessage("q"))
-	_, _ = k.session.AppendMessage(fantasy.Message{
+	appendTestMessage(t, k, fantasy.NewUserMessage("q"))
+	appendTestMessage(t, k, fantasy.Message{
 		Role:    fantasy.MessageRoleAssistant,
 		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "a"}},
 	})
 
-	if _, ok := k.prepareOverflowRetry(context.Background()); !ok {
-		t.Fatal("prepareOverflowRetry should succeed")
+	if _, err := k.prepareOverflowRetry(context.Background()); err != nil {
+		t.Fatalf("prepareOverflowRetry should succeed: %v", err)
 	}
 	if !hookRan {
 		t.Error("ContextPrepare hooks must run on the replayed context")
+	}
+}
+
+func TestPrepareOverflowRetry_StripsMediaFromHookResult(t *testing.T) {
+	// A ContextPrepare hook may replace the messages and reintroduce media
+	// attachments; the recovery must strip those too or the replay can
+	// overflow again.
+	k := newOverflowTestKit(t)
+	k.OnBeforeCompact(HookPriorityNormal, func(BeforeCompactHook) *BeforeCompactResult {
+		return &BeforeCompactResult{Summary: "s"}
+	})
+	k.contextPrepare.register(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
+		return &ContextPrepareResult{Messages: []fantasy.Message{{
+			Role: fantasy.MessageRoleUser,
+			Content: []fantasy.MessagePart{
+				fantasy.TextPart{Text: "hook-injected"},
+				fantasy.FilePart{Filename: "sneaky.png", MediaType: "image/png", Data: []byte{1}},
+			},
+		}}}
+	})
+
+	appendTestMessage(t, k, fantasy.NewUserMessage("q"))
+	appendTestMessage(t, k, fantasy.Message{
+		Role:    fantasy.MessageRoleAssistant,
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: "a"}},
+	})
+
+	messages, err := k.prepareOverflowRetry(context.Background())
+	if err != nil {
+		t.Fatalf("prepareOverflowRetry should succeed: %v", err)
+	}
+	for _, msg := range messages {
+		for _, part := range msg.Content {
+			if _, isFile := part.(fantasy.FilePart); isFile {
+				t.Fatal("media reintroduced by a ContextPrepare hook must be stripped")
+			}
+		}
 	}
 }

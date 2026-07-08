@@ -2901,7 +2901,13 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		m.persistGenerationRemainder(result, sentCount)
 		result = nil
 
-		if retryMessages, ok := m.prepareOverflowRetry(ctx); ok {
+		if retryMessages, retryErr := m.prepareOverflowRetry(ctx); retryErr != nil {
+			// Recovery impossible — wrap the original provider error with
+			// the recovery failure. ClassifyProviderError below still maps
+			// the chain to ErrContextOverflow, so the errors.Is contract
+			// holds even when the provider error was raw text.
+			err = fmt.Errorf("conversation too large to compact — context-overflow recovery failed (%v): %w", retryErr, err)
+		} else {
 			// Discard stream deltas captured during the failed attempt so
 			// TurnResult.Stream reflects only the replay.
 			collector.drain()

@@ -33,12 +33,14 @@ func isContextOverflow(err error) bool {
 // it the best chance to fit. The session itself is not modified beyond the
 // appended compaction entry.
 //
-// Returns the replay messages and true when compaction succeeded; false when
-// compaction failed or produced no usable context (callers then surface the
-// original provider error).
-func (m *Kit) prepareOverflowRetry(ctx context.Context) ([]fantasy.Message, bool) {
+// Returns the replay messages on success. On failure (compaction failed,
+// was cancelled, or produced no usable context) it returns a non-nil error
+// describing why recovery was impossible; callers wrap it together with the
+// original provider error so the surfaced failure both explains the failed
+// recovery and preserves the [ErrContextOverflow] classification.
+func (m *Kit) prepareOverflowRetry(ctx context.Context) ([]fantasy.Message, error) {
 	if _, err := m.compactInternal(ctx, m.compactionOpts, "", true); err != nil {
-		return nil, false
+		return nil, fmt.Errorf("compaction failed: %w", err)
 	}
 
 	// Rebuild the context from the session: the compaction summary now
@@ -49,15 +51,17 @@ func (m *Kit) prepareOverflowRetry(ctx context.Context) ([]fantasy.Message, bool
 	messages = stripMediaParts(messages)
 
 	// Re-run ContextPrepare hooks on the rebuilt context, mirroring the
-	// initial attempt so extensions observe every outgoing request.
+	// initial attempt so extensions observe every outgoing request. Strip
+	// media from the hook result too — a hook may replace the messages and
+	// reintroduce attachments, which would defeat the recovery.
 	if hookResult := m.contextPrepare.run(ContextPrepareHook{Messages: messages}); hookResult != nil && hookResult.Messages != nil {
-		messages = hookResult.Messages
+		messages = stripMediaParts(hookResult.Messages)
 	}
 
 	if len(messages) == 0 {
-		return nil, false
+		return nil, fmt.Errorf("compaction produced an empty context")
 	}
-	return messages, true
+	return messages, nil
 }
 
 // stripMediaParts returns a copy of messages with file/media attachments
