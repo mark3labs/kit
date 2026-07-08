@@ -7,7 +7,7 @@
 <meta name="description" content="How Kit persists and manages conversation sessions.">
 <link rel="canonical" href="/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CFGhtSsg.js"></script>
+<script type="module" src="/assets/index-DfclzUzj.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Session Management","description":"How Kit persists and manages conversation sessions.","url":"https://go-kit.dev/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -42,6 +42,10 @@ When conversations grow long, Kit can compact them to free up context window spa
 - **Tool result truncation**: Caps tool output during serialization to stay within token budgets
 
 Use `/compact [focus]` to manually compact, or enable `--auto-compact` to compact automatically near the context limit.
+
+### Reactive compaction on overflow
+
+Independent of `--auto-compact`, Kit always recovers from provider context-overflow errors reactively: it compacts the conversation and replays the failed turn once, replacing media attachments with text placeholders in the replayed request. Token estimates inevitably drift from real tokenizer counts, and a single huge mid-turn tool result can overflow the context even when the turn started under the limit — this safety net makes those cases non-fatal. Only when the replay also overflows does the turn fail, with a clear "conversation too large to compact" error.
 
 ## Auto-cleanup
 

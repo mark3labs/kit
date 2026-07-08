@@ -18,6 +18,8 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 <li><strong>Tool result truncation</strong>: Caps tool output during serialization to stay within token budgets</li>
 </ul>
 <p>Use <code>/compact [focus]</code> to manually compact, or enable <code>--auto-compact</code> to compact automatically near the context limit.</p>
+<h3 id="reactive-compaction-on-overflow"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reactive-compaction-on-overflow"><span class="icon icon-link"></span></a>Reactive compaction on overflow</h3>
+<p>Independent of <code>--auto-compact</code>, Kit always recovers from provider context-overflow errors reactively: it compacts the conversation and replays the failed turn once, replacing media attachments with text placeholders in the replayed request. Token estimates inevitably drift from real tokenizer counts, and a single huge mid-turn tool result can overflow the context even when the turn started under the limit — this safety net makes those cases non-fatal. Only when the replay also overflows does the turn fail, with a clear "conversation too large to compact" error.</p>
 <h2 id="auto-cleanup"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#auto-cleanup"><span class="icon icon-link"></span></a>Auto-cleanup</h2>
 <p>Kit automatically cleans up empty sessions on shutdown and when using <code>/resume</code>. A session is considered empty if it has no messages beyond the initial system prompt. This prevents cluttering your sessions directory with unused files.</p>
 <p>To start fresh without creating a session file at all, use ephemeral mode:</p>
@@ -105,7 +107,7 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 <li><strong>Model</strong> — Set via <code>/model &lt;name&gt;</code> or the model selector</li>
 <li><strong>Thinking level</strong> — Set via <code>/thinking &lt;level&gt;</code> or Shift+Tab cycling</li>
 </ul>
-<p>These preferences are restored on next launch. Precedence: CLI flag &gt; config file &gt; saved preference &gt; default.</p>`,headings:[{depth:2,text:"Session storage",id:"session-storage"},{depth:2,text:"Compaction",id:"compaction"},{depth:2,text:"Auto-cleanup",id:"auto-cleanup"},{depth:2,text:"Resuming sessions",id:"resuming-sessions"},{depth:3,text:"Continue most recent",id:"continue-most-recent"},{depth:3,text:"Interactive picker",id:"interactive-picker"},{depth:3,text:"Open a specific session",id:"open-a-specific-session"},{depth:2,text:"Session commands",id:"session-commands"},{depth:2,text:"Ephemeral mode",id:"ephemeral-mode"},{depth:2,text:"Sharing sessions",id:"sharing-sessions"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:`
+<p>These preferences are restored on next launch. Precedence: CLI flag &gt; config file &gt; saved preference &gt; default.</p>`,headings:[{depth:2,text:"Session storage",id:"session-storage"},{depth:2,text:"Compaction",id:"compaction"},{depth:3,text:"Reactive compaction on overflow",id:"reactive-compaction-on-overflow"},{depth:2,text:"Auto-cleanup",id:"auto-cleanup"},{depth:2,text:"Resuming sessions",id:"resuming-sessions"},{depth:3,text:"Continue most recent",id:"continue-most-recent"},{depth:3,text:"Interactive picker",id:"interactive-picker"},{depth:3,text:"Open a specific session",id:"open-a-specific-session"},{depth:2,text:"Session commands",id:"session-commands"},{depth:2,text:"Ephemeral mode",id:"ephemeral-mode"},{depth:2,text:"Sharing sessions",id:"sharing-sessions"},{depth:2,text:"Preferences persistence",id:"preferences-persistence"}],raw:`
 # Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.
@@ -135,6 +137,10 @@ When conversations grow long, Kit can compact them to free up context window spa
 - **Tool result truncation**: Caps tool output during serialization to stay within token budgets
 
 Use \`/compact [focus]\` to manually compact, or enable \`--auto-compact\` to compact automatically near the context limit.
+
+### Reactive compaction on overflow
+
+Independent of \`--auto-compact\`, Kit always recovers from provider context-overflow errors reactively: it compacts the conversation and replays the failed turn once, replacing media attachments with text placeholders in the replayed request. Token estimates inevitably drift from real tokenizer counts, and a single huge mid-turn tool result can overflow the context even when the turn started under the limit — this safety net makes those cases non-fatal. Only when the replay also overflows does the turn fail, with a clear "conversation too large to compact" error.
 
 ## Auto-cleanup
 

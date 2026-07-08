@@ -561,6 +561,10 @@ token count is preferred over the heuristic. Compaction budgets adapt to the
 model's context and output limits when left at their zero values; pass a
 <code>*kit.CompactionOptions</code> as the second argument to <code>Compact</code> to override
 them — see <a href="/sdk/options#compactionoptions">SDK options → CompactionOptions</a>.</p>
+<p>Estimates can still undercount. When a provider call fails with a
+context-overflow error, the turn loop automatically compacts and replays the
+turn once before surfacing <code>kit.ErrContextOverflow</code> — see
+<a href="/sdk/options#reactive-compaction-on-context-overflow">Reactive compaction</a>.</p>
 <h2 id="provider-error-classification"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-error-classification"><span class="icon icon-link"></span></a>Provider error classification</h2>
 <p>Provider failures are wrapped with exported sentinels so you can branch on the
 failure category with <code>errors.Is</code> instead of string-matching the underlying
@@ -569,7 +573,10 @@ also classify any provider error yourself with <code>kit.ClassifyProviderError</
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, prompt)</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">switch</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrContextOverflow):</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Compact</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// compact and retry</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Kit already compacted and replayed the turn once before surfacing</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // this — reaching here means the conversation cannot fit even after</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // compaction (e.g. start a new session or trim input).</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    handleUnrecoverableOverflow</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrRateLimit):</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    backoffAndRetry</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrAuth):</span></span>
@@ -589,7 +596,7 @@ also classify any provider error yourself with <code>kit.ClassifyProviderError</
 <tbody>
 <tr>
 <td><code>kit.ErrContextOverflow</code></td>
-<td>Request exceeded the model's context window</td>
+<td>Request exceeded the model's context window — surfaced only after Kit's automatic compact-and-replay recovery also failed</td>
 </tr>
 <tr>
 <td><code>kit.ErrRateLimit</code></td>
@@ -1193,6 +1200,11 @@ model's context and output limits when left at their zero values; pass a
 \`*kit.CompactionOptions\` as the second argument to \`Compact\` to override
 them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
 
+Estimates can still undercount. When a provider call fails with a
+context-overflow error, the turn loop automatically compacts and replays the
+turn once before surfacing \`kit.ErrContextOverflow\` — see
+[Reactive compaction](/sdk/options#reactive-compaction-on-context-overflow).
+
 ## Provider error classification
 
 Provider failures are wrapped with exported sentinels so you can branch on the
@@ -1204,7 +1216,10 @@ also classify any provider error yourself with \`kit.ClassifyProviderError\`:
 _, err := host.PromptResult(ctx, prompt)
 switch {
 case errors.Is(err, kit.ErrContextOverflow):
-    host.Compact(ctx, nil, "") // compact and retry
+    // Kit already compacted and replayed the turn once before surfacing
+    // this — reaching here means the conversation cannot fit even after
+    // compaction (e.g. start a new session or trim input).
+    handleUnrecoverableOverflow()
 case errors.Is(err, kit.ErrRateLimit):
     backoffAndRetry()
 case errors.Is(err, kit.ErrAuth):
@@ -1218,7 +1233,7 @@ case errors.Is(err, kit.ErrInvalidRequest):
 
 | Sentinel | Meaning |
 |----------|---------|
-| \`kit.ErrContextOverflow\` | Request exceeded the model's context window |
+| \`kit.ErrContextOverflow\` | Request exceeded the model's context window — surfaced only after Kit's automatic compact-and-replay recovery also failed |
 | \`kit.ErrRateLimit\` | Provider throttled the request |
 | \`kit.ErrAuth\` | Credential / authorization failure |
 | \`kit.ErrProviderUnavailable\` | Transient upstream failure (5xx, network, timeout) |

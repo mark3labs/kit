@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CFGhtSsg.js"></script>
+<script type="module" src="/assets/index-DfclzUzj.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -234,7 +234,7 @@ context files at runtime (e.g. per user or per session), use the
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `AutoCompact` | `bool` | `false` | Auto-compact when near context limit |
+| `AutoCompact` | `bool` | `false` | Compact proactively before turns that near the context limit. Independent of this setting, Kit always compacts **reactively** and replays the turn once when a provider call fails with a context-overflow error. |
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for compaction; zero-value budget fields adapt to the model's limits. See [CompactionOptions](#compactionoptions) below. |
 | `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
@@ -263,6 +263,24 @@ limits, or set an explicit value to override.
 When a session compacts more than once, the previous summary is fed back into
 the summarization prompt and updated incrementally (anchored summaries), so
 detail is preserved across compaction generations.
+
+#### Reactive compaction on context overflow
+
+Token estimates inevitably drift from real tokenizer counts, and a single
+huge mid-turn tool result can overflow the context even when the turn started
+well under the limit. When the provider rejects a request with a
+context-overflow error, Kit automatically:
+
+1. Compacts the conversation (persisting any completed steps first, so the
+   replay resumes rather than restarts).
+2. Replays the turn once with the rebuilt context, replacing media
+   attachments with text placeholders (media cannot be shrunk by
+   summarization).
+3. If the replay still overflows, fails the turn with `kit.ErrContextOverflow`
+   ("conversation too large to compact").
+
+This safety net is always on — it does not require `AutoCompact`, which only
+controls the *proactive* check before each turn.
 
 ## MCP OAuth Authorization
 

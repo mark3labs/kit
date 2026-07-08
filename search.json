@@ -102,7 +102,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 599
+      "wordCount": 610
     },
     {
       "id": "configuration",
@@ -380,6 +380,7 @@
         "Project-skill trust gate",
         "Compaction &amp; MCP",
         "CompactionOptions",
+        "Reactive compaction on context overflow",
         "MCP OAuth Authorization",
         "MCP Tasks",
         "Per-server mode",
@@ -390,7 +391,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 2956
+      "wordCount": 3102
     },
     {
       "id": "sdk/overview",
@@ -424,7 +425,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2835
+      "wordCount": 2902
     },
     {
       "id": "sdk/sessions",
@@ -451,6 +452,7 @@
       "headings": [
         "Session storage",
         "Compaction",
+        "Reactive compaction on overflow",
         "Auto-cleanup",
         "Resuming sessions",
         "Continue most recent",
@@ -462,7 +464,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 689
+      "wordCount": 779
     },
     {
       "id": "themes",
