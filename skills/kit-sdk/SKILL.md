@@ -1095,7 +1095,7 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 defs, err := kit.LoadAgentDefinitions("") // "" = current working directory
 ```
 
-Disable discovery with the `no-agents` config key, `KIT_NO_AGENTS=true`, or `kit.Options{NoAgents: true}`.
+Disable discovery with `--no-agents`, the `no-agents` config key, `KIT_NO_AGENTS=true`, or `kit.Options{NoAgents: true}`.
 
 ---
 

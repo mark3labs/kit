@@ -50,23 +50,45 @@ func LoadAgentDefinitions(cwd string) ([]*AgentDefinition, error) {
 
 // GetAgents returns the named agent definitions discovered at construction
 // time (including built-ins, excluding disabled ones). The returned slice is
-// a snapshot — mutating it does not affect Kit state. Returns nil when agent
+// a deep-copied snapshot — mutating the returned definitions (including
+// their Tools slices) does not affect Kit state. Returns nil when agent
 // discovery was disabled via [Options].NoAgents.
 func (m *Kit) GetAgents() []*AgentDefinition {
 	if len(m.namedAgents) == 0 {
 		return nil
 	}
 	out := make([]*AgentDefinition, len(m.namedAgents))
-	copy(out, m.namedAgents)
+	for i, a := range m.namedAgents {
+		out[i] = cloneAgentDefinition(a)
+	}
 	return out
 }
 
+// cloneAgentDefinition returns a deep copy of def, cloning the mutable
+// Tools slice and Temperature pointer so callers cannot mutate shared Kit
+// state through the copy. Returns nil for a nil input.
+func cloneAgentDefinition(def *AgentDefinition) *AgentDefinition {
+	if def == nil {
+		return nil
+	}
+	cp := *def
+	if def.Tools != nil {
+		cp.Tools = append([]string(nil), def.Tools...)
+	}
+	if def.Temperature != nil {
+		t := *def.Temperature
+		cp.Temperature = &t
+	}
+	return &cp
+}
+
 // GetAgent returns the named agent definition with the given name, or
-// (nil, false) when no such agent was discovered.
+// (nil, false) when no such agent was discovered. The returned definition
+// is a deep copy — mutating it does not affect Kit state.
 func (m *Kit) GetAgent(name string) (*AgentDefinition, bool) {
 	for _, a := range m.namedAgents {
 		if a.Name == name {
-			return a, true
+			return cloneAgentDefinition(a), true
 		}
 	}
 	return nil, false
@@ -93,10 +115,16 @@ func namedAgentSpecs(defs []*AgentDefinition) []core.NamedAgentSpec {
 }
 
 // resolveAgentDefinition looks up a named agent and merges its presets into
-// cfg. Explicitly set cfg fields win over the definition's values. It
-// reports whether the definition restricted the tool set (callers must then
-// prevent the child from re-loading MCP servers, which would bypass the
-// allowlist).
+// cfg. Explicitly set scalar cfg fields (Model, SystemPrompt, Timeout,
+// Temperature) win over the definition's values. Tools are handled
+// differently: when the definition declares a tools allowlist, cfg.Tools is
+// treated as the base set (defaulting to SubagentTools()) and intersected
+// with the allowlist — it never widens beyond it. This is deliberate: the
+// internal agent-loop spawner always passes the parent's inherited tools,
+// and a full override there would let inherited tools bypass the allowlist.
+// It reports whether the definition restricted the tool set (callers must
+// then prevent the child from re-loading MCP servers, which would bypass
+// the allowlist).
 func (m *Kit) resolveAgentDefinition(cfg *SubagentConfig) (restricted bool, err error) {
 	def, ok := m.GetAgent(cfg.Agent)
 	if !ok {

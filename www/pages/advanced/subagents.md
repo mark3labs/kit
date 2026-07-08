@@ -94,7 +94,7 @@ Two built-in agents ship with Kit:
 
 An agent without a `tools:` list gets the default subagent tool set (everything except `subagent`, preventing recursion). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
 
-Disable named-agent discovery entirely with the `no-agents` config key or `KIT_NO_AGENTS=true`.
+Disable named-agent discovery entirely with `--no-agents`, the `no-agents` config key, or `KIT_NO_AGENTS=true`.
 
 ## Extension subagents
 

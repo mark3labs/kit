@@ -164,6 +164,40 @@ func TestResolveAgentDefinition_AppliesAllowlist(t *testing.T) {
 	}
 }
 
+func TestResolveAgentDefinition_ExplicitToolsIntersectAllowlist(t *testing.T) {
+	// Explicit cfg.Tools is the base set: the agent allowlist narrows it
+	// and cfg.Tools can never widen access beyond the allowlist. This is
+	// deliberate — the internal spawner always passes inherited tools, and
+	// a full override would bypass the allowlist.
+	k := &Kit{namedAgents: []*AgentDefinition{
+		{Name: "explore", Description: "e", Tools: []string{"read", "grep"}},
+	}}
+	cfg := SubagentConfig{
+		Prompt: "p",
+		Agent:  "explore",
+		// Base set includes tools outside the allowlist (bash, write).
+		Tools: SubagentTools(),
+	}
+
+	restricted, err := k.resolveAgentDefinition(&cfg)
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if !restricted {
+		t.Error("allowlisted agent should report restricted=true")
+	}
+	if len(cfg.Tools) != 2 {
+		t.Fatalf("cfg.Tools has %d tools, want 2 (intersection)", len(cfg.Tools))
+	}
+	for _, tl := range cfg.Tools {
+		switch tl.Info().Name {
+		case "read", "grep":
+		default:
+			t.Errorf("tool %q escaped the allowlist", tl.Info().Name)
+		}
+	}
+}
+
 func TestResolveAgentDefinition_HiddenIsResolvable(t *testing.T) {
 	k := &Kit{namedAgents: []*AgentDefinition{
 		{Name: "secret", Description: "s", Hidden: true, SystemPrompt: "shh"},
@@ -227,6 +261,31 @@ func TestKitGetAgents(t *testing.T) {
 	empty := &Kit{}
 	if empty.GetAgents() != nil {
 		t.Error("GetAgents on empty Kit should return nil")
+	}
+}
+
+func TestKitGetAgents_DeepCopy(t *testing.T) {
+	temp := float32(0.3)
+	k := &Kit{namedAgents: []*AgentDefinition{
+		{Name: "a", Description: "aa", Tools: []string{"read", "grep"}, Temperature: &temp},
+	}}
+
+	got := k.GetAgents()
+
+	// Mutating the returned definition's fields must not leak into Kit state.
+	got[0].Name = "mutated"
+	got[0].Tools[0] = "bash"
+	*got[0].Temperature = 0.9
+
+	orig := k.namedAgents[0]
+	if orig.Name != "a" {
+		t.Errorf("struct field mutation leaked: Name = %q", orig.Name)
+	}
+	if orig.Tools[0] != "read" {
+		t.Errorf("Tools slice mutation leaked: %v", orig.Tools)
+	}
+	if *orig.Temperature != 0.3 {
+		t.Errorf("Temperature pointer mutation leaked: %v", *orig.Temperature)
 	}
 }
 

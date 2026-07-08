@@ -2180,8 +2180,12 @@ type SubagentConfig struct {
 	// Agent optionally names a discovered agent definition (see
 	// [Kit.GetAgents]) whose presets — model, system prompt, tool
 	// allowlist, temperature, and timeout — apply as defaults. Explicitly
-	// set fields on this struct override the definition's values. An
-	// unknown name is an error.
+	// set scalar fields on this struct (Model, SystemPrompt, Timeout,
+	// Temperature) override the definition's values. Tools is the
+	// exception: when the definition declares a tool allowlist, Tools acts
+	// as the base set and is intersected with the allowlist — it can narrow
+	// the agent's tool access but never widen it. An unknown name is an
+	// error.
 	Agent string
 
 	// Model overrides the parent's model (e.g. "anthropic/claude-haiku-3-5-20241022").

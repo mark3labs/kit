@@ -141,6 +141,9 @@ skill:                    # explicit skill files/dirs (disables auto-discovery)
 skills-dir: ""            # scan this directory directly for skills (overrides auto-discovery)
 skill-disable:            # hide skills from the model catalog by name (still usable via /skill:)
   - some-skill
+
+# Named agents
+no-agents: false          # set to true to disable named agent discovery (built-ins and definition files)
 ```
 
 All of the above keys can also be set programmatically via the SDK
@@ -224,6 +227,7 @@ mcpServers:
 --skills-dir             Scan this directory directly for skills (overrides auto-discovery)
 --skill-disable          Hide a skill from the model catalog by name (repeatable); still usable via /skill:
 --no-skills              Disable skill loading (auto-discovery and explicit)
+--no-agents              Disable named agent discovery (built-ins and definition files)
 
 # Generation parameters
 --max-tokens             Maximum tokens in response (default: 8192, auto-raised up to 32768 for models with larger known output limits)
@@ -537,7 +541,7 @@ result, err := k.Subagent(ctx, kit.SubagentConfig{
 })
 ```
 
-Disable discovery entirely with the `no-agents` config key (`.kit.yml`), `KIT_NO_AGENTS=true`, or `Options.NoAgents` in the SDK.
+Disable discovery entirely with `--no-agents`, the `no-agents` config key (`.kit.yml`), `KIT_NO_AGENTS=true`, or `Options.NoAgents` in the SDK.
 
 ## GitHub Integration
 

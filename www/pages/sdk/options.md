@@ -74,7 +74,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Feature toggles
     NoExtensions:   true,               // disable Yaegi extension loading
     NoContextFiles: true,               // disable automatic AGENTS.md loading
-    NoAgents:       true,               // disable named agent discovery (.agents/agents/, built-ins)
+    NoAgents:       true,               // disable named agent discovery (.agents/agents/, .kit/agents/, ~/.config/kit/agents/, and built-ins)
 
     // Session (advanced)
     SessionManager: myCustomSession,    // custom SessionManager implementation
