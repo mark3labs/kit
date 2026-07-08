@@ -58,8 +58,16 @@ type SubagentConfig struct {
 
 	// ParentSessionID links the subagent's session to the parent (optional).
 	// When set, the subagent's session header includes a parent reference
-	// so viewers can navigate the session tree.
+	// so viewers can navigate the session tree. When empty, the host Kit's
+	// active persisted session ID is recorded automatically.
 	ParentSessionID string
+
+	// SessionID resumes an existing subagent session instead of creating a
+	// new one. Set it to the SessionID of a previous SubagentResult so
+	// follow-up prompts reuse the subagent's accumulated context instead of
+	// re-establishing it from scratch. Mutually exclusive with NoSession.
+	// An unknown ID is an error.
+	SessionID string
 }
 
 // SubagentEvent carries a real-time event from a running subagent. Extensions

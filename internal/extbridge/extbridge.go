@@ -115,12 +115,14 @@ func completionResult(result *extensions.SubagentResult, err error) extensions.S
 // are set in addition to the returned error.
 func runSubagent(ctx context.Context, k *kit.Kit, cfg extensions.SubagentConfig) (*extensions.SubagentResult, error) {
 	sdkCfg := kit.SubagentConfig{
-		Prompt:       cfg.Prompt,
-		Model:        cfg.Model,
-		SystemPrompt: cfg.SystemPrompt,
-		Timeout:      cfg.Timeout,
-		NoSession:    cfg.NoSession,
-		Tools:        k.GetToolsForSubagent(),
+		Prompt:          cfg.Prompt,
+		Model:           cfg.Model,
+		SystemPrompt:    cfg.SystemPrompt,
+		Timeout:         cfg.Timeout,
+		NoSession:       cfg.NoSession,
+		SessionID:       cfg.SessionID,
+		ParentSessionID: cfg.ParentSessionID,
+		Tools:           k.GetToolsForSubagent(),
 	}
 	if cfg.OnEvent != nil || cfg.OnOutput != nil {
 		sdkCfg.OnEvent = func(e kit.Event) {

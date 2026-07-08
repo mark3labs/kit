@@ -639,6 +639,11 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
 })
 ```
 
+Session-backed runs are linked to the parent: new child sessions record the
+parent's session ID in their header, and `result.SessionID` can be passed back
+as `SubagentConfig.SessionID` to resume the child session for follow-up
+prompts that reuse its accumulated context.
+
 See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.
 
