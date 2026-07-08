@@ -643,6 +643,10 @@ timeout:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Map out the session persistence flow"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Agent:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// read-only preset</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Session-backed runs are linked to the parent: new child sessions record the
+parent's session ID in their header, and <code>result.SessionID</code> can be passed back
+as <code>SubagentConfig.SessionID</code> to resume the child session for follow-up
+prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
 <p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime native tools",id:"runtime-native-tools"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
@@ -1281,6 +1285,11 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Agent:  "explore", // read-only preset
 })
 \`\`\`
+
+Session-backed runs are linked to the parent: new child sessions record the
+parent's session ID in their header, and \`result.SessionID\` can be passed back
+as \`SubagentConfig.SessionID\` to resume the child session for follow-up
+prompts that reuse its accumulated context.
 
 See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.

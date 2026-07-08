@@ -7,7 +7,7 @@
 <meta name="description" content="How Kit persists and manages conversation sessions.">
 <link rel="canonical" href="/sessions">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CerLUyKK.js"></script>
+<script type="module" src="/assets/index-B2zihOy0.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Session Management","description":"How Kit persists and manages conversation sessions.","url":"https://go-kit.dev/sessions","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -28,6 +28,8 @@ Sessions are stored as JSONL (JSON Lines) files:
 Path separators in the working directory are replaced with `--`. For example, `/home/user/project` becomes `home--user--project`.
 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
+
+When a [subagent](/advanced/subagents) is spawned from a persisted parent session, the child records its parent in the file header (`parent_session_id`, `parent_session`, and the originating `subagent_task`), so delegated work can be traced back to the session that spawned it.
 
 ## Compaction
 

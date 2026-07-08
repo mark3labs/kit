@@ -7,7 +7,7 @@
 <meta name="description" content="Multi-agent orchestration with Kit subagents.">
 <link rel="canonical" href="/advanced/subagents">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CerLUyKK.js"></script>
+<script type="module" src="/assets/index-B2zihOy0.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Subagents","description":"Multi-agent orchestration with Kit subagents.","url":"https://go-kit.dev/advanced/subagents","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -52,11 +52,31 @@ subagent(
     agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
-    timeout_seconds: 300                               // optional, max 1800
+    timeout_seconds: 300,                              // optional, max 1800
+    session_id: "..."                                  // optional, resume a previous subagent
 )
 ```
 
-Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.
+Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+## Session linking and resuming
+
+Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:
+
+- **Parent → child**: every successful `subagent` tool call returns the child's session ID as `subagent_session_id` in the tool-response metadata (also `SubagentResult.SessionID` in the SDK).
+- **Child → parent**: when the parent is running with a persisted session, the child session's header records `parent_session_id` (the parent's session UUID), `parent_session` (the parent's file path), and `subagent_task` (the original task prompt), so viewers can navigate delegated work as a session tree.
+
+Passing a previous run's `subagent_session_id` back via the `session_id` parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:
+
+```
+subagent(task: "Research how session persistence works")
+→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+
+subagent(task: "Now check how it handles errors", session_id: "abc123...")
+→ follow-up runs in the same child session, reusing its context
+```
+
+Resumed sessions keep their original parent link; an unknown `session_id` is an error. Resuming is incompatible with ephemeral (`NoSession`) runs.
 
 ## Named agents
 
@@ -137,6 +157,8 @@ handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 ```
 
 Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the `subagent` tool, and do not load extensions. Sessions are persisted by default; set `NoSession: true` for ephemeral runs.
+
+Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent's session for follow-up prompts, and `ParentSessionID` to override the parent link recorded in the child session's header (it defaults to the host's active persisted session — see [Session linking and resuming](#session-linking-and-resuming)).
 
 ### Monitoring subagents from extensions
 
@@ -232,6 +254,21 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Agent:  "explore", // preset prompt + read-only tool allowlist
 })
 ```
+
+Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent's session, so follow-ups reuse its accumulated context instead of re-establishing it from scratch:
+
+```go
+first, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Research how session persistence works",
+})
+
+followUp, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Now check how it handles errors",
+    SessionID: first.SessionID, // resume the same child session
+})
+```
+
+New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set `ParentSessionID` to override the recorded link.
 
 Inspect the discovered definitions:
 

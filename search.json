@@ -31,6 +31,7 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Session linking and resuming",
         "Named agents",
         "Definition files",
         "Discovery and precedence",
@@ -41,7 +42,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 1205
+      "wordCount": 1530
     },
     {
       "id": "advanced/testing",
@@ -181,7 +182,7 @@
         "Model Resolution"
       ],
       "tags": [],
-      "wordCount": 2140
+      "wordCount": 2171
     },
     {
       "id": "extensions/examples",
@@ -425,7 +426,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2902
+      "wordCount": 2941
     },
     {
       "id": "sdk/sessions",
@@ -464,7 +465,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 779
+      "wordCount": 817
     },
     {
       "id": "themes",

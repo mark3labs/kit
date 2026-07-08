@@ -6,6 +6,7 @@ const e={frontmatter:{title:"Session Management",description:"How Kit persists a
 </code></pre>
 <p>Path separators in the working directory are replaced with <code>--</code>. For example, <code>/home/user/project</code> becomes <code>home--user--project</code>.</p>
 <p>Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.</p>
+<p>When a <a href="/advanced/subagents">subagent</a> is spawned from a persisted parent session, the child records its parent in the file header (<code>parent_session_id</code>, <code>parent_session</code>, and the originating <code>subagent_task</code>), so delegated work can be traced back to the session that spawned it.</p>
 <h2 id="compaction"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#compaction"><span class="icon icon-link"></span></a>Compaction</h2>
 <p>When conversations grow long, Kit can compact them to free up context window space. The compaction system:</p>
 <ul>
@@ -123,6 +124,8 @@ Sessions are stored as JSONL (JSON Lines) files:
 Path separators in the working directory are replaced with \`--\`. For example, \`/home/user/project\` becomes \`home--user--project\`.
 
 Each line in the session file is a JSON entry representing a message, tool call, model change, or extension data. The tree structure allows branching from any message to explore alternate paths.
+
+When a [subagent](/advanced/subagents) is spawned from a persisted parent session, the child records its parent in the file header (\`parent_session_id\`, \`parent_session\`, and the originating \`subagent_task\`), so delegated work can be traced back to the session that spawned it.
 
 ## Compaction
 

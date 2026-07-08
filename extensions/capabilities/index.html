@@ -7,7 +7,7 @@
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="canonical" href="/extensions/capabilities">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CerLUyKK.js"></script>
+<script type="module" src="/assets/index-B2zihOy0.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Capabilities","description":"All extension capabilities — lifecycle events, tools, commands, widgets, and more.","url":"https://go-kit.dev/extensions/capabilities","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -294,6 +294,8 @@ _, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
 ```
 
 With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (`handle.Wait()`, `handle.Done()`, `handle.Kill()`); use `OnComplete`/`OnEvent` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
+
+Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
 ### Monitoring subagents spawned by the main agent
 

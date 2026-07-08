@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CerLUyKK.js"></script>
+<script type="module" src="/assets/index-B2zihOy0.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -648,6 +648,11 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Agent:  "explore", // read-only preset
 })
 ```
+
+Session-backed runs are linked to the parent: new child sessions record the
+parent's session ID in their header, and `result.SessionID` can be passed back
+as `SubagentConfig.SessionID` to resume the child session for follow-up
+prompts that reuse its accumulated context.
 
 See [Subagents](/advanced/subagents#named-agents) for definition file format
 and discovery precedence.

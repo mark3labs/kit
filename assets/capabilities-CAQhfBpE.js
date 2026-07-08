@@ -373,6 +373,7 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Blocking:     </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>With <code>Blocking: false</code> (the default), the subagent runs in a background goroutine and <code>SpawnSubagent</code> returns immediately with a non-nil handle (<code>handle.Wait()</code>, <code>handle.Done()</code>, <code>handle.Kill()</code>); use <code>OnComplete</code>/<code>OnEvent</code> callbacks for results. See <a href="/advanced/subagents">Subagents</a> for a full background-mode example.</p>
+<p>Subagent sessions are persisted and linked to the host session by default. Set <code>SessionID</code> to a previous run's <code>SubagentResult.SessionID</code> to resume that subagent for follow-up prompts; see <a href="/advanced/subagents#session-linking-and-resuming">Session linking and resuming</a>.</p>
 <h3 id="monitoring-subagents-spawned-by-the-main-agent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-spawned-by-the-main-agent"><span class="icon icon-link"></span></a>Monitoring subagents spawned by the main agent</h3>
 <p>When the LLM uses the built-in <code>subagent</code> tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Subagent started</span></span>
@@ -877,6 +878,8 @@ _, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
 \`\`\`
 
 With \`Blocking: false\` (the default), the subagent runs in a background goroutine and \`SpawnSubagent\` returns immediately with a non-nil handle (\`handle.Wait()\`, \`handle.Done()\`, \`handle.Kill()\`); use \`OnComplete\`/\`OnEvent\` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
+
+Subagent sessions are persisted and linked to the host session by default. Set \`SessionID\` to a previous run's \`SubagentResult.SessionID\` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
 
 ### Monitoring subagents spawned by the main agent
 

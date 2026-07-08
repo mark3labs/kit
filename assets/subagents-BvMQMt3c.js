@@ -47,10 +47,25 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
     agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
-    timeout_seconds: 300                               // optional, max 1800
+    timeout_seconds: 300,                              // optional, max 1800
+    session_id: "..."                                  // optional, resume a previous subagent
 )
 </code></pre>
-<p>Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.</p>
+<p>Subagents run as separate in-process Kit instances and inherit the parent's active tools minus <code>subagent</code> (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
+<h2 id="session-linking-and-resuming"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-linking-and-resuming"><span class="icon icon-link"></span></a>Session linking and resuming</h2>
+<p>Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:</p>
+<ul>
+<li><strong>Parent → child</strong>: every successful <code>subagent</code> tool call returns the child's session ID as <code>subagent_session_id</code> in the tool-response metadata (also <code>SubagentResult.SessionID</code> in the SDK).</li>
+<li><strong>Child → parent</strong>: when the parent is running with a persisted session, the child session's header records <code>parent_session_id</code> (the parent's session UUID), <code>parent_session</code> (the parent's file path), and <code>subagent_task</code> (the original task prompt), so viewers can navigate delegated work as a session tree.</li>
+</ul>
+<p>Passing a previous run's <code>subagent_session_id</code> back via the <code>session_id</code> parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:</p>
+<pre><code>subagent(task: "Research how session persistence works")
+→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+
+subagent(task: "Now check how it handles errors", session_id: "abc123...")
+→ follow-up runs in the same child session, reusing its context
+</code></pre>
+<p>Resumed sessions keep their original parent link; an unknown <code>session_id</code> is an error. Resuming is incompatible with ephemeral (<code>NoSession</code>) runs.</p>
 <h2 id="named-agents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#named-agents"><span class="icon icon-link"></span></a>Named agents</h2>
 <p>Named agents are reusable subagent presets defined in markdown files. They are advertised in the <code>subagent</code> tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.</p>
 <h3 id="definition-files"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#definition-files"><span class="icon icon-link"></span></a>Definition files</h3>
@@ -142,6 +157,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// handle.Wait()   — block until completion, returns SubagentResult</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// &lt;-handle.Done() — channel that closes on completion</span></span></code></pre>
 <p>Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the <code>subagent</code> tool, and do not load extensions. Sessions are persisted by default; set <code>NoSession: true</code> for ephemeral runs.</p>
+<p>Set <code>SessionID</code> to a previous run's <code>SubagentResult.SessionID</code> to resume that subagent's session for follow-up prompts, and <code>ParentSessionID</code> to override the parent link recorded in the child session's header (it defaults to the host's active persisted session — see <a href="#session-linking-and-resuming">Session linking and resuming</a>).</p>
 <h3 id="monitoring-subagents-from-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#monitoring-subagents-from-extensions"><span class="icon icon-link"></span></a>Monitoring subagents from extensions</h3>
 <p>When the LLM (not the extension itself) spawns a subagent using the <code>subagent</code> tool, extensions can monitor its activity in real-time using three lifecycle event handlers:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Track active subagents and display their output</span></span>
@@ -218,6 +234,16 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Map out the session persistence flow"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Agent:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// preset prompt + read-only tool allowlist</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Set <code>SessionID</code> to a previous run's <code>SubagentResult.SessionID</code> to resume that subagent's session, so follow-ups reuse its accumulated context instead of re-establishing it from scratch:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">first, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Research how session persistence works"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">followUp, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Now check how it handles errors"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionID: first.SessionID, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// resume the same child session</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see <a href="#session-linking-and-resuming">Session linking and resuming</a>); set <code>ParentSessionID</code> to override the recorded link.</p>
 <p>Inspect the discovered definitions:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">def, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// lookup by name</span></span>
@@ -241,7 +267,7 @@ const s={frontmatter:{title:"Subagents",description:"Multi-agent orchestration w
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in subagent tool",id:"built-in-subagent-tool"},{depth:2,text:"Named agents",id:"named-agents"},{depth:3,text:"Definition files",id:"definition-files"},{depth:3,text:"Discovery and precedence",id:"discovery-and-precedence"},{depth:3,text:"Tool allowlists",id:"tool-allowlists"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
+<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:"Subprocess pattern",id:"subprocess-pattern"},{depth:2,text:"Built-in subagent tool",id:"built-in-subagent-tool"},{depth:2,text:"Session linking and resuming",id:"session-linking-and-resuming"},{depth:2,text:"Named agents",id:"named-agents"},{depth:3,text:"Definition files",id:"definition-files"},{depth:3,text:"Discovery and precedence",id:"discovery-and-precedence"},{depth:3,text:"Tool allowlists",id:"tool-allowlists"},{depth:2,text:"Extension subagents",id:"extension-subagents"},{depth:3,text:"Monitoring subagents from extensions",id:"monitoring-subagents-from-extensions"},{depth:2,text:"Go SDK subagents",id:"go-sdk-subagents"},{depth:3,text:"Real-time subagent events",id:"real-time-subagent-events"}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
@@ -281,11 +307,31 @@ subagent(
     agent: "explore",                                  // optional named agent
     model: "anthropic/claude-haiku-latest",   // optional
     system_prompt: "You are a test analysis expert.",  // optional
-    timeout_seconds: 300                               // optional, max 1800
+    timeout_seconds: 300,                              // optional, max 1800
+    session_id: "..."                                  // optional, resume a previous subagent
 )
 \`\`\`
 
-Subagents run as separate in-process Kit instances with full tool access (except spawning further subagents, to prevent infinite recursion). They can run in parallel.
+Subagents run as separate in-process Kit instances and inherit the parent's active tools minus \`subagent\` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+## Session linking and resuming
+
+Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:
+
+- **Parent → child**: every successful \`subagent\` tool call returns the child's session ID as \`subagent_session_id\` in the tool-response metadata (also \`SubagentResult.SessionID\` in the SDK).
+- **Child → parent**: when the parent is running with a persisted session, the child session's header records \`parent_session_id\` (the parent's session UUID), \`parent_session\` (the parent's file path), and \`subagent_task\` (the original task prompt), so viewers can navigate delegated work as a session tree.
+
+Passing a previous run's \`subagent_session_id\` back via the \`session_id\` parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:
+
+\`\`\`
+subagent(task: "Research how session persistence works")
+→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+
+subagent(task: "Now check how it handles errors", session_id: "abc123...")
+→ follow-up runs in the same child session, reusing its context
+\`\`\`
+
+Resumed sessions keep their original parent link; an unknown \`session_id\` is an error. Resuming is incompatible with ephemeral (\`NoSession\`) runs.
 
 ## Named agents
 
@@ -366,6 +412,8 @@ handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
 \`\`\`
 
 Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the \`subagent\` tool, and do not load extensions. Sessions are persisted by default; set \`NoSession: true\` for ephemeral runs.
+
+Set \`SessionID\` to a previous run's \`SubagentResult.SessionID\` to resume that subagent's session for follow-up prompts, and \`ParentSessionID\` to override the parent link recorded in the child session's header (it defaults to the host's active persisted session — see [Session linking and resuming](#session-linking-and-resuming)).
 
 ### Monitoring subagents from extensions
 
@@ -461,6 +509,21 @@ result, err := host.Subagent(ctx, kit.SubagentConfig{
     Agent:  "explore", // preset prompt + read-only tool allowlist
 })
 \`\`\`
+
+Set \`SessionID\` to a previous run's \`SubagentResult.SessionID\` to resume that subagent's session, so follow-ups reuse its accumulated context instead of re-establishing it from scratch:
+
+\`\`\`go
+first, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Research how session persistence works",
+})
+
+followUp, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Now check how it handles errors",
+    SessionID: first.SessionID, // resume the same child session
+})
+\`\`\`
+
+New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set \`ParentSessionID\` to override the recorded link.
 
 Inspect the discovered definitions:
 
