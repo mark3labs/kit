@@ -2204,6 +2204,10 @@ type SubagentConfig struct {
 	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
 	// SDK call sites.
 	// (The subagent tool is dropped to prevent infinite recursion.)
+	//
+	// When Agent names a definition with a tool allowlist, this set is
+	// intersected with that allowlist rather than overriding it — see the
+	// Agent field documentation.
 	Tools []Tool
 
 	// NoSession, when true, uses an in-memory ephemeral session. When false
