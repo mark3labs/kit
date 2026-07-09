@@ -246,6 +246,11 @@ func pollTaskUntilTerminal(
 		interval = cfg.MaxPollInterval
 	}
 
+	// Reuse a single timer across poll iterations — time.After in a loop
+	// leaks a pending timer per iteration when the context wins the select.
+	pollTimer := time.NewTimer(interval)
+	defer pollTimer.Stop()
+
 	for !current.Status.IsTerminal() {
 		if time.Now().After(deadline) {
 			cancelTaskBestEffort(c, current.TaskId)
@@ -257,7 +262,7 @@ func pollTaskUntilTerminal(
 		case <-ctx.Done():
 			cancelTaskBestEffort(c, current.TaskId)
 			return nil, ctx.Err()
-		case <-time.After(interval):
+		case <-pollTimer.C:
 		}
 
 		got, err := c.GetTask(ctx, mcp.GetTaskRequest{
@@ -278,6 +283,7 @@ func pollTaskUntilTerminal(
 		if current.PollInterval != nil && *current.PollInterval > 0 {
 			interval = min(time.Duration(*current.PollInterval)*time.Millisecond, cfg.MaxPollInterval)
 		}
+		pollTimer.Reset(interval)
 	}
 
 	// Terminal state reached. Emit one last progress event and fetch the

@@ -398,6 +398,15 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 	if m.debugLogger == nil {
 		m.debugLogger = NewSimpleDebugLogger(cfg.Debug)
 	}
+	// Close any pre-existing pool (from ensureConnectionPool or an earlier
+	// LoadTools call) before replacing it. Orphaning it would leak its
+	// health-check goroutine and any stdio MCP subprocesses it holds for
+	// the lifetime of the process.
+	if m.connectionPool != nil {
+		if err := m.connectionPool.Close(); err != nil {
+			log.Warn("Failed to close previous MCP connection pool", "error", err)
+		}
+	}
 	m.connectionPool = NewMCPConnectionPool(DefaultConnectionPoolConfig(), cfg.Debug, m.authHandler, m.tokenStoreFactory)
 	m.connectionPool.SetDebugLogger(m.debugLogger)
 

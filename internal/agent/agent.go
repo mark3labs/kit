@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	log "github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/core"
@@ -1444,11 +1445,16 @@ func (a *Agent) GetMaxTokens() int {
 
 // Close closes the agent and cleans up resources.
 // If MCP tools are still loading in the background, Close waits for them
-// to finish before closing connections to avoid resource leaks.
+// to finish before closing connections to avoid resource leaks. The wait
+// is bounded so a hung MCP transport can never block shutdown forever.
 func (a *Agent) Close() error {
 	// Wait for background MCP loading to finish before closing connections.
 	if a.mcpReady != nil {
-		<-a.mcpReady
+		select {
+		case <-a.mcpReady:
+		case <-time.After(30 * time.Second):
+			log.Warn("Timed out waiting for background MCP loading during shutdown; closing anyway")
+		}
 	}
 	var toolErr error
 	if a.toolManager != nil {

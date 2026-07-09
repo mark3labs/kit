@@ -602,12 +602,9 @@ func (a *App) CompactConversation(customInstructions string) error {
 		defer a.releaseBusyAfterCompact()
 
 		// Subscribe to SDK events for streaming compaction summary to the TUI.
-		sendFn := func(msg tea.Msg) {
-			if a.program != nil {
-				a.program.Send(msg)
-			}
-		}
-		unsub := a.subscribeSDKEvents(sendFn, nil)
+		// a.sendEvent snapshots a.program under the mutex — reading a.program
+		// directly from this goroutine would race with SetProgram.
+		unsub := a.subscribeSDKEvents(a.sendEvent, nil, true)
 		defer unsub()
 
 		result, err := a.opts.Kit.Compact(a.rootCtx, nil, customInstructions)
@@ -664,12 +661,9 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 		defer a.releaseBusyAfterCompact()
 
 		// Subscribe to SDK events for streaming compaction summary to the TUI.
-		sendFn := func(msg tea.Msg) {
-			if a.program != nil {
-				a.program.Send(msg)
-			}
-		}
-		unsub := a.subscribeSDKEvents(sendFn, nil)
+		// a.sendEvent snapshots a.program under the mutex — reading a.program
+		// directly from this goroutine would race with SetProgram.
+		unsub := a.subscribeSDKEvents(a.sendEvent, nil, true)
 		defer unsub()
 
 		result, err := a.opts.Kit.Compact(a.rootCtx, nil, customInstructions)
@@ -884,6 +878,11 @@ func (a *App) Close() {
 	}
 	a.closed = true
 	cancel := a.cancelStep
+	// Detach the TUI program: after Close, tea.Program.Send silently drops
+	// messages, so extension goroutines doing request/response round-trips
+	// (SendPromptRequest, SendOverlayRequest) would block forever waiting
+	// for replies. With program == nil those helpers cancel immediately.
+	a.program = nil
 	a.mu.Unlock()
 
 	// Cancel any in-flight step and the root context.
@@ -1045,7 +1044,7 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 	// Subscribe to SDK events for TUI rendering and per-step usage updates.
 	// The subscription is temporary — it lives only for the duration of this step.
 	var sawStepUsage atomic.Bool
-	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage)
+	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
 	defer unsub()
 
 	// Show spinner while the agent works.
@@ -1094,7 +1093,7 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 	// Subscribe to SDK events for TUI rendering and per-step usage updates.
 	// The subscription is temporary — it lives only for the duration of this step.
 	var sawStepUsage atomic.Bool
-	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage)
+	unsub := a.subscribeSDKEvents(sendFn, &sawStepUsage, eventFn != nil)
 	defer unsub()
 
 	// Show spinner while the agent works.
@@ -1171,8 +1170,12 @@ func (a *App) sendEvent(msg tea.Msg) {
 // subscribeSDKEvents registers temporary SDK event subscribers that convert
 // SDK events to tea.Msg events and dispatch them via sendFn. When stepUsageSeen
 // is provided, it is set to true after any non-zero StepUsageEvent is observed.
+// canPrompt reports whether sendFn actually delivers events to an interactive
+// consumer that will answer request/response events (password prompts). When
+// false, such events are answered "cancelled" immediately instead of being
+// dispatched — dispatching into a void would leave the SDK blocked forever.
 // Returns an unsubscribe function that removes all listeners.
-func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Bool) func() {
+func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Bool, canPrompt bool) func() {
 	k := a.opts.Kit
 	var unsubs []func()
 
@@ -1217,18 +1220,32 @@ func (a *App) subscribeSDKEvents(sendFn func(tea.Msg), stepUsageSeen *atomic.Boo
 		case kit.StepUsageEvent:
 			a.recordStepUsage(ev, stepUsageSeen, sendFn)
 		case kit.PasswordPromptEvent:
-			// Convert SDK PasswordPromptEvent to app PasswordPromptEvent
-			// The TUI will handle this and send the response back
+			// Convert SDK PasswordPromptEvent to app PasswordPromptEvent.
+			// The TUI will handle this and send the response back.
+			if !canPrompt {
+				// No interactive consumer — answer immediately so the bash
+				// tool (and the agent turn) is never blocked on a response
+				// that can't arrive.
+				ev.ResponseCh <- kit.PasswordPromptResponse{Cancelled: true}
+				return
+			}
 			responseCh := make(chan PasswordPromptResponse, 1)
 			sendFn(PasswordPromptEvent{
 				Prompt:     ev.Prompt,
 				ResponseCh: responseCh,
 			})
-			// Wait for TUI response and forward to SDK
-			resp := <-responseCh
-			ev.ResponseCh <- kit.PasswordPromptResponse{
-				Password:  resp.Password,
-				Cancelled: resp.Cancelled,
+			// Wait for the TUI response and forward it to the SDK. Also
+			// select on the root context so app shutdown (TUI already gone)
+			// can never strand this dispatcher goroutine — without it a
+			// dropped event would block the SDK event bus forever.
+			select {
+			case resp := <-responseCh:
+				ev.ResponseCh <- kit.PasswordPromptResponse{
+					Password:  resp.Password,
+					Cancelled: resp.Cancelled,
+				}
+			case <-a.rootCtx.Done():
+				ev.ResponseCh <- kit.PasswordPromptResponse{Cancelled: true}
 			}
 		case kit.TurnEndEvent:
 			a.handleTurnEnd(ev, sendFn)

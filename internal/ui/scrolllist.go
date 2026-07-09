@@ -66,8 +66,29 @@ func NewScrollList(width, height int) *ScrollList {
 // cursor. The pending bottom-scroll is deferred to MouseUp.
 func (s *ScrollList) SetItems(items []MessageItem) {
 	s.items = items
+	s.pruneHeightCache()
 	if s.autoScroll && !s.sel.MouseDown {
 		s.GotoBottom()
+	}
+}
+
+// pruneHeightCache evicts height-cache entries for items that are no longer
+// in the list. Message IDs are unique per item, so without pruning the cache
+// grows without bound across /clear and session switches. To keep SetItems
+// cheap during streaming, pruning only runs when the cache has grown well
+// beyond the current item count (amortized O(1) per call).
+func (s *ScrollList) pruneHeightCache() {
+	if len(s.heightCache) <= 2*len(s.items)+64 {
+		return
+	}
+	live := make(map[string]struct{}, len(s.items))
+	for _, item := range s.items {
+		live[item.ID()] = struct{}{}
+	}
+	for id := range s.heightCache {
+		if _, ok := live[id]; !ok {
+			delete(s.heightCache, id)
+		}
 	}
 }
 
@@ -86,7 +107,13 @@ func (s *ScrollList) SetHeight(height int) {
 
 // SetWidth updates the viewport width. Called when the terminal is resized.
 // This invalidates the height cache since rendered heights are width-dependent.
+// A no-op when the width is unchanged — distributeHeight() calls this every
+// layout pass, and wiping the cache on every pass would force full re-renders
+// of all visible items purely to recompute known heights.
 func (s *ScrollList) SetWidth(width int) {
+	if width == s.width {
+		return
+	}
 	s.width = width
 	// Width change invalidates all cached heights.
 	clear(s.heightCache)
@@ -439,14 +466,19 @@ func (s *ScrollList) ScrollBy(lines int) {
 // Uses cached heights and walks backwards from the end to avoid rendering
 // every item in the list.
 func (s *ScrollList) GotoBottom() {
+	s.offsetIdx, s.offsetLine = s.bottomOffset()
+}
+
+// bottomOffset computes the (offsetIdx, offsetLine) at which the last line
+// of content sits at the bottom of the viewport — i.e. the maximum valid
+// scroll offset. Walks backwards from the last item accumulating cached
+// heights, so it is O(visible) instead of O(all items). Returns (0, 0)
+// when all content fits in the viewport.
+func (s *ScrollList) bottomOffset() (offsetIdx, offsetLine int) {
 	if len(s.items) == 0 {
-		s.offsetIdx = 0
-		s.offsetLine = 0
-		return
+		return 0, 0
 	}
 
-	// Walk backwards from the last item, accumulating height until we
-	// exceed the viewport. This is O(visible) instead of O(all items).
 	budget := s.height
 	for idx := len(s.items) - 1; idx >= 0; idx-- {
 		ih := s.itemHeight(s.items[idx])
@@ -461,16 +493,13 @@ func (s *ScrollList) GotoBottom() {
 			// This item (partially) fills the remaining budget.
 			// When the gap consumed part of the budget, offsetLine would go
 			// negative — clamp to 0 so the item is shown fully.
-			s.offsetIdx = idx
-			s.offsetLine = max(0, ih-budget)
-			return
+			return idx, max(0, ih-budget)
 		}
 		budget -= ih + gap
 	}
 
 	// All content fits in viewport — start at top.
-	s.offsetIdx = 0
-	s.offsetLine = 0
+	return 0, 0
 }
 
 // GotoTop scrolls to the beginning of the list.
@@ -637,6 +666,11 @@ func (s *ScrollList) ScrollPercent() float64 {
 // clampOffset ensures the offset values are within valid bounds after
 // resizing or scrolling operations. Uses cached heights to avoid
 // redundant Render() calls.
+//
+// The past-the-bottom check computes the maximum valid offset via an
+// O(visible) backward walk (bottomOffset) instead of summing the heights
+// of every item in the list — clampOffset runs on every mouse-wheel tick,
+// so an O(all items) walk makes scrolling cost grow with session length.
 func (s *ScrollList) clampOffset() {
 	if len(s.items) == 0 {
 		s.offsetIdx = 0
@@ -663,54 +697,13 @@ func (s *ScrollList) clampOffset() {
 		s.offsetLine = 0
 	}
 
-	// Prevent scrolling past the bottom — compute total height and check
-	// whether remaining content from the current offset fills the viewport.
-	totalHeight := 0
-	for i, item := range s.items {
-		totalHeight += s.itemHeight(item)
-		if s.itemGap > 0 && i < len(s.items)-1 {
-			totalHeight += s.itemGap
-		}
-	}
-
-	// If content fits in viewport, force start at top.
-	if totalHeight <= s.height {
-		s.offsetIdx = 0
-		s.offsetLine = 0
-		return
-	}
-
-	// Compute lines above the viewport.
-	linesAbove := 0
-	for i := 0; i < s.offsetIdx; i++ {
-		linesAbove += s.itemHeight(s.items[i])
-		if s.itemGap > 0 && i < len(s.items)-1 {
-			linesAbove += s.itemGap
-		}
-	}
-	linesAbove += s.offsetLine
-
-	linesFromCurrentToEnd := totalHeight - linesAbove
-	if linesFromCurrentToEnd < s.height {
-		// We've scrolled past the bottom — reposition so the last line
-		// of content sits at the bottom of the viewport.
-		targetLine := totalHeight - s.height
-		currentLine := 0
-
-		for idx := 0; idx < len(s.items); idx++ {
-			ih := s.itemHeight(s.items[idx])
-
-			if currentLine+ih > targetLine {
-				s.offsetIdx = idx
-				s.offsetLine = targetLine - currentLine
-				return
-			}
-
-			currentLine += ih
-			if s.itemGap > 0 && idx < len(s.items)-1 {
-				currentLine += s.itemGap
-			}
-		}
+	// Prevent scrolling past the bottom: the maximum valid offset places the
+	// last content line at the bottom of the viewport. bottomOffset returns
+	// (0, 0) when all content fits, which also forces start-at-top.
+	maxIdx, maxLine := s.bottomOffset()
+	if s.offsetIdx > maxIdx || (s.offsetIdx == maxIdx && s.offsetLine > maxLine) {
+		s.offsetIdx = maxIdx
+		s.offsetLine = maxLine
 	}
 }
 

@@ -144,6 +144,17 @@ func (h *CLIEventHandler) Handle(msg tea.Msg) {
 			h.cli.DisplayInfo(e.Text)
 		}
 
+	case app.PasswordPromptEvent:
+		// Non-interactive mode cannot show a password prompt. Reply
+		// "cancelled" immediately — dropping the event would leave the bash
+		// tool (and the whole agent turn) blocked forever on the channel.
+		h.stopSpinner()
+		h.cli.DisplayInfo("sudo password required but running non-interactively; prompt cancelled")
+		if e.ResponseCh != nil {
+			e.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+		}
+		h.startSpinner()
+
 	case app.StepCompleteEvent:
 		h.stopSpinner()
 

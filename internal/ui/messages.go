@@ -401,35 +401,13 @@ func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 	return result
 }
 
-// createTypography creates a typography instance from theme
-func createTypography(theme style.Theme) *herald.Typography {
-	return herald.New(
-		herald.WithPalette(herald.ColorPalette{
-			Primary:   theme.Primary,
-			Secondary: theme.Secondary,
-			Tertiary:  theme.Info,
-			Accent:    theme.Accent,
-			Highlight: theme.Highlight,
-			Muted:     theme.Muted,
-			Text:      theme.Text,
-			Surface:   theme.Background,
-			Base:      theme.CodeBg,
-		}),
-		herald.WithAlertPalette(herald.AlertPalette{
-			Note:      theme.Info,
-			Tip:       theme.Success,
-			Important: theme.Accent,
-			Warning:   theme.Warning,
-			Caution:   theme.Error,
-		}),
-		herald.WithCodeLineNumbers(true),
-		// Customize alert labels
-		herald.WithAlertLabel(herald.AlertNote, "Info"),
-		herald.WithAlertLabel(herald.AlertTip, ""),
-		herald.WithAlertIcon(herald.AlertTip, ""),
-		herald.WithAlertLabel(herald.AlertWarning, "Working"),
-		herald.WithAlertLabel(herald.AlertCaution, "Error"),
-	)
+// createTypography returns the shared typography instance for the active
+// theme. The instance is cached in the style package and invalidated on
+// theme change — constructing a herald.Typography is expensive and must
+// never happen inside per-frame render paths. The theme parameter is kept
+// for call-site compatibility; the active theme is read internally.
+func createTypography(_ style.Theme) *herald.Typography {
+	return style.GetUITypography()
 }
 
 // UpdateTheme refreshes the renderer's typography instance with colors from
