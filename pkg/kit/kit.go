@@ -2756,8 +2756,17 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 				Prompt:     prompt,
 				ResponseCh: responseCh,
 			})
-			resp := <-responseCh
-			return resp.Password, resp.Cancelled
+			// emit is synchronous: every listener has already run (and, per the
+			// PasswordPromptEvent contract, replied) by the time it returns. If
+			// no reply is buffered there is no responder — headless embedders,
+			// or no subscriber at all — and blocking would wedge the bash tool
+			// (and the whole agent turn) forever. Treat that as cancelled.
+			select {
+			case resp := <-responseCh:
+				return resp.Password, resp.Cancelled
+			default:
+				return "", true
+			}
 		},
 		// Tool call argument streaming
 		OnToolCallStart: func(toolCallID, toolName string) {

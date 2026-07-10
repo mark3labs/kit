@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type Spinner struct {
 	done     chan struct{}
 	finished chan struct{} // closed by run() after cleanup
 	once     sync.Once
+	started  atomic.Bool // set by Start(); Stop() only waits if the loop ran
 }
 
 // NewSpinner creates a new animated KITT-style spinner using theme colors.
@@ -33,16 +35,22 @@ func NewSpinner() *Spinner {
 }
 
 // Start begins the spinner animation in a separate goroutine. The spinner
-// will continue animating until Stop is called.
+// will continue animating until Stop is called. Subsequent calls are no-ops.
 func (s *Spinner) Start() {
-	go s.run()
+	if s.started.CompareAndSwap(false, true) {
+		go s.run()
+	}
 }
 
 // Stop halts the spinner animation and blocks until the animation goroutine
-// has exited and the line is cleared. Safe to call multiple times.
+// has exited and the line is cleared. Safe to call multiple times, and safe
+// to call even if Start was never called (it won't block waiting for a
+// goroutine that doesn't exist).
 func (s *Spinner) Stop() {
 	s.once.Do(func() { close(s.done) })
-	<-s.finished
+	if s.started.Load() {
+		<-s.finished
+	}
 }
 
 // run is the animation loop that renders spinner frames to stderr.

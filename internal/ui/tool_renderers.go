@@ -113,11 +113,19 @@ func renderEditBody(toolArgs, toolResult string, width int) string {
 	return ""
 }
 
+// diffHunkPattern matches the first @@ hunk header in a unified diff.
+// Package-level so it compiles once, not on every edit-tool render.
+var diffHunkPattern = regexp.MustCompile(`@@ -(\d+)`)
+
+// totalLinesPattern extracts the total line count from a read-tool footer
+// (e.g. "[showing lines 1-100 of 407 total...]"). Package-level so it
+// compiles once, not per footer line per render.
+var totalLinesPattern = regexp.MustCompile(`of (\d+) total`)
+
 // extractDiffStartLine parses the first @@ hunk header from a unified diff
 // result to find the starting line number. Returns 1 if not found.
 func extractDiffStartLine(result string) int {
-	re := regexp.MustCompile(`@@ -(\d+)`)
-	matches := re.FindStringSubmatch(result)
+	matches := diffHunkPattern.FindStringSubmatch(result)
 	if len(matches) >= 2 {
 		if n, err := strconv.Atoi(matches[1]); err == nil && n > 0 {
 			return n
@@ -635,7 +643,7 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	// Parse total lines from footer if available (e.g., "[showing lines 1-100 of 407 total...]")
 	totalLines := totalCodeLines
 	for _, footer := range footerLines {
-		if matches := regexp.MustCompile(`of (\d+) total`).FindStringSubmatch(footer); len(matches) > 1 {
+		if matches := totalLinesPattern.FindStringSubmatch(footer); len(matches) > 1 {
 			if t, _ := strconv.Atoi(matches[1]); t > totalLines {
 				totalLines = t
 			}

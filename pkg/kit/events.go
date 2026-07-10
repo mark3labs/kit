@@ -502,6 +502,12 @@ type PasswordPromptEvent struct {
 	// ResponseCh receives the password from the TUI.
 	// The TUI must send exactly one value: (password, false) for submit
 	// or ("", true) for cancel.
+	//
+	// The reply must be sent synchronously, before the event listener
+	// returns (the channel is buffered so this never blocks). Kit checks
+	// for a buffered reply immediately after dispatch; if none is present
+	// the prompt is treated as cancelled so a missing or asynchronous
+	// responder can never wedge the running tool.
 	ResponseCh chan<- PasswordPromptResponse
 }
 

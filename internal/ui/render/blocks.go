@@ -44,6 +44,19 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 // If duration > 0, shows "Thought for Xs" label. Otherwise shows just "Thought".
 // The width parameter controls soft-wrapping so long reasoning lines don't get cut off.
 func ReasoningBlock(content string, duration int64, width int, ty *herald.Typography, theme style.Theme) string {
+	renderedContent := ReasoningContent(content, width, ty)
+	if renderedContent == "" {
+		return ""
+	}
+	return ReasoningBlockFromContent(renderedContent, duration, theme)
+}
+
+// ReasoningContent renders just the styled content portion of a reasoning
+// block (muted italic, soft-wrapped) without the duration label. This is
+// the expensive part of ReasoningBlock; callers that render repeatedly
+// (e.g. a streaming item with a live duration counter) can cache this and
+// compose it with ReasoningBlockFromContent per frame.
+func ReasoningContent(content string, width int, ty *herald.Typography) string {
 	if strings.TrimSpace(content) == "" {
 		return ""
 	}
@@ -54,10 +67,20 @@ func ReasoningBlock(content string, duration int64, width int, ty *herald.Typogr
 	if width > 4 {
 		contentStr = wrapText(contentStr, width-4)
 	}
+	return style.GetCachedStyles().Muted.Render(ty.Italic(contentStr))
+}
+
+// ReasoningBlockFromContent composes a pre-rendered reasoning content block
+// (from ReasoningContent) with the duration label and bottom margin. This is
+// cheap relative to ReasoningContent and safe to call per frame.
+func ReasoningBlockFromContent(renderedContent string, duration int64, theme style.Theme) string {
+	if renderedContent == "" {
+		return ""
+	}
 	cs := style.GetCachedStyles()
-	contentRendered := cs.Muted.Render(ty.Italic(contentStr))
 
 	// Build label based on duration
+	var label string
 	if duration > 0 {
 		var durationStr string
 		if duration < 1000 {
@@ -65,17 +88,12 @@ func ReasoningBlock(content string, duration int64, width int, ty *herald.Typogr
 		} else {
 			durationStr = fmt.Sprintf("%.1fs", float64(duration)/1000)
 		}
-		labelPart := cs.VeryMuted.Render("Thought for ")
-		durationPart := cs.Accent.Render(durationStr)
-		label := labelPart + durationPart
-		rendered := contentRendered + "\n" + label
-		return styleMarginBottom(theme, rendered)
+		label = cs.VeryMuted.Render("Thought for ") + cs.Accent.Render(durationStr)
+	} else {
+		label = cs.VeryMuted.Render("Thought")
 	}
 
-	label := cs.VeryMuted.Render("Thought")
-	rendered := contentRendered + "\n" + label
-
-	return styleMarginBottom(theme, rendered)
+	return styleMarginBottom(theme, renderedContent+"\n"+label)
 }
 
 // SystemBlock renders a system message with herald Note styling.

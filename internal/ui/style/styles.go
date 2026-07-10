@@ -14,6 +14,53 @@ import (
 // so no mutex is required.
 var markdownTypographyCache *herald.Typography
 
+// uiTypographyCache holds the last-created Typography instance for message
+// block rendering (reasoning blocks, system notes, etc.). Constructing a
+// herald.Typography is expensive (dozens of lipgloss styles), so it must
+// never happen inside a per-frame render path. Invalidated by SetTheme.
+// Only accessed from BubbleTea's single-threaded Update/View cycle.
+var uiTypographyCache *herald.Typography
+
+// GetUITypography returns the shared herald.Typography used for message
+// block rendering, configured from the active theme. The instance is cached
+// and only rebuilt after a theme change (SetTheme invalidates it).
+func GetUITypography() *herald.Typography {
+	if uiTypographyCache != nil {
+		return uiTypographyCache
+	}
+
+	theme := GetTheme()
+	ty := herald.New(
+		herald.WithPalette(herald.ColorPalette{
+			Primary:   theme.Primary,
+			Secondary: theme.Secondary,
+			Tertiary:  theme.Info,
+			Accent:    theme.Accent,
+			Highlight: theme.Highlight,
+			Muted:     theme.Muted,
+			Text:      theme.Text,
+			Surface:   theme.Background,
+			Base:      theme.CodeBg,
+		}),
+		herald.WithAlertPalette(herald.AlertPalette{
+			Note:      theme.Info,
+			Tip:       theme.Success,
+			Important: theme.Accent,
+			Warning:   theme.Warning,
+			Caution:   theme.Error,
+		}),
+		herald.WithCodeLineNumbers(true),
+		// Customize alert labels
+		herald.WithAlertLabel(herald.AlertNote, "Info"),
+		herald.WithAlertLabel(herald.AlertTip, ""),
+		herald.WithAlertIcon(herald.AlertTip, ""),
+		herald.WithAlertLabel(herald.AlertWarning, "Working"),
+		herald.WithAlertLabel(herald.AlertCaution, "Error"),
+	)
+	uiTypographyCache = ty
+	return ty
+}
+
 // GetMarkdownTypography returns a herald.Typography configured with our
 // active theme colors. The typography is cached and only rebuilt when
 // the theme changes via SetTheme.

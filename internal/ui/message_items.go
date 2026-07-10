@@ -107,18 +107,27 @@ type StreamingMessageItem struct {
 	finalDuration time.Duration // Frozen duration when complete
 	cachedRender  string
 	cachedWidth   int
+
+	// reasoningContent caches the expensive styled/wrapped content portion
+	// of a reasoning block. While streaming, the live duration label changes
+	// every frame but the content only changes when a chunk arrives — so the
+	// content render is cached separately and composed with a fresh label.
+	reasoningContent      string
+	reasoningContentWidth int
 }
 
 // NewStreamingMessageItem creates a new streaming message item.
 func NewStreamingMessageItem(id, role string, modelName string) *StreamingMessageItem {
 	now := time.Now()
 	return &StreamingMessageItem{
-		id:        id,
-		role:      role,
-		timestamp: now,
-		startTime: now,
-		modelName: modelName,
-		streaming: true,
+		id:                    id,
+		role:                  role,
+		timestamp:             now,
+		startTime:             now,
+		modelName:             modelName,
+		streaming:             true,
+		cachedWidth:           -1,
+		reasoningContentWidth: -1,
 	}
 }
 
@@ -129,30 +138,39 @@ func (s *StreamingMessageItem) ID() string {
 
 // Render renders the streaming message with live content.
 func (s *StreamingMessageItem) Render(width int) string {
-	// For reasoning, never cache - we need live duration updates
-	// For assistant, cache is OK
-	if s.role != "reasoning" && s.cachedWidth == width && s.cachedRender != "" {
+	// Serve from cache when valid. Reasoning blocks are only cached once
+	// complete (frozen duration); assistant blocks cache immediately.
+	if s.cachedWidth == width && s.cachedRender != "" {
 		return s.cachedRender
 	}
 
 	var rendered string
 	if s.role == "reasoning" {
-		// Calculate duration in milliseconds for render.ReasoningBlock
+		// Calculate duration in milliseconds for render.ReasoningBlockFromContent
 		var durationMs int64
 		if s.finalDuration > 0 {
 			durationMs = s.finalDuration.Milliseconds()
 		} else if !s.startTime.IsZero() {
 			durationMs = time.Since(s.startTime).Milliseconds()
 		}
-		ty := createTypography(style.GetTheme())
-		rendered = render.ReasoningBlock(s.content.String(), durationMs, width, ty, style.GetTheme())
+		// The styled/wrapped content is cached separately from the live
+		// duration label: only the label changes per frame while streaming,
+		// so the expensive part renders once per chunk instead of per frame.
+		if s.reasoningContentWidth != width {
+			s.reasoningContent = render.ReasoningContent(
+				s.content.String(), width, createTypography(style.GetTheme()))
+			s.reasoningContentWidth = width
+		}
+		rendered = render.ReasoningBlockFromContent(s.reasoningContent, durationMs, style.GetTheme())
 	} else {
 		// Render as assistant message
 		rendered = render.AssistantBlock(s.content.String(), width, style.GetTheme())
 	}
 
-	// Cache and return (but reasoning is never cached due to live duration)
-	if s.role != "reasoning" {
+	// Cache the full render. A streaming reasoning block needs its live
+	// duration label re-rendered every frame, so it is only cached once
+	// MarkComplete freezes the duration.
+	if s.role != "reasoning" || !s.streaming {
 		s.cachedRender = rendered
 		s.cachedWidth = width
 	}
@@ -161,8 +179,8 @@ func (s *StreamingMessageItem) Render(width int) string {
 
 // Height returns the number of lines.
 func (s *StreamingMessageItem) Height() int {
-	// For reasoning blocks, cachedRender is never populated (rendering is
-	// width-independent and includes a live timer). Fall back to Render(0)
+	// For actively streaming reasoning blocks, cachedRender is not populated
+	// (the live duration label changes per frame). Fall back to Render(0)
 	// so callers always get the correct height.
 	rendered := s.cachedRender
 	if rendered == "" {
@@ -177,7 +195,9 @@ func (s *StreamingMessageItem) Height() int {
 // AppendChunk adds a content chunk and invalidates the render cache.
 func (s *StreamingMessageItem) AppendChunk(chunk string) {
 	s.content.WriteString(chunk)
-	s.cachedWidth = 0 // Invalidate cache
+	s.cachedRender = ""
+	s.cachedWidth = -1 // Invalidate cache (0 is a legitimate width from Height())
+	s.reasoningContentWidth = -1
 }
 
 // MarkComplete marks the streaming message as complete and freezes the duration.
@@ -186,6 +206,10 @@ func (s *StreamingMessageItem) MarkComplete() {
 	// Freeze the duration for reasoning blocks
 	if s.role == "reasoning" && !s.startTime.IsZero() {
 		s.finalDuration = time.Since(s.startTime)
+		// Invalidate any full-render cache so the frozen duration label is
+		// rendered (and from now on cached) on the next Render call.
+		s.cachedRender = ""
+		s.cachedWidth = -1
 	}
 }
 

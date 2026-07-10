@@ -578,6 +578,31 @@ type AppModel struct {
 	// flushed first, preserving chronological order.
 	pendingUserPrints []string
 
+	// pendingStreamChunks buffers streaming text/reasoning chunks between
+	// coalescing flush ticks. Applying every chunk immediately forces a full
+	// markdown re-render of the accumulated message per chunk (O(n²) over a
+	// long response); instead chunks are batched and applied at most once
+	// per streamFlushInterval (~60 fps) or before any other event that
+	// depends on the scrollback state. Consecutive same-role chunks are
+	// concatenated in place.
+	pendingStreamChunks []pendingStreamChunk
+
+	// streamFlushPending is true while a coalescing flush tick is scheduled,
+	// preventing duplicate tick commands.
+	streamFlushPending bool
+
+	// lastHeaderHeight is the extension header height measured by the most
+	// recent distributeHeight() pass. Used by currentScrollbackBounds so
+	// mouse handlers don't re-render the header on every motion event.
+	lastHeaderHeight int
+
+	// chrome caches the fully rendered layout chrome (header, footer,
+	// widgets, queued messages, input) measured by distributeHeight() so
+	// View() can reuse the strings instead of rendering everything twice in
+	// the same frame. Only valid within a single frame: View() invalidates
+	// it on entry before recomputing layout.
+	chrome chromeCache
+
 	// newSessionResultCh, when non-nil, receives the outcome of an
 	// in-flight extension-triggered NewSession request. Set when an
 	// app.NewSessionRequestEvent arrives; cleared (with a result sent)
@@ -1149,6 +1174,23 @@ func tildeHome(path string) string {
 // incoming messages to children and handles state transitions.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Coalesced streaming: chunk events are buffered and applied on a ~16ms
+	// flush tick instead of per chunk (a full markdown re-render per chunk is
+	// O(n²) over a long response). Any OTHER message flushes the buffer first
+	// so ordering-sensitive handlers (tool calls, reasoning completion, …)
+	// always see fully applied content. This runs before the modal-state
+	// routing below so buffered content never stalls behind a prompt/overlay.
+	switch msg.(type) {
+	case app.StreamChunkEvent, app.ReasoningChunkEvent:
+		// Buffered by the handlers in the main switch below.
+	case streamAppendFlushMsg:
+		m.streamFlushPending = false
+		m.flushPendingStreamChunks()
+		return m, nil
+	default:
+		m.flushPendingStreamChunks()
+	}
 
 	// Prompt overlay takes precedence when active — it is fully modal.
 	if m.state == statePrompt && m.prompt != nil {
@@ -1839,8 +1881,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		// Also update/create StreamingMessageItem in ScrollList for live display
-		m.appendStreamingChunk("reasoning", msg.Delta)
+		// Buffer for the coalesced ScrollList update (live display flushes
+		// on the next streamAppendFlushMsg tick, ~60 fps).
+		if cmd := m.bufferStreamChunk("reasoning", msg.Delta); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case app.ReasoningCompleteEvent:
 		// Forward to stream component to freeze reasoning duration
@@ -1865,8 +1910,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		// Also update/create StreamingMessageItem in ScrollList for live display
-		m.appendStreamingChunk("assistant", msg.Content)
+		// Buffer for the coalesced ScrollList update (live display flushes
+		// on the next streamAppendFlushMsg tick, ~60 fps).
+		if cmd := m.bufferStreamChunk("assistant", msg.Content); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case app.ToolCallStartedEvent:
 		// Flush any accumulated streaming text to the ScrollList first (streaming
@@ -1930,8 +1978,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Create new bash output item if needed
 		if bashItem == nil {
-			id := fmt.Sprintf("bash-%d", len(m.messages))
-			bashItem = NewStreamingBashOutputItem(id, m.streamingBashCommand)
+			bashItem = NewStreamingBashOutputItem(generateMessageID(), m.streamingBashCommand)
 			m.messages = append(m.messages, bashItem)
 		}
 
@@ -1996,6 +2043,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// previous assistant response is flushed.
 		for len(m.queuedMessages) > msg.Length {
 			text := m.queuedMessages[0]
+			m.queuedMessages[0] = "" // release the string in the backing array for GC
 			m.queuedMessages = m.queuedMessages[1:]
 			m.pendingUserPrints = append(m.pendingUserPrints, text)
 		}
@@ -2536,6 +2584,11 @@ func (m *AppModel) View() tea.View {
 	// sizing. Deferring this to View() guarantees exactly one call per frame
 	// regardless of how many events triggered a layout change in a single
 	// Update() invocation.
+	//
+	// The chrome cache is never reused across frames: it is invalidated here
+	// and only repopulated by the distributeHeight() call below, so a stale
+	// render can never leak into a later frame.
+	m.chrome.valid = false
 	if m.layoutDirty {
 		m.distributeHeight()
 		m.layoutDirty = false
@@ -2564,7 +2617,9 @@ func (m *AppModel) View() tea.View {
 	// When a prompt is active, it replaces the input area for consistency
 	// (appears below the separator, in the same position as the input).
 	var inputView string
-	if m.state == statePrompt && m.prompt != nil {
+	if m.chrome.valid {
+		inputView = m.chrome.input
+	} else if m.state == statePrompt && m.prompt != nil {
 		inputView = m.prompt.Render()
 	} else {
 		inputView = m.renderInput()
@@ -2576,10 +2631,17 @@ func (m *AppModel) View() tea.View {
 	// Custom header (if set by extension) — above everything.
 	// Track its height so mouse coordinates can be adjusted for the scrollback.
 	m.scrollbackYOffset = 0
-	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+	headerView := m.chrome.header
+	if !m.chrome.valid {
+		headerView = m.renderHeaderFooter(m.getHeader)
+	}
+	if headerView != "" {
 		parts = append(parts, headerView)
 		m.scrollbackYOffset = lipgloss.Height(headerView)
 	}
+	// Keep the mouse-handler view of the header height in sync with what
+	// was actually rendered this frame.
+	m.lastHeaderHeight = m.scrollbackYOffset
 
 	// Only include the scrollback region when it has content. When idle the
 	// scrollback renders "" which JoinVertical would pad to a full-width blank
@@ -2612,18 +2674,30 @@ func (m *AppModel) View() tea.View {
 	}
 
 	// Render "above" widgets between separator and queued messages.
-	if aboveView := m.renderWidgetSlot("above"); aboveView != "" {
+	aboveView := m.chrome.above
+	if !m.chrome.valid {
+		aboveView = m.renderWidgetSlot("above")
+	}
+	if aboveView != "" {
 		parts = append(parts, aboveView)
 	}
 
-	if queuedView := m.renderQueuedMessages(); queuedView != "" {
+	queuedView := m.chrome.queued
+	if !m.chrome.valid {
+		queuedView = m.renderQueuedMessages()
+	}
+	if queuedView != "" {
 		parts = append(parts, queuedView)
 	}
 
 	parts = append(parts, inputView)
 
 	// Render "below" widgets between input and status bar.
-	if belowView := m.renderWidgetSlot("below"); belowView != "" {
+	belowView := m.chrome.below
+	if !m.chrome.valid {
+		belowView = m.renderWidgetSlot("below")
+	}
+	if belowView != "" {
 		parts = append(parts, belowView)
 	}
 
@@ -2632,7 +2706,11 @@ func (m *AppModel) View() tea.View {
 	}
 
 	// Custom footer (if set by extension) — below everything.
-	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
+	footerView := m.chrome.footer
+	if !m.chrome.valid {
+		footerView = m.renderHeaderFooter(m.getFooter)
+	}
+	if footerView != "" {
 		parts = append(parts, footerView)
 	}
 
@@ -3933,6 +4011,71 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 	m.refreshContent()
 }
 
+// pendingStreamChunk is a buffered streaming chunk awaiting a coalesced
+// flush into the ScrollList. Consecutive chunks with the same role are
+// concatenated into a single entry.
+type pendingStreamChunk struct {
+	role    string
+	content string
+}
+
+// chromeCache holds the rendered layout chrome measured by distributeHeight()
+// for reuse by View() within the same frame.
+type chromeCache struct {
+	valid  bool
+	header string
+	footer string
+	above  string
+	below  string
+	queued string
+	input  string
+}
+
+// streamAppendFlushMsg fires when buffered stream chunks should be applied
+// to the ScrollList. See AppModel.pendingStreamChunks.
+type streamAppendFlushMsg struct{}
+
+// streamAppendFlushTickCmd schedules a coalescing flush of buffered stream
+// chunks after streamFlushInterval (shared with StreamComponent's own
+// coalescing window).
+func streamAppendFlushTickCmd() tea.Cmd {
+	return tea.Tick(streamFlushInterval, func(_ time.Time) tea.Msg {
+		return streamAppendFlushMsg{}
+	})
+}
+
+// bufferStreamChunk adds a chunk to the pending buffer, concatenating
+// consecutive same-role chunks, and returns a flush tick command if one
+// isn't already scheduled.
+func (m *AppModel) bufferStreamChunk(role, content string) tea.Cmd {
+	if n := len(m.pendingStreamChunks); n > 0 && m.pendingStreamChunks[n-1].role == role {
+		m.pendingStreamChunks[n-1].content += content
+	} else {
+		m.pendingStreamChunks = append(m.pendingStreamChunks, pendingStreamChunk{role: role, content: content})
+	}
+	if m.streamFlushPending {
+		return nil
+	}
+	m.streamFlushPending = true
+	return streamAppendFlushTickCmd()
+}
+
+// flushPendingStreamChunks applies all buffered stream chunks to the
+// ScrollList in arrival order. Called from the coalescing flush tick and
+// before handling any event whose behavior depends on the scrollback
+// contents (tool calls, reasoning completion, response completion, etc.).
+func (m *AppModel) flushPendingStreamChunks() {
+	if len(m.pendingStreamChunks) == 0 {
+		return
+	}
+	chunks := m.pendingStreamChunks
+	m.pendingStreamChunks = m.pendingStreamChunks[:0]
+	for i := range chunks {
+		m.appendStreamingChunk(chunks[i].role, chunks[i].content)
+		chunks[i] = pendingStreamChunk{} // release string for GC
+	}
+}
+
 // appendStreamingChunk updates or creates a StreamingMessageItem in the ScrollList.
 // This enables live streaming text display within the ScrollList viewport (iteratr-style).
 func (m *AppModel) appendStreamingChunk(role, content string) {
@@ -3975,7 +4118,7 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 	}
 
 	// Otherwise, create a new StreamingMessageItem
-	id := fmt.Sprintf("streaming-%s-%d", role, len(m.messages))
+	id := generateMessageID()
 	newMsg := NewStreamingMessageItem(id, role, m.modelName)
 	newMsg.AppendChunk(content)
 	m.messages = append(m.messages, newMsg)
@@ -3994,10 +4137,10 @@ func (m *AppModel) appendStreamingChunk(role, content string) {
 // stale. Mouse click handlers in Update() can then place the cursor on the
 // wrong line, producing the off-by-N-row drift seen during copy-selection.
 //
-// This recomputes the header height by rendering it (cheap — the renderer
-// returns "" when no extension header is set) and recomputes the viewport
-// height the same way distributeHeight() does, so both inputs to the
-// y → (item, line) mapping are always current.
+// This recomputes the viewport height the same way distributeHeight() does
+// (running a fresh layout pass when dirty) and reuses the header height
+// measured by that pass — re-rendering the extension header on every mouse
+// motion event is needlessly expensive.
 func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 	// Force a fresh layout if anything in Update() marked the state dirty;
 	// otherwise scrollList.height still reflects the previous frame.
@@ -4005,9 +4148,7 @@ func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 		m.distributeHeight()
 		m.layoutDirty = false
 	}
-	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
-		yOffset = lipgloss.Height(headerView)
-	}
+	yOffset = m.lastHeaderHeight
 	if m.scrollList != nil {
 		viewportHeight = m.scrollList.height
 	}
@@ -4040,17 +4181,27 @@ func (m *AppModel) distributeHeight() {
 	if vis.HideStatusBar {
 		statusBarLines = 0
 	}
+
+	// Every render below is stashed in m.chrome so View() can reuse the
+	// strings instead of rendering the whole chrome a second time in the
+	// same frame. The cache is invalidated at the start of every View().
+	m.chrome = chromeCache{valid: true}
+
 	// Measure actual queued message height instead of using a fixed estimate,
 	// since text wrapping at different widths changes the rendered line count.
 	var queuedLines int
 	if queuedView := m.renderQueuedMessages(); queuedView != "" {
 		queuedLines = lipgloss.Height(queuedView)
+		m.chrome.queued = queuedView
 	}
 
 	// Propagate hint visibility before measuring input height.
 	// Hints are always hidden for a cleaner UI.
+	// agentBusy must match what View() sets, since the rendered input is
+	// cached in m.chrome and reused by View() in the same frame.
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.hideHint = true
+		ic.agentBusy = m.state == stateWorking
 	}
 
 	// Measure the actual rendered input (or prompt overlay) height so we
@@ -4061,10 +4212,12 @@ func (m *AppModel) distributeHeight() {
 	if m.state == statePrompt && m.prompt != nil {
 		if rendered := m.prompt.Render(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)
+			m.chrome.input = rendered
 		}
 	} else {
 		if rendered := m.renderInput(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)
+			m.chrome.input = rendered
 		}
 	}
 
@@ -4072,18 +4225,24 @@ func (m *AppModel) distributeHeight() {
 	var widgetLines int
 	if above := m.renderWidgetSlot("above"); above != "" {
 		widgetLines += lipgloss.Height(above)
+		m.chrome.above = above
 	}
 	if below := m.renderWidgetSlot("below"); below != "" {
 		widgetLines += lipgloss.Height(below)
+		m.chrome.below = below
 	}
 
 	// Measure header/footer heights.
 	var headerFooterLines int
+	m.lastHeaderHeight = 0
 	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
-		headerFooterLines += lipgloss.Height(headerView)
+		m.lastHeaderHeight = lipgloss.Height(headerView)
+		headerFooterLines += m.lastHeaderHeight
+		m.chrome.header = headerView
 	}
 	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
 		headerFooterLines += lipgloss.Height(footerView)
+		m.chrome.footer = footerView
 	}
 
 	// Account for transient warning rows that View() injects between the
@@ -5336,6 +5495,28 @@ func (m *AppModel) updatePromptState(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.ResponseCh <- app.PromptResponse{Cancelled: true}
 		}
 
+	case app.PasswordPromptEvent:
+		// A password prompt can't be shown while another prompt is active.
+		// Reject immediately — dropping the event would leave the bash tool
+		// (and the whole agent turn) blocked forever on the response channel.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+		}
+
+	case app.OverlayRequestEvent:
+		// Can't show an overlay while a prompt is active — reject so the
+		// requesting extension goroutine unblocks.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.OverlayResponse{Cancelled: true}
+		}
+
+	case app.NewSessionRequestEvent:
+		// Can't switch sessions while a prompt is active — fail the request
+		// so the extension goroutine blocked on the response channel unblocks.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- fmt.Errorf("cannot start a new session while a prompt is active")
+		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -5411,6 +5592,21 @@ func (m *AppModel) updateOverlayState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Can't show a prompt while an overlay is active — reject.
 		if msg.ResponseCh != nil {
 			msg.ResponseCh <- app.PromptResponse{Cancelled: true}
+		}
+
+	case app.PasswordPromptEvent:
+		// Can't show a password prompt while an overlay is active. Reject
+		// immediately — dropping the event would leave the bash tool (and
+		// the whole agent turn) blocked forever on the response channel.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- app.PasswordPromptResponse{Cancelled: true}
+		}
+
+	case app.NewSessionRequestEvent:
+		// Can't switch sessions while an overlay is active — fail the request
+		// so the extension goroutine blocked on the response channel unblocks.
+		if msg.ResponseCh != nil {
+			msg.ResponseCh <- fmt.Errorf("cannot start a new session while an overlay is active")
 		}
 
 	case tea.WindowSizeMsg:

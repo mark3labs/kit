@@ -40,6 +40,7 @@ func GetTheme() Theme {
 func SetTheme(theme Theme) {
 	currentTheme = theme
 	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
+	uiTypographyCache = nil       // invalidate cached block typography; colors may have changed
 	styleCache = nil              // invalidate cached styles; colors may have changed
 }
 

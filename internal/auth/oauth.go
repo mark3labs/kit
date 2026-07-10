@@ -324,15 +324,21 @@ func (c *CopilotOAuthClient) PollDeviceToken(ctx context.Context, deviceCode *Co
 		interval = 5 * time.Second
 	}
 
+	// Reuse a single timer across poll iterations — time.After in a loop
+	// leaks a pending timer per iteration when the context wins the select.
+	pollTimer := time.NewTimer(interval)
+	defer pollTimer.Stop()
+
 	for time.Now().Before(deadline) {
 		wait := interval
 		if remaining := time.Until(deadline); remaining < wait {
 			wait = remaining
 		}
+		pollTimer.Reset(wait)
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(wait):
+		case <-pollTimer.C:
 		}
 
 		data := url.Values{
