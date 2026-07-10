@@ -176,6 +176,7 @@ func TestInheritProviderConfig(t *testing.T) {
 		v := viper.New()
 		v.Set("provider-api-key", "sk-parent")
 		v.Set("provider-url", "https://proxy.internal/v1")
+		v.Set("provider-wire", "anthropic")
 		v.Set("tls-skip-verify", true)
 		v.Set("thinking-level", "high")
 		v.Set("max-tokens", 4321)
@@ -193,6 +194,9 @@ func TestInheritProviderConfig(t *testing.T) {
 		}
 		if child.ProviderURL != "https://proxy.internal/v1" {
 			t.Errorf("ProviderURL = %q", child.ProviderURL)
+		}
+		if child.ProviderWire != "anthropic" {
+			t.Errorf("ProviderWire = %q, want anthropic", child.ProviderWire)
 		}
 		if !child.TLSSkipVerify {
 			t.Error("TLSSkipVerify not propagated")

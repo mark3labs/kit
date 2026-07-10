@@ -319,6 +319,33 @@ func TestIsProviderLLMSupported_ExplicitWire(t *testing.T) {
 	}
 }
 
+// TestHasResponsesProviderOptions verifies the cache-merge guard predicate:
+// options produced for a Responses reasoning model (the output of
+// buildOpenAIProviderOptions, as returned by createAutoRoutedOpenAIProvider
+// for any wire:openai provider) must be detected, while regular
+// prompt-cache options and empty maps must not.
+func TestHasResponsesProviderOptions(t *testing.T) {
+	// Real producer: an auto-routed Responses provider serving a reasoning
+	// model yields ResponsesProviderOptions regardless of the provider name.
+	respOpts := buildOpenAIProviderOptions(&ProviderConfig{}, "o3")
+	if respOpts == nil {
+		t.Fatal("buildOpenAIProviderOptions returned nil for reasoning model o3")
+	}
+	if !hasResponsesProviderOptions(respOpts) {
+		t.Error("Responses options must be detected (cache merge would corrupt them)")
+	}
+
+	// Regular prompt-cache options use the same key but a different type.
+	cacheOpts := buildOpenAICacheOptions(&ProviderConfig{}, "gpt-4o")
+	if hasResponsesProviderOptions(cacheOpts) {
+		t.Error("regular ProviderOptions must not be flagged as Responses options")
+	}
+
+	if hasResponsesProviderOptions(nil) {
+		t.Error("nil options must not be flagged")
+	}
+}
+
 // headerRecordingRoundTripper captures the headers of the request it receives.
 type headerRecordingRoundTripper struct{ got http.Header }
 
@@ -359,6 +386,32 @@ func TestHeaderRoundTripper(t *testing.T) {
 	}
 	if got := req.Header.Get("X-Team"); got != "" {
 		t.Errorf("original request mutated: X-Team = %q", got)
+	}
+}
+
+// TestHeaderRoundTripper_ExplicitlyEmptyHeader verifies that a header
+// explicitly set to the empty string (e.g. a deliberately cleared
+// Authorization) is not replaced by the configured default.
+func TestHeaderRoundTripper_ExplicitlyEmptyHeader(t *testing.T) {
+	rec := &headerRecordingRoundTripper{}
+	tr := &headerRoundTripper{
+		base:    rec,
+		headers: map[string]string{"Authorization": "Bearer default"},
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://llm.internal.corp/api", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "") // explicitly cleared
+
+	if _, err := tr.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+
+	vals, present := rec.got[http.CanonicalHeaderKey("Authorization")]
+	if !present || len(vals) != 1 || vals[0] != "" {
+		t.Errorf("Authorization = %v (present=%v), explicitly empty header must be preserved", vals, present)
 	}
 }
 

@@ -374,12 +374,12 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			// different types for regular options vs cache control options).
 			//
 			// For OpenAI Responses API models, we skip merging entirely because
-			// ResponsesProviderOptions and ProviderOptions are incompatible types.
-			skipMerge := false
-			if provider == "openai" && openai.IsResponsesModel(modelName) {
-				skipMerge = true
-			}
-			if !skipMerge {
+			// ResponsesProviderOptions and ProviderOptions are incompatible types
+			// under the same options key. Detect this by type rather than by
+			// provider name so providers auto-routed to the Responses wire
+			// (wire: openai / npm @ai-sdk/openai) are guarded too, not just the
+			// native "openai" provider.
+			if !hasResponsesProviderOptions(result.ProviderOptions) {
 				for k, v := range cacheOpts {
 					if _, exists := result.ProviderOptions[k]; !exists {
 						result.ProviderOptions[k] = v
@@ -390,6 +390,17 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	}
 
 	return result, nil
+}
+
+// hasResponsesProviderOptions reports whether opts already carries OpenAI
+// Responses API options (openai.ResponsesProviderOptions), which are
+// type-incompatible with the regular prompt-cache options under the same
+// options key. Used to guard the cache-options merge in CreateProvider for
+// both the native openai provider and providers auto-routed to the Responses
+// wire.
+func hasResponsesProviderOptions(opts fantasy.ProviderOptions) bool {
+	_, ok := opts[openai.Name].(*openai.ResponsesProviderOptions)
+	return ok
 }
 
 // autoRouteProvider attempts to create a provider by resolving its wire
@@ -533,7 +544,10 @@ type headerRoundTripper struct {
 func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range h.headers {
-		if req.Header.Get(k) == "" {
+		// Presence-aware check: an explicitly set but empty header (e.g. a
+		// deliberately cleared Authorization) must not be replaced with the
+		// configured default.
+		if _, exists := req.Header[http.CanonicalHeaderKey(k)]; !exists {
 			req.Header.Set(k, v)
 		}
 	}
