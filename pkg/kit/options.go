@@ -76,6 +76,12 @@ func WithProviderAPIKey(key string) Option { return func(o *Options) { o.Provide
 // OpenAI-compatible proxies (LiteLLM, vLLM, Azure OpenAI, etc.).
 func WithProviderURL(url string) Option { return func(o *Options) { o.ProviderURL = url } }
 
+// WithProviderWire overrides the wire protocol used for auto-routed
+// providers: "openai" (Responses API), "openai-compat" (chat completions),
+// "anthropic", or "google". Combine with WithProviderURL to point Kit at a
+// non-OpenAI-flavored proxy or a provider not in the model database.
+func WithProviderWire(wire string) Option { return func(o *Options) { o.ProviderWire = wire } }
+
 // WithConfigFile sets an explicit config file path, overriding the default
 // .kit.yml search.
 func WithConfigFile(path string) Option { return func(o *Options) { o.ConfigFile = path } }
