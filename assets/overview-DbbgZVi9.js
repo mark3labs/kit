@@ -91,6 +91,10 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 <td><code>Options.ProviderURL</code></td>
 </tr>
 <tr>
+<td><code>WithProviderWire(string)</code></td>
+<td><code>Options.ProviderWire</code> (wire protocol for auto-routed providers: <code>openai</code>, <code>openai-compat</code>, <code>anthropic</code>, <code>google</code>)</td>
+</tr>
+<tr>
 <td><code>WithConfigFile(string)</code></td>
 <td><code>Options.ConfigFile</code></td>
 </tr>
@@ -725,6 +729,7 @@ Available options:
 | \`WithExtraTools(...Tool)\` | \`Options.ExtraTools\` (adds alongside defaults) |
 | \`WithProviderAPIKey(string)\` | \`Options.ProviderAPIKey\` |
 | \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
+| \`WithProviderWire(string)\` | \`Options.ProviderWire\` (wire protocol for auto-routed providers: \`openai\`, \`openai-compat\`, \`anthropic\`, \`google\`) |
 | \`WithConfigFile(string)\` | \`Options.ConfigFile\` |
 | \`WithDebug()\` | \`Options.Debug = true\` |
 | \`WithDebugLogger(DebugLogger)\` | \`Options.DebugLogger\` (route engine + MCP debug output into a custom logger; overrides \`WithDebug\` when set) |

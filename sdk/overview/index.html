@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-B2zihOy0.js"></script>
+<script type="module" src="/assets/index-D65o-hx7.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -88,6 +88,7 @@ Available options:
 | `WithExtraTools(...Tool)` | `Options.ExtraTools` (adds alongside defaults) |
 | `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
 | `WithProviderURL(string)` | `Options.ProviderURL` |
+| `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |

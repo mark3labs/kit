@@ -103,7 +103,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 610
+      "wordCount": 631
     },
     {
       "id": "configuration",
@@ -117,6 +117,8 @@
         "MCP server configuration",
         "MCP server fields",
         "MCP tasks (long-running tools)",
+        "Provider overrides",
+        "Provider override fields",
         "Custom models",
         "Custom model fields",
         "Per-model settings",
@@ -126,7 +128,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1605
+      "wordCount": 1881
     },
     {
       "id": "development",
@@ -323,10 +325,12 @@
         "OAuth",
         "Custom provider URL",
         "Auto-routed providers",
+        "Provider overrides",
+        "When to use which",
         "Model database"
       ],
       "tags": [],
-      "wordCount": 820
+      "wordCount": 1113
     },
     {
       "id": "quick-start",
@@ -392,7 +396,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3102
+      "wordCount": 3164
     },
     {
       "id": "sdk/overview",
@@ -426,7 +430,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2941
+      "wordCount": 2955
     },
     {
       "id": "sdk/sessions",

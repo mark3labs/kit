@@ -1,4 +1,4 @@
-const s={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
+const e={frontmatter:{title:"Providers",description:"Supported LLM providers and model configuration.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#providers"><span class="icon icon-link"></span></a>Providers</h1>
 <p>Kit supports a wide range of LLM providers through a unified <code>provider/model</code> string format.</p>
 <h2 id="supported-providers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#supported-providers"><span class="icon icon-link"></span></a>Supported providers</h2>
 <table>
@@ -196,13 +196,85 @@ respectively:</p>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gemini-3.5-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Google wire</span></span></code></pre>
 <p>Provide the provider's API key the same way as any other — via its environment
 variable (e.g. <code>OPENCODE_API_KEY</code>) or <code>--provider-api-key</code>.</p>
+<h2 id="provider-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-overrides"><span class="icon icon-link"></span></a>Provider overrides</h2>
+<p>The wire protocol is normally inferred from the model database, but you can
+declare it explicitly — either to patch a provider the database routes wrongly,
+or to define an entirely new provider (e.g. an internal LLM gateway) that the
+database doesn't know about. Add a <code>providers</code> section to your config file:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># ~/.kit.yml</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">providers</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">  # Patch the wire protocol of a known provider</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  minimax</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    wire</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">anthropic</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">  # Declare a brand-new provider</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">  corp-llm</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Corp LLM Gateway"</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    wire</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">anthropic</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    baseUrl</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">https://llm.internal.corp/api</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    apiKeyEnv</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: [</span><span style="color:#032F62;--shiki-dark:#9ECBFF">CORP_LLM_KEY</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">LLM_GATEWAY_KEY</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">    headers</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">      X-Team</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">platform</span></span></code></pre>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> corp-llm/claude-sonnet-4-5</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
+<p>All fields are optional; unset fields inherit the database values. Accepted
+<code>wire</code> values are <code>openai</code> (Responses API), <code>openai-compat</code> (chat completions),
+<code>anthropic</code>, and <code>google</code>. <code>apiKeyEnv</code> lists environment variables tried in
+order, and <code>headers</code> adds default HTTP headers to every request. See the
+<a href="/configuration#provider-overrides">provider override fields reference</a> for
+the full field table.</p>
+<p>For one-off use without editing config, pass <code>--provider-wire</code> together with
+<code>--provider-url</code>. Unlike <code>--provider-url</code> alone (which always speaks the
+OpenAI-compatible wire via <code>custom/</code>), this routes the model's own provider
+prefix through the declared wire — and works even for providers not in the
+database:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> corp-llm/claude-sonnet-4-5</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    --provider-url</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> https://llm.internal.corp/api</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    --provider-wire</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> anthropic</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    --provider-api-key</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "</span><span style="color:#24292E;--shiki-dark:#E1E4E8">$CORP_LLM_KEY</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span></span></code></pre>
+<h3 id="when-to-use-which"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#when-to-use-which"><span class="icon icon-link"></span></a>When to use which</h3>
+<table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>Wire protocols</th>
+<th>Scope</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--provider-url</code> alone</td>
+<td>OpenAI-compatible only</td>
+<td>One-off (routes via <code>custom/</code>)</td>
+<td>Quick tests against local/OpenAI-compatible endpoints</td>
+</tr>
+<tr>
+<td><a href="/configuration#custom-models"><code>customModels</code></a></td>
+<td>OpenAI-compatible only</td>
+<td>Per-model, persistent</td>
+<td>Self-hosted models needing cost/limit metadata</td>
+</tr>
+<tr>
+<td><a href="/configuration#provider-overrides"><code>providers</code> overrides</a></td>
+<td>All four</td>
+<td>Per-provider, persistent</td>
+<td>Internal gateways, fixing database routing, non-OpenAI wires</td>
+</tr>
+<tr>
+<td><code>--provider-wire</code> + <code>--provider-url</code></td>
+<td>All four</td>
+<td>One-off</td>
+<td>Ad-hoc proxies on any wire, no config edit</td>
+</tr>
+</tbody>
+</table>
 <h2 id="model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-database"><span class="icon icon-link"></span></a>Model database</h2>
 <p>Kit ships with a local model database that maps provider names to API configurations. You can manage it with:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#6A737D;--shiki-dark:#6A737D">                   # List available models</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Filter by provider</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Show all providers</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Update from models.dev</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:3,text:"Anthropic Claude",id:"anthropic-claude"},{depth:3,text:"OpenAI GPT",id:"openai-gpt"},{depth:3,text:"Google Gemini",id:"google-gemini"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Auto-routed providers",id:"auto-routed-providers"},{depth:2,text:"Model database",id:"model-database"}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> update-models</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> embedded</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Reset to bundled database</span></span></code></pre>`,headings:[{depth:2,text:"Supported providers",id:"supported-providers"},{depth:2,text:"Model string format",id:"model-string-format"},{depth:2,text:"Model aliases",id:"model-aliases"},{depth:3,text:"Anthropic Claude",id:"anthropic-claude"},{depth:3,text:"OpenAI GPT",id:"openai-gpt"},{depth:3,text:"Google Gemini",id:"google-gemini"},{depth:2,text:"Specifying a model",id:"specifying-a-model"},{depth:2,text:"Authentication",id:"authentication"},{depth:3,text:"API keys",id:"api-keys"},{depth:3,text:"OAuth",id:"oauth"},{depth:3,text:"Custom provider URL",id:"custom-provider-url"},{depth:2,text:"Auto-routed providers",id:"auto-routed-providers"},{depth:2,text:"Provider overrides",id:"provider-overrides"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Model database",id:"model-database"}],raw:`
 # Providers
 
 Kit supports a wide range of LLM providers through a unified \`provider/model\` string format.
@@ -392,6 +464,63 @@ kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
 Provide the provider's API key the same way as any other — via its environment
 variable (e.g. \`OPENCODE_API_KEY\`) or \`--provider-api-key\`.
 
+## Provider overrides
+
+The wire protocol is normally inferred from the model database, but you can
+declare it explicitly — either to patch a provider the database routes wrongly,
+or to define an entirely new provider (e.g. an internal LLM gateway) that the
+database doesn't know about. Add a \`providers\` section to your config file:
+
+\`\`\`yaml
+# ~/.kit.yml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: https://llm.internal.corp/api
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+\`\`\`
+
+\`\`\`bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+\`\`\`
+
+All fields are optional; unset fields inherit the database values. Accepted
+\`wire\` values are \`openai\` (Responses API), \`openai-compat\` (chat completions),
+\`anthropic\`, and \`google\`. \`apiKeyEnv\` lists environment variables tried in
+order, and \`headers\` adds default HTTP headers to every request. See the
+[provider override fields reference](/configuration#provider-overrides) for
+the full field table.
+
+For one-off use without editing config, pass \`--provider-wire\` together with
+\`--provider-url\`. Unlike \`--provider-url\` alone (which always speaks the
+OpenAI-compatible wire via \`custom/\`), this routes the model's own provider
+prefix through the declared wire — and works even for providers not in the
+database:
+
+\`\`\`bash
+kit --model corp-llm/claude-sonnet-4-5 \\
+    --provider-url https://llm.internal.corp/api \\
+    --provider-wire anthropic \\
+    --provider-api-key "$CORP_LLM_KEY" "Hello"
+\`\`\`
+
+### When to use which
+
+| Mechanism | Wire protocols | Scope | Best for |
+|-----------|---------------|-------|----------|
+| \`--provider-url\` alone | OpenAI-compatible only | One-off (routes via \`custom/\`) | Quick tests against local/OpenAI-compatible endpoints |
+| [\`customModels\`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
+| [\`providers\` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
+| \`--provider-wire\` + \`--provider-url\` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+
 ## Model database
 
 Kit ships with a local model database that maps provider names to API configurations. You can manage it with:
@@ -403,4 +532,4 @@ kit models --all             # Show all providers
 kit update-models            # Update from models.dev
 kit update-models embedded   # Reset to bundled database
 \`\`\`
-`};export{s as default};
+`};export{e as default};

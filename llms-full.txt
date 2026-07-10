@@ -779,6 +779,7 @@ All flags can be passed to the root `kit` command.
 | `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
+| `--provider-wire` | — | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` ([overrides the model database](/providers#provider-overrides)) |
 | `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
 
 ## Session management
@@ -885,6 +886,7 @@ stream: true
 | `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
+| `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `frequency-penalty` | float | `0.0` | Penalize frequent tokens (0.0–2.0) |
 | `presence-penalty` | float | `0.0` | Penalize present tokens (0.0–2.0) |
@@ -988,9 +990,47 @@ Defaults are safe: any existing MCP server keeps its previous behaviour
 bit-for-bit. SDK consumers can also override the mode programmatically and
 plug in a progress callback — see [SDK options](/sdk/options#mcp-tasks).
 
+## Provider overrides
+
+Declare or patch providers in the model registry with the `providers` section. Use it to fix a wire protocol the model database routes wrongly, or to define an entirely new provider (such as an internal LLM gateway) that the database doesn't know about:
+
+```yaml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: "https://llm.internal.corp/api"
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+### Provider override fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name for the provider |
+| `wire` | string | Wire protocol: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google` |
+| `baseUrl` | string | API base URL |
+| `apiKeyEnv` | list | Environment variable names tried in order when resolving the API key |
+| `headers` | map | Default HTTP headers added to every request |
+
+All fields are optional. Non-empty fields override the model database; unset fields inherit the database values. An invalid `wire` value causes the whole override to be skipped with a warning. Wire resolution precedence: `--provider-wire` flag > `providers` config > the database's own routing.
+
+Unlike [custom models](#custom-models) (which define individual models under the `custom` provider, always on the OpenAI-compatible wire), provider overrides operate at the provider level and support all four wire protocols. See [Auto-routed providers](/providers#auto-routed-providers) for how routing works.
+
 ## Custom models
 
-Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database:
+Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database (for non-OpenAI wire protocols or provider-level declarations, use [provider overrides](#provider-overrides) instead):
 
 ```yaml
 customModels:
@@ -2823,6 +2863,63 @@ kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
 Provide the provider's API key the same way as any other — via its environment
 variable (e.g. `OPENCODE_API_KEY`) or `--provider-api-key`.
 
+## Provider overrides
+
+The wire protocol is normally inferred from the model database, but you can
+declare it explicitly — either to patch a provider the database routes wrongly,
+or to define an entirely new provider (e.g. an internal LLM gateway) that the
+database doesn't know about. Add a `providers` section to your config file:
+
+```yaml
+# ~/.kit.yml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: https://llm.internal.corp/api
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+All fields are optional; unset fields inherit the database values. Accepted
+`wire` values are `openai` (Responses API), `openai-compat` (chat completions),
+`anthropic`, and `google`. `apiKeyEnv` lists environment variables tried in
+order, and `headers` adds default HTTP headers to every request. See the
+[provider override fields reference](/configuration#provider-overrides) for
+the full field table.
+
+For one-off use without editing config, pass `--provider-wire` together with
+`--provider-url`. Unlike `--provider-url` alone (which always speaks the
+OpenAI-compatible wire via `custom/`), this routes the model's own provider
+prefix through the declared wire — and works even for providers not in the
+database:
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 \
+    --provider-url https://llm.internal.corp/api \
+    --provider-wire anthropic \
+    --provider-api-key "$CORP_LLM_KEY" "Hello"
+```
+
+### When to use which
+
+| Mechanism | Wire protocols | Scope | Best for |
+|-----------|---------------|-------|----------|
+| `--provider-url` alone | OpenAI-compatible only | One-off (routes via `custom/`) | Quick tests against local/OpenAI-compatible endpoints |
+| [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
+| [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
+| `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+
 ## Model database
 
 Kit ships with a local model database that maps provider names to API configurations. You can manage it with:
@@ -3196,6 +3293,7 @@ host, err := kit.New(ctx, &kit.Options{
     // Provider configuration
     ProviderAPIKey: "sk-...",                      // "" = use config / provider env var
     ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint
+    ProviderWire:   "anthropic",                  // "" = infer wire from model database
     TLSSkipVerify:  false,                         // only effective when true
 
     // Session
@@ -3296,6 +3394,7 @@ when embedding Kit as a library.
 |-------|------|---------|-------------|
 | `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance's store. |
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
+| `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
 
 ### Session
@@ -3732,6 +3831,7 @@ Available options:
 | `WithExtraTools(...Tool)` | `Options.ExtraTools` (adds alongside defaults) |
 | `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
 | `WithProviderURL(string)` | `Options.ProviderURL` |
+| `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
