@@ -169,10 +169,15 @@ func ParseThinkingLevel(s string) ThinkingLevel {
 
 // ProviderConfig holds configuration for creating LLM providers.
 type ProviderConfig struct {
-	ModelString      string
-	SystemPrompt     string
-	ProviderAPIKey   string
-	ProviderURL      string
+	ModelString    string
+	SystemPrompt   string
+	ProviderAPIKey string
+	ProviderURL    string
+	// ProviderWire is an explicit wire protocol override ("openai",
+	// "openai-compat", "anthropic", "google") for auto-routed providers.
+	// Takes precedence over the registry's Wire declaration and the
+	// npm-package heuristic. Set from the --provider-wire flag.
+	ProviderWire     string
 	MaxTokens        int
 	Temperature      *float32
 	TopP             *float32
@@ -387,21 +392,44 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	return result, nil
 }
 
-// autoRouteProvider attempts to create a provider by looking up its npm package
-// in the models.dev database and routing through the appropriate fantasy provider.
-// It routes on wire protocol (openai, anthropic, google) rather than per-npm
-// provider name: fantasy implements three native wire protocols, and every other
-// entry in its providers/ tree is a thin wrapper around one of them. Using the
-// provider's api URL from models.dev as the base URL, any proxy that re-flavors
-// one of these protocols (e.g. opencode's Gemini routes) Just Works.
+// autoRouteProvider attempts to create a provider by resolving its wire
+// protocol (openai, openai-compat, anthropic, google) and routing through the
+// matching fantasy provider. Fantasy implements three native wire protocols
+// (the OpenAI one split into Responses API and chat-completions flavors), and
+// every other entry in its providers/ tree is a thin wrapper around one of
+// them. Using the provider's api URL from the registry as the base URL, any
+// proxy that re-flavors one of these protocols (e.g. opencode's Gemini
+// routes) Just Works.
 //
-// Models may carry a provider override that specifies a different npm package
-// than the provider's default (e.g. opencode's claude-* uses @ai-sdk/anthropic
-// and its gemini-* uses @ai-sdk/google), which is resolved first.
+// Wire resolution precedence:
+//  1. config.ProviderWire (--provider-wire flag) — always wins.
+//  2. providerInfo.Wire — explicit declaration from the `providers` config
+//     section.
+//  3. npm-package heuristic (npmToWireProtocol), with per-model npm
+//     overrides resolved first (e.g. opencode's claude-* uses
+//     @ai-sdk/anthropic and its gemini-* uses @ai-sdk/google).
+//  4. Providers with an api URL but no recognizable wire fall back to the
+//     OpenAI-compatible wire.
+//
+// A provider absent from the registry is synthesized on the fly when both
+// --provider-url and --provider-wire are given, so ad-hoc proxies work
+// without a database entry or config override.
 func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, modelName string, registry *ModelsRegistry) (*ProviderResult, error) {
+	if config.ProviderWire != "" {
+		if _, ok := parseWire(config.ProviderWire); !ok {
+			return nil, fmt.Errorf("unknown wire protocol %q (expected one of: %s)", config.ProviderWire, wireNames())
+		}
+	}
+
 	providerInfo := registry.GetProviderInfo(provider)
 	if providerInfo == nil {
-		return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", provider)
+		// Unknown provider: synthesize an entry when the user supplied both
+		// an endpoint and a wire — enough to route without a database entry.
+		if config.ProviderURL != "" && config.ProviderWire != "" {
+			providerInfo = &ProviderInfo{ID: provider, Name: provider}
+		} else {
+			return nil, fmt.Errorf("unsupported provider: %s (not found in model database; declare it in the `providers` config section or pass --provider-url with --provider-wire)", provider)
+		}
 	}
 
 	// Resolve npm: per-model override > provider default.
@@ -410,7 +438,14 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		npmPackage = modelInfo.ProviderNPM
 	}
 
-	wire, known := npmToWireProtocol[npmPackage]
+	// Wire resolution: explicit flag > config override > npm heuristic.
+	wire, known := parseWire(config.ProviderWire)
+	if !known {
+		wire, known = parseWire(providerInfo.Wire)
+	}
+	if !known {
+		wire, known = npmToWireProtocol[npmPackage]
+	}
 	if !known {
 		// Unknown npm but the provider has an API URL → assume OpenAI-compatible.
 		// (Preserves the long-standing "any provider in models.dev with an api URL
@@ -418,11 +453,12 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		if providerInfo.API == "" {
 			return nil, fmt.Errorf(
 				"cannot auto-route provider %s: npm package %q has no known wire protocol "+
-					"and the registry has no API URL (use --provider-url to override)",
+					"and the registry has no API URL (use --provider-url to override, or "+
+					"declare a wire in the `providers` config section)",
 				provider, npmPackage,
 			)
 		}
-		wire = wireOpenAI
+		wire = wireOpenAICompat
 	}
 
 	// All three wires use the provider's API URL from models.dev as the base.
@@ -451,12 +487,11 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 
 	switch wire {
 	case wireOpenAI:
-		// The native OpenAI SDK package (@ai-sdk/openai) speaks the Responses
-		// API; openai-compatible proxies (and unknown-npm fallbacks) use the
-		// chat-completions wire via fantasy's openaicompat provider.
-		if npmPackage == "@ai-sdk/openai" {
-			return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
-		}
+		// The native OpenAI wire speaks the Responses API; openai-compatible
+		// proxies (and unknown-npm fallbacks) use the chat-completions wire
+		// via fantasy's openaicompat provider.
+		return createAutoRoutedOpenAIProvider(ctx, config, modelName, providerInfo)
+	case wireOpenAICompat:
 		return createAutoRoutedOpenAICompatProvider(ctx, config, modelName, providerInfo)
 	case wireAnthropic:
 		return createAutoRoutedAnthropicProvider(ctx, config, modelName, providerInfo)
@@ -472,6 +507,9 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 func resolveAutoRouteAPIKey(config *ProviderConfig, info *ProviderInfo) (string, error) {
 	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
 	if apiKey == "" {
+		if len(info.Env) == 0 {
+			return "", fmt.Errorf("%s API key not provided. Use --provider-api-key, or declare apiKeyEnv for this provider in the `providers` config section", info.Name)
+		}
 		return "", fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
 			info.Name, strings.Join(info.Env, " / "))
 	}
@@ -483,6 +521,53 @@ func resolveAutoRouteAPIKey(config *ProviderConfig, info *ProviderInfo) (string,
 // "provider" or "model".
 func wrapProviderErr(name, kind string, err error) error {
 	return fmt.Errorf("failed to create %s %s: %w", name, kind, err)
+}
+
+// headerRoundTripper adds default headers to every outgoing request. Headers
+// already present on the request are not overwritten.
+type headerRoundTripper struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	for k, v := range h.headers {
+		if req.Header.Get(k) == "" {
+			req.Header.Set(k, v)
+		}
+	}
+	return h.base.RoundTrip(req)
+}
+
+// withDefaultHeaders wraps client's transport so that headers are added to
+// every request. A nil client with non-empty headers produces a fresh
+// client; a nil client with no headers stays nil (callers skip the
+// WithHTTPClient option in that case).
+func withDefaultHeaders(client *http.Client, headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return client
+	}
+	if client == nil {
+		client = &http.Client{}
+	}
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	client.Transport = &headerRoundTripper{base: base, headers: headers}
+	return client
+}
+
+// autoRouteHTTPClient builds the HTTP client for an auto-routed provider,
+// combining TLS verification config with the provider's default headers.
+// Returns nil when no customization is needed (callers use the SDK default).
+func autoRouteHTTPClient(config *ProviderConfig, info *ProviderInfo) *http.Client {
+	var client *http.Client
+	if config.TLSSkipVerify {
+		client = createHTTPClientWithTLSConfig(true)
+	}
+	return withDefaultHeaders(client, info.Headers)
 }
 
 // createAutoRoutedOpenAICompatProvider creates an openaicompat provider using
@@ -506,8 +591,8 @@ func createAutoRoutedOpenAICompatProvider(ctx context.Context, config *ProviderC
 	opts = append(opts, openaicompat.WithAPIKey(apiKey))
 	opts = append(opts, openaicompat.WithName(info.ID))
 
-	if config.TLSSkipVerify {
-		opts = append(opts, openaicompat.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	if httpClient := autoRouteHTTPClient(config, info); httpClient != nil {
+		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
 	}
 
 	p, err := openaicompat.New(opts...)
@@ -543,8 +628,8 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 		opts = append(opts, anthropic.WithBaseURL(baseURL))
 	}
 
-	if config.TLSSkipVerify {
-		opts = append(opts, anthropic.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	if httpClient := autoRouteHTTPClient(config, info); httpClient != nil {
+		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 	}
 
 	p, err := anthropic.New(opts...)
@@ -576,8 +661,8 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
 	}
 
-	if config.TLSSkipVerify {
-		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))
+	if httpClient := autoRouteHTTPClient(config, info); httpClient != nil {
+		opts = append(opts, openai.WithHTTPClient(httpClient))
 	}
 
 	p, err := openai.New(opts...)
@@ -627,6 +712,7 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 	} else if config.TLSSkipVerify {
 		httpClient = createHTTPClientWithTLSConfig(true)
 	}
+	httpClient = withDefaultHeaders(httpClient, info.Headers)
 	if httpClient != nil {
 		opts = append(opts, google.WithHTTPClient(httpClient))
 	}

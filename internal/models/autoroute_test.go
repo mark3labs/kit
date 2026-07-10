@@ -17,24 +17,24 @@ import (
 func TestNpmToWireProtocol(t *testing.T) {
 	want := map[string]wireProtocol{
 		"@ai-sdk/openai":            wireOpenAI,
-		"@ai-sdk/openai-compatible": wireOpenAI,
+		"@ai-sdk/openai-compatible": wireOpenAICompat,
 		"@ai-sdk/anthropic":         wireAnthropic,
 		"@ai-sdk/google":            wireGoogle,
 
 		// Thin OpenAI-compatible wrappers — routed via openaicompat using
 		// the SDK's hard-coded default base URL (sdkDefaultBaseURL).
-		"@ai-sdk/groq":                  wireOpenAI,
-		"@ai-sdk/cerebras":              wireOpenAI,
-		"@ai-sdk/perplexity":            wireOpenAI,
-		"@ai-sdk/togetherai":            wireOpenAI,
-		"@ai-sdk/xai":                   wireOpenAI,
-		"@ai-sdk/deepinfra":             wireOpenAI,
-		"@ai-sdk/mistral":               wireOpenAI,
-		"@ai-sdk/cohere":                wireOpenAI,
-		"@ai-sdk/vercel":                wireOpenAI,
-		"@aihubmix/ai-sdk-provider":     wireOpenAI,
-		"venice-ai-sdk-provider":        wireOpenAI,
-		"merge-gateway-ai-sdk-provider": wireOpenAI,
+		"@ai-sdk/groq":                  wireOpenAICompat,
+		"@ai-sdk/cerebras":              wireOpenAICompat,
+		"@ai-sdk/perplexity":            wireOpenAICompat,
+		"@ai-sdk/togetherai":            wireOpenAICompat,
+		"@ai-sdk/xai":                   wireOpenAICompat,
+		"@ai-sdk/deepinfra":             wireOpenAICompat,
+		"@ai-sdk/mistral":               wireOpenAICompat,
+		"@ai-sdk/cohere":                wireOpenAICompat,
+		"@ai-sdk/vercel":                wireOpenAICompat,
+		"@aihubmix/ai-sdk-provider":     wireOpenAICompat,
+		"venice-ai-sdk-provider":        wireOpenAICompat,
+		"merge-gateway-ai-sdk-provider": wireOpenAICompat,
 	}
 	for npm, wire := range want {
 		if got := npmToWireProtocol[npm]; got != wire {

@@ -33,6 +33,7 @@ var (
 	modelFlag        string
 	providerURL      string
 	providerAPIKey   string
+	providerWire     string
 	debugMode        bool
 	positionalPrompt string        // set by processPositionalArgs from CLI positional args
 	positionalFiles  []ui.FilePart // binary @file parts from processPositionalArgs
@@ -314,6 +315,7 @@ func init() {
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
 	flags.StringVar(&providerAPIKey, "provider-api-key", "", "API key for the provider (applies to OpenAI, Anthropic, and Google)")
+	flags.StringVar(&providerWire, "provider-wire", "", "wire protocol for auto-routed providers: openai, openai-compat, anthropic, google (overrides the model database)")
 	flags.BoolVar(&tlsSkipVerify, "tls-skip-verify", false, "skip TLS certificate verification (WARNING: insecure, use only for self-signed certificates)")
 
 	// Prompt template flags
@@ -345,6 +347,7 @@ func init() {
 
 	_ = viper.BindPFlag("provider-url", rootCmd.PersistentFlags().Lookup("provider-url"))
 	_ = viper.BindPFlag("provider-api-key", rootCmd.PersistentFlags().Lookup("provider-api-key"))
+	_ = viper.BindPFlag("provider-wire", rootCmd.PersistentFlags().Lookup("provider-wire"))
 	_ = viper.BindPFlag("max-tokens", rootCmd.PersistentFlags().Lookup("max-tokens"))
 	_ = viper.BindPFlag("temperature", rootCmd.PersistentFlags().Lookup("temperature"))
 	_ = viper.BindPFlag("top-p", rootCmd.PersistentFlags().Lookup("top-p"))
@@ -761,6 +764,15 @@ func restorePersistedPreferences() {
 // provider. Must run after restorePersistedPreferences.
 func applyProviderURLRouting() {
 	if viper.GetString("provider-url") == "" {
+		return
+	}
+
+	// When --provider-wire is set alongside --provider-url the user is being
+	// explicit about the wire protocol; the custom/ rewrite below would force
+	// the OpenAI-compatible wire, so skip it and let the model's provider
+	// prefix route through the auto-router (which honors --provider-wire and
+	// synthesizes unknown providers when both flags are present).
+	if viper.GetString("provider-wire") != "" {
 		return
 	}
 
