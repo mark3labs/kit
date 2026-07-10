@@ -195,6 +195,7 @@ mcpServers:
 --model, -m              Model to use (provider/model format)
 --provider-api-key       API key for the provider
 --provider-url           Base URL for provider API
+--provider-wire          Wire protocol for auto-routed providers (openai, openai-compat, anthropic, google)
 --tls-skip-verify        Skip TLS certificate verification
 
 # Session management
@@ -1162,6 +1163,30 @@ kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
 kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
 kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
 ```
+
+### Provider Overrides
+
+Declare or patch providers in your config file's `providers` section — fix a
+wire protocol the database gets wrong, or define an internal gateway the
+database doesn't know about:
+
+```yaml
+# ~/.kit.yml
+providers:
+  minimax:                    # patch a known provider
+    wire: anthropic
+  corp-llm:                   # declare a new one
+    wire: anthropic
+    baseUrl: https://llm.internal.corp/api
+    apiKeyEnv: [CORP_LLM_KEY]
+    headers:
+      X-Team: platform
+```
+
+Accepted `wire` values: `openai` (Responses API), `openai-compat` (chat
+completions), `anthropic`, `google`. Unset fields inherit database values.
+For one-off use, `--provider-wire` with `--provider-url` routes any
+`provider/model` through the declared wire without a config entry.
 
 ### Model String Format
 

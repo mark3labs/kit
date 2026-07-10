@@ -89,12 +89,22 @@ type Limit struct {
 
 // ProviderInfo represents information about a model provider.
 type ProviderInfo struct {
-	ID     string
-	Env    []string
-	NPM    string // npm package identifier from models.dev (e.g. "@ai-sdk/openai-compatible")
-	API    string // base API URL for openai-compatible providers
-	Name   string
-	Models map[string]ModelInfo
+	ID   string
+	Env  []string
+	NPM  string // npm package identifier from models.dev (e.g. "@ai-sdk/openai-compatible")
+	API  string // base API URL for openai-compatible providers
+	Name string
+	// Wire is an explicit wire protocol declaration ("openai",
+	// "openai-compat", "anthropic", "google"). When set it takes precedence
+	// over the npm-package heuristic in auto-routing. Empty means "infer".
+	// Populated from the `providers` config section; not present in the
+	// models.dev data itself.
+	Wire string
+	// Headers are default HTTP headers added to every request to this
+	// provider (auto-routed wires only). Populated from the `providers`
+	// config section.
+	Headers map[string]string
+	Models  map[string]ModelInfo
 }
 
 // ModelsRegistry provides validation and information about models.
@@ -228,6 +238,12 @@ func buildFromModelsDB() map[string]ProviderInfo {
 			providers["custom"].Models[modelID] = info
 		}
 	}
+
+	// Apply provider overrides from the config `providers` section as the
+	// final layer: explicit wire/URL/env/header declarations win over
+	// everything derived from the models.dev data, and unknown provider IDs
+	// are registered fresh (advisory model lookups tolerate empty model maps).
+	applyProviderOverrides(providers, loadProviderOverridesFromConfig())
 
 	return providers
 }
@@ -415,6 +431,11 @@ func (r *ModelsRegistry) GetLLMProviders() []string {
 func isProviderLLMSupported(providerID string, info *ProviderInfo) bool {
 	// Ollama and custom are always supported (model names are user-defined).
 	if providerID == "ollama" || providerID == "custom" {
+		return true
+	}
+
+	// Explicit wire declaration (from a provider override) is authoritative.
+	if _, ok := parseWire(info.Wire); ok {
 		return true
 	}
 

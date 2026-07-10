@@ -760,6 +760,7 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		SystemPrompt:   systemPrompt,
 		ProviderAPIKey: m.v.GetString("provider-api-key"),
 		ProviderURL:    m.v.GetString("provider-url"),
+		ProviderWire:   m.v.GetString("provider-wire"),
 		MaxTokens:      m.v.GetInt("max-tokens"),
 		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
@@ -1136,6 +1137,13 @@ type Options struct {
 	// ProviderURL overrides the provider endpoint. "" = use the provider's
 	// default URL.
 	ProviderURL string
+
+	// ProviderWire overrides the wire protocol used for auto-routed
+	// providers: "openai" (Responses API), "openai-compat" (chat
+	// completions), "anthropic", or "google". "" = infer from the model
+	// database. Takes precedence over per-provider wire declarations in the
+	// `providers` config section.
+	ProviderWire string
 
 	// TLSSkipVerify disables TLS certificate verification on provider
 	// HTTP clients. Only set this for self-signed certificates in
@@ -1517,6 +1525,9 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 		if opts.ProviderURL != "" {
 			v.Set("provider-url", opts.ProviderURL)
+		}
+		if opts.ProviderWire != "" {
+			v.Set("provider-wire", opts.ProviderWire)
 		}
 		if opts.TLSSkipVerify {
 			v.Set("tls-skip-verify", true)
@@ -2280,6 +2291,7 @@ func inheritProviderConfig(child *Options, v *viper.Viper) {
 	}
 	child.ProviderAPIKey = v.GetString("provider-api-key")
 	child.ProviderURL = v.GetString("provider-url")
+	child.ProviderWire = v.GetString("provider-wire")
 	child.TLSSkipVerify = v.GetBool("tls-skip-verify")
 	child.ThinkingLevel = v.GetString("thinking-level")
 	if v.IsSet("max-tokens") {

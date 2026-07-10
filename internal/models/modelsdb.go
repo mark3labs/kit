@@ -1,5 +1,7 @@
 package models
 
+import "strings"
+
 // ModelsDBProviders is the top-level type for models.dev/api.json data:
 // a map of provider ID → provider object.
 type ModelsDBProviders = map[string]modelsDBProvider
@@ -48,18 +50,55 @@ type modelsDBLimit struct {
 	Output  int `json:"output"`
 }
 
-// wireProtocol identifies which LLM API protocol an npm package speaks.
+// wireProtocol identifies which LLM API protocol a provider speaks.
 // Fantasy implements three native protocols (openai, anthropic, google);
 // everything else in its providers/ tree is a thin wrapper around one of
-// them with a pre-baked default URL or auth scheme.
+// them with a pre-baked default URL or auth scheme. The OpenAI protocol is
+// split into two wires: wireOpenAI (the Responses API, spoken only by
+// api.openai.com and true mirrors of it) and wireOpenAICompat (the
+// chat-completions wire spoken by virtually every OpenAI-compatible
+// provider and proxy).
 type wireProtocol int
 
 const (
-	wireUnknown wireProtocol = iota
-	wireOpenAI
+	wireUnknown      wireProtocol = iota
+	wireOpenAI                    // OpenAI Responses API
+	wireOpenAICompat              // OpenAI chat-completions API
 	wireAnthropic
 	wireGoogle
 )
+
+// Wire protocol names accepted in provider overrides (config `providers`
+// section) and the --provider-wire flag. These are the user-facing,
+// dependency-agnostic names for the wire protocols.
+const (
+	WireNameOpenAI       = "openai"
+	WireNameOpenAICompat = "openai-compat"
+	WireNameAnthropic    = "anthropic"
+	WireNameGoogle       = "google"
+)
+
+// parseWire maps a user-facing wire protocol name to its wireProtocol value.
+// Accepts a few common aliases. Returns (wireUnknown, false) for empty or
+// unrecognized names.
+func parseWire(name string) (wireProtocol, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case WireNameOpenAI, "openai-responses":
+		return wireOpenAI, true
+	case WireNameOpenAICompat, "openai-compatible", "openai-chat":
+		return wireOpenAICompat, true
+	case WireNameAnthropic:
+		return wireAnthropic, true
+	case WireNameGoogle, "gemini":
+		return wireGoogle, true
+	}
+	return wireUnknown, false
+}
+
+// wireNames lists the accepted canonical wire names for error messages.
+func wireNames() string {
+	return strings.Join([]string{WireNameOpenAI, WireNameOpenAICompat, WireNameAnthropic, WireNameGoogle}, ", ")
+}
 
 // npmToWireProtocol maps npm package names from models.dev to the wire
 // protocol they speak. Provider-specific bundles that need bespoke auth or
@@ -75,7 +114,7 @@ const (
 var npmToWireProtocol = map[string]wireProtocol{
 	// Native wires.
 	"@ai-sdk/openai":            wireOpenAI,
-	"@ai-sdk/openai-compatible": wireOpenAI,
+	"@ai-sdk/openai-compatible": wireOpenAICompat,
 	"@ai-sdk/anthropic":         wireAnthropic,
 	"@ai-sdk/google":            wireGoogle,
 
@@ -83,18 +122,18 @@ var npmToWireProtocol = map[string]wireProtocol{
 	// in its JS SDK (see sdkDefaultBaseURL) but speaks the plain OpenAI chat
 	// completions wire — so we can route them all through fantasy's
 	// openaicompat provider once we supply the URL.
-	"@ai-sdk/groq":                  wireOpenAI,
-	"@ai-sdk/cerebras":              wireOpenAI,
-	"@ai-sdk/perplexity":            wireOpenAI,
-	"@ai-sdk/togetherai":            wireOpenAI,
-	"@ai-sdk/xai":                   wireOpenAI,
-	"@ai-sdk/deepinfra":             wireOpenAI,
-	"@ai-sdk/mistral":               wireOpenAI,
-	"@ai-sdk/cohere":                wireOpenAI,
-	"@ai-sdk/vercel":                wireOpenAI, // v0 API (api.v0.dev), distinct from @ai-sdk/gateway
-	"@aihubmix/ai-sdk-provider":     wireOpenAI,
-	"venice-ai-sdk-provider":        wireOpenAI,
-	"merge-gateway-ai-sdk-provider": wireOpenAI,
+	"@ai-sdk/groq":                  wireOpenAICompat,
+	"@ai-sdk/cerebras":              wireOpenAICompat,
+	"@ai-sdk/perplexity":            wireOpenAICompat,
+	"@ai-sdk/togetherai":            wireOpenAICompat,
+	"@ai-sdk/xai":                   wireOpenAICompat,
+	"@ai-sdk/deepinfra":             wireOpenAICompat,
+	"@ai-sdk/mistral":               wireOpenAICompat,
+	"@ai-sdk/cohere":                wireOpenAICompat,
+	"@ai-sdk/vercel":                wireOpenAICompat, // v0 API (api.v0.dev), distinct from @ai-sdk/gateway
+	"@aihubmix/ai-sdk-provider":     wireOpenAICompat,
+	"venice-ai-sdk-provider":        wireOpenAICompat,
+	"merge-gateway-ai-sdk-provider": wireOpenAICompat,
 }
 
 // sdkDefaultBaseURL maps an npm package name to the base URL its JavaScript

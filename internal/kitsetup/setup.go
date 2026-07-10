@@ -126,6 +126,7 @@ func BuildProviderConfig(v *viper.Viper) (*models.ProviderConfig, string, error)
 		SystemPrompt:   systemPrompt,
 		ProviderAPIKey: v.GetString("provider-api-key"),
 		ProviderURL:    v.GetString("provider-url"),
+		ProviderWire:   v.GetString("provider-wire"),
 		MaxTokens:      v.GetInt("max-tokens"),
 		StopSequences:  v.GetStringSlice("stop-sequences"),
 		NumGPU:         &numGPU,

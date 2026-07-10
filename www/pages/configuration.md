@@ -40,6 +40,7 @@ stream: true
 | `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
+| `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
 | `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
 | `frequency-penalty` | float | `0.0` | Penalize frequent tokens (0.0–2.0) |
 | `presence-penalty` | float | `0.0` | Penalize present tokens (0.0–2.0) |
@@ -143,9 +144,47 @@ Defaults are safe: any existing MCP server keeps its previous behaviour
 bit-for-bit. SDK consumers can also override the mode programmatically and
 plug in a progress callback — see [SDK options](/sdk/options#mcp-tasks).
 
+## Provider overrides
+
+Declare or patch providers in the model registry with the `providers` section. Use it to fix a wire protocol the model database routes wrongly, or to define an entirely new provider (such as an internal LLM gateway) that the database doesn't know about:
+
+```yaml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: "https://llm.internal.corp/api"
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+### Provider override fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name for the provider |
+| `wire` | string | Wire protocol: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google` |
+| `baseUrl` | string | API base URL |
+| `apiKeyEnv` | list | Environment variable names tried in order when resolving the API key |
+| `headers` | map | Default HTTP headers added to every request |
+
+All fields are optional. Non-empty fields override the model database; unset fields inherit the database values. An invalid `wire` value causes the whole override to be skipped with a warning. Wire resolution precedence: `--provider-wire` flag > `providers` config > the database's own routing.
+
+Unlike [custom models](#custom-models) (which define individual models under the `custom` provider, always on the OpenAI-compatible wire), provider overrides operate at the provider level and support all four wire protocols. See [Auto-routed providers](/providers#auto-routed-providers) for how routing works.
+
 ## Custom models
 
-Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database:
+Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database (for non-OpenAI wire protocols or provider-level declarations, use [provider overrides](#provider-overrides) instead):
 
 ```yaml
 customModels:

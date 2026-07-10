@@ -14,6 +14,7 @@ All flags can be passed to the root `kit` command.
 | `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
 | `--provider-api-key` | — | — | API key for the provider |
 | `--provider-url` | — | — | Base URL for provider API |
+| `--provider-wire` | — | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` ([overrides the model database](/providers#provider-overrides)) |
 | `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
 
 ## Session management

@@ -192,6 +192,63 @@ kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
 Provide the provider's API key the same way as any other — via its environment
 variable (e.g. `OPENCODE_API_KEY`) or `--provider-api-key`.
 
+## Provider overrides
+
+The wire protocol is normally inferred from the model database, but you can
+declare it explicitly — either to patch a provider the database routes wrongly,
+or to define an entirely new provider (e.g. an internal LLM gateway) that the
+database doesn't know about. Add a `providers` section to your config file:
+
+```yaml
+# ~/.kit.yml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: https://llm.internal.corp/api
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+All fields are optional; unset fields inherit the database values. Accepted
+`wire` values are `openai` (Responses API), `openai-compat` (chat completions),
+`anthropic`, and `google`. `apiKeyEnv` lists environment variables tried in
+order, and `headers` adds default HTTP headers to every request. See the
+[provider override fields reference](/configuration#provider-overrides) for
+the full field table.
+
+For one-off use without editing config, pass `--provider-wire` together with
+`--provider-url`. Unlike `--provider-url` alone (which always speaks the
+OpenAI-compatible wire via `custom/`), this routes the model's own provider
+prefix through the declared wire — and works even for providers not in the
+database:
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 \
+    --provider-url https://llm.internal.corp/api \
+    --provider-wire anthropic \
+    --provider-api-key "$CORP_LLM_KEY" "Hello"
+```
+
+### When to use which
+
+| Mechanism | Wire protocols | Scope | Best for |
+|-----------|---------------|-------|----------|
+| `--provider-url` alone | OpenAI-compatible only | One-off (routes via `custom/`) | Quick tests against local/OpenAI-compatible endpoints |
+| [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
+| [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
+| `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+
 ## Model database
 
 Kit ships with a local model database that maps provider names to API configurations. You can manage it with:
