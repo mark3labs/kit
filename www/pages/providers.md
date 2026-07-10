@@ -223,7 +223,9 @@ kit --model corp-llm/claude-sonnet-4-5 "Hello"
 All fields are optional; unset fields inherit the database values. Accepted
 `wire` values are `openai` (Responses API), `openai-compat` (chat completions),
 `anthropic`, and `google`. `apiKeyEnv` lists environment variables tried in
-order, and `headers` adds default HTTP headers to every request.
+order, and `headers` adds default HTTP headers to every request. See the
+[provider override fields reference](/configuration#provider-overrides) for
+the full field table.
 
 For one-off use without editing config, pass `--provider-wire` together with
 `--provider-url`. Unlike `--provider-url` alone (which always speaks the
@@ -237,6 +239,15 @@ kit --model corp-llm/claude-sonnet-4-5 \
     --provider-wire anthropic \
     --provider-api-key "$CORP_LLM_KEY" "Hello"
 ```
+
+### When to use which
+
+| Mechanism | Wire protocols | Scope | Best for |
+|-----------|---------------|-------|----------|
+| `--provider-url` alone | OpenAI-compatible only | One-off (routes via `custom/`) | Quick tests against local/OpenAI-compatible endpoints |
+| [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
+| [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
+| `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
 
 ## Model database
 

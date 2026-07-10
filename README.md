@@ -195,6 +195,7 @@ mcpServers:
 --model, -m              Model to use (provider/model format)
 --provider-api-key       API key for the provider
 --provider-url           Base URL for provider API
+--provider-wire          Wire protocol for auto-routed providers (openai, openai-compat, anthropic, google)
 --tls-skip-verify        Skip TLS certificate verification
 
 # Session management
