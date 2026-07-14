@@ -353,6 +353,21 @@ kit.MCPTokenStore        // Persists OAuth tokens for a single MCP server
 kit.MCPToken             // OAuth token (access token, refresh token, expiry)
 kit.MCPTokenStoreFactory // Creates an MCPTokenStore for a given server URL
 
+// Model registry & one-shot completion
+kit.ModelInfoEntry       // {Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning}
+kit.ModelCapabilities    // Registry capabilities for a single model
+kit.ModelResolutionResult // Outcome of ResolveModelChain
+kit.CompleteRequest      // One-shot completion request (ExecuteCompletion)
+kit.CompleteResponse     // {Text, InputTokens, OutputTokens, Model}
+kit.SteerMessage         // Mid-turn steering message returned by DrainSteer
+
+// Template / argument bridge (extension-facing; distinct from skill PromptTemplate)
+kit.ExtensionPromptTemplate // Parsed template returned by ParseTemplate
+kit.ArgumentPattern         // Positional vars + flags for ParseArguments
+kit.ParseResult             // {Vars, Flags} from ParseArguments
+kit.ExtensionSkill          // Extension-facing skill (DiscoverSkillsForExtension)
+kit.ExtensionSkillLoadResult // {Skills, Error} from LoadSkillsFromDirForExtension
+
 // Conversion helpers
 msgs := kit.ConvertToLLMMessages(&msg)   // SDK Message → []LLMMessage
 msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
@@ -392,10 +407,17 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `PromptResultWithOptions(ctx, message, opts)` - Per-call options variant that
   returns the full TurnResult
 - `Steer(ctx, instruction)` - System-level steering
+- `InjectSteer(message)` / `InjectSteerWithFiles(message, files)` - Queue a
+  mid-turn steering message (injected between steps while a turn is active)
+- `IsGenerating()` - True while an agent turn is in progress
+- `DrainSteer()` - Drain unconsumed `[]SteerMessage` after a turn completes
 - `FollowUp(ctx, text)` - Continue without new user input
+- `ExecuteCompletion(ctx, CompleteRequest)` - One-shot LLM completion
+  independent of the agent loop (optional model override, streaming via OnChunk)
 - `SetModel(ctx, model)` - Switch model at runtime
 - `GetModelString()` - Get current model string
 - `GetModelInfo()` - Get model capabilities and limits
+- `GetAvailableModels()` - Advisory list of registry models as `[]ModelInfoEntry`
 - `ClearSession()` - Clear conversation history
 - `GetSessionPath()` - Get session file path
 - `GetSessionID()` - Get session UUID
@@ -416,8 +438,15 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `NewTool[T]` / `NewParallelTool[T]` - Create a typed custom tool
 - `NewRawTool(name, desc, schema, fn)` - Create a schema-driven tool when the
   input shape isn't known at compile time (skill/MCP catalogs)
+- `FilterCoreToolNames(include, exclude)` - Resolve an effective core tool
+  name list from include/exclude filters (nil means "all core tools").
+  Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`
 - `LoadSkillsFromFS(fsys, root)` - `fs.FS`-typed skill loader (embed.FS,
   fstest.MapFS, per-tenant virtual filesystems)
+- `ParseTemplate` / `RenderTemplate` / `ParseArguments` - Template and CLI
+  argument helpers (return `ExtensionPromptTemplate` / `ParseResult`)
+- `ResolveModelChain` / `GetModelCapabilities` - Model preference fallback
+  and capability lookup
 - `CollapseBranch(fromID, toID, summary)` - Collapse a branch range into a
   summary (works with any `SessionManager` via `AppendBranchSummary`)
 - `Close()` - Clean up resources
@@ -436,7 +465,8 @@ Key `Options` fields for SDK usage:
 | `Tools` | Replace core tools with custom set |
 | `ExtraTools` | Add tools alongside defaults |
 | `DisableCoreTools` | Use no core tools (0 tools, for chat-only) |
-| `CoreToolList` | List of core tools to include, if empty (default) use all. |
+| `CoreToolList` | List of core tools to include, if empty (default) use all. Build programmatically with `FilterCoreToolNames`. |
+| `MCPConfig` | Pre-loaded `*Config` that skips `LoadAndValidateConfig` (useful for in-process subagents and programmatic setups) |
 | `NoSession` | Ephemeral mode (no session persistence) |
 | `NoAgents` | Disable named agent discovery (built-ins and definition files) |
 | `SessionPath` | Open specific session file |

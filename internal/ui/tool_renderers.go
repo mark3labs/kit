@@ -345,16 +345,18 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 // Ls tool — simple list without gutter
 // ---------------------------------------------------------------------------
 
-// renderFindBody renders find output as a plain list with code background.
-// Similar to ls but with results-specific caption.
-func renderFindBody(toolResult string, width int) string {
+// renderPlainListBody renders tool output as a plain list with code background
+// and no line-number gutter, truncated to maxLsLines. When lines were hidden by
+// truncation, caption(total, hidden) supplies the herald.Figure caption text.
+// Shared pipeline for renderFindBody, renderGrepBody, and renderLsBody.
+func renderPlainListBody(toolResult string, width int, caption func(total, hidden int) string) string {
 	content := strings.TrimSpace(toolResult)
 	if content == "" {
 		return ""
 	}
 
 	lines := strings.Split(content, "\n")
-	totalResults := len(lines)
+	total := len(lines)
 
 	// Truncate to maxLsLines for display
 	var hiddenCount int
@@ -379,172 +381,52 @@ func renderFindBody(toolResult string, width int) string {
 
 	content = strings.Join(rendered, "\n")
 
-	// Build caption with results info
-	var captionParts []string
-	if totalResults == 1 {
-		captionParts = append(captionParts, "1 result")
-	} else {
-		captionParts = append(captionParts, fmt.Sprintf("%d results", totalResults))
-	}
+	const blockIndent = "  "
 	if hiddenCount > 0 {
-		captionParts = append(captionParts, fmt.Sprintf("%d more", hiddenCount))
-	}
-
-	if len(captionParts) > 1 || hiddenCount > 0 {
 		ty := herald.New(herald.WithTheme(herald.Theme{
 			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
 			FigureCaptionPosition: herald.CaptionBottom,
 		}))
-		caption := strings.Join(captionParts, " • ")
-		result := ty.Figure(content, caption)
+		result := ty.Figure(content, caption(total, hiddenCount))
 
 		// Indent entire block (content + caption) to match other tools
-		const blockIndent = "  "
-		resultLines := strings.Split(result, "\n")
-		for i, line := range resultLines {
-			resultLines[i] = blockIndent + line
-		}
-		return strings.Join(resultLines, "\n")
+		return indentBlock(result, blockIndent)
 	}
 
-	// Single result with no truncation - just return indented content
-	const blockIndent = "  "
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		contentLines[i] = blockIndent + line
-	}
-	return strings.Join(contentLines, "\n")
+	// No caption - just return indented content
+	return indentBlock(content, blockIndent)
+}
+
+// renderFindBody renders find output as a plain list with code background.
+// Similar to ls but with results-specific caption.
+func renderFindBody(toolResult string, width int) string {
+	return renderPlainListBody(toolResult, width, func(total, hidden int) string {
+		count := fmt.Sprintf("%d results", total)
+		if total == 1 {
+			count = "1 result"
+		}
+		return count + " • " + fmt.Sprintf("%d more", hidden)
+	})
 }
 
 // renderGrepBody renders grep output as a plain list with code background.
 // Similar to find but with match-specific caption terminology.
 func renderGrepBody(toolResult string, width int) string {
-	content := strings.TrimSpace(toolResult)
-	if content == "" {
-		return ""
-	}
-
-	lines := strings.Split(content, "\n")
-	totalMatches := len(lines)
-
-	// Truncate to maxLsLines for display
-	var hiddenCount int
-	if len(lines) > maxLsLines {
-		hiddenCount = len(lines) - maxLsLines
-		lines = lines[:maxLsLines]
-	}
-
-	const lineIndent = "  "
-	codeWidth := max(width-len(lineIndent), 20)
-
-	theme := GetTheme()
-	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-
-	var rendered []string
-	for _, line := range lines {
-		// Truncate before styling to prevent wrapping.
-		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
-		styled := codeStyle.Width(codeWidth).Render(line)
-		rendered = append(rendered, styled)
-	}
-
-	content = strings.Join(rendered, "\n")
-
-	// Build caption with match info
-	var captionParts []string
-	if totalMatches == 1 {
-		captionParts = append(captionParts, "1 match")
-	} else {
-		captionParts = append(captionParts, fmt.Sprintf("%d matches", totalMatches))
-	}
-	if hiddenCount > 0 {
-		captionParts = append(captionParts, fmt.Sprintf("%d more", hiddenCount))
-	}
-
-	if len(captionParts) > 1 || hiddenCount > 0 {
-		ty := herald.New(herald.WithTheme(herald.Theme{
-			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
-			FigureCaptionPosition: herald.CaptionBottom,
-		}))
-		caption := strings.Join(captionParts, " • ")
-		result := ty.Figure(content, caption)
-
-		// Indent entire block (content + caption) to match other tools
-		const blockIndent = "  "
-		resultLines := strings.Split(result, "\n")
-		for i, line := range resultLines {
-			resultLines[i] = blockIndent + line
+	return renderPlainListBody(toolResult, width, func(total, hidden int) string {
+		count := fmt.Sprintf("%d matches", total)
+		if total == 1 {
+			count = "1 match"
 		}
-		return strings.Join(resultLines, "\n")
-	}
-
-	// Single match with no truncation - just return indented content
-	const blockIndent = "  "
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		contentLines[i] = blockIndent + line
-	}
-	return strings.Join(contentLines, "\n")
+		return count + " • " + fmt.Sprintf("%d more", hidden)
+	})
 }
 
 // renderLsBody renders ls output as a plain list with code background and no
 // line-number gutter.
 func renderLsBody(toolResult string, width int) string {
-	content := strings.TrimSpace(toolResult)
-	if content == "" {
-		return ""
-	}
-
-	lines := strings.Split(content, "\n")
-
-	// Truncate to maxLsLines for display
-	var hiddenCount int
-	if len(lines) > maxLsLines {
-		hiddenCount = len(lines) - maxLsLines
-		lines = lines[:maxLsLines]
-	}
-
-	const lineIndent = "  "
-	codeWidth := max(width-len(lineIndent), 20)
-
-	theme := GetTheme()
-	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-
-	var rendered []string
-	for _, line := range lines {
-		// Truncate before styling to prevent wrapping.
-		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
-		styled := codeStyle.Width(codeWidth).Render(line)
-		rendered = append(rendered, styled)
-	}
-
-	content = strings.Join(rendered, "\n")
-
-	// Build caption with hidden entries info
-	if hiddenCount > 0 {
-		ty := herald.New(herald.WithTheme(herald.Theme{
-			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
-			FigureCaptionPosition: herald.CaptionBottom,
-		}))
-		caption := fmt.Sprintf("%d more entries", hiddenCount)
-		result := ty.Figure(content, caption)
-
-		// Indent entire block (content + caption) to match other tools
-		const blockIndent = "  "
-		resultLines := strings.Split(result, "\n")
-		for i, line := range resultLines {
-			resultLines[i] = blockIndent + line
-		}
-		return strings.Join(resultLines, "\n")
-	}
-
-	// No caption - just return indented content
-	const blockIndent = "  "
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		contentLines[i] = blockIndent + line
-	}
-	return strings.Join(contentLines, "\n")
+	return renderPlainListBody(toolResult, width, func(_, hidden int) string {
+		return fmt.Sprintf("%d more entries", hidden)
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -676,12 +558,7 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	result := tyFig.Figure(codeBlock, caption)
 
 	// Indent entire block to match Write/Edit tools (2 spaces)
-	const blockIndent = "  "
-	lines := strings.Split(result, "\n")
-	for i, line := range lines {
-		lines[i] = blockIndent + line
-	}
-	return strings.Join(lines, "\n")
+	return indentBlock(result, "  ")
 }
 
 // ---------------------------------------------------------------------------
@@ -852,21 +729,11 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 		result := ty.Figure(content, caption)
 
 		// Indent entire block (content + caption) to match other tools
-		const blockIndent = "  "
-		lines := strings.Split(result, "\n")
-		for i, line := range lines {
-			lines[i] = blockIndent + line
-		}
-		return strings.Join(lines, "\n")
+		return indentBlock(result, "  ")
 	}
 
 	// No caption - just return indented content
-	const blockIndent = "  "
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		contentLines[i] = blockIndent + line
-	}
-	return strings.Join(contentLines, "\n")
+	return indentBlock(content, "  ")
 }
 
 // ---------------------------------------------------------------------------
@@ -938,6 +805,16 @@ func syntaxHighlight(source, fileName string) string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// indentBlock prefixes every line of s (including empty lines) with indent.
+// Used to shift a fully rendered tool body right so it aligns with other tools.
+func indentBlock(s, indent string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
 
 // padRight pads s with spaces to exactly width visual characters.
 // This is ANSI-aware: it measures the visual width of s (ignoring escape

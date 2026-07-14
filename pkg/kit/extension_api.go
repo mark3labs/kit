@@ -59,6 +59,47 @@ type ExtensionToolInfo = extensions.ToolInfo
 // ExtensionCommandDef describes a slash command registered by an extension.
 type ExtensionCommandDef = extensions.CommandDef
 
+// ExtensionSkill represents a skill in the extension-facing format returned
+// by the skill bridge methods (DiscoverSkillsForExtension and friends).
+type ExtensionSkill = extensions.Skill
+
+// ExtensionSkillLoadResult holds the outcome of loading skills from a
+// directory for extensions: the loaded skills or an error string.
+type ExtensionSkillLoadResult = extensions.SkillLoadResult
+
+// ExtensionPromptTemplate is a parsed prompt template in the extension-facing
+// format used by ParseTemplate and RenderTemplate. It is distinct from
+// PromptTemplate, which is the skill prompt-template type.
+type ExtensionPromptTemplate = extensions.PromptTemplate
+
+// ArgumentPattern describes how ParseArguments should interpret
+// command-line style input (positional variables and flags).
+type ArgumentPattern = extensions.ArgumentPattern
+
+// ParseResult holds the variables and flags produced by ParseArguments.
+type ParseResult = extensions.ParseResult
+
+// ModelCapabilities describes a model's provider, context/output limits,
+// and feature support as reported by the model registry.
+type ModelCapabilities = extensions.ModelCapabilities
+
+// ModelResolutionResult is the outcome of ResolveModelChain: the first
+// available model from a preference list, its capabilities, and the
+// models attempted along the way.
+type ModelResolutionResult = extensions.ModelResolutionResult
+
+// CompleteRequest describes a one-shot LLM completion request executed by
+// ExecuteCompletion, independent of the main agent loop.
+type CompleteRequest = extensions.CompleteRequest
+
+// CompleteResponse holds the text and token usage returned by
+// ExecuteCompletion.
+type CompleteResponse = extensions.CompleteResponse
+
+// ModelInfoEntry describes one model known to the registry, as returned by
+// GetAvailableModels.
+type ModelInfoEntry = extensions.ModelInfoEntry
+
 // ExtensionAPI provides grouped access to all extension-related functionality.
 // This cleans up the main Kit API surface while keeping all extension capabilities available.
 type ExtensionAPI interface {

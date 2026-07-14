@@ -99,7 +99,7 @@ func NewPromptBuilder(basePrompt string) *PromptBuilder {
 // DiscoverSkillsForExtension finds skills in standard locations for extensions.
 // Returns skills in the extension-facing format. Results are cached per-Kit
 // instance to avoid reloading on every call.
-func (m *Kit) DiscoverSkillsForExtension() []extensions.Skill {
+func (m *Kit) DiscoverSkillsForExtension() []ExtensionSkill {
 	cwd, _ := os.Getwd()
 
 	m.skillCache.mu.Lock()
@@ -111,7 +111,7 @@ func (m *Kit) DiscoverSkillsForExtension() []extensions.Skill {
 }
 
 // LoadSkillForExtension loads a single skill file for extensions.
-func (m *Kit) LoadSkillForExtension(path string) (*extensions.Skill, string) {
+func (m *Kit) LoadSkillForExtension(path string) (*ExtensionSkill, string) {
 	s, err := skills.LoadSkill(path)
 	if err != nil {
 		return nil, err.Error()
@@ -120,7 +120,7 @@ func (m *Kit) LoadSkillForExtension(path string) (*extensions.Skill, string) {
 }
 
 // LoadSkillsFromDirForExtension loads all skills from a directory for extensions.
-func (m *Kit) LoadSkillsFromDirForExtension(dir string) extensions.SkillLoadResult {
+func (m *Kit) LoadSkillsFromDirForExtension(dir string) ExtensionSkillLoadResult {
 	skillList, err := skills.LoadSkillsFromDir(dir)
 	if err != nil {
 		return extensions.SkillLoadResult{Error: err.Error()}

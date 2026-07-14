@@ -18,7 +18,7 @@ import (
 // ParseTemplate extracts {{variables}} from template content. The template
 // grammar is shared with skill prompt templates, so a template parses
 // identically regardless of which API loads it.
-func ParseTemplate(name, content string) extensions.PromptTemplate {
+func ParseTemplate(name, content string) ExtensionPromptTemplate {
 	tpl := skills.NewPromptTemplate(name, content)
 	vars := tpl.Variables
 	if vars == nil {
@@ -34,13 +34,13 @@ func ParseTemplate(name, content string) extensions.PromptTemplate {
 // RenderTemplate substitutes variables into template content.
 // Handles {{name}} and {{ name }} (any whitespace) placeholders; missing
 // variables are left as-is.
-func RenderTemplate(tpl extensions.PromptTemplate, vars map[string]string) string {
+func RenderTemplate(tpl ExtensionPromptTemplate, vars map[string]string) string {
 	t := skills.PromptTemplate{Content: tpl.Content}
 	return t.Expand(vars)
 }
 
 // ParseArguments parses command-line style arguments.
-func ParseArguments(input string, pattern extensions.ArgumentPattern) extensions.ParseResult {
+func ParseArguments(input string, pattern ArgumentPattern) ParseResult {
 	result := extensions.ParseResult{
 		Vars:  make(map[string]string),
 		Flags: make(map[string]string),
@@ -259,7 +259,7 @@ func RenderWithModelConditionals(content, currentModel string) string {
 // ---------------------------------------------------------------------------
 
 // ResolveModelChain attempts each model in order until one is available.
-func ResolveModelChain(preferences []string) extensions.ModelResolutionResult {
+func ResolveModelChain(preferences []string) ModelResolutionResult {
 	result := extensions.ModelResolutionResult{
 		Attempted: make([]string, 0, len(preferences)),
 	}
@@ -307,7 +307,7 @@ func ResolveModelChain(preferences []string) extensions.ModelResolutionResult {
 
 // GetModelCapabilities returns capabilities for a specific model.
 // If model is empty, returns zero capabilities.
-func GetModelCapabilities(model string) (extensions.ModelCapabilities, string) {
+func GetModelCapabilities(model string) (ModelCapabilities, string) {
 	if model == "" {
 		return extensions.ModelCapabilities{}, "no model specified"
 	}

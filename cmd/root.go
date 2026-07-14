@@ -866,7 +866,7 @@ func runNormalMode(ctx context.Context) error {
 		authHandler = cliAuthHandler
 	}
 
-	coreToolList, err := kit.CoreToolFilterHelper(viper.GetViper())
+	coreToolList, err := kit.FilterCoreToolNames(viper.GetStringSlice("include-core-tools"), viper.GetStringSlice("exclude-core-tools"))
 	if err != nil {
 		return err
 	}

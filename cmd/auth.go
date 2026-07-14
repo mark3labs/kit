@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -181,10 +179,105 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func runAuthStatus(cmd *cobra.Command, args []string) error {
+// newCredentialManager creates a credential manager, wrapping the error with
+// the uniform message used across all auth subcommands.
+func newCredentialManager() (*kit.CredentialManager, error) {
 	cm, err := kit.NewCredentialManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
+		return nil, fmt.Errorf("failed to initialize credential manager: %w", err)
+	}
+	return cm, nil
+}
+
+// confirmReauth asks the user whether to re-authenticate with an already
+// authenticated provider. A prompt error is treated as a cancellation.
+func confirmReauth(title string) bool {
+	var reauth bool
+	err := huh.NewConfirm().
+		Title(title).
+		Description("Do you want to re-authenticate?").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&reauth).
+		Run()
+	return err == nil && reauth
+}
+
+// finishLogin prints the shared post-login epilogue: success banner,
+// credential path, provider-specific extra lines, usage note, and the
+// --set-default handling/hint.
+func finishLogin(cm *kit.CredentialManager, provider, displayName, shortName, usageNote string, extraLines ...string) error {
+	fmt.Printf("✅ Successfully authenticated with %s!\n", displayName)
+	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
+	for _, line := range extraLines {
+		fmt.Println(line)
+	}
+	fmt.Printf("\n🎉 %s\n", usageNote)
+	fmt.Println("💡 You can check your authentication status with: kit auth status")
+
+	// Set default model if requested
+	if err := setDefaultModelIfRequested(provider); err != nil {
+		return err
+	}
+
+	// Remind users how to set this as default if they didn't use --set-default
+	if !loginSetDefault {
+		fmt.Printf("\n💡 To set %s as your default model, run:\n", shortName)
+		fmt.Printf("   kit auth login %s --set-default\n", provider)
+	}
+
+	return nil
+}
+
+// runProviderLogout runs the shared logout flow: check credentials, confirm,
+// remove, and print provider-specific success lines.
+func runProviderLogout(displayName string, has func(*kit.CredentialManager) (bool, error), remove func(*kit.CredentialManager) error, successLines ...string) error {
+	cm, err := newCredentialManager()
+	if err != nil {
+		return err
+	}
+
+	// Check if authenticated
+	hasAuth, err := has(cm)
+	if err != nil {
+		return fmt.Errorf("failed to check authentication status: %w", err)
+	}
+
+	if !hasAuth {
+		fmt.Printf("You are not currently authenticated with %s.\n", displayName)
+		return nil
+	}
+
+	// Confirm logout
+	var confirm bool
+	err = huh.NewConfirm().
+		Title(fmt.Sprintf("Remove %s credentials", displayName)).
+		Description("Are you sure you want to remove your stored credentials?").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&confirm).
+		Run()
+	if err != nil || !confirm {
+		fmt.Println("Logout cancelled.")
+		return nil
+	}
+
+	// Remove credentials
+	if err := remove(cm); err != nil {
+		return fmt.Errorf("failed to remove credentials: %w", err)
+	}
+
+	for _, line := range successLines {
+		fmt.Println(line)
+	}
+
+	return nil
+}
+
+func runAuthStatus(cmd *cobra.Command, args []string) error {
+	cm, err := newCredentialManager()
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("Authentication Status")
@@ -286,22 +379,14 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 }
 
 func loginAnthropic() error {
-	cm, err := kit.NewCredentialManager()
+	cm, err := newCredentialManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
+		return err
 	}
 
 	// Check if already authenticated
 	if hasAuth, err := cm.HasAnthropicCredentials(); err == nil && hasAuth {
-		var reauth bool
-		err := huh.NewConfirm().
-			Title("You are already authenticated with Anthropic").
-			Description("Do you want to re-authenticate?").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&reauth).
-			Run()
-		if err != nil || !reauth {
+		if !confirmReauth("You are already authenticated with Anthropic") {
 			fmt.Println("Authentication cancelled.")
 			return nil
 		}
@@ -355,84 +440,27 @@ func loginAnthropic() error {
 		return fmt.Errorf("failed to store credentials: %w", err)
 	}
 
-	fmt.Println("✅ Successfully authenticated with Anthropic!")
-	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
-	fmt.Println("\n🎉 Your OAuth credentials will now be used for Anthropic API calls.")
-	fmt.Println("💡 You can check your authentication status with: kit auth status")
-
-	// Set default model if requested
-	if err := setDefaultModelIfRequested("anthropic"); err != nil {
-		return err
-	}
-
-	// Remind users how to set this as default if they didn't use --set-default
-	if !loginSetDefault {
-		fmt.Println("\n💡 To set Anthropic as your default model, run:")
-		fmt.Println("   kit auth login anthropic --set-default")
-	}
-
-	return nil
+	return finishLogin(cm, "anthropic", "Anthropic", "Anthropic",
+		"Your OAuth credentials will now be used for Anthropic API calls.")
 }
 
 func logoutAnthropic() error {
-	cm, err := kit.NewCredentialManager()
-	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
-	}
-
-	// Check if authenticated
-	hasAuth, err := cm.HasAnthropicCredentials()
-	if err != nil {
-		return fmt.Errorf("failed to check authentication status: %w", err)
-	}
-
-	if !hasAuth {
-		fmt.Println("You are not currently authenticated with Anthropic.")
-		return nil
-	}
-
-	// Confirm logout
-	var confirm bool
-	err = huh.NewConfirm().
-		Title("Remove Anthropic credentials").
-		Description("Are you sure you want to remove your stored credentials?").
-		Affirmative("Yes").
-		Negative("No").
-		Value(&confirm).
-		Run()
-	if err != nil || !confirm {
-		fmt.Println("Logout cancelled.")
-		return nil
-	}
-
-	// Remove credentials
-	if err := cm.RemoveAnthropicCredentials(); err != nil {
-		return fmt.Errorf("failed to remove credentials: %w", err)
-	}
-
-	fmt.Println("✓ Successfully logged out from Anthropic!")
-	fmt.Println("You will need to use environment variables or command-line flags for authentication.")
-
-	return nil
+	return runProviderLogout("Anthropic",
+		(*kit.CredentialManager).HasAnthropicCredentials,
+		(*kit.CredentialManager).RemoveAnthropicCredentials,
+		"✓ Successfully logged out from Anthropic!",
+		"You will need to use environment variables or command-line flags for authentication.")
 }
 
 func loginOpenAI() error {
-	cm, err := kit.NewCredentialManager()
+	cm, err := newCredentialManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
+		return err
 	}
 
 	// Check if already authenticated
 	if hasAuth, err := cm.HasOpenAICredentials(); err == nil && hasAuth {
-		var reauth bool
-		err := huh.NewConfirm().
-			Title("You are already authenticated with OpenAI (ChatGPT/Codex)").
-			Description("Do you want to re-authenticate?").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&reauth).
-			Run()
-		if err != nil || !reauth {
+		if !confirmReauth("You are already authenticated with OpenAI (ChatGPT/Codex)") {
 			fmt.Println("Authentication cancelled.")
 			return nil
 		}
@@ -452,7 +480,7 @@ func loginOpenAI() error {
 	}
 
 	// Start local callback server
-	callbackServer, err := startOpenAICallbackServer(authData.State)
+	callbackServer, err := auth.StartOpenAICallbackServer(authData.State)
 	if err != nil {
 		fmt.Printf("⚠️  Could not start local callback server: %v\n", err)
 		fmt.Println("Falling back to manual code entry.")
@@ -531,24 +559,9 @@ func loginOpenAI() error {
 		return fmt.Errorf("failed to store credentials: %w", err)
 	}
 
-	fmt.Println("✅ Successfully authenticated with OpenAI (ChatGPT/Codex)!")
-	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
-	fmt.Printf("👤 Account ID: %s\n", creds.AccountID)
-	fmt.Println("\n🎉 Your OAuth credentials will now be used for OpenAI API calls.")
-	fmt.Println("💡 You can check your authentication status with: kit auth status")
-
-	// Set default model if requested
-	if err := setDefaultModelIfRequested("openai"); err != nil {
-		return err
-	}
-
-	// Remind users how to set this as default if they didn't use --set-default
-	if !loginSetDefault {
-		fmt.Println("\n💡 To set OpenAI as your default model, run:")
-		fmt.Println("   kit auth login openai --set-default")
-	}
-
-	return nil
+	return finishLogin(cm, "openai", "OpenAI (ChatGPT/Codex)", "OpenAI",
+		"Your OAuth credentials will now be used for OpenAI API calls.",
+		fmt.Sprintf("👤 Account ID: %s", creds.AccountID))
 }
 
 // loginCopilot authenticates GitHub Copilot using GitHub device flow.
@@ -557,24 +570,13 @@ func loginCopilot(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
-	cm, err := kit.NewCredentialManager()
+	cm, err := newCredentialManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
+		return err
 	}
 
 	if hasAuth, err := cm.HasCopilotCredentials(); err == nil && hasAuth {
-		var reauth bool
-		err := huh.NewConfirm().
-			Title("You are already authenticated with GitHub Copilot").
-			Description("Do you want to re-authenticate?").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&reauth).
-			Run()
-		if err != nil {
-			return fmt.Errorf("failed to prompt for re-authentication: %w", err)
-		}
-		if !reauth {
+		if !confirmReauth("You are already authenticated with GitHub Copilot") {
 			fmt.Println("Authentication cancelled.")
 			return nil
 		}
@@ -613,178 +615,23 @@ func loginCopilot(ctx context.Context) error {
 		return fmt.Errorf("failed to store credentials: %w", err)
 	}
 
-	fmt.Println("✅ Successfully authenticated with GitHub Copilot!")
-	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
-	fmt.Println("\n🎉 Your GitHub Copilot credentials will now be used for copilot/* models.")
-	fmt.Println("💡 You can check your authentication status with: kit auth status")
-
-	if err := setDefaultModelIfRequested("copilot"); err != nil {
-		return err
-	}
-
-	if !loginSetDefault {
-		fmt.Println("\n💡 To set Copilot as your default model, run:")
-		fmt.Println("   kit auth login copilot --set-default")
-	}
-
-	return nil
-}
-
-// callbackServer holds the HTTP server and channel for receiving the OAuth callback
-type callbackServer struct {
-	Server   *http.Server
-	CodeChan chan string
-	State    string
-}
-
-// Close shuts down the callback server
-func (cs *callbackServer) Close() {
-	if cs.Server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = cs.Server.Shutdown(ctx)
-	}
-}
-
-// startOpenAICallbackServer starts a local HTTP server to receive the OAuth callback
-func startOpenAICallbackServer(expectedState string) (*callbackServer, error) {
-	codeChan := make(chan string, 1)
-
-	mux := http.NewServeMux()
-	server := &http.Server{
-		Addr:    "127.0.0.1:1455",
-		Handler: mux,
-	}
-
-	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
-		// Check state
-		state := r.URL.Query().Get("state")
-		if state != expectedState {
-			http.Error(w, "State mismatch", http.StatusBadRequest)
-			return
-		}
-
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "Missing authorization code", http.StatusBadRequest)
-			return
-		}
-
-		// Send code to channel
-		select {
-		case codeChan <- code:
-		default:
-		}
-
-		// Return success page
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
-<html>
-<head><title>Authentication Successful</title></head>
-<body style="font-family: sans-serif; text-align: center; padding: 50px;">
-<h1>&#10003; Authentication Successful</h1>
-<p>You can close this window and return to the terminal.</p>
-</body>
-</html>`)
-	})
-
-	// Try to start server
-	listener, err := net.Listen("tcp", "127.0.0.1:1455")
-	if err != nil {
-		return nil, fmt.Errorf("port 1455 not available: %w", err)
-	}
-	_ = listener.Close()
-
-	go func() {
-		_ = server.ListenAndServe()
-	}()
-
-	return &callbackServer{
-		Server:   server,
-		CodeChan: codeChan,
-		State:    expectedState,
-	}, nil
+	return finishLogin(cm, "copilot", "GitHub Copilot", "Copilot",
+		"Your GitHub Copilot credentials will now be used for copilot/* models.")
 }
 
 func logoutOpenAI() error {
-	cm, err := kit.NewCredentialManager()
-	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
-	}
-
-	// Check if authenticated
-	hasAuth, err := cm.HasOpenAICredentials()
-	if err != nil {
-		return fmt.Errorf("failed to check authentication status: %w", err)
-	}
-
-	if !hasAuth {
-		fmt.Println("You are not currently authenticated with OpenAI.")
-		return nil
-	}
-
-	// Confirm logout
-	var confirm bool
-	err = huh.NewConfirm().
-		Title("Remove OpenAI credentials").
-		Description("Are you sure you want to remove your stored credentials?").
-		Affirmative("Yes").
-		Negative("No").
-		Value(&confirm).
-		Run()
-	if err != nil || !confirm {
-		fmt.Println("Logout cancelled.")
-		return nil
-	}
-
-	// Remove credentials
-	if err := cm.RemoveOpenAICredentials(); err != nil {
-		return fmt.Errorf("failed to remove credentials: %w", err)
-	}
-
-	fmt.Println("✓ Successfully logged out from OpenAI!")
-	fmt.Println("You will need to use environment variables or command-line flags for authentication.")
-
-	return nil
+	return runProviderLogout("OpenAI",
+		(*kit.CredentialManager).HasOpenAICredentials,
+		(*kit.CredentialManager).RemoveOpenAICredentials,
+		"✓ Successfully logged out from OpenAI!",
+		"You will need to use environment variables or command-line flags for authentication.")
 }
 
 func logoutCopilot() error {
-	cm, err := kit.NewCredentialManager()
-	if err != nil {
-		return fmt.Errorf("failed to initialize credential manager: %w", err)
-	}
-
-	hasAuth, err := cm.HasCopilotCredentials()
-	if err != nil {
-		return fmt.Errorf("failed to check authentication status: %w", err)
-	}
-
-	if !hasAuth {
-		fmt.Println("You are not currently authenticated with GitHub Copilot.")
-		return nil
-	}
-
-	var confirm bool
-	err = huh.NewConfirm().
-		Title("Remove GitHub Copilot credentials").
-		Description("Are you sure you want to remove your stored credentials?").
-		Affirmative("Yes").
-		Negative("No").
-		Value(&confirm).
-		Run()
-	if err != nil || !confirm {
-		fmt.Println("Logout cancelled.")
-		return nil
-	}
-
-	if err := cm.RemoveCopilotCredentials(); err != nil {
-		return fmt.Errorf("failed to remove credentials: %w", err)
-	}
-
-	fmt.Println("✓ Successfully logged out from GitHub Copilot!")
-	fmt.Println("You will need to authenticate again with 'kit auth login copilot'.")
-	fmt.Println("Tip: this removes local credentials only. Revoke the GitHub OAuth grant at https://github.com/settings/applications")
-
-	return nil
+	return runProviderLogout("GitHub Copilot",
+		(*kit.CredentialManager).HasCopilotCredentials,
+		(*kit.CredentialManager).RemoveCopilotCredentials,
+		"✓ Successfully logged out from GitHub Copilot!",
+		"You will need to authenticate again with 'kit auth login copilot'.",
+		"Tip: this removes local credentials only. Revoke the GitHub OAuth grant at https://github.com/settings/applications")
 }

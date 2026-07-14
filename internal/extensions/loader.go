@@ -418,168 +418,35 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 
 	// Build the API object that wires typed registration methods back to
 	// the extension's internal handler map. Each method wraps the concrete
-	// handler into the internal HandlerFunc type.
+	// handler into the internal HandlerFunc type via the notifyReg/resultReg
+	// helpers below.
 	reg := func(event EventType, fn HandlerFunc) {
 		ext.Handlers[event] = append(ext.Handlers[event], fn)
 	}
 
 	api := API{
-		onToolCall: func(h func(ToolCallEvent, Context) *ToolCallResult) {
-			reg(ToolCall, func(e Event, c Context) Result {
-				r := h(e.(ToolCallEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onToolCallInputStart: func(h func(ToolCallInputStartEvent, Context)) {
-			reg(ToolCallInputStart, func(e Event, c Context) Result {
-				h(e.(ToolCallInputStartEvent), c)
-				return nil
-			})
-		},
-		onToolCallInputDelta: func(h func(ToolCallInputDeltaEvent, Context)) {
-			reg(ToolCallInputDelta, func(e Event, c Context) Result {
-				h(e.(ToolCallInputDeltaEvent), c)
-				return nil
-			})
-		},
-		onToolCallInputEnd: func(h func(ToolCallInputEndEvent, Context)) {
-			reg(ToolCallInputEnd, func(e Event, c Context) Result {
-				h(e.(ToolCallInputEndEvent), c)
-				return nil
-			})
-		},
-		onToolExecStart: func(h func(ToolExecutionStartEvent, Context)) {
-			reg(ToolExecutionStart, func(e Event, c Context) Result {
-				h(e.(ToolExecutionStartEvent), c)
-				return nil
-			})
-		},
-		onToolExecEnd: func(h func(ToolExecutionEndEvent, Context)) {
-			reg(ToolExecutionEnd, func(e Event, c Context) Result {
-				h(e.(ToolExecutionEndEvent), c)
-				return nil
-			})
-		},
-		onToolOutput: func(h func(ToolOutputEvent, Context)) {
-			reg(ToolOutput, func(e Event, c Context) Result {
-				h(e.(ToolOutputEvent), c)
-				return nil
-			})
-		},
-		onToolResult: func(h func(ToolResultEvent, Context) *ToolResultResult) {
-			reg(ToolResult, func(e Event, c Context) Result {
-				r := h(e.(ToolResultEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onInput: func(h func(InputEvent, Context) *InputResult) {
-			reg(Input, func(e Event, c Context) Result {
-				r := h(e.(InputEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onBeforeAgentStart: func(h func(BeforeAgentStartEvent, Context) *BeforeAgentStartResult) {
-			reg(BeforeAgentStart, func(e Event, c Context) Result {
-				r := h(e.(BeforeAgentStartEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onAgentStart: func(h func(AgentStartEvent, Context)) {
-			reg(AgentStart, func(e Event, c Context) Result {
-				h(e.(AgentStartEvent), c)
-				return nil
-			})
-		},
-		onAgentEnd: func(h func(AgentEndEvent, Context)) {
-			reg(AgentEnd, func(e Event, c Context) Result {
-				h(e.(AgentEndEvent), c)
-				return nil
-			})
-		},
-		onMessageStart: func(h func(MessageStartEvent, Context)) {
-			reg(MessageStart, func(e Event, c Context) Result {
-				h(e.(MessageStartEvent), c)
-				return nil
-			})
-		},
-		onMessageUpdate: func(h func(MessageUpdateEvent, Context)) {
-			reg(MessageUpdate, func(e Event, c Context) Result {
-				h(e.(MessageUpdateEvent), c)
-				return nil
-			})
-		},
-		onMessageEnd: func(h func(MessageEndEvent, Context)) {
-			reg(MessageEnd, func(e Event, c Context) Result {
-				h(e.(MessageEndEvent), c)
-				return nil
-			})
-		},
-		onSessionStart: func(h func(SessionStartEvent, Context)) {
-			reg(SessionStart, func(e Event, c Context) Result {
-				h(e.(SessionStartEvent), c)
-				return nil
-			})
-		},
-		onSessionShutdown: func(h func(SessionShutdownEvent, Context)) {
-			reg(SessionShutdown, func(e Event, c Context) Result {
-				h(e.(SessionShutdownEvent), c)
-				return nil
-			})
-		},
-		onModelChange: func(h func(ModelChangeEvent, Context)) {
-			reg(ModelChange, func(e Event, c Context) Result {
-				h(e.(ModelChangeEvent), c)
-				return nil
-			})
-		},
-		onContextPrepare: func(h func(ContextPrepareEvent, Context) *ContextPrepareResult) {
-			reg(ContextPrepare, func(e Event, c Context) Result {
-				r := h(e.(ContextPrepareEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onBeforeFork: func(h func(BeforeForkEvent, Context) *BeforeForkResult) {
-			reg(BeforeFork, func(e Event, c Context) Result {
-				r := h(e.(BeforeForkEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onBeforeSessionSwitch: func(h func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult) {
-			reg(BeforeSessionSwitch, func(e Event, c Context) Result {
-				r := h(e.(BeforeSessionSwitchEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onBeforeCompact: func(h func(BeforeCompactEvent, Context) *BeforeCompactResult) {
-			reg(BeforeCompact, func(e Event, c Context) Result {
-				r := h(e.(BeforeCompactEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
+		onToolCall:            resultReg[ToolCallEvent, ToolCallResult](reg, ToolCall),
+		onToolCallInputStart:  notifyReg[ToolCallInputStartEvent](reg, ToolCallInputStart),
+		onToolCallInputDelta:  notifyReg[ToolCallInputDeltaEvent](reg, ToolCallInputDelta),
+		onToolCallInputEnd:    notifyReg[ToolCallInputEndEvent](reg, ToolCallInputEnd),
+		onToolExecStart:       notifyReg[ToolExecutionStartEvent](reg, ToolExecutionStart),
+		onToolExecEnd:         notifyReg[ToolExecutionEndEvent](reg, ToolExecutionEnd),
+		onToolOutput:          notifyReg[ToolOutputEvent](reg, ToolOutput),
+		onToolResult:          resultReg[ToolResultEvent, ToolResultResult](reg, ToolResult),
+		onInput:               resultReg[InputEvent, InputResult](reg, Input),
+		onBeforeAgentStart:    resultReg[BeforeAgentStartEvent, BeforeAgentStartResult](reg, BeforeAgentStart),
+		onAgentStart:          notifyReg[AgentStartEvent](reg, AgentStart),
+		onAgentEnd:            notifyReg[AgentEndEvent](reg, AgentEnd),
+		onMessageStart:        notifyReg[MessageStartEvent](reg, MessageStart),
+		onMessageUpdate:       notifyReg[MessageUpdateEvent](reg, MessageUpdate),
+		onMessageEnd:          notifyReg[MessageEndEvent](reg, MessageEnd),
+		onSessionStart:        notifyReg[SessionStartEvent](reg, SessionStart),
+		onSessionShutdown:     notifyReg[SessionShutdownEvent](reg, SessionShutdown),
+		onModelChange:         notifyReg[ModelChangeEvent](reg, ModelChange),
+		onContextPrepare:      resultReg[ContextPrepareEvent, ContextPrepareResult](reg, ContextPrepare),
+		onBeforeFork:          resultReg[BeforeForkEvent, BeforeForkResult](reg, BeforeFork),
+		onBeforeSessionSwitch: resultReg[BeforeSessionSwitchEvent, BeforeSessionSwitchResult](reg, BeforeSessionSwitch),
+		onBeforeCompact:       resultReg[BeforeCompactEvent, BeforeCompactResult](reg, BeforeCompact),
 		registerToolFn: func(tool ToolDef) {
 			ext.Tools = append(ext.Tools, tool)
 		},
@@ -604,87 +471,52 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		registerShortcutFn: func(def ShortcutDef, handler func(Context)) {
 			ext.Shortcuts = append(ext.Shortcuts, ShortcutEntry{Def: def, Handler: handler})
 		},
-		onSubagentStart: func(h func(SubagentStartEvent, Context)) {
-			reg(SubagentStart, func(e Event, c Context) Result {
-				h(e.(SubagentStartEvent), c)
-				return nil
-			})
-		},
-		onSubagentChunk: func(h func(SubagentChunkEvent, Context)) {
-			reg(SubagentChunk, func(e Event, c Context) Result {
-				h(e.(SubagentChunkEvent), c)
-				return nil
-			})
-		},
-		onSubagentEnd: func(h func(SubagentEndEvent, Context)) {
-			reg(SubagentEnd, func(e Event, c Context) Result {
-				h(e.(SubagentEndEvent), c)
-				return nil
-			})
-		},
-		onStepStart: func(h func(StepStartEvent, Context)) {
-			reg(StepStart, func(e Event, c Context) Result {
-				h(e.(StepStartEvent), c)
-				return nil
-			})
-		},
-		onStepFinish: func(h func(StepFinishEvent, Context)) {
-			reg(StepFinish, func(e Event, c Context) Result {
-				h(e.(StepFinishEvent), c)
-				return nil
-			})
-		},
-		onReasoningStart: func(h func(ReasoningStartEvent, Context)) {
-			reg(ReasoningStart, func(e Event, c Context) Result {
-				h(e.(ReasoningStartEvent), c)
-				return nil
-			})
-		},
-		onWarnings: func(h func(WarningsEvent, Context)) {
-			reg(Warnings, func(e Event, c Context) Result {
-				h(e.(WarningsEvent), c)
-				return nil
-			})
-		},
-		onSource: func(h func(SourceEvent, Context)) {
-			reg(Source, func(e Event, c Context) Result {
-				h(e.(SourceEvent), c)
-				return nil
-			})
-		},
-		onError: func(h func(ErrorEvent, Context)) {
-			reg(Error, func(e Event, c Context) Result {
-				h(e.(ErrorEvent), c)
-				return nil
-			})
-		},
-		onRetry: func(h func(RetryEvent, Context)) {
-			reg(Retry, func(e Event, c Context) Result {
-				h(e.(RetryEvent), c)
-				return nil
-			})
-		},
-		onPrepareStep: func(h func(PrepareStepEvent, Context) *PrepareStepResult) {
-			reg(PrepareStep, func(e Event, c Context) Result {
-				r := h(e.(PrepareStepEvent), c)
-				if r == nil {
-					return nil
-				}
-				return *r
-			})
-		},
-		onLLMUsage: func(h func(LLMUsageEvent, Context)) {
-			reg(LLMUsage, func(e Event, c Context) Result {
-				h(e.(LLMUsageEvent), c)
-				return nil
-			})
-		},
+		onSubagentStart:  notifyReg[SubagentStartEvent](reg, SubagentStart),
+		onSubagentChunk:  notifyReg[SubagentChunkEvent](reg, SubagentChunk),
+		onSubagentEnd:    notifyReg[SubagentEndEvent](reg, SubagentEnd),
+		onStepStart:      notifyReg[StepStartEvent](reg, StepStart),
+		onStepFinish:     notifyReg[StepFinishEvent](reg, StepFinish),
+		onReasoningStart: notifyReg[ReasoningStartEvent](reg, ReasoningStart),
+		onWarnings:       notifyReg[WarningsEvent](reg, Warnings),
+		onSource:         notifyReg[SourceEvent](reg, Source),
+		onError:          notifyReg[ErrorEvent](reg, Error),
+		onRetry:          notifyReg[RetryEvent](reg, Retry),
+		onPrepareStep:    resultReg[PrepareStepEvent, PrepareStepResult](reg, PrepareStep),
+		onLLMUsage:       notifyReg[LLMUsageEvent](reg, LLMUsage),
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.
 	initFn(api)
 
 	return ext, nil
+}
+
+// notifyReg builds a registration func for notification-style events: the
+// extension handler receives the typed event and returns nothing. The
+// wrapped HandlerFunc always returns nil.
+func notifyReg[E Event](reg func(EventType, HandlerFunc), t EventType) func(func(E, Context)) {
+	return func(h func(E, Context)) {
+		reg(t, func(e Event, c Context) Result {
+			h(e.(E), c)
+			return nil
+		})
+	}
+}
+
+// resultReg builds a registration func for result-style events: the extension
+// handler receives the typed event and returns *R (nil meaning "no result").
+// A nil pointer is converted to an untyped-nil Result; otherwise the
+// dereferenced value is returned, matching the original hand-written closures.
+func resultReg[E Event, R Result](reg func(EventType, HandlerFunc), t EventType) func(func(E, Context) *R) {
+	return func(h func(E, Context) *R) {
+		reg(t, func(e Event, c Context) Result {
+			r := h(e.(E), c)
+			if r == nil {
+				return nil
+			}
+			return *r
+		})
+	}
 }
 
 // countHandlers returns the total number of registered handlers across all events.

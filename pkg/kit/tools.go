@@ -391,11 +391,11 @@ func ReadOnlyTools(opts ...ToolOption) []Tool { return core.ReadOnlyTools(opts..
 // recursion.
 func SubagentTools(opts ...ToolOption) []Tool { return core.SubagentTools(opts...) }
 
-// --- Tool helper ---
-func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
-	// Core tool filtering
-	includeTools := v.GetStringSlice("include-core-tools")
-	excludeTools := v.GetStringSlice("exclude-core-tools")
+// FilterCoreToolNames resolves the effective core tool list from include and
+// exclude name lists. At most one of include/exclude may be non-empty.
+// Unknown tool names are skipped with a warning. If both lists are empty the
+// returned list is nil, meaning "all core tools".
+func FilterCoreToolNames(includeTools, excludeTools []string) ([]string, error) {
 	if len(includeTools) > 0 && len(excludeTools) > 0 {
 		return nil, fmt.Errorf("cannot use both include-core-tools and exclude-core-tools options")
 	}
@@ -426,4 +426,13 @@ func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
 		}
 	}
 	return coreToolList, nil
+}
+
+// CoreToolFilterHelper reads the include-core-tools/exclude-core-tools keys
+// from a configuration store and resolves the effective core tool list.
+//
+// Deprecated: Use FilterCoreToolNames instead, which takes the include and
+// exclude lists directly and does not expose the configuration library.
+func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
+	return FilterCoreToolNames(v.GetStringSlice("include-core-tools"), v.GetStringSlice("exclude-core-tools"))
 }

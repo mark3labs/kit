@@ -878,9 +878,9 @@ func (m *Kit) composeSystemPrompt(basePrompt string) string {
 // entry includes provider, model ID, context limit, and whether the model
 // supports reasoning. This is an advisory list — models not in the registry
 // can still be used by specifying their provider/model string.
-func (m *Kit) GetAvailableModels() []extensions.ModelInfoEntry {
+func (m *Kit) GetAvailableModels() []ModelInfoEntry {
 	registry := models.GetGlobalRegistry()
-	var result []extensions.ModelInfoEntry
+	var result []ModelInfoEntry
 	for _, providerID := range registry.GetLLMProviders() {
 		modelsMap, err := registry.GetModelsForProvider(providerID)
 		if err != nil {
@@ -945,7 +945,7 @@ func (m *Kit) ReloadExtensions() error {
 // When req.Model is empty the current agent model is reused (no provider
 // creation overhead). When req.Model is set a temporary provider is created,
 // used, and closed.
-func (m *Kit) ExecuteCompletion(ctx context.Context, req extensions.CompleteRequest) (extensions.CompleteResponse, error) {
+func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (CompleteResponse, error) {
 	var (
 		llmModel    fantasy.LanguageModel
 		closer      func()
@@ -1210,7 +1210,7 @@ type Options struct {
 	// viper access entirely. This is set automatically for in-process
 	// subagents (inheriting the parent's loaded config) and can be used
 	// by SDK consumers who build config programmatically.
-	MCPConfig *config.Config
+	MCPConfig *Config
 
 	// InProcessMCPServers registers mcp-go servers that run in the same
 	// process. Each key is the server name (used to prefix tool names, e.g.
@@ -1348,7 +1348,7 @@ type Options struct {
 type CLIOptions struct {
 	// MCPConfig is a pre-loaded MCP config. When set, LoadAndValidateConfig
 	// is skipped during Kit creation.
-	MCPConfig *config.Config
+	MCPConfig *Config
 	// ShowSpinner shows a loading spinner for Ollama models.
 	ShowSpinner bool
 	// SpinnerFunc provides the spinner implementation (nil = no spinner).
@@ -1691,7 +1691,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		toolList = opts.CoreToolList
 		if toolList == nil {
 			var err error
-			toolList, err = CoreToolFilterHelper(v)
+			toolList, err = FilterCoreToolNames(v.GetStringSlice("include-core-tools"), v.GetStringSlice("exclude-core-tools"))
 			if err != nil {
 				return err
 			}
@@ -3123,6 +3123,10 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 	return result.Response, nil
 }
 
+// SteerMessage is a queued mid-turn steering message (text plus optional
+// file attachments) as returned by DrainSteer.
+type SteerMessage = agent.SteerMessage
+
 // InjectSteer sends a steering message into the currently active agent turn.
 // The message will be injected as a user message between steps (after the
 // current tool execution finishes, before the next LLM call). If no turn is
@@ -3168,7 +3172,7 @@ func (m *Kit) IsGenerating() bool {
 // a turn completes so the app layer can process any steer messages that
 // arrived after the last PrepareStep fired (e.g. during a text-only response
 // with no tool calls, or after the agent finished its last step).
-func (m *Kit) DrainSteer() []agent.SteerMessage {
+func (m *Kit) DrainSteer() []SteerMessage {
 	m.steerMu.Lock()
 	defer m.steerMu.Unlock()
 

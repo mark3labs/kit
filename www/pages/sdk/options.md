@@ -166,6 +166,7 @@ when embedding Kit as a library.
 | `Tools` | `[]Tool` | — | Replace the entire default tool set |
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
+| `CoreToolList` | `[]string` | — | Allow-list of core tool names; empty/nil means all. Build with [`FilterCoreToolNames`](/sdk/overview#filtering-core-tools) from include/exclude filters. |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 | `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
@@ -228,6 +229,7 @@ context files at runtime (e.g. per user or per session), use the
 |-------|------|---------|-------------|
 | `AutoCompact` | `bool` | `false` | Compact proactively before turns that near the context limit. Independent of this setting, Kit always compacts **reactively** and replays the turn once when a provider call fails with a context-overflow error. |
 | `CompactionOptions` | `*CompactionOptions` | — | Configuration for compaction; zero-value budget fields adapt to the model's limits. See [CompactionOptions](#compactionoptions) below. |
+| `MCPConfig` | `*Config` | — | Pre-loaded MCP configuration. When set, `LoadAndValidateConfig` is skipped during Kit creation — useful for in-process subagents (inheriting a parent's loaded config) and programmatic setups that build config without reading `.kit.yml`. |
 | `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
 | `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
 | `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
@@ -482,6 +484,21 @@ of the provider call entirely, so the LLM library applies its own default.
 ## Tool configuration
 
 **`Tools`** replaces ALL default tools (core + MCP + extension). **`ExtraTools`** adds tools alongside the defaults. Use `Tools` to restrict capabilities; use `ExtraTools` to extend them.
+
+To keep the default tool set but narrow the built-in core tools, set
+**`CoreToolList`** (an allow-list of names such as `"bash"`, `"read"`,
+`"write"`, `"edit"`, `"grep"`, `"find"`, `"ls"`, `"subagent"`). Build the list
+from include/exclude filters with
+[`kit.FilterCoreToolNames`](/sdk/overview#filtering-core-tools):
+
+```go
+list, _ := kit.FilterCoreToolNames(nil, []string{"bash", "write"}) // drop two
+host, _ := kit.New(ctx, &kit.Options{CoreToolList: list})
+```
+
+`DisableCoreTools: true` is the chat-only shortcut for an empty core set.
+`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer
+`FilterCoreToolNames`, which does not expose the configuration library.
 
 Create custom tools with `kit.NewTool` — no external dependencies needed:
 
