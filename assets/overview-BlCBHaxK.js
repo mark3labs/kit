@@ -338,10 +338,91 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(event.Chunk)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="model-management"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-management"><span class="icon icon-link"></span></a>Model management</h2>
-<p>Switch models at runtime:</p>
+<p>Switch models at runtime and inspect the registry:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai/gpt-4o"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">info </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">models </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAvailableModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Advisory list of known models — each entry is a kit.ModelInfoEntry</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Models not in the registry can still be used by provider/model string.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">models </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAvailableModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, m </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> models {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> m.Reasoning {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> context=</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%d\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, m.Provider, m.ModelID, m.ContextLimit)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Prefer a chain of models; first available wins.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ResolveModelChain</span><span style="color:#24292E;--shiki-dark:#E1E4E8">([]</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "openai/gpt-4o"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.Error </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    _ </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, result.Model)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<h2 id="one-shot-completions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#one-shot-completions"><span class="icon icon-link"></span></a>One-shot completions</h2>
+<p><code>ExecuteCompletion</code> runs a single LLM call outside the agent loop — useful for
+summaries, classifiers, or any side request that should not touch the session
+or tools. When <code>CompleteRequest.Model</code> is empty the current agent model is
+reused (no extra provider setup); set it to spin up a temporary provider that
+is closed when the call returns.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">resp, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ExecuteCompletion</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CompleteRequest</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Model: "openai/gpt-4o-mini", // optional override</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    System: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a terse classifier."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Is this a bug report? Reply yes or no.</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> userText,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MaxTokens: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">16</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(resp.Text, resp.InputTokens, resp.OutputTokens, resp.Model)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Streaming: set OnChunk to receive text deltas as they arrive.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ExecuteCompletion</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CompleteRequest</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Write a haiku about terminals."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    OnChunk: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">chunk</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) { fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Print</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(chunk) },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h2 id="mid-turn-steering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mid-turn-steering"><span class="icon icon-link"></span></a>Mid-turn steering</h2>
+<p><code>InjectSteer</code> queues a user message that is injected between agent steps while
+a turn is active (after the current tool finishes, before the next LLM call).
+If no turn is running the message is dropped — check <code>IsGenerating()</code> first,
+or use <code>Prompt</code> / <code>Steer</code> for idle-state messaging. Unconsumed messages can be
+reclaimed with <code>DrainSteer</code> after the turn ends.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">go</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.g. from a UI cancel/redirect button</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsGenerating</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">InjectSteer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Stop exploring and summarise what you found."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // host.InjectSteerWithFiles(msg, []kit.LLMFilePart{...}) for images</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}()</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// After the turn completes, reclaim anything that arrived too late to inject:</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, msg </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DrainSteer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"unconsumed steer:"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, msg.Text)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<h2 id="filtering-core-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#filtering-core-tools"><span class="icon icon-link"></span></a>Filtering core tools</h2>
+<p><code>Options.CoreToolList</code> accepts an explicit allow-list of core tool names. Build
+it from include/exclude filters with <code>FilterCoreToolNames</code> (nil means "all core
+tools"). Prefer this over the deprecated <code>CoreToolFilterHelper(*viper.Viper)</code>,
+which leaks the configuration library into the public signature.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Keep only read-only tools:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">list, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">FilterCoreToolNames</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"read"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"grep"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"find"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"ls"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// include</span></span>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">    nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                                    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// exclude</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or drop bash and write:</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">list, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">FilterCoreToolNames</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bash"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"write"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    CoreToolList: list,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>At most one of include/exclude may be non-empty. Unknown names are skipped with
+a warning. <code>DisableCoreTools: true</code> is still the right switch for chat-only
+hosts that need zero core tools.</p>
 <h2 id="dynamic-mcp-servers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#dynamic-mcp-servers"><span class="icon icon-link"></span></a>Dynamic MCP servers</h2>
 <p>Add and remove MCP servers at runtime:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">n, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AddMCPServer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"github"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPServerConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -653,7 +734,7 @@ as <code>SubagentConfig.SessionID</code> to resume the child session for follow-
 prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime native tools",id:"runtime-native-tools"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:"Installation",id:"installation"},{depth:2,text:"Basic usage",id:"basic-usage"},{depth:2,text:"Functional options (NewAgent)",id:"functional-options-newagent"},{depth:3,text:"When to use which",id:"when-to-use-which"},{depth:2,text:"Per-instance config isolation",id:"per-instance-config-isolation"},{depth:2,text:"Multi-turn conversations",id:"multi-turn-conversations"},{depth:2,text:"Additional prompt methods",id:"additional-prompt-methods"},{depth:3,text:"Per-call overrides",id:"per-call-overrides"},{depth:2,text:"Custom tools",id:"custom-tools"},{depth:3,text:"Schema-driven tools",id:"schema-driven-tools"},{depth:3,text:"Halting the agent loop",id:"halting-the-agent-loop"},{depth:2,text:"Generation &amp; provider overrides",id:"generation--provider-overrides"},{depth:2,text:"Event system",id:"event-system"},{depth:2,text:"Model management",id:"model-management"},{depth:2,text:"One-shot completions",id:"one-shot-completions"},{depth:2,text:"Mid-turn steering",id:"mid-turn-steering"},{depth:2,text:"Filtering core tools",id:"filtering-core-tools"},{depth:2,text:"Dynamic MCP servers",id:"dynamic-mcp-servers"},{depth:3,text:"In-process MCP servers",id:"in-process-mcp-servers"},{depth:2,text:"Runtime native tools",id:"runtime-native-tools"},{depth:2,text:"Runtime skills and context files",id:"runtime-skills-and-context-files"},{depth:2,text:"MCP prompts and resources",id:"mcp-prompts-and-resources"},{depth:2,text:"MCP tasks (long-running tools)",id:"mcp-tasks-long-running-tools"},{depth:2,text:"Context and compaction",id:"context-and-compaction"},{depth:2,text:"Provider error classification",id:"provider-error-classification"},{depth:2,text:"Graceful shutdown",id:"graceful-shutdown"},{depth:2,text:"In-process subagents",id:"in-process-subagents"}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -954,13 +1035,110 @@ host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
 
 ## Model management
 
-Switch models at runtime:
+Switch models at runtime and inspect the registry:
 
 \`\`\`go
 host.SetModel(ctx, "openai/gpt-4o")
 info := host.GetModelInfo()
+
+// Advisory list of known models — each entry is a kit.ModelInfoEntry
+// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).
+// Models not in the registry can still be used by provider/model string.
 models := host.GetAvailableModels()
+for _, m := range models {
+    if m.Reasoning {
+        fmt.Printf("%s/%s context=%d\\n", m.Provider, m.ModelID, m.ContextLimit)
+    }
+}
+
+// Prefer a chain of models; first available wins.
+result := kit.ResolveModelChain([]string{
+    "anthropic/claude-sonnet-4-5-20250929",
+    "openai/gpt-4o",
+})
+if result.Error == "" {
+    _ = host.SetModel(ctx, result.Model)
+}
 \`\`\`
+
+## One-shot completions
+
+\`ExecuteCompletion\` runs a single LLM call outside the agent loop — useful for
+summaries, classifiers, or any side request that should not touch the session
+or tools. When \`CompleteRequest.Model\` is empty the current agent model is
+reused (no extra provider setup); set it to spin up a temporary provider that
+is closed when the call returns.
+
+\`\`\`go
+resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    // Model: "openai/gpt-4o-mini", // optional override
+    System: "You are a terse classifier.",
+    Prompt: "Is this a bug report? Reply yes or no.\\n\\n" + userText,
+    MaxTokens: 16,
+})
+if err != nil {
+    return err
+}
+fmt.Println(resp.Text, resp.InputTokens, resp.OutputTokens, resp.Model)
+
+// Streaming: set OnChunk to receive text deltas as they arrive.
+_, err = host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    Prompt: "Write a haiku about terminals.",
+    OnChunk: func(chunk string) { fmt.Print(chunk) },
+})
+\`\`\`
+
+## Mid-turn steering
+
+\`InjectSteer\` queues a user message that is injected between agent steps while
+a turn is active (after the current tool finishes, before the next LLM call).
+If no turn is running the message is dropped — check \`IsGenerating()\` first,
+or use \`Prompt\` / \`Steer\` for idle-state messaging. Unconsumed messages can be
+reclaimed with \`DrainSteer\` after the turn ends.
+
+\`\`\`go
+go func() {
+    // e.g. from a UI cancel/redirect button
+    if host.IsGenerating() {
+        host.InjectSteer("Stop exploring and summarise what you found.")
+        // host.InjectSteerWithFiles(msg, []kit.LLMFilePart{...}) for images
+    }
+}()
+
+// After the turn completes, reclaim anything that arrived too late to inject:
+for _, msg := range host.DrainSteer() {
+    fmt.Println("unconsumed steer:", msg.Text)
+}
+\`\`\`
+
+## Filtering core tools
+
+\`Options.CoreToolList\` accepts an explicit allow-list of core tool names. Build
+it from include/exclude filters with \`FilterCoreToolNames\` (nil means "all core
+tools"). Prefer this over the deprecated \`CoreToolFilterHelper(*viper.Viper)\`,
+which leaks the configuration library into the public signature.
+
+\`\`\`go
+// Keep only read-only tools:
+list, err := kit.FilterCoreToolNames(
+    []string{"read", "grep", "find", "ls"}, // include
+    nil,                                    // exclude
+)
+if err != nil {
+    return err
+}
+
+// Or drop bash and write:
+list, err = kit.FilterCoreToolNames(nil, []string{"bash", "write"})
+
+host, err := kit.New(ctx, &kit.Options{
+    CoreToolList: list,
+})
+\`\`\`
+
+At most one of include/exclude may be non-empty. Unknown names are skipped with
+a warning. \`DisableCoreTools: true\` is still the right switch for chat-only
+hosts that need zero core tools.
 
 ## Dynamic MCP servers
 

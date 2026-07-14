@@ -396,7 +396,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3164
+      "wordCount": 3301
     },
     {
       "id": "sdk/overview",
@@ -418,6 +418,9 @@
         "Generation &amp; provider overrides",
         "Event system",
         "Model management",
+        "One-shot completions",
+        "Mid-turn steering",
+        "Filtering core tools",
         "Dynamic MCP servers",
         "In-process MCP servers",
         "Runtime native tools",
@@ -430,7 +433,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 2955
+      "wordCount": 3400
     },
     {
       "id": "sdk/sessions",

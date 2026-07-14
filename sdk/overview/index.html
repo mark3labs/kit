@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-CbAkAvQQ.js"></script>
+<script type="module" src="/assets/index-D0E7tMdl.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Go SDK","description":"Embed Kit in your Go applications.","url":"https://go-kit.dev/sdk/overview","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -313,13 +313,110 @@ host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
 
 ## Model management
 
-Switch models at runtime:
+Switch models at runtime and inspect the registry:
 
 ```go
 host.SetModel(ctx, "openai/gpt-4o")
 info := host.GetModelInfo()
+
+// Advisory list of known models — each entry is a kit.ModelInfoEntry
+// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).
+// Models not in the registry can still be used by provider/model string.
 models := host.GetAvailableModels()
+for _, m := range models {
+    if m.Reasoning {
+        fmt.Printf("%s/%s context=%d\n", m.Provider, m.ModelID, m.ContextLimit)
+    }
+}
+
+// Prefer a chain of models; first available wins.
+result := kit.ResolveModelChain([]string{
+    "anthropic/claude-sonnet-4-5-20250929",
+    "openai/gpt-4o",
+})
+if result.Error == "" {
+    _ = host.SetModel(ctx, result.Model)
+}
 ```
+
+## One-shot completions
+
+`ExecuteCompletion` runs a single LLM call outside the agent loop — useful for
+summaries, classifiers, or any side request that should not touch the session
+or tools. When `CompleteRequest.Model` is empty the current agent model is
+reused (no extra provider setup); set it to spin up a temporary provider that
+is closed when the call returns.
+
+```go
+resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    // Model: "openai/gpt-4o-mini", // optional override
+    System: "You are a terse classifier.",
+    Prompt: "Is this a bug report? Reply yes or no.\n\n" + userText,
+    MaxTokens: 16,
+})
+if err != nil {
+    return err
+}
+fmt.Println(resp.Text, resp.InputTokens, resp.OutputTokens, resp.Model)
+
+// Streaming: set OnChunk to receive text deltas as they arrive.
+_, err = host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    Prompt: "Write a haiku about terminals.",
+    OnChunk: func(chunk string) { fmt.Print(chunk) },
+})
+```
+
+## Mid-turn steering
+
+`InjectSteer` queues a user message that is injected between agent steps while
+a turn is active (after the current tool finishes, before the next LLM call).
+If no turn is running the message is dropped — check `IsGenerating()` first,
+or use `Prompt` / `Steer` for idle-state messaging. Unconsumed messages can be
+reclaimed with `DrainSteer` after the turn ends.
+
+```go
+go func() {
+    // e.g. from a UI cancel/redirect button
+    if host.IsGenerating() {
+        host.InjectSteer("Stop exploring and summarise what you found.")
+        // host.InjectSteerWithFiles(msg, []kit.LLMFilePart{...}) for images
+    }
+}()
+
+// After the turn completes, reclaim anything that arrived too late to inject:
+for _, msg := range host.DrainSteer() {
+    fmt.Println("unconsumed steer:", msg.Text)
+}
+```
+
+## Filtering core tools
+
+`Options.CoreToolList` accepts an explicit allow-list of core tool names. Build
+it from include/exclude filters with `FilterCoreToolNames` (nil means "all core
+tools"). Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`,
+which leaks the configuration library into the public signature.
+
+```go
+// Keep only read-only tools:
+list, err := kit.FilterCoreToolNames(
+    []string{"read", "grep", "find", "ls"}, // include
+    nil,                                    // exclude
+)
+if err != nil {
+    return err
+}
+
+// Or drop bash and write:
+list, err = kit.FilterCoreToolNames(nil, []string{"bash", "write"})
+
+host, err := kit.New(ctx, &kit.Options{
+    CoreToolList: list,
+})
+```
+
+At most one of include/exclude may be non-empty. Unknown names are skipped with
+a warning. `DisableCoreTools: true` is still the right switch for chat-only
+hosts that need zero core tools.
 
 ## Dynamic MCP servers
 
