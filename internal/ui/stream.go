@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -427,7 +428,11 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, exists := s.activeTools[toolID]; !exists {
 				s.activeToolOrder = append(s.activeToolOrder, toolID)
 			}
-			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName)
+			agentName := ""
+			if msg.ToolName == "subagent" {
+				agentName = extractAgentNameFromArgs(msg.ToolArgs)
+			}
+			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName, agentName)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -585,8 +590,25 @@ func removeToolID(ids []string, id string) []string {
 	return ids
 }
 
+// extractAgentNameFromArgs parses the agent field from subagent ToolArgs JSON.
+// Returns empty string if the agent field is not found or JSON parsing fails.
+func extractAgentNameFromArgs(toolArgs string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
+		return ""
+	}
+	if agent, ok := args["agent"].(string); ok && agent != "" {
+		return agent
+	}
+	return ""
+}
+
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-func formatToolExecutionMessage(toolName string) string {
+// For subagents, includes the agent type in parentheses (e.g., "subagent (explore)").
+func formatToolExecutionMessage(toolName, agentName string) string {
+	if toolName == "subagent" && agentName != "" {
+		return fmt.Sprintf("subagent (%s)", agentName)
+	}
 	return toolName
 }
 
