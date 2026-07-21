@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -590,15 +591,62 @@ func removeToolID(ids []string, id string) []string {
 	return ids
 }
 
+// sanitizeAgentName validates and sanitizes the agent name for safe display in the spinner.
+// Returns the sanitized agent name or empty string if invalid.
+// Enforces:
+//   - Maximum length of 50 characters
+//   - No embedded newlines or control characters
+//   - No ANSI escape sequences
+//   - Only alphanumeric, hyphens, underscores, and dots
+func sanitizeAgentName(agent string) string {
+	if agent == "" {
+		return ""
+	}
+
+	const maxLen = 50
+
+	// Enforce length limit
+	if len(agent) > maxLen {
+		return ""
+	}
+
+	// Reject any embedded newlines or carriage returns
+	if strings.ContainsAny(agent, "\n\r") {
+		return ""
+	}
+
+	// Reject ANSI escape sequences (ESC followed by any character)
+	if strings.Contains(agent, "\x1b") {
+		return ""
+	}
+
+	// Reject control characters (0x00-0x1F, 0x7F)
+	for _, r := range agent {
+		if r < 0x20 || r == 0x7F {
+			return ""
+		}
+	}
+
+	// Allow only alphanumeric, hyphens, underscores, and dots
+	// This permits names like "explore", "general", "custom-agent", "agent_v2", etc.
+	validPattern := regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+	if !validPattern.MatchString(agent) {
+		return ""
+	}
+
+	return agent
+}
+
 // extractAgentNameFromArgs parses the agent field from subagent ToolArgs JSON.
-// Returns empty string if the agent field is not found or JSON parsing fails.
+// Returns empty string if the agent field is not found, JSON parsing fails, or the agent name is invalid.
+// The returned agent name is sanitized for safe spinner rendering.
 func extractAgentNameFromArgs(toolArgs string) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 		return ""
 	}
-	if agent, ok := args["agent"].(string); ok && agent != "" {
-		return agent
+	if agent, ok := args["agent"].(string); ok {
+		return sanitizeAgentName(agent)
 	}
 	return ""
 }
