@@ -591,13 +591,14 @@ func removeToolID(ids []string, id string) []string {
 	return ids
 }
 
-// sanitizeAgentName validates and sanitizes the agent name for safe display in the spinner.
+// agentNamePattern validates agent names: only alphanumeric, hyphens, underscores, and dots.
+// Compiled once at package init time for reuse across function calls.
+var agentNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// sanitizeAgentName validates the agent name for safe display in the spinner.
 // Returns the sanitized agent name or empty string if invalid.
-// Enforces:
-//   - Maximum length of 50 characters
-//   - No embedded newlines or control characters
-//   - No ANSI escape sequences
-//   - Only alphanumeric, hyphens, underscores, and dots
+// Enforces: maximum 50 characters and only alphanumeric, hyphens, underscores, and dots.
+// The regex pattern inherently rejects all control characters, newlines, and ANSI escapes.
 func sanitizeAgentName(agent string) string {
 	if agent == "" {
 		return ""
@@ -605,32 +606,14 @@ func sanitizeAgentName(agent string) string {
 
 	const maxLen = 50
 
-	// Enforce length limit
+	// Enforce length limit (efficient early return)
 	if len(agent) > maxLen {
 		return ""
 	}
 
-	// Reject any embedded newlines or carriage returns
-	if strings.ContainsAny(agent, "\n\r") {
-		return ""
-	}
-
-	// Reject ANSI escape sequences (ESC followed by any character)
-	if strings.Contains(agent, "\x1b") {
-		return ""
-	}
-
-	// Reject control characters (0x00-0x1F, 0x7F)
-	for _, r := range agent {
-		if r < 0x20 || r == 0x7F {
-			return ""
-		}
-	}
-
-	// Allow only alphanumeric, hyphens, underscores, and dots
-	// This permits names like "explore", "general", "custom-agent", "agent_v2", etc.
-	validPattern := regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
-	if !validPattern.MatchString(agent) {
+	// Validate character set: only alphanumeric, hyphens, underscores, and dots.
+	// The regex inherently rejects control characters, newlines, and ANSI escapes.
+	if !agentNamePattern.MatchString(agent) {
 		return ""
 	}
 
