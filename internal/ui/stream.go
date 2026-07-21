@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -427,7 +429,11 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, exists := s.activeTools[toolID]; !exists {
 				s.activeToolOrder = append(s.activeToolOrder, toolID)
 			}
-			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName)
+			agentName := ""
+			if msg.ToolName == "subagent" {
+				agentName = extractAgentNameFromArgs(msg.ToolArgs)
+			}
+			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName, agentName)
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -585,8 +591,55 @@ func removeToolID(ids []string, id string) []string {
 	return ids
 }
 
+// agentNamePattern validates agent names: only alphanumeric, hyphens, underscores, and dots.
+// Compiled once at package init time for reuse across function calls.
+var agentNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// sanitizeAgentName validates the agent name for safe display in the spinner.
+// Returns the sanitized agent name or empty string if invalid.
+// Enforces: maximum 50 characters and only alphanumeric, hyphens, underscores, and dots.
+// The regex pattern inherently rejects all control characters, newlines, and ANSI escapes.
+func sanitizeAgentName(agent string) string {
+	if agent == "" {
+		return ""
+	}
+
+	const maxLen = 50
+
+	// Enforce length limit (efficient early return)
+	if len(agent) > maxLen {
+		return ""
+	}
+
+	// Validate character set: only alphanumeric, hyphens, underscores, and dots.
+	// The regex inherently rejects control characters, newlines, and ANSI escapes.
+	if !agentNamePattern.MatchString(agent) {
+		return ""
+	}
+
+	return agent
+}
+
+// extractAgentNameFromArgs parses the agent field from subagent ToolArgs JSON.
+// Returns empty string if the agent field is not found, JSON parsing fails, or the agent name is invalid.
+// The returned agent name is sanitized for safe spinner rendering.
+func extractAgentNameFromArgs(toolArgs string) string {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
+		return ""
+	}
+	if agent, ok := args["agent"].(string); ok {
+		return sanitizeAgentName(agent)
+	}
+	return ""
+}
+
 // formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-func formatToolExecutionMessage(toolName string) string {
+// For subagents, includes the agent type in parentheses (e.g., "subagent (explore)").
+func formatToolExecutionMessage(toolName, agentName string) string {
+	if toolName == "subagent" && agentName != "" {
+		return fmt.Sprintf("subagent (%s)", agentName)
+	}
 	return toolName
 }
 
