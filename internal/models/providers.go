@@ -25,8 +25,6 @@ import (
 	"charm.land/fantasy/providers/openaicompat"
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
-	openaisdk "github.com/charmbracelet/openai-go"
-
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/spf13/viper"
 )
@@ -1583,11 +1581,6 @@ func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model}, nil
 }
 
-// customToPromptFunc converts prompts to OpenAI format using the default conversion.
-func customToPromptFunc(prompt fantasy.Prompt, systemPrompt, user string) ([]openaisdk.ChatCompletionMessageParamUnion, []fantasy.CallWarning) {
-	return openai.DefaultToPrompt(prompt, systemPrompt, user)
-}
-
 func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
 	// Resolve base URL: per-model override > global provider-url flag/config
 	registry := GetGlobalRegistry()
@@ -1620,9 +1613,6 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 	opts = append(opts, openai.WithBaseURL(baseURL))
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithName("custom"))
-	opts = append(opts, openai.WithLanguageModelOptions(
-		openai.WithLanguageModelToPromptFunc(customToPromptFunc),
-	))
 
 	if config.TLSSkipVerify {
 		opts = append(opts, openai.WithHTTPClient(createHTTPClientWithTLSConfig(true)))

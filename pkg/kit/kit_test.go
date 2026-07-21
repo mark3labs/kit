@@ -13,9 +13,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -35,9 +33,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNewWithOptions(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -62,9 +58,7 @@ func TestNewWithOptions(t *testing.T) {
 // parameter overrides on Options propagate all the way through to the
 // agent without requiring any viper.Set workarounds in caller code.
 func TestNewWithGenerationOptions(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -150,9 +144,7 @@ func TestNewWithGenerationOptions(t *testing.T) {
 // suppressing per-model defaults and pinning max-tokens at 4096 even
 // on models with much larger output limits.
 func TestNewPreservesIsSetSemantics(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	defer resetViper()
 
@@ -197,9 +189,7 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 // (API key, URL) take effect without env vars or config files, and that
 // Options.ProviderAPIKey *wins* over any pre-existing viper state.
 func TestNewWithProviderOptions(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -279,9 +269,7 @@ func TestNewWithProviderOptions(t *testing.T) {
 }
 
 func TestSessionManagement(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -318,9 +306,7 @@ func resetViper() { viper.Reset() }
 // itself was used verbatim as the base prompt, so the LLM received the path —
 // not the prompt — as its system message.
 func TestNewSystemPromptFilePath(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 	defer resetViper()
 
 	const promptContent = "You are a strict regression-test persona. Marker: KIT-25-OK"
@@ -369,9 +355,7 @@ func TestNewSystemPromptFilePath(t *testing.T) {
 // TestNewWithSkillsOptions verifies that the three skills-related Options
 // fields (NoSkills, Skills, SkillsDir) are wired correctly into kit.New().
 func TestNewWithSkillsOptions(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -444,9 +428,7 @@ func TestNewWithSkillsOptions(t *testing.T) {
 // TestNewSystemPromptInline confirms that inline system-prompt strings still
 // flow through unchanged after the file-path resolution change.
 func TestNewSystemPromptInline(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 	defer resetViper()
 
 	const inline = "You are a concise inline-prompt persona."
@@ -477,9 +459,7 @@ func TestNewSystemPromptInline(t *testing.T) {
 // TestDisableCoreTools verifies that setting Options.DisableCoreTools to true
 // does not set any tools even when tools are explicitly listed in the kit.Options.ToolList.
 func TestDisableCoreTools(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 	t.Run("DisableCoreTools true with empty CoreToolList", func(t *testing.T) {
@@ -524,9 +504,7 @@ func TestDisableCoreTools(t *testing.T) {
 }
 
 func TestCoreToolList(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 	t.Run("Test wether empty CoreToolList adds all tools", func(t *testing.T) {
@@ -574,9 +552,7 @@ func TestCoreToolList(t *testing.T) {
 }
 
 func TestCoreToolListOption(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 	ctx := context.Background()
 	t.Run("Test whether exclude-core-tools and include-core-tools combined generates failure", func(t *testing.T) {
 		cfgFile := t.TempDir() + "/.kit.yml"
@@ -664,9 +640,7 @@ exclude-core-tools:
 }
 
 func TestGetToolsForSubagent(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 	defer resetViper()
 
 	ctx := context.Background()

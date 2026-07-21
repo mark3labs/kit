@@ -2,7 +2,6 @@ package kit_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	kit "github.com/mark3labs/kit/pkg/kit"
@@ -92,9 +91,7 @@ func TestAdjustPostCompactionTokens(t *testing.T) {
 // persistence path and asserts the API-reported baseline survives compaction
 // instead of being reset to zero (issue #80).
 func TestPostCompactionTokenBaselinePreserved(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 

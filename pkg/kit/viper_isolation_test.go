@@ -125,9 +125,7 @@ func TestOptionOrderingOverrides(t *testing.T) {
 // other. Against the previous global-viper implementation this test fails
 // because both Kits read and write the same process-global store.
 func TestKitConfigIsolation(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -179,9 +177,7 @@ func TestKitConfigIsolation(t *testing.T) {
 // TestNewAgentDefaultsStreamingOn verifies that the ergonomic constructor
 // enables streaming by default and applies functional options.
 func TestNewAgentDefaultsStreamingOn(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 	k, err := kit.NewAgent(ctx,
@@ -205,9 +201,7 @@ func TestNewAgentDefaultsStreamingOn(t *testing.T) {
 // TestNewAgentStreamingOptOut verifies WithStreaming(false) disables the
 // default-on streaming behaviour of NewAgent.
 func TestNewAgentStreamingOptOut(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 	k, err := kit.NewAgent(ctx,
@@ -230,9 +224,7 @@ func TestNewAgentStreamingOptOut(t *testing.T) {
 // (Streaming == nil) must NOT force stream=false. With Streaming unset,
 // streaming resolves through the precedence chain, whose SDK default is true.
 func TestNewZeroOptionsKeepsStreamingDefault(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 	k, err := kit.New(ctx, &kit.Options{
@@ -290,9 +282,7 @@ func TestSkillsViperKeys(t *testing.T) {
 // config file keys are read via viper and applied correctly. Requires an API
 // key because kit.New() is called to exercise the full config-load path.
 func TestSkillsConfigFileKeys(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	ctx := context.Background()
 
@@ -379,9 +369,7 @@ func TestSkillsConfigFileKeys(t *testing.T) {
 // TestNewStreamingExplicitOptOut verifies that a raw Options can still disable
 // streaming by setting Streaming to a pointer to false.
 func TestNewStreamingExplicitOptOut(t *testing.T) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("Skipping test: ANTHROPIC_API_KEY not set")
-	}
+	requireAnthropicAuth(t)
 
 	streamOff := false
 	ctx := context.Background()
