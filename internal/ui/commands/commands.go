@@ -100,6 +100,21 @@ var SlashCommands = []SlashCommand{
 		},
 	},
 	{
+		Name:        "/footer",
+		Description: "Configure or toggle the custom status bar footer (e.g. /footer off, /footer fields mode,model,cost)",
+		Category:    "System",
+		Complete: func(prefix string) []string {
+			options := []string{"on", "off", "toggle", "reset", "fields", "show", "hide", "mode", "model", "context", "bar", "cache", "cost", "clock", "timer"}
+			var matches []string
+			for _, opt := range options {
+				if prefix == "" || strings.HasPrefix(opt, strings.ToLower(prefix)) {
+					matches = append(matches, opt)
+				}
+			}
+			return matches
+		},
+	},
+	{
 		Name:        "/theme",
 		Description: "Switch color theme (e.g. /theme catppuccin)",
 		Category:    "System",

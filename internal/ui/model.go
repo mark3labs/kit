@@ -26,6 +26,7 @@ import (
 	"github.com/mark3labs/kit/internal/ui/commands"
 	uicore "github.com/mark3labs/kit/internal/ui/core"
 	"github.com/mark3labs/kit/internal/ui/fileutil"
+	"github.com/mark3labs/kit/internal/ui/footer"
 	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/prefs"
 	"github.com/mark3labs/kit/internal/ui/style"
@@ -625,6 +626,11 @@ type AppModel struct {
 	// providerName is the LLM provider for the startup message.
 	providerName string
 
+	// turn timing tracking fields
+	turnStartTime     time.Time
+	lastTurnDuration  time.Duration
+	totalTurnDuration time.Duration
+
 	// loadingMessage is an optional agent startup message (e.g. GPU fallback).
 	loadingMessage string
 
@@ -639,6 +645,9 @@ type AppModel struct {
 	// usageTracker provides token usage stats for /usage and /reset-usage.
 	// May be nil when usage tracking is unavailable.
 	usageTracker *UsageTracker
+
+	// footerConfig manages modular status bar footer rendering and field settings.
+	footerConfig footer.Config
 
 	// extensionCommands are slash commands from extensions, dispatched via
 	// handleExtensionCommand when submitted.
@@ -923,6 +932,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		getToolNames:    opts.GetToolNames,
 		getMCPToolCount: opts.GetMCPToolCount,
 		usageTracker:    opts.UsageTracker,
+		footerConfig:    footer.LoadConfig(),
 		cwd:             opts.Cwd,
 		width:           width,
 		height:          height,
@@ -1612,6 +1622,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.state != stateWorking {
 								m.state = stateWorking
 							}
+							m.startTurnTimer()
 						}
 					}
 				}
@@ -1882,6 +1893,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state != stateWorking {
 			m.state = stateWorking
 		}
+		m.startTurnTimer()
 
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
@@ -1896,6 +1908,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uicore.ShellCommandMsg:
 		// Show spinner while the shell command runs.
 		m.state = stateWorking
+		m.startTurnTimer()
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
 			m.stream, _ = updated.(streamComponentIface)
@@ -1912,6 +1925,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		m.state = stateInput
+		m.stopTurnTimer()
 		cmds = append(cmds, m.handleShellCommandResult(msg))
 
 	// ── App layer events ─────────────────────────────────────────────────────
@@ -1926,6 +1940,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Show {
 			m.flushStreamAndPendingUserMessages()
 			m.state = stateWorking
+			m.startTurnTimer()
 			m.layoutDirty = true
 		}
 		if m.stream != nil {
@@ -2162,6 +2177,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.printTurnReceipt(turnDone)
 		m.state = stateInput
+		m.stopTurnTimer()
 		m.canceling = false
 
 	case app.StepCancelledEvent:
@@ -2180,6 +2196,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.printTurnReceipt(turnCancelled)
 		m.state = stateInput
+		m.stopTurnTimer()
 		m.canceling = false
 
 	case app.StepErrorEvent:
@@ -2206,6 +2223,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (tool count, elapsed) that the error itself omits.
 		m.printTurnReceipt(turnFailed)
 		m.state = stateInput
+		m.stopTurnTimer()
 		m.canceling = false
 
 	case app.CompactCompleteEvent:
@@ -2214,6 +2232,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream.Reset()
 		}
 		m.state = stateInput
+		m.stopTurnTimer()
 
 		// Mark the last streaming message as complete in ScrollList.
 		if len(m.messages) > 0 {
@@ -2244,6 +2263,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream.Reset()
 		}
 		m.state = stateInput
+		m.stopTurnTimer()
 		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
 
 	case app.ModelChangedEvent:
@@ -2503,6 +2523,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.state != stateWorking {
 					m.state = stateWorking
 				}
+				m.startTurnTimer()
 			}
 		}
 
@@ -2862,66 +2883,242 @@ func (m *AppModel) renderScrollback() string {
 	return m.scrollList.View()
 }
 
-// renderStatusBar renders a persistent single-line status bar below the input.
-// Left side: spinner (when active). Middle: extension status entries (sorted by
-// priority). Right side: provider · model + usage stats.
-// This bar is always present so its height is constant, eliminating layout
-// shifts from spinner or usage info appearing/disappearing.
-// renderStatusBar renders the ambient footer: a single muted line carrying
-// context that is true regardless of what the agent is doing.
-//
-//	~/Workspace/kit (main)        anthropic · claude-opus-5 · 7.2K · $0.02
-//
-// Live activity deliberately does not appear here — it owns the activity row
-// directly above the composer (see renderActivityRow). Keeping the two apart
-// means a long-running command can never be squeezed out by a token counter.
+// renderStatusBar renders the configurable ambient footer below the input.
 func (m *AppModel) renderStatusBar() string {
-	theme := style.GetTheme()
-	muted := lipgloss.NewStyle().Foreground(theme.Muted)
-	veryMuted := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	return footer.Render(m.footerConfig, m.getFooterRenderData())
+}
 
-	// Left: working directory, plus the git branch when one is known.
-	var leftSide string
-	if m.cwd != "" {
-		left := tildeHome(m.cwd)
-		if m.gitBranch != "" {
-			left += " (" + m.gitBranch + ")"
-		}
-		leftSide = " " + muted.Render(left)
+func (m *AppModel) getFooterRenderData() footer.RenderData {
+	var ctxTokens, ctxLimit, cacheTokens int
+	var hitRatio, sessionCost, txCost, savings float64
+	var isOAuth bool
+
+	if m.usageTracker != nil {
+		ctxTokens = m.usageTracker.GetContextTokens()
+		ctxLimit = m.usageTracker.GetContextLimit()
+		cacheTokens, hitRatio = m.usageTracker.GetCacheStats()
+		sessionCost, txCost, savings = m.usageTracker.GetCostBreakdown()
+		isOAuth = m.usageTracker.IsOAuth()
 	}
 
-	// Extension status entries and the thinking level sit next to the path.
-	// They are ambient facts, not activity.
-	var middleParts []string
-	if m.isReasoningModel && m.thinkingLevel != "" && m.thinkingLevel != "off" {
-		middleParts = append(middleParts, veryMuted.Render("thinking: "+m.thinkingLevel))
+	var turnDur, totalDur time.Duration
+	if !m.turnStartTime.IsZero() {
+		turnDur = time.Since(m.turnStartTime)
+		totalDur = m.totalTurnDuration + turnDur
+	} else {
+		turnDur = m.lastTurnDuration
+		totalDur = m.totalTurnDuration
+	}
+
+	rawModel := m.modelName
+	if rawModel == "" {
+		rawModel = m.providerName
+	}
+
+	var statusEntries []string
+	if m.cwd != "" {
+		cwd := tildeHome(m.cwd)
+		if m.gitBranch != "" {
+			cwd += " (" + m.gitBranch + ")"
+		}
+		statusEntries = append(statusEntries, cwd)
 	}
 	if m.getStatusBarEntries != nil {
-		for _, e := range m.getStatusBarEntries() {
-			middleParts = append(middleParts, veryMuted.Render(e.Text))
+		for _, entry := range m.getStatusBarEntries() {
+			statusEntries = append(statusEntries, entry.Text)
 		}
 	}
-	middleSide := strings.Join(middleParts, veryMuted.Render(" · "))
-	if middleSide != "" && leftSide != "" {
-		middleSide = veryMuted.Render(" · ") + middleSide
+
+	return footer.RenderData{
+		Width:         m.width,
+		ModeTag:       "[KIT]",
+		ModelName:     rawModel,
+		ThinkingLevel: m.thinkingLevel,
+		ContextTokens: ctxTokens,
+		ContextLimit:  ctxLimit,
+		CacheTokens:   cacheTokens,
+		HitRatio:      hitRatio,
+		SessionCost:   sessionCost,
+		TxCost:        txCost,
+		Savings:       savings,
+		IsOAuth:       isOAuth,
+		TurnDuration:  turnDur,
+		TotalDuration: totalDur,
+		StatusEntries: statusEntries,
+		Time:          time.Now(),
+	}
+}
+
+// handleFooterCommand handles the /footer command to enable/disable or configure footer fields.
+func (m *AppModel) handleFooterCommand(args string) tea.Cmd {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		m.printSystemMessage(m.footerConfig.StatusMessage())
+		return nil
 	}
 
-	// Right: provider, model, then usage. Ordered least-important-first so
-	// progressive truncation drops cost before it drops the model name.
-	var rightParts []string
-	if m.providerName != "" && m.modelName != "" {
-		rightParts = append(rightParts, muted.Render(m.providerName+" · "+m.modelName))
-	} else if m.modelName != "" {
-		rightParts = append(rightParts, muted.Render(m.modelName))
+	parts := strings.Fields(args)
+	subcmd := strings.ToLower(parts[0])
+
+	switch subcmd {
+	case "on", "enable", "true":
+		m.footerConfig.SetEnabled(true)
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Custom footer enabled.")
+
+	case "off", "disable", "false":
+		m.footerConfig.SetEnabled(false)
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Custom footer disabled.")
+
+	case "toggle":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer toggle <field>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+			return nil
+		}
+		field := parts[1]
+		nowEnabled, ok := m.footerConfig.ToggleField(field)
+		if !ok {
+			m.printSystemMessage(fmt.Sprintf("Unknown field '%s'. Available fields: %s", field, strings.Join(footer.AllFields, ", ")))
+			return nil
+		}
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		state := "enabled"
+		if !nowEnabled {
+			state = "disabled"
+		}
+		m.printSystemMessage(fmt.Sprintf("Footer field '%s' %s. Active fields: %s", field, state, strings.Join(m.footerConfig.Fields, ", ")))
+
+	case "reset":
+		m.footerConfig.Reset()
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Footer settings reset to default (enabled, all fields).")
+
+	case "fields", "set":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer fields <field1,field2,...>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+			return nil
+		}
+		rawFields := strings.ReplaceAll(strings.Join(parts[1:], " "), ",", " ")
+		m.footerConfig.SetFields(strings.Fields(rawFields))
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf("Footer fields updated: %s", strings.Join(m.footerConfig.Fields, ", ")))
+
+	case "show", "enable-field":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer show <field>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+			return nil
+		}
+		field := parts[1]
+		if !m.footerConfig.EnableField(field) {
+			m.printSystemMessage(fmt.Sprintf("Unknown field '%s'. Available fields: %s", field, strings.Join(footer.AllFields, ", ")))
+			return nil
+		}
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf("Footer field '%s' enabled. Active fields: %s", field, strings.Join(m.footerConfig.Fields, ", ")))
+
+	case "hide", "disable-field":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer hide <field>")
+			return nil
+		}
+		field := parts[1]
+		if !m.footerConfig.DisableField(field) {
+			m.printSystemMessage(fmt.Sprintf("Unknown field '%s'. Available fields: %s", field, strings.Join(footer.AllFields, ", ")))
+			return nil
+		}
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf("Footer field '%s' disabled. Active fields: %s", field, strings.Join(m.footerConfig.Fields, ", ")))
+
+	default:
+		if footer.IsFieldValid(subcmd) {
+			nowEnabled, _ := m.footerConfig.ToggleField(subcmd)
+			if !m.saveFooterConfig() {
+				return nil
+			}
+			state := "enabled"
+			if !nowEnabled {
+				state = "disabled"
+			}
+			m.printSystemMessage(fmt.Sprintf("Footer field '%s' %s. Active fields: %s", subcmd, state, strings.Join(m.footerConfig.Fields, ", ")))
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf("Unknown footer option: %s\nRun /footer for help.", args))
 	}
+
+	return nil
+}
+
+func (m *AppModel) saveFooterConfig() bool {
+	if err := footer.SaveConfig(m.footerConfig); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to save footer settings: %v", err))
+		return false
+	}
+	return true
+}
+
+func formatShortModelName(modelName string) string {
+	return footer.FormatShortModelName(modelName)
+}
+
+func (m *AppModel) startTurnTimer() {
+	if m.turnStartTime.IsZero() {
+		m.turnStartTime = time.Now()
+		if m.usageTracker != nil {
+			m.usageTracker.StartTransmission()
+		}
+	}
+}
+
+func (m *AppModel) stopTurnTimer() {
+	if !m.turnStartTime.IsZero() {
+		m.lastTurnDuration = time.Since(m.turnStartTime)
+		m.totalTurnDuration += m.lastTurnDuration
+		m.turnStartTime = time.Time{}
+	}
+}
 	if m.usageTracker != nil {
-		if usage := m.usageTracker.RenderUsageInfo(); usage != "" {
-			rightParts = append(rightParts, usage)
+		ctxTokens = m.usageTracker.GetContextTokens()
+		ctxLimit = m.usageTracker.GetContextLimit()
+		cacheTokens, hitRatio = m.usageTracker.GetCacheStats()
+		sessionCost, txCost, savings = m.usageTracker.GetCostBreakdown()
+		isOAuth = m.usageTracker.IsOAuth()
+	}
+
+	var turnDur, totalDur time.Duration
+	if !m.turnStartTime.IsZero() {
+		turnDur = time.Since(m.turnStartTime)
+		totalDur = m.totalTurnDuration + turnDur
+	} else {
+		turnDur = m.lastTurnDuration
+		totalDur = m.totalTurnDuration
+	}
+
+	var spinnerPrefix string
+	if m.stream != nil {
+		spinnerPrefix = m.stream.SpinnerView()
+		if spinnerPrefix != "" {
+			spinnerPrefix += " "
 		}
 	}
 	sep := veryMuted.Render(" · ")
 	rightSide := strings.Join(rightParts, sep)
 
+<<<<<<< HEAD
 	// Progressive truncation, in order: extension/thinking entries, then
 	// usage, then the model label, then the path.
 	fits := func(l, mid, r string) bool {
@@ -2943,6 +3140,187 @@ func (m *AppModel) renderStatusBar() string {
 
 	gap := max(m.width-lipgloss.Width(leftSide)-lipgloss.Width(middleSide)-lipgloss.Width(rightSide), 1)
 	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
+=======
+	rawModel := m.modelName
+	if rawModel == "" && m.providerName != "" {
+		rawModel = m.providerName
+	}
+
+	var statusEntries []string
+	if m.getStatusBarEntries != nil {
+		for _, entry := range m.getStatusBarEntries() {
+			statusEntries = append(statusEntries, entry.Text)
+		}
+	}
+
+	return footer.RenderData{
+		Width:         m.width,
+		ModeTag:       "[KIT]",
+		ModelName:     rawModel,
+		ThinkingLevel: m.thinkingLevel,
+		ContextTokens: ctxTokens,
+		ContextLimit:  ctxLimit,
+		CacheTokens:   cacheTokens,
+		HitRatio:      hitRatio,
+		SessionCost:   sessionCost,
+		TxCost:        txCost,
+		Savings:       savings,
+		IsOAuth:       isOAuth,
+		TurnDuration:  turnDur,
+		TotalDuration: totalDur,
+		SpinnerPrefix: spinnerPrefix,
+		StatusEntries: statusEntries,
+		Time:          time.Now(),
+	}
+}
+
+// handleFooterCommand handles the /footer command to enable/disable or configure footer fields.
+func (m *AppModel) handleFooterCommand(args string) tea.Cmd {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		m.printSystemMessage(m.footerConfig.StatusMessage())
+		return nil
+	}
+
+	parts := strings.Fields(args)
+	subcmd := strings.ToLower(parts[0])
+
+	switch subcmd {
+	case "on", "enable", "true":
+		m.footerConfig.SetEnabled(true)
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Custom footer enabled.")
+
+	case "off", "disable", "false":
+		m.footerConfig.SetEnabled(false)
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Custom footer disabled.")
+
+	case "toggle":
+		newVal := m.footerConfig.ToggleEnabled()
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		if newVal {
+			m.printSystemMessage("Custom footer enabled.")
+		} else {
+			m.printSystemMessage("Custom footer disabled.")
+		}
+
+	case "reset":
+		m.footerConfig.Reset()
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage("Footer settings reset to default (enabled, all fields).")
+
+	case "fields", "set":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer fields <field1,field2,...>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+			return nil
+		}
+		rawFields := strings.Join(parts[1:], " ")
+		rawFields = strings.ReplaceAll(rawFields, ",", " ")
+		fieldList := strings.Fields(rawFields)
+
+		m.footerConfig.SetFields(fieldList)
+		if !m.saveFooterConfig() {
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf("Footer fields updated: %s", strings.Join(m.footerConfig.Fields, ", ")))
+
+	case "show", "enable-field":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer show <field>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+			return nil
+		}
+		field := parts[1]
+		if ok := m.footerConfig.EnableField(field); ok {
+			if !m.saveFooterConfig() {
+				return nil
+			}
+			m.printSystemMessage(fmt.Sprintf("Footer field '%s' enabled. Active fields: %s", field, strings.Join(m.footerConfig.Fields, ", ")))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Unknown field '%s'. Available fields: %s", field, strings.Join(footer.AllFields, ", ")))
+		}
+
+	case "hide", "disable-field":
+		if len(parts) < 2 {
+			m.printSystemMessage("Usage: /footer hide <field>")
+			return nil
+		}
+		field := parts[1]
+		if ok := m.footerConfig.DisableField(field); ok {
+			if !m.saveFooterConfig() {
+				return nil
+			}
+			m.printSystemMessage(fmt.Sprintf("Footer field '%s' disabled. Active fields: %s", field, strings.Join(m.footerConfig.Fields, ", ")))
+		} else {
+			m.printSystemMessage(fmt.Sprintf("Unknown field '%s'. Available fields: %s", field, strings.Join(footer.AllFields, ", ")))
+		}
+
+	default:
+		if footer.IsFieldValid(subcmd) {
+			nowEnabled, ok := m.footerConfig.ToggleField(subcmd)
+			if ok {
+				if !m.saveFooterConfig() {
+					return nil
+				}
+				state := "enabled"
+				if !nowEnabled {
+					state = "disabled"
+				}
+				m.printSystemMessage(fmt.Sprintf("Footer field '%s' %s. Active fields: %s", subcmd, state, strings.Join(m.footerConfig.Fields, ", ")))
+				return nil
+			}
+		}
+
+		m.printSystemMessage(fmt.Sprintf("Unknown footer option: %s\nRun /footer for help.", args))
+	}
+
+	return nil
+}
+
+func (m *AppModel) saveFooterConfig() bool {
+	if err := footer.SaveConfig(m.footerConfig); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Failed to save footer settings: %v", err))
+		return false
+	}
+	return true
+}
+
+func formatShortModelName(modelName string) string {
+	return footer.FormatShortModelName(modelName)
+}
+
+func formatTokenCount(tokens int) string {
+	return footer.FormatTokenCount(tokens)
+}
+
+func formatDuration(d time.Duration) string {
+	return footer.FormatDuration(d)
+}
+
+func (m *AppModel) startTurnTimer() {
+	if m.turnStartTime.IsZero() {
+		m.turnStartTime = time.Now()
+		if m.usageTracker != nil {
+			m.usageTracker.StartTransmission()
+		}
+	}
+}
+
+func (m *AppModel) stopTurnTimer() {
+	if !m.turnStartTime.IsZero() {
+		m.lastTurnDuration = time.Since(m.turnStartTime)
+		m.totalTurnDuration += m.lastTurnDuration
+		m.turnStartTime = time.Time{}
+	}
+>>>>>>> dbd9d9a9 (feat(ui): add modular status bar footer with /footer command)
 }
 
 // cycleThinkingLevel advances to the next thinking level and applies it.
@@ -3385,6 +3763,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleThemeCommand(args)
 	case "/thinking":
 		return m.handleThinkingCommand(args)
+	case "/footer":
+		return m.handleFooterCommand(args)
 	case "/compact":
 		return m.handleCompactCommand(args)
 	case "/reload-ext":
@@ -3988,6 +4368,7 @@ func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 	}
 	// Transition to working state so the spinner shows while compaction runs.
 	m.state = stateWorking
+	m.startTurnTimer()
 	m.printSystemMessage("Compacting conversation...")
 	var spinnerCmd tea.Cmd
 	if m.stream != nil {

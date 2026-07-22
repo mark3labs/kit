@@ -322,3 +322,73 @@ func (ut *UsageTracker) SetUsageUnreported(unreported bool) {
 	defer ut.mu.Unlock()
 	ut.usageUnreported = unreported
 }
+
+// StartTransmission marks the start of a new transmission/turn.
+func (ut *UsageTracker) StartTransmission() {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+}
+
+// GetContextTokens returns current context token count.
+func (ut *UsageTracker) GetContextTokens() int {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+	return ut.contextTokens
+}
+
+// GetContextLimit returns context limit for active model.
+func (ut *UsageTracker) GetContextLimit() int {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+	if ut.modelInfo != nil {
+		return ut.modelInfo.Limit.Context
+	}
+	return 200000
+}
+
+// GetCacheStats returns total cache tokens and hit ratio percentage.
+func (ut *UsageTracker) GetCacheStats() (int, float64) {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+	cacheRead := ut.sessionStats.TotalCacheReadTokens
+	totalInput := ut.sessionStats.TotalInputTokens + cacheRead
+	var hitRatio float64
+	if totalInput > 0 {
+		hitRatio = float64(cacheRead) / float64(totalInput) * 100.0
+	}
+	return cacheRead, hitRatio
+}
+
+// GetCostBreakdown returns session cost, last-request cost, and the percentage
+// saved by prompt-cache reads compared with billing those tokens as input.
+func (ut *UsageTracker) GetCostBreakdown() (float64, float64, float64) {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+
+	sessionCost := ut.sessionStats.TotalCost
+	var turnCost float64
+	if ut.lastRequest != nil {
+		turnCost = ut.lastRequest.TotalCost
+	}
+
+	var savingsPercent float64
+	if ut.modelInfo != nil && ut.modelInfo.Cost.CacheRead != nil {
+		priceDifference := ut.modelInfo.Cost.Input - *ut.modelInfo.Cost.CacheRead
+		if priceDifference > 0 {
+			savings := float64(ut.sessionStats.TotalCacheReadTokens) * priceDifference / 1_000_000
+			retailCost := sessionCost + savings
+			if retailCost > 0 {
+				savingsPercent = savings / retailCost * 100
+			}
+		}
+	}
+
+	return sessionCost, turnCost, savingsPercent
+}
+
+// IsOAuth returns whether OAuth credentials are active.
+func (ut *UsageTracker) IsOAuth() bool {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+	return ut.isOAuth
+}
