@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"charm.land/fantasy"
 )
@@ -23,6 +24,13 @@ type ToolConfig struct {
 	// NamedAgents lists discovered named agent definitions advertised in
 	// the subagent tool description. Only the subagent tool consumes this.
 	NamedAgents []NamedAgentSpec
+	// BashTimeout overrides the default per-call timeout for the bash tool.
+	// Zero uses the built-in default (120s). Only the bash tool consumes this.
+	BashTimeout time.Duration
+	// BashMaxTimeout overrides the ceiling a bash tool call may request via
+	// its timeout argument. Zero uses the built-in default (600s). Only the
+	// bash tool consumes this.
+	BashMaxTimeout time.Duration
 }
 
 // WithWorkDir sets the working directory for file-based tools.
@@ -38,6 +46,26 @@ func WithWorkDir(dir string) ToolOption {
 func WithNamedAgents(agents ...NamedAgentSpec) ToolOption {
 	return func(c *ToolConfig) {
 		c.NamedAgents = append(c.NamedAgents, agents...)
+	}
+}
+
+// WithBashTimeout sets the default per-call timeout for the bash tool.
+// A non-positive duration leaves the built-in default (120s) in place.
+func WithBashTimeout(d time.Duration) ToolOption {
+	return func(c *ToolConfig) {
+		if d > 0 {
+			c.BashTimeout = d
+		}
+	}
+}
+
+// WithBashMaxTimeout sets the maximum timeout a bash tool call may request.
+// A non-positive duration leaves the built-in default (600s) in place.
+func WithBashMaxTimeout(d time.Duration) ToolOption {
+	return func(c *ToolConfig) {
+		if d > 0 {
+			c.BashMaxTimeout = d
+		}
 	}
 }
 

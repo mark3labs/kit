@@ -293,6 +293,14 @@ type Config struct {
 	// Custom model definitions (under custom/ provider)
 	CustomModels map[string]CustomModelConfig `json:"customModels,omitempty" yaml:"customModels,omitempty"`
 
+	// Bash tool timeouts (in seconds). BashTimeout sets the default per-call
+	// timeout applied when the model does not specify one (built-in default
+	// 120s). BashMaxTimeout caps the maximum timeout a bash tool call may
+	// request via its timeout argument (built-in default 600s). Zero values
+	// preserve the built-in defaults.
+	BashTimeout    int `json:"bash-timeout,omitempty" yaml:"bash-timeout,omitempty"`
+	BashMaxTimeout int `json:"bash-max-timeout,omitempty" yaml:"bash-max-timeout,omitempty"`
+
 	// Per-model generation parameter overrides. Keys are "provider/model" strings
 	// (e.g. "anthropic/claude-sonnet-4-5-20250929", "openai/gpt-4o"). These
 	// settings act as model-level defaults — CLI flags and global config values

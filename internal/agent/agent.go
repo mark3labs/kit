@@ -62,6 +62,16 @@ type AgentConfig struct {
 	// consumed when core tools are built from CoreToolList.
 	NamedAgents []core.NamedAgentSpec
 
+	// BashTimeout sets the default per-call timeout (in seconds) for the bash
+	// tool. Zero uses the built-in default (120s). Only consumed when core
+	// tools are built from CoreToolList.
+	BashTimeout int
+
+	// BashMaxTimeout caps the maximum timeout (in seconds) a bash tool call
+	// may request. Zero uses the built-in default (600s). Only consumed when
+	// core tools are built from CoreToolList.
+	BashMaxTimeout int
+
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). The callback receives the server
 	// name, tool count, and any error. Called from the background goroutine.
@@ -324,6 +334,12 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		var toolOpts []core.ToolOption
 		if len(agentConfig.NamedAgents) > 0 {
 			toolOpts = append(toolOpts, core.WithNamedAgents(agentConfig.NamedAgents...))
+		}
+		if agentConfig.BashTimeout > 0 {
+			toolOpts = append(toolOpts, core.WithBashTimeout(time.Duration(agentConfig.BashTimeout)*time.Second))
+		}
+		if agentConfig.BashMaxTimeout > 0 {
+			toolOpts = append(toolOpts, core.WithBashMaxTimeout(time.Duration(agentConfig.BashMaxTimeout)*time.Second))
 		}
 		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}

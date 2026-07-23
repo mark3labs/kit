@@ -26,6 +26,14 @@ type ToolOption = core.ToolOption
 // If empty, os.Getwd() is used at execution time.
 var WithWorkDir = core.WithWorkDir
 
+// WithBashTimeout sets the default per-call timeout for the bash tool.
+// A non-positive duration leaves the built-in default (120s) in place.
+var WithBashTimeout = core.WithBashTimeout
+
+// WithBashMaxTimeout sets the maximum timeout a bash tool call may request.
+// A non-positive duration leaves the built-in default (600s) in place.
+var WithBashMaxTimeout = core.WithBashMaxTimeout
+
 // --- Core Tool Validation ---
 // processes a list of tool names, if disableCoreTools is true, return an
 // empty list. Otherwise if coreTools is not empty, it will return a list of

@@ -81,6 +81,21 @@ type bashArgs struct {
 // NewBashTool creates the bash core tool.
 func NewBashTool(opts ...ToolOption) fantasy.AgentTool {
 	cfg := ApplyOptions(opts)
+
+	// Resolve effective timeouts, falling back to the built-in defaults.
+	maxTimeout := maxBashTimeout
+	if cfg.BashMaxTimeout > 0 {
+		maxTimeout = cfg.BashMaxTimeout
+	}
+	defTimeout := defaultBashTimeout
+	if cfg.BashTimeout > 0 {
+		defTimeout = cfg.BashTimeout
+	}
+	// The default must never exceed the ceiling.
+	if defTimeout > maxTimeout {
+		defTimeout = maxTimeout
+	}
+
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "bash",
@@ -92,13 +107,13 @@ func NewBashTool(opts ...ToolOption) fantasy.AgentTool {
 				},
 				"timeout": map[string]any{
 					"type":        "number",
-					"description": "Timeout in seconds (optional, default 120s, max 600s)",
+					"description": fmt.Sprintf("Timeout in seconds (optional, default %ds, max %ds)", int(defTimeout.Seconds()), int(maxTimeout.Seconds())),
 				},
 			},
 			Required: []string{"command"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return executeBash(ctx, call, cfg.WorkDir)
+			return executeBash(ctx, call, cfg.WorkDir, defTimeout, maxTimeout)
 		},
 	}
 }
@@ -154,7 +169,7 @@ func rewriteSudoForStdin(command string) string {
 	return result
 }
 
-func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string, defaultTimeout, maxTimeout time.Duration) (fantasy.ToolResponse, error) {
 	var args bashArgs
 	if err := parseArgs(call.Input, &args); err != nil {
 		return fantasy.NewTextErrorResponse("command parameter is required"), nil
@@ -169,10 +184,10 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	// Determine timeout
-	timeout := defaultBashTimeout
+	timeout := defaultTimeout
 	if args.Timeout > 0 {
 		timeout = time.Duration(args.Timeout) * time.Second
-		timeout = min(timeout, maxBashTimeout)
+		timeout = min(timeout, maxTimeout)
 	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)

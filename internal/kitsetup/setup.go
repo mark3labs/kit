@@ -44,6 +44,12 @@ type AgentSetupOptions struct {
 	// NamedAgents lists discovered named agent definitions to advertise in
 	// the subagent tool description.
 	NamedAgents []core.NamedAgentSpec
+	// BashTimeout sets the default per-call timeout (seconds) for the bash
+	// tool. Zero uses the built-in default (120s).
+	BashTimeout int
+	// BashMaxTimeout caps the maximum timeout (seconds) a bash tool call may
+	// request. Zero uses the built-in default (600s).
+	BashMaxTimeout int
 	// ToolWrapper is an optional function that wraps tools after extension
 	// wrapping. Used by the SDK hook system. Both wrappers compose:
 	// extension wrapper runs first (inner), then this wrapper (outer).
@@ -264,6 +270,8 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		ToolWrapper:       toolWrapper,
 		ExtraTools:        extraTools,
 		NamedAgents:       opts.NamedAgents,
+		BashTimeout:       opts.BashTimeout,
+		BashMaxTimeout:    opts.BashMaxTimeout,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 		MCPTaskConfig:     opts.MCPTaskConfig,
 	})

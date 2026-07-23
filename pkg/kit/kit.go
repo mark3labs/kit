@@ -1166,6 +1166,16 @@ type Options struct {
 	// will have no tools (useful for simple chat completions).
 	DisableCoreTools bool
 
+	// BashTimeout sets the default per-call timeout (in seconds) for the bash
+	// tool, applied when the model does not specify one. Zero falls back to
+	// the "bash-timeout" config value, then the built-in default (120s).
+	BashTimeout int
+
+	// BashMaxTimeout caps the maximum timeout (in seconds) a bash tool call
+	// may request via its timeout argument. Zero falls back to the
+	// "bash-max-timeout" config value, then the built-in default (600s).
+	BashMaxTimeout int
+
 	// Session configuration
 	SessionDir  string // Base directory for session discovery (default: cwd)
 	SessionPath string // Open a specific session file by path
@@ -1444,6 +1454,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		toolList              []string
 		maxSteps              int
 		streaming             bool
+		bashTimeout           int
+		bashMaxTimeout        int
 		hasCustomSystemPrompt bool
 		systemPromptSource    string
 		capturedBasePrompt    string
@@ -1699,6 +1711,14 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		toolList = handleCoreToolList(toolList, opts.DisableCoreTools || v.GetBool("no-core-tools"))
 		maxSteps = v.GetInt("max-steps")
 		streaming = v.GetBool("stream")
+		bashTimeout = opts.BashTimeout
+		if bashTimeout == 0 {
+			bashTimeout = v.GetInt("bash-timeout")
+		}
+		bashMaxTimeout = opts.BashMaxTimeout
+		if bashMaxTimeout == 0 {
+			bashMaxTimeout = v.GetInt("bash-max-timeout")
+		}
 
 		return nil
 	}(); err != nil {
@@ -1782,6 +1802,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		CoreToolList:      toolList,
 		ExtraTools:        extraTools,
 		NamedAgents:       namedAgentSpecs(namedAgents),
+		BashTimeout:       bashTimeout,
+		BashMaxTimeout:    bashMaxTimeout,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
 		Debug:             debug,

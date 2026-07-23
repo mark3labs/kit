@@ -24,7 +24,7 @@ func bashCall(command string, timeout float64) fantasy.ToolCall {
 }
 
 func TestBash_SimpleCommand(t *testing.T) {
-	resp, err := executeBash(context.Background(), bashCall("echo hello", 0), "")
+	resp, err := executeBash(context.Background(), bashCall("echo hello", 0), "", defaultBashTimeout, maxBashTimeout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestBash_SimpleCommand(t *testing.T) {
 
 func TestBash_TimeoutKillsProcess(t *testing.T) {
 	start := time.Now()
-	resp, err := executeBash(context.Background(), bashCall("sleep 60", 2), "")
+	resp, err := executeBash(context.Background(), bashCall("sleep 60", 2), "", defaultBashTimeout, maxBashTimeout)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -51,11 +51,52 @@ func TestBash_TimeoutKillsProcess(t *testing.T) {
 	}
 }
 
+func TestBash_ConfiguredMaxTimeoutCaps(t *testing.T) {
+	// A tiny configured max timeout must clamp a large requested timeout so
+	// the command is killed quickly.
+	start := time.Now()
+	resp, err := executeBash(context.Background(), bashCall("sleep 60", 30), "", defaultBashTimeout, 2*time.Second)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.IsError {
+		t.Fatal("expected error response for timed-out command")
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("command took %v, expected ~2s clamped max timeout", elapsed)
+	}
+}
+
+func TestBash_ConfiguredDefaultTimeoutApplies(t *testing.T) {
+	// With no per-call timeout, the configured default must apply.
+	start := time.Now()
+	resp, err := executeBash(context.Background(), bashCall("sleep 60", 0), "", 2*time.Second, maxBashTimeout)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.IsError {
+		t.Fatal("expected error response for timed-out command")
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("command took %v, expected ~2s configured default timeout", elapsed)
+	}
+}
+
+func TestNewBashTool_TimeoutOptionsInDescription(t *testing.T) {
+	tool := NewBashTool(WithBashTimeout(30*time.Second), WithBashMaxTimeout(90*time.Second))
+	desc, _ := tool.Info().Parameters["timeout"].(map[string]any)["description"].(string)
+	if desc != "Timeout in seconds (optional, default 30s, max 90s)" {
+		t.Errorf("unexpected timeout description: %q", desc)
+	}
+}
+
 func TestBash_BackgroundProcessDoesNotHang(t *testing.T) {
 	// This command spawns a background sleep that would hold pipes open
 	// forever if we didn't have process group killing + WaitDelay.
 	start := time.Now()
-	resp, err := executeBash(context.Background(), bashCall("echo done; sleep 3600 &", 5), "")
+	resp, err := executeBash(context.Background(), bashCall("echo done; sleep 3600 &", 5), "", defaultBashTimeout, maxBashTimeout)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,7 +114,7 @@ func TestBash_BackgroundProcessDoesNotHang_Streaming(t *testing.T) {
 	// Same test but in streaming mode (with output callback).
 	ctx := ContextWithToolOutputCallback(context.Background(), func(_, _, _ string, _ bool) {})
 	start := time.Now()
-	resp, err := executeBash(ctx, bashCall("echo streaming; sleep 3600 &", 5), "")
+	resp, err := executeBash(ctx, bashCall("echo streaming; sleep 3600 &", 5), "", defaultBashTimeout, maxBashTimeout)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -92,7 +133,7 @@ func TestBash_ContextCancellation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = executeBash(ctx, bashCall("sleep 60", 0), "")
+		_, _ = executeBash(ctx, bashCall("sleep 60", 0), "", defaultBashTimeout, maxBashTimeout)
 	}()
 
 	// Cancel after a short delay
@@ -109,7 +150,7 @@ func TestBash_ContextCancellation(t *testing.T) {
 }
 
 func TestBash_BannedCommand(t *testing.T) {
-	resp, err := executeBash(context.Background(), bashCall("alias foo=bar", 0), "")
+	resp, err := executeBash(context.Background(), bashCall("alias foo=bar", 0), "", defaultBashTimeout, maxBashTimeout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +160,7 @@ func TestBash_BannedCommand(t *testing.T) {
 }
 
 func TestBash_EmptyCommand(t *testing.T) {
-	resp, err := executeBash(context.Background(), bashCall("", 0), "")
+	resp, err := executeBash(context.Background(), bashCall("", 0), "", defaultBashTimeout, maxBashTimeout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
