@@ -66,4 +66,5 @@ var (
 	KitBanner               = style.KitBanner
 	AdaptiveColor           = style.AdaptiveColor
 	IsDarkBackground        = style.IsDarkBackground
+	SyntaxStyle             = style.SyntaxStyle
 )

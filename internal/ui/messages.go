@@ -323,7 +323,9 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	theme := style.GetTheme()
 	icon := "·"
 	iconColor := theme.VeryMuted
-	nameColor := theme.Muted
+	// theme.Tool exists so a theme can give tool calls their own identity;
+	// it defaults to the same amber as Secondary.
+	nameColor := theme.Tool
 	if isError {
 		icon = "×"
 		iconColor = theme.Error

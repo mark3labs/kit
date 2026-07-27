@@ -1099,8 +1099,11 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	labelStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 	valueStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
+	// The wordmark leads. SplashBar prefixes each line with 6 columns of
+	// stripe and gutter, so that is what the logo has to fit inside.
 	var content []string
-	content = append(content, lipgloss.NewStyle().Bold(true).Render("KIT"))
+	content = append(content, style.KitLogoLines(m.width-style.SplashGutterWidth)...)
+	content = append(content, "")
 
 	if m.providerName != "" && m.modelName != "" {
 		content = append(content, valueStyle.Render(m.providerName+" · "+m.modelName))

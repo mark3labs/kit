@@ -10,10 +10,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
 	udiff "github.com/aymanbagabas/go-udiff"
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/indaco/herald"
@@ -767,24 +765,10 @@ func syntaxHighlight(source, fileName string) string {
 		return source
 	}
 
-	// Pick style matching our UI theme
-	styleName := "catppuccin-mocha"
-	if !IsDarkBackground() {
-		styleName = "catppuccin-latte"
-	}
-	baseStyle := styles.Get(styleName)
-	if baseStyle == nil {
-		baseStyle = styles.Fallback
-	}
-
-	// Clear token backgrounds so the containing lipgloss style controls bg.
-	style, err := baseStyle.Builder().Transform(func(entry chroma.StyleEntry) chroma.StyleEntry {
-		entry.Background = 0
-		return entry
-	}).Build()
-	if err != nil {
-		style = baseStyle
-	}
+	// Build the highlighting palette from the active theme so code sits in
+	// the same color family as the UI around it. Token backgrounds are unset
+	// there, letting the containing lipgloss style own the fill.
+	chromaStyle := SyntaxStyle()
 
 	iterator, err := lexer.Tokenise(nil, source)
 	if err != nil {
@@ -792,7 +776,7 @@ func syntaxHighlight(source, fileName string) string {
 	}
 
 	var buf bytes.Buffer
-	if err := formatter.Format(&buf, style, iterator); err != nil {
+	if err := formatter.Format(&buf, chromaStyle, iterator); err != nil {
 		return source
 	}
 
