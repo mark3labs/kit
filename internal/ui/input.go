@@ -167,7 +167,10 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.CharLimit = 0
-	ta.SetWidth(width - inputChromeWidth)
+	// Clamp to at least one column: on a pathologically narrow terminal
+	// width-inputChromeWidth would go non-positive and SetWidth would receive
+	// a negative width.
+	ta.SetWidth(max(width-inputChromeWidth, 1))
 
 	// The composer starts as a single row and grows with the text, so an empty
 	// prompt costs one line instead of four. Beyond inputMaxRows the textarea
@@ -254,7 +257,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
-		s.textarea.SetWidth(msg.Width - inputChromeWidth)
+		s.textarea.SetWidth(max(msg.Width-inputChromeWidth, 1))
 		return s, nil
 
 	case clipboardImageMsg:

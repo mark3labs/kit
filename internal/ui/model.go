@@ -2200,6 +2200,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.printErrorResponse(msg)
 		}
+		// Close the turn with a failure receipt, consistent with the Done and
+		// Interrupted receipts on the other terminal events. The error block
+		// above says what went wrong; the receipt records the turn's shape
+		// (tool count, elapsed) that the error itself omits.
+		m.printTurnReceipt(turnFailed)
 		m.state = stateInput
 		m.canceling = false
 

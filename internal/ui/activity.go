@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -117,8 +118,18 @@ func firstStringArg(args map[string]any) string {
 			return v
 		}
 	}
-	for _, v := range args {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+	// The activity row re-renders on every spinner tick, so the fallback must
+	// be stable: Go randomizes map iteration order, and picking a different
+	// string each frame would make the row flicker between arguments. Sort the
+	// keys so an unknown tool with several string args always shows the same
+	// one.
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		if s, ok := args[k].(string); ok && strings.TrimSpace(s) != "" {
 			return strings.TrimSpace(s)
 		}
 	}

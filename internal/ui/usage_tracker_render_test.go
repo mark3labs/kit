@@ -90,19 +90,12 @@ func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
 		t.Errorf("Expected non-empty output on startup, got empty string")
 	}
 
-	// Should show 0 tokens
-	if !strings.Contains(rendered, "0") {
-		t.Errorf("Expected a zero token count on startup, got: %s", rendered)
-	}
-
-	// Should NOT show percentage when tokens are 0
-	if strings.Contains(rendered, "%") {
-		t.Errorf("Expected no percentage on startup with 0 tokens, got: %s", rendered)
-	}
-
-	// A zero-cost session collapses to a bare "$0".
-	if !strings.Contains(rendered, "$0") {
-		t.Errorf("Expected '$0' on startup, got: %s", rendered)
+	// Startup renders the exact zero-state segment: a bare token count and a
+	// bare cost, no percentage. Matching the whole string rather than a loose
+	// "0" substring keeps the token count from being satisfied by the "0" in
+	// "$0" if it were to vanish.
+	if rendered != "0 · $0" {
+		t.Errorf("Expected startup render to be exactly '0 · $0', got: %q", rendered)
 	}
 
 	// Test startup state (no requests made yet) - OAuth
@@ -114,12 +107,10 @@ func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
 		t.Errorf("Expected non-empty output on startup for OAuth, got empty string")
 	}
 
-	// Should show 0 tokens for OAuth, and no cost at all.
-	if !strings.Contains(oauthRendered, "0") {
-		t.Errorf("Expected a zero token count on startup for OAuth, got: %s", oauthRendered)
-	}
-	if strings.Contains(oauthRendered, "$") {
-		t.Errorf("Expected OAuth startup render to omit cost, got: %s", oauthRendered)
+	// OAuth omits cost entirely, so its zero state is exactly the bare token
+	// count.
+	if oauthRendered != "0" {
+		t.Errorf("Expected OAuth startup render to be exactly '0', got: %q", oauthRendered)
 	}
 }
 
@@ -145,8 +136,10 @@ func TestUsageTracker_RenderUsageInfo_UnreportedWarning(t *testing.T) {
 	if strings.Contains(defaultRender, "usage not reported") {
 		t.Fatalf("default state should NOT show unreported warning, got: %s", defaultRender)
 	}
-	if !strings.Contains(defaultRender, "0") {
-		t.Fatalf("default state should show a zero token count, got: %s", defaultRender)
+	// The zero state is the exact bare-token/bare-cost segment, not just a
+	// stray "0" that "$0" would also satisfy.
+	if defaultRender != "0 · $0" {
+		t.Fatalf("default state should render exactly '0 · $0', got: %q", defaultRender)
 	}
 
 	// After a turn where the provider reported nothing → warning appears.

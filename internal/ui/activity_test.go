@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -297,6 +298,20 @@ func TestTurnReceipt(t *testing.T) {
 			t.Errorf("expected an interrupted receipt, got %q", got)
 		}
 	})
+
+	t.Run("failed always shows, even with no tools", func(t *testing.T) {
+		// A failed turn is worth acknowledging regardless of how much work it
+		// did, so unlike turnDone it is never suppressed.
+		m := newModel()
+		m.turnStartedAt = time.Now()
+		m.turnToolCount = 0
+		m.printTurnReceipt(turnFailed)
+
+		got := stripAnsi(m.messages[len(m.messages)-1].Render(100))
+		if !strings.Contains(got, "Failed") {
+			t.Errorf("expected a failed receipt even with no tools, got %q", got)
+		}
+	})
 }
 
 // TestSplashBlockScalesWithContent verifies the splash costs exactly as many
@@ -583,5 +598,35 @@ func TestSeparatorGlyphIsConsistent(t *testing.T) {
 		if strings.Contains(s, "•") {
 			t.Errorf("found the retired bullet separator in %q", s)
 		}
+	}
+}
+
+// TestStepErrorEmitsFailedReceipt verifies the StepErrorEvent handler wires
+// through to a failed-turn receipt. The unit test above proves the receipt
+// renders; this proves it is actually reachable from the event that should
+// produce it — the gap a review flagged, where turnFailed was defined but
+// never emitted.
+func TestStepErrorEmitsFailedReceipt(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _ := newTestAppModelWithRealStream(ctrl)
+	m = sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Enter a working turn so the terminal event closes it.
+	m, _ = sendMsgExec(m, app.SpinnerEvent{Show: true})
+	m.turnStartedAt = time.Now().Add(-2 * time.Second)
+	m.turnToolCount = 1
+
+	before := len(m.messages)
+	m, _ = sendMsgExec(m, app.StepErrorEvent{Err: errors.New("boom")})
+
+	var found bool
+	for _, msg := range m.messages[before:] {
+		if strings.Contains(stripAnsi(msg.Render(100)), "Failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("StepErrorEvent must emit a Failed turn receipt; turnFailed is unreachable otherwise")
 	}
 }
