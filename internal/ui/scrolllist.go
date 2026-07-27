@@ -80,6 +80,13 @@ func (s *ScrollList) SetItems(items []MessageItem) {
 	// longer names a message.
 	if s.selectedIdx >= len(s.items) {
 		s.selectedIdx = len(s.items) - 1
+		// The item now under the selection may have a cached height measured
+		// without the selection border, which would throw the scroll maths
+		// off by selectionBorderOverhead until it is next rendered. Drop it
+		// so the next measurement includes the frame, as SetSelectedIndex does.
+		if s.selectedIdx >= 0 {
+			delete(s.heightCache, s.items[s.selectedIdx].ID())
+		}
 	}
 	if s.autoScroll && !s.sel.MouseDown {
 		s.GotoBottom()

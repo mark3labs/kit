@@ -1380,7 +1380,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A width change re-wraps every message, so the selected one can end
 		// up outside the viewport. Pull it back into view rather than leaving
 		// the user navigating a selection they cannot see.
+		//
+		// The layout pass has to run first: SetWidth/SetHeight land in
+		// distributeHeight, which View() defers until the next frame. Choosing
+		// an offset before that would measure the selected item at the old
+		// width (and against a stale viewport height), so a message that grew
+		// taller under the new wrapping could still end up clipped.
+		//
+		// layoutDirty is deliberately left set so View() still runs its own
+		// pass and repopulates the chrome cache it invalidates each frame.
+		// The repeat is cheap — SetWidth is a no-op at an unchanged width.
 		if m.state == stateMessageNav && m.scrollList != nil {
+			m.distributeHeight()
 			m.scrollList.EnsureVisible(m.scrollList.SelectedIndex())
 		}
 
@@ -1485,9 +1496,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check extension-registered global keyboard shortcuts. These fire
 		// in all app states except modal prompts/overlays (which return early
-		// above). Matched shortcuts are consumed — the key does not propagate
+		// above) and message navigation, which rebinds plain keys like j/k
+		// and enter for itself — an extension shortcut on one of those would
+		// otherwise consume it first and silently break navigation.
+		// Matched shortcuts are consumed — the key does not propagate
 		// to child components.
-		if m.getGlobalShortcuts != nil {
+		if m.getGlobalShortcuts != nil && m.state != stateMessageNav {
 			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
 				if handler, ok := shortcuts[msg.String()]; ok {
 					// Run in goroutine so blocking extension calls

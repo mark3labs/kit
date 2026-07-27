@@ -58,6 +58,10 @@ func compositeCentered(base, box string, termW, termH int) string {
 	if strings.TrimSpace(box) == "" {
 		return base
 	}
+	// Trim before measuring: compositeOverlay trims internally, so centring
+	// on the untrimmed height would place the box using a taller size than
+	// the one actually drawn and shift it off true centre.
+	box = trimTrailingBlankLines(box)
 	x := (termW - lipgloss.Width(box)) / 2
 	y := (termH - lipgloss.Height(box)) / 2
 	return compositeOverlay(base, box, x, y, termW, termH)

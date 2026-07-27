@@ -304,3 +304,32 @@ func TestOverlayDialog_LastLineReachable(t *testing.T) {
 		t.Errorf("last line unreachable at maximum scroll:\n%s", got)
 	}
 }
+
+// TestCompositeCentered_TrimsBeforeMeasuring guards a centring bug: because
+// compositeOverlay trims trailing blank rows internally, measuring the
+// untrimmed height here would position the box as if it were taller than the
+// one actually drawn, shifting it off true centre.
+func TestCompositeCentered_TrimsBeforeMeasuring(t *testing.T) {
+	const w, h = 21, 9
+	base := fullScreenBase(w, h, "x")
+
+	// Same visible box, one with unstyled padding rows below it.
+	plain := "abc"
+	padded := "abc\n   \n   "
+
+	rowOf := func(rendered string) int {
+		for i, line := range strings.Split(rendered, "\n") {
+			if strings.Contains(xansi.Strip(line), "abc") {
+				return i
+			}
+		}
+		return -1
+	}
+
+	want := rowOf(compositeCentered(base, plain, w, h))
+	got := rowOf(compositeCentered(base, padded, w, h))
+
+	if got != want {
+		t.Errorf("padded box centred at row %d, want %d (trailing padding shifted it)", got, want)
+	}
+}

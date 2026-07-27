@@ -552,3 +552,28 @@ func TestOverlayDialog_ExpandsTabsInBody(t *testing.T) {
 		}
 	}
 }
+
+// TestScrollList_ClampedSelectionHeightInvalidated guards the scroll maths
+// after a list shrink. The item that ends up under the clamped selection may
+// have a cached height measured without the selection border; leaving it
+// stale throws offsets off by selectionBorderOverhead until it next renders.
+func TestScrollList_ClampedSelectionHeightInvalidated(t *testing.T) {
+	sl := NewScrollList(40, 20)
+	items := makeItems(10, 3)
+	sl.SetItems(items)
+
+	// Measure item 2 unselected so its height is cached without a border.
+	base := sl.itemHeight(2)
+	sl.SetSelectedIndex(9)
+
+	// Shrink so the selection clamps onto the already-cached item 2.
+	sl.SetItems(items[:3])
+	if got := sl.SelectedIndex(); got != 2 {
+		t.Fatalf("selected index = %d, want 2 after clamp", got)
+	}
+
+	if got := sl.itemHeight(2); got != base+selectionBorderOverhead {
+		t.Errorf("clamped selection height = %d, want %d (stale cache not invalidated)",
+			got, base+selectionBorderOverhead)
+	}
+}
