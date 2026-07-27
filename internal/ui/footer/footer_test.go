@@ -23,6 +23,16 @@ func TestConfig_DefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestConfig_FooterToggling(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.ToggleEnabled() {
+		t.Fatal("ToggleEnabled() = true; want false")
+	}
+	if !cfg.ToggleEnabled() {
+		t.Fatal("ToggleEnabled() = false; want true")
+	}
+}
+
 func TestConfig_FieldToggling(t *testing.T) {
 	cfg := DefaultConfig()
 

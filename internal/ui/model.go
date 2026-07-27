@@ -2976,10 +2976,19 @@ func (m *AppModel) handleFooterCommand(args string) tea.Cmd {
 		m.printSystemMessage("Custom footer disabled.")
 
 	case "toggle":
-		if len(parts) < 2 {
-			m.printSystemMessage("Usage: /footer toggle <field>\nAvailable fields: " + strings.Join(footer.AllFields, ", "))
+		if len(parts) == 1 {
+			nowEnabled := m.footerConfig.ToggleEnabled()
+			if !m.saveFooterConfig() {
+				return nil
+			}
+			state := "disabled"
+			if nowEnabled {
+				state = "enabled"
+			}
+			m.printSystemMessage("Custom footer " + state + ".")
 			return nil
 		}
+
 		field := parts[1]
 		nowEnabled, ok := m.footerConfig.ToggleField(field)
 		if !ok {
