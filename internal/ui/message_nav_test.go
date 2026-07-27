@@ -2,6 +2,8 @@ package ui
 
 import (
 	"encoding/json"
+
+	"charm.land/lipgloss/v2"
 	"strings"
 	"testing"
 
@@ -329,9 +331,11 @@ func TestOverlayDialog_ScrollsLongContent(t *testing.T) {
 	}
 	o := newOverlayDialog("Tool Result", strings.Join(body, "\n"), false, "", "", 0, 0, "center", nil, 100, 30)
 
-	first := o.Render()
-	if !strings.Contains(xansi.Strip(first), "of 200 lines") {
-		t.Error("expected a scroll indicator for content taller than the dialog")
+	// A position indicator is shown; its exact form depends on how much room
+	// the footer has ("(1–20 of 200 lines)" or the compact "20/200").
+	first := xansi.Strip(o.Render())
+	if !strings.Contains(first, "of 200 lines") && !strings.Contains(first, "/200") {
+		t.Errorf("expected a scroll position indicator, got:\n%s", first)
 	}
 
 	// Scroll to the end; the offset must advance and stay clamped.
@@ -342,6 +346,60 @@ func TestOverlayDialog_ScrollsLongContent(t *testing.T) {
 	}
 	if o.scrollOff >= o.totalLines {
 		t.Errorf("scroll offset %d not clamped below total %d", o.scrollOff, o.totalLines)
+	}
+}
+
+// TestOverlayDialog_FooterIsInsideTheBox pins the footer's placement. Hints
+// rendered below the border would be a bare band of padding that the
+// compositor draws as opaque cells, cutting a blank strip through whatever
+// sits behind the dialog.
+func TestOverlayDialog_FooterIsInsideTheBox(t *testing.T) {
+	body := make([]string, 200)
+	for i := range body {
+		body[i] = "line"
+	}
+	o := newOverlayDialog("Tool Result", strings.Join(body, "\n"), false, "", "", 0, 0, "center", nil, 100, 30)
+	o.dismissOnly = true
+
+	lines := strings.Split(o.Render(), "\n")
+	last := xansi.Strip(lines[len(lines)-1])
+	if !strings.HasPrefix(last, "╰") {
+		t.Errorf("box must end with its bottom border, got %q", last)
+	}
+
+	// The hint text sits on a row framed by the border.
+	var found bool
+	for _, line := range lines {
+		plain := xansi.Strip(line)
+		if strings.Contains(plain, "close") {
+			found = true
+			if !strings.HasPrefix(plain, "│") || !strings.HasSuffix(plain, "│") {
+				t.Errorf("hint row is not enclosed by the border: %q", plain)
+			}
+		}
+	}
+	if !found {
+		t.Error("no hint row rendered")
+	}
+}
+
+// TestOverlayDialog_RespectsMaxHeight guards the footer's height accounting:
+// the row is part of the box, so the chrome budget must include it.
+func TestOverlayDialog_RespectsMaxHeight(t *testing.T) {
+	body := make([]string, 500)
+	for i := range body {
+		body[i] = "line"
+	}
+
+	for _, termH := range []int{12, 20, 30, 50} {
+		o := newOverlayDialog("T", strings.Join(body, "\n"), false, "", "", 0, 0, "center", nil, 100, termH)
+		got := lipgloss.Height(o.Render())
+		if want := termH * 80 / 100; got > want {
+			t.Errorf("termH=%d: box height %d exceeds the %d budget", termH, got, want)
+		}
+		if got > termH {
+			t.Errorf("termH=%d: box height %d exceeds the terminal", termH, got)
+		}
 	}
 }
 

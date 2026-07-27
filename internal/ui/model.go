@@ -2673,29 +2673,10 @@ func (m *AppModel) View() tea.View {
 		return v
 	}
 
-	// Tree selector overlay replaces the normal layout.
-	if m.state == stateTreeSelector && m.treeSelector != nil {
-		return m.treeSelector.View()
-	}
-
-	// Model selector is rendered as a centered overlay later (see below).
-
-	// Session selector overlay replaces the normal layout.
-	if m.state == stateSessionSelector && m.sessionSelector != nil {
-		return m.sessionSelector.View()
-	}
-
-	// Overlay dialog replaces the normal layout.
-	if m.state == stateOverlay && m.overlay != nil {
-		v := tea.NewView(m.overlay.Render())
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		v.ReportFocus = true
-		v.KeyboardEnhancements = tea.KeyboardEnhancements{
-			ReportEventTypes: true,
-		}
-		return v
-	}
+	// Tree selector, session selector and the overlay dialog are composited
+	// over the normal layout further down, alongside the slash popup and the
+	// model selector, so every modal in the app shows the conversation
+	// behind it instead of blanking the screen.
 
 	// Recompute layout heights if any Update() changed state that affects
 	// sizing. Deferring this to View() guarantees exactly one call per frame
@@ -2832,19 +2813,37 @@ func (m *AppModel) View() tea.View {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	// Render slash command popup as centered overlay if active
+	// Composite every modal surface over the layout at the cell level, so
+	// the conversation stays visible around each one. Ordering is z-order:
+	// later draws sit on top.
 	finalContent := content
+
+	// Slash / @ autocomplete popup.
 	if ic, ok := m.input.(*InputComponent); ok {
-		if popupContent := ic.RenderPopupCentered(m.width, m.height); popupContent != "" {
-			// Overlay popup content on top of main content
-			finalContent = overlayContent(content, popupContent, m.width, m.height)
+		if box := ic.RenderPopupBox(m.width, m.height); box != "" {
+			finalContent = compositeCentered(finalContent, box, m.width, m.height)
 		}
 	}
 
-	// Render model selector as centered overlay if active
+	// Model selector.
 	if m.state == stateModelSelector && m.modelSelector != nil {
-		popupContent := m.modelSelector.RenderOverlay(m.width, m.height)
-		finalContent = overlayContent(finalContent, popupContent, m.width, m.height)
+		finalContent = compositeCentered(finalContent, m.modelSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Tree selector (/tree).
+	if m.state == stateTreeSelector && m.treeSelector != nil {
+		finalContent = compositeCentered(finalContent, m.treeSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Session selector (/resume).
+	if m.state == stateSessionSelector && m.sessionSelector != nil {
+		finalContent = compositeCentered(finalContent, m.sessionSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Modal dialog — extension overlays and the message inspector. Honours
+	// the caller's vertical anchor.
+	if m.state == stateOverlay && m.overlay != nil {
+		finalContent = compositeAnchored(finalContent, m.overlay.Render(), m.overlay.Anchor(), m.width, m.height)
 	}
 
 	v := tea.NewView(finalContent)
@@ -2860,35 +2859,6 @@ func (m *AppModel) View() tea.View {
 // --------------------------------------------------------------------------
 // Rendering helpers
 // --------------------------------------------------------------------------
-
-// overlayContent overlays popup content on top of base content line-by-line.
-// Both content strings should be full-screen (width x height).
-func overlayContent(base, overlay string, width, height int) string {
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-
-	// Ensure we have exactly height lines
-	for len(baseLines) < height {
-		baseLines = append(baseLines, strings.Repeat(" ", width))
-	}
-	for len(overlayLines) < height {
-		overlayLines = append(overlayLines, strings.Repeat(" ", width))
-	}
-
-	// Merge lines - overlay takes precedence where non-empty
-	result := make([]string, height)
-	for i := range height {
-		if i < len(overlayLines) && strings.TrimSpace(overlayLines[i]) != "" {
-			result[i] = overlayLines[i]
-		} else if i < len(baseLines) {
-			result[i] = baseLines[i]
-		} else {
-			result[i] = strings.Repeat(" ", width)
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
 
 // refreshContent updates the ScrollList with current messages.
 // Called whenever messages change (new message, streaming update, etc.)
