@@ -296,9 +296,12 @@ type StatusBarEntryData struct {
 // The zero value shows everything (backward compatible).
 type UIVisibility struct {
 	HideStartupMessage bool // Hide the "Model loaded..." startup block
-	HideStatusBar      bool // Hide the "provider · model  Tokens: ..." line
-	HideSeparator      bool // Hide the "────────" divider between stream and input
-	HideInputHint      bool // Hide the "enter submit · ctrl+j..." hint below input
+	HideStatusBar      bool // Hide the "~/path (branch) ... provider · model" line
+	HideSeparator      bool // Hide the queued/steering count above the composer
+	// HideInputHint is retained for compatibility and has no effect. The
+	// submit hint is no longer a separate line below the composer; it lives
+	// in the placeholder and disappears as soon as the user types.
+	HideInputHint bool
 }
 
 // AppModelOptions holds configuration passed to NewAppModel.
@@ -2669,14 +2672,6 @@ func (m *AppModel) View() tea.View {
 	// Render scrollback content from ScrollList (replaces renderStream() in alt screen mode)
 	scrollbackView := m.renderScrollback()
 
-	// Propagate hint visibility to the input component before rendering.
-	// Hints are hidden by default for a cleaner UI; extensions cannot
-	// override this.
-	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = true
-		ic.agentBusy = m.state == stateWorking
-	}
-
 	// When a prompt is active, it replaces the input area for consistency
 	// (appears below the separator, in the same position as the input).
 	var inputView string
@@ -4276,15 +4271,6 @@ func (m *AppModel) distributeHeight() {
 	if activityView := m.renderActivityRow(); activityView != "" {
 		activityLines = lipgloss.Height(activityView)
 		m.chrome.activity = activityView
-	}
-
-	// Propagate hint visibility before measuring input height.
-	// Hints are always hidden for a cleaner UI.
-	// agentBusy must match what View() sets, since the rendered input is
-	// cached in m.chrome and reused by View() in the same frame.
-	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = true
-		ic.agentBusy = m.state == stateWorking
 	}
 
 	// Measure the actual rendered input (or prompt overlay) height so we

@@ -83,13 +83,6 @@ type InputComponent struct {
 	// May be nil in tests; nil-safe.
 	appCtrl AppController
 
-	// hideHint suppresses the "enter submit · ctrl+j..." hint text.
-	hideHint bool
-
-	// agentBusy indicates the agent is currently working. When true, the
-	// hint text shows steering shortcut (Ctrl+X s) instead of submit.
-	agentBusy bool
-
 	// pendingImages holds clipboard images attached to the next submission.
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []core.ImageAttachment
@@ -213,7 +206,6 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 		width:       width,
 		popupHeight: 7,
 		appCtrl:     appCtrl,
-		hideHint:    true,
 	}
 	ic.popup = NewPopupList("", nil, width, 0)
 	ic.popup.ShowSearch = false
