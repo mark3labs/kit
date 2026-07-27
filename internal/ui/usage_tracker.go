@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"charm.land/lipgloss/v2"
@@ -219,38 +220,38 @@ func (ut *UsageTracker) RenderUsageInfo() string {
 
 		percentageStr = baseStyle.
 			Foreground(percentageColor).
-			Render(fmt.Sprintf(" (%.0f%%)", percentage))
+			Render(fmt.Sprintf(" %.0f%%", percentage))
 	}
 
-	// Format cost with appropriate styling
+	// Format cost. Two decimal places is the right resolution for a status
+	// bar; four implied a precision nobody reads at a glance. Sub-cent
+	// sessions collapse to a bare "$0" rather than a row of zeroes.
 	var costStr string
-	if ut.isOAuth {
+	switch {
+	case ut.isOAuth:
+		costStr = ""
+	case ut.sessionStats.TotalCost <= 0:
+		costStr = baseStyle.Foreground(theme.Muted).Render("$0")
+	case ut.sessionStats.TotalCost < 0.01:
+		costStr = baseStyle.Foreground(theme.Muted).Render("<$0.01")
+	default:
 		costStr = baseStyle.
-			Foreground(theme.Primary).
-			Render("$0.00")
-	} else {
-		costStr = baseStyle.
-			Foreground(theme.Primary).
-			Render(fmt.Sprintf("$%.4f", ut.sessionStats.TotalCost))
+			Foreground(theme.Muted).
+			Render(fmt.Sprintf("$%.2f", ut.sessionStats.TotalCost))
 	}
 
-	// Create styled components
-	tokensLabel := baseStyle.
-		Foreground(theme.Muted).
-		Render("Tokens: ")
-
+	// The token count is self-describing — a "Tokens:" label costs nine
+	// columns to say what the number already says. Values are joined with the
+	// same middle dot the rest of the status bar uses.
 	tokensValue := baseStyle.
-		Foreground(theme.Text).
-		Bold(true).
+		Foreground(theme.Muted).
 		Render(tokenStr)
 
-	costLabel := baseStyle.
-		Foreground(theme.Muted).
-		Render(" | Cost: ")
-
-	// Build the enhanced display (no trailing newline — callers control spacing).
-	return fmt.Sprintf("%s%s%s%s%s",
-		tokensLabel, tokensValue, percentageStr, costLabel, costStr)
+	parts := []string{tokensValue + percentageStr}
+	if costStr != "" {
+		parts = append(parts, costStr)
+	}
+	return strings.Join(parts, baseStyle.Foreground(theme.VeryMuted).Render(" · "))
 }
 
 // GetSessionStats returns a copy of the cumulative session statistics including

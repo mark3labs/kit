@@ -296,9 +296,12 @@ type StatusBarEntryData struct {
 // The zero value shows everything (backward compatible).
 type UIVisibility struct {
 	HideStartupMessage bool // Hide the "Model loaded..." startup block
-	HideStatusBar      bool // Hide the "provider · model  Tokens: ..." line
-	HideSeparator      bool // Hide the "────────" divider between stream and input
-	HideInputHint      bool // Hide the "enter submit · ctrl+j..." hint below input
+	HideStatusBar      bool // Hide the "~/path (branch) ... provider · model" line
+	HideSeparator      bool // Hide the queued/steering count above the composer
+	// HideInputHint is retained for compatibility and has no effect. The
+	// submit hint is no longer a separate line below the composer; it lives
+	// in the placeholder and disappears as soon as the user types.
+	HideInputHint bool
 }
 
 // AppModelOptions holds configuration passed to NewAppModel.
@@ -781,6 +784,25 @@ type AppModel struct {
 	// cwd is the working directory for @file path resolution.
 	cwd string
 
+	// gitBranch is the current git branch name, resolved once when cwd is
+	// set. Empty when the working directory is not a git repository. Shown
+	// in the ambient status bar.
+	gitBranch string
+
+	// turnStartedAt records when the current agent turn began, so the
+	// activity row can show elapsed time. Zero when idle.
+	turnStartedAt time.Time
+
+	// turnToolCount counts tool calls completed during the current turn, for
+	// the turn-completion receipt. Reset when a turn begins.
+	turnToolCount int
+
+	// lastInputHeight is the composer height measured by the last
+	// distributeHeight. The composer grows and shrinks with its content, so
+	// this is compared after every input update to detect a size change that
+	// requires the transcript to be resized. See syncInputHeight.
+	lastInputHeight int
+
 	// mcpResourceReader is an optional callback to read MCP resources when
 	// processing @mcp:server:uri tokens at submit time. Set by the parent.
 	mcpResourceReader fileutil.MCPResourceReader
@@ -849,6 +871,12 @@ type streamComponentIface interface {
 	// Returns "" when the spinner is not active. The parent renders this in the
 	// status bar so the spinner never changes the view height.
 	SpinnerView() string
+	// ActivityDot returns the animated indicator glyph on its own, for the
+	// activity row. Returns "" when nothing is in flight.
+	ActivityDot() string
+	// ActivityPhrase returns a present-tense description of the work currently
+	// in flight, e.g. "Running go test ./...".
+	ActivityPhrase() string
 	// SetThinkingVisible sets whether reasoning blocks are shown or collapsed.
 	SetThinkingVisible(visible bool)
 	// HasReasoning returns true if any reasoning content has been accumulated.
@@ -954,6 +982,10 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	if ic, ok := m.input.(*InputComponent); ok && opts.Cwd != "" {
 		ic.SetCwd(opts.Cwd)
 	}
+
+	// Resolve the git branch once at startup for the ambient status bar.
+	// A miss is not an error — the branch is simply omitted.
+	m.gitBranch = detectGitBranch(opts.Cwd)
 
 	// Wire up MCP resource provider for @ autocomplete.
 	if ic, ok := m.input.(*InputComponent); ok && opts.GetMCPResources != nil {
@@ -1068,21 +1100,29 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		return
 	}
 
-	// Add the ASCII logo at the very top.
-	logo := style.KitBanner()
-	logoMsg := NewStyledMessageItem(generateMessageID(), "logo", logo, logo)
-	m.messages = append(m.messages, logoMsg)
+	// The splash is one block: the wordmark, the active model, and an aligned
+	// list of what was loaded, indented to the shared content column.
+	theme := style.GetTheme()
+	labelStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
-	// Build key-value pairs for startup info.
-	ty := createTypography(style.GetTheme())
-	var pairs [][2]string
+	// The wordmark leads. The block is indented by ContentOffset, so that is
+	// what the logo has to fit inside.
+	var content []string
+	content = append(content, style.KitLogoLines(m.width-style.ContentOffset)...)
+	content = append(content, "")
 
 	if m.providerName != "" && m.modelName != "" {
-		pairs = append(pairs, [2]string{"Model", fmt.Sprintf("%s (%s)", m.providerName, m.modelName)})
+		content = append(content, valueStyle.Render(m.providerName+" · "+m.modelName))
+	} else if m.modelName != "" {
+		content = append(content, valueStyle.Render(m.modelName))
 	}
 
+	// Build key-value pairs for startup info.
+	var pairs [][2]string
+
 	if m.loadingMessage != "" {
-		pairs = append(pairs, [2]string{"Status", m.loadingMessage})
+		pairs = append(pairs, [2]string{"status", m.loadingMessage})
 	}
 
 	// Context — loaded AGENTS.md files.
@@ -1091,7 +1131,7 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		if len(m.contextPaths) > 1 {
 			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)
 		}
-		pairs = append(pairs, [2]string{"Context", contextStr})
+		pairs = append(pairs, [2]string{"context", contextStr})
 	}
 
 	// Skills — listed by name.
@@ -1100,11 +1140,11 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		for i, si := range m.skillItems {
 			names[i] = si.Name
 		}
-		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
+		pairs = append(pairs, [2]string{"skills", strings.Join(names, ", ")})
 	}
 
-	// Extensions — listed by filename. Each extension shows its basename
-	// without the .go suffix, matching the [Skills] section's style.
+	// Extensions — listed by filename, with a tool count when they register
+	// tools. Falls back to a bare count if the CLI supplied no item list.
 	if len(m.extensionItems) > 0 {
 		names := make([]string, len(m.extensionItems))
 		for i, ei := range m.extensionItems {
@@ -1114,26 +1154,33 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		if m.extensionToolCount > 0 {
 			value += fmt.Sprintf(" (%d tools)", m.extensionToolCount)
 		}
-		pairs = append(pairs, [2]string{"Extensions", value})
+		pairs = append(pairs, [2]string{"extensions", value})
 	} else if m.extensionToolCount > 0 {
-		// Fallback: tool count only (extensions registered tools but the CLI
-		// did not provide ExtensionItems for some reason).
-		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
+		pairs = append(pairs, [2]string{"extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
 	}
 
 	// MCP tool count (only shown when > 0).
 	if m.mcpToolCount > 0 {
-		pairs = append(pairs, [2]string{"MCP", fmt.Sprintf("%d tools", m.mcpToolCount)})
+		pairs = append(pairs, [2]string{"mcp", fmt.Sprintf("%d tools", m.mcpToolCount)})
 	}
 
 	if len(pairs) > 0 {
-		rendered := ty.KVGroup(pairs)
-		rendered = styleMarginBottom1.Render(rendered)
-
-		// Add as a styled system message to ScrollList
-		msg := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
-		m.messages = append(m.messages, msg)
+		// Align values into a column so the list scans vertically.
+		labelWidth := 0
+		for _, p := range pairs {
+			if w := lipgloss.Width(p[0]); w > labelWidth {
+				labelWidth = w
+			}
+		}
+		content = append(content, "")
+		for _, p := range pairs {
+			label := labelStyle.Render(p[0] + strings.Repeat(" ", labelWidth-lipgloss.Width(p[0])))
+			content = append(content, label+"  "+valueStyle.Render(p[1]))
+		}
 	}
+
+	splash := style.SplashBlock(content)
+	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "logo", splash, splash))
 
 	// Add extension startup messages if any
 	if len(m.startupExtensionMessages) > 0 {
@@ -1143,16 +1190,12 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		}
 	}
 
-	// Add a visual separator after startup info: blank line + HR + blank line.
-	// Uses a single pre-rendered item so there are no left borders on the spacing.
-	theme := style.GetTheme()
-	separator := strings.Repeat("─", m.width)
-	separatorStyled := lipgloss.NewStyle().
-		Foreground(theme.Border).
-		Render(separator)
-	separatorBlock := "\n" + separatorStyled + "\n"
-	separatorMsg := NewStyledMessageItem(generateMessageID(), "separator", separatorBlock, separatorBlock)
-	m.messages = append(m.messages, separatorMsg)
+	// Separate the startup banner from the conversation with whitespace
+	// rather than a rule. A blank line is enough to break the two apart, and
+	// it does not add a heavy horizontal element to an otherwise quiet screen.
+	spacer := "\n"
+	spacerMsg := NewStyledMessageItem(generateMessageID(), "separator", spacer, spacer)
+	m.messages = append(m.messages, spacerMsg)
 
 	// Refresh ScrollList once with all startup messages
 	m.refreshContent()
@@ -1174,6 +1217,20 @@ func tildeHome(path string) string {
 // incoming messages to children and handles state transitions.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Stamp the turn clock on entry to / exit from the working state, so the
+	// activity row can report elapsed time without every transition site
+	// having to remember to do it. Deferred so it observes the state as it
+	// stands after this Update has run.
+	stateBefore := m.state
+	defer func() {
+		if m.state == stateWorking && stateBefore != stateWorking {
+			m.turnStartedAt = time.Now()
+			m.turnToolCount = 0
+		} else if m.state != stateWorking && stateBefore == stateWorking {
+			m.turnStartedAt = time.Time{}
+		}
+	}()
 
 	// Coalesced streaming: chunk events are buffered and applied on a ~16ms
 	// flush tick instead of per chunk (a full markdown re-render per chunk is
@@ -1653,6 +1710,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							updated, cmd := m.input.Update(remapped)
 							m.input, _ = updated.(inputComponentIface)
 							cmds = append(cmds, cmd)
+							m.syncInputHeight()
 							intercepted = true
 						}
 						// If remap target is unrecognized, fall through to normal handling.
@@ -1681,6 +1739,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				updated, cmd := m.input.Update(msg)
 				m.input, _ = updated.(inputComponentIface)
 				cmds = append(cmds, cmd)
+				// The composer is dynamically sized, so a keystroke that wraps
+				// or unwraps a line changes how much room the transcript has.
+				m.syncInputHeight()
 			}
 		}
 
@@ -2099,6 +2160,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				streamMsg.MarkComplete()
 			}
 		}
+		m.printTurnReceipt(turnDone)
 		m.state = stateInput
 		m.canceling = false
 
@@ -2116,6 +2178,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				streamMsg.MarkComplete()
 			}
 		}
+		m.printTurnReceipt(turnCancelled)
 		m.state = stateInput
 		m.canceling = false
 
@@ -2137,6 +2200,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.printErrorResponse(msg)
 		}
+		// Close the turn with a failure receipt, consistent with the Done and
+		// Interrupted receipts on the other terminal events. The error block
+		// above says what went wrong; the receipt records the turn's shape
+		// (tool count, elapsed) that the error itself omits.
+		m.printTurnReceipt(turnFailed)
 		m.state = stateInput
 		m.canceling = false
 
@@ -2543,8 +2611,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model. It renders the stacked layout:
-// stream region + separator + [queued messages] + input region + status bar.
-// The status bar is always present (1 line) to avoid layout shifts.
+// stream region + separator + [queued messages] + [activity row] + input
+// region + status bar. The status bar is always present (1 line) to avoid
+// layout shifts; the activity row appears only while the agent is working.
 // When the tree selector is active, it replaces the stream region.
 func (m *AppModel) View() tea.View {
 	// When quitting, disable alt screen for clean terminal restoration.
@@ -2606,14 +2675,6 @@ func (m *AppModel) View() tea.View {
 	// Render scrollback content from ScrollList (replaces renderStream() in alt screen mode)
 	scrollbackView := m.renderScrollback()
 
-	// Propagate hint visibility to the input component before rendering.
-	// Hints are hidden by default for a cleaner UI; extensions cannot
-	// override this.
-	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = true
-		ic.agentBusy = m.state == stateWorking
-	}
-
 	// When a prompt is active, it replaces the input area for consistency
 	// (appears below the separator, in the same position as the input).
 	var inputView string
@@ -2650,27 +2711,24 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, scrollbackView)
 	}
 
-	// Add canceling warning between scrollback and separator
-	// (doesn't go inside scrollback viewport to avoid affecting scroll position)
+	// Confirmation prompts for destructive keys live in the activity row while
+	// the agent is working, since that row is already showing the interrupt
+	// affordance and is where the eye is. When idle there is no activity row,
+	// so the prompt gets its own line here instead.
 	theme := style.GetTheme()
-	if m.canceling {
+	if m.ctrlCPressedOnce && m.state != stateWorking {
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
-			Bold(true).
-			Render("  ⚠ Press ESC again to cancel")
-		parts = append(parts, warning)
-	}
-
-	if m.ctrlCPressedOnce {
-		warning := lipgloss.NewStyle().
-			Foreground(theme.Warning).
-			Bold(true).
-			Render("  ⚠ Press Ctrl+C again to quit")
+			Render(strings.Repeat(" ", style.ContentOffset) + "ctrl+c again to quit")
 		parts = append(parts, warning)
 	}
 
 	if !vis.HideSeparator {
-		parts = append(parts, m.renderSeparator())
+		// The separator only materialises when it has something to say, so
+		// an idle screen carries no rule between transcript and composer.
+		if sep := m.renderSeparator(); sep != "" {
+			parts = append(parts, sep)
+		}
 	}
 
 	// Render "above" widgets between separator and queued messages.
@@ -2688,6 +2746,16 @@ func (m *AppModel) View() tea.View {
 	}
 	if queuedView != "" {
 		parts = append(parts, queuedView)
+	}
+
+	// Live activity sits immediately above the composer so the eye finds it
+	// in the same place it is about to type. It costs zero lines when idle.
+	activityView := m.chrome.activity
+	if !m.chrome.valid {
+		activityView = m.renderActivityRow()
+	}
+	if activityView != "" {
+		parts = append(parts, activityView)
 	}
 
 	parts = append(parts, inputView)
@@ -2799,95 +2867,81 @@ func (m *AppModel) renderScrollback() string {
 // priority). Right side: provider · model + usage stats.
 // This bar is always present so its height is constant, eliminating layout
 // shifts from spinner or usage info appearing/disappearing.
+// renderStatusBar renders the ambient footer: a single muted line carrying
+// context that is true regardless of what the agent is doing.
+//
+//	~/Workspace/kit (main)        anthropic · claude-opus-5 · 7.2K · $0.02
+//
+// Live activity deliberately does not appear here — it owns the activity row
+// directly above the composer (see renderActivityRow). Keeping the two apart
+// means a long-running command can never be squeezed out by a token counter.
 func (m *AppModel) renderStatusBar() string {
 	theme := style.GetTheme()
+	muted := lipgloss.NewStyle().Foreground(theme.Muted)
+	veryMuted := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 
-	// Left side: spinner animation (when active).
+	// Left: working directory, plus the git branch when one is known.
 	var leftSide string
-	if m.stream != nil {
-		leftSide = m.stream.SpinnerView()
+	if m.cwd != "" {
+		left := tildeHome(m.cwd)
+		if m.gitBranch != "" {
+			left += " (" + m.gitBranch + ")"
+		}
+		leftSide = " " + muted.Render(left)
 	}
 
-	// Middle: thinking level (when reasoning model) + extension status bar entries.
+	// Extension status entries and the thinking level sit next to the path.
+	// They are ambient facts, not activity.
 	var middleParts []string
 	if m.isReasoningModel && m.thinkingLevel != "" && m.thinkingLevel != "off" {
-		thinkingLabel := "Thinking: " + m.thinkingLevel
-		middleParts = append(middleParts, lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Render(thinkingLabel))
+		middleParts = append(middleParts, veryMuted.Render("thinking: "+m.thinkingLevel))
 	}
 	if m.getStatusBarEntries != nil {
-		entries := m.getStatusBarEntries()
-		for _, e := range entries {
-			middleParts = append(middleParts, lipgloss.NewStyle().
-				Foreground(theme.Muted).
-				Render(e.Text))
+		for _, e := range m.getStatusBarEntries() {
+			middleParts = append(middleParts, veryMuted.Render(e.Text))
 		}
 	}
-	middleSide := strings.Join(middleParts, "  ")
+	middleSide := strings.Join(middleParts, veryMuted.Render(" · "))
 	if middleSide != "" && leftSide != "" {
-		middleSide = "  " + middleSide
+		middleSide = veryMuted.Render(" · ") + middleSide
 	}
 
-	// Right side: help hint + provider · model + usage stats.
-	// Order matters for progressive truncation — least important first.
+	// Right: provider, model, then usage. Ordered least-important-first so
+	// progressive truncation drops cost before it drops the model name.
 	var rightParts []string
-
-	rightParts = append(rightParts, lipgloss.NewStyle().
-		Foreground(theme.VeryMuted).
-		Render("/help for help"))
-
-	var modelLabel string
 	if m.providerName != "" && m.modelName != "" {
-		modelLabel = m.providerName + " · " + m.modelName
+		rightParts = append(rightParts, muted.Render(m.providerName+" · "+m.modelName))
 	} else if m.modelName != "" {
-		modelLabel = m.modelName
+		rightParts = append(rightParts, muted.Render(m.modelName))
 	}
-	if modelLabel != "" {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Render(modelLabel))
-	}
-
 	if m.usageTracker != nil {
 		if usage := m.usageTracker.RenderUsageInfo(); usage != "" {
 			rightParts = append(rightParts, usage)
 		}
 	}
+	sep := veryMuted.Render(" · ")
+	rightSide := strings.Join(rightParts, sep)
 
-	rightSide := strings.Join(rightParts, "  |  ")
-
-	// Progressive truncation to keep the status bar on one line.
-	// When content exceeds terminal width, drop sections in order:
-	// middle (extensions/thinking) → help hint → usage → model → all.
-	leftW := lipgloss.Width(leftSide)
-	middleW := lipgloss.Width(middleSide)
-	rightW := lipgloss.Width(rightSide)
-
-	// Need at least 1 space gap between left+middle and right.
-	if leftW+middleW+rightW+1 > m.width {
-		// Drop middle section first (extensions/thinking status).
+	// Progressive truncation, in order: extension/thinking entries, then
+	// usage, then the model label, then the path.
+	fits := func(l, mid, r string) bool {
+		return lipgloss.Width(l)+lipgloss.Width(mid)+lipgloss.Width(r)+1 <= m.width
+	}
+	if !fits(leftSide, middleSide, rightSide) {
 		middleSide = ""
-		middleW = 0
 	}
-	if leftW+rightW+1 > m.width && len(rightParts) > 2 {
-		// Drop help hint first.
-		rightParts = rightParts[1:]
-		rightSide = strings.Join(rightParts, "  |  ")
-		rightW = lipgloss.Width(rightSide)
-	}
-	if leftW+rightW+1 > m.width && len(rightParts) > 1 {
-		// Drop usage (last) next, keep model label.
+	if !fits(leftSide, middleSide, rightSide) && len(rightParts) > 1 {
 		rightParts = rightParts[:len(rightParts)-1]
-		rightSide = strings.Join(rightParts, "  |  ")
-		rightW = lipgloss.Width(rightSide)
+		rightSide = strings.Join(rightParts, sep)
 	}
-	if leftW+rightW+1 > m.width {
+	if !fits(leftSide, middleSide, rightSide) {
+		leftSide = ""
+	}
+	if !fits(leftSide, middleSide, rightSide) {
 		rightSide = ""
-		rightW = 0
 	}
 
-	gap := max(m.width-leftW-middleW-rightW, 1)
+	gap := max(m.width-lipgloss.Width(leftSide)-lipgloss.Width(middleSide)-lipgloss.Width(rightSide), 1)
 	return leftSide + middleSide + strings.Repeat(" ", gap) + rightSide
 }
 
@@ -2923,34 +2977,38 @@ func (m *AppModel) cycleThinkingLevel() {
 	go func() { _ = prefs.SaveThinkingLevelPreference(next) }()
 }
 
-// renderSeparator renders the separator line with an optional queue/steer count badge.
+// renderSeparator renders the queue/steer announcement shown between the
+// transcript and the composer.
+//
+// There is deliberately no full-width rule here. The transcript and the
+// composer are already separated by the composer's own filled background and
+// by whitespace; drawing a horizontal line as well was the single heaviest
+// element on screen and carried no information. When there is nothing queued
+// or steering, this returns "" and costs no vertical space.
 func (m *AppModel) renderSeparator() string {
-	theme := style.GetTheme()
-	lineStyle := lipgloss.NewStyle().Foreground(theme.Border)
 	queueLen := len(m.queuedMessages)
 	steerLen := len(m.steeringMessages)
-
-	if steerLen > 0 || queueLen > 0 {
-		var parts []string
-		if steerLen > 0 {
-			parts = append(parts, lipgloss.NewStyle().
-				Foreground(theme.Warning).
-				Render(fmt.Sprintf("%d steering", steerLen)))
-		}
-		if queueLen > 0 {
-			parts = append(parts, lipgloss.NewStyle().
-				Foreground(theme.Secondary).
-				Render(fmt.Sprintf("%d queued", queueLen)))
-		}
-		badge := strings.Join(parts, " ")
-
-		// Fill the separator with dashes up to the badge.
-		dashWidth := max(m.width-lipgloss.Width(badge)-1, 0)
-		dashes := lineStyle.Render(repeatRune('─', dashWidth))
-		return dashes + " " + badge
+	if steerLen == 0 && queueLen == 0 {
+		return ""
 	}
 
-	return lineStyle.Render(repeatRune('─', m.width))
+	theme := style.GetTheme()
+	var parts []string
+	if steerLen > 0 {
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(theme.Warning).
+			Render(fmt.Sprintf("%d steering", steerLen)))
+	}
+	if queueLen > 0 {
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(theme.Secondary).
+			Render(fmt.Sprintf("%d queued", queueLen)))
+	}
+	badge := strings.Join(parts, " ")
+
+	// Right-align the badge so it reads as chrome rather than as content.
+	pad := max(m.width-lipgloss.Width(badge)-1, 1)
+	return strings.Repeat(" ", pad) + badge
 }
 
 // renderInput returns the input region content. If an editor interceptor
@@ -3272,6 +3330,8 @@ func (m *AppModel) printAssistantMessage(text string) {
 
 // printToolResult renders a tool result message into the ScrollList.
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
+	m.turnToolCount++
+
 	// Render styled tool message using MessageRenderer
 	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 
@@ -4022,13 +4082,14 @@ type pendingStreamChunk struct {
 // chromeCache holds the rendered layout chrome measured by distributeHeight()
 // for reuse by View() within the same frame.
 type chromeCache struct {
-	valid  bool
-	header string
-	footer string
-	above  string
-	below  string
-	queued string
-	input  string
+	valid    bool
+	header   string
+	footer   string
+	above    string
+	below    string
+	queued   string
+	activity string
+	input    string
 }
 
 // streamAppendFlushMsg fires when buffered stream chunks should be applied
@@ -4162,10 +4223,11 @@ func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 // Layout (line counts):
 //
 //	header         = measured dynamically (0 if not set)
-//	stream region  = total - header - separator(1) - widgets - queued(N*5) - input(measured) - widgets - statusBar(1) - footer
-//	separator      = 1 line
+//	stream region  = total - header - separator - widgets - queued - activity - input - widgets - statusBar - footer
+//	separator      = measured dynamically (0 when it renders nothing)
 //	above widgets  = measured dynamically
 //	queued msgs    = measured dynamically via lipgloss.Height()
+//	activity row   = 1 line while working, 0 when idle
 //	input region   = measured dynamically via lipgloss.Height()
 //	below widgets  = measured dynamically
 //	status bar     = 1 line (always present)
@@ -4173,9 +4235,13 @@ func (m *AppModel) currentScrollbackBounds() (yOffset, viewportHeight int) {
 func (m *AppModel) distributeHeight() {
 	vis := m.uiVis()
 
-	separatorLines := 1
-	if vis.HideSeparator {
-		separatorLines = 0
+	// The separator is measured rather than assumed: it collapses to nothing
+	// unless there are queued or steering messages to announce.
+	separatorLines := 0
+	if !vis.HideSeparator {
+		if sep := m.renderSeparator(); sep != "" {
+			separatorLines = lipgloss.Height(sep)
+		}
 	}
 	statusBarLines := 1
 	if vis.HideStatusBar {
@@ -4195,20 +4261,19 @@ func (m *AppModel) distributeHeight() {
 		m.chrome.queued = queuedView
 	}
 
-	// Propagate hint visibility before measuring input height.
-	// Hints are always hidden for a cleaner UI.
-	// agentBusy must match what View() sets, since the rendered input is
-	// cached in m.chrome and reused by View() in the same frame.
-	if ic, ok := m.input.(*InputComponent); ok {
-		ic.hideHint = true
-		ic.agentBusy = m.state == stateWorking
+	// Measure the activity row so the scrollback shrinks by exactly one line
+	// when the agent starts working and grows back when it stops.
+	var activityLines int
+	if activityView := m.renderActivityRow(); activityView != "" {
+		activityLines = lipgloss.Height(activityView)
+		m.chrome.activity = activityView
 	}
 
 	// Measure the actual rendered input (or prompt overlay) height so we
 	// don't rely on a fragile constant that drifts when styling changes.
 	// Use renderInput() which includes the editor interceptor's Render
 	// wrapper so the measured height matches what View() actually renders.
-	inputLines := 8 // fallback: marginTop(1)+textarea(4)+border-chrome(2)+marginBottom(1)
+	inputLines := 3 // fallback: composer bar padding(1) + one text row + padding(1)
 	if m.state == statePrompt && m.prompt != nil {
 		if rendered := m.prompt.Render(); rendered != "" {
 			inputLines = lipgloss.Height(rendered)
@@ -4220,6 +4285,9 @@ func (m *AppModel) distributeHeight() {
 			m.chrome.input = rendered
 		}
 	}
+	// Remember what the composer measured so syncInputHeight can detect the
+	// next time it grows or shrinks.
+	m.lastInputHeight = inputLines
 
 	// Measure widget heights.
 	var widgetLines int
@@ -4245,20 +4313,18 @@ func (m *AppModel) distributeHeight() {
 		m.chrome.footer = footerView
 	}
 
-	// Account for transient warning rows that View() injects between the
-	// scrollback and the separator. These flags are toggled by ESC/Ctrl+C
-	// handlers; without subtracting them here the joined view exceeds
-	// m.height by one line per active warning and the bottom of the screen
-	// gets silently clipped — which in turn invalidates scrollbackYOffset.
+	// Account for the transient confirmation row that View() injects between
+	// the scrollback and the composer. Without subtracting it here the joined
+	// view exceeds m.height and the bottom of the screen gets silently
+	// clipped — which in turn invalidates scrollbackYOffset. While working
+	// the confirmation lives in the activity row, which is measured
+	// separately, so it costs nothing extra here.
 	var warningLines int
-	if m.canceling {
-		warningLines++
-	}
-	if m.ctrlCPressedOnce {
+	if m.ctrlCPressedOnce && m.state != stateWorking {
 		warningLines++
 	}
 
-	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-inputLines-statusBarLines-warningLines, 0)
+	streamHeight := max(m.height-separatorLines-widgetLines-headerFooterLines-queuedLines-activityLines-inputLines-statusBarLines-warningLines, 0)
 
 	// In alt screen mode, give the calculated height to ScrollList instead of stream.
 	// The stream component still exists but is embedded as the last item in scrollList.
@@ -4464,6 +4530,12 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 
 	m.renderer.UpdateTheme()
 	m.stream.UpdateTheme()
+	// The composer paints its own background, so it has to be repainted too
+	// or the bar keeps the previous theme's fill until restart.
+	if ic, ok := m.input.(*InputComponent); ok {
+		ic.UpdateTheme()
+	}
+	m.layoutDirty = true
 	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
 	return nil
 }

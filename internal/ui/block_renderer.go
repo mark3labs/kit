@@ -87,9 +87,11 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		fullWidth:     true,
 		paddingTop:    1,
 		paddingBottom: 1,
-		paddingLeft:   2,
-		paddingRight:  0,
-		width:         containerWidth,
+		// The border glyph occupies column 0, so the padding that follows it
+		// is one less than the shared content offset.
+		paddingLeft:  style.ContentOffset - 1,
+		paddingRight: 0,
+		width:        containerWidth,
 	}
 
 	for _, option := range options {
@@ -123,7 +125,7 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	}
 
 	// Single-pass render: padding, border, and foreground in one style.
-	style := lipgloss.NewStyle().
+	blockStyle := lipgloss.NewStyle().
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
 		PaddingTop(renderer.paddingTop).
@@ -131,29 +133,32 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		Foreground(fgColor)
 
 	if hasBorder {
-		style = style.BorderStyle(lipgloss.ThickBorder())
+		// One gutter glyph is used for every attributed block in the UI, so
+		// the left edge reads as a single vocabulary rather than as several
+		// competing border weights.
+		blockStyle = blockStyle.BorderStyle(style.GutterBorder())
 
 		switch borderAlign {
 		case lipgloss.Right:
-			style = style.
+			blockStyle = blockStyle.
 				BorderRight(true).
 				BorderRightForeground(borderColor)
 		default:
-			style = style.
+			blockStyle = blockStyle.
 				BorderLeft(true).
 				BorderLeftForeground(borderColor)
 		}
 	}
 
 	if renderer.background != nil {
-		style = style.Background(*renderer.background)
+		blockStyle = blockStyle.Background(*renderer.background)
 	}
 
 	if renderer.fullWidth {
-		style = style.Width(renderer.width - borderChars)
+		blockStyle = blockStyle.Width(renderer.width - borderChars)
 	}
 
-	content = style.Render(content)
+	content = blockStyle.Render(content)
 
 	// Add margins
 	if renderer.marginTop > 0 {

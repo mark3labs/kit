@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/styles"
 )
 
 // Enhanced styling utilities and theme definitions
@@ -42,6 +44,7 @@ func SetTheme(theme Theme) {
 	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
 	uiTypographyCache = nil       // invalidate cached block typography; colors may have changed
 	styleCache = nil              // invalidate cached styles; colors may have changed
+	syntaxStyleCache = nil        // invalidate cached chroma style; colors may have changed
 }
 
 // CachedStyles holds pre-built lipgloss styles that are reused across
@@ -156,21 +159,32 @@ type Theme struct {
 	GutterBg color.Color // Line-number gutter background
 	WriteBg  color.Color // Green-tinted bg for Write tool content
 
+	// InputBg fills the composer bar. It is a shade off the terminal
+	// background — enough to read as a distinct surface, not enough to
+	// compete with message content for attention.
+	InputBg color.Color
+
 	// Markdown rendering and syntax highlighting colors
 	Markdown MarkdownThemeColors
 }
 
 // DefaultTheme creates and returns the default KIT theme inspired by the
 // Knight Rider KITT aesthetic — scanner reds, amber dashboard glows, and a
-// dark cockpit. No blues or bright greens; everything stays in the warm
-// red/amber/gray family of KITT's instrument panel.
+// dark cockpit. Everything stays in the warm red/amber/gray family of KITT's
+// instrument panel, with two deliberate exceptions.
+//
+// Success and Error must never be mistaken for Warning or for the brand red,
+// because they carry opposite meanings and they appear in the same places (the
+// turn receipt, the activity row, tool markers). Success therefore leans
+// olive-green and Error leans crimson: both still warm, both unmistakably not
+// amber and not scanner red.
 func DefaultTheme() Theme {
 	return Theme{
 		Primary:     AdaptiveColor("#CC1100", "#FF2200"), // KITT scanner red
 		Secondary:   AdaptiveColor("#CC6600", "#FF8800"), // Amber dashboard glow
-		Success:     AdaptiveColor("#998800", "#CCAA00"), // Warm gold — system OK
+		Success:     AdaptiveColor("#5F7A1F", "#A3BE4C"), // Olive green — distinct from amber
 		Warning:     AdaptiveColor("#CC8800", "#FFB800"), // Amber caution light
-		Error:       AdaptiveColor("#CC0000", "#FF3333"), // Alert red
+		Error:       AdaptiveColor("#C21038", "#FF4466"), // Crimson — distinct from scanner red
 		Info:        AdaptiveColor("#BB6600", "#DD8833"), // Warm amber readout
 		Text:        AdaptiveColor("#1A1A1A", "#E0E0E0"), // Console text
 		Muted:       AdaptiveColor("#707070", "#808080"), // Dimmed readout
@@ -194,16 +208,19 @@ func DefaultTheme() Theme {
 		GutterBg: AdaptiveColor("#E0E0E0", "#111111"), // Slightly darker
 		WriteBg:  AdaptiveColor("#F0E8D0", "#2A2410"), // Warm amber tint
 
+		// Composer surface — one step off the terminal background.
+		InputBg: AdaptiveColor("#E6E6E6", "#141414"),
+
 		// Markdown & syntax highlighting — all warm tones
 		Markdown: MarkdownThemeColors{
 			Text:    AdaptiveColor("#1A1A1A", "#E0E0E0"), // Console text
 			Muted:   AdaptiveColor("#707070", "#808080"), // Dimmed readout
-			Heading: AdaptiveColor("#CC1100", "#FF4444"), // Scanner red accent
+			Heading: AdaptiveColor("#CC1100", "#FF2200"), // Scanner red, matching Primary
 			Emph:    AdaptiveColor("#CC8800", "#FFB800"), // Amber emphasis
 			Strong:  AdaptiveColor("#1A1A1A", "#E0E0E0"), // Bright text
 			Link:    AdaptiveColor("#CC4400", "#FF7744"), // Warm orange link
 			Code:    AdaptiveColor("#333333", "#CCCCCC"), // Inline code
-			Error:   AdaptiveColor("#CC0000", "#FF3333"), // Alert red
+			Error:   AdaptiveColor("#C21038", "#FF4466"), // Crimson, matching Theme.Error
 			Keyword: AdaptiveColor("#CC3300", "#FF6644"), // Orange-red keyword
 			String:  AdaptiveColor("#BB7700", "#DDAA33"), // Amber string
 			Number:  AdaptiveColor("#CC8800", "#FFB800"), // Amber number
@@ -265,8 +282,51 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 	return result.String()
 }
 
+// kitLogoArt is the KIT wordmark in block letters. Lines are left-aligned and
+// not padded to a uniform width — trailing space would only be invisible
+// gradient — so the widest line (the top row and the scanner bar) sets the
+// block's footprint. The block can be placed at any left offset without
+// re-centering.
+var kitLogoArt = []string{
+	"██╗  ██╗ ██╗ ████████╗",
+	"██║ ██╔╝ ██║ ╚══██╔══╝",
+	"█████╔╝  ██║    ██║",
+	"██╔═██╗  ██║    ██║",
+	"██║  ██╗ ██║    ██║",
+	"╚═╝  ╚═╝ ╚═╝    ╚═╝",
+	// KITT's scanner bar, sized to the wordmark's widest row.
+	"░░ ▒▒ ▓▓ ████ ▓▓ ▒▒ ░░",
+}
+
+// kitLogoWidth is the width of the widest line in kitLogoArt, i.e. the number
+// of columns the block needs to render without wrapping. KitLogoLines falls
+// back to a plain wordmark below this width.
+const kitLogoWidth = 22
+
+// KitLogoLines returns the KIT wordmark as gradient-colored lines, sized for a
+// block that will be rendered at the given content width.
+//
+// Fixed-width block art cannot wrap, so below the width it needs the wordmark
+// degrades to a plain bold "KIT" rather than spilling across the terminal.
+func KitLogoLines(contentWidth int) []string {
+	theme := GetTheme()
+	if contentWidth < kitLogoWidth {
+		return []string{lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render("KIT")}
+	}
+
+	out := make([]string, 0, len(kitLogoArt))
+	for _, line := range kitLogoArt {
+		out = append(out, ApplyGradient(line, theme.Primary, theme.Accent))
+	}
+	return out
+}
+
 // KitBanner returns the KIT ASCII art title with KITT scanner lights,
 // rendered with a KITT red gradient.
+//
+// This is the banner used in `--help` output, where the art stands alone and
+// is centered by its own leading padding. The TUI splash uses KitLogoLines
+// instead, which is unpadded so it can sit inside a gutter-marked block.
 func KitBanner() string {
 	kittDark := lipgloss.Color("#8B0000")
 	kittBright := lipgloss.Color("#FF2200")
@@ -288,4 +348,150 @@ func KitBanner() string {
 		result.WriteString(ApplyGradient(line, kittDark, kittBright))
 	}
 	return result.String()
+}
+
+// --------------------------------------------------------------------------
+// Gutter
+// --------------------------------------------------------------------------
+
+// GutterGlyph is the single character used to mark a block's left edge
+// throughout the UI: user messages, alerts, permission prompts and any other
+// element that needs to be visually attributed.
+//
+// One glyph, colored by role, replaces what used to be three competing
+// conventions (a thick ┃ for user messages, a light │ for alerts, and bare
+// indentation for tool bodies). A half-block reads as a deliberate stripe at
+// any font weight, where box-drawing characters vary between terminals and
+// invite the eye to look for a matching corner that never comes.
+const GutterGlyph = "▌"
+
+// ContentOffset is the column at which every block's text begins.
+//
+// The UI keeps one left-edge contract: a marker (gutter glyph, tool bullet,
+// receipt check) occupies column 0, a single space follows, and text starts at
+// ContentOffset. Blocks with no marker — assistant prose — are indented to the
+// same column, so the transcript reads as one aligned text column with markers
+// hanging in the left margin. Anything that draws a left edge must honour this,
+// or the eye sees a ragged margin and reads it as misalignment rather than as
+// structure.
+const ContentOffset = 2
+
+// GutterBorder returns a lipgloss border consisting only of a left edge drawn
+// with GutterGlyph. Callers enable just the left side; the remaining fields
+// exist because lipgloss requires a complete Border value.
+func GutterBorder() lipgloss.Border {
+	return lipgloss.Border{
+		Left:        GutterGlyph,
+		Right:       "",
+		Top:         "",
+		Bottom:      "",
+		TopLeft:     "",
+		TopRight:    "",
+		BottomLeft:  "",
+		BottomRight: "",
+	}
+}
+
+// --------------------------------------------------------------------------
+// Splash
+// --------------------------------------------------------------------------
+
+// SplashBlock renders the startup splash: content lines indented to the shared
+// content column, with no left stripe.
+//
+//	KIT
+//	anthropic · claude-opus-5
+//
+//	context   ~/project/AGENTS.md
+//	skills    btca-cli, kit-extensions
+//
+// The splash carries no gutter glyph because it is not attributed to anyone —
+// it is the application introducing itself, not a message from the user, the
+// assistant or a tool. A stripe here would compete with the wordmark it sits
+// beside and imply an authorship the block does not have.
+//
+// The block costs exactly as many rows as it has something to say, so a
+// session with no skills or extensions loaded produces a shorter splash.
+func SplashBlock(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return Indent(strings.Join(lines, "\n"), ContentOffset)
+}
+
+// Indent prefixes every non-empty line of s with n spaces. Empty lines are
+// left untouched so the indent never leaves trailing whitespace behind.
+func Indent(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = pad + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// --------------------------------------------------------------------------
+// Syntax highlighting
+// --------------------------------------------------------------------------
+
+// syntaxStyleCache holds the chroma style derived from the active theme.
+// Building a chroma style allocates a map of token entries, so it must not
+// happen inside a per-frame render path. Invalidated by SetTheme.
+var syntaxStyleCache *chroma.Style
+
+// hexOf renders a color as a chroma-compatible "#rrggbb" string.
+func hexOf(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
+
+// SyntaxStyle returns a chroma style built from the active theme's markdown
+// colors.
+//
+// Syntax highlighting used to be pinned to an external palette, which meant a
+// warm red/amber theme rendered code in blues, purples and greens — a second,
+// unrelated color scheme living inside the first. Deriving the style from the
+// theme keeps code blocks in the same family as everything around them, and
+// makes every user theme (and every custom theme file) apply to code as well.
+//
+// Token backgrounds are left unset so the containing lipgloss style controls
+// the fill; setting both produces visible seams at each token boundary.
+func SyntaxStyle() *chroma.Style {
+	if syntaxStyleCache != nil {
+		return syntaxStyleCache
+	}
+
+	md := GetTheme().Markdown
+	keyword := hexOf(md.Keyword)
+	str := hexOf(md.String)
+	number := hexOf(md.Number)
+	comment := hexOf(md.Comment)
+	text := hexOf(md.Text)
+	name := hexOf(md.Link)
+
+	builder := chroma.NewStyleBuilder("kit-theme")
+	builder.Add(chroma.Text, text)
+	builder.Add(chroma.Keyword, keyword+" bold")
+	builder.Add(chroma.KeywordType, keyword)
+	builder.Add(chroma.NameBuiltin, keyword)
+	builder.Add(chroma.NameClass, name+" bold")
+	builder.Add(chroma.NameFunction, name)
+	builder.Add(chroma.LiteralString, str)
+	builder.Add(chroma.LiteralNumber, number)
+	builder.Add(chroma.Comment, comment+" italic")
+	builder.Add(chroma.CommentPreproc, keyword)
+	builder.Add(chroma.Operator, text)
+	builder.Add(chroma.Punctuation, text)
+	builder.Add(chroma.GenericError, hexOf(GetTheme().Error))
+
+	built, err := builder.Build()
+	if err != nil {
+		// A malformed entry should degrade to no highlighting rather than
+		// take down a render.
+		built = styles.Fallback
+	}
+	syntaxStyleCache = built
+	return built
 }

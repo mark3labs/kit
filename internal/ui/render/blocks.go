@@ -36,7 +36,11 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 		return ""
 	}
 
-	rendered := style.ToMarkdown(content, width-4)
+	// Assistant prose carries no marker, so it is indented to the shared
+	// content column rather than starting at the screen edge. Without this it
+	// sits two columns left of every other block and the margin reads ragged.
+	rendered := style.ToMarkdown(content, width-style.ContentOffset-1)
+	rendered = style.Indent(rendered, style.ContentOffset)
 	return styleMarginBottom(theme, rendered)
 }
 

@@ -93,9 +93,12 @@ func TestSpinnerShowsToolName_TextThenTool(t *testing.T) {
 	if !stream.spinning {
 		t.Fatalf("expected spinner restarted after flushStreamContent Reset + ToolExecutionEvent")
 	}
-	statusBar := m.renderStatusBar()
-	if !strings.Contains(statusBar, "bash") {
-		t.Fatalf("expected status bar to show 'bash' after text-then-tool flow, got: %q", statusBar)
+	// Live activity now renders in the activity row above the composer, not
+	// in the ambient status bar.
+	m.state = stateWorking
+	activity := m.renderActivityRow()
+	if !strings.Contains(activity, "Running") {
+		t.Fatalf("expected activity row to show the bash command after text-then-tool flow, got: %q", activity)
 	}
 
 	// Simulate a LONG-running bash: drive several spinner ticks and confirm
@@ -108,8 +111,8 @@ func TestSpinnerShowsToolName_TextThenTool(t *testing.T) {
 		if stream.spinnerFrame != frameBefore+1 {
 			t.Fatalf("tick %d: expected frame advance, got %d -> %d", i, frameBefore, stream.spinnerFrame)
 		}
-		if sb := m.renderStatusBar(); !strings.Contains(sb, "bash") {
-			t.Fatalf("tick %d: status bar lost 'bash' label mid-execution, got: %q", i, sb)
+		if row := m.renderActivityRow(); !strings.Contains(row, "Running") {
+			t.Fatalf("tick %d: activity row lost the bash phrase mid-execution, got: %q", i, row)
 		}
 	}
 }
@@ -130,10 +133,11 @@ func TestSpinnerShowsToolNameDuringExecution(t *testing.T) {
 		t.Fatalf("expected stream.spinning=true after SpinnerEvent{Show:true}")
 	}
 
-	// The status bar should already show the spinner frame.
-	statusBar := m.renderStatusBar()
-	if !strings.Contains(statusBar, "▪") {
-		t.Fatalf("expected spinner frame in status bar after step start, got: %q", statusBar)
+	// The activity row should already show the spinner frame.
+	m.state = stateWorking
+	activity := m.renderActivityRow()
+	if !strings.Contains(activity, "▪") {
+		t.Fatalf("expected spinner frame in activity row after step start, got: %q", activity)
 	}
 
 	// 2. Drive one spinner tick to confirm the tick loop is forwarded through
@@ -158,15 +162,16 @@ func TestSpinnerShowsToolNameDuringExecution(t *testing.T) {
 		ToolCallID: "call-1", ToolName: "bash", ToolArgs: `{"command":"ls"}`,
 	})
 	// Capture the tick cmd here so step 4 can drive a mid-execution tick.
-	_, tickCmd := sendMsgExec(m, app.ToolExecutionEvent{
+	var tickCmd tea.Cmd
+	m, tickCmd = sendMsgExec(m, app.ToolExecutionEvent{
 		ToolCallID: "call-1", ToolName: "bash", ToolArgs: `{"command":"ls"}`, IsStarting: true,
 	})
 
-	// THE CORE ASSERTION: while bash is "running", the status bar must visibly
-	// show the tool name so the user has an indication the tool is executing.
-	statusBar = m.renderStatusBar()
-	if !strings.Contains(statusBar, "bash") {
-		t.Fatalf("expected status bar to show 'bash' while tool is executing, got: %q", statusBar)
+	// THE CORE ASSERTION: while bash is "running", the activity row must
+	// visibly describe the work so the user knows the tool is executing.
+	activity = m.renderActivityRow()
+	if !strings.Contains(activity, "Running ls") {
+		t.Fatalf("expected activity row to show the running command, got: %q", activity)
 	}
 
 	// 4. Simulate the spinner tick firing mid-execution (bash takes time).
@@ -184,9 +189,10 @@ func TestSpinnerShowsToolNameDuringExecution(t *testing.T) {
 		midTick = streamSpinnerTickMsg{generation: stream.spinnerGeneration}
 	}
 	m, _ = sendMsgExec(m, midTick)
-	statusBar = m.renderStatusBar()
-	if !strings.Contains(statusBar, "bash") {
-		t.Fatalf("expected status bar to STILL show 'bash' after a mid-execution tick, got: %q", statusBar)
+	m.state = stateWorking
+	activity = m.renderActivityRow()
+	if !strings.Contains(activity, "Running ls") {
+		t.Fatalf("expected activity row to STILL show the command after a mid-execution tick, got: %q", activity)
 	}
 	if !stream.spinning {
 		t.Fatalf("expected spinner to still be spinning during tool execution")

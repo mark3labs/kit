@@ -43,13 +43,18 @@ func GetUITypography() *herald.Typography {
 			Base:      theme.CodeBg,
 		}),
 		herald.WithAlertPalette(herald.AlertPalette{
-			Note:      theme.Info,
+			// theme.System colors system notices, so a theme can distinguish
+			// the agent talking about itself from ordinary informational text.
+			Note:      theme.System,
 			Tip:       theme.Success,
 			Important: theme.Accent,
 			Warning:   theme.Warning,
 			Caution:   theme.Error,
 		}),
 		herald.WithCodeLineNumbers(true),
+		// Alerts use the same gutter glyph as every other attributed block, so
+		// the UI speaks one visual language instead of mixing bar weights.
+		herald.WithAlertBar(GutterGlyph),
 		// Customize alert labels
 		herald.WithAlertLabel(herald.AlertNote, "Info"),
 		herald.WithAlertLabel(herald.AlertTip, ""),
@@ -82,33 +87,37 @@ func GetMarkdownTypography() *herald.Typography {
 		H5: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
 		H6: lipgloss.NewStyle().Foreground(md.Muted).Bold(true),
 
-		// Text blocks
-		Paragraph:  lipgloss.NewStyle().Foreground(md.Text),
+		// Body text carries no explicit foreground so it inherits whatever the
+		// user's terminal uses for normal text. Pinning it to a theme color
+		// overrides a deliberate color scheme and can land a near-invisible
+		// gray on an unusual background. Color is spent only where it carries
+		// meaning: headings, links, emphasis and semantic badges.
+		Paragraph:  lipgloss.NewStyle(),
 		Blockquote: lipgloss.NewStyle().Foreground(md.Muted).Italic(true),
 		CodeInline: lipgloss.NewStyle().Foreground(md.Code),
 		CodeBlock:  lipgloss.NewStyle().Foreground(md.Code),
 		HR:         lipgloss.NewStyle().Foreground(md.Muted),
 
 		// Lists
-		ListBullet: lipgloss.NewStyle().Foreground(md.Text),
-		ListItem:   lipgloss.NewStyle().Foreground(md.Text),
+		ListBullet: lipgloss.NewStyle().Foreground(md.Muted),
+		ListItem:   lipgloss.NewStyle(),
 
 		// Inline styles
-		Bold:          lipgloss.NewStyle().Foreground(md.Strong).Bold(true),
+		Bold:          lipgloss.NewStyle().Bold(true),
 		Italic:        lipgloss.NewStyle().Foreground(md.Emph).Italic(true),
 		Strikethrough: lipgloss.NewStyle().Foreground(md.Muted).Strikethrough(true),
 		Link:          lipgloss.NewStyle().Foreground(md.Link).Underline(true),
 
 		// Definition lists
-		DT: lipgloss.NewStyle().Foreground(md.Text).Bold(true),
+		DT: lipgloss.NewStyle().Bold(true),
 		DD: lipgloss.NewStyle().Foreground(md.Muted),
 
 		// Key-value
-		KVKey:   lipgloss.NewStyle().Foreground(md.Text).Bold(true),
-		KVValue: lipgloss.NewStyle().Foreground(md.Text),
+		KVKey:   lipgloss.NewStyle().Bold(true),
+		KVValue: lipgloss.NewStyle().Foreground(md.Muted),
 
 		// Badges/Tags - use semantic colors
-		Badge:        lipgloss.NewStyle().Foreground(md.Text).Bold(true),
+		Badge:        lipgloss.NewStyle().Bold(true),
 		SuccessBadge: lipgloss.NewStyle().Foreground(theme.Success).Bold(true),
 		WarningBadge: lipgloss.NewStyle().Foreground(theme.Warning).Bold(true),
 		ErrorBadge:   lipgloss.NewStyle().Foreground(theme.Error).Bold(true),

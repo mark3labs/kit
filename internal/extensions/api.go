@@ -1692,7 +1692,10 @@ type UIVisibility struct {
 	HideStartupMessage bool // Hide the "Model loaded..." startup block
 	HideStatusBar      bool // Hide the "provider · model  Tokens: ..." line
 	HideSeparator      bool // Hide the "────────" divider between stream and input
-	HideInputHint      bool // Hide the "enter submit · ctrl+j..." hint below input
+	// HideInputHint is retained for compatibility and has no effect. The
+	// submit hint is no longer a separate line below the composer; it lives
+	// in the placeholder and disappears as soon as the user types.
+	HideInputHint bool
 }
 
 // ---------------------------------------------------------------------------
