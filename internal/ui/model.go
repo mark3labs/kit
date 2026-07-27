@@ -1100,18 +1100,16 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		return
 	}
 
-	// The splash is one block: a gradient stripe carrying the wordmark, the
-	// active model, and an aligned list of what was loaded. Everything is
-	// built as plain lines first, then given the stripe, so the bar height
-	// always matches the content height.
+	// The splash is one block: the wordmark, the active model, and an aligned
+	// list of what was loaded, indented to the shared content column.
 	theme := style.GetTheme()
 	labelStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 	valueStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
-	// The wordmark leads. SplashBar prefixes each line with 6 columns of
-	// stripe and gutter, so that is what the logo has to fit inside.
+	// The wordmark leads. The block is indented by ContentOffset, so that is
+	// what the logo has to fit inside.
 	var content []string
-	content = append(content, style.KitLogoLines(m.width-style.SplashGutterWidth)...)
+	content = append(content, style.KitLogoLines(m.width-style.ContentOffset)...)
 	content = append(content, "")
 
 	if m.providerName != "" && m.modelName != "" {
@@ -1181,7 +1179,7 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		}
 	}
 
-	splash := style.SplashBar(content, theme.Primary, theme.Accent)
+	splash := style.SplashBlock(content)
 	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "logo", splash, splash))
 
 	// Add extension startup messages if any

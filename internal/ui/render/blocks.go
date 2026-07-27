@@ -40,21 +40,8 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 	// content column rather than starting at the screen edge. Without this it
 	// sits two columns left of every other block and the margin reads ragged.
 	rendered := style.ToMarkdown(content, width-style.ContentOffset-1)
-	rendered = indentLines(rendered, style.ContentOffset)
+	rendered = style.Indent(rendered, style.ContentOffset)
 	return styleMarginBottom(theme, rendered)
-}
-
-// indentLines prefixes every line of s with n spaces. Lines that are empty
-// stay empty, so the indent never leaves trailing whitespace behind.
-func indentLines(s string, n int) string {
-	pad := strings.Repeat(" ", n)
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if line != "" {
-			lines[i] = pad + line
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 // ReasoningBlock renders a reasoning/thinking block with muted italic text.

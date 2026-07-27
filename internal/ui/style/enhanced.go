@@ -404,48 +404,40 @@ func Gutter(s string, c color.Color) string {
 // Splash
 // --------------------------------------------------------------------------
 
-// SplashBar renders a gradient stripe down the left of a block of content
-// lines, in the manner of a magazine pull-quote:
+// SplashBlock renders the startup splash: content lines indented to the shared
+// content column, with no left stripe.
 //
-//	█   KIT
-//	█   anthropic · claude-opus-5
-//	█
-//	█   context   ~/project/AGENTS.md
-//	█   skills    btca-cli, kit-extensions
+//	KIT
+//	anthropic · claude-opus-5
 //
-// The stripe scales to the number of content lines, so the banner costs
-// exactly as many rows as it has something to say — unlike block-letter ASCII
-// art, whose height is fixed no matter how little information accompanies it.
-// It also adapts to narrow terminals, where wide ASCII art simply wraps.
-// SplashGutterWidth is the number of columns SplashBar consumes to the left of
-// its content. It matches ContentOffset so the splash stripe lines up with
-// every other gutter in the UI.
-const SplashGutterWidth = ContentOffset
-
-func SplashBar(lines []string, from, to color.Color) string {
+//	context   ~/project/AGENTS.md
+//	skills    btca-cli, kit-extensions
+//
+// The splash carries no gutter glyph because it is not attributed to anyone —
+// it is the application introducing itself, not a message from the user, the
+// assistant or a tool. A stripe here would compete with the wordmark it sits
+// beside and imply an authorship the block does not have.
+//
+// The block costs exactly as many rows as it has something to say, so a
+// session with no skills or extensions loaded produces a shorter splash.
+func SplashBlock(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
+	return Indent(strings.Join(lines, "\n"), ContentOffset)
+}
 
-	var b strings.Builder
-	// The gap between stripe and text is constant, so build it once.
-	gap := strings.Repeat(" ", ContentOffset-1)
+// Indent prefixes every non-empty line of s with n spaces. Empty lines are
+// left untouched so the indent never leaves trailing whitespace behind.
+func Indent(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if i > 0 {
-			b.WriteString("\n")
+		if line != "" {
+			lines[i] = pad + line
 		}
-		pos := 0.0
-		if len(lines) > 1 {
-			pos = float64(i) / float64(len(lines)-1)
-		}
-		bar := lipgloss.NewStyle().
-			Foreground(interpolateColor(from, to, pos)).
-			Render("█")
-		b.WriteString(bar)
-		b.WriteString(gap)
-		b.WriteString(line)
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
 // --------------------------------------------------------------------------

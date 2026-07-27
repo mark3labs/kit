@@ -299,24 +299,36 @@ func TestTurnReceipt(t *testing.T) {
 	})
 }
 
-// TestSplashBarScalesWithContent verifies the splash costs exactly as many
+// TestSplashBlockScalesWithContent verifies the splash costs exactly as many
 // rows as it has content, rather than a fixed block-art height.
-func TestSplashBarScalesWithContent(t *testing.T) {
-	theme := style.GetTheme()
-
+func TestSplashBlockScalesWithContent(t *testing.T) {
 	for _, n := range []int{1, 3, 8} {
 		lines := make([]string, n)
 		for i := range lines {
 			lines[i] = "x"
 		}
-		got := style.SplashBar(lines, theme.Primary, theme.Accent)
+		got := style.SplashBlock(lines)
 		if h := lipgloss.Height(got); h != n {
-			t.Errorf("SplashBar with %d lines rendered %d rows", n, h)
+			t.Errorf("SplashBlock with %d lines rendered %d rows", n, h)
 		}
 	}
 
-	if got := style.SplashBar(nil, theme.Primary, theme.Accent); got != "" {
+	if got := style.SplashBlock(nil); got != "" {
 		t.Errorf("expected empty splash for no content, got %q", got)
+	}
+}
+
+// TestSplashBlockHasNoGutter verifies the splash carries no left stripe. It is
+// the application introducing itself, not a message attributed to anyone, so a
+// gutter glyph there would imply an authorship the block does not have.
+func TestSplashBlockHasNoGutter(t *testing.T) {
+	got := stripAnsi(style.SplashBlock([]string{"KIT", "anthropic"}))
+
+	if strings.Contains(got, style.GutterGlyph) {
+		t.Errorf("splash must not carry a gutter glyph, got %q", got)
+	}
+	if strings.Contains(got, "█") {
+		t.Errorf("splash must not carry a left stripe, got %q", got)
 	}
 }
 
@@ -393,12 +405,8 @@ func TestLeftEdgeAlignment(t *testing.T) {
 		}
 	})
 
-	t.Run("splash stripe in column 0", func(t *testing.T) {
-		theme := style.GetTheme()
-		got := style.SplashBar([]string{"KIT"}, theme.Primary, theme.Accent)
-		if !startsAtColumnZero(got) {
-			t.Errorf("splash stripe must sit in column 0, got %q", stripAnsi(got))
-		}
+	t.Run("splash indented to the content column", func(t *testing.T) {
+		got := style.SplashBlock([]string{"KIT"})
 		if col := contentColumn(got); col != style.ContentOffset {
 			t.Errorf("splash text starts at column %d, want %d", col, style.ContentOffset)
 		}
