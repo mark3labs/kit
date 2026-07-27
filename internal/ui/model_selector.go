@@ -162,10 +162,10 @@ func (ms *ModelSelectorComponent) View() tea.View {
 	return v
 }
 
-// RenderOverlay returns the popup as a centered overlay string, ready to be
-// composited on top of the main content via overlayContent().
-func (ms *ModelSelectorComponent) RenderOverlay(termWidth, termHeight int) string {
-	return ms.popup.RenderCentered(termWidth, termHeight)
+// RenderOverlay returns the popup as a bare box, ready to be composited on
+// top of the main content so the conversation stays visible behind it.
+func (ms *ModelSelectorComponent) RenderOverlay() string {
+	return ms.popup.Render()
 }
 
 // IsActive returns whether the selector is still accepting input.

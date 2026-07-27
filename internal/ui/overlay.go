@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/mark3labs/kit/internal/ui/style"
 )
@@ -43,7 +44,25 @@ type overlayDialog struct {
 	dialogWidth int // configured dialog width (0 = auto)
 	maxHeight   int // configured max height (0 = auto)
 	anchor      string
+
+	// dismissOnly marks an overlay that has no consumer for its result —
+	// the message inspector, which the UI opens for reading only. Enter and
+	// Esc then close the dialog with no observable difference, so the key
+	// hint advertises a single "close" action instead of implying that
+	// dismiss and cancel lead to different outcomes.
+	//
+	// Extension overlays leave this false: ShowOverlay reports Enter as
+	// completed and Esc as cancelled, and extensions may branch on it.
+	dismissOnly bool
 }
+
+// Dialog layout constants.
+const (
+	// dialogTabWidth is the number of spaces a tab expands to inside the
+	// dialog body. It must match the box style's tab handling so wrapping
+	// measurements agree with what is rendered.
+	dialogTabWidth = 4
+)
 
 // newOverlayDialog creates an overlay dialog from an OverlayRequestEvent's
 // parameters.
@@ -154,6 +173,9 @@ func (o *overlayDialog) Render() string {
 	mh = clamp(mh, min(6, termH), termH)
 
 	// Inner width accounts for border (2) + horizontal padding (2 left + 1 right).
+	// lipgloss's Width() sets the total rendered width including the border,
+	// so the dialog style below is given the full dw and the content area is
+	// what remains after the frame and padding.
 	innerWidth := max(dw-5, 6)
 
 	// Render body text (potentially as markdown).
@@ -163,12 +185,36 @@ func (o *overlayDialog) Render() string {
 	}
 	bodyText = strings.TrimRight(bodyText, "\n")
 
+	// Expand tabs before measuring. Wrapping counts a tab as one cell but
+	// the box style renders it as several, so a line wrapped to exactly the
+	// content width would overflow and be wrapped a second time by the
+	// style — silently doubling the height of tab-indented output such as
+	// grep matches. Expanding first makes the two agree.
+	bodyText = strings.ReplaceAll(bodyText, "\t", strings.Repeat(" ", dialogTabWidth))
+
+	// Wrap to the content width *before* measuring.
+	//
+	// The box style would otherwise wrap over-long lines itself, at which
+	// point one source line occupies several rows and every downstream
+	// number is wrong: totalLines under-counts, the maxBodyLines slice lets
+	// through more rows than budgeted (a grep result with long paths grew a
+	// 30-row terminal's dialog to 48 rows), and scrolling moves by source
+	// line rather than by the row the reader actually sees.
+	//
+	// Wrapping here makes one element of bodyLines equal exactly one
+	// rendered row, so the height budget, the scroll offset and the "of N
+	// lines" counter all agree with the display.
+	bodyText = xansi.Wrap(bodyText, innerWidth, "")
+
 	bodyLines := strings.Split(bodyText, "\n")
 	o.totalLines = len(bodyLines)
 
 	// Calculate available height for the scrollable body.
-	// Chrome: border(2) + padTop(1) + padBottom(1) + hintLine(1) = 5
-	chromeLines := 5
+	// Chrome: border(2) + padTop(1) + padBottom(1) + blank(1) + footer(1) = 6.
+	// The footer row carries the scroll indicator and the key hints; both
+	// live inside the border so no part of the dialog is a bare strip of
+	// padding that would erase the view behind it.
+	chromeLines := 6
 	if o.title != "" {
 		chromeLines += 2 // title line + separator line
 	}
@@ -209,19 +255,6 @@ func (o *overlayDialog) Render() string {
 	parts = append(parts, "")
 	parts = append(parts, strings.Join(bodyLines, "\n"))
 
-	// Scroll indicator.
-	if scrollable {
-		indicator := fmt.Sprintf("(%d–%d of %d lines)",
-			o.scrollOff+1,
-			min(o.scrollOff+maxBodyLines, o.totalLines),
-			o.totalLines)
-		parts = append(parts, lipgloss.NewStyle().
-			Foreground(theme.VeryMuted).
-			Render(indicator))
-	} else {
-		parts = append(parts, "")
-	}
-
 	// Action bar.
 	if len(o.actions) > 0 {
 		parts = append(parts, lipgloss.NewStyle().
@@ -241,6 +274,9 @@ func (o *overlayDialog) Render() string {
 		parts = append(parts, strings.Join(actionParts, "    "))
 	}
 
+	// Footer: scroll position on the left, key hints on the right.
+	parts = append(parts, o.renderFooter(scrollable, maxBodyLines, innerWidth, theme))
+
 	innerContent := strings.Join(parts, "\n")
 
 	// Resolve border color.
@@ -249,11 +285,14 @@ func (o *overlayDialog) Render() string {
 		borderClr = lipgloss.Color(o.borderColor)
 	}
 
-	// Build the dialog box style.
+	// Build the dialog box style. Width() is the total rendered width
+	// including the border, so dw is passed through unmodified — subtracting
+	// the border here would shrink the content area below innerWidth and
+	// wrap the title separator and action bar onto extra lines.
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderClr).
-		Width(dw-2). // -2 for border chars
+		Width(dw).
 		Padding(1, 1, 1, 2).
 		Foreground(theme.Text)
 
@@ -263,58 +302,100 @@ func (o *overlayDialog) Render() string {
 
 	dialog := dialogStyle.Render(innerContent)
 
-	// Key hints below the dialog, adapted to width.
+	// The box is returned unpositioned; the caller composites it over the
+	// main view at the anchor point (see compositeAnchored). Positioning
+	// here by padding with spaces and newlines would produce an opaque
+	// full-screen block that erases whatever is behind it.
+	return dialog
+}
+
+// renderFooter builds the dialog's bottom row: the scroll position on the
+// left and the key hints on the right, padded to exactly innerWidth.
+//
+// The row lives inside the border. Rendering hints below the box would leave
+// a bare band of padding that the compositor draws as opaque cells, cutting a
+// blank strip through the content behind the dialog.
+//
+// Both halves compete for one row, so the content degrades by priority rather
+// than being dropped outright: the verbose "(1–12 of 200 lines)" collapses to
+// "12/200", and the "↑/↓ scroll" hint goes before any dismiss hint because a
+// visible position indicator already implies the dialog scrolls. The keys
+// that close the dialog are the last thing surrendered.
+func (o *overlayDialog) renderFooter(scrollable bool, maxBodyLines, innerWidth int, theme style.Theme) string {
+	mutedStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	veryMutedStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+
+	var indicators []string
+	if scrollable {
+		last := min(o.scrollOff+maxBodyLines, o.totalLines)
+		indicators = append(indicators,
+			fmt.Sprintf("(%d–%d of %d lines)", o.scrollOff+1, last, o.totalLines),
+			fmt.Sprintf("%d/%d", last, o.totalLines),
+		)
+	}
+	indicators = append(indicators, "")
+
+	// Hint sets, widest first.
+	hintSets := [][]string{o.hintLabels(scrollable, true), o.hintLabels(scrollable, false)}
+
+	for _, hints := range hintSets {
+		hintText := strings.Join(hints, "  ")
+		hintW := lipgloss.Width(hintText)
+
+		for _, indicator := range indicators {
+			if indicator == "" {
+				continue
+			}
+			if gap := innerWidth - lipgloss.Width(indicator) - hintW; gap >= 2 {
+				return veryMutedStyle.Render(indicator) +
+					strings.Repeat(" ", gap) +
+					mutedStyle.Render(hintText)
+			}
+		}
+
+		// Hints alone, right-aligned.
+		if pad := innerWidth - hintW; pad >= 0 {
+			return strings.Repeat(" ", pad) + mutedStyle.Render(hintText)
+		}
+	}
+
+	// Narrower than even the terse hints — show them and let the box clip.
+	return mutedStyle.Render(strings.Join(o.hintLabels(scrollable, false), "  "))
+}
+
+// hintLabels returns the key hints for the dialog's current configuration.
+// verbose selects the full wording over the terse forms used when the row is
+// too narrow to spell the keys out.
+func (o *overlayDialog) hintLabels(scrollable, verbose bool) []string {
 	var hints []string
-	if termW >= 50 {
+
+	if verbose {
 		if scrollable {
 			hints = append(hints, "↑/↓ scroll")
 		}
-		if len(o.actions) > 0 {
-			hints = append(hints, "←/→ switch")
-			hints = append(hints, "Enter select")
-		} else {
-			hints = append(hints, "Enter dismiss")
+		switch {
+		case len(o.actions) > 0:
+			hints = append(hints, "←/→ switch", "Enter select", "Esc cancel")
+		case o.dismissOnly:
+			hints = append(hints, "Enter/Esc close")
+		default:
+			hints = append(hints, "Enter dismiss", "Esc cancel")
 		}
-		hints = append(hints, "Esc cancel")
-	} else {
-		if len(o.actions) > 0 {
-			hints = append(hints, "↵ select")
-		} else {
-			hints = append(hints, "↵ ok")
-		}
-		hints = append(hints, "esc")
-	}
-	hintText := lipgloss.NewStyle().
-		Foreground(theme.Muted).
-		Render("  " + strings.Join(hints, "  "))
-
-	full := lipgloss.JoinVertical(lipgloss.Left, dialog, hintText)
-
-	// Center horizontally within the terminal width.
-	centered := lipgloss.PlaceHorizontal(o.width, lipgloss.Center, full)
-
-	// Apply vertical positioning based on anchor.
-	// Calculate how many lines we have and how many we need.
-	contentHeight := lipgloss.Height(centered)
-	if contentHeight < o.height {
-		switch o.anchor {
-		case "top-center":
-			// Add one blank line at top for breathing room.
-			centered = "\n" + centered
-		case "bottom-center":
-			// Pad from the top so the dialog sits near the bottom.
-			topPad := o.height - contentHeight - 1
-			if topPad > 0 {
-				centered = strings.Repeat("\n", topPad) + centered
-			}
-		default: // "center"
-			// Vertically center within available height.
-			topPad := (o.height - contentHeight) / 2
-			if topPad > 0 {
-				centered = strings.Repeat("\n", topPad) + centered
-			}
-		}
+		return hints
 	}
 
-	return centered
+	switch {
+	case len(o.actions) > 0:
+		hints = append(hints, "↵ select", "esc")
+	case o.dismissOnly:
+		hints = append(hints, "↵/esc close")
+	default:
+		hints = append(hints, "↵ ok", "esc")
+	}
+	return hints
+}
+
+// Anchor returns the configured vertical anchor for this dialog.
+func (o *overlayDialog) Anchor() string {
+	return o.anchor
 }

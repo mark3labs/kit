@@ -310,9 +310,10 @@ func (p *PopupList) Render() string {
 		Width(popupW)
 	if popupH > 0 {
 		popupStyle = popupStyle.Height(popupH)
-	} else {
-		popupStyle = popupStyle.MarginBottom(1)
 	}
+	// No bottom margin: the popup is composited over the view, so a margin
+	// row would be an unstyled band of spaces below the border that erases
+	// the content behind it. Spacing is the caller's business.
 
 	var b strings.Builder
 
@@ -487,7 +488,8 @@ func (p *PopupList) Render() string {
 }
 
 // RenderCentered returns the popup placed at the center of a termWidth×termHeight
-// canvas, ready to be composed with overlayContent().
+// canvas. Prefer Render() plus the compositor for modals — this full-screen
+// form is opaque and erases whatever sits behind it.
 func (p *PopupList) RenderCentered(termWidth, termHeight int) string {
 	popupContent := p.Render()
 	return lipgloss.Place(

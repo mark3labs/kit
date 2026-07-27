@@ -698,14 +698,16 @@ func (s *InputComponent) View() tea.View {
 	return tea.NewView(view.String())
 }
 
-// RenderPopupCentered renders the autocomplete popup for / or @ as a
-// centered overlay. Returns "" when the popup is not currently shown.
+// RenderPopupBox renders the autocomplete popup for / or @ as a bare box.
+// Returns "" when the popup is not currently shown. The caller composites it
+// over the main view so the transcript stays visible around it.
+//
 // The actual filtering / selection state lives on InputComponent — this
 // method merely converts the filtered FuzzyMatch list into PopupItems
 // and asks the shared PopupList to draw it. As a result the / popup, the
 // @ popup, the model picker, the tree selector and the session selector
 // all share identical chrome.
-func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
+func (s *InputComponent) RenderPopupBox(termWidth, termHeight int) string {
 	if !s.showPopup || len(s.filtered) == 0 {
 		return ""
 	}
@@ -728,7 +730,7 @@ func (s *InputComponent) RenderPopupCentered(termWidth, termHeight int) string {
 	s.popup.SetSize(termWidth, termHeight)
 	s.popup.SetItems(items)
 	s.popup.SetCursor(s.selected)
-	return s.popup.RenderCentered(termWidth, termHeight)
+	return s.popup.Render()
 }
 
 // completeArgs checks whether the input line matches a command with a Complete
