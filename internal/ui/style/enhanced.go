@@ -156,6 +156,11 @@ type Theme struct {
 	GutterBg color.Color // Line-number gutter background
 	WriteBg  color.Color // Green-tinted bg for Write tool content
 
+	// InputBg fills the composer bar. It is a shade off the terminal
+	// background — enough to read as a distinct surface, not enough to
+	// compete with message content for attention.
+	InputBg color.Color
+
 	// Markdown rendering and syntax highlighting colors
 	Markdown MarkdownThemeColors
 }
@@ -193,6 +198,9 @@ func DefaultTheme() Theme {
 		CodeBg:   AdaptiveColor("#E8E8E8", "#161616"), // Matches DiffEqualBg
 		GutterBg: AdaptiveColor("#E0E0E0", "#111111"), // Slightly darker
 		WriteBg:  AdaptiveColor("#F0E8D0", "#2A2410"), // Warm amber tint
+
+		// Composer surface — one step off the terminal background.
+		InputBg: AdaptiveColor("#E6E6E6", "#141414"),
 
 		// Markdown & syntax highlighting — all warm tones
 		Markdown: MarkdownThemeColors{

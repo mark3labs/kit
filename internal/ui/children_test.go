@@ -389,8 +389,8 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	if !c.spinning {
 		t.Fatal("expected spinning=true during tool execution")
 	}
-	tools := c.activeToolDisplays()
-	if len(tools) != 1 || !strings.Contains(tools[0], "exec_tool") {
+	tools := c.activeToolList()
+	if len(tools) != 1 || tools[0].name != "exec_tool" {
 		t.Fatalf("expected activeTools to contain tool name, got %v", tools)
 	}
 	if cmd == nil {
@@ -437,10 +437,10 @@ func TestStreamComponent_ParallelToolExecution(t *testing.T) {
 		t.Fatalf("expected 3 active tools, got %d: %v", len(c.activeTools), c.activeTools)
 	}
 
-	// Check SpinnerView shows all tools
-	view := c.SpinnerView()
-	if !strings.Contains(view, "Running:") {
-		t.Fatalf("expected spinner view to contain 'Running:' for multiple tools, got %q", view)
+	// Concurrent calls collapse to a count so the activity row stays one line.
+	phrase := c.ActivityPhrase()
+	if !strings.Contains(phrase, "3 tools") {
+		t.Fatalf("expected activity phrase to summarise 3 concurrent tools, got %q", phrase)
 	}
 
 	// Finish one tool
@@ -465,20 +465,20 @@ func TestStreamComponent_ParallelSameToolName_UsesToolCallID(t *testing.T) {
 	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-1", ToolName: "read", IsStarting: true})
 	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-2", ToolName: "read", IsStarting: true})
 
-	tools := c.activeToolDisplays()
+	tools := c.activeToolList()
 	if len(tools) != 2 {
 		t.Fatalf("expected 2 active read calls, got %d (%v)", len(tools), tools)
 	}
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-1", ToolName: "read", IsStarting: false})
-	tools = c.activeToolDisplays()
+	tools = c.activeToolList()
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 active read call after finishing one ID, got %d (%v)", len(tools), tools)
 	}
 
 	c = sendStreamMsg(c, app.ToolExecutionEvent{ToolCallID: "call-read-2", ToolName: "read", IsStarting: false})
-	if len(c.activeToolDisplays()) != 0 {
-		t.Fatalf("expected no active tools after finishing both IDs, got %v", c.activeToolDisplays())
+	if len(c.activeToolList()) != 0 {
+		t.Fatalf("expected no active tools after finishing both IDs, got %v", c.activeToolList())
 	}
 }
 

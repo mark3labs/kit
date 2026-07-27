@@ -158,8 +158,8 @@ type StreamComponent struct {
 	// spinnerFrame is the current frame index.
 	spinnerFrame int
 
-	// activeTools maps ToolCallID -> display label for currently running tools.
-	activeTools map[string]string
+	// activeTools maps ToolCallID -> descriptor for currently running tools.
+	activeTools map[string]activeTool
 
 	// activeToolOrder preserves deterministic display order for active tools.
 	activeToolOrder []string
@@ -424,7 +424,7 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.IsStarting {
 			if s.activeTools == nil {
-				s.activeTools = make(map[string]string)
+				s.activeTools = make(map[string]activeTool)
 			}
 			if _, exists := s.activeTools[toolID]; !exists {
 				s.activeToolOrder = append(s.activeToolOrder, toolID)
@@ -433,7 +433,11 @@ func (s *StreamComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.ToolName == "subagent" {
 				agentName = extractAgentNameFromArgs(msg.ToolArgs)
 			}
-			s.activeTools[toolID] = formatToolExecutionMessage(msg.ToolName, agentName)
+			s.activeTools[toolID] = activeTool{
+				name:      msg.ToolName,
+				args:      msg.ToolArgs,
+				agentName: agentName,
+			}
 			s.spinnerFrame = 0
 			if !s.spinning {
 				s.phase = streamPhaseActive
@@ -530,28 +534,50 @@ func (s *StreamComponent) HasReasoning() bool {
 
 // SpinnerView returns the rendered spinner line for the parent to embed in the
 // status bar. Returns "" when the spinner is not active.
+//
+// Deprecated: live activity now renders in the dedicated activity row above
+// the composer (see AppModel.renderActivityRow). This remains only for
+// embedders that still place a spinner in the status bar.
 func (s *StreamComponent) SpinnerView() string {
 	if !s.spinning {
 		return ""
 	}
-	frame := s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
-	tools := s.activeToolDisplays()
-	if len(tools) == 0 {
-		return "  " + frame
-	}
-	theme := GetTheme()
-	msgStyle := lipgloss.NewStyle().
-		Foreground(theme.Text).
-		Italic(true)
+	return "  " + s.ActivityDot()
+}
 
-	// Format active tools list
-	var toolsMsg string
-	if len(tools) == 1 {
-		toolsMsg = tools[0]
-	} else {
-		toolsMsg = "Running: " + strings.Join(tools, ", ")
+// ActivityDot returns just the animated indicator glyph, without any label.
+// Returns "" when the spinner is not running.
+func (s *StreamComponent) ActivityDot() string {
+	if !s.spinning {
+		return ""
 	}
-	return "  " + frame + " " + msgStyle.Render(toolsMsg)
+	return s.spinnerFrames[s.spinnerFrame%len(s.spinnerFrames)]
+}
+
+// ActivityPhrase returns a present-tense description of what the agent is
+// currently doing, for the activity row. Concurrent tool calls collapse to a
+// count so the row stays a single line; a turn with no tool in flight reports
+// that the model is thinking.
+func (s *StreamComponent) ActivityPhrase() string {
+	tools := s.activeToolList()
+	switch len(tools) {
+	case 0:
+		return "Thinking"
+	case 1:
+		t := tools[0]
+		if t.name == "subagent" && t.agentName != "" {
+			return "Delegating to " + t.agentName
+		}
+		return activityVerb(t.name, t.args)
+	default:
+		return fmt.Sprintf("Running %d tools", len(tools))
+	}
+}
+
+// IsSpinning reports whether the stream is currently animating, i.e. whether
+// there is live activity worth showing.
+func (s *StreamComponent) IsSpinning() bool {
+	return s.spinning
 }
 
 // renderStreamingText renders the accumulated streaming text as a live assistant
@@ -568,14 +594,24 @@ func (s *StreamComponent) renderStreamingText(text string) string {
 	return msg.Content
 }
 
-func (s *StreamComponent) activeToolDisplays() []string {
+// activeTool describes a tool call that is currently in flight. The raw
+// arguments are retained so the activity row can render a specific,
+// present-tense phrase ("Reading internal/ui/model.go") rather than a bare
+// tool name.
+type activeTool struct {
+	name      string
+	args      string
+	agentName string
+}
+
+func (s *StreamComponent) activeToolList() []activeTool {
 	if len(s.activeTools) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(s.activeToolOrder))
+	out := make([]activeTool, 0, len(s.activeToolOrder))
 	for _, id := range s.activeToolOrder {
-		if display, ok := s.activeTools[id]; ok {
-			out = append(out, display)
+		if t, ok := s.activeTools[id]; ok {
+			out = append(out, t)
 		}
 	}
 	return out
@@ -632,15 +668,6 @@ func extractAgentNameFromArgs(toolArgs string) string {
 		return sanitizeAgentName(agent)
 	}
 	return ""
-}
-
-// formatToolExecutionMessage creates a descriptive spinner message for tool execution.
-// For subagents, includes the agent type in parentheses (e.g., "subagent (explore)").
-func formatToolExecutionMessage(toolName, agentName string) string {
-	if toolName == "subagent" && agentName != "" {
-		return fmt.Sprintf("subagent (%s)", agentName)
-	}
-	return toolName
 }
 
 // UpdateTheme refreshes the component's typography instance and spinner

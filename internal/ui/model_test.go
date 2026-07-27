@@ -112,6 +112,8 @@ func (s *stubStreamComponent) View() tea.View             { return tea.NewView("
 func (s *stubStreamComponent) Reset()                     { s.resetCalled++; s.renderedContent = "" }
 func (s *stubStreamComponent) GetRenderedContent() string { return s.renderedContent }
 func (s *stubStreamComponent) SpinnerView() string        { return "" }
+func (s *stubStreamComponent) ActivityDot() string        { return "" }
+func (s *stubStreamComponent) ActivityPhrase() string     { return "" }
 func (s *stubStreamComponent) SetThinkingVisible(bool)    {}
 func (s *stubStreamComponent) HasReasoning() bool         { return false }
 func (s *stubStreamComponent) UpdateTheme()               {}
@@ -520,12 +522,34 @@ func TestWindowResize_distributeHeight(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 
-	// With height=30, scroll height = 30 - 1 (separator) - 8 (input) - 1 (statusBar) = 20
+	// With height=30: the separator collapses to 0 when nothing is queued,
+	// the stub input falls back to the 3-line composer estimate, the activity
+	// row is absent while idle, and the status bar is always 1 line.
+	// 30 - 0 - 3 - 0 - 1 = 26.
 	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
 	_ = m
 
-	if m.scrollList.height != 20 {
-		t.Fatalf("expected scroll list height=20, got %d", m.scrollList.height)
+	if m.scrollList.height != 26 {
+		t.Fatalf("expected scroll list height=26, got %d", m.scrollList.height)
+	}
+}
+
+// TestActivityRow_ReservesLineWhileWorking verifies the activity row costs
+// exactly one line of transcript while the agent is working, and none at rest.
+func TestActivityRow_ReservesLineWhileWorking(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	idleHeight := m.scrollList.height
+
+	m.state = stateWorking
+	m.layoutDirty = true
+	m.distributeHeight()
+
+	if got := m.scrollList.height; got != idleHeight-1 {
+		t.Fatalf("expected working height=%d (one line for the activity row), got %d",
+			idleHeight-1, got)
 	}
 }
 

@@ -130,6 +130,20 @@ type InputComponent struct {
 // maxHistory is the maximum number of prompt entries kept in history.
 const maxHistory = 100
 
+// inputChromeWidth is the number of columns the composer frame consumes: one
+// column of horizontal padding on each side of the filled bar. The textarea is
+// sized to the remainder so text neither wraps early nor overflows.
+const inputChromeWidth = 2
+
+// inputMaxRows caps how tall the composer grows before the textarea begins
+// scrolling its own content.
+const inputMaxRows = 8
+
+// defaultPlaceholder doubles as the submit hint. Folding the hint into the
+// placeholder means the composer needs no separate help line, and the hint
+// disappears exactly when it stops being useful — as soon as the user types.
+const defaultPlaceholder = "Ask kit anything…   ↵ send"
+
 // clipboardImageMsg is the result of an async clipboard image read.
 type clipboardImageMsg struct {
 	image *core.ImageAttachment
@@ -151,12 +165,19 @@ type thumbnailReadyMsg struct {
 // /clear and /clear-queue are no-ops.
 func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 	ta := textarea.New()
-	ta.Placeholder = "Type your message..."
+	ta.Placeholder = defaultPlaceholder
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.CharLimit = 0
-	ta.SetWidth(width - 8) // Account for container padding, border and internal padding
-	ta.SetHeight(4)        // 4 lines for comfortable multi-line input
+	ta.SetWidth(width - inputChromeWidth)
+
+	// The composer starts as a single row and grows with the text, so an empty
+	// prompt costs one line instead of four. Beyond inputMaxRows the textarea
+	// scrolls internally rather than eating the transcript.
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = inputMaxRows
+	ta.SetHeight(1)
 	ta.Focus()
 
 	// Override InsertNewline so only ctrl+j and shift+enter insert newlines.
@@ -166,14 +187,13 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 		key.WithHelp("ctrl+j", "insert newline"),
 	)
 
-	// Style the textarea using theme colors.
+	// Style the textarea using theme colors. Every span the textarea emits
+	// carries the composer background explicitly: a Background() set only on
+	// the outer container tears at each inner ANSI reset, which renders as
+	// patchy off-color blocks across the bar.
 	theme := style.GetTheme()
 	styles := ta.Styles()
-	styles.Focused.Base = lipgloss.NewStyle()
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(theme.VeryMuted)
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
-	styles.Focused.Prompt = lipgloss.NewStyle()
-	styles.Focused.CursorLine = lipgloss.NewStyle()
+	applyComposerStyles(&styles, theme)
 	ta.SetStyles(styles)
 
 	ic := &InputComponent{
@@ -231,7 +251,7 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
-		s.textarea.SetWidth(msg.Width - 8)
+		s.textarea.SetWidth(msg.Width - inputChromeWidth)
 		return s, nil
 
 	case clipboardImageMsg:
@@ -630,44 +650,37 @@ func renderThumbnailCmd(img core.ImageAttachment, cols, rows int, bg color.Color
 	}
 }
 
-// View implements tea.Model. Renders the textarea, autocomplete popup
-// (if visible), and help text.
+// View implements tea.Model. Renders the composer bar and any pending image
+// attachments. The autocomplete popup is drawn separately as a centered
+// overlay by AppModel.View().
 func (s *InputComponent) View() tea.View {
-	containerStyle := lipgloss.NewStyle()
-
 	theme := style.GetTheme()
 
-	inputBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.ThickBorder()).
-		BorderLeft(true).
-		BorderRight(false).
-		BorderTop(false).
-		BorderBottom(false).
-		BorderForeground(theme.Primary).
-		MarginTop(1).
-		MarginBottom(1).
-		PaddingLeft(2).    // match message block paddingLeft
-		Width(s.width - 1) // full width minus left border
+	// The composer is a filled bar rather than a bordered box. A background
+	// fill reads as chrome, which is what the composer is; a border reads as
+	// content, which is what messages are. Keeping the two distinct means the
+	// input can never be mistaken for something the agent said.
+	inputBarStyle := lipgloss.NewStyle().
+		Background(theme.InputBg).
+		Padding(0, 1).
+		Width(s.width)
 
 	var view strings.Builder
-	view.WriteString(inputBoxStyle.Render(s.textarea.View()))
-
-	// Popup is now rendered as a centered overlay in AppModel.View()
-	// instead of inline here to prevent bottom overflow
+	view.WriteString(inputBarStyle.Render(s.textarea.View()))
 
 	// Show image attachment previews when images are pending. A cached
 	// half-block thumbnail is rendered when the terminal supports it;
 	// otherwise the text pill alone is shown.
 	if len(s.pendingImages) > 0 {
 		imgStyle := lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			PaddingLeft(3)
+			Foreground(theme.VeryMuted).
+			PaddingLeft(1)
 
-		label := fmt.Sprintf("[%d image(s) attached] ctrl+u to clear", len(s.pendingImages))
+		label := fmt.Sprintf("%d image(s) attached · ctrl+u to clear", len(s.pendingImages))
 		view.WriteString("\n")
 		view.WriteString(imgStyle.Render(label))
 
-		thumbStyle := lipgloss.NewStyle().PaddingLeft(3)
+		thumbStyle := lipgloss.NewStyle().PaddingLeft(1)
 		for i := range s.pendingImages {
 			if i < len(s.imageThumbs) && s.imageThumbs[i] != "" {
 				view.WriteString("\n")
@@ -676,40 +689,7 @@ func (s *InputComponent) View() tea.View {
 		}
 	}
 
-	if !s.hideHint {
-		helpStyle := lipgloss.NewStyle().
-			Foreground(theme.VeryMuted).
-			MarginTop(1).
-			PaddingLeft(3)
-
-		// Adapt hint text to available width (accounting for left padding of 3).
-		var hint string
-		availableHintWidth := s.width - 3
-		if s.agentBusy {
-			// When the agent is working, show steering shortcut.
-			if availableHintWidth >= 60 {
-				hint = "enter queue • ctrl+x s steer • esc esc cancel"
-			} else if availableHintWidth >= 40 {
-				hint = "↵ queue • ^X s steer • esc×2 cancel"
-			} else {
-				hint = "^X s steer"
-			}
-		} else if availableHintWidth >= 80 {
-			hint = "enter submit • ctrl+j / shift+enter new line • ctrl+x e editor • ctrl+v paste image"
-		} else if availableHintWidth >= 67 {
-			hint = "enter submit • ctrl+j new line • ctrl+x e editor • ctrl+v image"
-		} else if availableHintWidth >= 40 {
-			hint = "↵ submit • ctrl+j newline • ^X e editor"
-		} else if availableHintWidth >= 20 {
-			hint = "↵ submit • ^X e editor"
-		} else {
-			hint = "↵ submit"
-		}
-		view.WriteString("\n")
-		view.WriteString(helpStyle.Render(hint))
-	}
-
-	return tea.NewView(containerStyle.Render(view.String()))
+	return tea.NewView(view.String())
 }
 
 // RenderPopupCentered renders the autocomplete popup for / or @ as a
@@ -967,4 +947,33 @@ func (s *InputComponent) updateEditFilePopup(cmdLen int, pathPrefix string) {
 		s.filtered[i] = FuzzyMatch{Command: &s.fileSynthCmds[i], Score: fs.Score}
 	}
 	s.selected = 0
+}
+
+// applyComposerStyles paints every textarea style state with the composer
+// background.
+//
+// lipgloss emits a reset sequence at the end of each styled span, which clears
+// the background set by an enclosing container. Filling the bar therefore has
+// to happen on the innermost styles rather than on the wrapper, or the result
+// is a bar that flickers back to the terminal background wherever the textarea
+// changed color (placeholder, text, cursor line).
+func applyComposerStyles(styles *textarea.Styles, theme style.Theme) {
+	bg := lipgloss.NewStyle().Background(theme.InputBg)
+
+	for _, state := range []*textarea.StyleState{&styles.Focused, &styles.Blurred} {
+		state.Base = bg
+		state.Text = bg.Foreground(theme.Text)
+		state.Placeholder = bg.Foreground(theme.VeryMuted)
+		state.Prompt = bg
+		state.CursorLine = bg
+		state.EndOfBuffer = bg
+	}
+}
+
+// UpdateTheme repaints the composer with colors from the current theme.
+// Called after /theme switches the active palette.
+func (s *InputComponent) UpdateTheme() {
+	styles := s.textarea.Styles()
+	applyComposerStyles(&styles, style.GetTheme())
+	s.textarea.SetStyles(styles)
 }

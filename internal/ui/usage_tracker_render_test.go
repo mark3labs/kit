@@ -37,15 +37,16 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 
 	rendered := stripAnsi(oauthTracker.RenderUsageInfo())
 
-	// Should show tokens and percentage, but cost should show "$0.00"
-	if !strings.Contains(rendered, "Tokens: 2.0K") {
-		t.Errorf("Expected rendered output to contain 'Tokens: 2.0K', got: %s", rendered)
+	// The token count is unlabelled and OAuth sessions omit cost entirely,
+	// since there is no per-token charge to report.
+	if !strings.Contains(rendered, "2.0K") {
+		t.Errorf("Expected rendered output to contain '2.0K', got: %s", rendered)
 	}
-	if !strings.Contains(rendered, "(1%)") { // 2000/200000 = 1%
+	if !strings.Contains(rendered, "1%") { // 2000/200000 = 1%
 		t.Errorf("Expected rendered output to contain percentage, got: %s", rendered)
 	}
-	if !strings.Contains(rendered, "Cost: $0.00") {
-		t.Errorf("Expected rendered output to contain 'Cost: $0.00', got: %s", rendered)
+	if strings.Contains(rendered, "$") {
+		t.Errorf("Expected OAuth render to omit cost entirely, got: %s", rendered)
 	}
 
 	// Test regular API key rendering (should show actual cost)
@@ -55,15 +56,12 @@ func TestUsageTracker_RenderUsageInfo_OAuth(t *testing.T) {
 
 	regularRendered := stripAnsi(regularTracker.RenderUsageInfo())
 
-	// Should show tokens and actual cost
-	if !strings.Contains(regularRendered, "Tokens: 2.0K") {
-		t.Errorf("Expected regular rendered output to contain 'Tokens: 2.0K', got: %s", regularRendered)
+	// Should show tokens and actual cost, rounded to cents.
+	if !strings.Contains(regularRendered, "2.0K") {
+		t.Errorf("Expected regular rendered output to contain '2.0K', got: %s", regularRendered)
 	}
-	if strings.Contains(regularRendered, "Cost: $0.00") {
-		t.Errorf("Expected regular rendered output to NOT show $0.00, got: %s", regularRendered)
-	}
-	// Should show actual calculated cost (1500*3 + 500*15)/1000000 = 0.0120
-	if !strings.Contains(regularRendered, "Cost: $0.0120") { // Now showing 4 decimal places
+	// (1500*3 + 500*15)/1000000 = $0.0120 → "$0.01" at status-bar resolution.
+	if !strings.Contains(regularRendered, "$0.01") {
 		t.Errorf("Expected regular rendered output to show actual cost, got: %s", regularRendered)
 	}
 }
@@ -93,18 +91,18 @@ func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
 	}
 
 	// Should show 0 tokens
-	if !strings.Contains(rendered, "Tokens: 0") {
-		t.Errorf("Expected 'Tokens: 0' on startup, got: %s", rendered)
+	if !strings.Contains(rendered, "0") {
+		t.Errorf("Expected a zero token count on startup, got: %s", rendered)
 	}
 
 	// Should NOT show percentage when tokens are 0
-	if strings.Contains(rendered, "(%") {
+	if strings.Contains(rendered, "%") {
 		t.Errorf("Expected no percentage on startup with 0 tokens, got: %s", rendered)
 	}
 
-	// Should show $0.0000 cost for regular API key
-	if !strings.Contains(rendered, "Cost: $0.0000") {
-		t.Errorf("Expected 'Cost: $0.0000' on startup, got: %s", rendered)
+	// A zero-cost session collapses to a bare "$0".
+	if !strings.Contains(rendered, "$0") {
+		t.Errorf("Expected '$0' on startup, got: %s", rendered)
 	}
 
 	// Test startup state (no requests made yet) - OAuth
@@ -116,14 +114,12 @@ func TestUsageTracker_RenderUsageInfo_StartupState(t *testing.T) {
 		t.Errorf("Expected non-empty output on startup for OAuth, got empty string")
 	}
 
-	// Should show 0 tokens for OAuth
-	if !strings.Contains(oauthRendered, "Tokens: 0") {
-		t.Errorf("Expected 'Tokens: 0' on startup for OAuth, got: %s", oauthRendered)
+	// Should show 0 tokens for OAuth, and no cost at all.
+	if !strings.Contains(oauthRendered, "0") {
+		t.Errorf("Expected a zero token count on startup for OAuth, got: %s", oauthRendered)
 	}
-
-	// Should show $0.00 cost for OAuth
-	if !strings.Contains(oauthRendered, "Cost: $0.00") {
-		t.Errorf("Expected 'Cost: $0.00' on startup for OAuth, got: %s", oauthRendered)
+	if strings.Contains(oauthRendered, "$") {
+		t.Errorf("Expected OAuth startup render to omit cost, got: %s", oauthRendered)
 	}
 }
 
@@ -149,8 +145,8 @@ func TestUsageTracker_RenderUsageInfo_UnreportedWarning(t *testing.T) {
 	if strings.Contains(defaultRender, "usage not reported") {
 		t.Fatalf("default state should NOT show unreported warning, got: %s", defaultRender)
 	}
-	if !strings.Contains(defaultRender, "Tokens: 0") {
-		t.Fatalf("default state should show 'Tokens: 0', got: %s", defaultRender)
+	if !strings.Contains(defaultRender, "0") {
+		t.Fatalf("default state should show a zero token count, got: %s", defaultRender)
 	}
 
 	// After a turn where the provider reported nothing → warning appears.
@@ -176,8 +172,8 @@ func TestUsageTracker_RenderUsageInfo_UnreportedWarning(t *testing.T) {
 	if strings.Contains(restored, "usage not reported") {
 		t.Fatalf("restored state should NOT show unreported warning, got: %s", restored)
 	}
-	if !strings.Contains(restored, "Tokens: 2.0K") {
-		t.Fatalf("restored state should show 'Tokens: 2.0K', got: %s", restored)
+	if !strings.Contains(restored, "2.0K") {
+		t.Fatalf("restored state should show '2.0K', got: %s", restored)
 	}
 
 	// Reset (new conversation) must clear the flag so a fresh session with
