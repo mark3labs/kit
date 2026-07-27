@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -293,4 +294,80 @@ func detectGitBranch(dir string) string {
 		}
 		dir = parent
 	}
+}
+
+// turnOutcome describes how an agent turn ended, which decides the receipt's
+// glyph and label.
+type turnOutcome int
+
+const (
+	turnDone turnOutcome = iota
+	turnCancelled
+	turnFailed
+)
+
+// printTurnReceipt appends a one-line summary of the turn that just ended:
+//
+//	✓ Done · 3 tools · 12s
+//
+// This is the only place a green check appears. Individual tool calls are
+// marked with a dim ·, so the check retains its meaning as "the thing you
+// asked for is finished" rather than "another step happened".
+//
+// The receipt is suppressed for turns that did no measurable work — a bare
+// text answer already ends visibly, and a receipt under every reply would be
+// noise.
+func (m *AppModel) printTurnReceipt(outcome turnOutcome) {
+	elapsed := time.Duration(0)
+	if !m.turnStartedAt.IsZero() {
+		elapsed = time.Since(m.turnStartedAt)
+	}
+
+	// Nothing worth reporting: no tools ran and the turn was quick.
+	if outcome == turnDone && m.turnToolCount == 0 && elapsed < turnReceiptMinDuration {
+		return
+	}
+
+	theme := style.GetTheme()
+
+	var glyph, label string
+	var glyphColor color.Color
+	switch outcome {
+	case turnCancelled:
+		glyph, label, glyphColor = "×", "Interrupted", theme.Warning
+	case turnFailed:
+		glyph, label, glyphColor = "×", "Failed", theme.Error
+	default:
+		glyph, label, glyphColor = "✓", "Done", theme.Success
+	}
+
+	dim := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	parts := []string{lipgloss.NewStyle().Bold(true).Render(label)}
+	if m.turnToolCount > 0 {
+		parts = append(parts, dim.Render(pluralize(m.turnToolCount, "tool")))
+	}
+	if e := formatElapsed(elapsed); e != "" {
+		parts = append(parts, dim.Render(e))
+	}
+
+	line := lipgloss.NewStyle().Foreground(glyphColor).Render(glyph) + " " +
+		strings.Join(parts, dim.Render(" · "))
+	line = styleMarginBottom1.Render(line)
+
+	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "system", line, line))
+	m.refreshContent()
+}
+
+// turnReceiptMinDuration is the shortest turn worth acknowledging when no
+// tools ran. Below this the answer arrived fast enough that a receipt would
+// say less than the answer itself.
+const turnReceiptMinDuration = 10 * time.Second
+
+// pluralize renders a count with its noun, adding a trailing "s" for any
+// count other than one.
+func pluralize(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

@@ -297,3 +297,85 @@ func KitBanner() string {
 	}
 	return result.String()
 }
+
+// --------------------------------------------------------------------------
+// Gutter
+// --------------------------------------------------------------------------
+
+// GutterGlyph is the single character used to mark a block's left edge
+// throughout the UI: user messages, alerts, permission prompts and any other
+// element that needs to be visually attributed.
+//
+// One glyph, colored by role, replaces what used to be three competing
+// conventions (a thick ┃ for user messages, a light │ for alerts, and bare
+// indentation for tool bodies). A half-block reads as a deliberate stripe at
+// any font weight, where box-drawing characters vary between terminals and
+// invite the eye to look for a matching corner that never comes.
+const GutterGlyph = "▌"
+
+// GutterBorder returns a lipgloss border consisting only of a left edge drawn
+// with GutterGlyph. Callers enable just the left side; the remaining fields
+// exist because lipgloss requires a complete Border value.
+func GutterBorder() lipgloss.Border {
+	return lipgloss.Border{
+		Left:        GutterGlyph,
+		Right:       "",
+		Top:         "",
+		Bottom:      "",
+		TopLeft:     "",
+		TopRight:    "",
+		BottomLeft:  "",
+		BottomRight: "",
+	}
+}
+
+// Gutter prefixes every line of s with a colored gutter glyph and a single
+// space. Unlike a lipgloss border it does not re-wrap or re-measure the
+// content, so it is safe to apply to text that is already laid out.
+func Gutter(s string, c color.Color) string {
+	bar := lipgloss.NewStyle().Foreground(c).Render(GutterGlyph)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = bar + " " + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// --------------------------------------------------------------------------
+// Splash
+// --------------------------------------------------------------------------
+
+// SplashBar renders a gradient stripe down the left of a block of content
+// lines, in the manner of a magazine pull-quote:
+//
+//	█   KIT
+//	█   anthropic · claude-opus-5
+//	█
+//	█   context   ~/project/AGENTS.md
+//	█   skills    btca-cli, kit-extensions
+//
+// The stripe scales to the number of content lines, so the banner costs
+// exactly as many rows as it has something to say — unlike block-letter ASCII
+// art, whose height is fixed no matter how little information accompanies it.
+// It also adapts to narrow terminals, where wide ASCII art simply wraps.
+func SplashBar(lines []string, from, to color.Color) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		pos := 0.0
+		if len(lines) > 1 {
+			pos = float64(i) / float64(len(lines)-1)
+		}
+		bar := lipgloss.NewStyle().
+			Foreground(interpolateColor(from, to, pos)).
+			Render("█")
+		b.WriteString("  " + bar + "   " + line)
+	}
+	return b.String()
+}

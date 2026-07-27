@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 func TestActivityVerb(t *testing.T) {
@@ -195,5 +196,125 @@ func TestComposerStartsSingleRow(t *testing.T) {
 
 	if got := lipgloss.Height(ic.View().Content); got != 1 {
 		t.Errorf("expected an empty composer to occupy 1 line, got %d", got)
+	}
+}
+
+// TestGutterVocabularyIsConsistent verifies that every attributed block uses
+// the same gutter glyph, rather than mixing border weights.
+func TestGutterVocabularyIsConsistent(t *testing.T) {
+	r := newMessageRenderer(80, false)
+
+	user := r.RenderUserMessage("hello", time.Now())
+	if !strings.Contains(user.Content, style.GutterGlyph) {
+		t.Errorf("expected user message to use the shared gutter glyph %q, got %q",
+			style.GutterGlyph, stripAnsi(user.Content))
+	}
+
+	// The retired glyphs must not reappear anywhere in an attributed block.
+	for _, old := range []string{"┃", "│"} {
+		if strings.Contains(stripAnsi(user.Content), old) {
+			t.Errorf("user message still contains retired gutter glyph %q", old)
+		}
+	}
+}
+
+// TestToolHeaderReservesCheckmark verifies routine tool successes use a quiet
+// marker, leaving ✓ to mean "the turn finished".
+func TestToolHeaderReservesCheckmark(t *testing.T) {
+	r := newMessageRenderer(80, false)
+
+	ok := stripAnsi(r.RenderToolMessage("read", `{"path":"a.go"}`, "contents", false).Content)
+	if strings.Contains(ok, "✓") {
+		t.Errorf("routine tool success should not claim a checkmark, got %q", ok)
+	}
+	if !strings.Contains(ok, "·") {
+		t.Errorf("expected a quiet marker on a routine tool success, got %q", ok)
+	}
+
+	failed := stripAnsi(r.RenderToolMessage("read", `{"path":"a.go"}`, "boom", true).Content)
+	if !strings.Contains(failed, "×") {
+		t.Errorf("expected a failure marker on tool error, got %q", failed)
+	}
+}
+
+// TestTurnReceipt verifies the receipt appears for substantive turns, is
+// suppressed for trivial ones, and reports the outcome.
+func TestTurnReceipt(t *testing.T) {
+	newModel := func() *AppModel {
+		ctrl := &stubAppController{}
+		m, _, _ := newTestAppModel(ctrl)
+		return sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	}
+
+	t.Run("suppressed for trivial turns", func(t *testing.T) {
+		m := newModel()
+		before := len(m.messages)
+		m.turnStartedAt = time.Now()
+		m.turnToolCount = 0
+		m.printTurnReceipt(turnDone)
+
+		if len(m.messages) != before {
+			t.Errorf("expected no receipt for a fast tool-free turn, got %q",
+				stripAnsi(m.messages[len(m.messages)-1].Render(100)))
+		}
+	})
+
+	t.Run("shown after tool use", func(t *testing.T) {
+		m := newModel()
+		m.turnStartedAt = time.Now().Add(-3 * time.Second)
+		m.turnToolCount = 2
+		m.printTurnReceipt(turnDone)
+
+		got := stripAnsi(m.messages[len(m.messages)-1].Render(100))
+		for _, want := range []string{"✓", "Done", "2 tools", "3s"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("expected receipt to contain %q, got %q", want, got)
+			}
+		}
+	})
+
+	t.Run("singular tool", func(t *testing.T) {
+		m := newModel()
+		m.turnStartedAt = time.Now().Add(-time.Second)
+		m.turnToolCount = 1
+		m.printTurnReceipt(turnDone)
+
+		got := stripAnsi(m.messages[len(m.messages)-1].Render(100))
+		if !strings.Contains(got, "1 tool") || strings.Contains(got, "1 tools") {
+			t.Errorf("expected singular %q, got %q", "1 tool", got)
+		}
+	})
+
+	t.Run("interrupted", func(t *testing.T) {
+		m := newModel()
+		m.turnStartedAt = time.Now().Add(-time.Second)
+		m.turnToolCount = 1
+		m.printTurnReceipt(turnCancelled)
+
+		got := stripAnsi(m.messages[len(m.messages)-1].Render(100))
+		if !strings.Contains(got, "Interrupted") {
+			t.Errorf("expected an interrupted receipt, got %q", got)
+		}
+	})
+}
+
+// TestSplashBarScalesWithContent verifies the splash costs exactly as many
+// rows as it has content, rather than a fixed block-art height.
+func TestSplashBarScalesWithContent(t *testing.T) {
+	theme := style.GetTheme()
+
+	for _, n := range []int{1, 3, 8} {
+		lines := make([]string, n)
+		for i := range lines {
+			lines[i] = "x"
+		}
+		got := style.SplashBar(lines, theme.Primary, theme.Accent)
+		if h := lipgloss.Height(got); h != n {
+			t.Errorf("SplashBar with %d lines rendered %d rows", n, h)
+		}
+	}
+
+	if got := style.SplashBar(nil, theme.Primary, theme.Accent); got != "" {
+		t.Errorf("expected empty splash for no content, got %q", got)
 	}
 }

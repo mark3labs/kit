@@ -50,6 +50,9 @@ func GetUITypography() *herald.Typography {
 			Caution:   theme.Error,
 		}),
 		herald.WithCodeLineNumbers(true),
+		// Alerts use the same gutter glyph as every other attributed block, so
+		// the UI speaks one visual language instead of mixing bar weights.
+		herald.WithAlertBar(GutterGlyph),
 		// Customize alert labels
 		herald.WithAlertLabel(herald.AlertNote, "Info"),
 		herald.WithAlertLabel(herald.AlertTip, ""),

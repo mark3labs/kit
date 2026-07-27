@@ -790,6 +790,10 @@ type AppModel struct {
 	// activity row can show elapsed time. Zero when idle.
 	turnStartedAt time.Time
 
+	// turnToolCount counts tool calls completed during the current turn, for
+	// the turn-completion receipt. Reset when a turn begins.
+	turnToolCount int
+
 	// mcpResourceReader is an optional callback to read MCP resources when
 	// processing @mcp:server:uri tokens at submit time. Set by the parent.
 	mcpResourceReader fileutil.MCPResourceReader
@@ -1087,21 +1091,28 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		return
 	}
 
-	// Add the ASCII logo at the very top.
-	logo := style.KitBanner()
-	logoMsg := NewStyledMessageItem(generateMessageID(), "logo", logo, logo)
-	m.messages = append(m.messages, logoMsg)
+	// The splash is one block: a gradient stripe carrying the wordmark, the
+	// active model, and an aligned list of what was loaded. Everything is
+	// built as plain lines first, then given the stripe, so the bar height
+	// always matches the content height.
+	theme := style.GetTheme()
+	labelStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
-	// Build key-value pairs for startup info.
-	ty := createTypography(style.GetTheme())
-	var pairs [][2]string
+	var content []string
+	content = append(content, lipgloss.NewStyle().Bold(true).Render("KIT"))
 
 	if m.providerName != "" && m.modelName != "" {
-		pairs = append(pairs, [2]string{"Model", fmt.Sprintf("%s (%s)", m.providerName, m.modelName)})
+		content = append(content, valueStyle.Render(m.providerName+" · "+m.modelName))
+	} else if m.modelName != "" {
+		content = append(content, valueStyle.Render(m.modelName))
 	}
 
+	// Build key-value pairs for startup info.
+	var pairs [][2]string
+
 	if m.loadingMessage != "" {
-		pairs = append(pairs, [2]string{"Status", m.loadingMessage})
+		pairs = append(pairs, [2]string{"status", m.loadingMessage})
 	}
 
 	// Context — loaded AGENTS.md files.
@@ -1110,7 +1121,7 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		if len(m.contextPaths) > 1 {
 			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)
 		}
-		pairs = append(pairs, [2]string{"Context", contextStr})
+		pairs = append(pairs, [2]string{"context", contextStr})
 	}
 
 	// Skills — listed by name.
@@ -1119,11 +1130,11 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		for i, si := range m.skillItems {
 			names[i] = si.Name
 		}
-		pairs = append(pairs, [2]string{"Skills", strings.Join(names, ", ")})
+		pairs = append(pairs, [2]string{"skills", strings.Join(names, ", ")})
 	}
 
-	// Extensions — listed by filename. Each extension shows its basename
-	// without the .go suffix, matching the [Skills] section's style.
+	// Extensions — listed by filename, with a tool count when they register
+	// tools. Falls back to a bare count if the CLI supplied no item list.
 	if len(m.extensionItems) > 0 {
 		names := make([]string, len(m.extensionItems))
 		for i, ei := range m.extensionItems {
@@ -1133,26 +1144,33 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		if m.extensionToolCount > 0 {
 			value += fmt.Sprintf(" (%d tools)", m.extensionToolCount)
 		}
-		pairs = append(pairs, [2]string{"Extensions", value})
+		pairs = append(pairs, [2]string{"extensions", value})
 	} else if m.extensionToolCount > 0 {
-		// Fallback: tool count only (extensions registered tools but the CLI
-		// did not provide ExtensionItems for some reason).
-		pairs = append(pairs, [2]string{"Extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
+		pairs = append(pairs, [2]string{"extensions", fmt.Sprintf("%d tools", m.extensionToolCount)})
 	}
 
 	// MCP tool count (only shown when > 0).
 	if m.mcpToolCount > 0 {
-		pairs = append(pairs, [2]string{"MCP", fmt.Sprintf("%d tools", m.mcpToolCount)})
+		pairs = append(pairs, [2]string{"mcp", fmt.Sprintf("%d tools", m.mcpToolCount)})
 	}
 
 	if len(pairs) > 0 {
-		rendered := ty.KVGroup(pairs)
-		rendered = styleMarginBottom1.Render(rendered)
-
-		// Add as a styled system message to ScrollList
-		msg := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
-		m.messages = append(m.messages, msg)
+		// Align values into a column so the list scans vertically.
+		labelWidth := 0
+		for _, p := range pairs {
+			if w := lipgloss.Width(p[0]); w > labelWidth {
+				labelWidth = w
+			}
+		}
+		content = append(content, "")
+		for _, p := range pairs {
+			label := labelStyle.Render(p[0] + strings.Repeat(" ", labelWidth-lipgloss.Width(p[0])))
+			content = append(content, label+"  "+valueStyle.Render(p[1]))
+		}
 	}
+
+	splash := style.SplashBar(content, theme.Primary, theme.Accent)
+	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "logo", splash, splash))
 
 	// Add extension startup messages if any
 	if len(m.startupExtensionMessages) > 0 {
@@ -1198,6 +1216,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer func() {
 		if m.state == stateWorking && stateBefore != stateWorking {
 			m.turnStartedAt = time.Now()
+			m.turnToolCount = 0
 		} else if m.state != stateWorking && stateBefore == stateWorking {
 			m.turnStartedAt = time.Time{}
 		}
@@ -2127,6 +2146,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				streamMsg.MarkComplete()
 			}
 		}
+		m.printTurnReceipt(turnDone)
 		m.state = stateInput
 		m.canceling = false
 
@@ -2144,6 +2164,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				streamMsg.MarkComplete()
 			}
 		}
+		m.printTurnReceipt(turnCancelled)
 		m.state = stateInput
 		m.canceling = false
 
@@ -3305,6 +3326,8 @@ func (m *AppModel) printAssistantMessage(text string) {
 
 // printToolResult renders a tool result message into the ScrollList.
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
+	m.turnToolCount++
+
 	// Render styled tool message using MessageRenderer
 	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 

@@ -161,7 +161,9 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 		content,
 		r.width,
 		WithAlign(lipgloss.Left),
-		WithBorderColor(theme.Success),
+		// The gutter marks attribution, so its color says "you". Gold was
+		// theme.Success, which reads as an outcome rather than an author.
+		WithBorderColor(theme.Accent),
 		WithPaddingTop(0),
 		WithPaddingBottom(0),
 		WithMarginBottom(1),
@@ -313,21 +315,21 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		params = formatToolParams(toolArgs, paramBudget)
 	}
 
-	var icon string
-	iconColor := style.GetTheme().Success
+	// Routine successes get a dim marker rather than a green check. A check
+	// on every tool call spends the reader's attention on the unremarkable
+	// and leaves nothing to signal the turn actually finishing; reserving
+	// ✓ for turn completion keeps it meaningful. Failures still get a loud
+	// mark, because those genuinely need finding.
+	theme := style.GetTheme()
+	icon := "·"
+	iconColor := theme.VeryMuted
+	nameColor := theme.Muted
 	if isError {
 		icon = "×"
-		iconColor = style.GetTheme().Error
-	} else {
-		icon = "✓"
-	}
-
-	// Style the tool name with color
-	theme := style.GetTheme()
-	nameColor := theme.Info
-	if isError {
+		iconColor = theme.Error
 		nameColor = theme.Error
 	}
+
 	styledName := lipgloss.NewStyle().Foreground(nameColor).Bold(true).Render(displayName)
 	styledIcon := lipgloss.NewStyle().Foreground(iconColor).Render(icon)
 
