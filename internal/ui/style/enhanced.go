@@ -282,9 +282,11 @@ func ApplyGradient(text string, colorA, colorB color.Color) string {
 	return result.String()
 }
 
-// kitLogoArt is the KIT wordmark in block letters. Every line is exactly
-// kitLogoWidth columns wide, so the scanner bar beneath it lines up exactly
-// and the whole block can be placed at any left offset without re-centering.
+// kitLogoArt is the KIT wordmark in block letters. Lines are left-aligned and
+// not padded to a uniform width — trailing space would only be invisible
+// gradient — so the widest line (the top row and the scanner bar) sets the
+// block's footprint. The block can be placed at any left offset without
+// re-centering.
 var kitLogoArt = []string{
 	"██╗  ██╗ ██╗ ████████╗",
 	"██║ ██╔╝ ██║ ╚══██╔══╝",
@@ -292,11 +294,13 @@ var kitLogoArt = []string{
 	"██╔═██╗  ██║    ██║",
 	"██║  ██╗ ██║    ██║",
 	"╚═╝  ╚═╝ ╚═╝    ╚═╝",
-	// KITT's scanner bar, sized to match the wordmark above it.
+	// KITT's scanner bar, sized to the wordmark's widest row.
 	"░░ ▒▒ ▓▓ ████ ▓▓ ▒▒ ░░",
 }
 
-// kitLogoWidth is the column width of every line in kitLogoArt.
+// kitLogoWidth is the width of the widest line in kitLogoArt, i.e. the number
+// of columns the block needs to render without wrapping. KitLogoLines falls
+// back to a plain wordmark below this width.
 const kitLogoWidth = 22
 
 // KitLogoLines returns the KIT wordmark as gradient-colored lines, sized for a

@@ -119,7 +119,7 @@ func TestRenderActivityRow_IdleIsEmpty(t *testing.T) {
 func TestRenderActivityRow_FitsWidth(t *testing.T) {
 	for _, width := range []int{20, 40, 60, 80, 120, 200} {
 		ctrl := &stubAppController{}
-		m, stream := newTestAppModelWithRealStream(ctrl)
+		m, _ := newTestAppModelWithRealStream(ctrl)
 		m = sendMsg(m, tea.WindowSizeMsg{Width: width, Height: 30})
 
 		m, _ = sendMsgExec(m, app.SpinnerEvent{Show: true})
@@ -129,7 +129,6 @@ func TestRenderActivityRow_FitsWidth(t *testing.T) {
 			ToolArgs:   `{"command":"go test ./... -run TestSomethingWithAVeryLongName"}`,
 			IsStarting: true,
 		})
-		_ = stream
 		m.state = stateWorking
 		m.turnStartedAt = time.Now().Add(-12 * time.Second)
 

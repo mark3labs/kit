@@ -1,11 +1,11 @@
 package style
 
 import (
-	"github.com/alecthomas/chroma/v2"
-
 	"image/color"
 	"math"
 	"testing"
+
+	"github.com/alecthomas/chroma/v2"
 )
 
 // rgb returns the 8-bit components of a color.
@@ -60,7 +60,7 @@ func TestSyntaxStyleFollowsTheme(t *testing.T) {
 	}
 	// The keyword color must come from the theme, not from elsewhere.
 	wantKeyword := hexOf(DefaultTheme().Markdown.Keyword)
-	if got := first.Get(chromaKeyword()).Colour.String(); got != wantKeyword {
+	if got := first.Get(chroma.Keyword).Colour.String(); got != wantKeyword {
 		t.Errorf("keyword color = %s, want the theme's %s", got, wantKeyword)
 	}
 
@@ -69,7 +69,7 @@ func TestSyntaxStyleFollowsTheme(t *testing.T) {
 		t.Fatalf("ApplyThemeWithoutSave(nord): %v", err)
 	}
 	second := SyntaxStyle()
-	if second.Get(chromaKeyword()).Colour.String() == wantKeyword {
+	if second.Get(chroma.Keyword).Colour.String() == wantKeyword {
 		t.Error("syntax style did not change after switching themes")
 	}
 
@@ -77,7 +77,7 @@ func TestSyntaxStyleFollowsTheme(t *testing.T) {
 	if err := ApplyThemeWithoutSave("kitt"); err != nil {
 		t.Fatalf("ApplyThemeWithoutSave(kitt): %v", err)
 	}
-	if SyntaxStyle().Get(chromaKeyword()).Colour.String() != wantKeyword {
+	if SyntaxStyle().Get(chroma.Keyword).Colour.String() != wantKeyword {
 		t.Error("syntax style did not return to the default palette")
 	}
 }
@@ -98,7 +98,3 @@ func TestThemeFieldsAreWired(t *testing.T) {
 		t.Error("Theme.InputBg must have a value; it fills the composer bar")
 	}
 }
-
-// chromaKeyword returns the chroma token type for a keyword. It lives here so
-// the test does not need a chroma import at the top of the file.
-func chromaKeyword() chroma.TokenType { return chroma.Keyword }
