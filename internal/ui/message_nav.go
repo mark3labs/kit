@@ -43,6 +43,40 @@ const (
 // adds to an item (one for the top edge, one for the bottom edge).
 const selectionBorderOverhead = 2
 
+// selectionTabWidth is the number of columns a tab occupies when a selected
+// message is framed. It matches the terminal's default tab stop.
+const selectionTabWidth = 8
+
+// expandTabs replaces tabs with spaces, advancing to the next tab stop so the
+// result occupies the same columns the terminal would use. Width-aware so
+// wide runes and ANSI sequences before a tab are accounted for.
+func expandTabs(s string, tabWidth int) string {
+	if !strings.Contains(s, "\t") || tabWidth <= 0 {
+		return s
+	}
+
+	var out strings.Builder
+	for i, line := range strings.Split(s, "\n") {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		col := 0
+		for j, part := range strings.Split(line, "\t") {
+			// Every segment after the first was preceded by a tab. Keyed on
+			// the segment index rather than the column, so a line that opens
+			// with a tab (column zero) still advances to the first stop.
+			if j > 0 {
+				pad := tabWidth - (col % tabWidth)
+				out.WriteString(strings.Repeat(" ", pad))
+				col += pad
+			}
+			out.WriteString(part)
+			col += xansi.StringWidth(part)
+		}
+	}
+	return out.String()
+}
+
 // enterMessageNav switches the model into scrollback navigation mode,
 // selecting the last selectable message. It is a no-op when there is
 // nothing to select.
@@ -194,10 +228,19 @@ func (m *AppModel) inspectSelectedMessage() {
 	// No response channel: this overlay is driven by the UI, not by a
 	// blocking extension goroutine, so resolveOverlay has nothing to notify.
 	m.overlayResponseCh = nil
+
+	// The inspector is a reader, not a dialog, so it claims more of the
+	// screen than the extension-facing defaults (60% x 80%). Tool output is
+	// full of long lines — grep matches carry a path, a line number and the
+	// matched source — and every column saved here is a wrapped row the
+	// reader doesn't have to scroll past.
+	dialogWidth := m.width * 90 / 100
+	dialogHeight := m.height * 90 / 100
+
 	m.overlay = newOverlayDialog(
 		title, content, markdown,
 		"", "",
-		0, 0, "center",
+		dialogWidth, dialogHeight, "center",
 		nil,
 		m.width, m.height,
 	)
@@ -266,6 +309,13 @@ func applySelectionBorder(content string, totalWidth int, clr color.Color) strin
 	if totalWidth < 4 {
 		return content
 	}
+
+	// Expand tabs before measuring. Width calculations treat a tab as a
+	// single cell, but the terminal advances to the next tab stop, so a row
+	// padded on the tab-is-one-cell assumption renders wider than the frame
+	// and pushes the right border out of alignment. Tool output is full of
+	// tabs (grep matches carry the indentation of the matched source).
+	content = expandTabs(content, selectionTabWidth)
 
 	innerWidth := totalWidth - 2
 	borderStyle := lipgloss.NewStyle().Foreground(clr)

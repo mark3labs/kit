@@ -494,3 +494,61 @@ func TestFormatToolArgsForInspector_NonObjectPassthrough(t *testing.T) {
 		t.Errorf("got %q, want passthrough", got)
 	}
 }
+
+// --------------------------------------------------------------------------
+// Tab handling
+// --------------------------------------------------------------------------
+
+// TestApplySelectionBorder_ExpandsTabs guards border alignment for
+// tab-indented content. Width calculations count a tab as one cell but the
+// terminal advances to the next tab stop, so an unexpanded tab pushes the
+// right border past the frame — visible on any selected grep result.
+func TestApplySelectionBorder_ExpandsTabs(t *testing.T) {
+	const width = 40
+	content := "plain line\n\tindented\ncol\tsep\tvals"
+
+	got := applySelectionBorder(content, width, nil)
+	for i, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "\t") {
+			t.Errorf("row %d still contains a raw tab: %q", i, line)
+		}
+		if w := xansi.StringWidth(line); w != width {
+			t.Errorf("row %d width = %d, want %d", i, w, width)
+		}
+	}
+}
+
+// TestExpandTabs_AdvancesToTabStops verifies tabs align to stops rather than
+// expanding to a fixed run of spaces, matching terminal behaviour.
+func TestExpandTabs_AdvancesToTabStops(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"a\tb", "a       b"},                // col 1 -> pad 7 -> col 8
+		{"\tx", "        x"},                 // col 0 -> pad 8
+		{"1234567\tz", "1234567 z"},          // col 7 -> pad 1 -> col 8
+		{"12345678\tz", "12345678        z"}, // col 8 -> pad 8 -> col 16
+		{"no tabs", "no tabs"},
+	}
+	for _, tt := range tests {
+		if got := expandTabs(tt.in, 8); got != tt.want {
+			t.Errorf("expandTabs(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestOverlayDialog_ExpandsTabsInBody verifies the dialog body carries no raw
+// tabs, which would otherwise wrap at a width the measurement did not predict.
+func TestOverlayDialog_ExpandsTabsInBody(t *testing.T) {
+	body := strings.Repeat("path/file.go:12:\tfunc Thing() error {\n", 40)
+	o := newOverlayDialog("Tool Result", body, false, "", "", 0, 0, "center", nil, 100, 30)
+
+	out := o.Render()
+	if strings.Contains(out, "\t") {
+		t.Error("dialog body contains raw tabs; wrapping measurements will not match the render")
+	}
+	boxW := lipgloss.Width(out)
+	for i, line := range strings.Split(out, "\n") {
+		if w := xansi.StringWidth(line); w != boxW {
+			t.Errorf("row %d width %d != box width %d", i, w, boxW)
+		}
+	}
+}

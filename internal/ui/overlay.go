@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/mark3labs/kit/internal/ui/style"
 )
@@ -54,6 +55,14 @@ type overlayDialog struct {
 	// completed and Esc as cancelled, and extensions may branch on it.
 	dismissOnly bool
 }
+
+// Dialog layout constants.
+const (
+	// dialogTabWidth is the number of spaces a tab expands to inside the
+	// dialog body. It must match the box style's tab handling so wrapping
+	// measurements agree with what is rendered.
+	dialogTabWidth = 4
+)
 
 // newOverlayDialog creates an overlay dialog from an OverlayRequestEvent's
 // parameters.
@@ -175,6 +184,27 @@ func (o *overlayDialog) Render() string {
 		bodyText = style.ToMarkdown(bodyText, innerWidth)
 	}
 	bodyText = strings.TrimRight(bodyText, "\n")
+
+	// Expand tabs before measuring. Wrapping counts a tab as one cell but
+	// the box style renders it as several, so a line wrapped to exactly the
+	// content width would overflow and be wrapped a second time by the
+	// style — silently doubling the height of tab-indented output such as
+	// grep matches. Expanding first makes the two agree.
+	bodyText = strings.ReplaceAll(bodyText, "\t", strings.Repeat(" ", dialogTabWidth))
+
+	// Wrap to the content width *before* measuring.
+	//
+	// The box style would otherwise wrap over-long lines itself, at which
+	// point one source line occupies several rows and every downstream
+	// number is wrong: totalLines under-counts, the maxBodyLines slice lets
+	// through more rows than budgeted (a grep result with long paths grew a
+	// 30-row terminal's dialog to 48 rows), and scrolling moves by source
+	// line rather than by the row the reader actually sees.
+	//
+	// Wrapping here makes one element of bodyLines equal exactly one
+	// rendered row, so the height budget, the scroll offset and the "of N
+	// lines" counter all agree with the display.
+	bodyText = xansi.Wrap(bodyText, innerWidth, "")
 
 	bodyLines := strings.Split(bodyText, "\n")
 	o.totalLines = len(bodyLines)
