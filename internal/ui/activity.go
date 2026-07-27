@@ -248,6 +248,11 @@ const activityHintGap = 3
 // degrading from a full hint to a compact one as width allows. The caller
 // decides whether there is room to show it at all.
 func (m *AppModel) activityHint() string {
+	// A pending confirmation displaces the ordinary hint: it is the only thing
+	// the next keystroke can do, so offering alternatives would be misleading.
+	if m.ctrlCPressedOnce {
+		return "ctrl+c again to quit"
+	}
 	if m.canceling {
 		return "esc again to cancel"
 	}

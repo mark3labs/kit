@@ -461,9 +461,9 @@ func (p *PopupList) Render() string {
 	footerHint := p.FooterHint
 	if footerHint == "" {
 		if innerW >= 50 {
-			footerHint = "↑↓ navigate • enter select • esc cancel • type to filter"
+			footerHint = "↑↓ navigate · ↵ select · esc cancel · type to filter"
 		} else if innerW >= 30 {
-			footerHint = "↑↓ nav • ↵ select • esc"
+			footerHint = "↑↓ nav · ↵ select · esc"
 		} else {
 			footerHint = "↑↓ ↵ esc"
 		}
@@ -473,11 +473,15 @@ func (p *PopupList) Render() string {
 		footerParts = append(footerParts, p.ExtraFooter)
 	}
 
+	// Clamp the footer to a single line. Custom hints are written for a wide
+	// popup, and lipgloss wraps rather than truncates, so an unclamped hint
+	// silently becomes a three-line paragraph at narrow widths — more visual
+	// weight than the list it describes.
 	footer := lipgloss.NewStyle().
 		Background(popupBg).
 		Foreground(theme.VeryMuted).
 		Italic(true).
-		Render(strings.Join(footerParts, "  "))
+		Render(truncateLine(strings.Join(footerParts, "  "), innerW))
 
 	return popupStyle.Render(content + "\n\n" + footer)
 }

@@ -403,7 +403,7 @@ func renderFindBody(toolResult string, width int) string {
 		if total == 1 {
 			count = "1 result"
 		}
-		return count + " • " + fmt.Sprintf("%d more", hidden)
+		return count + " · " + fmt.Sprintf("%d more", hidden)
 	})
 }
 
@@ -415,7 +415,7 @@ func renderGrepBody(toolResult string, width int) string {
 		if total == 1 {
 			count = "1 match"
 		}
-		return count + " • " + fmt.Sprintf("%d more", hidden)
+		return count + " · " + fmt.Sprintf("%d more", hidden)
 	})
 }
 
@@ -544,7 +544,7 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 		captionParts = append(captionParts, fmt.Sprintf("offset=%d to continue", nextOffset))
 	}
 
-	caption := strings.Join(captionParts, " • ")
+	caption := strings.Join(captionParts, " · ")
 
 	// Use Figure with caption below content (default behavior)
 	// Apply theme to ensure caption is positioned below
@@ -723,7 +723,7 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
 			FigureCaptionPosition: herald.CaptionBottom,
 		}))
-		caption := strings.Join(captionParts, " • ")
+		caption := strings.Join(captionParts, " · ")
 		result := ty.Figure(content, caption)
 
 		// Indent entire block (content + caption) to match other tools

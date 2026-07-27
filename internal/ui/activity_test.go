@@ -518,3 +518,70 @@ func TestSyncInputHeightMarksLayoutDirty(t *testing.T) {
 		t.Error("a taller composer must mark the layout dirty, or the transcript overflows")
 	}
 }
+
+// TestConfirmationPromptNotDuplicated verifies a pending confirmation appears
+// exactly once. The activity row owns it while the agent is working; a second
+// copy on its own line above the transcript said the same thing twice, two
+// lines apart, in a different capitalization.
+func TestConfirmationPromptNotDuplicated(t *testing.T) {
+	newModel := func() *AppModel {
+		ctrl := &stubAppController{}
+		m, _, _ := newTestAppModel(ctrl)
+		return sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	}
+
+	t.Run("esc while working appears only in the activity row", func(t *testing.T) {
+		m := newModel()
+		m.state = stateWorking
+		m.canceling = true
+
+		if !strings.Contains(stripAnsi(m.renderActivityRow()), "esc again") {
+			t.Error("activity row must carry the cancel confirmation while working")
+		}
+		view := stripAnsi(m.View().Content)
+		if got := strings.Count(view, "again to cancel"); got != 1 {
+			t.Errorf("cancel confirmation appears %d times in the view, want exactly 1", got)
+		}
+	})
+
+	t.Run("ctrl+c while working appears only in the activity row", func(t *testing.T) {
+		m := newModel()
+		m.state = stateWorking
+		m.ctrlCPressedOnce = true
+
+		view := stripAnsi(m.View().Content)
+		if got := strings.Count(view, "again to quit"); got != 1 {
+			t.Errorf("quit confirmation appears %d times in the view, want exactly 1", got)
+		}
+	})
+
+	t.Run("ctrl+c while idle still shows", func(t *testing.T) {
+		m := newModel()
+		m.state = stateInput
+		m.ctrlCPressedOnce = true
+
+		// There is no activity row when idle, so the confirmation needs its
+		// own line or the key would give no feedback at all.
+		view := stripAnsi(m.View().Content)
+		if got := strings.Count(view, "again to quit"); got != 1 {
+			t.Errorf("quit confirmation appears %d times when idle, want exactly 1", got)
+		}
+	})
+}
+
+// TestSeparatorGlyphIsConsistent verifies one glyph separates fields
+// everywhere. Two different bullets doing the same job appeared on the same
+// screen: "go.mod • lines 1-3" two lines from "Done · 1 tool · 3s".
+func TestSeparatorGlyphIsConsistent(t *testing.T) {
+	r := newMessageRenderer(80, false)
+
+	samples := []string{
+		stripAnsi(r.RenderToolMessage("read", `{"path":"a.go"}`, "1: x\n2: y", false).Content),
+		stripAnsi(NewInputComponent(80, nil).popup.FooterHint),
+	}
+	for _, s := range samples {
+		if strings.Contains(s, "•") {
+			t.Errorf("found the retired bullet separator in %q", s)
+		}
+	}
+}

@@ -109,7 +109,7 @@ func NewSessionSelector(cwd string, width, height int) *SessionSelectorComponent
 
 	ss.popup = NewPopupList("Resume Session", nil, width, height)
 	ss.popup.FullScreen = true
-	ss.popup.FooterHint = "↑↓ nav • ↵ open • esc cancel • tab scope • ^N named • d delete • type to search"
+	ss.popup.FooterHint = "↑↓ nav · ↵ open · esc cancel · tab scope · ^N named · d delete · type to search"
 	ss.popup.RenderItem = ss.renderEntry
 
 	ss.rebuild()
@@ -228,7 +228,7 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements tea.Model.
 func (ss *SessionSelectorComponent) View() tea.View {
 	// Compose dynamic footer extras: scope + filter + (delete confirm).
-	extra := fmt.Sprintf("scope: %s • filter: %s", ss.scope, ss.filter)
+	extra := fmt.Sprintf("scope: %s · filter: %s", ss.scope, ss.filter)
 	if ss.confirmDelete >= 0 && ss.confirmDelete < len(ss.filtered) {
 		name := truncateRunes(sessionDisplayName(ss.filtered[ss.confirmDelete]), 30)
 		extra = fmt.Sprintf("delete %q? y/N", name)

@@ -388,18 +388,6 @@ func GutterBorder() lipgloss.Border {
 	}
 }
 
-// Gutter prefixes every line of s with a colored gutter glyph and a single
-// space. Unlike a lipgloss border it does not re-wrap or re-measure the
-// content, so it is safe to apply to text that is already laid out.
-func Gutter(s string, c color.Color) string {
-	bar := lipgloss.NewStyle().Foreground(c).Render(GutterGlyph)
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = bar + " " + line
-	}
-	return strings.Join(lines, "\n")
-}
-
 // --------------------------------------------------------------------------
 // Splash
 // --------------------------------------------------------------------------

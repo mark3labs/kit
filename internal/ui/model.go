@@ -2706,22 +2706,15 @@ func (m *AppModel) View() tea.View {
 		parts = append(parts, scrollbackView)
 	}
 
-	// Add canceling warning between scrollback and separator
-	// (doesn't go inside scrollback viewport to avoid affecting scroll position)
+	// Confirmation prompts for destructive keys live in the activity row while
+	// the agent is working, since that row is already showing the interrupt
+	// affordance and is where the eye is. When idle there is no activity row,
+	// so the prompt gets its own line here instead.
 	theme := style.GetTheme()
-	if m.canceling {
+	if m.ctrlCPressedOnce && m.state != stateWorking {
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
-			Bold(true).
-			Render("  ⚠ Press ESC again to cancel")
-		parts = append(parts, warning)
-	}
-
-	if m.ctrlCPressedOnce {
-		warning := lipgloss.NewStyle().
-			Foreground(theme.Warning).
-			Bold(true).
-			Render("  ⚠ Press Ctrl+C again to quit")
+			Render(strings.Repeat(" ", style.ContentOffset) + "ctrl+c again to quit")
 		parts = append(parts, warning)
 	}
 
@@ -4315,16 +4308,14 @@ func (m *AppModel) distributeHeight() {
 		m.chrome.footer = footerView
 	}
 
-	// Account for transient warning rows that View() injects between the
-	// scrollback and the separator. These flags are toggled by ESC/Ctrl+C
-	// handlers; without subtracting them here the joined view exceeds
-	// m.height by one line per active warning and the bottom of the screen
-	// gets silently clipped — which in turn invalidates scrollbackYOffset.
+	// Account for the transient confirmation row that View() injects between
+	// the scrollback and the composer. Without subtracting it here the joined
+	// view exceeds m.height and the bottom of the screen gets silently
+	// clipped — which in turn invalidates scrollbackYOffset. While working
+	// the confirmation lives in the activity row, which is measured
+	// separately, so it costs nothing extra here.
 	var warningLines int
-	if m.canceling {
-		warningLines++
-	}
-	if m.ctrlCPressedOnce {
+	if m.ctrlCPressedOnce && m.state != stateWorking {
 		warningLines++
 	}
 

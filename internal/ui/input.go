@@ -211,7 +211,7 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 	ic.popup.ShowSearch = false
 	ic.popup.HideCount = true
 	ic.popup.MaxVisible = ic.popupHeight
-	ic.popup.FooterHint = "↑↓ navigate • tab complete • ↵ select • esc dismiss"
+	ic.popup.FooterHint = "↑↓ navigate · tab complete · ↵ select · esc dismiss"
 	return ic
 }
 

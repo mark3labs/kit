@@ -119,7 +119,7 @@ func NewTreeSelectorForFork(tm *session.TreeManager, width, height int) *TreeSel
 func (ts *TreeSelectorComponent) initPopup() {
 	ts.popup = NewPopupList("Session Tree", nil, ts.width, ts.height)
 	ts.popup.FullScreen = true
-	ts.popup.FooterHint = "↑↓ nav • ←→ page • ↵ select • esc cancel • ^O filter • type to search"
+	ts.popup.FooterHint = "↑↓ nav · ←→ page · ↵ select · esc cancel · ^O filter · type to search"
 	ts.popup.RenderItem = ts.renderNode
 }
 
