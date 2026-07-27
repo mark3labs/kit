@@ -371,3 +371,25 @@ func pluralize(n int, noun string) string {
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
 }
+
+// syncInputHeight marks the layout dirty when the composer's rendered height
+// has changed since it was last measured.
+//
+// The composer grows and shrinks with its content, so a keystroke that adds or
+// removes a wrapped line changes how much room is left for the transcript.
+// Without this the transcript keeps its old height and the joined view either
+// overflows the terminal (clipping the status bar) or leaves a gap. Layout is
+// not recomputed here — that happens once per frame in View() — this only
+// records that it needs to be.
+func (m *AppModel) syncInputHeight() {
+	if m.input == nil || m.layoutDirty {
+		return
+	}
+	rendered := m.renderInput()
+	if rendered == "" {
+		return
+	}
+	if lipgloss.Height(rendered) != m.lastInputHeight {
+		m.layoutDirty = true
+	}
+}

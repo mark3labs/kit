@@ -139,6 +139,11 @@ const inputChromeWidth = 2
 // scrolling its own content.
 const inputMaxRows = 8
 
+// inputMaxContentRows bounds how much text the composer will hold. It exists
+// only to keep a runaway paste from exhausting memory; it is far beyond any
+// prompt a person would type, so in practice input is unlimited.
+const inputMaxContentRows = 10000
+
 // defaultPlaceholder doubles as the submit hint. Folding the hint into the
 // placeholder means the composer needs no separate help line, and the hint
 // disappears exactly when it stops being useful — as soon as the user types.
@@ -174,9 +179,15 @@ func NewInputComponent(width int, appCtrl AppController) *InputComponent {
 	// The composer starts as a single row and grows with the text, so an empty
 	// prompt costs one line instead of four. Beyond inputMaxRows the textarea
 	// scrolls internally rather than eating the transcript.
+	//
+	// MaxContentHeight must be set explicitly: with only MaxHeight the
+	// textarea treats it as a content limit and silently refuses newlines past
+	// that many logical lines, which would cap a prompt at inputMaxRows.
+	// Setting it separately keeps MaxHeight governing the viewport alone.
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = inputMaxRows
+	ta.MaxContentHeight = inputMaxContentRows
 	ta.SetHeight(1)
 	ta.Focus()
 

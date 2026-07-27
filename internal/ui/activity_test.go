@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -329,7 +330,7 @@ func TestLeftEdgeAlignment(t *testing.T) {
 
 	// firstVisibleLine returns the first non-blank line of a rendered block.
 	firstVisibleLine := func(rendered string) []rune {
-		for _, line := range strings.Split(stripAnsi(rendered), "\n") {
+		for line := range strings.SplitSeq(stripAnsi(rendered), "\n") {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
@@ -415,7 +416,7 @@ func TestAssistantProseFitsWidth(t *testing.T) {
 	rendered := stripAnsi(r.RenderAssistantMessage(long, time.Now(), "m").Content)
 
 	widest := 0
-	for _, line := range strings.Split(rendered, "\n") {
+	for line := range strings.SplitSeq(rendered, "\n") {
 		if w := len([]rune(strings.TrimRight(line, " "))); w > widest {
 			widest = w
 		}
@@ -425,5 +426,87 @@ func TestAssistantProseFitsWidth(t *testing.T) {
 	}
 	if widest < width-style.ContentOffset-2 {
 		t.Errorf("assistant prose wastes horizontal space: widest line %d, width %d", widest, width)
+	}
+}
+
+// TestComposerGrowsAndShrinks verifies the composer tracks its content height,
+// capped at inputMaxRows.
+func TestComposerGrowsAndShrinks(t *testing.T) {
+	ic := NewInputComponent(80, nil)
+	height := func() int { return lipgloss.Height(ic.View().Content) }
+
+	if got := height(); got != 1 {
+		t.Fatalf("empty composer should be 1 line, got %d", got)
+	}
+
+	ic.textarea.SetValue("a\nb\nc")
+	if got := height(); got != 3 {
+		t.Errorf("3-line content should render 3 lines, got %d", got)
+	}
+
+	// Past the cap the textarea scrolls internally rather than growing.
+	ic.textarea.SetValue(strings.Repeat("x\n", inputMaxRows+10))
+	if got := height(); got != inputMaxRows {
+		t.Errorf("composer should cap at %d lines, got %d", inputMaxRows, got)
+	}
+
+	ic.textarea.SetValue("")
+	if got := height(); got != 1 {
+		t.Errorf("cleared composer should return to 1 line, got %d", got)
+	}
+}
+
+// TestComposerAcceptsLongInput guards against the composer's height cap being
+// mistaken for a content limit. MaxHeight alone makes the textarea refuse
+// newlines past that many logical lines, which would silently cap a prompt at
+// inputMaxRows and lose the user's text.
+func TestComposerAcceptsLongInput(t *testing.T) {
+	ic := NewInputComponent(80, nil)
+
+	// Newlines must arrive as real key presses: the content guard lives on the
+	// InsertNewline key binding, so InsertString bypasses it entirely and
+	// would let this test pass against the very bug it exists to catch.
+	newline := tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}
+
+	const lines = inputMaxRows * 4
+	for i := range lines {
+		ic.textarea.InsertString(fmt.Sprintf("line%d", i))
+		updated, _ := ic.Update(newline)
+		ic, _ = updated.(*InputComponent)
+	}
+
+	value := ic.textarea.Value()
+	if got := strings.Count(value, "\n"); got != lines {
+		t.Errorf("composer accepted %d newlines, want %d — input is being truncated", got, lines)
+	}
+	if !strings.Contains(value, fmt.Sprintf("line%d", lines-1)) {
+		t.Errorf("composer dropped later input; value ends %q", value[max(0, len(value)-40):])
+	}
+}
+
+// TestSyncInputHeightMarksLayoutDirty verifies that a composer size change
+// schedules a layout recompute. Without this the transcript keeps a stale
+// height and the joined view overflows the terminal, clipping the status bar.
+func TestSyncInputHeightMarksLayoutDirty(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+	m = sendMsg(m, tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	ic := NewInputComponent(80, nil)
+	m.input = ic
+	m.distributeHeight()
+	m.layoutDirty = false
+
+	// No change: layout stays clean.
+	m.syncInputHeight()
+	if m.layoutDirty {
+		t.Error("unchanged composer should not dirty the layout")
+	}
+
+	// Growing the composer must schedule a recompute.
+	ic.textarea.SetValue("a\nb\nc\nd")
+	m.syncInputHeight()
+	if !m.layoutDirty {
+		t.Error("a taller composer must mark the layout dirty, or the transcript overflows")
 	}
 }

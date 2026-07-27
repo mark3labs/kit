@@ -794,6 +794,12 @@ type AppModel struct {
 	// the turn-completion receipt. Reset when a turn begins.
 	turnToolCount int
 
+	// lastInputHeight is the composer height measured by the last
+	// distributeHeight. The composer grows and shrinks with its content, so
+	// this is compared after every input update to detect a size change that
+	// requires the transcript to be resized. See syncInputHeight.
+	lastInputHeight int
+
 	// mcpResourceReader is an optional callback to read MCP resources when
 	// processing @mcp:server:uri tokens at submit time. Set by the parent.
 	mcpResourceReader fileutil.MCPResourceReader
@@ -1703,6 +1709,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							updated, cmd := m.input.Update(remapped)
 							m.input, _ = updated.(inputComponentIface)
 							cmds = append(cmds, cmd)
+							m.syncInputHeight()
 							intercepted = true
 						}
 						// If remap target is unrecognized, fall through to normal handling.
@@ -1731,6 +1738,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				updated, cmd := m.input.Update(msg)
 				m.input, _ = updated.(inputComponentIface)
 				cmds = append(cmds, cmd)
+				// The composer is dynamically sized, so a keystroke that wraps
+				// or unwraps a line changes how much room the transcript has.
+				m.syncInputHeight()
 			}
 		}
 
@@ -4293,6 +4303,9 @@ func (m *AppModel) distributeHeight() {
 			m.chrome.input = rendered
 		}
 	}
+	// Remember what the composer measured so syncInputHeight can detect the
+	// next time it grows or shrinks.
+	m.lastInputHeight = inputLines
 
 	// Measure widget heights.
 	var widgetLines int

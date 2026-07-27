@@ -428,6 +428,8 @@ func SplashBar(lines []string, from, to color.Color) string {
 	}
 
 	var b strings.Builder
+	// The gap between stripe and text is constant, so build it once.
+	gap := strings.Repeat(" ", ContentOffset-1)
 	for i, line := range lines {
 		if i > 0 {
 			b.WriteString("\n")
@@ -439,7 +441,9 @@ func SplashBar(lines []string, from, to color.Color) string {
 		bar := lipgloss.NewStyle().
 			Foreground(interpolateColor(from, to, pos)).
 			Render("█")
-		b.WriteString(bar + strings.Repeat(" ", ContentOffset-1) + line)
+		b.WriteString(bar)
+		b.WriteString(gap)
+		b.WriteString(line)
 	}
 	return b.String()
 }
