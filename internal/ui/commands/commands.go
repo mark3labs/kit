@@ -103,6 +103,7 @@ var SlashCommands = []SlashCommand{
 		Name:        "/footer",
 		Description: "Configure or toggle the custom status bar footer (e.g. /footer off, /footer fields mode,model,cost)",
 		Category:    "System",
+		HasArgs:     true,
 		Complete: func(prefix string) []string {
 			options := []string{"on", "off", "toggle", "reset", "fields", "show", "hide", "mode", "model", "context", "bar", "cache", "cost", "clock", "timer"}
 			var matches []string
