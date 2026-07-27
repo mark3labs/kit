@@ -104,18 +104,20 @@ func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, 
 	}
 	// If OAuth, all costs remain 0.0
 
-	// Update last request stats
-	ut.lastRequest = &UsageStats{
-		InputTokens:      inputTokens,
-		OutputTokens:     outputTokens,
-		CacheReadTokens:  cacheReadTokens,
-		CacheWriteTokens: cacheWriteTokens,
-		InputCost:        inputCost,
-		OutputCost:       outputCost,
-		CacheReadCost:    cacheReadCost,
-		CacheWriteCost:   cacheWriteCost,
-		TotalCost:        totalCost,
+	// Accumulate usage for the current transmission. Multi-step turns issue
+	// multiple LLM requests, so the footer's turn cost must include every step.
+	if ut.lastRequest == nil {
+		ut.lastRequest = &UsageStats{}
 	}
+	ut.lastRequest.InputTokens += inputTokens
+	ut.lastRequest.OutputTokens += outputTokens
+	ut.lastRequest.CacheReadTokens += cacheReadTokens
+	ut.lastRequest.CacheWriteTokens += cacheWriteTokens
+	ut.lastRequest.InputCost += inputCost
+	ut.lastRequest.OutputCost += outputCost
+	ut.lastRequest.CacheReadCost += cacheReadCost
+	ut.lastRequest.CacheWriteCost += cacheWriteCost
+	ut.lastRequest.TotalCost += totalCost
 
 	// Update session stats
 	ut.sessionStats.TotalInputTokens += inputTokens
@@ -323,10 +325,13 @@ func (ut *UsageTracker) SetUsageUnreported(unreported bool) {
 	ut.usageUnreported = unreported
 }
 
-// StartTransmission marks the start of a new transmission/turn.
+// StartTransmission resets usage accumulated for the previous turn while
+// preserving session totals.
 func (ut *UsageTracker) StartTransmission() {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
+	ut.lastRequest = nil
+	ut.usageUnreported = false
 }
 
 // GetContextTokens returns current context token count.
@@ -359,7 +364,7 @@ func (ut *UsageTracker) GetCacheStats() (int, float64) {
 	return cacheRead, hitRatio
 }
 
-// GetCostBreakdown returns session cost, last-request cost, and the percentage
+// GetCostBreakdown returns session cost, current-turn cost, and the percentage
 // saved by prompt-cache reads compared with billing those tokens as input.
 func (ut *UsageTracker) GetCostBreakdown() (float64, float64, float64) {
 	ut.mu.RLock()

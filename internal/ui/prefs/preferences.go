@@ -12,11 +12,11 @@ import (
 // Stored at ~/.config/kit/preferences.yml, separate from the declarative
 // .kit.yml config so we never clobber user comments or formatting.
 type preferences struct {
-	Theme         string   `yaml:"theme,omitempty"`
-	Model         string   `yaml:"model,omitempty"`
-	ThinkingLevel string   `yaml:"thinking_level,omitempty"`
-	FooterEnabled *bool    `yaml:"footer_enabled,omitempty"`
-	FooterFields  []string `yaml:"footer_fields,omitempty"`
+	Theme         string    `yaml:"theme,omitempty"`
+	Model         string    `yaml:"model,omitempty"`
+	ThinkingLevel string    `yaml:"thinking_level,omitempty"`
+	FooterEnabled *bool     `yaml:"footer_enabled,omitempty"`
+	FooterFields  *[]string `yaml:"footer_fields,omitempty"`
 }
 
 // preferencesPath returns ~/.config/kit/preferences.yml.
@@ -137,16 +137,14 @@ func SaveThinkingLevelPreference(level string) error {
 // were intentionally hidden.
 func LoadFooterPreference() (enabled *bool, fields *[]string) {
 	p := loadPreferences()
-	if p.FooterFields == nil {
-		return p.FooterEnabled, nil
-	}
-	return p.FooterEnabled, &p.FooterFields
+	return p.FooterEnabled, p.FooterFields
 }
 
 // SaveFooterPreference persists footer enabled and active fields settings.
 func SaveFooterPreference(enabled *bool, fields []string) error {
 	return savePreferences(func(p *preferences) {
+		fieldsCopy := append([]string{}, fields...)
 		p.FooterEnabled = enabled
-		p.FooterFields = fields
+		p.FooterFields = &fieldsCopy
 	})
 }

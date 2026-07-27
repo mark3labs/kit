@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -36,7 +37,7 @@ func Render(cfg Config, data RenderData) string {
 	if !cfg.initialized {
 		cfg = DefaultConfig()
 	}
-	if !cfg.Enabled {
+	if !cfg.Enabled || len(cfg.Fields) == 0 {
 		return data.SpinnerPrefix
 	}
 
@@ -97,13 +98,7 @@ func Render(cfg Config, data RenderData) string {
 
 	var elBar string
 	if cfg.IsFieldEnabled(FieldBar) {
-		filledBlocks := int(math.Round((pct / 100.0) * 10.0))
-		if filledBlocks < 0 {
-			filledBlocks = 0
-		}
-		if filledBlocks > 10 {
-			filledBlocks = 10
-		}
+		filledBlocks := min(max(int(math.Round((pct/100.0)*10.0)), 0), 10)
 		barStr := "[" + strings.Repeat("█", filledBlocks) + strings.Repeat("░", 10-filledBlocks) + "]"
 		elBar = lipgloss.NewStyle().
 			Foreground(barColor).
@@ -342,10 +337,7 @@ func FormatTokenCount(tokens int) string {
 // FormatDuration formats duration nicely in s or m s.
 func FormatDuration(d time.Duration) string {
 	d = d.Round(time.Second)
-	sec := int(d.Seconds())
-	if sec < 0 {
-		sec = 0
-	}
+	sec := max(int(d.Seconds()), 0)
 	if sec < 60 {
 		return fmt.Sprintf("%ds", sec)
 	}

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -144,12 +145,13 @@ func TestFooterRender_MultiTurnCostBreakdown(t *testing.T) {
 
 	tracker := NewUsageTracker(modelInfo, "anthropic", 200, false)
 
-	// Turn 1: 10,000 input tokens, 1,000 output tokens -> Cost = $0.045
+	// Turn 1: two requests totaling 10,000 input tokens and 1,000 output tokens -> Cost = $0.045
 	tracker.StartTransmission()
-	tracker.UpdateUsage(10000, 1000, 0, 0)
+	tracker.UpdateUsage(6000, 600, 0, 0)
+	tracker.UpdateUsage(4000, 400, 0, 0)
 
 	sessCost1, txCost1, _ := tracker.GetCostBreakdown()
-	if sessCost1 != 0.045 || txCost1 != 0.045 {
+	if math.Abs(sessCost1-0.045) > 1e-9 || math.Abs(txCost1-0.045) > 1e-9 {
 		t.Fatalf("Turn 1 expected sess=0.045, tx=0.045; got sess=%f, tx=%f", sessCost1, txCost1)
 	}
 
@@ -158,7 +160,7 @@ func TestFooterRender_MultiTurnCostBreakdown(t *testing.T) {
 	tracker.UpdateUsage(20000, 1000, 0, 0)
 
 	sessCost2, txCost2, _ := tracker.GetCostBreakdown()
-	if sessCost2 != 0.120 || txCost2 != 0.075 {
+	if math.Abs(sessCost2-0.120) > 1e-9 || math.Abs(txCost2-0.075) > 1e-9 {
 		t.Fatalf("Turn 2 expected sess=0.120, tx=0.075; got sess=%f, tx=%f", sessCost2, txCost2)
 	}
 
