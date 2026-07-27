@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,6 +61,12 @@ const (
 
 	// stateSessionSelector means the /resume session picker is active.
 	stateSessionSelector
+
+	// stateMessageNav means scrollback message navigation is active. The
+	// user moves a selection between messages with up/down (or j/k) and
+	// opens the selected message in a scrollable inspector with Enter.
+	// The composer keeps its text but does not receive keys.
+	stateMessageNav
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -1370,6 +1377,23 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+		// A width change re-wraps every message, so the selected one can end
+		// up outside the viewport. Pull it back into view rather than leaving
+		// the user navigating a selection they cannot see.
+		//
+		// The layout pass has to run first: SetWidth/SetHeight land in
+		// distributeHeight, which View() defers until the next frame. Choosing
+		// an offset before that would measure the selected item at the old
+		// width (and against a stale viewport height), so a message that grew
+		// taller under the new wrapping could still end up clipped.
+		//
+		// layoutDirty is deliberately left set so View() still runs its own
+		// pass and repopulates the chrome cache it invalidates each frame.
+		// The repeat is cheap — SetWidth is a no-op at an unchanged width.
+		if m.state == stateMessageNav && m.scrollList != nil {
+			m.distributeHeight()
+			m.scrollList.EnsureVisible(m.scrollList.SelectedIndex())
+		}
 
 	// ── Mouse wheel scrolling ────────────────────────────────────────────────
 	case tea.MouseWheelMsg:
@@ -1472,9 +1496,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check extension-registered global keyboard shortcuts. These fire
 		// in all app states except modal prompts/overlays (which return early
-		// above). Matched shortcuts are consumed — the key does not propagate
+		// above) and message navigation, which rebinds plain keys like j/k
+		// and enter for itself — an extension shortcut on one of those would
+		// otherwise consume it first and silently break navigation.
+		// Matched shortcuts are consumed — the key does not propagate
 		// to child components.
-		if m.getGlobalShortcuts != nil {
+		if m.getGlobalShortcuts != nil && m.state != stateMessageNav {
 			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
 				if handler, ok := shortcuts[msg.String()]; ok {
 					// Run in goroutine so blocking extension calls
@@ -1543,6 +1570,38 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.sessionSelector.Update(msg)
 			m.sessionSelector = updated.(*SessionSelectorComponent)
 			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Message navigation consumes every key it understands so the
+		// composer never sees j/k as text while the user is browsing.
+		if m.state == stateMessageNav {
+			switch msg.String() {
+			case "up", "k":
+				m.moveMessageSelection(-1)
+				return m, tea.Batch(cmds...)
+			case "down", "j":
+				m.moveMessageSelection(1)
+				return m, tea.Batch(cmds...)
+			case "home", "g":
+				if idx := m.firstSelectableIndex(); idx >= 0 {
+					m.selectMessage(idx)
+				}
+				return m, tea.Batch(cmds...)
+			case "end", "G":
+				if idx := m.lastSelectableIndex(); idx >= 0 {
+					m.selectMessage(idx)
+				}
+				return m, tea.Batch(cmds...)
+			case "enter":
+				m.inspectSelectedMessage()
+				return m, tea.Batch(cmds...)
+			case "esc", "q":
+				m.exitMessageNav()
+				return m, tea.Batch(cmds...)
+			}
+			// Swallow everything else: an unhandled key must not leak into
+			// the composer while navigation owns the keyboard.
 			return m, tea.Batch(cmds...)
 		}
 
@@ -1623,6 +1682,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.stream.SetThinkingVisible(m.thinkingVisible)
 					}
 				}
+			case "m":
+				// Ctrl+X m → Move: navigate messages in the scrollback.
+				m.enterMessageNav()
 			case "e":
 				// Ctrl+X e → open $EDITOR to compose/edit the prompt.
 				editorApp := os.Getenv("VISUAL")
@@ -2607,29 +2669,10 @@ func (m *AppModel) View() tea.View {
 		return v
 	}
 
-	// Tree selector overlay replaces the normal layout.
-	if m.state == stateTreeSelector && m.treeSelector != nil {
-		return m.treeSelector.View()
-	}
-
-	// Model selector is rendered as a centered overlay later (see below).
-
-	// Session selector overlay replaces the normal layout.
-	if m.state == stateSessionSelector && m.sessionSelector != nil {
-		return m.sessionSelector.View()
-	}
-
-	// Overlay dialog replaces the normal layout.
-	if m.state == stateOverlay && m.overlay != nil {
-		v := tea.NewView(m.overlay.Render())
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		v.ReportFocus = true
-		v.KeyboardEnhancements = tea.KeyboardEnhancements{
-			ReportEventTypes: true,
-		}
-		return v
-	}
+	// Tree selector, session selector and the overlay dialog are composited
+	// over the normal layout further down, alongside the slash popup and the
+	// model selector, so every modal in the app shows the conversation
+	// behind it instead of blanking the screen.
 
 	// Recompute layout heights if any Update() changed state that affects
 	// sizing. Deferring this to View() guarantees exactly one call per frame
@@ -2766,19 +2809,37 @@ func (m *AppModel) View() tea.View {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	// Render slash command popup as centered overlay if active
+	// Composite every modal surface over the layout at the cell level, so
+	// the conversation stays visible around each one. Ordering is z-order:
+	// later draws sit on top.
 	finalContent := content
+
+	// Slash / @ autocomplete popup.
 	if ic, ok := m.input.(*InputComponent); ok {
-		if popupContent := ic.RenderPopupCentered(m.width, m.height); popupContent != "" {
-			// Overlay popup content on top of main content
-			finalContent = overlayContent(content, popupContent, m.width, m.height)
+		if box := ic.RenderPopupBox(m.width, m.height); box != "" {
+			finalContent = compositeCentered(finalContent, box, m.width, m.height)
 		}
 	}
 
-	// Render model selector as centered overlay if active
+	// Model selector.
 	if m.state == stateModelSelector && m.modelSelector != nil {
-		popupContent := m.modelSelector.RenderOverlay(m.width, m.height)
-		finalContent = overlayContent(finalContent, popupContent, m.width, m.height)
+		finalContent = compositeCentered(finalContent, m.modelSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Tree selector (/tree).
+	if m.state == stateTreeSelector && m.treeSelector != nil {
+		finalContent = compositeCentered(finalContent, m.treeSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Session selector (/resume).
+	if m.state == stateSessionSelector && m.sessionSelector != nil {
+		finalContent = compositeCentered(finalContent, m.sessionSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Modal dialog — extension overlays and the message inspector. Honours
+	// the caller's vertical anchor.
+	if m.state == stateOverlay && m.overlay != nil {
+		finalContent = compositeAnchored(finalContent, m.overlay.Render(), m.overlay.Anchor(), m.width, m.height)
 	}
 
 	v := tea.NewView(finalContent)
@@ -2794,35 +2855,6 @@ func (m *AppModel) View() tea.View {
 // --------------------------------------------------------------------------
 // Rendering helpers
 // --------------------------------------------------------------------------
-
-// overlayContent overlays popup content on top of base content line-by-line.
-// Both content strings should be full-screen (width x height).
-func overlayContent(base, overlay string, width, height int) string {
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-
-	// Ensure we have exactly height lines
-	for len(baseLines) < height {
-		baseLines = append(baseLines, strings.Repeat(" ", width))
-	}
-	for len(overlayLines) < height {
-		overlayLines = append(overlayLines, strings.Repeat(" ", width))
-	}
-
-	// Merge lines - overlay takes precedence where non-empty
-	result := make([]string, height)
-	for i := range height {
-		if i < len(overlayLines) && strings.TrimSpace(overlayLines[i]) != "" {
-			result[i] = overlayLines[i]
-		} else if i < len(baseLines) {
-			result[i] = baseLines[i]
-		} else {
-			result[i] = strings.Repeat(" ", width)
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
 
 // refreshContent updates the ScrollList with current messages.
 // Called whenever messages change (new message, streaming update, etc.)
@@ -2863,8 +2895,16 @@ func (m *AppModel) renderStatusBar() string {
 	veryMuted := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 
 	// Left: working directory, plus the git branch when one is known.
+	// While message navigation owns the keyboard its key hints take that
+	// slot instead: the rebound keys are transient and need discovering,
+	// whereas the path is ambient and always recoverable by pressing Esc.
 	var leftSide string
-	if m.cwd != "" {
+	if m.state == stateMessageNav {
+		leftSide = " " + lipgloss.NewStyle().
+			Foreground(theme.Accent).
+			Render("MESSAGE NAV") +
+			veryMuted.Render("  ↑/↓ move · enter open · esc exit")
+	} else if m.cwd != "" {
 		left := tildeHome(m.cwd)
 		if m.gitBranch != "" {
 			left += " (" + m.gitBranch + ")"
@@ -3317,12 +3357,98 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	// Render styled tool message using MessageRenderer
 	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 
+	// Keep the untruncated result as the item's raw content. The styled
+	// rendering caps output (10 lines for generic results, 20 for diffs and
+	// code) and elides long arguments in the header, so without this the
+	// message inspector could only ever show the same elided text the
+	// scrollback already displays.
+	raw := toolRawContent(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
+
 	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "tool", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
 	m.refreshContent()
+}
+
+// toolRawContent composes the full, untruncated record of a tool call for
+// the message inspector: the tool name, its arguments, and the complete
+// result body.
+//
+// The scrollback header shows only a truncated one-line summary of the
+// arguments (formatToolParams), so the full argument set — e.g. a long bash
+// command — is only recoverable from here.
+func toolRawContent(toolName, toolArgs, result string, isError bool) string {
+	var b strings.Builder
+
+	b.WriteString(toolName)
+	if isError {
+		b.WriteString(" (error)")
+	}
+	b.WriteString("\n")
+
+	if args := strings.TrimSpace(toolArgs); args != "" && args != "{}" {
+		b.WriteString("\n")
+		b.WriteString(formatToolArgsForInspector(args))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(result)
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatToolArgsForInspector renders tool arguments for full display.
+//
+// Single string values (a bash command, a file path) are printed as bare
+// "key: value" lines so the value stays copy-pasteable: JSON encoding would
+// escape every quote and collapse newlines into \n, which is exactly what
+// makes a long shell command unreadable. Structured values fall back to
+// indented JSON.
+func formatToolArgsForInspector(args string) string {
+	var params map[string]any
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		// Not an object — show the argument text as-is.
+		return args
+	}
+	if len(params) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(k)
+		switch v := params[k].(type) {
+		case string:
+			if strings.Contains(v, "\n") {
+				// Multi-line values start on their own line so the key
+				// doesn't visually bind to only the first line.
+				b.WriteString(":\n")
+			} else {
+				b.WriteString(": ")
+			}
+			b.WriteString(v)
+		default:
+			b.WriteString(": ")
+			if enc, err := json.MarshalIndent(v, "", "  "); err == nil {
+				b.Write(enc)
+			} else {
+				fmt.Fprintf(&b, "%v", v)
+			}
+		}
+	}
+	return b.String()
 }
 
 // printErrorResponse renders an error message into the ScrollList.
@@ -3332,7 +3458,7 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 		styledMsg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
 
 		// Add to in-memory scrollList with styled content
-		msg := NewStyledMessageItem(generateMessageID(), "error", styledMsg.Content, styledMsg.Content)
+		msg := NewStyledMessageItem(generateMessageID(), "error", evt.Err.Error(), styledMsg.Content)
 		m.messages = append(m.messages, msg)
 
 		// Refresh ScrollList content
@@ -3425,7 +3551,7 @@ func (m *AppModel) printSystemMessage(text string) {
 	styledMsg := m.renderer.RenderSystemMessage(text, time.Now())
 
 	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "system", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
@@ -3436,7 +3562,7 @@ func (m *AppModel) printSystemMessage(text string) {
 func (m *AppModel) printCustomMessage(text, label string) {
 	styledMsg := m.renderer.RenderCustomMessage(text, label, time.Now())
 
-	msg := NewStyledMessageItem(generateMessageID(), "system", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	m.refreshContent()
@@ -5403,7 +5529,10 @@ func (m *AppModel) renderSessionHistory() {
 					toolArgs = info.Args
 				}
 				styledMsg := m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError)
-				item := NewStyledMessageItem(generateMessageID(), "tool", styledMsg.Content, styledMsg.Content)
+				// Retain the full call record so a resumed session's tool
+				// messages stay inspectable, exactly as live ones are.
+				raw := toolRawContent(toolName, toolArgs, tr.Content, tr.IsError)
+				item := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
 				m.messages = append(m.messages, item)
 			}
 		}
@@ -5866,8 +5995,25 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 		WithMarginBottom(1),
 	)
 
-	// Add shell command output to ScrollList.
-	msg2 := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
+	// Add shell command output to ScrollList. The rendered form is capped at
+	// maxShellDisplayLines, so the full output is kept alongside it as the
+	// item's raw content for the message inspector.
+	var raw strings.Builder
+	raw.WriteString(header)
+	if msg.Err != nil {
+		fmt.Fprintf(&raw, "\n\nError: %v", msg.Err)
+	}
+	if msg.Output != "" {
+		raw.WriteString("\n\n")
+		raw.WriteString(msg.Output)
+	} else if msg.Err == nil {
+		raw.WriteString("\n\n(no output)")
+	}
+	if msg.ExitCode != 0 {
+		fmt.Fprintf(&raw, "\n\nExit code: %d", msg.ExitCode)
+	}
+
+	msg2 := NewStyledMessageItem(generateMessageID(), "shell", raw.String(), rendered)
 	m.messages = append(m.messages, msg2)
 	m.refreshContent()
 

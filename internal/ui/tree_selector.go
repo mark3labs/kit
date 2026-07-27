@@ -211,12 +211,17 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ts *TreeSelectorComponent) View() tea.View {
-	// Update extra footer with current filter mode.
-	ts.popup.ExtraFooter = fmt.Sprintf("[%s]", ts.filter)
-	rendered := ts.popup.RenderCentered(ts.width, ts.height)
-	v := tea.NewView(rendered)
+	v := tea.NewView(ts.RenderOverlay())
 	v.AltScreen = true
 	return v
+}
+
+// RenderOverlay returns the selector as a bare box, ready to be composited
+// over the main view so the conversation stays visible behind it.
+func (ts *TreeSelectorComponent) RenderOverlay() string {
+	// Update extra footer with current filter mode.
+	ts.popup.ExtraFooter = fmt.Sprintf("[%s]", ts.filter)
+	return ts.popup.Render()
 }
 
 // IsActive returns whether the tree selector is still accepting input.

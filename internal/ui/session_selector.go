@@ -227,6 +227,14 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (ss *SessionSelectorComponent) View() tea.View {
+	v := tea.NewView(ss.RenderOverlay())
+	v.AltScreen = true
+	return v
+}
+
+// RenderOverlay returns the selector as a bare box, ready to be composited
+// over the main view so the conversation stays visible behind it.
+func (ss *SessionSelectorComponent) RenderOverlay() string {
 	// Compose dynamic footer extras: scope + filter + (delete confirm).
 	extra := fmt.Sprintf("scope: %s · filter: %s", ss.scope, ss.filter)
 	if ss.confirmDelete >= 0 && ss.confirmDelete < len(ss.filtered) {
@@ -236,10 +244,7 @@ func (ss *SessionSelectorComponent) View() tea.View {
 	ss.popup.Title = fmt.Sprintf("Resume Session (%s)", ss.scope)
 	ss.popup.ExtraFooter = extra
 
-	rendered := ss.popup.RenderCentered(ss.width, ss.height)
-	v := tea.NewView(rendered)
-	v.AltScreen = true
-	return v
+	return ss.popup.Render()
 }
 
 // IsActive returns whether the selector is still accepting input.
