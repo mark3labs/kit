@@ -7,6 +7,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/mark3labs/kit/internal/ui/selection"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // MessageItem is the interface all scrollback messages must implement.
@@ -41,6 +42,12 @@ type ScrollList struct {
 	// View() when an item is actually rendered.
 	heightCache map[string]int
 
+	// selectedIdx is the index of the message currently framed by the
+	// selection border, or -1 when message navigation is inactive. The
+	// selected item renders two lines taller than normal, so changing this
+	// must invalidate the affected height-cache entries (SetSelectedIndex).
+	selectedIdx int
+
 	// Character-level text selection (crush-style).
 	sel selection.State
 }
@@ -55,6 +62,7 @@ func NewScrollList(width, height int) *ScrollList {
 		height:      height,
 		autoScroll:  true,
 		heightCache: make(map[string]int, 64),
+		selectedIdx: -1,
 		sel:         selection.NewState(),
 	}
 }
@@ -67,6 +75,12 @@ func NewScrollList(width, height int) *ScrollList {
 func (s *ScrollList) SetItems(items []MessageItem) {
 	s.items = items
 	s.pruneHeightCache()
+	// A shrinking list (e.g. /clear or a session switch) can strand the
+	// selection past the end, which would leave a selected index that no
+	// longer names a message.
+	if s.selectedIdx >= len(s.items) {
+		s.selectedIdx = len(s.items) - 1
+	}
 	if s.autoScroll && !s.sel.MouseDown {
 		s.GotoBottom()
 	}
@@ -97,6 +111,42 @@ func (s *ScrollList) pruneHeightCache() {
 // an item's content (e.g. AppendChunk on a streaming message).
 func (s *ScrollList) InvalidateItemHeight(id string) {
 	delete(s.heightCache, id)
+}
+
+// SetSelectedIndex sets the message framed by the selection border, or -1 to
+// clear the selection. The border adds two lines to the item's rendered
+// height, so the cached heights of both the previously and newly selected
+// items are invalidated to keep scroll math and mouse hit-testing accurate.
+func (s *ScrollList) SetSelectedIndex(idx int) {
+	if idx == s.selectedIdx {
+		return
+	}
+	if s.selectedIdx >= 0 && s.selectedIdx < len(s.items) {
+		delete(s.heightCache, s.items[s.selectedIdx].ID())
+	}
+	if idx >= 0 && idx < len(s.items) {
+		delete(s.heightCache, s.items[idx].ID())
+	}
+	s.selectedIdx = idx
+	s.clampOffset()
+}
+
+// SelectedIndex returns the index of the selected message, or -1 if none.
+func (s *ScrollList) SelectedIndex() int {
+	return s.selectedIdx
+}
+
+// Len returns the number of items in the list.
+func (s *ScrollList) Len() int {
+	return len(s.items)
+}
+
+// ItemAt returns the item at idx, or nil when idx is out of range.
+func (s *ScrollList) ItemAt(idx int) MessageItem {
+	if idx < 0 || idx >= len(s.items) {
+		return nil
+	}
+	return s.items[idx]
 }
 
 // SetHeight updates the viewport height. Called when the terminal is resized.
@@ -254,8 +304,7 @@ func (s *ScrollList) ExtractSelectedText() string {
 	var sb strings.Builder
 
 	for itemIdx := r.StartItemIdx; itemIdx <= r.EndItemIdx && itemIdx < len(s.items); itemIdx++ {
-		item := s.items[itemIdx]
-		content := item.Render(s.width)
+		content := s.renderItem(itemIdx)
 		contentLines := strings.Split(content, "\n")
 
 		for lineIdx, line := range contentLines {
@@ -284,8 +333,7 @@ func (s *ScrollList) selectWord(itemIdx, lineIdx, x int) {
 		return
 	}
 
-	item := s.items[itemIdx]
-	content := item.Render(s.width)
+	content := s.renderItem(itemIdx)
 	lines := strings.Split(content, "\n")
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return
@@ -323,8 +371,7 @@ func (s *ScrollList) selectLine(itemIdx, lineIdx int) {
 		return
 	}
 
-	item := s.items[itemIdx]
-	content := item.Render(s.width)
+	content := s.renderItem(itemIdx)
 	lines := strings.Split(content, "\n")
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return
@@ -355,9 +402,8 @@ func (s *ScrollList) getItemAndLineAtY(y int) (itemIdx, lineIdx int) {
 
 	currentY := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
-		item := s.items[idx]
 		// Compute height the same way View() does: render, then count lines.
-		itemHeight := s.renderedHeight(item)
+		itemHeight := s.renderedHeight(idx)
 
 		// Account for partial visibility of the first item.
 		startLine := 0
@@ -398,7 +444,7 @@ func (s *ScrollList) ScrollBy(lines int) {
 			if s.offsetIdx >= len(s.items) {
 				break
 			}
-			ih := s.itemHeight(s.items[s.offsetIdx])
+			ih := s.itemHeight(s.offsetIdx)
 			remainingLines := ih - s.offsetLine
 
 			if lines >= remainingLines {
@@ -446,7 +492,7 @@ func (s *ScrollList) ScrollBy(lines int) {
 				// Move to previous item
 				s.offsetIdx--
 				if s.offsetIdx < len(s.items) {
-					ih := s.itemHeight(s.items[s.offsetIdx])
+					ih := s.itemHeight(s.offsetIdx)
 
 					if lines >= ih {
 						lines -= ih
@@ -481,7 +527,7 @@ func (s *ScrollList) bottomOffset() (offsetIdx, offsetLine int) {
 
 	budget := s.height
 	for idx := len(s.items) - 1; idx >= 0; idx-- {
-		ih := s.itemHeight(s.items[idx])
+		ih := s.itemHeight(idx)
 
 		// Account for gap *above* this item (gap between idx-1 and idx).
 		gap := 0
@@ -508,6 +554,51 @@ func (s *ScrollList) GotoTop() {
 	s.offsetLine = 0
 }
 
+// EnsureVisible scrolls the minimum amount needed to bring the item at idx
+// fully into the viewport.
+//
+// If the item sits above the viewport it is aligned to the top; if it
+// extends past the bottom it is scrolled up just far enough to fit. An item
+// taller than the viewport is aligned to its first line so navigation always
+// lands on the start of a long message rather than its middle.
+func (s *ScrollList) EnsureVisible(idx int) {
+	if idx < 0 || idx >= len(s.items) {
+		return
+	}
+
+	// Above the viewport (or partially scrolled off the top) — align to top.
+	if idx < s.offsetIdx || (idx == s.offsetIdx && s.offsetLine > 0) {
+		s.offsetIdx = idx
+		s.offsetLine = 0
+		s.clampOffset()
+		return
+	}
+
+	// Measure from the top of the viewport to the end of the target item.
+	distance := -s.offsetLine
+	for i := s.offsetIdx; i <= idx; i++ {
+		distance += s.itemHeight(i)
+		if s.itemGap > 0 && i < idx {
+			distance += s.itemGap
+		}
+	}
+
+	// Already fully visible.
+	if distance <= s.height {
+		return
+	}
+
+	// Taller than the viewport — show it from its first line.
+	if s.itemHeight(idx) >= s.height {
+		s.offsetIdx = idx
+		s.offsetLine = 0
+		s.clampOffset()
+		return
+	}
+
+	s.ScrollBy(distance - s.height)
+}
+
 // AtBottom returns true if the viewport is at the bottom of the list.
 func (s *ScrollList) AtBottom() bool {
 	if len(s.items) == 0 {
@@ -516,7 +607,7 @@ func (s *ScrollList) AtBottom() bool {
 
 	visibleHeight := 0
 	for idx := s.offsetIdx; idx < len(s.items); idx++ {
-		ih := s.itemHeight(s.items[idx])
+		ih := s.itemHeight(idx)
 
 		if idx == s.offsetIdx {
 			visibleHeight += ih - s.offsetLine
@@ -566,7 +657,7 @@ func (s *ScrollList) View() string {
 	if len(s.items) > 0 {
 		for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
 			item := s.items[idx]
-			content := item.Render(s.width)
+			content := s.renderItem(idx)
 
 			// Items that render to an empty string contribute zero height to
 			// the viewport. This MUST match renderedHeight()'s semantics —
@@ -634,8 +725,8 @@ func (s *ScrollList) ScrollPercent() float64 {
 	}
 
 	totalHeight := 0
-	for _, item := range s.items {
-		totalHeight += s.itemHeight(item)
+	for idx := range s.items {
+		totalHeight += s.itemHeight(idx)
 	}
 
 	if totalHeight <= s.height {
@@ -644,7 +735,7 @@ func (s *ScrollList) ScrollPercent() float64 {
 
 	linesAbove := 0
 	for i := 0; i < s.offsetIdx && i < len(s.items); i++ {
-		linesAbove += s.itemHeight(s.items[i])
+		linesAbove += s.itemHeight(i)
 	}
 	linesAbove += s.offsetLine
 
@@ -688,7 +779,7 @@ func (s *ScrollList) clampOffset() {
 
 	// Clamp offsetLine within current item.
 	if s.offsetIdx < len(s.items) {
-		ih := s.itemHeight(s.items[s.offsetIdx])
+		ih := s.itemHeight(s.offsetIdx)
 		if s.offsetLine >= ih {
 			s.offsetLine = max(0, ih-1)
 		}
@@ -707,36 +798,68 @@ func (s *ScrollList) clampOffset() {
 	}
 }
 
-// itemHeight returns the cached rendered height for an item, computing and
-// caching it on first access. This avoids calling Render() purely to
-// count lines — the most common source of redundant work in the scroll
-// list (GotoBottom, clampOffset, AtBottom, ScrollBy all need heights but
-// never use the rendered content).
+// itemHeight returns the cached rendered height for the item at idx,
+// computing and caching it on first access. This avoids calling Render()
+// purely to count lines — the most common source of redundant work in the
+// scroll list (GotoBottom, clampOffset, AtBottom, ScrollBy all need heights
+// but never use the rendered content).
 //
-// The cache is invalidated wholesale on width changes (SetWidth) and
-// individual entries are refreshed in View() after an item is actually
-// rendered, so stale entries are self-correcting within one frame.
-func (s *ScrollList) itemHeight(item MessageItem) int {
-	id := item.ID()
+// The cache is invalidated wholesale on width changes (SetWidth), per-item
+// when the selection moves (SetSelectedIndex), and individual entries are
+// refreshed in View() after an item is actually rendered, so stale entries
+// are self-correcting within one frame.
+func (s *ScrollList) itemHeight(idx int) int {
+	if idx < 0 || idx >= len(s.items) {
+		return 0
+	}
+	id := s.items[idx].ID()
 	if h, ok := s.heightCache[id]; ok {
 		return h
 	}
 	// Cache miss — render to measure.
-	h := s.renderedHeight(item)
+	h := s.renderedHeight(idx)
 	s.heightCache[id] = h
 	return h
 }
 
-// renderedHeight returns the height of a message item in lines by actually
+// renderedHeight returns the height of the item at idx in lines by actually
 // rendering it. This is the single source of truth for item height — it
 // matches exactly what View() produces, unlike item.Height() which may
-// return stale/zero values for uncached items (e.g. reasoning blocks).
-func (s *ScrollList) renderedHeight(item MessageItem) int {
-	rendered := item.Render(s.width)
+// return stale/zero values for uncached items (e.g. reasoning blocks) and
+// which is unaware of the selection border.
+func (s *ScrollList) renderedHeight(idx int) int {
+	rendered := s.renderItem(idx)
 	if rendered == "" {
 		return 0
 	}
 	return strings.Count(rendered, "\n") + 1
+}
+
+// renderItem renders the item at idx exactly as View() paints it, including
+// the selection border when idx is the selected message.
+//
+// Every consumer of item geometry (View, height measurement, mouse
+// hit-testing, text extraction) funnels through this method so they can
+// never disagree about how many lines an item occupies or which line is
+// which — a mismatch would offset mouse selection and corrupt the layout.
+func (s *ScrollList) renderItem(idx int) string {
+	if idx < 0 || idx >= len(s.items) {
+		return ""
+	}
+
+	if idx != s.selectedIdx {
+		return s.items[idx].Render(s.width)
+	}
+
+	// The border consumes one column on each side, so the content is asked
+	// to render narrower and the framed result still spans exactly s.width.
+	content := s.items[idx].Render(max(s.width-2, 1))
+	if content == "" {
+		// Nothing to frame — an empty item stays empty (and zero-height) so
+		// the selection can't conjure a box out of blank space.
+		return ""
+	}
+	return applySelectionBorder(content, s.width, style.GetTheme().Border)
 }
 
 // abs returns the absolute value of x.

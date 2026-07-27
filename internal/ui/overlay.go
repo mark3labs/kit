@@ -43,6 +43,16 @@ type overlayDialog struct {
 	dialogWidth int // configured dialog width (0 = auto)
 	maxHeight   int // configured max height (0 = auto)
 	anchor      string
+
+	// dismissOnly marks an overlay that has no consumer for its result —
+	// the message inspector, which the UI opens for reading only. Enter and
+	// Esc then close the dialog with no observable difference, so the key
+	// hint advertises a single "close" action instead of implying that
+	// dismiss and cancel lead to different outcomes.
+	//
+	// Extension overlays leave this false: ShowOverlay reports Enter as
+	// completed and Esc as cancelled, and extensions may branch on it.
+	dismissOnly bool
 }
 
 // newOverlayDialog creates an overlay dialog from an OverlayRequestEvent's
@@ -154,6 +164,9 @@ func (o *overlayDialog) Render() string {
 	mh = clamp(mh, min(6, termH), termH)
 
 	// Inner width accounts for border (2) + horizontal padding (2 left + 1 right).
+	// lipgloss's Width() sets the total rendered width including the border,
+	// so the dialog style below is given the full dw and the content area is
+	// what remains after the frame and padding.
 	innerWidth := max(dw-5, 6)
 
 	// Render body text (potentially as markdown).
@@ -249,11 +262,14 @@ func (o *overlayDialog) Render() string {
 		borderClr = lipgloss.Color(o.borderColor)
 	}
 
-	// Build the dialog box style.
+	// Build the dialog box style. Width() is the total rendered width
+	// including the border, so dw is passed through unmodified — subtracting
+	// the border here would shrink the content area below innerWidth and
+	// wrap the title separator and action bar onto extra lines.
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderClr).
-		Width(dw-2). // -2 for border chars
+		Width(dw).
 		Padding(1, 1, 1, 2).
 		Foreground(theme.Text)
 
@@ -269,20 +285,28 @@ func (o *overlayDialog) Render() string {
 		if scrollable {
 			hints = append(hints, "↑/↓ scroll")
 		}
-		if len(o.actions) > 0 {
+		switch {
+		case len(o.actions) > 0:
 			hints = append(hints, "←/→ switch")
 			hints = append(hints, "Enter select")
-		} else {
+			hints = append(hints, "Esc cancel")
+		case o.dismissOnly:
+			hints = append(hints, "Enter/Esc close")
+		default:
 			hints = append(hints, "Enter dismiss")
+			hints = append(hints, "Esc cancel")
 		}
-		hints = append(hints, "Esc cancel")
 	} else {
-		if len(o.actions) > 0 {
+		switch {
+		case len(o.actions) > 0:
 			hints = append(hints, "↵ select")
-		} else {
+			hints = append(hints, "esc")
+		case o.dismissOnly:
+			hints = append(hints, "↵/esc close")
+		default:
 			hints = append(hints, "↵ ok")
+			hints = append(hints, "esc")
 		}
-		hints = append(hints, "esc")
 	}
 	hintText := lipgloss.NewStyle().
 		Foreground(theme.Muted).

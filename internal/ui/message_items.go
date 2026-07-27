@@ -41,6 +41,22 @@ func (m *TextMessageItem) ID() string {
 	return m.id
 }
 
+// RawContent returns the original, untruncated source text for this message.
+// The scrollback stores a display-oriented (styled and possibly truncated)
+// rendering in preRendered; RawContent is what the message inspector shows so
+// the user can read content that was elided for display.
+func (m *TextMessageItem) RawContent() string {
+	if m.content != "" {
+		return m.content
+	}
+	return m.preRendered
+}
+
+// Role returns the message role ("user", "assistant", "tool", ...).
+func (m *TextMessageItem) Role() string {
+	return m.role
+}
+
 func (m *TextMessageItem) Render(width int) string {
 	// If we have pre-rendered styled content, return it
 	if m.preRendered != "" {
@@ -134,6 +150,16 @@ func NewStreamingMessageItem(id, role string, modelName string) *StreamingMessag
 // ID returns the unique identifier.
 func (s *StreamingMessageItem) ID() string {
 	return s.id
+}
+
+// RawContent returns the accumulated streaming text without styling.
+func (s *StreamingMessageItem) RawContent() string {
+	return s.content.String()
+}
+
+// Role returns the message role ("assistant" or "reasoning").
+func (s *StreamingMessageItem) Role() string {
+	return s.role
 }
 
 // Render renders the streaming message with live content.
@@ -243,6 +269,28 @@ func NewStreamingBashOutputItem(id string, command string) *StreamingBashOutputI
 
 func (m *StreamingBashOutputItem) ID() string {
 	return m.id
+}
+
+// RawContent returns the captured command output as plain text, prefixed with
+// the command itself. Streaming bash output is capped to maxLines for display,
+// so this returns whatever the item still retains.
+func (m *StreamingBashOutputItem) RawContent() string {
+	var b strings.Builder
+	if m.command != "" {
+		b.WriteString("$ " + m.command + "\n\n")
+	}
+	for _, line := range m.stdoutLines {
+		b.WriteString(line + "\n")
+	}
+	for _, line := range m.stderrLines {
+		b.WriteString(line + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// Role returns the message role.
+func (m *StreamingBashOutputItem) Role() string {
+	return "bash"
 }
 
 func (m *StreamingBashOutputItem) Render(width int) string {

@@ -60,6 +60,12 @@ const (
 
 	// stateSessionSelector means the /resume session picker is active.
 	stateSessionSelector
+
+	// stateMessageNav means scrollback message navigation is active. The
+	// user moves a selection between messages with up/down (or j/k) and
+	// opens the selected message in a scrollable inspector with Enter.
+	// The composer keeps its text but does not receive keys.
+	stateMessageNav
 )
 
 // AppController is the interface the parent TUI model uses to interact with the
@@ -1370,6 +1376,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
+		// A width change re-wraps every message, so the selected one can end
+		// up outside the viewport. Pull it back into view rather than leaving
+		// the user navigating a selection they cannot see.
+		if m.state == stateMessageNav && m.scrollList != nil {
+			m.scrollList.EnsureVisible(m.scrollList.SelectedIndex())
+		}
 
 	// ── Mouse wheel scrolling ────────────────────────────────────────────────
 	case tea.MouseWheelMsg:
@@ -1546,6 +1558,38 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Message navigation consumes every key it understands so the
+		// composer never sees j/k as text while the user is browsing.
+		if m.state == stateMessageNav {
+			switch msg.String() {
+			case "up", "k":
+				m.moveMessageSelection(-1)
+				return m, tea.Batch(cmds...)
+			case "down", "j":
+				m.moveMessageSelection(1)
+				return m, tea.Batch(cmds...)
+			case "home", "g":
+				if idx := m.firstSelectableIndex(); idx >= 0 {
+					m.selectMessage(idx)
+				}
+				return m, tea.Batch(cmds...)
+			case "end", "G":
+				if idx := m.lastSelectableIndex(); idx >= 0 {
+					m.selectMessage(idx)
+				}
+				return m, tea.Batch(cmds...)
+			case "enter":
+				m.inspectSelectedMessage()
+				return m, tea.Batch(cmds...)
+			case "esc", "q":
+				m.exitMessageNav()
+				return m, tea.Batch(cmds...)
+			}
+			// Swallow everything else: an unhandled key must not leak into
+			// the composer while navigation owns the keyboard.
+			return m, tea.Batch(cmds...)
+		}
+
 		// ── Leader key chord handling (Ctrl+X prefix) ──────────────
 		// If the leader key was previously pressed, the current key
 		// completes the chord. We consume it regardless of match so
@@ -1623,6 +1667,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.stream.SetThinkingVisible(m.thinkingVisible)
 					}
 				}
+			case "m":
+				// Ctrl+X m → Move: navigate messages in the scrollback.
+				m.enterMessageNav()
 			case "e":
 				// Ctrl+X e → open $EDITOR to compose/edit the prompt.
 				editorApp := os.Getenv("VISUAL")
@@ -2881,8 +2928,16 @@ func (m *AppModel) renderStatusBar() string {
 	veryMuted := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 
 	// Left: working directory, plus the git branch when one is known.
+	// While message navigation owns the keyboard its key hints take that
+	// slot instead: the rebound keys are transient and need discovering,
+	// whereas the path is ambient and always recoverable by pressing Esc.
 	var leftSide string
-	if m.cwd != "" {
+	if m.state == stateMessageNav {
+		leftSide = " " + lipgloss.NewStyle().
+			Foreground(theme.Accent).
+			Render("MESSAGE NAV") +
+			veryMuted.Render("  ↑/↓ move · enter open · esc exit")
+	} else if m.cwd != "" {
 		left := tildeHome(m.cwd)
 		if m.gitBranch != "" {
 			left += " (" + m.gitBranch + ")"
@@ -3335,12 +3390,50 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	// Render styled tool message using MessageRenderer
 	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 
+	// Keep the untruncated result as the item's raw content. The styled
+	// rendering caps output (10 lines for generic results, 20 for diffs and
+	// code), so without this the message inspector could only ever show the
+	// same elided text the scrollback already displays.
+	raw := toolRawContent(evt)
+
 	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "tool", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
 	m.refreshContent()
+}
+
+// toolRawContent composes the full, untruncated record of a tool call for
+// the message inspector: the tool name, its arguments, and the complete
+// result body.
+func toolRawContent(evt app.ToolResultEvent) string {
+	var b strings.Builder
+
+	b.WriteString(evt.ToolName)
+	if evt.IsError {
+		b.WriteString(" (error)")
+	}
+	b.WriteString("\n")
+
+	if args := strings.TrimSpace(evt.ToolArgs); args != "" && args != "{}" {
+		// Pretty-print JSON arguments when possible so long tool calls are
+		// readable in the inspector; fall back to the raw string otherwise.
+		var parsed any
+		if err := json.Unmarshal([]byte(args), &parsed); err == nil {
+			if pretty, err := json.MarshalIndent(parsed, "", "  "); err == nil {
+				args = string(pretty)
+			}
+		}
+		b.WriteString("\n")
+		b.WriteString(args)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(evt.Result)
+
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // printErrorResponse renders an error message into the ScrollList.
@@ -3350,7 +3443,7 @@ func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 		styledMsg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
 
 		// Add to in-memory scrollList with styled content
-		msg := NewStyledMessageItem(generateMessageID(), "error", styledMsg.Content, styledMsg.Content)
+		msg := NewStyledMessageItem(generateMessageID(), "error", evt.Err.Error(), styledMsg.Content)
 		m.messages = append(m.messages, msg)
 
 		// Refresh ScrollList content
@@ -3443,7 +3536,7 @@ func (m *AppModel) printSystemMessage(text string) {
 	styledMsg := m.renderer.RenderSystemMessage(text, time.Now())
 
 	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "system", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
@@ -3454,7 +3547,7 @@ func (m *AppModel) printSystemMessage(text string) {
 func (m *AppModel) printCustomMessage(text, label string) {
 	styledMsg := m.renderer.RenderCustomMessage(text, label, time.Now())
 
-	msg := NewStyledMessageItem(generateMessageID(), "system", styledMsg.Content, styledMsg.Content)
+	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
 	m.messages = append(m.messages, msg)
 
 	m.refreshContent()
@@ -5853,8 +5946,25 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 		WithMarginBottom(1),
 	)
 
-	// Add shell command output to ScrollList.
-	msg2 := NewStyledMessageItem(generateMessageID(), "system", rendered, rendered)
+	// Add shell command output to ScrollList. The rendered form is capped at
+	// maxShellDisplayLines, so the full output is kept alongside it as the
+	// item's raw content for the message inspector.
+	var raw strings.Builder
+	raw.WriteString(header)
+	if msg.Err != nil {
+		fmt.Fprintf(&raw, "\n\nError: %v", msg.Err)
+	}
+	if msg.Output != "" {
+		raw.WriteString("\n\n")
+		raw.WriteString(msg.Output)
+	} else if msg.Err == nil {
+		raw.WriteString("\n\n(no output)")
+	}
+	if msg.ExitCode != 0 {
+		fmt.Fprintf(&raw, "\n\nExit code: %d", msg.ExitCode)
+	}
+
+	msg2 := NewStyledMessageItem(generateMessageID(), "shell", raw.String(), rendered)
 	m.messages = append(m.messages, msg2)
 	m.refreshContent()
 
