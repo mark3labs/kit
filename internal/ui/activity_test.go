@@ -318,3 +318,112 @@ func TestSplashBarScalesWithContent(t *testing.T) {
 		t.Errorf("expected empty splash for no content, got %q", got)
 	}
 }
+
+// TestLeftEdgeAlignment verifies every block honours the shared left-edge
+// contract: a marker in column 0, and text beginning at style.ContentOffset.
+// A ragged left margin reads as a bug even when each block is individually
+// well-formed, so this pins all the block types together.
+func TestLeftEdgeAlignment(t *testing.T) {
+	const width = 80
+	r := newMessageRenderer(width, false)
+
+	// firstVisibleLine returns the first non-blank line of a rendered block.
+	firstVisibleLine := func(rendered string) []rune {
+		for _, line := range strings.Split(stripAnsi(rendered), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			return []rune(line)
+		}
+		return nil
+	}
+
+	// contentColumn returns the column at which a block's text begins. For a
+	// block carrying a marker the marker sits in column 0 and text follows the
+	// separating space; for an unmarked block it is simply the indent.
+	contentColumn := func(rendered string) int {
+		runes := firstVisibleLine(rendered)
+		col := 0
+		for col < len(runes) && runes[col] == ' ' {
+			col++
+		}
+		if col == 0 {
+			// A marker occupies column 0. Skip it and the space after it.
+			for col < len(runes) && runes[col] != ' ' {
+				col++
+			}
+			for col < len(runes) && runes[col] == ' ' {
+				col++
+			}
+		}
+		return col
+	}
+
+	// startsAtColumnZero reports whether the block's marker sits in column 0.
+	startsAtColumnZero := func(rendered string) bool {
+		runes := firstVisibleLine(rendered)
+		return len(runes) > 0 && runes[0] != ' '
+	}
+
+	t.Run("user message marker in column 0", func(t *testing.T) {
+		got := r.RenderUserMessage("hello", time.Now()).Content
+		if !startsAtColumnZero(got) {
+			t.Errorf("user gutter must sit in column 0, got %q", stripAnsi(got))
+		}
+		if col := contentColumn(got); col != style.ContentOffset {
+			t.Errorf("user text starts at column %d, want %d", col, style.ContentOffset)
+		}
+	})
+
+	t.Run("tool marker in column 0", func(t *testing.T) {
+		got := r.RenderToolMessage("read", `{"path":"a.go"}`, "x", false).Content
+		if !startsAtColumnZero(got) {
+			t.Errorf("tool marker must sit in column 0, got %q", stripAnsi(got))
+		}
+		if col := contentColumn(got); col != style.ContentOffset {
+			t.Errorf("tool name starts at column %d, want %d", col, style.ContentOffset)
+		}
+	})
+
+	t.Run("assistant prose indented to the content column", func(t *testing.T) {
+		got := r.RenderAssistantMessage("plain prose", time.Now(), "m").Content
+		if col := contentColumn(got); col != style.ContentOffset {
+			t.Errorf("assistant text starts at column %d, want %d", col, style.ContentOffset)
+		}
+	})
+
+	t.Run("splash stripe in column 0", func(t *testing.T) {
+		theme := style.GetTheme()
+		got := style.SplashBar([]string{"KIT"}, theme.Primary, theme.Accent)
+		if !startsAtColumnZero(got) {
+			t.Errorf("splash stripe must sit in column 0, got %q", stripAnsi(got))
+		}
+		if col := contentColumn(got); col != style.ContentOffset {
+			t.Errorf("splash text starts at column %d, want %d", col, style.ContentOffset)
+		}
+	})
+}
+
+// TestAssistantProseFitsWidth verifies assistant text uses the full width
+// available after its indent, leaving a single column of right margin rather
+// than the unexplained four it used to.
+func TestAssistantProseFitsWidth(t *testing.T) {
+	const width = 60
+	r := newMessageRenderer(width, false)
+
+	long := strings.Repeat("word ", 80)
+	rendered := stripAnsi(r.RenderAssistantMessage(long, time.Now(), "m").Content)
+
+	widest := 0
+	for _, line := range strings.Split(rendered, "\n") {
+		if w := len([]rune(strings.TrimRight(line, " "))); w > widest {
+			widest = w
+		}
+	}
+	if widest > width {
+		t.Errorf("assistant prose overflows: widest line %d > width %d", widest, width)
+	}
+	if widest < width-style.ContentOffset-2 {
+		t.Errorf("assistant prose wastes horizontal space: widest line %d, width %d", widest, width)
+	}
+}

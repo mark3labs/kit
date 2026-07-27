@@ -87,9 +87,11 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 		fullWidth:     true,
 		paddingTop:    1,
 		paddingBottom: 1,
-		paddingLeft:   2,
-		paddingRight:  0,
-		width:         containerWidth,
+		// The border glyph occupies column 0, so the padding that follows it
+		// is one less than the shared content offset.
+		paddingLeft:  style.ContentOffset - 1,
+		paddingRight: 0,
+		width:        containerWidth,
 	}
 
 	for _, option := range options {

@@ -361,6 +361,17 @@ func KitBanner() string {
 // invite the eye to look for a matching corner that never comes.
 const GutterGlyph = "▌"
 
+// ContentOffset is the column at which every block's text begins.
+//
+// The UI keeps one left-edge contract: a marker (gutter glyph, tool bullet,
+// receipt check) occupies column 0, a single space follows, and text starts at
+// ContentOffset. Blocks with no marker — assistant prose — are indented to the
+// same column, so the transcript reads as one aligned text column with markers
+// hanging in the left margin. Anything that draws a left edge must honour this,
+// or the eye sees a ragged margin and reads it as misalignment rather than as
+// structure.
+const ContentOffset = 2
+
 // GutterBorder returns a lipgloss border consisting only of a left edge drawn
 // with GutterGlyph. Callers enable just the left side; the remaining fields
 // exist because lipgloss requires a complete Border value.
@@ -407,9 +418,9 @@ func Gutter(s string, c color.Color) string {
 // art, whose height is fixed no matter how little information accompanies it.
 // It also adapts to narrow terminals, where wide ASCII art simply wraps.
 // SplashGutterWidth is the number of columns SplashBar consumes to the left of
-// its content: two spaces, the stripe glyph, then three more spaces. Callers
-// subtract this from the terminal width when sizing content for the block.
-const SplashGutterWidth = 6
+// its content. It matches ContentOffset so the splash stripe lines up with
+// every other gutter in the UI.
+const SplashGutterWidth = ContentOffset
 
 func SplashBar(lines []string, from, to color.Color) string {
 	if len(lines) == 0 {
@@ -428,7 +439,7 @@ func SplashBar(lines []string, from, to color.Color) string {
 		bar := lipgloss.NewStyle().
 			Foreground(interpolateColor(from, to, pos)).
 			Render("█")
-		b.WriteString("  " + bar + "   " + line)
+		b.WriteString(bar + strings.Repeat(" ", ContentOffset-1) + line)
 	}
 	return b.String()
 }
