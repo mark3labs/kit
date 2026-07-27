@@ -3462,20 +3462,23 @@ func formatToolArgsForInspector(args string) string {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
+		b.WriteString(k)
 		switch v := params[k].(type) {
 		case string:
 			if strings.Contains(v, "\n") {
 				// Multi-line values start on their own line so the key
 				// doesn't visually bind to only the first line.
-				b.WriteString(k + ":\n" + v)
+				b.WriteString(":\n")
 			} else {
-				b.WriteString(k + ": " + v)
+				b.WriteString(": ")
 			}
+			b.WriteString(v)
 		default:
+			b.WriteString(": ")
 			if enc, err := json.MarshalIndent(v, "", "  "); err == nil {
-				b.WriteString(k + ": " + string(enc))
+				b.Write(enc)
 			} else {
-				b.WriteString(fmt.Sprintf("%s: %v", k, v))
+				fmt.Fprintf(&b, "%v", v)
 			}
 		}
 	}
