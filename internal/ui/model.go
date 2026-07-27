@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -3392,9 +3393,10 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 
 	// Keep the untruncated result as the item's raw content. The styled
 	// rendering caps output (10 lines for generic results, 20 for diffs and
-	// code), so without this the message inspector could only ever show the
-	// same elided text the scrollback already displays.
-	raw := toolRawContent(evt)
+	// code) and elides long arguments in the header, so without this the
+	// message inspector could only ever show the same elided text the
+	// scrollback already displays.
+	raw := toolRawContent(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 
 	// Add to in-memory scrollList with styled content
 	msg := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
@@ -3407,33 +3409,77 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 // toolRawContent composes the full, untruncated record of a tool call for
 // the message inspector: the tool name, its arguments, and the complete
 // result body.
-func toolRawContent(evt app.ToolResultEvent) string {
+//
+// The scrollback header shows only a truncated one-line summary of the
+// arguments (formatToolParams), so the full argument set — e.g. a long bash
+// command — is only recoverable from here.
+func toolRawContent(toolName, toolArgs, result string, isError bool) string {
 	var b strings.Builder
 
-	b.WriteString(evt.ToolName)
-	if evt.IsError {
+	b.WriteString(toolName)
+	if isError {
 		b.WriteString(" (error)")
 	}
 	b.WriteString("\n")
 
-	if args := strings.TrimSpace(evt.ToolArgs); args != "" && args != "{}" {
-		// Pretty-print JSON arguments when possible so long tool calls are
-		// readable in the inspector; fall back to the raw string otherwise.
-		var parsed any
-		if err := json.Unmarshal([]byte(args), &parsed); err == nil {
-			if pretty, err := json.MarshalIndent(parsed, "", "  "); err == nil {
-				args = string(pretty)
-			}
-		}
+	if args := strings.TrimSpace(toolArgs); args != "" && args != "{}" {
 		b.WriteString("\n")
-		b.WriteString(args)
+		b.WriteString(formatToolArgsForInspector(args))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(evt.Result)
+	b.WriteString(result)
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatToolArgsForInspector renders tool arguments for full display.
+//
+// Single string values (a bash command, a file path) are printed as bare
+// "key: value" lines so the value stays copy-pasteable: JSON encoding would
+// escape every quote and collapse newlines into \n, which is exactly what
+// makes a long shell command unreadable. Structured values fall back to
+// indented JSON.
+func formatToolArgsForInspector(args string) string {
+	var params map[string]any
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		// Not an object — show the argument text as-is.
+		return args
+	}
+	if len(params) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		switch v := params[k].(type) {
+		case string:
+			if strings.Contains(v, "\n") {
+				// Multi-line values start on their own line so the key
+				// doesn't visually bind to only the first line.
+				b.WriteString(k + ":\n" + v)
+			} else {
+				b.WriteString(k + ": " + v)
+			}
+		default:
+			if enc, err := json.MarshalIndent(v, "", "  "); err == nil {
+				b.WriteString(k + ": " + string(enc))
+			} else {
+				b.WriteString(fmt.Sprintf("%s: %v", k, v))
+			}
+		}
+	}
+	return b.String()
 }
 
 // printErrorResponse renders an error message into the ScrollList.
@@ -5483,7 +5529,10 @@ func (m *AppModel) renderSessionHistory() {
 					toolArgs = info.Args
 				}
 				styledMsg := m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError)
-				item := NewStyledMessageItem(generateMessageID(), "tool", styledMsg.Content, styledMsg.Content)
+				// Retain the full call record so a resumed session's tool
+				// messages stay inspectable, exactly as live ones are.
+				raw := toolRawContent(toolName, toolArgs, tr.Content, tr.IsError)
+				item := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
 				m.messages = append(m.messages, item)
 			}
 		}

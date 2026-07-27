@@ -1,23 +1,12 @@
 package ui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	xansi "github.com/charmbracelet/x/ansi"
-
-	"github.com/mark3labs/kit/internal/app"
 )
-
-// appToolResult builds a ToolResultEvent for the raw-content tests.
-func appToolResult(name, args, result string, isErr bool) app.ToolResultEvent {
-	return app.ToolResultEvent{
-		ToolName: name,
-		ToolArgs: args,
-		Result:   result,
-		IsError:  isErr,
-	}
-}
 
 // --------------------------------------------------------------------------
 // applySelectionBorder
@@ -281,7 +270,7 @@ func TestMessageInspectorContent_Titles(t *testing.T) {
 // complete result plus the call metadata needed to interpret it.
 func TestToolRawContent_IncludesFullResult(t *testing.T) {
 	result := strings.Repeat("line\n", 100)
-	got := toolRawContent(appToolResult("read", `{"path":"main.go"}`, result, false))
+	got := toolRawContent("read", `{"path":"main.go"}`, result, false)
 
 	if !strings.Contains(got, "read") {
 		t.Error("missing tool name")
@@ -296,7 +285,7 @@ func TestToolRawContent_IncludesFullResult(t *testing.T) {
 
 // TestToolRawContent_MarksErrors verifies error results are labelled.
 func TestToolRawContent_MarksErrors(t *testing.T) {
-	got := toolRawContent(appToolResult("bash", "{}", "boom", true))
+	got := toolRawContent("bash", "{}", "boom", true)
 	if !strings.Contains(got, "(error)") {
 		t.Errorf("error result not marked: %q", got)
 	}
@@ -314,7 +303,7 @@ func TestOverlayDialog_TitleSeparatorFitsOnOneLine(t *testing.T) {
 	o := newOverlayDialog("Tool Result", "body text", false, "", "", 0, 0, "center", nil, 100, 30)
 
 	var seen int
-	for _, line := range strings.Split(o.Render(), "\n") {
+	for line := range strings.SplitSeq(o.Render(), "\n") {
 		plain := strings.TrimSpace(xansi.Strip(line))
 		// Separator rows contain only box-drawing dashes between the frame.
 		inner := strings.Trim(plain, "│ ")
@@ -374,5 +363,76 @@ func TestOverlayDialog_DismissOnlyHint(t *testing.T) {
 	}
 	if strings.Contains(got, "Esc cancel") {
 		t.Error("inspector must not imply Esc cancels something")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Tool argument display
+// --------------------------------------------------------------------------
+
+// TestToolRawContent_KeepsFullBashCommand is the argument-side counterpart to
+// the result-side truncation guarantee: the scrollback header elides a long
+// command with "...", so the inspector must carry the whole thing.
+func TestToolRawContent_KeepsFullBashCommand(t *testing.T) {
+	cmd := `cd /home/space_cowboy/Workspace/kit && btca ask -r https://github.com/owainlewis/neo ` +
+		`-q "Show the exact workflow tool definition and the internal/workflow package: ` +
+		`the Store/state model, item statuses, how transitions are validated"`
+
+	args, err := json.Marshal(map[string]string{"command": cmd})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The header summary is truncated...
+	if got := formatToolParams(string(args), 80); !strings.HasSuffix(got, "...") {
+		t.Fatalf("expected a truncated header summary, got %q", got)
+	}
+
+	// ...but the inspector keeps the command verbatim.
+	raw := toolRawContent("bash", string(args), "output", false)
+	if !strings.Contains(raw, cmd) {
+		t.Errorf("full command missing from inspector content:\n%s", raw)
+	}
+}
+
+// TestFormatToolArgsForInspector_StringsStayCopyPasteable verifies string
+// arguments are not JSON-escaped. Encoding them would turn every quote into
+// \" and every newline into \n, defeating the purpose of showing the command.
+func TestFormatToolArgsForInspector_StringsStayCopyPasteable(t *testing.T) {
+	args := `{"command":"echo \"hello world\" | grep hello"}`
+
+	got := formatToolArgsForInspector(args)
+	want := `command: echo "hello world" | grep hello`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if strings.Contains(got, `\"`) {
+		t.Error("quotes must not be escaped")
+	}
+}
+
+// TestFormatToolArgsForInspector_MultilineAndStructured covers the two
+// remaining shapes: multi-line strings start on their own line, and
+// non-string values fall back to indented JSON.
+func TestFormatToolArgsForInspector_MultilineAndStructured(t *testing.T) {
+	got := formatToolArgsForInspector(`{"content":"line one\nline two"}`)
+	if !strings.HasPrefix(got, "content:\n") || !strings.Contains(got, "line two") {
+		t.Errorf("multi-line value not laid out on its own line: %q", got)
+	}
+
+	got = formatToolArgsForInspector(`{"limit":50,"paths":["a","b"]}`)
+	if !strings.Contains(got, "limit: 50") {
+		t.Errorf("numeric value missing: %q", got)
+	}
+	if !strings.Contains(got, `"a"`) || !strings.Contains(got, `"b"`) {
+		t.Errorf("array value missing: %q", got)
+	}
+}
+
+// TestFormatToolArgsForInspector_NonObjectPassthrough verifies a non-JSON
+// argument payload is shown as-is rather than silently dropped.
+func TestFormatToolArgsForInspector_NonObjectPassthrough(t *testing.T) {
+	if got := formatToolArgsForInspector("not json"); got != "not json" {
+		t.Errorf("got %q, want passthrough", got)
 	}
 }
