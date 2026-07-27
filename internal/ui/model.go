@@ -2142,61 +2142,43 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.StepCompleteEvent:
-		// Keep stream content visible in the view — don't flush to the ScrollList
-		// yet. Flushing + resetting in the same frame would shrink the view
-		// height, and bubbletea's inline renderer leaves blank lines at the
-		// bottom for the orphaned rows. The content will be flushed to
-		// the ScrollList when the next step starts (SpinnerEvent{Show: true}).
-		// Just stop the spinner and return to input state.
+		// Stop the spinner and return to input state. The response is already
+		// mirrored in the ScrollList as a StreamingMessageItem, so
+		// finalizeStreamTurn() freezes it and drops the stream component's
+		// redundant copy (see its doc comment).
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
-		// Mark any trailing StreamingMessageItem as complete so its live
-		// timer freezes and it is not left in a dangling streaming state.
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-			}
-		}
+		m.finalizeStreamTurn()
 		m.printTurnReceipt(turnDone)
 		m.state = stateInput
 		m.canceling = false
 
 	case app.StepCancelledEvent:
-		// User cancelled the step (double-ESC). Keep partial stream content
-		// visible (same reasoning as StepCompleteEvent). Just stop the spinner.
+		// User cancelled the step (double-ESC). The partial response stays
+		// visible via the ScrollList copy; the stream component's copy is
+		// dropped so the next turn does not re-print it after the receipt.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
-		// Mark any trailing StreamingMessageItem as complete (see StepCompleteEvent).
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-			}
-		}
+		m.finalizeStreamTurn()
 		m.printTurnReceipt(turnCancelled)
 		m.state = stateInput
 		m.canceling = false
 
 	case app.StepErrorEvent:
-		// Keep partial stream content visible (same reasoning as
-		// StepCompleteEvent). Print the error to the ScrollList — it appears
-		// above the view, and the partial response stays visible below.
+		// The partial response stays visible via the ScrollList copy; the
+		// error block is printed after it, in chronological order.
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: false})
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
-		// Mark any trailing StreamingMessageItem as complete (see StepCompleteEvent).
-		if len(m.messages) > 0 {
-			if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
-				streamMsg.MarkComplete()
-			}
-		}
+		m.finalizeStreamTurn()
 		if msg.Err != nil {
 			m.printErrorResponse(msg)
 		}
@@ -4020,6 +4002,37 @@ func (m *AppModel) flushStreamContent() {
 			m.refreshContent()
 		}
 	}
+}
+
+// finalizeStreamTurn closes out a turn's streaming output. Called from every
+// terminal step event (complete, cancelled, error).
+//
+// Stream chunks are mirrored into two places while a turn runs: the
+// StreamComponent's accumulator and a StreamingMessageItem in the ScrollList.
+// The ScrollList copy is marked complete so its live timer freezes, and the
+// StreamComponent is reset so its now-redundant copy is dropped.
+//
+// The reset matters most for interrupted turns. Without it the stale content
+// survives until the next SpinnerEvent{Show: true}, where
+// flushStreamAndPendingUserMessages() re-renders it as a fresh
+// StyledMessageItem — its alreadyInList check only inspects the trailing
+// message, which by then is the turn receipt or any system message printed
+// after the interrupt, so the whole response gets appended a second time.
+//
+// All buffered chunks are already applied to the ScrollList by the time a
+// terminal event is handled (see flushPendingStreamChunks in Update), so the
+// reset never loses content.
+func (m *AppModel) finalizeStreamTurn() {
+	if len(m.messages) > 0 {
+		if streamMsg, ok := m.messages[len(m.messages)-1].(*StreamingMessageItem); ok {
+			streamMsg.MarkComplete()
+		}
+	}
+	if m.stream != nil {
+		m.stream.Reset()
+	}
+	m.refreshContent()
+	m.layoutDirty = true
 }
 
 // flushStreamAndPendingUserMessages moves the previous assistant response and
