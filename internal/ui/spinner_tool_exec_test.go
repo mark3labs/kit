@@ -162,7 +162,8 @@ func TestSpinnerShowsToolNameDuringExecution(t *testing.T) {
 		ToolCallID: "call-1", ToolName: "bash", ToolArgs: `{"command":"ls"}`,
 	})
 	// Capture the tick cmd here so step 4 can drive a mid-execution tick.
-	_, tickCmd := sendMsgExec(m, app.ToolExecutionEvent{
+	var tickCmd tea.Cmd
+	m, tickCmd = sendMsgExec(m, app.ToolExecutionEvent{
 		ToolCallID: "call-1", ToolName: "bash", ToolArgs: `{"command":"ls"}`, IsStarting: true,
 	})
 
