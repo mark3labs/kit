@@ -30,6 +30,7 @@ import (
 type submonEntry struct {
 	id      int
 	callID  string
+	agent   string // named agent (e.g. "explore"), or "" for the default agent
 	task    string
 	lines   []string
 	started time.Time
@@ -51,11 +52,26 @@ var (
 	submonHasCtx  bool
 	submonEntries []*submonEntry
 	submonNextID  int
+	// submonAgentByCall records the named agent for each subagent tool call,
+	// captured on OnToolCall (which fires before OnSubagentStart) and keyed
+	// by ToolCallID. The subagent lifecycle events don't carry the agent
+	// name, so we grab it from the raw tool-call arguments here.
+	submonAgentByCall map[string]string
 )
 
 func submonInit() {
 	submonEntries = nil
 	submonNextID = 1
+	submonAgentByCall = map[string]string{}
+}
+
+// submonAgentLabel returns the display title for a column: the named agent
+// if one was requested, otherwise a sensible default.
+func submonAgentLabel(agent string) string {
+	if strings.TrimSpace(agent) == "" {
+		return "default agent"
+	}
+	return agent
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +104,10 @@ func submonTrunc(s string, w int) string {
 func submonRenderColumn(e *submonEntry) []string {
 	var rows []string
 
+	// Title row: the type/name of the agent for this pane.
+	title := fmt.Sprintf("▸ %s", submonTrunc(submonAgentLabel(e.agent), submonColWidth-2))
+	rows = append(rows, submonPad(title, submonColWidth))
+
 	// Calculate elapsed time on-demand to avoid race conditions with ticker
 	elapsed := e.elapsed
 	if elapsed == 0 && !e.started.IsZero() {
@@ -107,8 +127,8 @@ func submonRenderColumn(e *submonEntry) []string {
 	for _, l := range display {
 		rows = append(rows, submonPad("  "+submonTrunc(l, submonColWidth-2), submonColWidth))
 	}
-	for len(rows) < submonMaxLines+1 {
-		if len(rows) == 1 && len(e.lines) == 0 {
+	for len(rows) < submonMaxLines+2 {
+		if len(rows) == 2 && len(e.lines) == 0 {
 			rows = append(rows, submonPad("  waiting…", submonColWidth))
 		} else {
 			rows = append(rows, strings.Repeat(" ", submonColWidth))
@@ -123,7 +143,7 @@ func submonBuildWidget() string {
 	}
 
 	numCols := len(submonEntries)
-	numRows := submonMaxLines + 1
+	numRows := submonMaxLines + 2 // +1 title row, +1 header row
 	cols := make([][]string, numCols)
 	for i, e := range submonEntries {
 		rows := submonRenderColumn(e)
@@ -207,6 +227,18 @@ func Init(api ext.API) {
 		submonHasCtx = true
 	})
 
+	// ── ToolCall: capture the named agent before the subagent starts ────────
+	// SubagentStartEvent doesn't carry the agent name, so grab it here from
+	// the raw tool-call args. OnToolCall fires before OnSubagentStart.
+	api.OnToolCall(func(e ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
+		if e.ToolName == "subagent" && e.ParsedArgs != nil {
+			if a, ok := e.ParsedArgs["agent"].(string); ok {
+				submonAgentByCall[e.ToolCallID] = a
+			}
+		}
+		return nil
+	})
+
 	// ── SubagentStart ────────────────────────────────────────────────────────
 	api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
 		submonCtx = ctx
@@ -217,6 +249,7 @@ func Init(api ext.API) {
 		entry := &submonEntry{
 			id:      id,
 			callID:  e.ToolCallID,
+			agent:   submonAgentByCall[e.ToolCallID],
 			task:    e.Task,
 			started: time.Now(),
 		}
@@ -283,6 +316,7 @@ func Init(api ext.API) {
 		submonPushWidget()
 
 		// Remove the entry immediately (no goroutine to avoid races)
+		delete(submonAgentByCall, e.ToolCallID)
 		newEntries := submonEntries[:0]
 		for _, en := range submonEntries {
 			if en.callID != e.ToolCallID {
