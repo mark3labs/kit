@@ -242,5 +242,22 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		GetCurrentModelID: func() string {
 			return kit.GetCurrentModelID(kitInstance.Extensions().GetContext().Model)
 		},
+		GetTerminalSize: func() (int, int) {
+			// Read through to the runner rather than snapshotting on Context:
+			// a goroutine that captured a Context at session start must still
+			// observe later resizes.
+			return kitInstance.Extensions().GetTerminalSize()
+		},
+		GetThinkingLevel: func() string {
+			// Read through to the SDK rather than caching on Context: the
+			// level changes via the /thinking command, shift+tab, and
+			// automatic downgrade on model switch, so a snapshot would go
+			// stale in three different ways.
+			level := kitInstance.GetThinkingLevel()
+			if level == "" {
+				return "off"
+			}
+			return level
+		},
 	}
 }

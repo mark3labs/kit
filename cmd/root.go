@@ -1002,6 +1002,9 @@ func runNormalMode(ctx context.Context) error {
 	// Set up extension context and emit SessionStart.
 	if kitInstance.Extensions().HasExtensions() {
 		cwd, _ := os.Getwd()
+		// Seed the size before SessionStart so handlers can lay out during
+		// startup, ahead of the TUI's first WindowSizeMsg.
+		kitInstance.Extensions().SetTerminalSize(terminalSize())
 		extCtx := buildInteractiveExtensionContext(extensionContextDeps{
 			ctx:          ctx,
 			cwd:          cwd,
@@ -1262,6 +1265,18 @@ func runNormalMode(ctx context.Context) error {
 	emitModelChangeForUI := func(newModel, previousModel, source string) {
 		kitInstance.Extensions().EmitModelChange(newModel, previousModel, source)
 	}
+	emitThinkingLevelChangeForUI := func(newLevel, previousLevel, source string) {
+		kitInstance.Extensions().EmitThinkingLevelChange(newLevel, previousLevel, source)
+	}
+	emitTerminalResizeForUI := func(width, height int) {
+		// Record the size first so a handler calling ctx.GetTerminalSize
+		// during this event sees the new value rather than the old one.
+		kitInstance.Extensions().SetTerminalSize(width, height)
+		kitInstance.Extensions().EmitTerminalResize(width, height)
+	}
+	emitTurnStateChangeForUI := func(state, previous string) {
+		kitInstance.Extensions().EmitTurnStateChange(state, previous)
+	}
 
 	// Build thinking level callback.
 	setThinkingLevelForUI := func(level string) error {
@@ -1396,6 +1411,9 @@ func runNormalMode(ctx context.Context) error {
 		getExtensionCommands:     getExtensionCommands,
 		setModel:                 setModelForUI,
 		emitModelChange:          emitModelChangeForUI,
+		emitThinkingLevelChange:  emitThinkingLevelChangeForUI,
+		emitTerminalResize:       emitTerminalResizeForUI,
+		emitTurnStateChange:      emitTurnStateChangeForUI,
 		isReasoningModel:         kitInstance.IsReasoningModel(),
 		thinkingLevel:            kitInstance.GetThinkingLevel(),
 		setThinkingLevel:         setThinkingLevelForUI,
@@ -1507,6 +1525,17 @@ func runNonInteractiveModeApp(ctx context.Context, deps runModeDeps, prompt stri
 // runInteractiveModeBubbleTea. Grouping them into a single struct keeps the
 // call sites and signatures readable and makes it trivial to add a new
 // provider callback without touching every call chain.
+// terminalSize reports the current terminal dimensions, falling back to a
+// conventional 80x24 when stdout is not a TTY. Shared by the TUI and the
+// extension context so both start from the same numbers.
+func terminalSize() (int, int) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w == 0 {
+		return 80, 24
+	}
+	return w, h
+}
+
 type runModeDeps struct {
 	appInstance              *app.App
 	cli                      *ui.CLI // non-interactive only
@@ -1544,6 +1573,9 @@ type runModeDeps struct {
 	getExtensionCommands     func() []commands.ExtensionCommand
 	setModel                 func(string) error
 	emitModelChange          func(string, string, string)
+	emitThinkingLevelChange  func(string, string, string)
+	emitTerminalResize       func(int, int)
+	emitTurnStateChange      func(string, string)
 	isReasoningModel         bool
 	thinkingLevel            string
 	setThinkingLevel         func(string) error
@@ -1666,11 +1698,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 	}
 
 	// Determine terminal size; fall back gracefully.
-	termWidth, termHeight, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || termWidth == 0 {
-		termWidth = 80
-		termHeight = 24
-	}
+	termWidth, termHeight := terminalSize()
 
 	cwd, _ := os.Getwd()
 
@@ -1713,6 +1741,9 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		GetExtensionCommands:     deps.getExtensionCommands,
 		SetModel:                 deps.setModel,
 		EmitModelChange:          deps.emitModelChange,
+		EmitThinkingLevelChange:  deps.emitThinkingLevelChange,
+		EmitTerminalResize:       deps.emitTerminalResize,
+		EmitTurnStateChange:      deps.emitTurnStateChange,
 		ThinkingLevel:            deps.thinkingLevel,
 		IsReasoningModel:         deps.isReasoningModel,
 		SetThinkingLevel:         deps.setThinkingLevel,

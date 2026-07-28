@@ -55,7 +55,7 @@ The `Init` function receives an `ext.API` object for registering handlers, and e
 
 ## Lifecycle Events
 
-Kit provides 21 lifecycle events. Each handler receives an event struct and a `Context`.
+Kit provides 24 lifecycle events. Each handler receives an event struct and a `Context`.
 
 ### Session Events
 
@@ -229,7 +229,37 @@ api.OnModelChange(func(e ext.ModelChangeEvent, ctx ext.Context) {
     // e.PreviousModel string
     // e.Source string — "extension" or "user"
 })
+
+// Extended-thinking effort level changed.
+api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
+    // e.NewLevel, e.PreviousLevel string — off, none, minimal, low, medium, high
+    // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"
+    //   ("model_fallback" = automatic downgrade because the newly selected
+    //    model does not support the previous level)
+})
 ```
+
+### UI Events
+
+Interactive TUI only; these do not fire in headless, ACP, or script mode.
+
+```go
+// Terminal resized. Also fires once at startup with the initial size.
+api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
+    // e.Width, e.Height int
+})
+
+// UI entered or left the working state.
+api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
+    // e.State, e.Previous string — "working" or "idle"
+})
+```
+
+`OnTurnStateChange` is a **superset of `OnAgentStart`/`OnAgentEnd`**: it also
+covers work that never reaches the agent loop (shell commands run with `!`) and
+fires on every path back to idle, including cancellation and error. Use it to
+drive a spinner or turn timer; use `OnAgentStart`/`OnAgentEnd` when you
+specifically care about agent turns and their token usage.
 
 ### Context Filtering
 
@@ -537,6 +567,35 @@ ctx.SetEditorText("prefilled")     // set editor text content
 - `ext.EditorKeyConsumed` — swallow the key, do nothing
 - `ext.EditorKeyRemap` — remap to a different key: `EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "up"}`
 - `ext.EditorKeySubmit` — submit text: `EditorKeyAction{Type: ext.EditorKeySubmit, SubmitText: "text"}`
+
+### Terminal Size
+
+```go
+width, height := ctx.GetTerminalSize()  // 0, 0 outside the interactive TUI
+```
+
+Footer, header, and widget content is rendered at **full terminal width with no
+truncation** — a longer line wraps and silently consumes a row of scrollback.
+Measure and truncate before calling `SetFooter`/`SetHeader`/`SetWidget`, and
+re-render on `OnTerminalResize`.
+
+This is a **function, not a field**, so it reports the live size. A long-lived
+goroutine (a ticking clock in a footer, say) that captured a `Context` still
+observes resizes; a struct field would freeze at the value copied when the
+handler was invoked.
+
+Note that multi-byte characters occupy more than one column — count display
+width, not bytes or runes, when fitting to `width`.
+
+### Thinking Level
+
+```go
+level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+```
+
+Models without reasoning support report `"off"`. To distinguish "reasoning is
+switched off" from "this model cannot reason at all", pair it with
+`ctx.GetModelCapabilities("").Reasoning`.
 
 ### UI Visibility
 

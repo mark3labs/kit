@@ -106,6 +106,8 @@ type Runner struct {
 	stateMu         sync.RWMutex              // guards state independently of mu
 	saverMu         sync.Mutex                // serializes stateSaver invocations so atomic-rename writes don't interleave
 	stateSaver      func()                    // optional persistence hook invoked after each state mutation
+	termWidth       int                       // live terminal width (0 = unknown/headless)
+	termHeight      int                       // live terminal height
 	mu              sync.RWMutex
 }
 
@@ -197,6 +199,12 @@ func normalizeContext(ctx Context) Context {
 	}
 	if ctx.GetSessionUsage == nil {
 		ctx.GetSessionUsage = func() SessionUsage { return SessionUsage{} }
+	}
+	if ctx.GetThinkingLevel == nil {
+		ctx.GetThinkingLevel = func() string { return "off" }
+	}
+	if ctx.GetTerminalSize == nil {
+		ctx.GetTerminalSize = func() (int, int) { return 0, 0 }
 	}
 	if ctx.SetWidget == nil {
 		ctx.SetWidget = func(WidgetConfig) {}
@@ -578,6 +586,23 @@ func (r *Runner) GetWidgets(placement WidgetPlacement) []WidgetConfig {
 // ---------------------------------------------------------------------------
 
 // SetStatusEntry places or updates a keyed status bar entry. Thread-safe.
+// SetTerminalSize records the current terminal dimensions. The TUI calls this
+// on every resize so that GetTerminalSize reports live values to handlers,
+// including long-lived goroutines that captured a Context earlier.
+func (r *Runner) SetTerminalSize(width, height int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.termWidth, r.termHeight = width, height
+}
+
+// GetTerminalSize returns the last recorded terminal dimensions, or 0, 0 when
+// running without a TUI.
+func (r *Runner) GetTerminalSize() (int, int) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.termWidth, r.termHeight
+}
+
 func (r *Runner) SetStatusEntry(entry StatusBarEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

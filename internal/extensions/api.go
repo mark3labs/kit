@@ -842,6 +842,29 @@ type Context struct {
 
 	// GetCurrentModelID returns just the model ID part of current model.
 	GetCurrentModelID func() string
+
+	// GetTerminalSize returns the current terminal width and height in columns
+	// and rows. Both are 0 outside the interactive TUI (headless, ACP, script
+	// mode), so guard before dividing or subtracting.
+	//
+	// Content passed to SetFooter, SetHeader and SetWidget is rendered at full
+	// terminal width with no truncation: a wider line wraps and silently
+	// consumes an extra row of scrollback. Measure with this before handing
+	// text to those calls.
+	//
+	// This is a function, not a field, so that it reports the live size. A
+	// long-lived goroutine that captured a Context still observes resizes,
+	// whereas a struct field would freeze at the value copied when the
+	// handler was invoked.
+	GetTerminalSize func() (int, int)
+
+	// GetThinkingLevel returns the active extended-thinking effort level:
+	// "off", "none", "minimal", "low", "medium", or "high". Models that do
+	// not support reasoning report "off".
+	//
+	// Pair with GetModelCapabilities("").Reasoning to tell "reasoning is
+	// switched off" apart from "this model cannot reason at all".
+	GetThinkingLevel func() string
 }
 
 // ---------------------------------------------------------------------------
@@ -1261,6 +1284,9 @@ type API struct {
 	registerCmdFn             func(CommandDef)
 	registerToolRendererFn    func(ToolRenderConfig)
 	onModelChange             func(func(ModelChangeEvent, Context))
+	onThinkingLevelChange     func(func(ThinkingLevelChangeEvent, Context))
+	onTerminalResize          func(func(TerminalResizeEvent, Context))
+	onTurnStateChange         func(func(TurnStateChangeEvent, Context))
 	onContextPrepare          func(func(ContextPrepareEvent, Context) *ContextPrepareResult)
 	onBeforeFork              func(func(BeforeForkEvent, Context) *BeforeForkResult)
 	onBeforeSessionSwitch     func(func(BeforeSessionSwitchEvent, Context) *BeforeSessionSwitchResult)
@@ -1404,6 +1430,59 @@ func (a *API) OnSessionShutdown(handler func(SessionShutdownEvent, Context)) {
 // strings plus the source of the change.
 func (a *API) OnModelChange(handler func(ModelChangeEvent, Context)) {
 	a.onModelChange(handler)
+}
+
+// OnThinkingLevelChange registers a handler that fires after the extended
+// thinking effort level changes, whether from the /thinking command, the
+// shift+tab shortcut, or an automatic downgrade on model switch.
+//
+// Example — keep a footer in sync with the effort level:
+//
+//	api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
+//	    ctx.SetFooter(ext.HeaderFooterConfig{
+//	        Content: ext.WidgetContent{Text: "effort: " + e.NewLevel},
+//	    })
+//	})
+func (a *API) OnThinkingLevelChange(handler func(ThinkingLevelChangeEvent, Context)) {
+	a.onThinkingLevelChange(handler)
+}
+
+// OnTerminalResize registers a handler that fires when the terminal is
+// resized, and once at startup with the initial dimensions.
+//
+// Footer, header, and widget content is rendered at full width without
+// truncation, so an over-long line wraps and eats a row of scrollback. Use
+// this to re-render chrome at the new width.
+//
+// Example:
+//
+//	api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
+//	    ctx.SetFooter(ext.HeaderFooterConfig{
+//	        Content: ext.WidgetContent{Text: fit(line, e.Width)},
+//	    })
+//	})
+func (a *API) OnTerminalResize(handler func(TerminalResizeEvent, Context)) {
+	a.onTerminalResize(handler)
+}
+
+// OnTurnStateChange registers a handler that fires when the UI enters or
+// leaves its working state.
+//
+// This covers every busy/idle transition, including shell commands that never
+// reach the agent loop and turns that end in cancellation or error — cases
+// AgentStart/AgentEnd do not report. Use it to drive a spinner or turn timer.
+//
+// Example — time every turn:
+//
+//	api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
+//	    if e.State == "working" {
+//	        started = time.Now()
+//	    } else {
+//	        elapsed = time.Since(started)
+//	    }
+//	})
+func (a *API) OnTurnStateChange(handler func(TurnStateChangeEvent, Context)) {
+	a.onTurnStateChange(handler)
 }
 
 // OnContextPrepare registers a handler that fires after the context window is
@@ -2377,6 +2456,59 @@ type ModelChangeEvent struct {
 func (e SessionShutdownEvent) Type() EventType { return SessionShutdown }
 
 func (e ModelChangeEvent) Type() EventType { return ModelChange }
+
+// ThinkingLevelChangeEvent fires after the extended-thinking effort level
+// changes. Handlers that display the level should re-read it here rather than
+// caching a value from session start.
+type ThinkingLevelChangeEvent struct {
+	// NewLevel is the level now in effect: "off", "none", "minimal", "low",
+	// "medium", or "high".
+	NewLevel string
+	// PreviousLevel is the level before the change.
+	PreviousLevel string
+	// Source indicates what triggered the change:
+	//   "user"           — the /thinking command or the shift+tab shortcut
+	//   "model_fallback" — an automatic downgrade because the newly selected
+	//                      model does not support the previous level
+	Source string
+}
+
+func (e ThinkingLevelChangeEvent) Type() EventType { return ThinkingLevelChange }
+
+// TerminalResizeEvent fires when the terminal is resized, and once at startup
+// with the initial dimensions so a handler can lay out without waiting for the
+// user to resize. Interactive TUI only.
+//
+// The same values are available on Context as TerminalWidth/TerminalHeight;
+// this event exists so extensions can re-render chrome immediately instead of
+// polling.
+type TerminalResizeEvent struct {
+	// Width is the new terminal width in columns.
+	Width int
+	// Height is the new terminal height in rows.
+	Height int
+}
+
+func (e TerminalResizeEvent) Type() EventType { return TerminalResize }
+
+// TurnStateChangeEvent fires when the UI enters or leaves its working state.
+//
+// This is a superset of AgentStart/AgentEnd: it also covers work that never
+// reaches the agent loop (shell commands run with "!"), and it fires on every
+// path back to idle, including cancellation and error. Use it for UI that must
+// track whether Kit is busy — a spinner or a turn timer — and use
+// AgentStart/AgentEnd when you specifically care about agent turns and their
+// token usage.
+//
+// Interactive TUI only.
+type TurnStateChangeEvent struct {
+	// State is the state just entered: "working" or "idle".
+	State string
+	// Previous is the state left behind, using the same vocabulary.
+	Previous string
+}
+
+func (e TurnStateChangeEvent) Type() EventType { return TurnStateChange }
 
 // ContextPrepareEvent fires after the context window is built from the session
 // tree and before the messages are sent to the LLM. Handlers can inspect the

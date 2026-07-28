@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -56,7 +55,8 @@ var (
 	lastTurnDur  time.Duration
 	totalTurnDur time.Duration
 
-	cachedWidth = 80
+	// thinking mirrors the effort level, refreshed via OnThinkingLevelChange.
+	thinking string
 )
 
 // ---------------------------------------------------------------------------
@@ -138,34 +138,11 @@ func savePrefs() error {
 // ---------------------------------------------------------------------------
 // Width handling
 //
-// The footer receives a plain string and Kit renders it at terminal width, so
-// an over-long line wraps and silently steals a scrollback row. Extensions are
-// not handed the width, so query the tty directly and truncate ourselves.
+// Footer content is rendered at full terminal width with no truncation, so an
+// over-long line wraps and silently eats a row of scrollback.
+// ctx.GetTerminalSize reports the live width and OnTerminalResize re-renders
+// when it changes.
 // ---------------------------------------------------------------------------
-
-func detectWidth() int {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return cachedWidth
-	}
-	defer tty.Close()
-
-	cmd := exec.Command("stty", "size")
-	cmd.Stdin = tty
-	out, err := cmd.Output()
-	if err != nil {
-		return cachedWidth
-	}
-	parts := strings.Fields(string(out))
-	if len(parts) != 2 {
-		return cachedWidth
-	}
-	cols, err := strconv.Atoi(parts[1])
-	if err != nil || cols <= 0 {
-		return cachedWidth
-	}
-	return cols
-}
 
 // dispWidth measures rendered columns. Emoji and CJK occupy two cells, so
 // counting runes (let alone bytes) would under-measure and reintroduce wrap.
@@ -245,6 +222,11 @@ func buildFields(ctx ext.Context) map[string]string {
 	}
 	if visible["model"] {
 		if m := shortModel(ctx.Model); m != "" {
+			// Show the effort level only when reasoning is actually engaged;
+			// "off" is the common case and would just be noise.
+			if thinking != "" && thinking != "off" && thinking != "none" {
+				m += " (" + thinking + ")"
+			}
 			out["model"] = m
 		}
 	}
@@ -351,8 +333,13 @@ func render(ctx ext.Context) {
 		ctx.RemoveFooter()
 		return
 	}
-	cachedWidth = detectWidth()
-	text := assemble(buildFields(ctx), cachedWidth)
+	// Live read: this runs from a ticker goroutine too, which captured ctx
+	// before the terminal was ever resized.
+	width, _ := ctx.GetTerminalSize()
+	if width <= 0 {
+		width = 80 // non-interactive or size not yet known
+	}
+	text := assemble(buildFields(ctx), width)
 	mu.Unlock()
 
 	ctx.SetFooter(ext.HeaderFooterConfig{
@@ -393,11 +380,15 @@ func Init(api ext.API) {
 	api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
 		// Reclaim the row used by the built-in status bar.
 		ctx.SetUIVisibility(ext.UIVisibility{HideStatusBar: true})
+
+		mu.Lock()
+		thinking = ctx.GetThinkingLevel()
+		mu.Unlock()
+
 		render(ctx)
 
-		// The clock and live turn timer need their own tick; Kit has no
-		// periodic extension event. This also picks up terminal resizes,
-		// since the width is re-read on each render.
+		// Only the clock and the live turn timer need a tick; everything else
+		// is event-driven.
 		go func() {
 			t := time.NewTicker(time.Second)
 			defer t.Stop()
@@ -407,16 +398,25 @@ func Init(api ext.API) {
 		}()
 	})
 
-	api.OnAgentStart(func(_ ext.AgentStartEvent, ctx ext.Context) {
+	// Re-render at the new width instead of letting the line wrap.
+	api.OnTerminalResize(func(_ ext.TerminalResizeEvent, ctx ext.Context) {
+		render(ctx)
+	})
+
+	api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
 		mu.Lock()
-		turnStart = time.Now()
+		thinking = e.NewLevel
 		mu.Unlock()
 		render(ctx)
 	})
 
-	api.OnAgentEnd(func(_ ext.AgentEndEvent, ctx ext.Context) {
+	// TurnStateChange rather than AgentStart/AgentEnd: it also covers shell
+	// commands and every path back to idle, including cancellation and error.
+	api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
 		mu.Lock()
-		if !turnStart.IsZero() {
+		if e.State == "working" {
+			turnStart = time.Now()
+		} else if !turnStart.IsZero() {
 			lastTurnDur = time.Since(turnStart)
 			totalTurnDur += lastTurnDur
 			turnStart = time.Time{}
