@@ -556,6 +556,16 @@ stats := ctx.GetContextStats()     // .EstimatedTokens, .ContextLimit, .UsagePer
 msgs := ctx.GetMessages()          // []ext.SessionMessage on current branch
 path := ctx.GetSessionPath()       // file path of session JSONL
 
+// Aggregated token usage and cost for the session (interactive TUI only):
+usage := ctx.GetSessionUsage()
+// usage.TotalInputTokens, .TotalOutputTokens
+// usage.TotalCacheReadTokens, .TotalCacheWriteTokens
+// usage.TotalCost float64 — USD
+// usage.RequestCount int
+// usage.IsOAuth bool — true for subscription credentials (Claude Pro/Max).
+//   TotalCost is always 0 under OAuth because the user is not billed per
+//   token; check this flag to distinguish "not billed" from "$0 spent".
+
 // Append-only log in the session tree (fork-aware, walked on every branch read):
 id, err := ctx.AppendEntry("my-type", "data string")
 entries := ctx.GetEntries("my-type")  // []ext.ExtensionEntry{ID, EntryType, Data, Timestamp}
@@ -1415,6 +1425,7 @@ result := ctx.ResolveModelChain([]string{
 // Get capabilities for a specific model
 caps, err := ctx.GetModelCapabilities("anthropic/claude-sonnet-4")
 // caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming
+// caps.Pricing — ext.ModelPricing, see below
 
 // Check if a model is available (provider exists)
 available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
@@ -1422,6 +1433,34 @@ available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
 // Get current provider/model ID
 provider := ctx.GetCurrentProvider()  // "anthropic"
 modelID := ctx.GetCurrentModelID()    // "claude-sonnet-4"
+```
+
+### Model Pricing
+
+`ModelCapabilities.Pricing` and `ModelInfoEntry.Pricing` expose registry token
+costs in **USD per million tokens**, so a cost is `tokens * rate / 1_000_000`.
+
+```go
+caps, _ := ctx.GetModelCapabilities("")  // empty = current model
+p := caps.Pricing
+// p.Input, p.Output           float64 — $ per 1M tokens
+// p.CacheRead, p.CacheWrite   float64 — only valid when the Has* flag is true
+// p.HasCacheRead, p.HasCacheWrite bool
+// p.Known                     bool
+```
+
+**Always check `Known` before rendering cost.** It is false for local models and
+custom OpenAI-compatible endpoints, where every rate is zero — without the flag
+an unpriced model is indistinguishable from a free one. Likewise, check
+`HasCacheRead` rather than assuming a zero `CacheRead` means free cache reads.
+
+Computing prompt-cache savings:
+
+```go
+usage := ctx.GetSessionUsage()
+if p.Known && p.HasCacheRead {
+    saved := float64(usage.TotalCacheReadTokens) * (p.Input - p.CacheRead) / 1000000
+}
 ```
 
 ## Key Files for Reference
