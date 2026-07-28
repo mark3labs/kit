@@ -15,6 +15,8 @@ import (
 	udiff "github.com/aymanbagabas/go-udiff"
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/indaco/herald"
+
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 // Maximum visible lines per tool type before truncation.
@@ -478,6 +480,23 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 		codeLines = codeLines[:maxCodeLines]
 	}
 
+	// Clamp each line to the space actually available.
+	//
+	// herald renders the code block with a line-number gutter but does no
+	// wrapping of its own, so without this a single long source line runs off
+	// the right edge of the terminal — the emulator then wraps it and the
+	// scroll list's height accounting is wrong for the rest of the session.
+	// Truncation happens before syntax highlighting because cutting a string
+	// that already contains ANSI escapes truncates the escapes too.
+	numDigits := max(len(strconv.Itoa(offset+len(codeLines))), 3)
+	// gutter: line-number field, its separating space, and the CodeBlock's
+	// own PaddingLeft(1).
+	gutterWidth := numDigits + 2
+	codeWidth := max(width-style.ContentOffset-gutterWidth, style.MinContentWidth)
+	for i, line := range codeLines {
+		codeLines[i] = truncateLine(line, codeWidth)
+	}
+
 	// Build language hint from file extension
 	lang := ""
 	if fileName != "" {
@@ -555,8 +574,8 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 	tyFig := herald.New(herald.WithTheme(figTheme))
 	result := tyFig.Figure(codeBlock, caption)
 
-	// Indent entire block to match Write/Edit tools (2 spaces)
-	return indentBlock(result, "  ")
+	// Indent entire block to match Write/Edit tools.
+	return indentBlock(result, strings.Repeat(" ", style.ContentOffset))
 }
 
 // ---------------------------------------------------------------------------

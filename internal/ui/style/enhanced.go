@@ -365,16 +365,7 @@ func KitBanner() string {
 // invite the eye to look for a matching corner that never comes.
 const GutterGlyph = "▌"
 
-// ContentOffset is the column at which every block's text begins.
-//
-// The UI keeps one left-edge contract: a marker (gutter glyph, tool bullet,
-// receipt check) occupies column 0, a single space follows, and text starts at
-// ContentOffset. Blocks with no marker — assistant prose — are indented to the
-// same column, so the transcript reads as one aligned text column with markers
-// hanging in the left margin. Anything that draws a left edge must honour this,
-// or the eye sees a ragged margin and reads it as misalignment rather than as
-// structure.
-const ContentOffset = 2
+// ContentOffset, and the width helpers derived from it, live in layout.go.
 
 // GutterBorder returns a lipgloss border consisting only of a left edge drawn
 // with GutterGlyph. Callers enable just the left side; the remaining fields
@@ -412,11 +403,14 @@ func GutterBorder() lipgloss.Border {
 //
 // The block costs exactly as many rows as it has something to say, so a
 // session with no skills or extensions loaded produces a shorter splash.
+//
+// Like every block in the transcript it carries its own trailing gap; the
+// scroll list inserts nothing between items.
 func SplashBlock(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return Indent(strings.Join(lines, "\n"), ContentOffset)
+	return Indent(strings.Join(lines, "\n"), ContentOffset) + strings.Repeat("\n", BlockGap)
 }
 
 // Indent prefixes every non-empty line of s with n spaces. Empty lines are

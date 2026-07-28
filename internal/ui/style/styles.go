@@ -21,16 +21,16 @@ var markdownTypographyCache *herald.Typography
 // Only accessed from BubbleTea's single-threaded Update/View cycle.
 var uiTypographyCache *herald.Typography
 
-// GetUITypography returns the shared herald.Typography used for message
-// block rendering, configured from the active theme. The instance is cached
-// and only rebuilt after a theme change (SetTheme invalidates it).
-func GetUITypography() *herald.Typography {
-	if uiTypographyCache != nil {
-		return uiTypographyCache
-	}
-
-	theme := GetTheme()
-	ty := herald.New(
+// uiTypographyOptions returns the herald options that define KIT's block
+// vocabulary for the given theme.
+//
+// This exists so there is exactly one description of what a KIT alert looks
+// like. CustomBlock used to build its own Typography in order to override a
+// single alert label, and in copying the palette it silently dropped
+// WithAlertBar — so `/help` drew a `│` bar while every other alert drew `▌`.
+// Any caller needing a variant starts from these options and appends.
+func uiTypographyOptions(theme Theme) []herald.Option {
+	return []herald.Option{
 		herald.WithPalette(herald.ColorPalette{
 			Primary:   theme.Primary,
 			Secondary: theme.Secondary,
@@ -61,9 +61,31 @@ func GetUITypography() *herald.Typography {
 		herald.WithAlertIcon(herald.AlertTip, ""),
 		herald.WithAlertLabel(herald.AlertWarning, "Working"),
 		herald.WithAlertLabel(herald.AlertCaution, "Error"),
-	)
+	}
+}
+
+// GetUITypography returns the shared herald.Typography used for message
+// block rendering, configured from the active theme. The instance is cached
+// and only rebuilt after a theme change (SetTheme invalidates it).
+func GetUITypography() *herald.Typography {
+	if uiTypographyCache != nil {
+		return uiTypographyCache
+	}
+
+	ty := herald.New(uiTypographyOptions(GetTheme())...)
 	uiTypographyCache = ty
 	return ty
+}
+
+// NewNoteTypography returns a Typography identical to the shared UI instance
+// but with the Note alert relabelled — for one-off blocks that want a title
+// like "Help" or "Warning" without changing the default "Info".
+//
+// The result is not cached: callers are rare (slash-command output), and
+// caching per label would keep a Typography alive for every label ever used.
+func NewNoteTypography(label string) *herald.Typography {
+	opts := append(uiTypographyOptions(GetTheme()), herald.WithAlertLabel(herald.AlertNote, label))
+	return herald.New(opts...)
 }
 
 // GetMarkdownTypography returns a herald.Typography configured with our

@@ -164,9 +164,7 @@ func (r *MessageRenderer) RenderUserMessage(content string, timestamp time.Time)
 		// The gutter marks attribution, so its color says "you". Gold was
 		// theme.Success, which reads as an outcome rather than an author.
 		WithBorderColor(theme.Accent),
-		WithPaddingTop(0),
-		WithPaddingBottom(0),
-		WithMarginBottom(1),
+		WithMarginBottom(style.BlockGap),
 	)
 
 	return UIMessage{
@@ -205,7 +203,7 @@ func (r *MessageRenderer) RenderReasoningBlock(content string, timestamp time.Ti
 
 // RenderSystemMessage renders KIT system messages using herald Note alert
 func (r *MessageRenderer) RenderSystemMessage(content string, timestamp time.Time) UIMessage {
-	rendered := render.SystemBlock(content, r.ty, style.GetTheme())
+	rendered := render.SystemBlock(content, r.width, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      SystemMessage,
@@ -225,6 +223,44 @@ func (r *MessageRenderer) RenderCustomMessage(content, label string, timestamp t
 		Content:   rendered,
 		Height:    lipgloss.Height(rendered),
 		Timestamp: timestamp,
+	}
+}
+
+// RenderExtensionBlock renders a custom styled block from an extension with a
+// caller-chosen border color and optional subtitle.
+//
+// Extensions get the same geometry as every other attributed block — gutter
+// glyph in column 0, text at ContentOffset, one trailing gap — and choose only
+// the stripe color. Letting them choose more would let a single extension make
+// the transcript look inconsistent.
+func (r *MessageRenderer) RenderExtensionBlock(text, borderColor, subtitle string) UIMessage {
+	theme := style.GetTheme()
+
+	// Resolve border color: use the extension's hex value, fall back to theme info.
+	borderClr := theme.Info
+	if borderColor != "" {
+		borderClr = lipgloss.Color(borderColor)
+	}
+
+	// Build content: main text + optional subtitle line.
+	content := text
+	if subtitle != "" {
+		sub := style.GetCachedStyles().VeryMuted.Render(subtitle)
+		content = strings.TrimSuffix(content, "\n") + "\n" + sub
+	}
+
+	rendered := renderContentBlock(
+		content,
+		r.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderClr),
+		WithMarginBottom(style.BlockGap),
+	)
+
+	return UIMessage{
+		Type:    SystemMessage,
+		Content: rendered,
+		Height:  lipgloss.Height(rendered),
 	}
 }
 
@@ -284,7 +320,7 @@ func (r *MessageRenderer) RenderDebugConfigMessage(config map[string]any, timest
 
 // RenderErrorMessage renders error notifications
 func (r *MessageRenderer) RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage {
-	rendered := render.ErrorBlock(errorMsg, r.ty, style.GetTheme())
+	rendered := render.ErrorBlock(errorMsg, r.width, r.ty, style.GetTheme())
 
 	return UIMessage{
 		Type:      ErrorMessage,
@@ -366,8 +402,11 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 
 	// Wrap all tool errors in a herald Caution alert so the error text
 	// renders inside a contained block instead of spilling into the layout.
+	// The alert is nested inside the tool block, so it is indented to the
+	// content column rather than restarting its own bar at column 0.
 	if isError && strings.TrimSpace(body) != "" {
-		body = r.ty.Alert(herald.AlertCaution, body)
+		body = r.ty.Alert(herald.AlertCaution, render.AlertBody(body, style.BodyWidth(r.width)))
+		body = style.Indent(body, style.ContentOffset)
 	}
 
 	// Compose: icon + name + params, then body

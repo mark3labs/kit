@@ -1189,20 +1189,18 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	splash := style.SplashBlock(content)
 	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "logo", splash, splash))
 
-	// Add extension startup messages if any
-	if len(m.startupExtensionMessages) > 0 {
-		for _, extMsg := range m.startupExtensionMessages {
-			msg := NewStyledMessageItem(generateMessageID(), "system", extMsg, extMsg)
-			m.messages = append(m.messages, msg)
-		}
+	// Add extension startup messages if any. These are ordinary system
+	// notices and are rendered as such — appending the raw string would put
+	// unstyled, unwrapped text at column 0.
+	for _, extMsg := range m.startupExtensionMessages {
+		rendered := m.renderer.RenderSystemMessage(extMsg, time.Now()).Content
+		m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "system", extMsg, rendered))
 	}
 
-	// Separate the startup banner from the conversation with whitespace
-	// rather than a rule. A blank line is enough to break the two apart, and
-	// it does not add a heavy horizontal element to an otherwise quiet screen.
-	spacer := "\n"
-	spacerMsg := NewStyledMessageItem(generateMessageID(), "separator", spacer, spacer)
-	m.messages = append(m.messages, spacerMsg)
+	// The splash carries its own trailing gap, which is what separates the
+	// startup banner from the conversation. A blank line is enough to break
+	// the two apart, and it does not add a heavy horizontal element to an
+	// otherwise quiet screen.
 
 	// Refresh ScrollList once with all startup messages
 	m.refreshContent()
@@ -3266,7 +3264,7 @@ func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorI
 	bg := style.GetTheme().Background
 	imgs := images
 	return func() tea.Msg {
-		pad := lipgloss.NewStyle().PaddingLeft(2)
+		pad := lipgloss.NewStyle().PaddingLeft(style.ContentOffset)
 		var blocks []string
 		for _, img := range imgs {
 			thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, bg)
@@ -3571,31 +3569,10 @@ func (m *AppModel) printCustomMessage(text, label string) {
 // printExtensionBlock renders a custom styled block from an extension with
 // caller-chosen border color and optional subtitle into the ScrollList.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
-	theme := style.GetTheme()
-
-	// Resolve border color: use the extension's hex value, fall back to theme info.
-	borderClr := theme.Info
-	if evt.BorderColor != "" {
-		borderClr = lipgloss.Color(evt.BorderColor)
-	}
-
-	// Build content: main text + optional subtitle line.
-	content := evt.Text
-	if evt.Subtitle != "" {
-		sub := lipgloss.NewStyle().Foreground(theme.VeryMuted).Render(" " + evt.Subtitle)
-		content = strings.TrimSuffix(content, "\n") + "\n" + sub
-	}
-
-	rendered := renderContentBlock(
-		content,
-		m.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(borderClr),
-		WithMarginBottom(1),
-	)
+	rendered := m.renderer.RenderExtensionBlock(evt.Text, evt.BorderColor, evt.Subtitle).Content
 
 	// Add to in-memory scrollList with rendered content
-	msg := NewStyledMessageItem(generateMessageID(), "extension", rendered, rendered)
+	msg := NewStyledMessageItem(generateMessageID(), "extension", evt.Text, rendered)
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content

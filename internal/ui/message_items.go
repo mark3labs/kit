@@ -75,32 +75,27 @@ func (m *TextMessageItem) Height() int {
 	return strings.Count(rendered, "\n") + 1
 }
 
+// renderContent is the fallback used when no pre-rendered content exists —
+// for instance when a block renderer returns empty for whitespace-only input.
+// It honours the same left-edge contract as every other block: a gutter glyph
+// in column 0 for user messages, text at ContentOffset.
 func (m *TextMessageItem) renderContent(width int) string {
 	var parts []string
 
-	// Role indicator
+	gutter := ""
 	if m.role == "user" {
-		parts = append(parts, "│ ▸ You")
-	} else {
-		parts = append(parts, "") // Assistant messages start without role
+		gutter = style.GutterGlyph
 	}
 
-	// Content with simple wrapping
-	contentWidth := max(width-4, 20)
-
-	for line := range strings.SplitSeq(m.content, "\n") {
-		if len(line) <= contentWidth {
-			parts = append(parts, "│ "+line)
-		} else {
-			// Basic wrap
-			for len(line) > contentWidth {
-				parts = append(parts, "│ "+line[:contentWidth])
-				line = line[contentWidth:]
-			}
-			if len(line) > 0 {
-				parts = append(parts, "│ "+line)
-			}
+	// lipgloss wraps by display width and is ANSI-aware; wrapping by byte
+	// length would break multi-byte text and any styled content.
+	wrapped := lipgloss.NewStyle().Width(style.ContentWidth(width)).Render(m.content)
+	for line := range strings.SplitSeq(strings.TrimRight(wrapped, "\n"), "\n") {
+		if gutter != "" {
+			parts = append(parts, gutter+" "+line)
+			continue
 		}
+		parts = append(parts, strings.Repeat(" ", style.ContentOffset)+line)
 	}
 
 	return strings.Join(parts, "\n")
@@ -277,13 +272,17 @@ func (m *StreamingBashOutputItem) ID() string {
 func (m *StreamingBashOutputItem) RawContent() string {
 	var b strings.Builder
 	if m.command != "" {
-		b.WriteString("$ " + m.command + "\n\n")
+		b.WriteString("$ ")
+		b.WriteString(m.command)
+		b.WriteString("\n\n")
 	}
 	for _, line := range m.stdoutLines {
-		b.WriteString(line + "\n")
+		b.WriteString(line)
+		b.WriteByte('\n')
 	}
 	for _, line := range m.stderrLines {
-		b.WriteString(line + "\n")
+		b.WriteString(line)
+		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -302,14 +301,19 @@ func (m *StreamingBashOutputItem) Render(width int) string {
 	theme := style.GetTheme()
 	var parts []string
 
-	// Header with command
+	// Header with command. The bullet is the same marker the finished tool
+	// block uses, so live output and its settled form read as the same thing.
 	if m.command != "" {
 		headerStyle := style.GetCachedStyles().BashHeader
-		parts = append(parts, headerStyle.Render(fmt.Sprintf("▸ %s", m.command)))
+		parts = append(parts, headerStyle.Render("· "+m.command))
 	}
 
-	const lineIndent = "  "
-	lineWidth := width - len(lineIndent)
+	lineIndent := strings.Repeat(" ", style.ContentOffset)
+	// The output panel pays for its own indent and its interior padding, so
+	// it is one content offset narrower than the block. Clamping matters:
+	// an unclamped subtraction goes negative on a very narrow terminal and
+	// lipgloss renders nothing at all.
+	lineWidth := max(style.BodyWidth(width)-1, style.MinContentWidth)
 
 	// Stdout lines
 	if len(m.stdoutLines) > 0 {

@@ -314,7 +314,8 @@ func TestTurnReceipt(t *testing.T) {
 }
 
 // TestSplashBlockScalesWithContent verifies the splash costs exactly as many
-// rows as it has content, rather than a fixed block-art height.
+// rows as it has content, rather than a fixed block-art height. The block also
+// carries the standard trailing gap, so its height is content + BlockGap.
 func TestSplashBlockScalesWithContent(t *testing.T) {
 	for _, n := range []int{1, 3, 8} {
 		lines := make([]string, n)
@@ -322,8 +323,8 @@ func TestSplashBlockScalesWithContent(t *testing.T) {
 			lines[i] = "x"
 		}
 		got := style.SplashBlock(lines)
-		if h := lipgloss.Height(got); h != n {
-			t.Errorf("SplashBlock with %d lines rendered %d rows", n, h)
+		if h := lipgloss.Height(got); h != n+style.BlockGap {
+			t.Errorf("SplashBlock with %d lines rendered %d rows, want %d", n, h, n+style.BlockGap)
 		}
 	}
 

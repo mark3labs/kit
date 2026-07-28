@@ -84,13 +84,18 @@ func WithPaddingBottom(padding int) renderingOption {
 // renderContentBlock renders content with configurable styling options
 func renderContentBlock(content string, containerWidth int, options ...renderingOption) string {
 	renderer := &blockRenderer{
-		fullWidth:     true,
-		paddingTop:    1,
-		paddingBottom: 1,
+		fullWidth: true,
+		// Blocks carry no interior vertical padding. Vertical rhythm in the
+		// transcript comes from the single trailing gap every block appends
+		// (style.BlockGap); padding inside the gutter as well opens a hole
+		// above and below the text and makes the stripe look detached from
+		// what it marks.
+		paddingTop:    0,
+		paddingBottom: 0,
 		// The border glyph occupies column 0, so the padding that follows it
 		// is one less than the shared content offset.
 		paddingLeft:  style.ContentOffset - 1,
-		paddingRight: 0,
+		paddingRight: style.RightMargin,
 		width:        containerWidth,
 	}
 

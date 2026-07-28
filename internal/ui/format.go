@@ -19,6 +19,7 @@ type Renderer interface {
 	RenderSystemMessage(content string, timestamp time.Time) UIMessage
 	RenderCustomMessage(content, label string, timestamp time.Time) UIMessage
 	RenderErrorMessage(errorMsg string, timestamp time.Time) UIMessage
+	RenderExtensionBlock(text, borderColor, subtitle string) UIMessage
 	RenderDebugMessage(message string, timestamp time.Time) UIMessage
 	RenderDebugConfigMessage(config map[string]any, timestamp time.Time) UIMessage
 	SetWidth(width int)
