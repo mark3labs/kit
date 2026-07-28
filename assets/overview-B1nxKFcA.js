@@ -343,7 +343,7 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">info </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Advisory list of known models — each entry is a kit.ModelInfoEntry</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning, Pricing).</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Models not in the registry can still be used by provider/model string.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">models </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAvailableModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, m </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> models {</span></span>
@@ -360,6 +360,16 @@ including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result.Error </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    _ </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, result.Model)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Each <code>ModelInfoEntry</code> and <code>ModelCapabilities</code> carries a <code>Pricing</code> field with
+per-million-token costs from the registry:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">caps, errStr </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelCapabilities</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errStr </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> caps.Pricing.Known {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"in $</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.2f</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/1M  out $</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.2f</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/1M</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, caps.Pricing.Input, caps.Pricing.Output)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Check <code>Pricing.Known</code> before using any rate. It is <code>false</code> for local models and
+custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
+unpriced model looks identical to a free one. Cache rates are similarly guarded
+by <code>HasCacheRead</code> / <code>HasCacheWrite</code>.</p>
 <h2 id="one-shot-completions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#one-shot-completions"><span class="icon icon-link"></span></a>One-shot completions</h2>
 <p><code>ExecuteCompletion</code> runs a single LLM call outside the agent loop — useful for
 summaries, classifiers, or any side request that should not touch the session
@@ -1042,7 +1052,7 @@ host.SetModel(ctx, "openai/gpt-4o")
 info := host.GetModelInfo()
 
 // Advisory list of known models — each entry is a kit.ModelInfoEntry
-// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).
+// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning, Pricing).
 // Models not in the registry can still be used by provider/model string.
 models := host.GetAvailableModels()
 for _, m := range models {
@@ -1060,6 +1070,21 @@ if result.Error == "" {
     _ = host.SetModel(ctx, result.Model)
 }
 \`\`\`
+
+Each \`ModelInfoEntry\` and \`ModelCapabilities\` carries a \`Pricing\` field with
+per-million-token costs from the registry:
+
+\`\`\`go
+caps, errStr := kit.GetModelCapabilities("anthropic/claude-sonnet-4-5-20250929")
+if errStr == "" && caps.Pricing.Known {
+    fmt.Printf("in $%.2f/1M  out $%.2f/1M\\n", caps.Pricing.Input, caps.Pricing.Output)
+}
+\`\`\`
+
+Check \`Pricing.Known\` before using any rate. It is \`false\` for local models and
+custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
+unpriced model looks identical to a free one. Cache rates are similarly guarded
+by \`HasCacheRead\` / \`HasCacheWrite\`.
 
 ## One-shot completions
 

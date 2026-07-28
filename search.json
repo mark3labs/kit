@@ -162,7 +162,10 @@
         "Commands",
         "Widgets",
         "Headers and footers",
+        "Terminal size",
         "Status bar",
+        "Thinking level",
+        "Turn state",
         "Shortcuts",
         "Overlays",
         "Tool renderers",
@@ -181,10 +184,11 @@
         "Tree Navigation",
         "Skill Loading",
         "Template Parsing",
-        "Model Resolution"
+        "Model Resolution",
+        "Model pricing"
       ],
       "tags": [],
-      "wordCount": 2171
+      "wordCount": 2699
     },
     {
       "id": "extensions/examples",
@@ -204,7 +208,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 496
+      "wordCount": 511
     },
     {
       "id": "extensions/loading",
@@ -238,7 +242,7 @@
         "The Context object"
       ],
       "tags": [],
-      "wordCount": 303
+      "wordCount": 316
     },
     {
       "id": "extensions/testing",
@@ -433,7 +437,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 3400
+      "wordCount": 3476
     },
     {
       "id": "sdk/sessions",

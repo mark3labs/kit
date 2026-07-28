@@ -1,6 +1,6 @@
 const s={frontmatter:{title:"Capabilities",description:"All extension capabilities — lifecycle events, tools, commands, widgets, and more.",hidden:!1,toc:!0,draft:!1},html:`<h1 id="extension-capabilities"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-capabilities"><span class="icon icon-link"></span></a>Extension Capabilities</h1>
 <h2 id="lifecycle-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#lifecycle-events"><span class="icon icon-link"></span></a>Lifecycle events</h2>
-<p>Extensions can hook into 27 lifecycle events:</p>
+<p>Extensions can hook into 30 lifecycle events:</p>
 <table>
 <thead>
 <tr>
@@ -84,6 +84,18 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <tr>
 <td><code>OnModelChange</code></td>
 <td>Model switched</td>
+</tr>
+<tr>
+<td><code>OnThinkingLevelChange</code></td>
+<td>Extended-thinking effort level changed</td>
+</tr>
+<tr>
+<td><code>OnTerminalResize</code></td>
+<td>Terminal resized (also fires once at startup)</td>
+</tr>
+<tr>
+<td><code>OnTurnStateChange</code></td>
+<td>UI entered or left the working state</td>
 </tr>
 <tr>
 <td><code>OnContextPrepare</code></td>
@@ -295,10 +307,66 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetFooter</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">HeaderFooterConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Plan Mode (read-only)"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Content is rendered at <strong>full terminal width with no truncation</strong> — a longer
+line wraps and silently consumes a row of scrollback. Measure against
+<code>ctx.GetTerminalSize()</code> and truncate before calling <code>SetHeader</code>/<code>SetFooter</code>.</p>
+<h2 id="terminal-size"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#terminal-size"><span class="icon icon-link"></span></a>Terminal size</h2>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">width, height </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTerminalSize</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// 0, 0 outside the interactive TUI</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnTerminalResize</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TerminalResizeEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Width, e.Height — re-render chrome at the new size</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>OnTerminalResize</code> also fires once at startup, so a handler can lay out
+immediately instead of waiting for the user to resize.</p>
+<p>This is a <strong>function, not a field</strong>, so it reports the live size. A long-lived
+goroutine (a ticking clock in a footer, say) that captured a <code>Context</code> still
+observes resizes; a struct field would freeze at the value copied when the
+handler was invoked.</p>
+<p>Note that multi-byte characters occupy more than one column — count display
+width, not bytes or runes, when fitting text to <code>width</code>.</p>
 <h2 id="status-bar"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#status-bar"><span class="icon icon-link"></span></a>Status bar</h2>
 <p>Custom status bar entries:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetStatus</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"mode"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Planning"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveStatus</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"mode"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<h2 id="thinking-level"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#thinking-level"><span class="icon icon-link"></span></a>Thinking level</h2>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">level </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "off", "none", "minimal", "low", "medium", "high"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnThinkingLevelChange</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThinkingLevelChangeEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.NewLevel, e.PreviousLevel string</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Models without reasoning support report <code>"off"</code>. To distinguish "reasoning is
+switched off" from "this model cannot reason at all", pair it with
+<code>ctx.GetModelCapabilities("").Reasoning</code>.</p>
+<p><code>Source</code> is <code>"model_fallback"</code> when Kit downgrades the level automatically
+because the newly selected model does not support the previous one.</p>
+<h2 id="turn-state"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#turn-state"><span class="icon icon-link"></span></a>Turn state</h2>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnTurnStateChange</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">e</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TurnStateChangeEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.State, e.Previous string — "working" or "idle"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>This is a <strong>superset of <code>OnAgentStart</code>/<code>OnAgentEnd</code></strong>: it also covers work that
+never reaches the agent loop (shell commands run with <code>!</code>) and fires on every
+path back to idle, including cancellation and error.</p>
+<table>
+<thead>
+<tr>
+<th>Use</th>
+<th>For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OnTurnStateChange</code></td>
+<td>UI that tracks whether Kit is busy — a spinner, a turn timer</td>
+</tr>
+<tr>
+<td><code>OnAgentStart</code> / <code>OnAgentEnd</code></td>
+<td>Agent turns specifically, plus their token usage and cost</td>
+</tr>
+</tbody>
+</table>
+<p>Interactive TUI only — like <code>OnTerminalResize</code>, this does not fire in headless,
+ACP, or script mode.</p>
 <h2 id="shortcuts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#shortcuts"><span class="icon icon-link"></span></a>Shortcuts</h2>
 <p>Global keyboard shortcuts:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterShortcut</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShortcutDef</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -590,18 +658,43 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get capabilities for a specific model</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">caps, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelCapabilities</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// caps.Pricing (see Model pricing below)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Pass an empty string for the model currently in use</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">caps, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelCapabilities</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Check if a model is available (provider exists)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">available </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CheckModelAvailable</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// bool</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Get current provider/model ID</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">provider </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentProvider</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "anthropic"</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">modelID </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentModelID</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "claude-sonnet-4"</span></span></code></pre>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"}],raw:`
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">modelID </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetCurrentModelID</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "claude-sonnet-4"</span></span></code></pre>
+<h3 id="model-pricing"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-pricing"><span class="icon icon-link"></span></a>Model pricing</h3>
+<p><code>ModelCapabilities.Pricing</code> reports registry token costs in <strong>US dollars per
+million tokens</strong>, so a cost is <code>tokens * rate / 1_000_000</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">caps, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetModelCapabilities</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">p </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> caps.Pricing</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// p.Input, p.Output           float64 — $ per 1M tokens</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// p.CacheRead, p.CacheWrite   float64 — valid only when the Has* flag is true</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// p.HasCacheRead, p.HasCacheWrite bool</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// p.Known                     bool</span></span></code></pre>
+<p>Always check <code>Known</code> before rendering a cost. It is <code>false</code> for local models and
+custom OpenAI-compatible endpoints, where every rate is zero — without the flag
+an unpriced model is indistinguishable from a free one. Likewise check
+<code>HasCacheRead</code> rather than assuming a zero <code>CacheRead</code> means cache reads are
+free.</p>
+<p>Computing prompt-cache savings:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">usage </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetSessionUsage</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.Known </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.HasCacheRead {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>The same <code>Pricing</code> field is present on each entry from
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
 
-Extensions can hook into 27 lifecycle events:
+Extensions can hook into 30 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -624,6 +717,9 @@ Extensions can hook into 27 lifecycle events:
 | \`OnMessageUpdate\` | Streaming text chunk received |
 | \`OnMessageEnd\` | Assistant message completed |
 | \`OnModelChange\` | Model switched |
+| \`OnThinkingLevelChange\` | Extended-thinking effort level changed |
+| \`OnTerminalResize\` | Terminal resized (also fires once at startup) |
+| \`OnTurnStateChange\` | UI entered or left the working state |
 | \`OnContextPrepare\` | Context being assembled for the model |
 | \`OnBeforeFork\` | Before forking a conversation branch |
 | \`OnBeforeSessionSwitch\` | Before switching sessions |
@@ -755,6 +851,31 @@ ctx.SetFooter(ext.HeaderFooterConfig{
 })
 \`\`\`
 
+Content is rendered at **full terminal width with no truncation** — a longer
+line wraps and silently consumes a row of scrollback. Measure against
+\`ctx.GetTerminalSize()\` and truncate before calling \`SetHeader\`/\`SetFooter\`.
+
+## Terminal size
+
+\`\`\`go
+width, height := ctx.GetTerminalSize()  // 0, 0 outside the interactive TUI
+
+api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
+    // e.Width, e.Height — re-render chrome at the new size
+})
+\`\`\`
+
+\`OnTerminalResize\` also fires once at startup, so a handler can lay out
+immediately instead of waiting for the user to resize.
+
+This is a **function, not a field**, so it reports the live size. A long-lived
+goroutine (a ticking clock in a footer, say) that captured a \`Context\` still
+observes resizes; a struct field would freeze at the value copied when the
+handler was invoked.
+
+Note that multi-byte characters occupy more than one column — count display
+width, not bytes or runes, when fitting text to \`width\`.
+
 ## Status bar
 
 Custom status bar entries:
@@ -763,6 +884,44 @@ Custom status bar entries:
 ctx.SetStatus("mode", "Planning")
 ctx.RemoveStatus("mode")
 \`\`\`
+
+## Thinking level
+
+\`\`\`go
+level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+
+api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
+    // e.NewLevel, e.PreviousLevel string
+    // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"
+})
+\`\`\`
+
+Models without reasoning support report \`"off"\`. To distinguish "reasoning is
+switched off" from "this model cannot reason at all", pair it with
+\`ctx.GetModelCapabilities("").Reasoning\`.
+
+\`Source\` is \`"model_fallback"\` when Kit downgrades the level automatically
+because the newly selected model does not support the previous one.
+
+## Turn state
+
+\`\`\`go
+api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
+    // e.State, e.Previous string — "working" or "idle"
+})
+\`\`\`
+
+This is a **superset of \`OnAgentStart\`/\`OnAgentEnd\`**: it also covers work that
+never reaches the agent loop (shell commands run with \`!\`) and fires on every
+path back to idle, including cancellation and error.
+
+| Use | For |
+|-----|-----|
+| \`OnTurnStateChange\` | UI that tracks whether Kit is busy — a spinner, a turn timer |
+| \`OnAgentStart\` / \`OnAgentEnd\` | Agent turns specifically, plus their token usage and cost |
+
+Interactive TUI only — like \`OnTerminalResize\`, this does not fire in headless,
+ACP, or script mode.
 
 ## Shortcuts
 
@@ -1124,6 +1283,10 @@ result := ctx.ResolveModelChain([]string{
 // Get capabilities for a specific model
 caps, err := ctx.GetModelCapabilities("anthropic/claude-sonnet-4")
 // caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming
+// caps.Pricing (see Model pricing below)
+
+// Pass an empty string for the model currently in use
+caps, err = ctx.GetModelCapabilities("")
 
 // Check if a model is available (provider exists)
 available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
@@ -1132,4 +1295,36 @@ available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
 provider := ctx.GetCurrentProvider()  // "anthropic"
 modelID := ctx.GetCurrentModelID()    // "claude-sonnet-4"
 \`\`\`
+
+### Model pricing
+
+\`ModelCapabilities.Pricing\` reports registry token costs in **US dollars per
+million tokens**, so a cost is \`tokens * rate / 1_000_000\`:
+
+\`\`\`go
+caps, _ := ctx.GetModelCapabilities("")
+p := caps.Pricing
+// p.Input, p.Output           float64 — $ per 1M tokens
+// p.CacheRead, p.CacheWrite   float64 — valid only when the Has* flag is true
+// p.HasCacheRead, p.HasCacheWrite bool
+// p.Known                     bool
+\`\`\`
+
+Always check \`Known\` before rendering a cost. It is \`false\` for local models and
+custom OpenAI-compatible endpoints, where every rate is zero — without the flag
+an unpriced model is indistinguishable from a free one. Likewise check
+\`HasCacheRead\` rather than assuming a zero \`CacheRead\` means cache reads are
+free.
+
+Computing prompt-cache savings:
+
+\`\`\`go
+usage := ctx.GetSessionUsage()
+if p.Known && p.HasCacheRead {
+    saved := float64(usage.TotalCacheReadTokens) * (p.Input - p.CacheRead) / 1000000
+}
+\`\`\`
+
+The same \`Pricing\` field is present on each entry from
+\`ctx.GetAvailableModels()\`.
 `};export{s as default};
