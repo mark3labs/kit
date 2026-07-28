@@ -144,3 +144,23 @@ func TestExtEventDispatcher_ConcurrentEnqueue(t *testing.T) {
 		t.Fatalf("timed out: %d/%d callbacks ran", n, writers*each)
 	}
 }
+
+// TestExtEventDispatcher_SurvivesPanickingCallback guards the consumer
+// goroutine's central invariant: it must never die. If a callback panic
+// escaped, every later resize, turn-state, and thinking-level event would be
+// dropped silently for the rest of the session.
+func TestExtEventDispatcher_SurvivesPanickingCallback(t *testing.T) {
+	d := newExtEventDispatcher()
+
+	d.dispatch(func() { panic("handler exploded") })
+
+	// Ordering must also survive: this is queued behind the panicking call.
+	ran := make(chan struct{})
+	d.dispatch(func() { close(ran) })
+
+	select {
+	case <-ran:
+	case <-time.After(3 * time.Second):
+		t.Fatal("dispatcher stopped delivering after a callback panicked")
+	}
+}

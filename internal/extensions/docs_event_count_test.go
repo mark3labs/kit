@@ -1,6 +1,7 @@
 package extensions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,7 +27,7 @@ func TestDocumentedEventCountMatchesTable(t *testing.T) {
 	// The table lives in capabilities.md and is the source of truth.
 	capsBody, err := os.ReadFile(capabilities)
 	if err != nil {
-		t.Skipf("docs not present in this checkout: %v", err)
+		t.Skipf("docs not present in this checkout: %v", fmt.Errorf("read %s: %w", capabilities, err))
 	}
 
 	want := countEventTableRows(string(capsBody))
@@ -43,7 +44,7 @@ func TestDocumentedEventCountMatchesTable(t *testing.T) {
 	} {
 		body, err := os.ReadFile(tc.path)
 		if err != nil {
-			t.Errorf("read %s: %v", tc.path, err)
+			t.Errorf("%v", fmt.Errorf("read %s: %w", tc.path, err))
 			continue
 		}
 		m := tc.re.FindSubmatch(body)
