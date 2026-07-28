@@ -2,6 +2,8 @@ const t={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
   <img src="/logo.jpg" alt="KIT" style="max-width: 400px; width: 100%; margin: 0 auto; display: block;">
 </div>
 <p>A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.</p>
+
+<img src="/cyberpunk.gif" alt="Kit running in the terminal" style="width: 100%; margin: 2rem 0; border-radius: 8px;">
 <h2 id="features"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#features"><span class="icon icon-link"></span></a>Features</h2>
 <ul>
 <li><strong>Multi-Provider LLM Support</strong> — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more</li>
@@ -53,6 +55,14 @@ const t={frontmatter:{title:"Kit",description:"Kit is a powerful, extensible AI 
 </div>
 
 A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
+
+<!-- GIF rather than <video>: Tome's HTML sanitizer strips \`playsinline\`
+     (see SANITIZE_CONFIG in @tomehq/core), and without it iOS Safari refuses
+     to autoplay inline. The <img> inside a <video> is only a fallback for
+     browsers with no <video> support at all, so iPhones would get a static
+     element rather than the GIF. cyberpunk.webm is smaller and is still built
+     by www/tapes/record.sh if the sanitizer ever allows the attribute. -->
+<img src="/cyberpunk.gif" alt="Kit running in the terminal" style="width: 100%; margin: 2rem 0; border-radius: 8px;" />
 
 ## Features
 

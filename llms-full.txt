@@ -2685,6 +2685,14 @@ See `examples/extensions/tool-logger_test.go` for a complete example with 14 tes
 
 A powerful, extensible AI coding agent CLI with multi-provider support, built-in tools, and a rich extension system.
 
+<!-- GIF rather than <video>: Tome's HTML sanitizer strips `playsinline`
+     (see SANITIZE_CONFIG in @tomehq/core), and without it iOS Safari refuses
+     to autoplay inline. The <img> inside a <video> is only a fallback for
+     browsers with no <video> support at all, so iPhones would get a static
+     element rather than the GIF. cyberpunk.webm is smaller and is still built
+     by www/tapes/record.sh if the sanitizer ever allows the attribute. -->
+<img src="/cyberpunk.gif" alt="Kit running in the terminal" style="width: 100%; margin: 2rem 0; border-radius: 8px;" />
+
 ## Features
 
 - **Multi-Provider LLM Support** — Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
