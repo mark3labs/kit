@@ -1,0 +1,19 @@
+# Local Kit config for the cyberpunk demo recording.
+#
+# Kit reads `.kit.yml` from the working directory before the one in $HOME,
+# so everything the demo needs is declared here. That keeps the tape honest:
+# the only thing typed on camera is `kit`.
+
+model: anthropic/claude-haiku-4-5
+
+# Persona lives in a file so the on-camera prompt stays short.
+system-prompt: netrunner.md
+
+# Ephemeral — recording a demo shouldn't write session history.
+no-session: true
+
+# Pinned, not inherited. Without this the recording picks up whatever
+# thinking level is in ~/.config/kit/preferences.yml, which changes both the
+# reply latency and whether a reasoning block renders — so the same tape
+# would produce a different video on a different machine.
+thinking-level: "off"

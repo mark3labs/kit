@@ -339,6 +339,7 @@ func init() {
 
 	// Bind flags to viper for config file support
 	_ = viper.BindPFlag("system-prompt", rootCmd.PersistentFlags().Lookup("system-prompt"))
+	_ = viper.BindPFlag("no-session", rootCmd.PersistentFlags().Lookup("no-session"))
 	_ = viper.BindPFlag("model", rootCmd.PersistentFlags().Lookup("model"))
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 	_ = viper.BindPFlag("max-steps", rootCmd.PersistentFlags().Lookup("max-steps"))
@@ -878,7 +879,7 @@ func runNormalMode(ctx context.Context) error {
 	kitOpts := &kit.Options{
 		Quiet:            quietFlag,
 		Debug:            debugMode,
-		NoSession:        noSessionFlag,
+		NoSession:        viper.GetBool("no-session"),
 		Continue:         continueFlag,
 		SessionPath:      sessionPath,
 		AutoCompact:      autoCompactFlag,
