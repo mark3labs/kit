@@ -2,8 +2,11 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/mark3labs/kit/internal/ui/style"
 )
@@ -271,4 +274,88 @@ func TestDiffFallsBackToUnified(t *testing.T) {
 			t.Errorf("expected side-by-side at 100 columns, got:\n%s", got)
 		}
 	})
+}
+
+// multiHunkDiffArgs builds an edit spanning two changes far enough apart that
+// the differ emits separate hunks, with unchanged context between them.
+func multiHunkDiffArgs(t *testing.T) string {
+	t.Helper()
+	before := make([]string, 40)
+	after := make([]string, 40)
+	for i := range before {
+		line := fmt.Sprintf("unchanged context line %d", i)
+		before[i], after[i] = line, line
+	}
+	before[2], after[2] = "FIRST original", "FIRST changed"
+	before[35], after[35] = "SECOND original", "SECOND changed"
+	return diffArgs(t, strings.Join(before, "\n"), strings.Join(after, "\n"))
+}
+
+// TestMultiHunkDiff covers the hunk-separator row, which only appears when a
+// diff has more than one hunk — a case every other test here misses, because
+// a single replacement produces exactly one.
+//
+// The separator is built from U+00B7, so it is also the one row whose padding
+// depends on width being measured in cells rather than bytes.
+func TestMultiHunkDiff(t *testing.T) {
+	args := multiHunkDiffArgs(t)
+
+	t.Run("separator appears and both hunks survive", func(t *testing.T) {
+		for _, w := range []int{40, 80, 120} {
+			got := stripBlockAnsi(renderToolBody("edit", args, "edited", bodyWidthFor(w)))
+			if !strings.Contains(got, "···") {
+				t.Errorf("w=%d: expected a hunk separator:\n%s", w, got)
+			}
+			for _, want := range []string{"FIRST", "SECOND"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("w=%d: hunk %q was dropped:\n%s", w, want, got)
+				}
+			}
+		}
+	})
+
+	t.Run("stays within budget", func(t *testing.T) {
+		for _, w := range []int{40, 80, 120} {
+			budget := bodyWidthFor(w)
+			if widest := widestColumn(renderToolBody("edit", args, "edited", budget)); widest > budget {
+				t.Errorf("w=%d: multi-hunk diff overflows: %d > %d", w, widest, budget)
+			}
+		}
+	})
+
+	t.Run("survives degenerate widths", func(t *testing.T) {
+		// The separator row pads to the available width. If that arithmetic
+		// were byte-based or unguarded against negatives it would misalign or
+		// panic here rather than at a normal size.
+		for _, w := range []int{-10, -1, 0, 1, 5, 10} {
+			if got := renderToolBody("edit", args, "edited", w); got == "" {
+				t.Errorf("w=%d: rendered nothing", w)
+			}
+		}
+	})
+}
+
+// TestPadRightHandlesDegenerateWidths pins the padding helper's behaviour at
+// the edges the diff renderers can reach.
+//
+// padRight measures with xansi.StringWidth, so a multi-byte glyph costs its
+// display cells rather than its bytes, and a non-positive width returns empty
+// via truncation rather than reaching strings.Repeat with a negative count.
+// Both properties are load-bearing for the hunk separator and easy to lose in
+// a refactor, so they are asserted rather than assumed.
+func TestPadRightHandlesDegenerateWidths(t *testing.T) {
+	for _, w := range []int{-100, -1, 0} {
+		if got := padRight("···", w); got != "" {
+			t.Errorf("padRight(%q, %d) = %q, want empty", "···", w, got)
+		}
+	}
+
+	// Multi-byte input must pad by display cells, not bytes: "···" is nine
+	// bytes but three cells, so a width of 10 leaves seven spaces.
+	if got, want := padRight("···", 10), "···"+strings.Repeat(" ", 7); got != want {
+		t.Errorf("padRight(%q, 10) = %q, want %q", "···", got, want)
+	}
+	if got := lipgloss.Width(padRight("···", 10)); got != 10 {
+		t.Errorf("padded width = %d cells, want 10", got)
+	}
 }
