@@ -84,6 +84,9 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 			TotalCacheWriteTokens: stats.TotalCacheWriteTokens,
 			TotalCost:             stats.TotalCost,
 			RequestCount:          stats.RequestCount,
+			// Costs are recorded as 0 under OAuth, so surface the flag that
+			// explains why rather than leaving extensions to guess.
+			IsOAuth: usageTracker.IsOAuth(),
 		}
 	}
 	ec.Exit = func() { appInstance.QuitFromExtension() }

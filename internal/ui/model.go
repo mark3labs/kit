@@ -484,6 +484,18 @@ type AppModelOptions struct {
 	// May be nil if extensions are not loaded.
 	EmitModelChange func(newModel, previousModel, source string)
 
+	// EmitThinkingLevelChange fires the OnThinkingLevelChange extension
+	// event. May be nil when no extensions are loaded.
+	EmitThinkingLevelChange func(newLevel, previousLevel, source string)
+
+	// EmitTerminalResize fires the OnTerminalResize extension event and
+	// refreshes the terminal size on the extension context. May be nil.
+	EmitTerminalResize func(width, height int)
+
+	// EmitTurnStateChange fires the OnTurnStateChange extension event when
+	// the UI enters or leaves the working state. May be nil.
+	EmitTurnStateChange func(state, previous string)
+
 	// SwitchSession opens a session by JSONL file path, replacing the
 	// active tree session and reloading messages. Called when the user
 	// picks a session from /resume. May be nil if session switching is
@@ -749,6 +761,20 @@ type AppModel struct {
 	// emitModelChange fires the OnModelChange extension event. May be nil.
 	emitModelChange func(newModel, previousModel, source string)
 
+	// emitThinkingLevelChange fires the OnThinkingLevelChange extension
+	// event. May be nil.
+	emitThinkingLevelChange func(newLevel, previousLevel, source string)
+
+	// emitTerminalResize fires the OnTerminalResize extension event. May be nil.
+	emitTerminalResize func(width, height int)
+
+	// emitTurnStateChange fires the OnTurnStateChange extension event. May be nil.
+	emitTurnStateChange func(state, previous string)
+
+	// extEvents serializes extension event dispatch so that rapid events
+	// reach the runner in emission order. See ext_event_dispatcher.go.
+	extEvents *extEventDispatcher
+
 	// modelSelector is the model selection overlay, active in stateModelSelector.
 	modelSelector *ModelSelectorComponent
 
@@ -954,6 +980,10 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getExtensionCommands = opts.GetExtensionCommands
 	m.setModel = opts.SetModel
 	m.emitModelChange = opts.EmitModelChange
+	m.emitThinkingLevelChange = opts.EmitThinkingLevelChange
+	m.emitTerminalResize = opts.EmitTerminalResize
+	m.emitTurnStateChange = opts.EmitTurnStateChange
+	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
 
 	// Initialize the theme list function for command completion.
@@ -1234,8 +1264,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateWorking && stateBefore != stateWorking {
 			m.turnStartedAt = time.Now()
 			m.turnToolCount = 0
+			m.notifyTurnState("working", "idle")
 		} else if m.state != stateWorking && stateBefore == stateWorking {
 			m.turnStartedAt = time.Time{}
+			m.notifyTurnState("idle", "working")
 		}
 	}()
 
@@ -1364,6 +1396,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layoutDirty = true
+		m.notifyResize()
 		// Update renderer width for proper message styling
 		m.renderer.SetWidth(m.width)
 		// Propagate to children.
@@ -2991,8 +3024,14 @@ func (m *AppModel) cycleThinkingLevel() {
 		// Run in goroutine to avoid blocking the event loop (provider
 		// recreation may take time).
 		go func() {
-			_ = m.setThinkingLevel(next)
+			// ThinkingLevelChangeEvent.NewLevel promises the level now in
+			// effect, so announce only once the provider has accepted it.
+			if err := m.setThinkingLevel(next); err == nil {
+				m.notifyThinkingLevel(next, current, "user")
+			}
 		}()
+	} else {
+		m.notifyThinkingLevel(next, current, "user")
 	}
 
 	// Persist thinking level for next launch.
@@ -4584,6 +4623,10 @@ func (m *AppModel) switchModel(modelString string) {
 
 	previousModel := m.providerName + "/" + m.modelName
 
+	// Staged thinking-level fallback, announced only once the model switch
+	// below succeeds. Empty pendingFallbackTo means nothing to announce.
+	var pendingFallbackFrom, pendingFallbackTo string
+
 	// Check if thinking level needs adjustment for the new model.
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
 	if m.thinkingLevel != "" && m.thinkingLevel != "off" {
@@ -4597,9 +4640,16 @@ func (m *AppModel) switchModel(modelString string) {
 						"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
 						modelName, currentLevel, fallback,
 					))
+					// Stage the announcement: the model switch below can
+					// still fail, and a fallback tied to a model that was
+					// never selected must not be reported as in effect.
+					pendingFallbackFrom = m.thinkingLevel
+					pendingFallbackTo = string(fallback)
 					m.thinkingLevel = string(fallback)
 					if m.setThinkingLevel != nil {
-						_ = m.setThinkingLevel(string(fallback))
+						if err := m.setThinkingLevel(string(fallback)); err != nil {
+							pendingFallbackTo = ""
+						}
 					}
 					go func() { _ = prefs.SaveThinkingLevelPreference(string(fallback)) }()
 				}
@@ -4625,8 +4675,51 @@ func (m *AppModel) switchModel(modelString string) {
 
 	if m.emitModelChange != nil {
 		emit := m.emitModelChange
-		go emit(modelString, previousModel, "user")
+		m.extEvents.dispatch(func() { emit(modelString, previousModel, "user") })
 	}
+
+	// The switch succeeded, so a staged fallback is now genuinely in effect.
+	if pendingFallbackTo != "" {
+		m.notifyThinkingLevel(pendingFallbackTo, pendingFallbackFrom, "model_fallback")
+	}
+}
+
+// notifyTurnState fires the OnTurnStateChange extension event. It is driven
+// from the single deferred busy/idle comparison in Update, so every path into
+// and out of the working state is reported — including shell commands and
+// cancellation, which never reach the agent loop.
+//
+// The handler runs in a goroutine: extension code must never execute inline in
+// Update, where a slow handler would stall BubbleTea's event loop.
+func (m *AppModel) notifyTurnState(state, previous string) {
+	if m.emitTurnStateChange == nil {
+		return
+	}
+	emit := m.emitTurnStateChange
+	m.extEvents.dispatch(func() { emit(state, previous) })
+}
+
+// notifyResize fires the OnTerminalResize extension event and refreshes the
+// terminal size on the extension context. Called from every site that handles
+// tea.WindowSizeMsg, including the prompt and overlay sub-loops that bypass
+// the main Update switch.
+func (m *AppModel) notifyResize() {
+	if m.emitTerminalResize == nil {
+		return
+	}
+	emit := m.emitTerminalResize
+	w, h := m.width, m.height
+	m.extEvents.dispatch(func() { emit(w, h) })
+}
+
+// notifyThinkingLevel fires the OnThinkingLevelChange extension event. Skips
+// no-op changes so handlers are not woken for a level that did not move.
+func (m *AppModel) notifyThinkingLevel(newLevel, previousLevel, source string) {
+	if m.emitThinkingLevelChange == nil || newLevel == previousLevel {
+		return
+	}
+	emit := m.emitThinkingLevelChange
+	m.extEvents.dispatch(func() { emit(newLevel, previousLevel, source) })
 }
 
 // --------------------------------------------------------------------------
@@ -4716,11 +4809,18 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	}
 
 	// Apply the change.
+	previousLevel := m.thinkingLevel
 	m.thinkingLevel = string(level)
 	if m.setThinkingLevel != nil {
 		go func() {
-			_ = m.setThinkingLevel(string(level))
+			// Announce only after the provider accepts the new level, so
+			// ThinkingLevelChangeEvent.NewLevel reflects reality.
+			if err := m.setThinkingLevel(string(level)); err == nil {
+				m.notifyThinkingLevel(string(level), previousLevel, "user")
+			}
 		}()
+	} else {
+		m.notifyThinkingLevel(string(level), previousLevel, "user")
 	}
 	// Persist thinking level for next launch.
 	go func() { _ = prefs.SaveThinkingLevelPreference(string(level)) }()
@@ -5734,6 +5834,7 @@ func (m *AppModel) updatePromptState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.notifyResize()
 		_, cmd := m.prompt.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -5826,6 +5927,7 @@ func (m *AppModel) updateOverlayState(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.notifyResize()
 		_, cmd := m.overlay.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)

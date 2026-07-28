@@ -68,6 +68,20 @@ const (
 	// ModelChange fires after the active model is changed via ctx.SetModel().
 	ModelChange EventType = "model_change"
 
+	// ThinkingLevelChange fires after the extended-thinking effort level is
+	// changed, whether by the user, an extension, or an automatic downgrade
+	// when switching to a model that does not support the current level.
+	ThinkingLevelChange EventType = "thinking_level_change"
+
+	// TerminalResize fires when the terminal dimensions change, and once at
+	// startup with the initial size. Interactive TUI only.
+	TerminalResize EventType = "terminal_resize"
+
+	// TurnStateChange fires when the UI moves between its idle and working
+	// states. Unlike AgentStart/AgentEnd this also covers work that never
+	// reaches the agent loop, such as shell commands. Interactive TUI only.
+	TurnStateChange EventType = "turn_state_change"
+
 	// ContextPrepare fires after context is built from the session tree and
 	// before the messages are sent to the LLM. Handlers can filter, reorder,
 	// or inject messages into the context window.
@@ -141,6 +155,7 @@ func AllEventTypes() []EventType {
 		MessageStart, MessageUpdate, MessageEnd,
 		SessionStart, SessionShutdown,
 		ModelChange, ContextPrepare,
+		ThinkingLevelChange, TerminalResize, TurnStateChange,
 		BeforeFork, BeforeSessionSwitch, BeforeCompact,
 		SubagentStart, SubagentChunk, SubagentEnd,
 		StepStart, StepFinish, ReasoningStart, Warnings, Source, Error, Retry,

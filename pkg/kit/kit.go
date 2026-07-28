@@ -874,10 +874,23 @@ func (m *Kit) composeSystemPrompt(basePrompt string) string {
 	return pb.Build()
 }
 
+// GetCurrentModel returns the fully qualified "provider/model" string for the
+// model currently in use, as resolved from configuration. Unlike the model
+// name carried on the extension Context — which is a bare display ID — this is
+// always registry-addressable, so it can be passed straight to
+// GetModelCapabilities.
+func (m *Kit) GetCurrentModel() string {
+	if m == nil || m.v == nil {
+		return ""
+	}
+	return m.v.GetString("model")
+}
+
 // GetAvailableModels returns a list of known models from the registry. Each
-// entry includes provider, model ID, context limit, and whether the model
-// supports reasoning. This is an advisory list — models not in the registry
-// can still be used by specifying their provider/model string.
+// entry includes provider, model ID, context/output limits, whether the model
+// supports reasoning, and its token pricing. This is an advisory list — models
+// not in the registry can still be used by specifying their provider/model
+// string.
 func (m *Kit) GetAvailableModels() []ModelInfoEntry {
 	registry := models.GetGlobalRegistry()
 	var result []ModelInfoEntry
@@ -894,6 +907,7 @@ func (m *Kit) GetAvailableModels() []ModelInfoEntry {
 				ContextLimit: info.Limit.Context,
 				OutputLimit:  info.Limit.Output,
 				Reasoning:    info.Reasoning,
+				Pricing:      modelPricingFrom(&info),
 			})
 		}
 	}

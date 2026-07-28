@@ -80,8 +80,12 @@ type ArgumentPattern = extensions.ArgumentPattern
 type ParseResult = extensions.ParseResult
 
 // ModelCapabilities describes a model's provider, context/output limits,
-// and feature support as reported by the model registry.
+// feature support, and token pricing as reported by the model registry.
 type ModelCapabilities = extensions.ModelCapabilities
+
+// ModelPricing describes a model's token costs in US dollars per million
+// tokens. Its Known field is false when the registry has no cost data.
+type ModelPricing = extensions.ModelPricing
 
 // ModelResolutionResult is the outcome of ResolveModelChain: the first
 // available model from a preference list, its capabilities, and the
@@ -107,6 +111,11 @@ type ExtensionAPI interface {
 	SetContext(ctx ExtensionContext)
 	GetContext() ExtensionContext
 	UpdateContextModel(model string)
+	// SetTerminalSize records the current terminal dimensions so that
+	// ctx.GetTerminalSize reports live values to extension handlers.
+	SetTerminalSize(width, height int)
+	// GetTerminalSize returns the last recorded terminal dimensions.
+	GetTerminalSize() (int, int)
 
 	// Widgets
 	SetWidget(config ExtensionWidgetConfig)
@@ -175,6 +184,9 @@ type ExtensionAPI interface {
 	// Events
 	EmitSessionStart()
 	EmitModelChange(newModel, previousModel, source string)
+	EmitThinkingLevelChange(newLevel, previousLevel, source string)
+	EmitTerminalResize(width, height int)
+	EmitTurnStateChange(state, previous string)
 	EmitCustomEvent(name, data string)
 	EmitBeforeFork(targetID string, isUserMsg bool, userText string) (cancelled bool, reason string)
 	EmitBeforeSessionSwitch(switchReason string) (cancelled bool, reason string)
@@ -235,6 +247,20 @@ func (e *extensionAPI) UpdateContextModel(model string) {
 		ctx.Model = model
 		e.kit.extRunner.SetContext(ctx)
 	}
+}
+
+func (e *extensionAPI) SetTerminalSize(width, height int) {
+	if e.kit.extRunner != nil {
+		e.kit.extRunner.SetTerminalSize(width, height)
+	}
+}
+
+// GetTerminalSize returns the last recorded terminal dimensions.
+func (e *extensionAPI) GetTerminalSize() (int, int) {
+	if e.kit.extRunner != nil {
+		return e.kit.extRunner.GetTerminalSize()
+	}
+	return 0, 0
 }
 
 // Widgets
@@ -579,6 +605,34 @@ func (e *extensionAPI) EmitModelChange(newModel, previousModel, source string) {
 			NewModel:      newModel,
 			PreviousModel: previousModel,
 			Source:        source,
+		})
+	}
+}
+
+func (e *extensionAPI) EmitThinkingLevelChange(newLevel, previousLevel, source string) {
+	if e.kit.extRunner != nil && e.kit.extRunner.HasHandlers(extensions.ThinkingLevelChange) {
+		_, _ = e.kit.extRunner.Emit(extensions.ThinkingLevelChangeEvent{
+			NewLevel:      newLevel,
+			PreviousLevel: previousLevel,
+			Source:        source,
+		})
+	}
+}
+
+func (e *extensionAPI) EmitTerminalResize(width, height int) {
+	if e.kit.extRunner != nil && e.kit.extRunner.HasHandlers(extensions.TerminalResize) {
+		_, _ = e.kit.extRunner.Emit(extensions.TerminalResizeEvent{
+			Width:  width,
+			Height: height,
+		})
+	}
+}
+
+func (e *extensionAPI) EmitTurnStateChange(state, previous string) {
+	if e.kit.extRunner != nil && e.kit.extRunner.HasHandlers(extensions.TurnStateChange) {
+		_, _ = e.kit.extRunner.Emit(extensions.TurnStateChangeEvent{
+			State:    state,
+			Previous: previous,
 		})
 	}
 }

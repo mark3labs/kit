@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 27 lifecycle events:
+Extensions can hook into 30 lifecycle events:
 
 | Event | Description |
 |-------|-------------|
@@ -30,6 +30,9 @@ Extensions can hook into 27 lifecycle events:
 | `OnMessageUpdate` | Streaming text chunk received |
 | `OnMessageEnd` | Assistant message completed |
 | `OnModelChange` | Model switched |
+| `OnThinkingLevelChange` | Extended-thinking effort level changed |
+| `OnTerminalResize` | Terminal resized (also fires once at startup) |
+| `OnTurnStateChange` | UI entered or left the working state |
 | `OnContextPrepare` | Context being assembled for the model |
 | `OnBeforeFork` | Before forking a conversation branch |
 | `OnBeforeSessionSwitch` | Before switching sessions |
@@ -161,6 +164,31 @@ ctx.SetFooter(ext.HeaderFooterConfig{
 })
 ```
 
+Content is rendered at **full terminal width with no truncation** — a longer
+line wraps and silently consumes a row of scrollback. Measure against
+`ctx.GetTerminalSize()` and truncate before calling `SetHeader`/`SetFooter`.
+
+## Terminal size
+
+```go
+width, height := ctx.GetTerminalSize()  // 0, 0 outside the interactive TUI
+
+api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
+    // e.Width, e.Height — re-render chrome at the new size
+})
+```
+
+`OnTerminalResize` also fires once at startup, so a handler can lay out
+immediately instead of waiting for the user to resize.
+
+This is a **function, not a field**, so it reports the live size. A long-lived
+goroutine (a ticking clock in a footer, say) that captured a `Context` still
+observes resizes; a struct field would freeze at the value copied when the
+handler was invoked.
+
+Note that multi-byte characters occupy more than one column — count display
+width, not bytes or runes, when fitting text to `width`.
+
 ## Status bar
 
 Custom status bar entries:
@@ -169,6 +197,44 @@ Custom status bar entries:
 ctx.SetStatus("mode", "Planning")
 ctx.RemoveStatus("mode")
 ```
+
+## Thinking level
+
+```go
+level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+
+api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
+    // e.NewLevel, e.PreviousLevel string
+    // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"
+})
+```
+
+Models without reasoning support report `"off"`. To distinguish "reasoning is
+switched off" from "this model cannot reason at all", pair it with
+`ctx.GetModelCapabilities("").Reasoning`.
+
+`Source` is `"model_fallback"` when Kit downgrades the level automatically
+because the newly selected model does not support the previous one.
+
+## Turn state
+
+```go
+api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
+    // e.State, e.Previous string — "working" or "idle"
+})
+```
+
+This is a **superset of `OnAgentStart`/`OnAgentEnd`**: it also covers work that
+never reaches the agent loop (shell commands run with `!`) and fires on every
+path back to idle, including cancellation and error.
+
+| Use | For |
+|-----|-----|
+| `OnTurnStateChange` | UI that tracks whether Kit is busy — a spinner, a turn timer |
+| `OnAgentStart` / `OnAgentEnd` | Agent turns specifically, plus their token usage and cost |
+
+Interactive TUI only — like `OnTerminalResize`, this does not fire in headless,
+ACP, or script mode.
 
 ## Shortcuts
 
@@ -530,6 +596,10 @@ result := ctx.ResolveModelChain([]string{
 // Get capabilities for a specific model
 caps, err := ctx.GetModelCapabilities("anthropic/claude-sonnet-4")
 // caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming
+// caps.Pricing (see Model pricing below)
+
+// Pass an empty string for the model currently in use
+caps, err = ctx.GetModelCapabilities("")
 
 // Check if a model is available (provider exists)
 available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
@@ -538,3 +608,35 @@ available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
 provider := ctx.GetCurrentProvider()  // "anthropic"
 modelID := ctx.GetCurrentModelID()    // "claude-sonnet-4"
 ```
+
+### Model pricing
+
+`ModelCapabilities.Pricing` reports registry token costs in **US dollars per
+million tokens**, so a cost is `tokens * rate / 1_000_000`:
+
+```go
+caps, _ := ctx.GetModelCapabilities("")
+p := caps.Pricing
+// p.Input, p.Output           float64 — $ per 1M tokens
+// p.CacheRead, p.CacheWrite   float64 — valid only when the Has* flag is true
+// p.HasCacheRead, p.HasCacheWrite bool
+// p.Known                     bool
+```
+
+Always check `Known` before rendering a cost. It is `false` for local models and
+custom OpenAI-compatible endpoints, where every rate is zero — without the flag
+an unpriced model is indistinguishable from a free one. Likewise check
+`HasCacheRead` rather than assuming a zero `CacheRead` means cache reads are
+free.
+
+Computing prompt-cache savings:
+
+```go
+usage := ctx.GetSessionUsage()
+if p.Known && p.HasCacheRead {
+    saved := float64(usage.TotalCacheReadTokens) * (p.Input - p.CacheRead) / 1000000
+}
+```
+
+The same `Pricing` field is present on each entry from
+`ctx.GetAvailableModels()`.

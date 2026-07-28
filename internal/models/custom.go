@@ -41,6 +41,21 @@ func loadCustomModelsFrom(v *viper.Viper) map[string]ModelInfo {
 	return result
 }
 
+// customCost converts a configured pricing block into a Cost. A nil block means
+// the user omitted "cost", so the price is unknown rather than zero; an explicit
+// block — even one with zero rates — is a declared price and is marked
+// Published so callers can render it as free.
+func customCost(c *CostConfig) Cost {
+	if c == nil {
+		return Cost{}
+	}
+	return Cost{
+		Input:     c.Input,
+		Output:    c.Output,
+		Published: true,
+	}
+}
+
 // modelConfigToModelInfo converts a CustomModelConfig to a ModelInfo.
 func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 	info := ModelInfo{
@@ -52,10 +67,7 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 		BaseURL:      cfg.BaseURL,
 		APIKey:       cfg.APIKey,
 		APIModelName: cfg.APIModelName,
-		Cost: Cost{
-			Input:  cfg.Cost.Input,
-			Output: cfg.Cost.Output,
-		},
+		Cost:         customCost(cfg.Cost),
 		Limit: Limit{
 			Context: cfg.Limit.Context,
 			Output:  cfg.Limit.Output,
@@ -288,18 +300,21 @@ type GenerationParams struct {
 // CustomModelConfig defines a custom model configuration loaded from the config file.
 // This is a duplicate here to avoid circular dependencies with internal/config.
 type CustomModelConfig struct {
-	Name         string                 `json:"name" yaml:"name"`
-	BaseURL      string                 `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
-	APIKey       string                 `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
-	APIModelName string                 `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
-	Family       string                 `json:"family,omitempty" yaml:"family,omitempty"`
-	Attachment   bool                   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
-	Reasoning    bool                   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
-	Temperature  bool                   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	Knowledge    string                 `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
-	Cost         CostConfig             `json:"cost" yaml:"cost"`
-	Limit        LimitConfig            `json:"limit" yaml:"limit"`
-	Params       GenerationParamsConfig `json:"params,omitzero" yaml:"params,omitempty"`
+	Name         string `json:"name" yaml:"name"`
+	BaseURL      string `json:"baseUrl,omitempty" yaml:"baseUrl,omitempty"`
+	APIKey       string `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	APIModelName string `json:"apiModelName,omitempty" yaml:"apiModelName,omitempty"`
+	Family       string `json:"family,omitempty" yaml:"family,omitempty"`
+	Attachment   bool   `json:"attachment,omitempty" yaml:"attachment,omitempty"`
+	Reasoning    bool   `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	Temperature  bool   `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Knowledge    string `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	// Cost is a pointer so that an omitted "cost" block (unknown pricing) is
+	// distinguishable from an explicitly configured zero rate (a genuinely
+	// free model). A value type would collapse both to 0.
+	Cost   *CostConfig            `json:"cost,omitempty" yaml:"cost,omitempty"`
+	Limit  LimitConfig            `json:"limit" yaml:"limit"`
+	Params GenerationParamsConfig `json:"params,omitzero" yaml:"params,omitempty"`
 }
 
 // GenerationParamsConfig is the JSON/YAML-serializable form of generation

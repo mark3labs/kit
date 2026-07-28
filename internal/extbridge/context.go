@@ -219,6 +219,18 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 			return kit.ResolveModelChain(preferences)
 		},
 		GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
+			// An empty model means "the one in use", matching the convention
+			// of CompleteRequest.Model. Without this, the common case of
+			// inspecting the active model's limits or pricing would force
+			// every extension to pass a model string back in by hand.
+			//
+			// Resolve from configuration rather than from the extension
+			// Context: Context.Model is a bare display ID ("claude-opus-5"),
+			// which the registry cannot address unambiguously because many
+			// providers serve the same ID.
+			if model == "" {
+				model = kitInstance.GetCurrentModel()
+			}
 			return kit.GetModelCapabilities(model)
 		},
 		CheckModelAvailable: func(model string) bool {
@@ -229,6 +241,23 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 		},
 		GetCurrentModelID: func() string {
 			return kit.GetCurrentModelID(kitInstance.Extensions().GetContext().Model)
+		},
+		GetTerminalSize: func() (int, int) {
+			// Read through to the runner rather than snapshotting on Context:
+			// a goroutine that captured a Context at session start must still
+			// observe later resizes.
+			return kitInstance.Extensions().GetTerminalSize()
+		},
+		GetThinkingLevel: func() string {
+			// Read through to the SDK rather than caching on Context: the
+			// level changes via the /thinking command, shift+tab, and
+			// automatic downgrade on model switch, so a snapshot would go
+			// stale in three different ways.
+			level := kitInstance.GetThinkingLevel()
+			if level == "" {
+				return "off"
+			}
+			return level
 		},
 	}
 }
