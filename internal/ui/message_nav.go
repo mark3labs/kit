@@ -95,6 +95,14 @@ func (m *AppModel) enterMessageNav() {
 	// navigation border, so clear it on entry.
 	m.scrollList.ClearSelection()
 
+	// Navigation suspends the current state rather than replacing it: the
+	// agent keeps running while the user browses, so stateWorking has to
+	// survive the round trip or the activity row never comes back.
+	m.navReturnState = m.state
+	if m.navReturnState != stateWorking {
+		m.navReturnState = stateInput
+	}
+
 	m.state = stateMessageNav
 	m.selectMessage(idx)
 
@@ -105,7 +113,8 @@ func (m *AppModel) enterMessageNav() {
 }
 
 // exitMessageNav leaves navigation mode, clears the selection border, and
-// returns to the input state.
+// returns to the state navigation suspended — stateWorking when the agent is
+// still running, stateInput otherwise.
 func (m *AppModel) exitMessageNav() {
 	if m.scrollList != nil {
 		m.scrollList.SetSelectedIndex(-1)
@@ -114,8 +123,52 @@ func (m *AppModel) exitMessageNav() {
 			m.scrollList.autoScroll = true
 		}
 	}
-	m.state = stateInput
+	m.state = m.navReturnState
+	m.navReturnState = stateInput
 	m.layoutDirty = true
+}
+
+// agentWorking reports whether an agent turn is in flight, independent of
+// which mode currently owns the keyboard. Message navigation takes over
+// m.state for the duration of the browse, parking the working flag in
+// navReturnState, so callers that care about agent liveness (the activity
+// row, turn-state notifications) must ask here rather than compare m.state.
+func (m *AppModel) agentWorking() bool {
+	if m.navActive() {
+		return m.navReturnState == stateWorking
+	}
+	return m.state == stateWorking
+}
+
+// navActive reports whether message navigation currently owns the session,
+// either directly or underneath the message inspector it opens (the
+// inspector is a modal that restores navigation when dismissed).
+func (m *AppModel) navActive() bool {
+	switch m.state {
+	case stateMessageNav:
+		return true
+	case stateOverlay:
+		return m.preOverlayState == stateMessageNav
+	case statePrompt:
+		return m.prePromptState == stateMessageNav
+	}
+	return false
+}
+
+// setAgentState applies an agent lifecycle transition (stateWorking on turn
+// start, stateInput on turn end).
+//
+// These transitions are driven by asynchronous agent events, which can land
+// at any moment — including while the user is browsing the scrollback. In
+// that case the transition is recorded as the state navigation will return
+// to instead of being applied, so a background turn can neither tear down
+// navigation nor be forgotten when the user leaves it.
+func (m *AppModel) setAgentState(s appState) {
+	if m.navActive() {
+		m.navReturnState = s
+		return
+	}
+	m.state = s
 }
 
 // selectMessage moves the selection to idx and scrolls it into view.

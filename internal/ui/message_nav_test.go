@@ -2,12 +2,14 @@ package ui
 
 import (
 	"encoding/json"
-
-	"charm.land/lipgloss/v2"
 	"strings"
 	"testing"
+	"time"
 
+	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
+
+	"github.com/mark3labs/kit/internal/app"
 )
 
 // --------------------------------------------------------------------------
@@ -575,5 +577,154 @@ func TestScrollList_ClampedSelectionHeightInvalidated(t *testing.T) {
 	if got := sl.itemHeight(2); got != base+selectionBorderOverhead {
 		t.Errorf("clamped selection height = %d, want %d (stale cache not invalidated)",
 			got, base+selectionBorderOverhead)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Navigation vs. a running agent
+// --------------------------------------------------------------------------
+
+// navTestModel returns a model with a populated scrollback, ready to enter
+// message navigation.
+func navTestModel(t *testing.T) *AppModel {
+	t.Helper()
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.printSystemMessage("first")
+	m.printSystemMessage("second")
+	return m
+}
+
+// TestMessageNav_ExitRestoresWorkingState is the regression guard for the
+// activity row vanishing for the rest of a turn: navigation used to return
+// unconditionally to stateInput, so browsing the scrollback mid-turn
+// permanently convinced the UI the agent had stopped.
+func TestMessageNav_ExitRestoresWorkingState(t *testing.T) {
+	m := navTestModel(t)
+	m.state = stateWorking
+
+	m.enterMessageNav()
+	if m.state != stateMessageNav {
+		t.Fatalf("state = %v, want stateMessageNav", m.state)
+	}
+	if !m.agentWorking() {
+		t.Fatal("agentWorking() = false while navigating during a live turn")
+	}
+
+	m.exitMessageNav()
+	if m.state != stateWorking {
+		t.Fatalf("state after exit = %v, want stateWorking", m.state)
+	}
+}
+
+// TestMessageNav_ExitFromIdleReturnsToInput verifies the ordinary path is
+// unchanged: navigating while the agent is idle still lands in stateInput.
+func TestMessageNav_ExitFromIdleReturnsToInput(t *testing.T) {
+	m := navTestModel(t)
+
+	m.enterMessageNav()
+	m.exitMessageNav()
+
+	if m.state != stateInput {
+		t.Fatalf("state after exit = %v, want stateInput", m.state)
+	}
+	if m.agentWorking() {
+		t.Fatal("agentWorking() = true after an idle navigation session")
+	}
+}
+
+// TestMessageNav_ActivityRowSurvivesNavigation verifies the liveness row keeps
+// rendering while the user browses: the agent is still running, and an empty
+// row reads as a stalled agent.
+func TestMessageNav_ActivityRowSurvivesNavigation(t *testing.T) {
+	m := navTestModel(t)
+	m.state = stateWorking
+	m.turnStartedAt = time.Now()
+
+	working := m.renderActivityRow()
+	if strings.TrimSpace(working) == "" {
+		t.Fatal("activity row empty while working")
+	}
+
+	m.enterMessageNav()
+	if got := m.renderActivityRow(); strings.TrimSpace(got) == "" {
+		t.Fatal("activity row empty while navigating during a live turn")
+	}
+}
+
+// TestMessageNav_TurnEndWhileNavigating verifies that a turn finishing in the
+// background neither tears navigation down nor is forgotten: the user stays in
+// the scrollback, and exiting lands in the idle state.
+func TestMessageNav_TurnEndWhileNavigating(t *testing.T) {
+	m := navTestModel(t)
+	m.state = stateWorking
+	m.enterMessageNav()
+
+	m = sendMsg(m, app.StepCompleteEvent{ResponseText: "done"})
+
+	if m.state != stateMessageNav {
+		t.Fatalf("state = %v, want stateMessageNav (navigation torn down by StepComplete)", m.state)
+	}
+	if m.agentWorking() {
+		t.Fatal("agentWorking() = true after the turn completed")
+	}
+
+	m.exitMessageNav()
+	if m.state != stateInput {
+		t.Fatalf("state after exit = %v, want stateInput", m.state)
+	}
+}
+
+// TestMessageNav_TurnStartWhileNavigating verifies the mirror case: a turn
+// starting in the background (queued message, extension-triggered run) leaves
+// navigation in place, and exiting reveals the working state.
+func TestMessageNav_TurnStartWhileNavigating(t *testing.T) {
+	m := navTestModel(t)
+	m.enterMessageNav()
+
+	m = sendMsg(m, app.SpinnerEvent{Show: true})
+
+	if m.state != stateMessageNav {
+		t.Fatalf("state = %v, want stateMessageNav (navigation torn down by SpinnerEvent)", m.state)
+	}
+	if !m.agentWorking() {
+		t.Fatal("agentWorking() = false after a turn started in the background")
+	}
+
+	m.exitMessageNav()
+	if m.state != stateWorking {
+		t.Fatalf("state after exit = %v, want stateWorking", m.state)
+	}
+}
+
+// TestMessageNav_InspectorKeepsWorkingState covers the inspector overlay
+// opened from navigation: the dialog is a detour inside the browse, so the
+// suspended working state has to survive both hops (nav → inspector → nav →
+// input) or the activity row disappears for the rest of the turn.
+func TestMessageNav_InspectorKeepsWorkingState(t *testing.T) {
+	m := navTestModel(t)
+	m.state = stateWorking
+	m.enterMessageNav()
+	m.inspectSelectedMessage()
+
+	if m.state != stateOverlay {
+		t.Fatalf("state = %v, want stateOverlay after inspect", m.state)
+	}
+	if !m.agentWorking() {
+		t.Fatal("agentWorking() = false with the inspector open during a live turn")
+	}
+	if strings.TrimSpace(m.renderActivityRow()) == "" {
+		t.Fatal("activity row empty with the inspector open during a live turn")
+	}
+
+	// Dismiss the inspector: it restores navigation, which still owes the
+	// caller the working state.
+	m.resolveOverlay(app.OverlayResponse{Cancelled: true})
+	if m.state != stateMessageNav {
+		t.Fatalf("state after dismiss = %v, want stateMessageNav", m.state)
+	}
+
+	m.exitMessageNav()
+	if m.state != stateWorking {
+		t.Fatalf("state after exit = %v, want stateWorking", m.state)
 	}
 }

@@ -188,13 +188,17 @@ func formatElapsed(d time.Duration) string {
 // the agent is working. It returns "" when the agent is idle, so the row costs
 // no vertical space at rest.
 //
+// The row survives message navigation: the agent keeps running while the user
+// browses the scrollback, and hiding the only liveness indicator would make a
+// working agent look stalled.
+//
 // Layout, widest to narrowest:
 //
 //	● Running go test ./... · 12s                          esc interrupt
 //	● Running go test ./... · 12s                                    esc
 //	● Running go test ./... · 12s
 func (m *AppModel) renderActivityRow() string {
-	if m.state != stateWorking || m.stream == nil {
+	if !m.agentWorking() || m.stream == nil {
 		return ""
 	}
 
@@ -266,6 +270,13 @@ func (m *AppModel) activityHint() string {
 	}
 	if m.canceling {
 		return "esc again to cancel"
+	}
+	// Message navigation rebinds both keys the hint advertises (Enter opens
+	// the inspector, Esc leaves navigation), and the status bar already
+	// carries the navigation keymap, so the hint is dropped rather than
+	// left lying about what the keyboard does.
+	if m.navActive() {
+		return ""
 	}
 	full := "↵ queue · esc interrupt"
 	compact := "esc interrupt"

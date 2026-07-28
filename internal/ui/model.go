@@ -814,6 +814,14 @@ type AppModel struct {
 	// so the model can return to it when the overlay completes.
 	preOverlayState appState
 
+	// navReturnState remembers the state message navigation suspended, so
+	// exiting navigation returns to it rather than unconditionally to
+	// stateInput. Agent lifecycle transitions that land while navigation
+	// owns the keyboard are recorded here instead of being applied (see
+	// setAgentState), so a turn that starts or finishes mid-browse is
+	// reflected the moment the user presses Esc.
+	navReturnState appState
+
 	// cwd is the working directory for @file path resolution.
 	cwd string
 
@@ -1257,13 +1265,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// activity row can report elapsed time without every transition site
 	// having to remember to do it. Deferred so it observes the state as it
 	// stands after this Update has run.
-	stateBefore := m.state
+	//
+	// Keyed on agentWorking() rather than the raw state so that entering and
+	// leaving message navigation — which suspends stateWorking without
+	// stopping the agent — does not report a phantom turn end and restart.
+	workingBefore := m.agentWorking()
 	defer func() {
-		if m.state == stateWorking && stateBefore != stateWorking {
+		workingAfter := m.agentWorking()
+		if workingAfter && !workingBefore {
 			m.turnStartedAt = time.Now()
 			m.turnToolCount = 0
 			m.notifyTurnState("working", "idle")
-		} else if m.state != stateWorking && stateBefore == stateWorking {
+		} else if !workingAfter && workingBefore {
 			m.turnStartedAt = time.Time{}
 			m.notifyTurnState("idle", "working")
 		}
@@ -1699,8 +1712,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							// Started immediately (agent was idle).
 							m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 							m.flushStreamAndPendingUserMessages()
-							if m.state != stateWorking {
-								m.state = stateWorking
+							if !m.agentWorking() {
+								m.setAgentState(stateWorking)
 							}
 						}
 					}
@@ -1972,8 +1985,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Insert inline thumbnail previews after the user message.
 			cmds = append(cmds, m.transcriptPreviewCmd(msg.Images, m.lastMessageID()))
 		}
-		if m.state != stateWorking {
-			m.state = stateWorking
+		if !m.agentWorking() {
+			m.setAgentState(stateWorking)
 		}
 
 	// ── Async transcript image preview ───────────────────────────────────────
@@ -1988,7 +2001,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
 	case uicore.ShellCommandMsg:
 		// Show spinner while the shell command runs.
-		m.state = stateWorking
+		m.setAgentState(stateWorking)
 		if m.stream != nil {
 			updated, cmd := m.stream.Update(app.SpinnerEvent{Show: true})
 			m.stream, _ = updated.(streamComponentIface)
@@ -2004,7 +2017,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
 		}
-		m.state = stateInput
+		m.setAgentState(stateInput)
 		cmds = append(cmds, m.handleShellCommandResult(msg))
 
 	// ── App layer events ─────────────────────────────────────────────────────
@@ -2018,7 +2031,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// guarantee chronological ordering.
 		if msg.Show {
 			m.flushStreamAndPendingUserMessages()
-			m.state = stateWorking
+			m.setAgentState(stateWorking)
 			m.layoutDirty = true
 		}
 		if m.stream != nil {
@@ -2219,7 +2232,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//     SpinnerEvent{Show: true} for the next turn is already in flight.
 		//     Defer to pendingUserPrints so the previous assistant response is
 		//     flushed first, preserving chronological order.
-		if m.state == stateWorking {
+		if m.agentWorking() {
 			// Case 1: mid-turn — flush + print immediately.
 			m.flushStreamContent()
 			for _, text := range m.steeringMessages {
@@ -2246,7 +2259,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.finalizeStreamTurn()
 		m.printTurnReceipt(turnDone)
-		m.state = stateInput
+		m.setAgentState(stateInput)
 		m.canceling = false
 
 	case app.StepCancelledEvent:
@@ -2260,7 +2273,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.finalizeStreamTurn()
 		m.printTurnReceipt(turnCancelled)
-		m.state = stateInput
+		m.setAgentState(stateInput)
 		m.canceling = false
 
 	case app.StepErrorEvent:
@@ -2280,7 +2293,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// above says what went wrong; the receipt records the turn's shape
 		// (tool count, elapsed) that the error itself omits.
 		m.printTurnReceipt(turnFailed)
-		m.state = stateInput
+		m.setAgentState(stateInput)
 		m.canceling = false
 
 	case app.CompactCompleteEvent:
@@ -2288,7 +2301,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stream != nil {
 			m.stream.Reset()
 		}
-		m.state = stateInput
+		m.setAgentState(stateInput)
 
 		// Mark the last streaming message as complete in ScrollList.
 		if len(m.messages) > 0 {
@@ -2318,7 +2331,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stream != nil {
 			m.stream.Reset()
 		}
-		m.state = stateInput
+		m.setAgentState(stateInput)
 		m.printSystemMessage(fmt.Sprintf("Compaction failed: %v", msg.Err))
 
 	case app.ModelChangedEvent:
@@ -2575,8 +2588,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 					m.flushStreamAndPendingUserMessages()
 				}
-				if m.state != stateWorking {
-					m.state = stateWorking
+				if !m.agentWorking() {
+					m.setAgentState(stateWorking)
 				}
 			}
 		}
@@ -2772,7 +2785,7 @@ func (m *AppModel) View() tea.View {
 	// affordance and is where the eye is. When idle there is no activity row,
 	// so the prompt gets its own line here instead.
 	theme := style.GetTheme()
-	if m.ctrlCPressedOnce && m.state != stateWorking {
+	if m.ctrlCPressedOnce && !m.agentWorking() {
 		warning := lipgloss.NewStyle().
 			Foreground(theme.Warning).
 			Render(strings.Repeat(" ", style.ContentOffset) + "ctrl+c again to quit")
@@ -4111,7 +4124,7 @@ func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 		return nil
 	}
 	// Transition to working state so the spinner shows while compaction runs.
-	m.state = stateWorking
+	m.setAgentState(stateWorking)
 	m.printSystemMessage("Compacting conversation...")
 	var spinnerCmd tea.Cmd
 	if m.stream != nil {
@@ -4475,7 +4488,7 @@ func (m *AppModel) distributeHeight() {
 	// the confirmation lives in the activity row, which is measured
 	// separately, so it costs nothing extra here.
 	var warningLines int
-	if m.ctrlCPressedOnce && m.state != stateWorking {
+	if m.ctrlCPressedOnce && !m.agentWorking() {
 		warningLines++
 	}
 
@@ -5164,8 +5177,8 @@ func (m *AppModel) handleRetryCommand() tea.Cmd {
 		m.pendingUserPrints = append(m.pendingUserPrints, displayText)
 		m.flushStreamAndPendingUserMessages()
 	}
-	if m.state != stateWorking {
-		m.state = stateWorking
+	if !m.agentWorking() {
+		m.setAgentState(stateWorking)
 	}
 	return nil
 }
