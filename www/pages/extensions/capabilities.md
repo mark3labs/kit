@@ -7,7 +7,7 @@ description: All extension capabilities — lifecycle events, tools, commands, w
 
 ## Lifecycle events
 
-Extensions can hook into 27 lifecycle events:
+Extensions can hook into 30 lifecycle events:
 
 | Event | Description |
 |-------|-------------|

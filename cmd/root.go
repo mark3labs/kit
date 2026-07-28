@@ -1003,8 +1003,13 @@ func runNormalMode(ctx context.Context) error {
 	if kitInstance.Extensions().HasExtensions() {
 		cwd, _ := os.Getwd()
 		// Seed the size before SessionStart so handlers can lay out during
-		// startup, ahead of the TUI's first WindowSizeMsg.
-		kitInstance.Extensions().SetTerminalSize(terminalSize())
+		// startup, ahead of the TUI's first WindowSizeMsg. Only in the
+		// interactive TUI: headless runs have no chrome to size, and
+		// terminalSize()'s 80x24 fallback would contradict the documented
+		// (0, 0) that GetTerminalSize reports outside the TUI.
+		if positionalPrompt == "" {
+			kitInstance.Extensions().SetTerminalSize(terminalSize())
+		}
 		extCtx := buildInteractiveExtensionContext(extensionContextDeps{
 			ctx:          ctx,
 			cwd:          cwd,

@@ -55,7 +55,7 @@ The `Init` function receives an `ext.API` object for registering handlers, and e
 
 ## Lifecycle Events
 
-Kit provides 24 lifecycle events. Each handler receives an event struct and a `Context`.
+Kit provides 30 lifecycle events. Each handler receives an event struct and a `Context`.
 
 ### Session Events
 

@@ -234,11 +234,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				Attachment:  false,
 				Reasoning:   true,
 				Temperature: true,
-				Cost: Cost{
-					Input:     0,
-					Output:    0,
-					Published: true,
-				},
+				// A placeholder for user-configured endpoints; its real
+				// price is whatever the user's provider charges, so it is
+				// unpriced rather than free.
+				Cost: Cost{},
 				Limit: Limit{
 					Context: 262_144,
 					Output:  65_536,

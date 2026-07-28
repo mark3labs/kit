@@ -2479,7 +2479,7 @@ func (e ThinkingLevelChangeEvent) Type() EventType { return ThinkingLevelChange 
 // with the initial dimensions so a handler can lay out without waiting for the
 // user to resize. Interactive TUI only.
 //
-// The same values are available on Context as TerminalWidth/TerminalHeight;
+// The same values are available through Context.GetTerminalSize();
 // this event exists so extensions can re-render chrome immediately instead of
 // polling.
 type TerminalResizeEvent struct {

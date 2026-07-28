@@ -147,17 +147,22 @@ func Init(api ext.API) {
 	harness := New(t)
 	harness.LoadString(src, "live.go")
 
-	width := 100
+	// Route through the Runner, which is what production wires up. Closing
+	// over a local variable would still pass if Runner.SetTerminalSize stopped
+	// feeding GetTerminalSize, so the accessor is bound to the runner here.
+	runner := harness.Runner()
+	runner.SetTerminalSize(100, 24)
+
 	ctx := harness.Context().ToContext()
-	ctx.GetTerminalSize = func() (int, int) { return width, 24 }
-	harness.Runner().SetContext(ctx)
+	ctx.GetTerminalSize = func() (int, int) { return runner.GetTerminalSize() }
+	runner.SetContext(ctx)
 
 	if _, err := harness.Emit(extensions.SessionStartEvent{SessionID: "t"}); err != nil {
 		t.Fatalf("Emit(SessionStart) error = %v", err)
 	}
 
 	// Resize after the Context was captured.
-	width = 60
+	runner.SetTerminalSize(60, 24)
 
 	if _, err := harness.Emit(extensions.TurnStateChangeEvent{State: "working"}); err != nil {
 		t.Fatalf("Emit(TurnStateChange) error = %v", err)

@@ -58,6 +58,11 @@ var (
 	// thinking mirrors the effort level, refreshed via OnThinkingLevelChange.
 	thinking string
 
+	// live is false before session start and after shutdown. Every footer
+	// mutation is gated on it, so no code path — ticker, event handler, or an
+	// in-flight /footer command — can recreate the footer after teardown.
+	live bool
+
 	// tickerGen identifies the live render ticker. Shutdown increments it,
 	// which retires the running goroutine at its next tick; a session start
 	// increments it again and claims the new value.
@@ -347,6 +352,10 @@ func assemble(parts map[string]string, width int) string {
 // shutdown cannot interleave between a caller's liveness check and SetFooter
 // and resurrect a footer that was just removed.
 func renderLocked(ctx ext.Context) {
+	if !live {
+		// Session is gone; touching the footer now would resurrect it.
+		return
+	}
 	if !enabled {
 		ctx.RemoveFooter()
 		return
@@ -402,18 +411,19 @@ func Init(api ext.API) {
 		// Reclaim the row used by the built-in status bar.
 		ctx.SetUIVisibility(ext.UIVisibility{HideStatusBar: true})
 
+		// Mark the session live and claim a ticker generation before the
+		// first render, so that render is not gated out by the liveness
+		// check it is about to rely on.
 		mu.Lock()
+		live = true
 		thinking = ctx.GetThinkingLevel()
+		tickerGen++
+		gen := tickerGen
+		renderLocked(ctx)
 		mu.Unlock()
-
-		render(ctx)
 
 		// Only the clock and the live turn timer need a tick; everything else
 		// is event-driven.
-		mu.Lock()
-		tickerGen++
-		gen := tickerGen
-		mu.Unlock()
 
 		go func() {
 			t := time.NewTicker(time.Second)
@@ -466,6 +476,7 @@ func Init(api ext.API) {
 		// touching the footer.
 		mu.Lock()
 		defer mu.Unlock()
+		live = false
 		tickerGen++
 		ctx.RemoveFooter()
 	})

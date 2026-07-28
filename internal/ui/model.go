@@ -771,6 +771,10 @@ type AppModel struct {
 	// emitTurnStateChange fires the OnTurnStateChange extension event. May be nil.
 	emitTurnStateChange func(state, previous string)
 
+	// extEvents serializes extension event dispatch so that rapid events
+	// reach the runner in emission order. See ext_event_dispatcher.go.
+	extEvents *extEventDispatcher
+
 	// modelSelector is the model selection overlay, active in stateModelSelector.
 	modelSelector *ModelSelectorComponent
 
@@ -979,6 +983,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitThinkingLevelChange = opts.EmitThinkingLevelChange
 	m.emitTerminalResize = opts.EmitTerminalResize
 	m.emitTurnStateChange = opts.EmitTurnStateChange
+	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
 
 	// Initialize the theme list function for command completion.
@@ -3013,15 +3018,20 @@ func (m *AppModel) cycleThinkingLevel() {
 	}
 	next := levels[(idx+1)%len(levels)]
 	m.thinkingLevel = next
-	m.notifyThinkingLevel(next, current, "user")
 
 	// Apply the change to the agent/provider.
 	if m.setThinkingLevel != nil {
 		// Run in goroutine to avoid blocking the event loop (provider
 		// recreation may take time).
 		go func() {
-			_ = m.setThinkingLevel(next)
+			// ThinkingLevelChangeEvent.NewLevel promises the level now in
+			// effect, so announce only once the provider has accepted it.
+			if err := m.setThinkingLevel(next); err == nil {
+				m.notifyThinkingLevel(next, current, "user")
+			}
 		}()
+	} else {
+		m.notifyThinkingLevel(next, current, "user")
 	}
 
 	// Persist thinking level for next launch.
@@ -4613,6 +4623,10 @@ func (m *AppModel) switchModel(modelString string) {
 
 	previousModel := m.providerName + "/" + m.modelName
 
+	// Staged thinking-level fallback, announced only once the model switch
+	// below succeeds. Empty pendingFallbackTo means nothing to announce.
+	var pendingFallbackFrom, pendingFallbackTo string
+
 	// Check if thinking level needs adjustment for the new model.
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
 	if m.thinkingLevel != "" && m.thinkingLevel != "off" {
@@ -4626,10 +4640,16 @@ func (m *AppModel) switchModel(modelString string) {
 						"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
 						modelName, currentLevel, fallback,
 					))
-					m.notifyThinkingLevel(string(fallback), m.thinkingLevel, "model_fallback")
+					// Stage the announcement: the model switch below can
+					// still fail, and a fallback tied to a model that was
+					// never selected must not be reported as in effect.
+					pendingFallbackFrom = m.thinkingLevel
+					pendingFallbackTo = string(fallback)
 					m.thinkingLevel = string(fallback)
 					if m.setThinkingLevel != nil {
-						_ = m.setThinkingLevel(string(fallback))
+						if err := m.setThinkingLevel(string(fallback)); err != nil {
+							pendingFallbackTo = ""
+						}
 					}
 					go func() { _ = prefs.SaveThinkingLevelPreference(string(fallback)) }()
 				}
@@ -4655,7 +4675,12 @@ func (m *AppModel) switchModel(modelString string) {
 
 	if m.emitModelChange != nil {
 		emit := m.emitModelChange
-		go emit(modelString, previousModel, "user")
+		m.extEvents.dispatch(func() { emit(modelString, previousModel, "user") })
+	}
+
+	// The switch succeeded, so a staged fallback is now genuinely in effect.
+	if pendingFallbackTo != "" {
+		m.notifyThinkingLevel(pendingFallbackTo, pendingFallbackFrom, "model_fallback")
 	}
 }
 
@@ -4671,7 +4696,7 @@ func (m *AppModel) notifyTurnState(state, previous string) {
 		return
 	}
 	emit := m.emitTurnStateChange
-	go emit(state, previous)
+	m.extEvents.dispatch(func() { emit(state, previous) })
 }
 
 // notifyResize fires the OnTerminalResize extension event and refreshes the
@@ -4684,7 +4709,7 @@ func (m *AppModel) notifyResize() {
 	}
 	emit := m.emitTerminalResize
 	w, h := m.width, m.height
-	go emit(w, h)
+	m.extEvents.dispatch(func() { emit(w, h) })
 }
 
 // notifyThinkingLevel fires the OnThinkingLevelChange extension event. Skips
@@ -4694,7 +4719,7 @@ func (m *AppModel) notifyThinkingLevel(newLevel, previousLevel, source string) {
 		return
 	}
 	emit := m.emitThinkingLevelChange
-	go emit(newLevel, previousLevel, source)
+	m.extEvents.dispatch(func() { emit(newLevel, previousLevel, source) })
 }
 
 // --------------------------------------------------------------------------
@@ -4786,11 +4811,16 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	// Apply the change.
 	previousLevel := m.thinkingLevel
 	m.thinkingLevel = string(level)
-	m.notifyThinkingLevel(string(level), previousLevel, "user")
 	if m.setThinkingLevel != nil {
 		go func() {
-			_ = m.setThinkingLevel(string(level))
+			// Announce only after the provider accepts the new level, so
+			// ThinkingLevelChangeEvent.NewLevel reflects reality.
+			if err := m.setThinkingLevel(string(level)); err == nil {
+				m.notifyThinkingLevel(string(level), previousLevel, "user")
+			}
 		}()
+	} else {
+		m.notifyThinkingLevel(string(level), previousLevel, "user")
 	}
 	// Persist thinking level for next launch.
 	go func() { _ = prefs.SaveThinkingLevelPreference(string(level)) }()
