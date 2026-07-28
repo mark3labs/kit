@@ -341,10 +341,13 @@ func assemble(parts map[string]string, width int) string {
 	return truncate(line, budget)
 }
 
-func render(ctx ext.Context) {
-	mu.Lock()
+// renderLocked builds and applies the footer. Callers must hold mu.
+//
+// The footer mutation happens under the lock, not after releasing it, so that
+// shutdown cannot interleave between a caller's liveness check and SetFooter
+// and resurrect a footer that was just removed.
+func renderLocked(ctx ext.Context) {
 	if !enabled {
-		mu.Unlock()
 		ctx.RemoveFooter()
 		return
 	}
@@ -354,13 +357,16 @@ func render(ctx ext.Context) {
 	if width <= 0 {
 		width = 80 // non-interactive or size not yet known
 	}
-	text := assemble(buildFields(ctx), width)
-	mu.Unlock()
-
 	ctx.SetFooter(ext.HeaderFooterConfig{
-		Content: ext.WidgetContent{Text: text},
+		Content: ext.WidgetContent{Text: assemble(buildFields(ctx), width)},
 		Style:   ext.WidgetStyle{NoBorder: true},
 	})
+}
+
+func render(ctx ext.Context) {
+	mu.Lock()
+	defer mu.Unlock()
+	renderLocked(ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -413,13 +419,15 @@ func Init(api ext.API) {
 			t := time.NewTicker(time.Second)
 			defer t.Stop()
 			for range t.C {
+				// Validate liveness and render under one acquisition, so a
+				// shutdown cannot slip in between the two.
 				mu.Lock()
-				live := gen == tickerGen
-				mu.Unlock()
-				if !live {
+				if gen != tickerGen {
+					mu.Unlock()
 					return
 				}
-				render(ctx)
+				renderLocked(ctx)
+				mu.Unlock()
 			}
 		}()
 	})
@@ -452,11 +460,13 @@ func Init(api ext.API) {
 	})
 
 	api.OnSessionShutdown(func(_ ext.SessionShutdownEvent, ctx ext.Context) {
-		// Retire the ticker before removing the footer, so a later tick
-		// cannot re-add it after teardown.
+		// Retire the ticker and remove the footer under one acquisition. A
+		// concurrent tick either observes the old generation and completes
+		// before this runs, or observes the new one and exits without
+		// touching the footer.
 		mu.Lock()
+		defer mu.Unlock()
 		tickerGen++
-		mu.Unlock()
 		ctx.RemoveFooter()
 	})
 
