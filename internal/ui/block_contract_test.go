@@ -215,6 +215,29 @@ func blockCases() []blockCase {
 			},
 		},
 		{
+			// The diff renderer was the one tool body this table originally
+			// missed, and it overflowed the terminal below ~50 columns.
+			name:   "tool/edit",
+			marker: true,
+			render: func(r *MessageRenderer, w int) string {
+				args := `{"path":"a.go","edits":[{"old_text":"a somewhat longer original line here",` +
+					`"new_text":"a somewhat longer replacement line here"}]}`
+				return r.RenderToolMessage("edit", args, "edited", false).Content
+			},
+		},
+		{
+			name:   "tool/edit-multiline",
+			marker: true,
+			render: func(r *MessageRenderer, w int) string {
+				old := strings.Repeat("an original line of some length\n", 12)
+				new := strings.Repeat("a replacement line of some length\n", 12)
+				args := `{"path":"a.go","edits":[{"old_text":"` +
+					strings.ReplaceAll(old, "\n", "\\n") + `","new_text":"` +
+					strings.ReplaceAll(new, "\n", "\\n") + `"}]}`
+				return r.RenderToolMessage("edit", args, "edited", false).Content
+			},
+		},
+		{
 			name:   "tool/error",
 			marker: true,
 			render: func(r *MessageRenderer, w int) string {

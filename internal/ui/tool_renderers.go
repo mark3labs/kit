@@ -28,11 +28,95 @@ const (
 	maxLsLines    = 20 // lines for Ls directory listings
 )
 
+// minDiffContent is the narrowest code column a diff panel is worth drawing.
+// Below it the text is too clipped to compare against anything, so the layout
+// switches to a unified diff rather than shrinking further.
+const minDiffContent = 12
+
 // isShellTool reports if the tool name matches a shell-like tool (bash or
 // tools with "shell"/"command" in the name). Used by renderToolBody.
 func isShellTool(toolName string) bool {
 	return toolName == "bash" ||
 		strings.Contains(toolName, "shell") || strings.Contains(toolName, "command")
+}
+
+// ---------------------------------------------------------------------------
+// Shared tool body geometry
+// ---------------------------------------------------------------------------
+
+// toolIndent is the left indent applied to every tool body, placing it at the
+// shared content column beneath the tool header's marker.
+func toolIndent() string {
+	return strings.Repeat(" ", style.ContentOffset)
+}
+
+// panelPadding is the interior left padding of a tool body panel. The panel's
+// background begins at the content column and its text is inset by this much,
+// so the fill reads as a surface rather than as text with a colored margin.
+const panelPadding = 1
+
+// toolPanel renders lines inside the background-filled panel shared by the
+// bash, ls, find, grep and subagent bodies.
+//
+// Each of those renderers used to compute the same three quantities by hand —
+// panel width, per-line truncation budget, indent — and they disagreed: some
+// clamped the width and some did not, and renderBashBody clamped the value it
+// computed but then rendered with the unclamped one, which goes negative on a
+// very narrow terminal and makes lipgloss emit nothing at all. Deriving them
+// once keeps the panels identical and keeps the arithmetic in one place.
+type toolPanel struct {
+	// width is the panel's total width, including its interior padding.
+	width int
+	// textWidth is what remains for text after the interior padding.
+	textWidth int
+
+	text lipgloss.Style
+	err  lipgloss.Style
+}
+
+// newToolPanel builds a panel sized for a tool body rendered at the given
+// body width (the width handed to the body renderer, already inside the
+// tool block).
+func newToolPanel(bodyWidth int) toolPanel {
+	theme := GetTheme()
+	width := max(bodyWidth-style.ContentOffset, style.MinContentWidth)
+	return toolPanel{
+		width:     width,
+		textWidth: max(width-panelPadding, 1),
+		text:      lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(panelPadding).Width(width),
+		err: lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).
+			PaddingLeft(panelPadding).Width(width),
+	}
+}
+
+// line renders one panel row, truncated to fit. The row is not indented:
+// callers indent the finished block (content plus any caption) as a unit, so
+// the caption lands in the same column as the panel above it.
+//
+// Truncation happens before styling because cutting a string that already
+// holds ANSI escapes truncates the escapes with it.
+func (p toolPanel) line(s string, isErr bool) string {
+	s = truncateLine(s, p.textWidth)
+	if isErr {
+		return p.err.Render(s)
+	}
+	return p.text.Render(s)
+}
+
+// blank renders an empty panel row, used to separate sections without
+// breaking the background fill.
+func (p toolPanel) blank() string {
+	return p.text.Render("")
+}
+
+// captionTypography returns a herald instance that places a muted caption
+// beneath a figure. Every tool body that captions its output built this
+// inline; they are identical.
+func captionTypography() *herald.Typography {
+	return herald.New(herald.WithTheme(herald.Theme{
+		FigureCaption:         lipgloss.NewStyle().Foreground(GetTheme().Muted),
+		FigureCaptionPosition: herald.CaptionBottom,
+	}))
 }
 
 // renderToolBody dispatches to tool-specific body renderers based on tool name.
@@ -243,9 +327,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 	}
 
 	// Layout calculations
-	const indent = "  "
-	availableWidth := width - len(indent)
-	panelWidth := max((availableWidth-3)/2, 20) // " │ " divider
+	availableWidth := width - style.ContentOffset
 
 	// Gutter width from max line number
 	maxLineNum := 1
@@ -258,7 +340,22 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 		}
 	}
 	gutterWidth := max(len(fmt.Sprintf("%d", maxLineNum)), 3)
-	contentWidth := max(panelWidth-gutterWidth-4, 10) // gutter + " - " or " + "
+
+	// A side-by-side diff needs room for two gutters, two markers, two
+	// columns of code and the divider between them. Below that it cannot be
+	// drawn at all: the panels have minimum widths, and forcing them into a
+	// narrow terminal produced rows wider than the screen, which wrap in the
+	// emulator and throw off the scroll list's height accounting. A unified
+	// diff says the same thing in one column, so narrow terminals get that
+	// instead of a broken two-column layout.
+	panelOverhead := gutterWidth + 4 // gutter, its leading space, and " - "
+	minSideBySide := 2*(panelOverhead+minDiffContent) + 3
+	if availableWidth < minSideBySide {
+		return renderUnifiedDiff(lines, diffHiddenCount, availableWidth, gutterWidth)
+	}
+
+	panelWidth := (availableWidth - 3) / 2 // " │ " divider
+	contentWidth := max(panelWidth-panelOverhead, minDiffContent)
 
 	theme := GetTheme()
 
@@ -279,7 +376,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 	for _, sl := range lines {
 		// Hunk separator
 		if sl.beforeKind == -1 {
-			sep := indent +
+			sep := toolIndent() +
 				dividerStyle.Render(padRight("···", panelWidth)) + " " +
 				dividerStyle.Render("│") + " " +
 				dividerStyle.Render(padRight("···", panelWidth))
@@ -322,7 +419,7 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 				contentMissing.Render(padRight("", contentWidth+3))
 		}
 
-		row := indent + left + " " + dividerStyle.Render("│") + " " + right
+		row := toolIndent() + left + " " + dividerStyle.Render("│") + " " + right
 		result = append(result, row)
 	}
 
@@ -334,8 +431,67 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 			Background(theme.DiffEqualBg).
 			Italic(true)
 		fullWidth := panelWidth*2 + 3 // both panels + divider
-		hintRow := indent + hintStyle.Width(fullWidth).Render(hint)
+		hintRow := toolIndent() + hintStyle.Width(fullWidth).Render(hint)
 		result = append(result, hintRow)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// renderUnifiedDiff renders a diff as a single column of changed lines, used
+// when the terminal is too narrow for the side-by-side layout.
+//
+// Deleted and inserted lines are shown on their own rows, marked and tinted
+// the same way as their side-by-side counterparts, so the vocabulary is the
+// same in both layouts and only the arrangement changes.
+func renderUnifiedDiff(lines []splitLine, hiddenCount, availableWidth, gutterWidth int) string {
+	theme := GetTheme()
+
+	gutterDelete := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.DiffDeleteBg)
+	gutterInsert := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.DiffInsertBg)
+	gutterEqual := lipgloss.NewStyle().Foreground(theme.VeryMuted).Background(theme.DiffEqualBg)
+	contentDelete := lipgloss.NewStyle().Background(theme.DiffDeleteBg)
+	contentInsert := lipgloss.NewStyle().Background(theme.DiffInsertBg)
+	contentEqual := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.DiffEqualBg)
+	dividerStyle := lipgloss.NewStyle().Foreground(theme.MutedBorder)
+
+	// gutter (with its leading space) + " - " marker + code
+	contentWidth := max(availableWidth-gutterWidth-4, 1)
+
+	row := func(num int, marker string, text string, g, c lipgloss.Style) string {
+		gutter := fmt.Sprintf(" %*d", gutterWidth, num)
+		code := padRight(truncateLine(strings.TrimRight(text, "\n"), contentWidth), contentWidth)
+		return toolIndent() + g.Render(gutter) + c.Render(marker+code)
+	}
+
+	var result []string
+	for _, sl := range lines {
+		if sl.beforeKind == -1 {
+			result = append(result, toolIndent()+dividerStyle.Render(padRight("···", availableWidth)))
+			continue
+		}
+
+		// An equal line appears once; a changed line contributes its deletion
+		// and its insertion as consecutive rows.
+		if sl.beforeNum > 0 && sl.beforeKind == udiff.Equal {
+			result = append(result, row(sl.beforeNum, "   ", sl.beforeText, gutterEqual, contentEqual))
+			continue
+		}
+		if sl.beforeNum > 0 && sl.beforeKind == udiff.Delete {
+			result = append(result, row(sl.beforeNum, " - ", sl.beforeText, gutterDelete, contentDelete))
+		}
+		if sl.afterNum > 0 && sl.afterKind == udiff.Insert {
+			result = append(result, row(sl.afterNum, " + ", sl.afterText, gutterInsert, contentInsert))
+		}
+	}
+
+	if hiddenCount > 0 {
+		hint := fmt.Sprintf("...(%d more lines)", hiddenCount)
+		hintStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Background(theme.DiffEqualBg).
+			Italic(true)
+		result = append(result, toolIndent()+hintStyle.Width(availableWidth).Render(hint))
 	}
 
 	return strings.Join(result, "\n")
@@ -365,36 +521,22 @@ func renderPlainListBody(toolResult string, width int, caption func(total, hidde
 		lines = lines[:maxLsLines]
 	}
 
-	const lineIndent = "  "
-	codeWidth := max(width-len(lineIndent), 20)
-
-	theme := GetTheme()
-	codeStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
+	panel := newToolPanel(width)
 
 	var rendered []string
 	for _, line := range lines {
-		// Truncate before styling to prevent wrapping.
-		line = truncateLine(line, codeWidth-1) // account for PaddingLeft(1)
-		styled := codeStyle.Width(codeWidth).Render(line)
-		rendered = append(rendered, styled)
+		rendered = append(rendered, panel.line(line, false))
 	}
 
 	content = strings.Join(rendered, "\n")
 
-	const blockIndent = "  "
 	if hiddenCount > 0 {
-		ty := herald.New(herald.WithTheme(herald.Theme{
-			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
-			FigureCaptionPosition: herald.CaptionBottom,
-		}))
-		result := ty.Figure(content, caption(total, hiddenCount))
-
-		// Indent entire block (content + caption) to match other tools
-		return indentBlock(result, blockIndent)
+		result := captionTypography().Figure(content, caption(total, hiddenCount))
+		// Indent content and caption together so both sit at the content column.
+		return indentBlock(result, toolIndent())
 	}
 
-	// No caption - just return indented content
-	return indentBlock(content, blockIndent)
+	return indentBlock(content, toolIndent())
 }
 
 // renderFindBody renders find output as a plain list with code background.
@@ -625,9 +767,8 @@ func renderWriteBlock(content, fileName string, width int) string {
 	highlightedLines := strings.Split(highlighted, "\n")
 
 	// Layout
-	const codeIndent = "  "
 	gutterWidth := numDigits + 2
-	codeWidth := max(width-gutterWidth-len(codeIndent), 20)
+	codeWidth := max(width-gutterWidth-style.ContentOffset, style.MinContentWidth)
 
 	theme := GetTheme()
 	gutterStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.GutterBg).PaddingRight(1)
@@ -649,7 +790,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 		codePart = truncateLine(codePart, codeWidth-1) // account for PaddingLeft(1)
 		styledCode := writeStyle.Width(codeWidth).Render(codePart)
 
-		result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
+		result = append(result, toolIndent()+lipgloss.JoinHorizontal(lipgloss.Top, gutter, styledCode))
 	}
 
 	// Footer
@@ -665,7 +806,7 @@ func renderWriteBlock(content, fileName string, width int) string {
 		Foreground(theme.Muted).
 		Italic(true).
 		Render(footer)
-	result = append(result, codeIndent+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footerContent))
+	result = append(result, toolIndent()+lipgloss.JoinHorizontal(lipgloss.Top, emptyGutter, footerContent))
 
 	return strings.Join(result, "\n")
 }
@@ -682,11 +823,16 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 	}
 
 	theme := GetTheme()
-	outputStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-	stderrStyle := lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).PaddingLeft(1)
 
-	// Parse stdout/stderr sections (if tagged) or STDERR: label
+	// Strip <stdout>/<stderr> tags if present. Kit's builtin bash tool emits
+	// the STDERR:/Exit code: form handled below, but a third-party MCP tool
+	// named "bash" may emit the tagged form, which the error path already
+	// strips via parseBashOutput. Handling it here keeps the two paths
+	// agreeing instead of showing raw markup on the success path only.
 	result := toolResult
+	if strings.Contains(result, "<stdout>") || strings.Contains(result, "<stderr>") {
+		result = parseBashOutput(result, theme)
+	}
 
 	// Truncate to maxBashLines for display
 	lines := strings.Split(result, "\n")
@@ -696,17 +842,12 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 		lines = lines[:maxBashLines]
 	}
 
-	const lineIndent = "  "
-	// Truncate individual lines to the available width so they never wrap.
-	lineWidth := max(width-len(lineIndent), 20)
-	// Account for PaddingLeft(1) on the output/stderr styles
-	maxLineChars := lineWidth - 1
+	panel := newToolPanel(width)
 
 	var rendered []string
 	exitCode := -1 // -1 means not found
 	inStderr := false
 	for _, line := range lines {
-		line = truncateLine(line, maxLineChars)
 		// Detect the STDERR: label that Kit's bash tool emits
 		if strings.TrimSpace(line) == "STDERR:" {
 			inStderr = true
@@ -718,13 +859,7 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 			continue // Don't render exit code inline, it goes in caption
 		}
 
-		if inStderr {
-			styled := stderrStyle.Width(width - len(lineIndent)).Render(line)
-			rendered = append(rendered, styled)
-		} else {
-			styled := outputStyle.Width(width - len(lineIndent)).Render(line)
-			rendered = append(rendered, styled)
-		}
+		rendered = append(rendered, panel.line(line, inStderr))
 	}
 
 	// Build caption with status info
@@ -738,19 +873,15 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 
 	content := strings.Join(rendered, "\n")
 	if len(captionParts) > 0 {
-		ty := herald.New(herald.WithTheme(herald.Theme{
-			FigureCaption:         lipgloss.NewStyle().Foreground(theme.Muted),
-			FigureCaptionPosition: herald.CaptionBottom,
-		}))
 		caption := strings.Join(captionParts, " · ")
-		result := ty.Figure(content, caption)
+		result := captionTypography().Figure(content, caption)
 
 		// Indent entire block (content + caption) to match other tools
-		return indentBlock(result, "  ")
+		return indentBlock(result, toolIndent())
 	}
 
 	// No caption - just return indented content
-	return indentBlock(content, "  ")
+	return indentBlock(content, toolIndent())
 }
 
 // ---------------------------------------------------------------------------
@@ -865,7 +996,6 @@ func truncateLine(s string, maxWidth int) string {
 // renderSubagentBody renders a clean summary of subagent results with bash-style
 // background styling for consistency with other tools.
 func renderSubagentBody(toolResult string, width int) string {
-	theme := GetTheme()
 	result := strings.TrimSpace(toolResult)
 	if result == "" {
 		return ""
@@ -884,18 +1014,12 @@ func renderSubagentBody(toolResult string, width int) string {
 	statusLine := lines[0]
 
 	// Build content lines for display with bash-style background
-	outputStyle := lipgloss.NewStyle().Background(theme.CodeBg).PaddingLeft(1)
-	errorStyle := lipgloss.NewStyle().Foreground(theme.Error).Background(theme.CodeBg).PaddingLeft(1)
-
-	const lineIndent = "  "
-	lineWidth := max(width-len(lineIndent), 20)
-	maxLineChars := lineWidth - 1 // account for PaddingLeft(1)
+	panel := newToolPanel(width)
 
 	var contentLines []string
 
 	// Add status line
-	styledStatus := outputStyle.Width(lineWidth).Render(truncateLine(statusLine, maxLineChars))
-	contentLines = append(contentLines, lineIndent+styledStatus)
+	contentLines = append(contentLines, panel.line(statusLine, false))
 
 	// For successful results, extract a brief preview of the actual result
 	if strings.Contains(statusLine, "successfully") {
@@ -904,15 +1028,12 @@ func renderSubagentBody(toolResult string, width int) string {
 			resultContent = strings.TrimSpace(resultContent)
 			if resultContent != "" {
 				// Show first few meaningful lines as preview
-				previewLines := extractSubagentPreviewLines(resultContent, 5, maxLineChars)
+				previewLines := extractSubagentPreviewLines(resultContent, 5, panel.textWidth)
 				if len(previewLines) > 0 {
 					// Add blank separator line
-					blankLine := outputStyle.Width(lineWidth).Render("")
-					contentLines = append(contentLines, lineIndent+blankLine)
-
+					contentLines = append(contentLines, panel.blank())
 					for _, line := range previewLines {
-						styled := outputStyle.Width(lineWidth).Render(line)
-						contentLines = append(contentLines, lineIndent+styled)
+						contentLines = append(contentLines, panel.line(line, false))
 					}
 				}
 			}
@@ -922,21 +1043,18 @@ func renderSubagentBody(toolResult string, width int) string {
 		if _, errorContent, found := strings.Cut(result, "Error:\n"); found {
 			errorContent = strings.TrimSpace(errorContent)
 			if errorContent != "" {
-				previewLines := extractSubagentPreviewLines(errorContent, 3, maxLineChars)
+				previewLines := extractSubagentPreviewLines(errorContent, 3, panel.textWidth)
 				if len(previewLines) > 0 {
-					blankLine := outputStyle.Width(lineWidth).Render("")
-					contentLines = append(contentLines, lineIndent+blankLine)
-
+					contentLines = append(contentLines, panel.blank())
 					for _, line := range previewLines {
-						styled := errorStyle.Width(lineWidth).Render(line)
-						contentLines = append(contentLines, lineIndent+styled)
+						contentLines = append(contentLines, panel.line(line, true))
 					}
 				}
 			}
 		}
 	}
 
-	return strings.Join(contentLines, "\n")
+	return indentBlock(strings.Join(contentLines, "\n"), toolIndent())
 }
 
 // extractSubagentPreviewLines extracts the first N non-empty lines from content,
