@@ -11,9 +11,10 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 )
 
-// UsageStats encapsulates detailed token usage and cost breakdown for a single
-// LLM request/response cycle, including input, output, and cache token counts
-// along with their associated costs.
+// UsageStats encapsulates detailed token usage and cost breakdown for a set of
+// LLM request/response cycles, including input, output, and cache token counts
+// along with their associated costs. Used both for per-turn accumulation and
+// as a generic usage container.
 type UsageStats struct {
 	InputTokens      int
 	OutputTokens     int
@@ -42,11 +43,17 @@ type SessionStats struct {
 // for LLM interactions throughout a session. It provides real-time usage information
 // and supports both estimated and actual token counts. OAuth users see $0 costs.
 type UsageTracker struct {
-	mu            sync.RWMutex
-	modelInfo     *models.ModelInfo
-	provider      string
-	sessionStats  SessionStats
-	lastRequest   *UsageStats
+	mu           sync.RWMutex
+	modelInfo    *models.ModelInfo
+	provider     string
+	sessionStats SessionStats
+
+	// turnStats accumulates usage across every LLM request in the current
+	// turn. A single turn issues one request per tool-loop iteration, so this
+	// must sum them: reporting only the final request would under-count a
+	// multi-step turn's tokens and cost. Reset by StartTurn.
+	turnStats *UsageStats
+
 	contextTokens int // approximate current context window utilization (last API call)
 	width         int
 	isOAuth       bool // Whether OAuth credentials are being used (costs should be $0)
@@ -79,8 +86,12 @@ func estimateTokens(text string) int {
 }
 
 // UpdateUsage records new token usage data and calculates associated costs based on
-// the model's pricing. Updates both the last request statistics and cumulative session
-// totals. For OAuth users, costs are recorded as $0 while still tracking token counts.
+// the model's pricing. Updates both the current turn's statistics and cumulative
+// session totals. For OAuth users, costs are recorded as $0 while still tracking
+// token counts.
+//
+// Turn statistics accumulate across calls; callers signal a turn boundary with
+// StartTurn.
 func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
@@ -104,18 +115,21 @@ func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, 
 	}
 	// If OAuth, all costs remain 0.0
 
-	// Update last request stats
-	ut.lastRequest = &UsageStats{
-		InputTokens:      inputTokens,
-		OutputTokens:     outputTokens,
-		CacheReadTokens:  cacheReadTokens,
-		CacheWriteTokens: cacheWriteTokens,
-		InputCost:        inputCost,
-		OutputCost:       outputCost,
-		CacheReadCost:    cacheReadCost,
-		CacheWriteCost:   cacheWriteCost,
-		TotalCost:        totalCost,
+	// Accumulate into the current turn. Multi-step turns issue one request per
+	// tool-loop iteration, so every step must be added rather than overwrite
+	// the previous one.
+	if ut.turnStats == nil {
+		ut.turnStats = &UsageStats{}
 	}
+	ut.turnStats.InputTokens += inputTokens
+	ut.turnStats.OutputTokens += outputTokens
+	ut.turnStats.CacheReadTokens += cacheReadTokens
+	ut.turnStats.CacheWriteTokens += cacheWriteTokens
+	ut.turnStats.InputCost += inputCost
+	ut.turnStats.OutputCost += outputCost
+	ut.turnStats.CacheReadCost += cacheReadCost
+	ut.turnStats.CacheWriteCost += cacheWriteCost
+	ut.turnStats.TotalCost += totalCost
 
 	// Update session stats
 	ut.sessionStats.TotalInputTokens += inputTokens
@@ -263,27 +277,39 @@ func (ut *UsageTracker) GetSessionStats() SessionStats {
 	return ut.sessionStats
 }
 
-// GetLastRequestStats returns a copy of the usage statistics from the most recent
-// request, or nil if no requests have been made. The returned copy is safe to use
-// without additional synchronization.
-func (ut *UsageTracker) GetLastRequestStats() *UsageStats {
+// GetTurnStats returns a copy of the usage statistics accumulated during the
+// current (or most recently completed) turn, or nil if no usage has been
+// recorded. A turn spans every LLM request in one tool-calling loop, so the
+// returned totals cover all steps. The copy is safe to use without additional
+// synchronization.
+func (ut *UsageTracker) GetTurnStats() *UsageStats {
 	ut.mu.RLock()
 	defer ut.mu.RUnlock()
-	if ut.lastRequest == nil {
+	if ut.turnStats == nil {
 		return nil
 	}
-	stats := *ut.lastRequest
+	stats := *ut.turnStats
 	return &stats
 }
 
+// StartTurn marks the beginning of a new turn, clearing usage accumulated for
+// the previous one while preserving session totals. Called by the app layer
+// before dispatching a prompt to the SDK.
+func (ut *UsageTracker) StartTurn() {
+	ut.mu.Lock()
+	defer ut.mu.Unlock()
+	ut.turnStats = nil
+	ut.usageUnreported = false
+}
+
 // Reset clears all accumulated usage statistics, resetting both session totals
-// and last request information to their initial empty state. This is typically
+// and current-turn information to their initial empty state. This is typically
 // used when starting a new conversation or clearing usage history.
 func (ut *UsageTracker) Reset() {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
 	ut.sessionStats = SessionStats{}
-	ut.lastRequest = nil
+	ut.turnStats = nil
 	ut.contextTokens = 0
 	ut.usageUnreported = false // new conversation: don't presume the provider is silent
 }

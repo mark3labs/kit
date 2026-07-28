@@ -4041,12 +4041,12 @@ func (m *AppModel) printUsageMessage() {
 	}
 
 	sessionStats := m.usageTracker.GetSessionStats()
-	lastStats := m.usageTracker.GetLastRequestStats()
+	turnStats := m.usageTracker.GetTurnStats()
 
 	content := "## Usage Statistics\n\n"
-	if lastStats != nil {
-		content += fmt.Sprintf("**Last Request:** %d input + %d output tokens = $%.6f\n",
-			lastStats.InputTokens, lastStats.OutputTokens, lastStats.TotalCost)
+	if turnStats != nil {
+		content += fmt.Sprintf("**Last Turn:** %d input + %d output tokens = $%.6f\n",
+			turnStats.InputTokens, turnStats.OutputTokens, turnStats.TotalCost)
 	}
 	content += fmt.Sprintf("**Session Total:** %d input + %d output tokens = $%.6f (%d requests)\n",
 		sessionStats.TotalInputTokens, sessionStats.TotalOutputTokens, sessionStats.TotalCost, sessionStats.RequestCount)

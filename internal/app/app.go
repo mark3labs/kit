@@ -1041,6 +1041,12 @@ func (a *App) executeStep(ctx context.Context, prompt string, eventFn func(tea.M
 		}
 	}
 
+	// Reset the per-turn usage accumulator. UpdateUsage sums every step in a
+	// turn, so without this the previous turn's tokens carry over.
+	if a.opts.UsageTracker != nil {
+		a.opts.UsageTracker.StartTurn()
+	}
+
 	// Subscribe to SDK events for TUI rendering and per-step usage updates.
 	// The subscription is temporary — it lives only for the duration of this step.
 	var sawStepUsage atomic.Bool
@@ -1088,6 +1094,12 @@ func (a *App) executeBatch(ctx context.Context, items []queueItem, eventFn func(
 		if eventFn != nil {
 			eventFn(msg)
 		}
+	}
+
+	// Reset the per-turn usage accumulator. UpdateUsage sums every step in a
+	// turn, so without this the previous turn's tokens carry over.
+	if a.opts.UsageTracker != nil {
+		a.opts.UsageTracker.StartTurn()
 	}
 
 	// Subscribe to SDK events for TUI rendering and per-step usage updates.

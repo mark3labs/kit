@@ -33,6 +33,12 @@ type UsageUpdater interface {
 	// instead of a misleading bare zero. Called once per turn from
 	// updateUsageFromTurnResult.
 	SetUsageUnreported(unreported bool)
+	// StartTurn marks a turn boundary, clearing the per-turn usage
+	// accumulator while preserving session totals. A turn issues one LLM
+	// request per tool-loop iteration and UpdateUsage sums them, so this
+	// must be called before dispatching a prompt or the previous turn's
+	// tokens leak into the next one.
+	StartTurn()
 }
 
 // Options configures an App instance.

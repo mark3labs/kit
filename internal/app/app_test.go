@@ -39,6 +39,10 @@ type usageUpdaterStub struct {
 	// least once, so tests can assert the app layer drove the flag.
 	usageUnreported    bool
 	usageUnreportedSet bool
+
+	// startTurnCalls counts StartTurn invocations so tests can assert the
+	// app layer resets the per-turn accumulator before each prompt.
+	startTurnCalls int
 }
 
 func (s *usageUpdaterStub) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) {
@@ -64,6 +68,12 @@ func (s *usageUpdaterStub) SetContextTokens(tokens int) {
 	defer s.mu.Unlock()
 	s.contextCalls++
 	s.lastContextTokens = tokens
+}
+
+func (s *usageUpdaterStub) StartTurn() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startTurnCalls++
 }
 
 func (s *usageUpdaterStub) SetUsageUnreported(unreported bool) {
