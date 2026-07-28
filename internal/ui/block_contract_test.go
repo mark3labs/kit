@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -385,6 +387,49 @@ func TestBlockTrailingGap(t *testing.T) {
 			}
 			if gap := trailingBlankLines(got); gap != style.BlockGap {
 				t.Errorf("block ends with %d blank lines, want %d", gap, style.BlockGap)
+			}
+		})
+	}
+}
+
+// TestBlockHasNoTrailingGutterRows verifies a block does not draw its gutter
+// beside empty rows at the end.
+//
+// Command output almost always ends with a newline, so a block built from it
+// carried a final row that was nothing but a gutter glyph — which reads as an
+// unfinished block rather than as space. Separation between blocks is the
+// margin's job.
+func TestBlockHasNoTrailingGutterRows(t *testing.T) {
+	const w = 60
+
+	for _, tc := range []struct {
+		name    string
+		content string
+	}{
+		{"trailing newline", "line one\nline two\n"},
+		{"several trailing newlines", "line one\n\n\n"},
+		{"no trailing newline", "line one\nline two"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderContentBlock(tc.content, w,
+				WithAlign(lipgloss.Left),
+				WithBorderColor(style.GetTheme().Accent),
+				WithMarginBottom(style.BlockGap),
+			)
+
+			lines := strings.Split(stripBlockAnsi(got), "\n")
+			// Walk back over the margin, then require the last drawn row to
+			// carry text rather than a lone gutter glyph.
+			i := len(lines) - 1
+			for i >= 0 && strings.TrimSpace(lines[i]) == "" {
+				i--
+			}
+			if i < 0 {
+				t.Fatalf("block rendered nothing:\n%q", got)
+			}
+			if strings.TrimSpace(lines[i]) == style.GutterGlyph {
+				t.Errorf("block ends with a bare gutter row:\n%s",
+					strings.Join(lines, "\n"))
 			}
 		})
 	}
