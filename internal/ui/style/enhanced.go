@@ -3,18 +3,35 @@ package style
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"os"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/charmbracelet/colorprofile"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // Enhanced styling utilities and theme definitions
 
 // isDarkBg caches the terminal background detection result at package init.
 var isDarkBg = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+
+// termColorProfile caches the terminal's colour depth at package init.
+var termColorProfile = colorprofile.Env(os.Environ())
+
+// SupportsSmoothAnimation reports whether the terminal has the colour depth
+// for a gradient animation to read as motion.
+//
+// Below ANSI256 a sweep collapses onto a handful of available colours and
+// strobes between them, which looks like a rendering fault rather than an
+// effect. Honouring the profile also means NO_COLOR and non-TTY output opt out
+// for free.
+func SupportsSmoothAnimation() bool {
+	return termColorProfile >= colorprofile.ANSI256
+}
 
 // AdaptiveColor picks between a light-mode and dark-mode hex color string
 // based on the detected terminal background. This replaces the old
@@ -303,22 +320,226 @@ var kitLogoArt = []string{
 // back to a plain wordmark below this width.
 const kitLogoWidth = 22
 
+// kitLogoScannerRow is the index of the KITT scanner bar within kitLogoArt.
+// The startup animation drives that row separately from the wordmark above it.
+const kitLogoScannerRow = 6
+
+// KitLogoHeight is the number of rows the wordmark block occupies.
+const KitLogoHeight = 7
+
+// KitLogoFits reports whether the block art will render at the given content
+// width, or whether KitLogoLines will fall back to a plain "KIT".
+func KitLogoFits(contentWidth int) bool {
+	return contentWidth >= kitLogoWidth
+}
+
+// Startup animation timing, in frames at KitLogoAnimationFPS.
+//
+// The animation runs in two phases: a shine sweeps diagonally across the
+// wordmark, then the scanner bar makes one bounce beneath it. Both are short —
+// this is a flourish on a splash the user is reading past, not something to
+// sit through.
+const (
+	kitLogoSweepFrames   = 20 // ~0.67s
+	kitLogoScannerFrames = 30 // ~1.0s, one full left-right-left bounce
+
+	// KitLogoAnimationFPS is the frame rate the startup animation expects to
+	// be driven at. The shine reads as a moving band rather than a series of
+	// steps at 30fps; the 14fps used by the activity spinner is too coarse for
+	// a gradient sweep.
+	KitLogoAnimationFPS = 30
+)
+
+// KitLogoAnimationFrames is the total number of frames in the startup
+// animation. Frame indices at or beyond this render the resting logo.
+const KitLogoAnimationFrames = kitLogoSweepFrames + kitLogoScannerFrames
+
+// How far the shine lifts Primary toward white.
+//
+// The amount depends on the terminal background because the headroom does. On
+// a dark background there is nothing above the wordmark to collide with, so
+// the shine can go most of the way to white and read as genuinely hot. On a
+// light background that same lift would put the highlight within ~20 of the
+// page (measured: vesper at 0.80 lands 16 away) and the glyphs would appear to
+// blink out rather than glint, so the lift is held back to keep the mark
+// visible against the paper.
+//
+// Both values are tuned so the shine stays at least ~45 from the wordmark's
+// own colours across every shipped theme.
+const (
+	logoShineLightenDark  = 0.80
+	logoShineLightenLight = 0.40
+)
+
+// logoShineColor returns the colour a glyph reaches at the centre of the
+// shine: the theme's Primary lifted toward white.
+//
+// A highlight is the mark's own colour catching the light, so it keeps
+// Primary's hue and simply burns brighter. Deriving it from Primary also means
+// the effect is always a glint and never a shadow — an earlier rule that
+// picked whichever of Text or Background contrasted more would invert on pale
+// palettes and sweep something dark across the wordmark, which reads as a
+// smudge rather than a shine.
+//
+// The one palette this serves less well is a theme whose Primary is already
+// near-white (catppuccin): there is little room left above it, so the glint is
+// subtler there. That is a smaller cost than inverting the gesture.
+func logoShineColor() color.Color {
+	amount := logoShineLightenLight
+	if isDarkBg {
+		amount = logoShineLightenDark
+	}
+	return blendColors(GetTheme().Primary, color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}, amount)
+}
+
+// blendColors mixes two colours in RGB space. t is clamped to [0,1].
+//
+// This is interpolateColor's arithmetic without the fmt.Sprintf round-trip
+// through a hex string: the logo evaluates a colour per cell per frame, so the
+// allocation is worth skipping.
+func blendColors(a, b color.Color, t float64) color.Color {
+	if t <= 0 {
+		return a
+	}
+	if t >= 1 {
+		return b
+	}
+	r1, g1, b1, _ := a.RGBA()
+	r2, g2, b2, _ := b.RGBA()
+	return color.RGBA{
+		R: uint8(float64(r1>>8)*(1-t) + float64(r2>>8)*t),
+		G: uint8(float64(g1>>8)*(1-t) + float64(g2>>8)*t),
+		B: uint8(float64(b1>>8)*(1-t) + float64(b2>>8)*t),
+		A: 0xFF,
+	}
+}
+
+// kitLogoRestColor is the settled colour of the glyph in column x: the
+// Primary→Accent gradient evaluated per cell.
+//
+// ApplyGradient quantises to eight stops, which is the right trade for a line
+// of prose but visibly bands across a 22-column wordmark. Here the gradient is
+// continuous.
+func kitLogoRestColor(x int, primary, accent color.Color) color.Color {
+	return blendColors(primary, accent, float64(x)/float64(kitLogoWidth-1))
+}
+
+// logoShineIntensity returns the highlight weight for a travelling diagonal
+// band, in [0,1].
+//
+// The band is skewed so upper rows light slightly before lower ones. A
+// straight vertical edge reads as a wipe — as though the logo were being
+// redrawn a column at a time — where a diagonal reads as light crossing a
+// solid object. Intensity falls off quadratically from the centre, giving a
+// tight core with a soft shoulder rather than a hard-edged bar.
+func logoShineIntensity(x, y int, t float64) float64 {
+	const (
+		width = 5.0 // half-width of the band, in cells
+		skew  = 0.6 // columns of lead per row
+	)
+	// Travel from fully off the left edge to fully off the right.
+	span := float64(kitLogoWidth) + 2*width + skew*float64(len(kitLogoArt))
+	pos := -width + t*span
+	xs := float64(x) + float64(len(kitLogoArt)-1-y)*skew
+	d := math.Abs(xs - pos)
+	if d > width {
+		return 0
+	}
+	n := 1 - d/width
+	return n * n
+}
+
+// logoScannerIntensity returns the highlight weight for the scanner bar: a
+// bright cell bouncing left→right→left with a short trail, matching the
+// activity spinner's Knight Rider sweep.
+func logoScannerIntensity(x int, t float64) float64 {
+	const trail = 4.0
+	// One full bounce over the phase: 0→1→0.
+	phase := math.Mod(t*2, 2)
+	if phase > 1 {
+		phase = 2 - phase
+	}
+	pos := phase * float64(kitLogoWidth-1)
+	d := math.Abs(float64(x) - pos)
+	if d > trail {
+		return 0
+	}
+	n := 1 - d/trail
+	return n * n
+}
+
 // KitLogoLines returns the KIT wordmark as gradient-colored lines, sized for a
 // block that will be rendered at the given content width.
 //
 // Fixed-width block art cannot wrap, so below the width it needs the wordmark
 // degrades to a plain bold "KIT" rather than spilling across the terminal.
 func KitLogoLines(contentWidth int) []string {
+	return KitLogoLinesAt(contentWidth, KitLogoAnimationFrames)
+}
+
+// KitLogoLinesAt returns the wordmark at the given startup-animation frame.
+// Frames at or beyond KitLogoAnimationFrames render the resting logo, so a
+// caller that does not animate can simply ask for the final frame — which is
+// what KitLogoLines does.
+//
+// Colour is computed per cell as a function of (x, y, frame) and written into
+// an ultraviolet buffer, because the effects vary along both axes and over
+// time; that cannot be expressed as a gradient across a run of runes. Each row
+// gets its own buffer sized to that row's own length, which keeps the art
+// unpadded — a rectangular buffer would emit trailing spaces on the short
+// rows, and the block is deliberately ragged so it can sit at any left offset.
+func KitLogoLinesAt(contentWidth, frame int) []string {
 	theme := GetTheme()
 	if contentWidth < kitLogoWidth {
 		return []string{lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render("KIT")}
 	}
 
+	shine := logoShineColor()
+
 	out := make([]string, 0, len(kitLogoArt))
-	for _, line := range kitLogoArt {
-		out = append(out, ApplyGradient(line, theme.Primary, theme.Accent))
+	for y, line := range kitLogoArt {
+		runes := []rune(line)
+		buf := uv.NewBuffer(len(runes), 1)
+		for x, r := range runes {
+			if r == ' ' {
+				continue
+			}
+			c := kitLogoRestColor(x, theme.Primary, theme.Accent)
+			if amt := kitLogoHighlight(x, y, frame); amt > 0 {
+				c = blendColors(c, shine, amt)
+			}
+			buf.SetCell(x, 0, &uv.Cell{
+				Content: string(r),
+				Width:   1,
+				Style:   uv.Style{Fg: c},
+			})
+		}
+		out = append(out, buf.Render())
 	}
 	return out
+}
+
+// kitLogoHighlight returns how far the cell at (x, y) has been pulled toward
+// the shine colour at the given frame, in [0,1].
+//
+// The two phases run in sequence rather than together: the shine crosses the
+// whole mark, and only once it has left does the scanner bar start its bounce.
+// Overlapping them put two moving highlights on screen at once, which read as
+// competing with each other rather than as one gesture followed by another.
+func kitLogoHighlight(x, y, frame int) float64 {
+	switch {
+	case frame < 0 || frame >= KitLogoAnimationFrames:
+		return 0
+	case frame < kitLogoSweepFrames:
+		t := float64(frame) / float64(kitLogoSweepFrames)
+		return logoShineIntensity(x, y, t)
+	default:
+		if y != kitLogoScannerRow {
+			return 0
+		}
+		t := float64(frame-kitLogoSweepFrames) / float64(kitLogoScannerFrames)
+		return logoScannerIntensity(x, t)
+	}
 }
 
 // KitBanner returns the KIT ASCII art title with KITT scanner lights,

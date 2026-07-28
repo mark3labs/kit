@@ -690,6 +690,21 @@ type AppModel struct {
 	contextPaths []string
 	skillItems   []SkillItem
 
+	// splashItem is the scrollback item holding the startup splash, retained
+	// while the logo animation is running so each frame can be painted into
+	// it in place. Cleared once the animation settles.
+	splashItem *TextMessageItem
+
+	// splashTail is the part of the splash below the wordmark (the model line
+	// and the list of what was loaded), kept so animation frames rebuild only
+	// the logo rather than re-deriving the whole block.
+	splashTail []string
+
+	// logoFrame is the startup animation's current frame, and
+	// logoAnimGeneration identifies the run that owns the tick loop.
+	logoFrame          int
+	logoAnimGeneration uint64
+
 	// getSkillItems returns the current skill items. Used to refresh the
 	// skill list after content hot-reload. May be nil.
 	getSkillItems func() []SkillItem
@@ -1123,6 +1138,10 @@ func (m *AppModel) Init() tea.Cmd {
 
 	// m.input is always set by NewAppModel; its Init starts the textarea cursor blink.
 	// m.stream.Init() always returns nil, so there is nothing to batch.
+	// The logo animation is nil unless the terminal can render it.
+	if anim := m.startLogoAnimation(); anim != nil {
+		return tea.Batch(m.input.Init(), anim)
+	}
 	return m.input.Init()
 }
 
@@ -1151,16 +1170,16 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	labelStyle := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 	valueStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 
-	// The wordmark leads. The block is indented by ContentOffset, so that is
-	// what the logo has to fit inside.
-	var content []string
-	content = append(content, style.KitLogoLines(m.width-style.ContentOffset)...)
-	content = append(content, "")
+	// The wordmark leads, and is kept separate from everything below it so
+	// the startup animation can repaint just the logo without rebuilding the
+	// rest of the block on every frame.
+	var tail []string
+	tail = append(tail, "")
 
 	if m.providerName != "" && m.modelName != "" {
-		content = append(content, valueStyle.Render(m.providerName+" · "+m.modelName))
+		tail = append(tail, valueStyle.Render(m.providerName+" · "+m.modelName))
 	} else if m.modelName != "" {
-		content = append(content, valueStyle.Render(m.modelName))
+		tail = append(tail, valueStyle.Render(m.modelName))
 	}
 
 	// Build key-value pairs for startup info.
@@ -1217,15 +1236,21 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 				labelWidth = w
 			}
 		}
-		content = append(content, "")
+		tail = append(tail, "")
 		for _, p := range pairs {
 			label := labelStyle.Render(p[0] + strings.Repeat(" ", labelWidth-lipgloss.Width(p[0])))
-			content = append(content, label+"  "+valueStyle.Render(p[1]))
+			tail = append(tail, label+"  "+valueStyle.Render(p[1]))
 		}
 	}
 
-	splash := style.SplashBlock(content)
-	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "logo", splash, splash))
+	m.splashTail = tail
+	// The splash starts at whichever frame the animation will begin from, so
+	// there is no flash of the resting logo before the first tick lands.
+	m.logoFrame = m.initialLogoFrame()
+	splash := m.renderSplash(m.logoFrame)
+	item := NewStyledMessageItem(generateMessageID(), "logo", splash, splash)
+	m.splashItem = item
+	m.messages = append(m.messages, item)
 
 	// Add extension startup messages if any. These are ordinary system
 	// notices and are rendered as such — appending the raw string would put
@@ -1242,6 +1267,96 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 
 	// Refresh ScrollList once with all startup messages
 	m.refreshContent()
+}
+
+// --------------------------------------------------------------------------
+// Startup logo animation
+// --------------------------------------------------------------------------
+
+// logoAnimTickMsg drives the startup logo animation. The generation field ties
+// each tick to the run that scheduled it, so a tick left over from an earlier
+// run (a theme change or a resize that restarts the animation) is discarded
+// rather than starting a second concurrent loop at double speed — the same
+// guard the activity spinner uses.
+type logoAnimTickMsg struct {
+	generation uint64
+}
+
+// logoAnimTickCmd fires the next animation frame.
+func logoAnimTickCmd(generation uint64) tea.Cmd {
+	return tea.Tick(time.Second/style.KitLogoAnimationFPS, func(_ time.Time) tea.Msg {
+		return logoAnimTickMsg{generation: generation}
+	})
+}
+
+// logoAnimationSupported reports whether the startup animation should run at
+// all.
+//
+// It is skipped on terminals without the colour depth to render a gradient
+// sweep (where it would strobe between a handful of steps rather than move),
+// and when the wordmark has degraded to a plain "KIT" because the terminal is
+// too narrow for the block art — there is nothing there to animate.
+func (m *AppModel) logoAnimationSupported() bool {
+	return style.SupportsSmoothAnimation() && style.KitLogoFits(m.width-style.ContentOffset)
+}
+
+// initialLogoFrame returns the frame the splash should first be rendered at:
+// the start of the animation when it will run, or the resting frame when it
+// will not.
+func (m *AppModel) initialLogoFrame() int {
+	if m.logoAnimationSupported() {
+		return 0
+	}
+	return style.KitLogoAnimationFrames
+}
+
+// renderSplash rebuilds the startup block with the wordmark at the given
+// animation frame.
+func (m *AppModel) renderSplash(frame int) string {
+	// The block is indented by ContentOffset, so that is what the logo has to
+	// fit inside.
+	content := make([]string, 0, len(m.splashTail)+style.KitLogoHeight)
+	content = append(content, style.KitLogoLinesAt(m.width-style.ContentOffset, frame)...)
+	content = append(content, m.splashTail...)
+	return style.SplashBlock(content)
+}
+
+// startLogoAnimation begins the startup animation, returning the command that
+// schedules its first frame, or nil when the animation will not run.
+func (m *AppModel) startLogoAnimation() tea.Cmd {
+	if m.splashItem == nil || !m.logoAnimationSupported() {
+		return nil
+	}
+	m.logoFrame = 0
+	m.logoAnimGeneration++
+	return logoAnimTickCmd(m.logoAnimGeneration)
+}
+
+// advanceLogoAnimation paints the next animation frame into the splash item
+// and returns the command for the frame after it, or nil once the animation
+// has settled.
+//
+// The splash is repainted in place rather than replaced: the item keeps its
+// ID, and every frame is the same height, so ScrollList's height cache stays
+// valid and the animation costs one re-render of a seven-line item per frame.
+func (m *AppModel) advanceLogoAnimation(generation uint64) tea.Cmd {
+	if generation != m.logoAnimGeneration || m.splashItem == nil {
+		return nil
+	}
+
+	m.logoFrame++
+	m.splashItem.preRendered = m.renderSplash(m.logoFrame)
+	m.refreshContent()
+
+	if m.logoFrame >= style.KitLogoAnimationFrames {
+		// Settled. Dropping the item reference stops any later tick from
+		// finding something to repaint. splashTail is deliberately kept, so
+		// renderSplash stays valid for any future caller rather than
+		// silently rebuilding the block without its content.
+		m.splashItem = nil
+		return nil
+	}
+	return logoAnimTickCmd(generation)
 }
 
 // tildeHome replaces the user's home directory prefix with ~ for display.
@@ -1288,13 +1403,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// so ordering-sensitive handlers (tool calls, reasoning completion, …)
 	// always see fully applied content. This runs before the modal-state
 	// routing below so buffered content never stalls behind a prompt/overlay.
-	switch msg.(type) {
+	switch msg := msg.(type) {
 	case app.StreamChunkEvent, app.ReasoningChunkEvent:
 		// Buffered by the handlers in the main switch below.
 	case streamAppendFlushMsg:
 		m.streamFlushPending = false
 		m.flushPendingStreamChunks()
 		return m, nil
+	case logoAnimTickMsg:
+		// Handled here, ahead of the modal routing below, because a prompt or
+		// overlay opening mid-animation would otherwise swallow the tick and
+		// strand the wordmark with a highlight band frozen across it.
+		return m, m.advanceLogoAnimation(msg.generation)
 	default:
 		m.flushPendingStreamChunks()
 	}
