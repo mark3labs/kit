@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -102,6 +103,13 @@ func renderContentBlock(content string, containerWidth int, options ...rendering
 	for _, option := range options {
 		option(renderer)
 	}
+
+	// Trailing blank lines inside the block would be drawn with the gutter
+	// glyph beside them, which reads as an unfinished block rather than as
+	// space. Command output usually ends with a newline, so this is the
+	// common case, not the exceptional one. Vertical separation is the
+	// margin's job.
+	content = strings.TrimRight(content, "\n")
 
 	// Resolve border configuration.
 	hasBorder := !renderer.noBorder
