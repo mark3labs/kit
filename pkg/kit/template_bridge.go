@@ -312,11 +312,14 @@ func ResolveModelChain(preferences []string) ModelResolutionResult {
 // pointer means the model publishes no rate, which is reported as
 // HasCacheRead/HasCacheWrite false rather than a misleading 0.
 //
-// Known is false only for a nil ModelInfo. A model that genuinely costs
-// nothing (a local model priced at 0) still reports Known true, so callers
-// can distinguish "free" from "unpriced".
+// Known mirrors the catalog's Published marker rather than being derived from
+// the rates themselves. Roughly 400 catalog entries omit pricing entirely,
+// including paid models proxied by aggregators; reporting those as a zero rate
+// would render a confident and wrong "$0.00". A model with an explicitly
+// published zero rate (openrouter's ":free" variants) still reports Known
+// true, so callers can distinguish "free" from "unpriced".
 func modelPricingFrom(info *models.ModelInfo) extensions.ModelPricing {
-	if info == nil {
+	if info == nil || !info.Cost.Published {
 		return extensions.ModelPricing{}
 	}
 	p := extensions.ModelPricing{

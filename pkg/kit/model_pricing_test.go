@@ -24,6 +24,14 @@ func TestModelPricingFrom_MapsRegistryCosts(t *testing.T) {
 			want: ModelPricing{},
 		},
 		{
+			name: "catalog published no pricing block",
+			// ~300 embedded catalog entries omit pricing entirely, including
+			// paid models proxied by aggregators. Reporting these as a zero
+			// rate would render a confident and wrong "$0.00".
+			info: &models.ModelInfo{Cost: models.Cost{Published: false}},
+			want: ModelPricing{},
+		},
+		{
 			name: "full pricing with cache rates",
 			info: &models.ModelInfo{
 				Cost: models.Cost{
@@ -31,6 +39,7 @@ func TestModelPricingFrom_MapsRegistryCosts(t *testing.T) {
 					Output:     15.0,
 					CacheRead:  &cacheRead,
 					CacheWrite: &cacheWrite,
+					Published:  true,
 				},
 			},
 			want: ModelPricing{
@@ -46,7 +55,7 @@ func TestModelPricingFrom_MapsRegistryCosts(t *testing.T) {
 		{
 			name: "no cache rates published",
 			info: &models.ModelInfo{
-				Cost: models.Cost{Input: 1.0, Output: 2.0},
+				Cost: models.Cost{Input: 1.0, Output: 2.0, Published: true},
 			},
 			want: ModelPricing{
 				Input:  1.0,
@@ -55,16 +64,18 @@ func TestModelPricingFrom_MapsRegistryCosts(t *testing.T) {
 			},
 		},
 		{
-			name: "genuinely free model is known, not unknown",
+			name: "explicitly published zero rate is free, not unknown",
+			// openrouter's ":free" variants publish a real zero rate. These
+			// must stay distinguishable from the unpriced case above.
 			info: &models.ModelInfo{
-				Cost: models.Cost{Input: 0, Output: 0},
+				Cost: models.Cost{Input: 0, Output: 0, Published: true},
 			},
 			want: ModelPricing{Known: true},
 		},
 		{
 			name: "cache read only",
 			info: &models.ModelInfo{
-				Cost: models.Cost{Input: 3.0, Output: 15.0, CacheRead: &cacheRead},
+				Cost: models.Cost{Input: 3.0, Output: 15.0, CacheRead: &cacheRead, Published: true},
 			},
 			want: ModelPricing{
 				Input:        3.0,
@@ -91,7 +102,7 @@ func TestModelPricingFrom_MapsRegistryCosts(t *testing.T) {
 func TestModelPricingFrom_CopiesCacheRates(t *testing.T) {
 	cacheRead := 0.30
 	info := &models.ModelInfo{
-		Cost: models.Cost{Input: 3.0, CacheRead: &cacheRead},
+		Cost: models.Cost{Input: 3.0, CacheRead: &cacheRead, Published: true},
 	}
 
 	got := modelPricingFrom(info)

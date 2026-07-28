@@ -57,6 +57,18 @@ var (
 
 	// thinking mirrors the effort level, refreshed via OnThinkingLevelChange.
 	thinking string
+
+	// tickerGen identifies the live render ticker. Shutdown increments it,
+	// which retires the running goroutine at its next tick; a session start
+	// increments it again and claims the new value.
+	//
+	// A stop channel read via select would be the idiomatic Go here, but
+	// extensions run under Yaegi, whose select implementation is not
+	// race-safe (`go test -race` reports a write race inside interp._select).
+	// A mutex-guarded counter avoids select entirely and additionally handles
+	// restart: an orphaned ticker from a previous session can never match the
+	// current generation.
+	tickerGen int
 )
 
 // ---------------------------------------------------------------------------
@@ -117,7 +129,7 @@ func savePrefs() error {
 		return fmt.Errorf("cannot resolve config dir")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return fmt.Errorf("create config dir: %w", err)
 	}
 	var on []string
 	for _, f := range allFields {
@@ -130,9 +142,12 @@ func savePrefs() error {
 	}
 	data, err := json.Marshal(prefs{Enabled: enabled, Fields: on})
 	if err != nil {
-		return err
+		return fmt.Errorf("encode preferences: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -389,10 +404,21 @@ func Init(api ext.API) {
 
 		// Only the clock and the live turn timer need a tick; everything else
 		// is event-driven.
+		mu.Lock()
+		tickerGen++
+		gen := tickerGen
+		mu.Unlock()
+
 		go func() {
 			t := time.NewTicker(time.Second)
 			defer t.Stop()
 			for range t.C {
+				mu.Lock()
+				live := gen == tickerGen
+				mu.Unlock()
+				if !live {
+					return
+				}
 				render(ctx)
 			}
 		}()
@@ -426,6 +452,11 @@ func Init(api ext.API) {
 	})
 
 	api.OnSessionShutdown(func(_ ext.SessionShutdownEvent, ctx ext.Context) {
+		// Retire the ticker before removing the footer, so a later tick
+		// cannot re-add it after teardown.
+		mu.Lock()
+		tickerGen++
+		mu.Unlock()
 		ctx.RemoveFooter()
 	})
 

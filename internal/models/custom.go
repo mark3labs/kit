@@ -55,6 +55,12 @@ func modelConfigToModelInfo(modelID string, cfg CustomModelConfig) ModelInfo {
 		Cost: Cost{
 			Input:  cfg.Cost.Input,
 			Output: cfg.Cost.Output,
+			// CostConfig is a value type, so an omitted "cost" block is
+			// indistinguishable from an explicit zero. Treat a non-zero rate
+			// as the user having declared a price; leaving it at zero means
+			// we genuinely do not know, which callers should surface as
+			// "unpriced" rather than as free.
+			Published: cfg.Cost.Input != 0 || cfg.Cost.Output != 0,
 		},
 		Limit: Limit{
 			Context: cfg.Limit.Context,

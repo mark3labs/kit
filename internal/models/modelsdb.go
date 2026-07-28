@@ -26,7 +26,7 @@ type modelsDBModel struct {
 	Reasoning   bool                   `json:"reasoning"`
 	ToolCall    bool                   `json:"tool_call"`
 	Temperature bool                   `json:"temperature"`
-	Cost        modelsDBCost           `json:"cost"`
+	Cost        *modelsDBCost          `json:"cost"`
 	Limit       modelsDBLimit          `json:"limit"`
 	Provider    *modelsDBModelProvider `json:"provider,omitempty"` // Model-specific provider override
 }
