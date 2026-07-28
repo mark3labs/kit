@@ -73,12 +73,40 @@ func (m *ModelInfo) CacheType() string {
 	}
 }
 
-// Cost represents the pricing information for a model.
+// Cost represents the pricing information for a model. All rates are in US
+// dollars per one million tokens.
 type Cost struct {
 	Input      float64
 	Output     float64
 	CacheRead  *float64
 	CacheWrite *float64
+
+	// Published is true when the source catalog supplied a pricing block for
+	// the model. It distinguishes a model that is genuinely free (an explicit
+	// zero rate, as with openrouter's ":free" variants) from one whose price
+	// is simply unknown because the catalog omitted it — both otherwise look
+	// identical, since the zero value of Input/Output is 0.
+	//
+	// Callers that display cost should check this before rendering a figure;
+	// reporting "$0.00" for an unpriced model is worse than reporting nothing.
+	Published bool
+}
+
+// costFrom converts a catalog pricing block into a Cost. A nil block means the
+// catalog published no pricing for the model (~400 entries in the bundled
+// catalog, including paid models proxied by aggregators), which is recorded as
+// Published=false rather than as a zero rate.
+func costFrom(c *modelsDBCost) Cost {
+	if c == nil {
+		return Cost{}
+	}
+	return Cost{
+		Input:      c.Input,
+		Output:     c.Output,
+		CacheRead:  c.CacheRead,
+		CacheWrite: c.CacheWrite,
+		Published:  true,
+	}
 }
 
 // Limit represents the context and output limits for a model.
@@ -165,12 +193,7 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				Attachment:  dm.Attachment,
 				Reasoning:   dm.Reasoning,
 				Temperature: dm.Temperature,
-				Cost: Cost{
-					Input:      dm.Cost.Input,
-					Output:     dm.Cost.Output,
-					CacheRead:  dm.Cost.CacheRead,
-					CacheWrite: dm.Cost.CacheWrite,
-				},
+				Cost:        costFrom(dm.Cost),
 				Limit: Limit{
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
@@ -211,10 +234,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				Attachment:  false,
 				Reasoning:   true,
 				Temperature: true,
-				Cost: Cost{
-					Input:  0,
-					Output: 0,
-				},
+				// A placeholder for user-configured endpoints; its real
+				// price is whatever the user's provider charges, so it is
+				// unpriced rather than free.
+				Cost: Cost{},
 				Limit: Limit{
 					Context: 262_144,
 					Output:  65_536,

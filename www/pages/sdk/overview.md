@@ -310,7 +310,7 @@ host.SetModel(ctx, "openai/gpt-4o")
 info := host.GetModelInfo()
 
 // Advisory list of known models — each entry is a kit.ModelInfoEntry
-// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning).
+// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning, Pricing).
 // Models not in the registry can still be used by provider/model string.
 models := host.GetAvailableModels()
 for _, m := range models {
@@ -328,6 +328,21 @@ if result.Error == "" {
     _ = host.SetModel(ctx, result.Model)
 }
 ```
+
+Each `ModelInfoEntry` and `ModelCapabilities` carries a `Pricing` field with
+per-million-token costs from the registry:
+
+```go
+caps, errStr := kit.GetModelCapabilities("anthropic/claude-sonnet-4-5-20250929")
+if errStr == "" && caps.Pricing.Known {
+    fmt.Printf("in $%.2f/1M  out $%.2f/1M\n", caps.Pricing.Input, caps.Pricing.Output)
+}
+```
+
+Check `Pricing.Known` before using any rate. It is `false` for local models and
+custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
+unpriced model looks identical to a free one. Cache rates are similarly guarded
+by `HasCacheRead` / `HasCacheWrite`.
 
 ## One-shot completions
 

@@ -14,6 +14,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`minimal.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/minimal.go) | Clean UI with custom footer |
 | [`branded-output.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/branded-output.go) | Branded output rendering |
 | [`header-footer-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/header-footer-demo.go) | Custom headers and footers |
+| [`status-footer.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/status-footer.go) | Configurable status bar footer: model, context, cache, cost, clock, turn timing |
 | [`widget-status.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/widget-status.go) | Persistent status widgets |
 | [`overlay-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/overlay-demo.go) | Modal dialogs |
 | [`tool-renderer-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-renderer-demo.go) | Custom tool call rendering |
