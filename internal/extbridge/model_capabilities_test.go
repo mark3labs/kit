@@ -7,6 +7,33 @@ import (
 	kitpkg "github.com/mark3labs/kit/pkg/kit"
 )
 
+// testModel is a first-party model that is always present in the bundled
+// registry and carries published pricing.
+const testModel = "anthropic/claude-sonnet-4-5-20250929"
+
+// newTestKit builds a Kit for bridge tests.
+//
+// A dummy provider key is supplied so construction succeeds without real
+// credentials: these tests only read configuration and the local model
+// registry, and never issue a request. Without it the tests would pass on a
+// developer machine holding Anthropic credentials and fail in CI.
+func newTestKit(t *testing.T) *kitpkg.Kit {
+	t.Helper()
+
+	host, err := kitpkg.New(context.Background(), &kitpkg.Options{
+		Quiet:          true,
+		NoSession:      true,
+		NoExtensions:   true,
+		Model:          testModel,
+		ProviderAPIKey: "sk-ant-test-not-a-real-key",
+	})
+	if err != nil {
+		t.Fatalf("kit.New: %v", err)
+	}
+	t.Cleanup(func() { _ = host.Close() })
+	return host
+}
+
 // TestBaseContext_GetModelCapabilitiesResolvesActiveModel covers the empty-model
 // contract at the bridge level.
 //
@@ -16,19 +43,8 @@ import (
 // this asserts the closure substitutes the configured model and returns its
 // capabilities and pricing.
 func TestBaseContext_GetModelCapabilitiesResolvesActiveModel(t *testing.T) {
-	const model = "anthropic/claude-sonnet-4-5-20250929"
-
 	ctx := context.Background()
-	host, err := kitpkg.New(ctx, &kitpkg.Options{
-		Quiet:        true,
-		NoSession:    true,
-		NoExtensions: true,
-		Model:        model,
-	})
-	if err != nil {
-		t.Fatalf("kit.New: %v", err)
-	}
-	defer func() { _ = host.Close() }()
+	host := newTestKit(t)
 
 	extCtx := BaseContext(ctx, host)
 	if extCtx.GetModelCapabilities == nil {
@@ -60,9 +76,9 @@ func TestBaseContext_GetModelCapabilitiesResolvesActiveModel(t *testing.T) {
 	}
 
 	// An explicit model must still work, and agree with the resolved one.
-	explicit, errStr := extCtx.GetModelCapabilities(model)
+	explicit, errStr := extCtx.GetModelCapabilities(testModel)
 	if errStr != "" {
-		t.Fatalf("GetModelCapabilities(%q) error = %q", model, errStr)
+		t.Fatalf("GetModelCapabilities(%q) error = %q", testModel, errStr)
 	}
 	if explicit != caps {
 		t.Errorf("explicit lookup = %+v; want same as empty-string resolution %+v", explicit, caps)
@@ -73,16 +89,7 @@ func TestBaseContext_GetModelCapabilitiesResolvesActiveModel(t *testing.T) {
 // fallback does not mask genuine lookup failures.
 func TestBaseContext_GetModelCapabilitiesUnknownModel(t *testing.T) {
 	ctx := context.Background()
-	host, err := kitpkg.New(ctx, &kitpkg.Options{
-		Quiet: true, NoSession: true, NoExtensions: true,
-		Model: "anthropic/claude-sonnet-4-5-20250929",
-	})
-	if err != nil {
-		t.Fatalf("kit.New: %v", err)
-	}
-	defer func() { _ = host.Close() }()
-
-	extCtx := BaseContext(ctx, host)
+	extCtx := BaseContext(ctx, newTestKit(t))
 
 	caps, errStr := extCtx.GetModelCapabilities("nosuchprovider/nosuchmodel")
 	if errStr == "" {
@@ -97,16 +104,7 @@ func TestBaseContext_GetModelCapabilitiesUnknownModel(t *testing.T) {
 // an empty level, which would render as a blank in any UI that displays it.
 func TestBaseContext_GetThinkingLevelDefaultsOff(t *testing.T) {
 	ctx := context.Background()
-	host, err := kitpkg.New(ctx, &kitpkg.Options{
-		Quiet: true, NoSession: true, NoExtensions: true,
-		Model: "anthropic/claude-sonnet-4-5-20250929",
-	})
-	if err != nil {
-		t.Fatalf("kit.New: %v", err)
-	}
-	defer func() { _ = host.Close() }()
-
-	extCtx := BaseContext(ctx, host)
+	extCtx := BaseContext(ctx, newTestKit(t))
 	if extCtx.GetThinkingLevel == nil {
 		t.Fatal("BaseContext did not wire GetThinkingLevel")
 	}
