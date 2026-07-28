@@ -350,8 +350,9 @@ func TestPadRightHandlesDegenerateWidths(t *testing.T) {
 		}
 	}
 
-	// Multi-byte input must pad by display cells, not bytes: "···" is nine
-	// bytes but three cells, so a width of 10 leaves seven spaces.
+	// Multi-byte input must pad by display cells, not bytes: "···" is six
+	// bytes (three 2-byte U+00B7 code points) but three cells, so a width of
+	// 10 leaves seven spaces.
 	if got, want := padRight("···", 10), "···"+strings.Repeat(" ", 7); got != want {
 		t.Errorf("padRight(%q, 10) = %q, want %q", "···", got, want)
 	}
