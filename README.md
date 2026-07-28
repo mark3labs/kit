@@ -345,9 +345,11 @@ kit -e examples/extensions/minimal.go
 
 ### Extension Capabilities
 
-**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnLLMUsage, OnToolCall, OnToolCallInputStart, OnToolCallInputDelta, OnToolCallInputEnd, OnToolExecutionStart, OnToolOutput, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact, OnCustomEvent, OnSubagentStart, OnSubagentChunk, OnSubagentEnd
+**Lifecycle Events**: OnSessionStart, OnSessionShutdown, OnBeforeAgentStart, OnAgentStart, OnAgentEnd, OnLLMUsage, OnToolCall, OnToolCallInputStart, OnToolCallInputDelta, OnToolCallInputEnd, OnToolExecutionStart, OnToolOutput, OnToolExecutionEnd, OnToolResult, OnInput, OnMessageStart, OnMessageUpdate, OnMessageEnd, OnModelChange, OnThinkingLevelChange, OnTerminalResize, OnTurnStateChange, OnContextPrepare, OnBeforeFork, OnBeforeSessionSwitch, OnBeforeCompact, OnCustomEvent, OnSubagentStart, OnSubagentChunk, OnSubagentEnd
 
 `OnAgentEnd` carries per-turn aggregates (`ToolCallCount`, `ToolNames`, `LLMCallCount`, `InputTokensDelta`, `OutputTokensDelta`, `CostDelta`, `DurationMs`) so observers don't need to maintain parallel bookkeeping. `OnLLMUsage` fires after each LLM provider call with token + cost deltas attributed to that specific call/model — use it for accurate budget enforcement *between* calls instead of waiting for the turn to finish.
+
+`OnTurnStateChange` is a superset of `OnAgentStart`/`OnAgentEnd`: it also covers work that never reaches the agent loop (shell commands) and fires on every path back to idle, including cancellation and error — use it for spinners and turn timers, and `OnAgentStart`/`OnAgentEnd` when you specifically care about agent turns. `OnTerminalResize` and `OnTurnStateChange` fire in the interactive TUI only.
 
 **Custom Components**:
 - **Tools**: Add new tools the LLM can invoke
@@ -355,7 +357,7 @@ kit -e examples/extensions/minimal.go
 - **Options**: Register configurable extension options
 - **Session State**: Last-write-wins key-value store via `ctx.SetState` / `GetState` / `DeleteState` / `ListState`, persisted to a per-session sidecar file outside the conversation tree
 - **Widgets**: Persistent status displays above/below input
-- **Headers/Footers**: Persistent content above/below the conversation
+- **Headers/Footers**: Persistent content above/below the conversation (rendered at full width without truncation — size with `ctx.GetTerminalSize()`)
 - **Status Bar**: Custom status bar entries
 - **Shortcuts**: Global keyboard shortcuts
 - **Overlays**: Modal dialogs with markdown content
@@ -373,6 +375,8 @@ kit -e examples/extensions/minimal.go
 - **Skill Loading**: Dynamically load and inject skills at runtime (`LoadSkill`, `DiscoverSkills`, `InjectSkillAsContext`)
 - **Template Parsing**: Parse and render templates with `{{variables}}` (`ParseTemplate`, `RenderTemplate`), parse CLI-style arguments (`ParseArguments`, `SimpleParseArguments`), and evaluate model conditionals (`EvaluateModelConditional`, `RenderWithModelConditionals`)
 - **Model Resolution**: Resolve model fallback chains (`ResolveModelChain`), query model capabilities (`GetModelCapabilities`, `CheckModelAvailable`), and extract provider/model ID (`GetCurrentProvider`, `GetCurrentModelID`)
+- **Model Pricing**: Per-million-token costs on `ModelCapabilities.Pricing` and `ModelInfoEntry.Pricing` — check `Pricing.Known` before rendering a cost, since local and OpenAI-compatible models report no pricing
+- **Usage & Environment**: Session tokens and cost via `GetSessionUsage` (including `IsOAuth`, since subscriptions report `$0` cost), terminal dimensions via `GetTerminalSize`, and reasoning effort via `GetThinkingLevel`
 
 ### Extension Examples
 
@@ -403,6 +407,7 @@ See the `examples/extensions/` directory:
 - [`prompt-demo.go`](examples/extensions/prompt-demo.go) - Interactive prompts (select/confirm/input)
 - [`prompt-templates.go`](examples/extensions/prompt-templates.go) - **NEW** Frontmatter-driven templates with model switching and skill injection
 - [`protected-paths.go`](examples/extensions/protected-paths.go) - Path protection for sensitive files
+- [`status-footer.go`](examples/extensions/status-footer.go) - **NEW** Configurable status bar footer (model, context, cache, cost, clock, turn timing)
 - [`subagent-widget.go`](examples/extensions/subagent-widget.go) - Multi-agent orchestration with status widget
 - [`subagent-test.go`](examples/extensions/subagent-test.go) - Subagent testing utilities
 - [`summarize.go`](examples/extensions/summarize.go) - Conversation summarization
