@@ -80,8 +80,12 @@ type ArgumentPattern = extensions.ArgumentPattern
 type ParseResult = extensions.ParseResult
 
 // ModelCapabilities describes a model's provider, context/output limits,
-// and feature support as reported by the model registry.
+// feature support, and token pricing as reported by the model registry.
 type ModelCapabilities = extensions.ModelCapabilities
+
+// ModelPricing describes a model's token costs in US dollars per million
+// tokens. Its Known field is false when the registry has no cost data.
+type ModelPricing = extensions.ModelPricing
 
 // ModelResolutionResult is the outcome of ResolveModelChain: the first
 // available model from a preference list, its capabilities, and the

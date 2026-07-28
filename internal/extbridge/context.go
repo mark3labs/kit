@@ -219,6 +219,18 @@ func BaseContext(ctx context.Context, kitInstance *kit.Kit) extensions.Context {
 			return kit.ResolveModelChain(preferences)
 		},
 		GetModelCapabilities: func(model string) (extensions.ModelCapabilities, string) {
+			// An empty model means "the one in use", matching the convention
+			// of CompleteRequest.Model. Without this, the common case of
+			// inspecting the active model's limits or pricing would force
+			// every extension to pass a model string back in by hand.
+			//
+			// Resolve from configuration rather than from the extension
+			// Context: Context.Model is a bare display ID ("claude-opus-5"),
+			// which the registry cannot address unambiguously because many
+			// providers serve the same ID.
+			if model == "" {
+				model = kitInstance.GetCurrentModel()
+			}
 			return kit.GetModelCapabilities(model)
 		},
 		CheckModelAvailable: func(model string) bool {

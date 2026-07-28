@@ -292,6 +292,16 @@ func (ut *UsageTracker) GetTurnStats() *UsageStats {
 	return &stats
 }
 
+// IsOAuth reports whether the tracker is running against an OAuth credential
+// (e.g. a Claude subscription) rather than a per-token billed API key. Under
+// OAuth all recorded costs are 0 by design, so callers rendering cost need
+// this flag to distinguish "not billed" from "nothing spent yet".
+func (ut *UsageTracker) IsOAuth() bool {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
+	return ut.isOAuth
+}
+
 // StartTurn marks the beginning of a new turn, clearing usage accumulated for
 // the previous one while preserving session totals. Called by the app layer
 // before dispatching a prompt to the SDK.

@@ -297,6 +297,7 @@ func ResolveModelChain(preferences []string) ModelResolutionResult {
 			OutputLimit:  modelInfo.Limit.Output,
 			Reasoning:    modelInfo.Reasoning,
 			Streaming:    true, // Assume streaming support
+			Pricing:      modelPricingFrom(modelInfo),
 		}
 		return result
 	}
@@ -305,19 +306,51 @@ func ResolveModelChain(preferences []string) ModelResolutionResult {
 	return result
 }
 
-// GetModelCapabilities returns capabilities for a specific model.
-// If model is empty, returns zero capabilities.
+// modelPricingFrom converts registry cost data into the extension-facing
+// ModelPricing struct. Rates are per million tokens on both sides, so they
+// pass through unchanged. Cache rates are optional in the registry: a nil
+// pointer means the model publishes no rate, which is reported as
+// HasCacheRead/HasCacheWrite false rather than a misleading 0.
+//
+// Known is false only for a nil ModelInfo. A model that genuinely costs
+// nothing (a local model priced at 0) still reports Known true, so callers
+// can distinguish "free" from "unpriced".
+func modelPricingFrom(info *models.ModelInfo) extensions.ModelPricing {
+	if info == nil {
+		return extensions.ModelPricing{}
+	}
+	p := extensions.ModelPricing{
+		Input:  info.Cost.Input,
+		Output: info.Cost.Output,
+		Known:  true,
+	}
+	if info.Cost.CacheRead != nil {
+		p.CacheRead = *info.Cost.CacheRead
+		p.HasCacheRead = true
+	}
+	if info.Cost.CacheWrite != nil {
+		p.CacheWrite = *info.Cost.CacheWrite
+		p.HasCacheWrite = true
+	}
+	return p
+}
+
+// GetModelCapabilities returns capabilities for a specific model, including
+// its token pricing. The model must be fully qualified ("provider/model");
+// resolving an empty string to the active model requires a Kit instance and
+// is handled by the extension bridge before it calls here.
 func GetModelCapabilities(model string) (ModelCapabilities, string) {
 	if model == "" {
 		return extensions.ModelCapabilities{}, "no model specified"
 	}
+
+	registry := models.GetGlobalRegistry()
 
 	provider, modelID, err := models.ParseModelString(model)
 	if err != nil {
 		return extensions.ModelCapabilities{}, err.Error()
 	}
 
-	registry := models.GetGlobalRegistry()
 	modelInfo := registry.LookupModel(provider, modelID)
 	if modelInfo == nil {
 		return extensions.ModelCapabilities{}, "model not found in registry"
@@ -330,6 +363,7 @@ func GetModelCapabilities(model string) (ModelCapabilities, string) {
 		OutputLimit:  modelInfo.Limit.Output,
 		Reasoning:    modelInfo.Reasoning,
 		Streaming:    true,
+		Pricing:      modelPricingFrom(modelInfo),
 	}, ""
 }
 

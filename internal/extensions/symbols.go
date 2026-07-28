@@ -152,6 +152,7 @@ func Symbols() interp.Exports {
 
 			// Model resolution types
 			"ModelCapabilities":     reflect.ValueOf((*ModelCapabilities)(nil)),
+			"ModelPricing":          reflect.ValueOf((*ModelPricing)(nil)),
 			"ModelResolutionResult": reflect.ValueOf((*ModelResolutionResult)(nil)),
 
 			// Event structs

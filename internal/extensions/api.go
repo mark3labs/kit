@@ -828,8 +828,10 @@ type Context struct {
 	// ResolveModelChain attempts each model in order until one is available.
 	ResolveModelChain func(preferences []string) ModelResolutionResult
 
-	// GetModelCapabilities returns capabilities for a specific model.
-	// If model is empty, uses current model.
+	// GetModelCapabilities returns capabilities for a specific model,
+	// including its context/output limits and token pricing. Pass an empty
+	// string for the model currently in use. The second return value is an
+	// error message, empty on success.
 	GetModelCapabilities func(model string) (ModelCapabilities, string)
 
 	// CheckModelAvailable verifies if a model string is valid.
@@ -1009,6 +1011,45 @@ type ModelCapabilities struct {
 	Reasoning bool
 	// Streaming indicates if the model supports streaming.
 	Streaming bool
+	// Pricing holds the model's per-million-token costs. Pricing.Known is
+	// false when the registry has no cost data for the model.
+	Pricing ModelPricing
+}
+
+// ModelPricing describes a model's token costs, expressed in US dollars per
+// one million tokens (the unit used by the models.dev registry). Extensions
+// use it to compute costs or savings that Kit does not report directly —
+// for example the value of prompt-cache reads:
+//
+//	caps, _ := ctx.GetModelCapabilities("")
+//	usage := ctx.GetSessionUsage()
+//	if caps.Pricing.Known && caps.Pricing.HasCacheRead {
+//	    saved := float64(usage.TotalCacheReadTokens) *
+//	        (caps.Pricing.Input - caps.Pricing.CacheRead) / 1_000_000
+//	}
+//
+// Costs for a raw token count are therefore tokens * rate / 1_000_000.
+type ModelPricing struct {
+	// Input is the cost per million input (prompt) tokens.
+	Input float64
+	// Output is the cost per million output (completion) tokens.
+	Output float64
+	// CacheRead is the cost per million tokens read from the prompt cache.
+	// Only meaningful when HasCacheRead is true.
+	CacheRead float64
+	// CacheWrite is the cost per million tokens written to the prompt cache.
+	// Only meaningful when HasCacheWrite is true.
+	CacheWrite float64
+	// HasCacheRead is true when the model publishes a cache-read rate.
+	// When false, the provider either does not support prompt caching or the
+	// registry has no rate for it — do not assume CacheRead is 0.
+	HasCacheRead bool
+	// HasCacheWrite is true when the model publishes a cache-write rate.
+	HasCacheWrite bool
+	// Known is true when the registry supplied pricing for this model. When
+	// false every other field is zero and costs cannot be computed; this is
+	// normal for local models and custom OpenAI-compatible endpoints.
+	Known bool
 }
 
 // ModelResolutionResult reports model chain resolution outcome.
@@ -1161,9 +1202,17 @@ type SessionUsage struct {
 	// TotalCacheWriteTokens is the sum of cache write tokens.
 	TotalCacheWriteTokens int
 	// TotalCost is the total cost in USD across all requests.
+	// Always 0 when IsOAuth is true, and also 0 when the active model has no
+	// pricing in the registry — check IsOAuth to tell the two apart.
 	TotalCost float64
 	// RequestCount is the number of LLM requests made in this session.
 	RequestCount int
+	// IsOAuth is true when the active provider credential is an OAuth token
+	// (e.g. a Claude subscription) rather than a per-token billed API key.
+	// Under OAuth the user is not charged per request, so TotalCost is
+	// deliberately reported as 0. Extensions that render cost should check
+	// this flag to distinguish "free under subscription" from "$0.00 spent".
+	IsOAuth bool
 }
 
 // PrintBlockOpts configures a custom styled block for PrintBlock.
@@ -1822,6 +1871,9 @@ type ModelInfoEntry struct {
 	OutputLimit int
 	// Reasoning is true if the model supports extended thinking.
 	Reasoning bool
+	// Pricing holds the model's per-million-token costs. Pricing.Known is
+	// false when the registry has no cost data for the model.
+	Pricing ModelPricing
 }
 
 // ---------------------------------------------------------------------------
