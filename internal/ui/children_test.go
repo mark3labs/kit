@@ -295,9 +295,13 @@ func TestStreamComponent_SpinnerTransition(t *testing.T) {
 	if c.phase != streamPhaseActive {
 		t.Fatalf("expected streamPhaseActive after SpinnerEvent{Show:true}, got %v", c.phase)
 	}
-	// A tick cmd should have been returned to start the animation loop.
-	if cmd == nil {
-		t.Fatal("expected tick cmd from SpinnerEvent{Show:true}")
+	// The component never schedules: it raises spinning, and AppModel's
+	// wrapper wakes the shared clock off the back of it.
+	if cmd != nil {
+		t.Fatal("stream component must not schedule its own frames")
+	}
+	if !c.IsSpinning() {
+		t.Fatal("expected IsSpinning to report the animation, so the clock keeps running")
 	}
 }
 
@@ -393,8 +397,11 @@ func TestStreamComponent_ToolExecution_IsStarting_ShowsSpinner(t *testing.T) {
 	if len(tools) != 1 || tools[0].name != "exec_tool" {
 		t.Fatalf("expected activeTools to contain tool name, got %v", tools)
 	}
-	if cmd == nil {
-		t.Fatal("expected tick cmd from ToolExecutionEvent{IsStarting:true}")
+	if cmd != nil {
+		t.Fatal("stream component must not schedule its own frames")
+	}
+	if !c.IsSpinning() {
+		t.Fatal("expected IsSpinning to report the animation, so the clock keeps running")
 	}
 }
 
@@ -574,65 +581,54 @@ func TestStreamComponent_SpinnerTick_AdvancesFrame(t *testing.T) {
 	// Start spinning first.
 	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
 	initialFrame := c.spinnerFrame
-	gen := c.spinnerGeneration
 
-	// Send a tick with the current generation.
-	_, cmd := c.Update(streamSpinnerTickMsg{generation: gen})
+	// A beat of the shared clock the spinner is due on.
+	_, cmd := c.Update(frameTickMsg{frame: frameEverySpinner})
 
 	if c.spinnerFrame != initialFrame+1 {
 		t.Fatalf("expected spinnerFrame=%d, got %d", initialFrame+1, c.spinnerFrame)
 	}
-	// The tick should re-schedule itself while spinning.
-	if cmd == nil {
-		t.Fatal("expected tick cmd to be re-scheduled while spinning")
+	// The clock is owned by AppModel; the component must never schedule.
+	if cmd != nil {
+		t.Fatal("stream component must not schedule its own frames")
 	}
 }
 
-// TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinning verifies that a
-// tick when not spinning does not re-schedule.
-func TestStreamComponent_SpinnerTick_NoReschedule_WhenNotSpinning(t *testing.T) {
+// The spinner runs at a subdivision of the shared clock, so beats it is not
+// due on must leave it alone. Advancing on every beat would run the KITT
+// bounce at the clock's full rate rather than its own.
+func TestStreamComponent_SpinnerTick_SubdividesClock(t *testing.T) {
 	c := newTestStream()
-	// spinning is false — tick should be ignored.
-	_, cmd := c.Update(streamSpinnerTickMsg{})
-	if cmd != nil {
-		t.Fatal("expected no tick reschedule when not spinning")
+	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
+
+	before := c.spinnerFrame
+	// A frame number that is not a multiple of the spinner's divisor.
+	c = sendStreamMsg(c, frameTickMsg{frame: frameEverySpinner + 1})
+	if c.spinnerFrame != before {
+		t.Fatalf("spinner advanced on a beat it was not due on: %d -> %d", before, c.spinnerFrame)
+	}
+
+	// Over a full clock second the spinner must advance exactly its own rate.
+	c.spinnerFrame = 0
+	for f := 1; f <= FrameClockFPS; f++ {
+		c = sendStreamMsg(c, frameTickMsg{frame: f})
+	}
+	if want := FrameClockFPS / frameEverySpinner; c.spinnerFrame != want {
+		t.Fatalf("spinner advanced %d frames in a clock second, want %d", c.spinnerFrame, want)
 	}
 }
 
-// TestStreamComponent_StaleTick_Discarded verifies that a tick from a previous
-// spinner generation is silently discarded, preventing duplicate concurrent
-// tick loops that would double the animation speed.
-func TestStreamComponent_StaleTick_Discarded(t *testing.T) {
+// TestStreamComponent_SpinnerTick_IgnoredWhenNotSpinning verifies that a beat
+// arriving while idle does not advance the animation.
+func TestStreamComponent_SpinnerTick_IgnoredWhenNotSpinning(t *testing.T) {
 	c := newTestStream()
-
-	// Start spinner → generation 1.
-	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
-	staleGen := c.spinnerGeneration
-
-	// Stop spinner → generation bumped to 2.
-	c = sendStreamMsg(c, app.SpinnerEvent{Show: false})
-
-	// Restart spinner → generation bumped to 3.
-	c = sendStreamMsg(c, app.SpinnerEvent{Show: true})
-	currentGen := c.spinnerGeneration
-	frameBefore := c.spinnerFrame
-
-	// Simulate a stale tick from the first spinner session arriving.
-	_, cmd := c.Update(streamSpinnerTickMsg{generation: staleGen})
-	if c.spinnerFrame != frameBefore {
-		t.Fatalf("stale tick should not advance frame: expected %d, got %d", frameBefore, c.spinnerFrame)
+	// spinning is false — the beat should be ignored.
+	_, cmd := c.Update(frameTickMsg{frame: frameEverySpinner})
+	if c.spinnerFrame != 0 {
+		t.Fatalf("spinner advanced while idle: got frame %d", c.spinnerFrame)
 	}
 	if cmd != nil {
-		t.Fatal("stale tick should not reschedule")
-	}
-
-	// A tick from the current generation should still work.
-	_, cmd = c.Update(streamSpinnerTickMsg{generation: currentGen})
-	if c.spinnerFrame != frameBefore+1 {
-		t.Fatalf("current-gen tick should advance frame: expected %d, got %d", frameBefore+1, c.spinnerFrame)
-	}
-	if cmd == nil {
-		t.Fatal("current-gen tick should reschedule")
+		t.Fatal("stream component must not schedule its own frames")
 	}
 }
 

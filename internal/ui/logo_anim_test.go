@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -45,17 +47,16 @@ func TestLogoAnimationAdvancesInPlace(t *testing.T) {
 
 	// Drive the animation directly, independent of whether the test host's
 	// terminal profile would have started it.
-	m.logoAnimGeneration++
-	gen := m.logoAnimGeneration
 	m.logoFrame = 0
 
 	id := m.messages[0].ID()
 	height := strings.Count(splashOf(t, m), "\n")
 
 	for range 5 {
-		if cmd := m.advanceLogoAnimation(gen); cmd == nil {
+		if m.splashItem == nil {
 			t.Fatal("animation stopped early")
 		}
+		m.advanceLogoAnimation()
 	}
 
 	if m.logoFrame != 5 {
@@ -78,25 +79,23 @@ func TestLogoAnimationSettles(t *testing.T) {
 	m, _, _ := newTestAppModel(ctrl)
 	m.AddStartupMessageToScrollList()
 
-	m.logoAnimGeneration++
-	gen := m.logoAnimGeneration
 	m.logoFrame = 0
 
 	ticks := 0
-	for m.advanceLogoAnimation(gen) != nil {
+	for m.splashItem != nil {
+		m.advanceLogoAnimation()
 		ticks++
 		if ticks > style.KitLogoAnimationFrames+10 {
 			t.Fatal("animation never stopped")
 		}
 	}
 
-	if m.splashItem != nil {
-		t.Error("splash item should be released once the animation settles")
+	// Releasing the item is also what tells the frame clock to wind down.
+	if m.wantsFrames() {
+		t.Error("a settled animation should no longer ask for frames")
 	}
-	// A late tick from the same run must be harmless now.
-	if cmd := m.advanceLogoAnimation(gen); cmd != nil {
-		t.Error("a tick after settling should not reschedule")
-	}
+	// A late frame must be harmless now.
+	m.advanceLogoAnimation()
 
 	rest := m.renderSplash(style.KitLogoAnimationFrames)
 	if got := splashOf(t, m); got != rest {
@@ -104,48 +103,89 @@ func TestLogoAnimationSettles(t *testing.T) {
 	}
 }
 
-// A tick from a superseded run must be dropped, or two tick loops would run
-// concurrently and the animation would play at double speed.
-func TestLogoAnimationIgnoresStaleTicks(t *testing.T) {
+// A beat from a superseded clock run must be dropped, or two loops would run
+// concurrently and every animation would play at double speed. The guard lives
+// on the clock now, so it is tested once, here, on behalf of every animation.
+func TestFrameClockIgnoresStaleTicks(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 	m.AddStartupMessageToScrollList()
 
-	m.logoAnimGeneration++
-	stale := m.logoAnimGeneration
 	m.logoFrame = 0
+	m.frames.start()
+	stale := frameTickMsg{generation: m.frames.generation, frame: 1}
 
-	// A newer run supersedes the old one.
-	m.logoAnimGeneration++
+	// A restart supersedes the run that scheduled the beat above.
+	m.frames.stop()
+	m.frames.start()
 
-	if cmd := m.advanceLogoAnimation(stale); cmd != nil {
-		t.Error("a stale tick should not reschedule")
+	if cmd := m.advanceFrame(stale); cmd != nil {
+		t.Error("a stale beat should not reschedule")
 	}
 	if m.logoFrame != 0 {
-		t.Errorf("a stale tick advanced the animation to frame %d", m.logoFrame)
+		t.Errorf("a stale beat advanced the animation to frame %d", m.logoFrame)
 	}
 }
 
-// The tick is handled ahead of the modal routing, so a prompt or overlay
+// The clock must run only while something is animating, so an idle session
+// pays nothing for it — every beat is a full re-render of the whole app.
+func TestFrameClockStopsWhenNothingAnimates(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _, _ := newTestAppModel(ctrl)
+
+	if m.wantsFrames() {
+		t.Fatal("a session with nothing animating should not want frames")
+	}
+	if cmd := m.wakeFrameClock(); cmd != nil {
+		t.Error("the clock should not start with nothing to animate")
+	}
+
+	// With a splash retained the clock wakes, and stays awake across beats.
+	m.AddStartupMessageToScrollList()
+	m.logoFrame = 0
+	if cmd := m.wakeFrameClock(); cmd == nil {
+		t.Fatal("the clock should start for a running animation")
+	}
+	if cmd := m.wakeFrameClock(); cmd != nil {
+		t.Error("waking an already-running clock should not schedule a second loop")
+	}
+
+	// Run the animation out; the final beat must stop the clock rather than
+	// schedule another.
+	var last tea.Cmd
+	for range style.KitLogoAnimationFrames {
+		last = m.advanceFrame(frameTickMsg{
+			generation: m.frames.generation,
+			frame:      m.frames.frame + 1,
+		})
+	}
+	if last != nil {
+		t.Error("the last beat of the last animation should not reschedule")
+	}
+	if m.frames.running {
+		t.Error("the clock should stop once nothing is animating")
+	}
+}
+
+// The beat is handled ahead of the modal routing, so a prompt or overlay
 // opening mid-animation cannot swallow it and strand the logo mid-sweep.
 func TestLogoTickSurvivesModalState(t *testing.T) {
 	ctrl := &stubAppController{}
 	m, _, _ := newTestAppModel(ctrl)
 	m.AddStartupMessageToScrollList()
 
-	m.logoAnimGeneration++
-	gen := m.logoAnimGeneration
 	m.logoFrame = 0
+	m.frames.start()
 
-	// stateOverlay would return early from Update if the tick were handled
+	// stateOverlay would return early from update if the beat were handled
 	// in the main switch.
 	m.state = stateOverlay
 
-	updated, cmd := m.Update(logoAnimTickMsg{generation: gen})
+	updated, cmd := m.Update(frameTickMsg{generation: m.frames.generation, frame: 1})
 	m = updated.(*AppModel)
 
 	if cmd == nil {
-		t.Fatal("tick was swallowed by the modal routing")
+		t.Fatal("beat was swallowed by the modal routing")
 	}
 	if m.logoFrame != 1 {
 		t.Errorf("frame is %d, want 1", m.logoFrame)

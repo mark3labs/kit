@@ -700,10 +700,14 @@ type AppModel struct {
 	// the logo rather than re-deriving the whole block.
 	splashTail []string
 
-	// logoFrame is the startup animation's current frame, and
-	// logoAnimGeneration identifies the run that owns the tick loop.
-	logoFrame          int
-	logoAnimGeneration uint64
+	// logoFrame is the startup animation's current frame. The animation does
+	// not own a tick loop; it advances when the shared frame clock hands it a
+	// frame, and reports through wantsFrames that it wants more.
+	logoFrame int
+
+	// frames is the shared animation clock. Every animated component in the
+	// app advances on its beat; see frameclock.go for why there is only one.
+	frames frameClock
 
 	// getSkillItems returns the current skill items. Used to refresh the
 	// skill list after content hot-reload. May be nil.
@@ -923,13 +927,13 @@ type streamComponentIface interface {
 	// GetRenderedContent returns the rendered assistant message from accumulated
 	// streaming text, or empty string if nothing has been accumulated.
 	GetRenderedContent() string
-	// SpinnerView returns the rendered spinner line (animation + optional label).
-	// Returns "" when the spinner is not active. The parent renders this in the
-	// status bar so the spinner never changes the view height.
-	SpinnerView() string
 	// ActivityDot returns the animated indicator glyph on its own, for the
 	// activity row. Returns "" when nothing is in flight.
 	ActivityDot() string
+	// IsSpinning reports whether there is live activity being animated. The
+	// parent reads this to decide whether the shared frame clock should keep
+	// running.
+	IsSpinning() bool
 	// ActivityPhrase returns a present-tense description of the work currently
 	// in flight, e.g. "Running go test ./...".
 	ActivityPhrase() string
@@ -1273,22 +1277,6 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 // Startup logo animation
 // --------------------------------------------------------------------------
 
-// logoAnimTickMsg drives the startup logo animation. The generation field ties
-// each tick to the run that scheduled it, so a tick left over from an earlier
-// run (a theme change or a resize that restarts the animation) is discarded
-// rather than starting a second concurrent loop at double speed — the same
-// guard the activity spinner uses.
-type logoAnimTickMsg struct {
-	generation uint64
-}
-
-// logoAnimTickCmd fires the next animation frame.
-func logoAnimTickCmd(generation uint64) tea.Cmd {
-	return tea.Tick(time.Second/style.KitLogoAnimationFPS, func(_ time.Time) tea.Msg {
-		return logoAnimTickMsg{generation: generation}
-	})
-}
-
 // logoAnimationSupported reports whether the startup animation should run at
 // all.
 //
@@ -1296,6 +1284,10 @@ func logoAnimTickCmd(generation uint64) tea.Cmd {
 // sweep (where it would strobe between a handful of steps rather than move),
 // and when the wordmark has degraded to a plain "KIT" because the terminal is
 // too narrow for the block art — there is nothing there to animate.
+//
+// The gate lives here, on the animation, rather than on the shared clock. The
+// clock also drives the activity spinner, which is a liveness indicator rather
+// than decoration and has to keep moving on a two-colour terminal.
 func (m *AppModel) logoAnimationSupported() bool {
 	return style.SupportsSmoothAnimation() && style.KitLogoFits(m.width-style.ContentOffset)
 }
@@ -1321,27 +1313,29 @@ func (m *AppModel) renderSplash(frame int) string {
 	return style.SplashBlock(content)
 }
 
-// startLogoAnimation begins the startup animation, returning the command that
-// schedules its first frame, or nil when the animation will not run.
+// startLogoAnimation arms the startup animation, returning the command that
+// starts the shared clock, or nil when the animation will not run.
+//
+// Arming is just resetting the frame counter: the retained splashItem is what
+// wantsFrames reads to keep the clock alive, and dropping it at the end of the
+// sweep is what lets the clock stop.
 func (m *AppModel) startLogoAnimation() tea.Cmd {
 	if m.splashItem == nil || !m.logoAnimationSupported() {
 		return nil
 	}
 	m.logoFrame = 0
-	m.logoAnimGeneration++
-	return logoAnimTickCmd(m.logoAnimGeneration)
+	return m.wakeFrameClock()
 }
 
-// advanceLogoAnimation paints the next animation frame into the splash item
-// and returns the command for the frame after it, or nil once the animation
-// has settled.
+// advanceLogoAnimation paints the next animation frame into the splash item,
+// releasing it once the animation has settled.
 //
 // The splash is repainted in place rather than replaced: the item keeps its
 // ID, and every frame is the same height, so ScrollList's height cache stays
 // valid and the animation costs one re-render of a seven-line item per frame.
-func (m *AppModel) advanceLogoAnimation(generation uint64) tea.Cmd {
-	if generation != m.logoAnimGeneration || m.splashItem == nil {
-		return nil
+func (m *AppModel) advanceLogoAnimation() {
+	if m.splashItem == nil {
+		return
 	}
 
 	m.logoFrame++
@@ -1349,14 +1343,13 @@ func (m *AppModel) advanceLogoAnimation(generation uint64) tea.Cmd {
 	m.refreshContent()
 
 	if m.logoFrame >= style.KitLogoAnimationFrames {
-		// Settled. Dropping the item reference stops any later tick from
-		// finding something to repaint. splashTail is deliberately kept, so
-		// renderSplash stays valid for any future caller rather than
-		// silently rebuilding the block without its content.
+		// Settled. Dropping the item reference both stops any later frame from
+		// finding something to repaint and tells wantsFrames the animation is
+		// over, which is what lets the clock wind down. splashTail is
+		// deliberately kept, so renderSplash stays valid for any future caller
+		// rather than silently rebuilding the block without its content.
 		m.splashItem = nil
-		return nil
 	}
-	return logoAnimTickCmd(generation)
 }
 
 // tildeHome replaces the user's home directory prefix with ~ for display.
@@ -1371,9 +1364,84 @@ func tildeHome(path string) string {
 	return path
 }
 
-// Update implements tea.Model. It is the heart of the state machine: it routes
-// incoming messages to children and handles state transitions.
+// Update implements tea.Model. It routes incoming messages to children and
+// handles state transitions, then keeps the shared animation clock in step.
+//
+// The clock is woken here rather than at each site that starts an animation.
+// update has many early returns, and an animation can begin down any of them —
+// a spinner starting on a tool event, the logo starting on a resize — so a
+// wake call per site would be a standing invitation to miss one, and a missed
+// one is a permanently frozen animation. Doing it once, after update has run
+// and whatever it did has settled, makes the invariant total: if anything
+// wants frames, the clock is running. start is idempotent, so this costs
+// nothing on the overwhelming majority of messages, when the clock is either
+// already running or not wanted.
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	if wake := m.wakeFrameClock(); wake != nil {
+		return model, tea.Batch(cmd, wake)
+	}
+	return model, cmd
+}
+
+// wantsFrames reports whether any animation currently needs the clock.
+//
+// This is a pull, not a subscription registry. The animated components are
+// already owned by AppModel, so asking them is cheaper and harder to get wrong
+// than having each register and — the part that actually breaks — remember to
+// deregister on every exit path.
+func (m *AppModel) wantsFrames() bool {
+	if m.splashItem != nil {
+		return true
+	}
+	if m.stream != nil && m.stream.IsSpinning() {
+		return true
+	}
+	return false
+}
+
+// wakeFrameClock resumes the clock if something needs frames and it is idle,
+// returning nil in every other case.
+func (m *AppModel) wakeFrameClock() tea.Cmd {
+	if !m.wantsFrames() {
+		return nil
+	}
+	return m.frames.start()
+}
+
+// advanceFrame drives one beat of the shared clock: it hands the frame to
+// every animation that is due one, then either schedules the next beat or
+// stops the clock because nothing is animating any more.
+func (m *AppModel) advanceFrame(t frameTickMsg) tea.Cmd {
+	if !m.frames.accept(t) {
+		return nil
+	}
+
+	var cmds []tea.Cmd
+
+	if m.splashItem != nil && t.due(frameEveryLogo) {
+		m.advanceLogoAnimation()
+	}
+
+	// The spinner lives in StreamComponent, so the frame is handed to it the
+	// same way any other message would be. It advances its own frame and
+	// schedules nothing.
+	if m.stream != nil {
+		updated, cmd := m.stream.Update(t)
+		m.stream, _ = updated.(streamComponentIface)
+		cmds = append(cmds, cmd)
+	}
+
+	if !m.wantsFrames() {
+		m.frames.stop()
+		return tea.Batch(cmds...)
+	}
+	return tea.Batch(append(cmds, m.frames.tick())...)
+}
+
+// update is the state machine proper. Callers go through Update, which wraps
+// this to maintain the frame clock.
+func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// Stamp the turn clock on entry to / exit from the working state, so the
@@ -1410,11 +1478,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamFlushPending = false
 		m.flushPendingStreamChunks()
 		return m, nil
-	case logoAnimTickMsg:
+	case frameTickMsg:
 		// Handled here, ahead of the modal routing below, because a prompt or
-		// overlay opening mid-animation would otherwise swallow the tick and
-		// strand the wordmark with a highlight band frozen across it.
-		return m, m.advanceLogoAnimation(msg.generation)
+		// overlay opening mid-animation would otherwise swallow the beat and
+		// strand every animation on screen — the wordmark with a highlight
+		// band frozen across it, the activity dot mid-bounce.
+		return m, m.advanceFrame(msg)
 	default:
 		m.flushPendingStreamChunks()
 	}

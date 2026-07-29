@@ -333,21 +333,23 @@ func KitLogoFits(contentWidth int) bool {
 	return contentWidth >= kitLogoWidth
 }
 
-// Startup animation timing, in frames at KitLogoAnimationFPS.
+// Startup animation timing, in frames.
 //
 // The animation runs in two phases: a shine sweeps diagonally across the
 // wordmark, then the scanner bar makes one bounce beneath it. Both are short —
 // this is a flourish on a splash the user is reading past, not something to
 // sit through.
+//
+// These are counts, not durations: the wordmark does not drive itself, it
+// advances on the UI's shared frame clock, so how long each phase lasts is a
+// function of the rate that clock runs at. The parenthesised times below
+// assume 30fps, which is what the sweep was tuned against and what the clock
+// ticks at; a test on the clock's side pins the resulting total duration so
+// retuning the clock cannot quietly turn the flourish into something the user
+// has to wait out.
 const (
-	kitLogoSweepFrames   = 20 // ~0.67s
-	kitLogoScannerFrames = 30 // ~1.0s, one full left-right-left bounce
-
-	// KitLogoAnimationFPS is the frame rate the startup animation expects to
-	// be driven at. The shine reads as a moving band rather than a series of
-	// steps at 30fps; the 14fps used by the activity spinner is too coarse for
-	// a gradient sweep.
-	KitLogoAnimationFPS = 30
+	kitLogoSweepFrames   = 20 // ~0.67s at 30fps
+	kitLogoScannerFrames = 30 // ~1.0s at 30fps, one full left-right-left bounce
 )
 
 // KitLogoAnimationFrames is the total number of frames in the startup
