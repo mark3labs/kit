@@ -221,6 +221,12 @@ type UsageUpdatedEvent struct{}
 // from its WidgetProvider on the next render cycle.
 type WidgetUpdateEvent struct{}
 
+// ThemeChangedEvent is sent when the active color theme is replaced from
+// outside the TUI's own /theme command — an extension calling ctx.SetTheme,
+// for instance. Components that memoize theme-derived styling repaint
+// themselves when they see it.
+type ThemeChangedEvent struct{}
+
 // ContentReloadEvent is sent when prompt templates or skills are reloaded
 // from disk (e.g. by a file watcher detecting changes). The TUI refreshes
 // its autocomplete entries and internal state from the provider callbacks.

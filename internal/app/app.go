@@ -1489,6 +1489,19 @@ func (a *App) NotifyContentReload() {
 	}
 }
 
+// NotifyThemeChange sends a ThemeChangedEvent to the TUI so components holding
+// theme-derived styling repaint. Called after the active theme is replaced
+// from outside the TUI, such as by an extension's ctx.SetTheme.
+// In non-interactive mode this is a no-op.
+func (a *App) NotifyThemeChange() {
+	a.mu.Lock()
+	prog := a.program
+	a.mu.Unlock()
+	if prog != nil {
+		prog.Send(ThemeChangedEvent{})
+	}
+}
+
 // NotifyMCPToolsReady sends an MCPToolsReadyEvent to the TUI so it refreshes
 // tool names and MCP tool count from provider callbacks. Called when background
 // MCP tool loading completes. In non-interactive mode this is a no-op.

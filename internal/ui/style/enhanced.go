@@ -46,10 +46,29 @@ func AdaptiveColor(light, dark string) color.Color {
 // Global theme instance
 var currentTheme = DefaultTheme()
 
+// themeGeneration counts theme changes. It starts at 1 so that a zero-valued
+// generation stamp — the state of any freshly allocated cache — never compares
+// equal to it and is therefore always treated as stale.
+//
+// Only accessed from BubbleTea's single-threaded Update/View cycle, like the
+// rest of the theme state in this package.
+var themeGeneration uint64 = 1
+
 // GetTheme returns the currently active UI theme. The theme controls all color
 // and styling decisions throughout the application's interface.
 func GetTheme() Theme {
 	return currentTheme
+}
+
+// ThemeGeneration returns a counter that increments on every theme change.
+//
+// Anything that memoizes rendered output stamps the cached value with the
+// generation it was produced at and discards it once the stamp no longer
+// matches. That keeps colors correct across a theme switch without forcing
+// eager re-rendering: each cache is rebuilt lazily, at most once per switch,
+// and only when something asks for it again.
+func ThemeGeneration() uint64 {
+	return themeGeneration
 }
 
 // SetTheme updates the global UI theme, affecting all subsequent rendering
@@ -58,6 +77,7 @@ func GetTheme() Theme {
 // GetMarkdownTypography picks up the new theme.
 func SetTheme(theme Theme) {
 	currentTheme = theme
+	themeGeneration++             // invalidate generation-stamped render caches
 	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
 	uiTypographyCache = nil       // invalidate cached block typography; colors may have changed
 	styleCache = nil              // invalidate cached styles; colors may have changed

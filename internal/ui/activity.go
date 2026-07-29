@@ -355,6 +355,18 @@ func (m *AppModel) printTurnReceipt(outcome turnOutcome) {
 		return
 	}
 
+	toolCount := m.turnToolCount
+	msg := NewThemedMessageItem(generateMessageID(), "system", "", func() string {
+		return renderTurnReceipt(outcome, elapsed, toolCount)
+	})
+	m.messages = append(m.messages, msg)
+	m.refreshContent()
+}
+
+// renderTurnReceipt draws the one-line turn summary. Split out from
+// printTurnReceipt so the scrollback item can redraw itself from the active
+// theme rather than holding colors frozen at the moment the turn ended.
+func renderTurnReceipt(outcome turnOutcome, elapsed time.Duration, toolCount int) string {
 	theme := style.GetTheme()
 
 	var glyph, label string
@@ -370,8 +382,8 @@ func (m *AppModel) printTurnReceipt(outcome turnOutcome) {
 
 	dim := lipgloss.NewStyle().Foreground(theme.VeryMuted)
 	parts := []string{lipgloss.NewStyle().Bold(true).Render(label)}
-	if m.turnToolCount > 0 {
-		parts = append(parts, dim.Render(pluralize(m.turnToolCount, "tool")))
+	if toolCount > 0 {
+		parts = append(parts, dim.Render(pluralize(toolCount, "tool")))
 	}
 	if e := formatElapsed(elapsed); e != "" {
 		parts = append(parts, dim.Render(e))
@@ -379,10 +391,7 @@ func (m *AppModel) printTurnReceipt(outcome turnOutcome) {
 
 	line := lipgloss.NewStyle().Foreground(glyphColor).Render(glyph) + " " +
 		strings.Join(parts, dim.Render(" · "))
-	line = styleMarginBottom1.Render(line)
-
-	m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "system", line, line))
-	m.refreshContent()
+	return styleMarginBottom1.Render(line)
 }
 
 // turnReceiptMinDuration is the shortest turn worth acknowledging when no

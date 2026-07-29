@@ -120,6 +120,14 @@ func (s *ScrollList) InvalidateItemHeight(id string) {
 	delete(s.heightCache, id)
 }
 
+// InvalidateHeights drops every cached height, forcing each item to be
+// re-measured on the next query. Call this when something outside the list
+// changes how items render — a theme switch, for instance, where a repainted
+// block can occupy a different number of lines than the one it replaces.
+func (s *ScrollList) InvalidateHeights() {
+	clear(s.heightCache)
+}
+
 // SetSelectedIndex sets the message framed by the selection border, or -1 to
 // clear the selection. The border adds two lines to the item's rendered
 // height, so the cached heights of both the previously and newly selected

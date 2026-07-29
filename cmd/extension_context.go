@@ -284,7 +284,12 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		)
 	}
 	ec.SetTheme = func(name string) error {
-		return ui.ApplyTheme(name)
+		if err := ui.ApplyTheme(name); err != nil {
+			return err
+		}
+		// Notify the TUI so components caching theme-derived styling repaint.
+		go appInstance.NotifyThemeChange()
+		return nil
 	}
 	ec.ListThemes = func() []string {
 		return ui.ListThemes()

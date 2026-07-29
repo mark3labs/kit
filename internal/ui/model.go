@@ -1252,7 +1252,11 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	// there is no flash of the resting logo before the first tick lands.
 	m.logoFrame = m.initialLogoFrame()
 	splash := m.renderSplash(m.logoFrame)
-	item := NewStyledMessageItem(generateMessageID(), "logo", splash, splash)
+	// Themed so the banner follows a theme switch. The closure reads the
+	// current frame, which is also what lets the animation repaint in place.
+	item := NewThemedMessageItem(generateMessageID(), "logo", splash, func() string {
+		return m.renderSplash(m.logoFrame)
+	})
 	m.splashItem = item
 	m.messages = append(m.messages, item)
 
@@ -1260,8 +1264,10 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	// notices and are rendered as such — appending the raw string would put
 	// unstyled, unwrapped text at column 0.
 	for _, extMsg := range m.startupExtensionMessages {
-		rendered := m.renderer.RenderSystemMessage(extMsg, time.Now()).Content
-		m.messages = append(m.messages, NewStyledMessageItem(generateMessageID(), "system", extMsg, rendered))
+		now := time.Now()
+		m.messages = append(m.messages, NewThemedMessageItem(generateMessageID(), "system", extMsg, func() string {
+			return m.renderer.RenderSystemMessage(extMsg, now).Content
+		}))
 	}
 
 	// The splash carries its own trailing gap, which is what separates the
@@ -1339,7 +1345,7 @@ func (m *AppModel) advanceLogoAnimation() {
 	}
 
 	m.logoFrame++
-	m.splashItem.preRendered = m.renderSplash(m.logoFrame)
+	m.splashItem.Invalidate()
 	m.refreshContent()
 
 	if m.logoFrame >= style.KitLogoAnimationFrames {
@@ -2181,6 +2187,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
 		if msg.block != "" {
+			// Static: the block is decoded pixel data, not a styled text
+			// block. Repainting it would mean re-decoding the image, and
+			// only its background tint comes from the theme.
 			item := NewStyledMessageItem(generateMessageID(), "user", "", msg.block)
 			m.insertMessageAfter(msg.anchorID, item)
 			m.refreshContent()
@@ -2534,6 +2543,12 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// changes needed — the UsageTracker was already mutated in-place.
 		// Returning from Update() triggers View() which re-renders the
 		// status bar with the latest token counts, cost, and context %.
+
+	case app.ThemeChangedEvent:
+		// The theme was replaced from outside the /theme command (an
+		// extension's ctx.SetTheme). The global theme is already set; this
+		// repaints the components that cache styling derived from it.
+		m.refreshTheme()
 
 	case app.WidgetUpdateEvent:
 		// Extension widget changed — recalculate height distribution so the
@@ -3563,11 +3578,13 @@ func (m *AppModel) printUserMessage(text string) {
 		}
 	}
 
-	// Render styled content using MessageRenderer
-	styledMsg := m.renderer.RenderUserMessage(text, time.Now())
+	now := time.Now()
 
-	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
+	// Add to in-memory scrollList. The renderer call is deferred into a
+	// closure so the block repaints itself after a theme change.
+	msg := NewThemedMessageItem(generateMessageID(), "user", text, func() string {
+		return m.renderer.RenderUserMessage(text, now).Content
+	})
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content and scroll to bottom
@@ -3577,11 +3594,14 @@ func (m *AppModel) printUserMessage(text string) {
 // printAssistantMessage renders an assistant message into the ScrollList.
 func (m *AppModel) printAssistantMessage(text string) {
 	if strings.TrimSpace(text) != "" {
-		// Render styled content using MessageRenderer
-		styledMsg := m.renderer.RenderAssistantMessage(text, time.Now(), m.modelName)
+		now := time.Now()
+		modelName := m.modelName
 
-		// Add to in-memory scrollList with styled content
-		msg := NewStyledMessageItem(generateMessageID(), "assistant", text, styledMsg.Content)
+		// Add to in-memory scrollList. The renderer call is deferred into a
+		// closure so the block repaints itself after a theme change.
+		msg := NewThemedMessageItem(generateMessageID(), "assistant", text, func() string {
+			return m.renderer.RenderAssistantMessage(text, now, modelName).Content
+		})
 		m.messages = append(m.messages, msg)
 
 		// Refresh ScrollList content and scroll to bottom
@@ -3593,9 +3613,6 @@ func (m *AppModel) printAssistantMessage(text string) {
 func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	m.turnToolCount++
 
-	// Render styled tool message using MessageRenderer
-	styledMsg := m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
-
 	// Keep the untruncated result as the item's raw content. The styled
 	// rendering caps output (10 lines for generic results, 20 for diffs and
 	// code) and elides long arguments in the header, so without this the
@@ -3603,8 +3620,11 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	// scrollback already displays.
 	raw := toolRawContent(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError)
 
-	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
+	// Add to in-memory scrollList. The renderer call is deferred into a
+	// closure so the block repaints itself after a theme change.
+	msg := NewThemedMessageItem(generateMessageID(), "tool", raw, func() string {
+		return m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content
+	})
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
@@ -3693,11 +3713,14 @@ func formatToolArgsForInspector(args string) string {
 // printErrorResponse renders an error message into the ScrollList.
 func (m *AppModel) printErrorResponse(evt app.StepErrorEvent) {
 	if evt.Err != nil {
-		// Render styled error message using MessageRenderer
-		styledMsg := m.renderer.RenderErrorMessage(evt.Err.Error(), time.Now())
+		errText := evt.Err.Error()
+		now := time.Now()
 
-		// Add to in-memory scrollList with styled content
-		msg := NewStyledMessageItem(generateMessageID(), "error", evt.Err.Error(), styledMsg.Content)
+		// Add to in-memory scrollList. The renderer call is deferred into a
+		// closure so the block repaints itself after a theme change.
+		msg := NewThemedMessageItem(generateMessageID(), "error", errText, func() string {
+			return m.renderer.RenderErrorMessage(errText, now).Content
+		})
 		m.messages = append(m.messages, msg)
 
 		// Refresh ScrollList content
@@ -3786,11 +3809,13 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 
 // printSystemMessage renders a system-level message into the ScrollList.
 func (m *AppModel) printSystemMessage(text string) {
-	// Render styled system message using MessageRenderer
-	styledMsg := m.renderer.RenderSystemMessage(text, time.Now())
+	now := time.Now()
 
-	// Add to in-memory scrollList with styled content
-	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
+	// Add to in-memory scrollList. The renderer call is deferred into a
+	// closure so the block repaints itself after a theme change.
+	msg := NewThemedMessageItem(generateMessageID(), "system", text, func() string {
+		return m.renderer.RenderSystemMessage(text, now).Content
+	})
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
@@ -3799,9 +3824,11 @@ func (m *AppModel) printSystemMessage(text string) {
 
 // printCustomMessage renders a message with a custom alert label into the ScrollList.
 func (m *AppModel) printCustomMessage(text, label string) {
-	styledMsg := m.renderer.RenderCustomMessage(text, label, time.Now())
+	now := time.Now()
 
-	msg := NewStyledMessageItem(generateMessageID(), "system", text, styledMsg.Content)
+	msg := NewThemedMessageItem(generateMessageID(), "system", text, func() string {
+		return m.renderer.RenderCustomMessage(text, label, now).Content
+	})
 	m.messages = append(m.messages, msg)
 
 	m.refreshContent()
@@ -3810,10 +3837,13 @@ func (m *AppModel) printCustomMessage(text, label string) {
 // printExtensionBlock renders a custom styled block from an extension with
 // caller-chosen border color and optional subtitle into the ScrollList.
 func (m *AppModel) printExtensionBlock(evt app.ExtensionPrintEvent) {
-	rendered := m.renderer.RenderExtensionBlock(evt.Text, evt.BorderColor, evt.Subtitle).Content
-
-	// Add to in-memory scrollList with rendered content
-	msg := NewStyledMessageItem(generateMessageID(), "extension", evt.Text, rendered)
+	// Add to in-memory scrollList. The renderer call is deferred into a
+	// closure so the block repaints itself after a theme change. Note that
+	// evt.BorderColor is the extension's own choice and stays fixed; only the
+	// theme-derived parts of the block follow the active palette.
+	msg := NewThemedMessageItem(generateMessageID(), "extension", evt.Text, func() string {
+		return m.renderer.RenderExtensionBlock(evt.Text, evt.BorderColor, evt.Subtitle).Content
+	})
 	m.messages = append(m.messages, msg)
 
 	// Refresh ScrollList content
@@ -4403,11 +4433,14 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 			}
 
 			if !alreadyInList {
-				// Render styled content using MessageRenderer
-				styledMsg := m.renderer.RenderAssistantMessage(content, time.Now(), m.modelName)
+				now := time.Now()
+				modelName := m.modelName
 
-				// Add to in-memory scrollList with styled content
-				msg := NewStyledMessageItem(generateMessageID(), "assistant", content, styledMsg.Content)
+				// Add to in-memory scrollList. The renderer call is deferred
+				// into a closure so the block repaints on a theme change.
+				msg := NewThemedMessageItem(generateMessageID(), "assistant", content, func() string {
+					return m.renderer.RenderAssistantMessage(content, now, modelName).Content
+				})
 				m.messages = append(m.messages, msg)
 			}
 		}
@@ -4415,11 +4448,13 @@ func (m *AppModel) flushStreamAndPendingUserMessages() {
 
 	// 2. Render pending user messages from the queue.
 	for _, text := range m.pendingUserPrints {
-		// Render styled content using MessageRenderer
-		styledMsg := m.renderer.RenderUserMessage(text, time.Now())
+		now := time.Now()
 
-		// Add to in-memory scrollList with styled content
-		msg := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
+		// Add to in-memory scrollList. The renderer call is deferred into a
+		// closure so the block repaints itself after a theme change.
+		msg := NewThemedMessageItem(generateMessageID(), "user", text, func() string {
+			return m.renderer.RenderUserMessage(text, now).Content
+		})
 		m.messages = append(m.messages, msg)
 	}
 	m.pendingUserPrints = nil
@@ -4939,6 +4974,18 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	m.refreshTheme()
+	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
+	return nil
+}
+
+// refreshTheme repaints everything that holds theme-derived styling after the
+// active theme has been replaced.
+//
+// Most of the UI reads the theme at render time and needs nothing. This covers
+// the exceptions: components that build styles once and keep them, and caches
+// keyed on something other than the theme.
+func (m *AppModel) refreshTheme() {
 	m.renderer.UpdateTheme()
 	m.stream.UpdateTheme()
 	// The composer paints its own background, so it has to be repainted too
@@ -4946,9 +4993,13 @@ func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 	if ic, ok := m.input.(*InputComponent); ok {
 		ic.UpdateTheme()
 	}
+	// Scrollback items repaint themselves lazily on the next draw (see
+	// themeStamp), but their cached heights were measured against the old
+	// rendering and a repainted block can occupy a different number of lines.
+	if m.scrollList != nil {
+		m.scrollList.InvalidateHeights()
+	}
 	m.layoutDirty = true
-	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
-	return nil
 }
 
 // --------------------------------------------------------------------------
@@ -5770,8 +5821,10 @@ func (m *AppModel) renderSessionHistory() {
 		case message.RoleUser:
 			text := strings.TrimSpace(msg.Content())
 			if text != "" {
-				styledMsg := m.renderer.RenderUserMessage(text, msg.CreatedAt)
-				item := NewStyledMessageItem(generateMessageID(), "user", text, styledMsg.Content)
+				createdAt := msg.CreatedAt
+				item := NewThemedMessageItem(generateMessageID(), "user", text, func() string {
+					return m.renderer.RenderUserMessage(text, createdAt).Content
+				})
 				m.messages = append(m.messages, item)
 			}
 
@@ -5779,8 +5832,10 @@ func (m *AppModel) renderSessionHistory() {
 			// First render any reasoning/thinking content
 			reasoning := msg.Reasoning()
 			if reasoning.Thinking != "" {
-				styledMsg := m.renderer.RenderReasoningBlock(reasoning.Thinking, msg.CreatedAt)
-				item := NewStyledMessageItem(generateMessageID(), "reasoning", reasoning.Thinking, styledMsg.Content)
+				thinking, createdAt := reasoning.Thinking, msg.CreatedAt
+				item := NewThemedMessageItem(generateMessageID(), "reasoning", thinking, func() string {
+					return m.renderer.RenderReasoningBlock(thinking, createdAt).Content
+				})
 				m.messages = append(m.messages, item)
 			}
 			// Then render the text content
@@ -5790,8 +5845,10 @@ func (m *AppModel) renderSessionHistory() {
 				if msg.Model != "" {
 					modelName = msg.Model
 				}
-				styledMsg := m.renderer.RenderAssistantMessage(text, msg.CreatedAt, modelName)
-				item := NewStyledMessageItem(generateMessageID(), "assistant", text, styledMsg.Content)
+				createdAt := msg.CreatedAt
+				item := NewThemedMessageItem(generateMessageID(), "assistant", text, func() string {
+					return m.renderer.RenderAssistantMessage(text, createdAt, modelName).Content
+				})
 				m.messages = append(m.messages, item)
 			}
 			// Tool calls from assistant messages are rendered when we
@@ -5807,11 +5864,13 @@ func (m *AppModel) renderSessionHistory() {
 					}
 					toolArgs = info.Args
 				}
-				styledMsg := m.renderer.RenderToolMessage(toolName, toolArgs, tr.Content, tr.IsError)
 				// Retain the full call record so a resumed session's tool
 				// messages stay inspectable, exactly as live ones are.
 				raw := toolRawContent(toolName, toolArgs, tr.Content, tr.IsError)
-				item := NewStyledMessageItem(generateMessageID(), "tool", raw, styledMsg.Content)
+				content, isError := tr.Content, tr.IsError
+				item := NewThemedMessageItem(generateMessageID(), "tool", raw, func() string {
+					return m.renderer.RenderToolMessage(toolName, toolArgs, content, isError).Content
+				})
 				m.messages = append(m.messages, item)
 			}
 		}
@@ -6204,12 +6263,28 @@ func (m *AppModel) executeShellCommand(msg uicore.ShellCommandMsg) tea.Cmd {
 	}
 }
 
+// renderShellBlock frames shell command output in a content block. The border
+// is tinted to say whether the output was fed back into the conversation:
+// accent for included, muted for excluded.
+func (m *AppModel) renderShellBlock(content string, excludedFromContext bool) string {
+	theme := style.GetTheme()
+	borderClr := theme.Accent
+	if excludedFromContext {
+		borderClr = theme.Muted
+	}
+	return renderContentBlock(
+		content,
+		m.width,
+		WithAlign(lipgloss.Left),
+		WithBorderColor(borderClr),
+		WithMarginBottom(1),
+	)
+}
+
 // handleShellCommandResult processes the result of a shell command execution.
 // It prints the output to the ScrollList and optionally injects it into the
 // conversation context (for ! commands) so the LLM can see it.
 func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) tea.Cmd {
-	theme := style.GetTheme()
-
 	// Build the display header.
 	var header string
 	if msg.ExcludeFromContext {
@@ -6262,20 +6337,6 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 		fmt.Fprintf(&content, "\n\nExit code: %d", msg.ExitCode)
 	}
 
-	// Choose border color: dim for excluded, accent for included.
-	borderClr := theme.Accent
-	if msg.ExcludeFromContext {
-		borderClr = theme.Muted
-	}
-
-	rendered := renderContentBlock(
-		content.String(),
-		m.width,
-		WithAlign(lipgloss.Left),
-		WithBorderColor(borderClr),
-		WithMarginBottom(1),
-	)
-
 	// Add shell command output to ScrollList. The rendered form is capped at
 	// maxShellDisplayLines, so the full output is kept alongside it as the
 	// item's raw content for the message inspector.
@@ -6294,7 +6355,10 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 		fmt.Fprintf(&raw, "\n\nExit code: %d", msg.ExitCode)
 	}
 
-	msg2 := NewStyledMessageItem(generateMessageID(), "shell", raw.String(), rendered)
+	display, excluded := content.String(), msg.ExcludeFromContext
+	msg2 := NewThemedMessageItem(generateMessageID(), "shell", raw.String(), func() string {
+		return m.renderShellBlock(display, excluded)
+	})
 	m.messages = append(m.messages, msg2)
 	m.refreshContent()
 

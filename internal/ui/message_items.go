@@ -15,25 +15,82 @@ import (
 // MessageItem implementations for ScrollList
 // --------------------------------------------------------------------------
 
-// TextMessageItem represents a completed text message (user or assistant)
-// in the scrollback. It uses pre-rendered styled content from MessageRenderer.
-type TextMessageItem struct {
-	id          string
-	role        string // "user" or "assistant"
-	content     string // Raw content (for re-rendering if needed)
-	preRendered string // Pre-rendered styled content from MessageRenderer
-	timestamp   time.Time
+// themeStamp records the theme generation a memoized render was produced at.
+//
+// Scrollback items cache their styled output because re-rendering a block on
+// every frame is expensive. That cache holds baked-in ANSI color codes, so it
+// outlives the theme it was built for unless something invalidates it. Any
+// item that memoizes styled output embeds a themeStamp and consults stale()
+// alongside its own cache-validity checks; a theme switch then costs one
+// re-render per item, taken lazily when the item is next drawn.
+type themeStamp struct {
+	gen uint64
 }
 
-// NewStyledMessageItem creates a message item with pre-rendered styled content.
-// This is the preferred way to create messages when you have styled content from MessageRenderer.
+// stale reports whether the theme changed since the stamped render.
+func (t *themeStamp) stale() bool {
+	return t.gen != style.ThemeGeneration()
+}
+
+// stamp marks the cached render as current for the active theme.
+func (t *themeStamp) stamp() {
+	t.gen = style.ThemeGeneration()
+}
+
+// TextMessageItem represents a completed text message (user or assistant)
+// in the scrollback.
+//
+// Items are created in one of two modes:
+//
+//   - Themed (NewThemedMessageItem): the item keeps the closure that produced
+//     its styled content and re-runs it after a theme change, so historical
+//     messages recolor along with the rest of the UI.
+//   - Static (NewStyledMessageItem): the item holds a fixed string. This is
+//     for content that is either theme-independent or already composed by a
+//     caller that owns its own colors.
+type TextMessageItem struct {
+	id        string
+	role      string // "user" or "assistant"
+	content   string // Raw content (for the message inspector and re-rendering)
+	timestamp time.Time
+
+	// render regenerates styled content from the active theme. nil for static
+	// items, whose rendered content is fixed at construction.
+	render func() string
+
+	// rendered is the memoized styled content, valid for theme generation
+	// themeStamp.gen when render is non-nil.
+	rendered string
+	themeStamp
+}
+
+// NewStyledMessageItem creates a message item from fixed, pre-rendered content.
+//
+// The content will not follow subsequent theme changes. Use this only for
+// output that is theme-independent or whose colors the caller owns
+// deliberately; prefer NewThemedMessageItem for anything drawn from the theme
+// palette.
 func NewStyledMessageItem(id string, role string, rawContent string, preRendered string) *TextMessageItem {
 	return &TextMessageItem{
-		id:          id,
-		role:        role,
-		content:     rawContent,
-		preRendered: preRendered,
-		timestamp:   time.Now(),
+		id:        id,
+		role:      role,
+		content:   rawContent,
+		rendered:  preRendered,
+		timestamp: time.Now(),
+	}
+}
+
+// NewThemedMessageItem creates a message item that re-renders itself after a
+// theme change. render must be a pure function of the raw content and the
+// active theme — it is called lazily, once per theme generation, whenever the
+// item is next drawn.
+func NewThemedMessageItem(id string, role string, rawContent string, render func() string) *TextMessageItem {
+	return &TextMessageItem{
+		id:        id,
+		role:      role,
+		content:   rawContent,
+		render:    render,
+		timestamp: time.Now(),
 	}
 }
 
@@ -43,13 +100,13 @@ func (m *TextMessageItem) ID() string {
 
 // RawContent returns the original, untruncated source text for this message.
 // The scrollback stores a display-oriented (styled and possibly truncated)
-// rendering in preRendered; RawContent is what the message inspector shows so
-// the user can read content that was elided for display.
+// rendering; RawContent is what the message inspector shows so the user can
+// read content that was elided for display.
 func (m *TextMessageItem) RawContent() string {
 	if m.content != "" {
 		return m.content
 	}
-	return m.preRendered
+	return m.rendered
 }
 
 // Role returns the message role ("user", "assistant", "tool", ...).
@@ -57,18 +114,31 @@ func (m *TextMessageItem) Role() string {
 	return m.role
 }
 
+// Invalidate discards the memoized render so the next draw re-runs the render
+// closure. Use it when the closure's inputs changed rather than the theme —
+// an animation frame, for instance. No-op for static items.
+func (m *TextMessageItem) Invalidate() {
+	m.gen = 0 // never equal to a live generation, which starts at 1
+}
+
 func (m *TextMessageItem) Render(width int) string {
-	// If we have pre-rendered styled content, return it
-	if m.preRendered != "" {
-		return m.preRendered
+	// Themed items re-render once per theme generation. Static items
+	// (render == nil) keep whatever they were constructed with.
+	if m.render != nil && m.stale() {
+		m.rendered = m.render()
+		m.stamp()
 	}
 
-	// Fallback to simple formatting if no pre-rendered content
+	if m.rendered != "" {
+		return m.rendered
+	}
+
+	// Fallback to simple formatting if there is no rendered content.
 	return m.renderContent(width)
 }
 
 func (m *TextMessageItem) Height() int {
-	rendered := m.Render(0) // Width doesn't matter since we use pre-rendered
+	rendered := m.Render(0) // Width only matters for the bare fallback path
 	if rendered == "" {
 		return 0
 	}
@@ -125,6 +195,10 @@ type StreamingMessageItem struct {
 	// content render is cached separately and composed with a fresh label.
 	reasoningContent      string
 	reasoningContentWidth int
+
+	// Both caches above hold theme-colored output, so a theme change has to
+	// invalidate them even though neither the content nor the width moved.
+	themeStamp
 }
 
 // NewStreamingMessageItem creates a new streaming message item.
@@ -159,6 +233,15 @@ func (s *StreamingMessageItem) Role() string {
 
 // Render renders the streaming message with live content.
 func (s *StreamingMessageItem) Render(width int) string {
+	// A theme change invalidates every cached render below: they all hold
+	// baked-in color codes from the theme they were produced under.
+	if s.stale() {
+		s.cachedRender = ""
+		s.cachedWidth = -1
+		s.reasoningContentWidth = -1
+		s.stamp()
+	}
+
 	// Serve from cache when valid. Reasoning blocks are only cached once
 	// complete (frozen duration); assistant blocks cache immediately.
 	if s.cachedWidth == width && s.cachedRender != "" {
@@ -248,6 +331,10 @@ type StreamingBashOutputItem struct {
 	complete     bool
 	cachedRender string
 	cachedWidth  int
+
+	// cachedRender holds theme-colored output, so a theme change has to
+	// invalidate it even though neither the content nor the width moved.
+	themeStamp
 }
 
 // NewStreamingBashOutputItem creates a new streaming bash output item.
@@ -293,6 +380,13 @@ func (m *StreamingBashOutputItem) Role() string {
 }
 
 func (m *StreamingBashOutputItem) Render(width int) string {
+	// A theme change invalidates the cache: it holds baked-in color codes
+	// from the theme it was produced under.
+	if m.stale() {
+		m.cachedRender = ""
+		m.stamp()
+	}
+
 	// Return cached if width matches and complete
 	if m.complete && m.cachedWidth == width && m.cachedRender != "" {
 		return m.cachedRender
