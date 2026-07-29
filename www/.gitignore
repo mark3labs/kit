@@ -2,3 +2,10 @@ node_modules/
 out/
 dist/
 .DS_Store
+
+# Bun is the package manager here (see .github/workflows/pages.yml, which runs
+# `bun install`). A second lockfile from npm/yarn/pnpm would drift from bun.lock
+# and send Dependabot patches to a file CI never reads.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

@@ -12,5 +12,8 @@
     "@tomehq/theme": "^0.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "overrides": {
+    "typescript": "^5.9.3"
   }
 }
