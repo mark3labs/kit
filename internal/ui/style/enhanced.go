@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
@@ -16,11 +17,102 @@ import (
 
 // Enhanced styling utilities and theme definitions
 
-// isDarkBg caches the terminal background detection result at package init.
-var isDarkBg = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+// terminalCapabilities captures the per-terminal styling inputs: whether the
+// background is dark (drives adaptive colour selection) and the terminal's
+// colour depth (drives whether smooth animation is worthwhile).
+type terminalCapabilities struct {
+	darkBackground bool
+	colorProfile   colorprofile.Profile
+}
 
-// termColorProfile caches the terminal's colour depth at package init.
-var termColorProfile = colorprofile.Env(os.Environ())
+// termCaps holds the resolved terminal capabilities. It is nil until first use
+// or until SetTerminalCapabilities is called, so the (blocking, fd-touching)
+// probe never runs at package-init time. Guarded by termCapsMu.
+var (
+	termCapsMu sync.RWMutex
+	termCaps   *terminalCapabilities
+)
+
+// resolveTerminalCapabilities probes the current process's terminal. It is the
+// default source of capabilities when SetTerminalCapabilities has not been
+// called, and is kept separate so it never fires as an import-time side effect.
+func resolveTerminalCapabilities() terminalCapabilities {
+	return terminalCapabilities{
+		darkBackground: lipgloss.HasDarkBackground(os.Stdin, os.Stdout),
+		colorProfile:   colorprofile.Env(os.Environ()),
+	}
+}
+
+// currentTerminalCapabilities returns the active capabilities, resolving them
+// lazily against the process terminal the first time they are needed. Callers
+// that serve a specific client should call SetTerminalCapabilities first so
+// this never falls back to whatever fds the process happens to hold.
+func currentTerminalCapabilities() terminalCapabilities {
+	termCapsMu.RLock()
+	c := termCaps
+	termCapsMu.RUnlock()
+	if c != nil {
+		return *c
+	}
+
+	termCapsMu.Lock()
+	defer termCapsMu.Unlock()
+	if termCaps == nil {
+		resolved := resolveTerminalCapabilities()
+		termCaps = &resolved
+	}
+	return *termCaps
+}
+
+// SetTerminalCapabilities overrides the terminal background and colour profile
+// used by every subsequent styling decision in this package.
+//
+// It exists so a frontend can supply the capabilities of the terminal it is
+// actually serving instead of inheriting whatever the process's own fds report.
+// This replaces the former package-init probes, which fired once against the
+// process stdin/stdout and could not represent more than one terminal. Safe to
+// call from any goroutine.
+func SetTerminalCapabilities(darkBackground bool, colorProfile colorprofile.Profile) {
+	termCapsMu.Lock()
+	termCaps = &terminalCapabilities{
+		darkBackground: darkBackground,
+		colorProfile:   colorProfile,
+	}
+	termCapsMu.Unlock()
+
+	// A lazily-derived DefaultTheme baked in the previously-detected
+	// background, so drop it and let GetTheme rebuild against the new
+	// capabilities. A theme the caller chose explicitly is left as-is.
+	if !themeExplicitlySet {
+		currentTheme = nil
+	}
+	invalidateThemeCaches()
+}
+
+// isDarkBackground reports whether the active terminal has a dark background,
+// resolving capabilities lazily on first use.
+func isDarkBackground() bool {
+	return currentTerminalCapabilities().darkBackground
+}
+
+// ResolveTerminalCapabilities eagerly resolves the terminal background and
+// colour profile against the current process terminal, unless they have
+// already been resolved or supplied via SetTerminalCapabilities.
+//
+// The interactive frontend calls this once during startup, before the TUI
+// takes over the terminal, so the background-detection OSC query runs at a
+// point where it cannot race the event loop's reads of stdin. Headless
+// frontends should call SetTerminalCapabilities instead and skip this, to avoid
+// probing fds that do not describe their client.
+func ResolveTerminalCapabilities() {
+	_ = currentTerminalCapabilities()
+}
+
+// terminalColorProfile returns the active terminal's colour depth, resolving
+// capabilities lazily on first use.
+func terminalColorProfile() colorprofile.Profile {
+	return currentTerminalCapabilities().colorProfile
+}
 
 // SupportsSmoothAnimation reports whether the terminal has the colour depth
 // for a gradient animation to read as motion.
@@ -30,21 +122,30 @@ var termColorProfile = colorprofile.Env(os.Environ())
 // effect. Honouring the profile also means NO_COLOR and non-TTY output opt out
 // for free.
 func SupportsSmoothAnimation() bool {
-	return termColorProfile >= colorprofile.ANSI256
+	return terminalColorProfile() >= colorprofile.ANSI256
 }
 
 // AdaptiveColor picks between a light-mode and dark-mode hex color string
 // based on the detected terminal background. This replaces the old
 // lipgloss.AdaptiveColor{Light: ..., Dark: ...} pattern from v1.
 func AdaptiveColor(light, dark string) color.Color {
-	if isDarkBg {
+	if isDarkBackground() {
 		return lipgloss.Color(dark)
 	}
 	return lipgloss.Color(light)
 }
 
-// Global theme instance
-var currentTheme = DefaultTheme()
+// currentTheme holds the active UI theme. It is nil until first use so that
+// DefaultTheme — which calls AdaptiveColor and would therefore probe the
+// terminal — is not evaluated at package-init time. Resolved lazily by
+// GetTheme, or set explicitly by SetTheme.
+var currentTheme *Theme
+
+// themeExplicitlySet records whether the active theme came from SetTheme (true)
+// or was lazily derived from DefaultTheme (false). A derived theme bakes in the
+// terminal background detected when it was built, so SetTerminalCapabilities
+// must discard and rebuild it; an explicitly chosen theme is left untouched.
+var themeExplicitlySet bool
 
 // themeGeneration counts theme changes. It starts at 1 so that a zero-valued
 // generation stamp — the state of any freshly allocated cache — never compares
@@ -55,9 +156,14 @@ var currentTheme = DefaultTheme()
 var themeGeneration uint64 = 1
 
 // GetTheme returns the currently active UI theme. The theme controls all color
-// and styling decisions throughout the application's interface.
+// and styling decisions throughout the application's interface. On first use it
+// lazily derives DefaultTheme against the active terminal capabilities.
 func GetTheme() Theme {
-	return currentTheme
+	if currentTheme == nil {
+		derived := DefaultTheme()
+		currentTheme = &derived
+	}
+	return *currentTheme
 }
 
 // ThemeGeneration returns a counter that increments on every theme change.
@@ -76,7 +182,15 @@ func ThemeGeneration() uint64 {
 // It also invalidates the markdownTypographyCache so the next call to
 // GetMarkdownTypography picks up the new theme.
 func SetTheme(theme Theme) {
-	currentTheme = theme
+	currentTheme = &theme
+	themeExplicitlySet = true
+	invalidateThemeCaches()
+}
+
+// invalidateThemeCaches bumps the theme generation and drops every cache whose
+// contents depend on the active theme colours, so the next access rebuilds
+// them. Shared by SetTheme and SetTerminalCapabilities.
+func invalidateThemeCaches() {
 	themeGeneration++             // invalidate generation-stamped render caches
 	markdownTypographyCache = nil // invalidate cached renderer; colors may have changed
 	uiTypographyCache = nil       // invalidate cached block typography; colors may have changed
@@ -266,9 +380,11 @@ func DefaultTheme() Theme {
 	}
 }
 
-// IsDarkBackground returns the cached terminal background detection result.
+// IsDarkBackground returns whether the active terminal has a dark background.
+// Capabilities are resolved lazily on first use, or supplied ahead of time via
+// SetTerminalCapabilities.
 func IsDarkBackground() bool {
-	return isDarkBg
+	return isDarkBackground()
 }
 
 // CreateBadge generates a styled badge or label with inverted colors (text on
@@ -408,7 +524,7 @@ const (
 // subtler there. That is a smaller cost than inverting the gesture.
 func logoShineColor() color.Color {
 	amount := logoShineLightenLight
-	if isDarkBg {
+	if isDarkBackground() {
 		amount = logoShineLightenDark
 	}
 	return blendColors(GetTheme().Primary, color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}, amount)

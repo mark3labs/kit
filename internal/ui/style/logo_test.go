@@ -213,11 +213,11 @@ func relativeLuminance(c color.Color) float64 {
 // named for: an earlier contrast-pole rule inverted on pale palettes and swept
 // something *darker* across the wordmark, which reads as a smudge.
 func TestLogoShineIsAlwaysLighterThanWordmark(t *testing.T) {
-	origTheme, origDark := GetTheme(), isDarkBg
-	t.Cleanup(func() { isDarkBg = origDark; SetTheme(origTheme) })
+	origTheme, origDark, origProfile := GetTheme(), isDarkBackground(), terminalColorProfile()
+	t.Cleanup(func() { SetTerminalCapabilities(origDark, origProfile); SetTheme(origTheme) })
 
 	for _, dark := range []bool{true, false} {
-		isDarkBg = dark
+		SetTerminalCapabilities(dark, origProfile)
 		for name, th := range builtinThemes() {
 			SetTheme(th)
 			shine := relativeLuminance(logoShineColor())
@@ -235,8 +235,8 @@ func TestLogoShineIsAlwaysLighterThanWordmark(t *testing.T) {
 // Whatever theme is active, the shine has to be far enough from the wordmark's
 // own colours to register as a highlight crossing it.
 func TestLogoShineContrastsWithWordmarkInEveryTheme(t *testing.T) {
-	origTheme, origDark := GetTheme(), isDarkBg
-	t.Cleanup(func() { isDarkBg = origDark; SetTheme(origTheme) })
+	origTheme, origDark, origProfile := GetTheme(), isDarkBackground(), terminalColorProfile()
+	t.Cleanup(func() { SetTerminalCapabilities(origDark, origProfile); SetTheme(origTheme) })
 
 	// Floor sits just below the measured worst case (~46, catppuccin on dark
 	// and vesper on light). Those two palettes have an unusually pale Primary,
@@ -244,7 +244,7 @@ func TestLogoShineContrastsWithWordmarkInEveryTheme(t *testing.T) {
 	const minDistance = 40
 
 	for _, dark := range []bool{true, false} {
-		isDarkBg = dark
+		SetTerminalCapabilities(dark, origProfile)
 		for name, th := range builtinThemes() {
 			SetTheme(th)
 			shine := logoShineColor()
@@ -266,14 +266,14 @@ func TestLogoShineContrastsWithWordmarkInEveryTheme(t *testing.T) {
 // lift toward white from simply being turned up: on a light background it
 // closes on the page fast.
 func TestLogoShineDoesNotCollideWithBackground(t *testing.T) {
-	origTheme, origDark := GetTheme(), isDarkBg
-	t.Cleanup(func() { isDarkBg = origDark; SetTheme(origTheme) })
+	origTheme, origDark, origProfile := GetTheme(), isDarkBackground(), terminalColorProfile()
+	t.Cleanup(func() { SetTerminalCapabilities(origDark, origProfile); SetTheme(origTheme) })
 
 	// Worst measured case is ~53 (vesper on a light background).
 	const minDistance = 45
 
 	for _, dark := range []bool{true, false} {
-		isDarkBg = dark
+		SetTerminalCapabilities(dark, origProfile)
 		for name, th := range builtinThemes() {
 			SetTheme(th)
 			if d := distance(logoShineColor(), th.Background); d < minDistance {
