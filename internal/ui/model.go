@@ -3933,7 +3933,7 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 	// commands may block on interactive prompts (ctx.PromptSelect etc.) which
 	// wait for the TUI to respond via a channel. A blocking tea.Cmd can stall
 	// BubbleTea's internal Cmd scheduler, causing intermittent freezes.
-	// The goroutine delivers its result via SendEvent (prog.Send) instead.
+	// The goroutine delivers its result via SendUIMessage (prog.Send) instead.
 	cmdName := ecmd.Name
 	cmdExec := ecmd.Execute
 	cmdArgs := args

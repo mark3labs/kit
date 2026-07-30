@@ -5,8 +5,14 @@ import kit "github.com/mark3labs/kit/pkg/kit"
 // Event is the sealed union of all events the app layer emits toward a
 // display (the Bubble Tea TUI, the non-interactive CLI handler, or any future
 // transport). Every event type defined in this file implements Event via an
-// unexported marker method, so the set is closed: only app-owned types can
-// satisfy it, and switch statements over Event can be checked for exhaustiveness.
+// unexported marker method. Because that marker is unexported, only types
+// declared in this package can satisfy Event — the union is closed to external
+// implementations.
+//
+// Note that Go does not check type-switch exhaustiveness for this pattern:
+// adding a new Event variant will not produce a compile error at downstream
+// switches, so those switches should keep a default case (or the package a
+// sum-type linter) to stay safe.
 //
 // Keeping the fan-out typed as Event (rather than Bubble Tea's untyped tea.Msg)
 // means the app package no longer needs to speak the TUI's message vocabulary to
