@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/fantasy"
 	kit "github.com/mark3labs/kit/pkg/kit"
 
@@ -762,8 +761,8 @@ func TestHandleTurnEnd_LengthEmitsWarning(t *testing.T) {
 	defer app.Close()
 
 	var mu sync.Mutex
-	var received []tea.Msg
-	sendFn := func(m tea.Msg) {
+	var received []Event
+	sendFn := func(m Event) {
 		mu.Lock()
 		defer mu.Unlock()
 		received = append(received, m)
@@ -808,7 +807,7 @@ func TestHandleTurnEnd_NonLengthIgnored(t *testing.T) {
 	}
 	for _, r := range reasons {
 		var called bool
-		app.handleTurnEnd(kit.TurnEndEvent{StopReason: r}, func(m tea.Msg) {
+		app.handleTurnEnd(kit.TurnEndEvent{StopReason: r}, func(m Event) {
 			called = true
 		})
 		if called {

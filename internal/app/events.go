@@ -2,6 +2,28 @@ package app
 
 import kit "github.com/mark3labs/kit/pkg/kit"
 
+// Event is the sealed union of all events the app layer emits toward a
+// display (the Bubble Tea TUI, the non-interactive CLI handler, or any future
+// transport). Every event type defined in this file implements Event via an
+// unexported marker method, so the set is closed: only app-owned types can
+// satisfy it, and switch statements over Event can be checked for exhaustiveness.
+//
+// Keeping the fan-out typed as Event (rather than Bubble Tea's untyped tea.Msg)
+// means the app package no longer needs to speak the TUI's message vocabulary to
+// describe its own events. The concrete transport (prog.Send, a CLI callback)
+// adapts Event at the boundary; the event-producing code stays TUI-agnostic.
+//
+// Note that some events still carry a response channel (PasswordPromptEvent,
+// PromptRequestEvent, OverlayRequestEvent, NewSessionRequestEvent). Those are
+// not yet serialisable across a process boundary; converting them to a
+// request-id correlation scheme is deferred until an actual out-of-process
+// transport exists.
+type Event interface {
+	// isAppEvent is an unexported marker that seals the Event union to types
+	// declared in this package.
+	isAppEvent()
+}
+
 // StreamChunkEvent is sent by the app layer when a streaming text delta arrives
 // from the LLM. Each chunk contains an incremental portion of the response.
 type StreamChunkEvent struct {
@@ -373,3 +395,47 @@ type OverlayRequestEvent struct {
 	// ResponseCh receives the user's response. Must have buffer size >= 1.
 	ResponseCh chan<- OverlayResponse
 }
+
+// --------------------------------------------------------------------------
+// Event union markers
+//
+// Each app event type implements the sealed Event interface via this
+// unexported marker. Grouping the markers here keeps the event structs above
+// focused on their fields while making the closed set easy to audit: adding a
+// new event type is a compile error until it is listed here.
+// --------------------------------------------------------------------------
+
+func (StreamChunkEvent) isAppEvent()        {}
+func (ReasoningChunkEvent) isAppEvent()     {}
+func (ReasoningCompleteEvent) isAppEvent()  {}
+func (ToolCallStartedEvent) isAppEvent()    {}
+func (ToolCallInputStartEvent) isAppEvent() {}
+func (ToolCallInputDeltaEvent) isAppEvent() {}
+func (ToolCallInputEndEvent) isAppEvent()   {}
+func (ToolExecutionEvent) isAppEvent()      {}
+func (ToolResultEvent) isAppEvent()         {}
+func (ToolOutputEvent) isAppEvent()         {}
+func (ToolCallContentEvent) isAppEvent()    {}
+func (PasswordPromptEvent) isAppEvent()     {}
+func (ResponseCompleteEvent) isAppEvent()   {}
+func (StepCompleteEvent) isAppEvent()       {}
+func (StepErrorEvent) isAppEvent()          {}
+func (StepCancelledEvent) isAppEvent()      {}
+func (QueueUpdatedEvent) isAppEvent()       {}
+func (SpinnerEvent) isAppEvent()            {}
+func (MessageCreatedEvent) isAppEvent()     {}
+func (CompactCompleteEvent) isAppEvent()    {}
+func (CompactErrorEvent) isAppEvent()       {}
+func (SteerConsumedEvent) isAppEvent()      {}
+func (ModelChangedEvent) isAppEvent()       {}
+func (UsageUpdatedEvent) isAppEvent()       {}
+func (WidgetUpdateEvent) isAppEvent()       {}
+func (ThemeChangedEvent) isAppEvent()       {}
+func (ContentReloadEvent) isAppEvent()      {}
+func (MCPToolsReadyEvent) isAppEvent()      {}
+func (MCPServerLoadedEvent) isAppEvent()    {}
+func (EditorTextSetEvent) isAppEvent()      {}
+func (NewSessionRequestEvent) isAppEvent()  {}
+func (ExtensionPrintEvent) isAppEvent()     {}
+func (PromptRequestEvent) isAppEvent()      {}
+func (OverlayRequestEvent) isAppEvent()     {}

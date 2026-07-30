@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/mark3labs/kit/internal/app"
 )
 
@@ -74,7 +72,7 @@ func (h *CLIEventHandler) endStream() {
 
 // Handle processes a single app event and renders it via the CLI. This is
 // the callback passed to app.RunOnceWithDisplay.
-func (h *CLIEventHandler) Handle(msg tea.Msg) {
+func (h *CLIEventHandler) Handle(msg app.Event) {
 	switch e := msg.(type) {
 	case app.SpinnerEvent:
 		if e.Show {

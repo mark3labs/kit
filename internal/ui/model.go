@@ -108,11 +108,13 @@ type AppController interface {
 	// SwitchTreeSession replaces the active tree session with a new one,
 	// closing the old session. Used by /new to create a completely fresh session.
 	SwitchTreeSession(ts *session.TreeManager)
-	// SendEvent sends a tea.Msg to the program asynchronously. Safe to call
-	// from any goroutine. Used by extension command goroutines to deliver
-	// results back to the TUI without going through tea.Cmd (which can stall
-	// when the goroutine blocks on interactive prompts).
-	SendEvent(tea.Msg)
+	// SendUIMessage re-injects a UI-internal message into the program's Update
+	// loop asynchronously. Safe to call from any goroutine. Used by extension
+	// command goroutines (and other async UI work) to deliver results back to
+	// the TUI without going through tea.Cmd (which can stall when the goroutine
+	// blocks on interactive prompts). The message is opaque to the app layer;
+	// it is not an app Event and is only understood by the UI's own Update.
+	SendUIMessage(tea.Msg)
 	// AddContextMessage adds a user-role message to the conversation history
 	// without triggering an LLM response. Used by the ! shell command prefix
 	// to inject command output into context so the LLM can reference it in
@@ -1542,7 +1544,7 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				forkUserText := msg.UserText
 				go func() {
 					cancelled, reason := emit(forkTargetID, forkIsUser, forkUserText)
-					ctrl.SendEvent(beforeForkResultMsg{
+					ctrl.SendUIMessage(beforeForkResultMsg{
 						cancelled: cancelled,
 						reason:    reason,
 						targetID:  forkTargetID,
@@ -3938,7 +3940,7 @@ func (m *AppModel) handleExtensionCommand(text string) tea.Cmd {
 	ctrl := m.appCtrl
 	go func() {
 		output, err := cmdExec(cmdArgs)
-		ctrl.SendEvent(extensionCmdResultMsg{name: cmdName, output: output, err: err})
+		ctrl.SendUIMessage(extensionCmdResultMsg{name: cmdName, output: output, err: err})
 	}()
 	// Return a non-nil Cmd so the caller knows the command was handled
 	// and doesn't fall through to the regular prompt path. The Cmd itself
@@ -4010,7 +4012,7 @@ func (m *AppModel) handleMCPPromptCommand(text string) tea.Cmd {
 	go func() {
 		result, err := expand(serverName, promptName, args)
 		if err != nil {
-			ctrl.SendEvent(mcpPromptResultMsg{err: err})
+			ctrl.SendUIMessage(mcpPromptResultMsg{err: err})
 			return
 		}
 		// Concatenate user-role messages as the prompt text and collect
@@ -4025,7 +4027,7 @@ func (m *AppModel) handleMCPPromptCommand(text string) tea.Cmd {
 				allFileParts = append(allFileParts, msg.FileParts...)
 			}
 		}
-		ctrl.SendEvent(mcpPromptResultMsg{
+		ctrl.SendUIMessage(mcpPromptResultMsg{
 			text:      strings.Join(parts, "\n\n"),
 			fileParts: allFileParts,
 		})
@@ -5165,7 +5167,7 @@ func (m *AppModel) handleNewCommand(initialPrompt string) tea.Cmd {
 		ctrl := m.appCtrl
 		go func() {
 			cancelled, reason := emit("new", initialPrompt)
-			ctrl.SendEvent(beforeSessionSwitchResultMsg{
+			ctrl.SendUIMessage(beforeSessionSwitchResultMsg{
 				cancelled:     cancelled,
 				reason:        reason,
 				initialPrompt: initialPrompt,

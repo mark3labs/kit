@@ -65,7 +65,7 @@ func (s *stubAppController) SwitchTreeSession(_ *session.TreeManager) {
 	// no-op in tests
 }
 
-func (s *stubAppController) SendEvent(_ tea.Msg) {
+func (s *stubAppController) SendUIMessage(_ tea.Msg) {
 	// no-op in tests
 }
 
