@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/kit/internal/message"
@@ -331,6 +332,32 @@ func UnmarshalEntry(data []byte) (any, error) {
 	default:
 		return nil, fmt.Errorf("unknown entry type: %q", env.Type)
 	}
+}
+
+// Text returns the plain-text content of the message, concatenating every
+// text part with newlines. Non-text parts (tool calls, tool results, images,
+// reasoning) are ignored, so a tool-only message yields an empty string.
+//
+// This is a cheap projection intended for previews and list rendering: it
+// scans the type-tagged parts directly instead of going through ToMessage,
+// and it never fails — malformed parts simply yield an empty string.
+func (e *MessageEntry) Text() string {
+	var parts []struct {
+		Type string `json:"type"`
+		Data struct {
+			Text string `json:"text"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(e.Parts, &parts); err != nil {
+		return ""
+	}
+	var texts []string
+	for _, p := range parts {
+		if p.Type == "text" && p.Data.Text != "" {
+			texts = append(texts, p.Data.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
 }
 
 // ToMessage converts a MessageEntry back to a message.Message by

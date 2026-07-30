@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mark3labs/kit/internal/app"
-	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/ui/core"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
@@ -25,6 +25,11 @@ type stubAppController struct {
 	clearQueueCalled int
 	clearMsgCalled   int
 	queueLen         int
+
+	// hasSession controls whether SessionSnapshot reports an active session,
+	// and sessionHistory is what SessionHistory returns for it.
+	hasSession     bool
+	sessionHistory []message.Message
 }
 
 func (s *stubAppController) Run(prompt string) int {
@@ -57,12 +62,35 @@ func (s *stubAppController) CompactConversation(_ string) error {
 	return nil
 }
 
-func (s *stubAppController) GetTreeSession() *session.TreeManager {
+func (s *stubAppController) SessionSnapshot() (app.SessionSnapshot, bool) {
+	if !s.hasSession {
+		return app.SessionSnapshot{}, false
+	}
+	return app.SessionSnapshot{ID: "stub-session"}, true
+}
+
+func (s *stubAppController) SessionTree() []app.TreeNodeView {
 	return nil
 }
 
-func (s *stubAppController) SwitchTreeSession(_ *session.TreeManager) {
-	// no-op in tests
+func (s *stubAppController) SessionHistory() []message.Message {
+	return s.sessionHistory
+}
+
+func (s *stubAppController) SetSessionName(_ string) error {
+	return app.ErrNoSession
+}
+
+func (s *stubAppController) NewSession(_ string) error {
+	return app.ErrNoSession
+}
+
+func (s *stubAppController) ForkSession(_, _ string) error {
+	return app.ErrNoSession
+}
+
+func (s *stubAppController) SessionSystemPromptEntry(_, _ string) ([]byte, error) {
+	return nil, app.ErrNoSession
 }
 
 func (s *stubAppController) SendUIMessage(_ tea.Msg) {

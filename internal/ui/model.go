@@ -22,7 +22,6 @@ import (
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
-	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/ui/clipboard"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	uicore "github.com/mark3labs/kit/internal/ui/core"
@@ -102,12 +101,31 @@ type AppController interface {
 	// error synchronously if compaction cannot be started (e.g. agent is busy).
 	// customInstructions is optional text appended to the summary prompt.
 	CompactConversation(customInstructions string) error
-	// GetTreeSession returns the tree session manager, or nil if tree sessions
-	// are not enabled. Used by slash commands like /tree, /fork, /session.
-	GetTreeSession() *session.TreeManager
-	// SwitchTreeSession replaces the active tree session with a new one,
-	// closing the old session. Used by /new to create a completely fresh session.
-	SwitchTreeSession(ts *session.TreeManager)
+	// SessionSnapshot returns a value snapshot of the active tree session's
+	// metadata (id, name, file path, counts, current leaf). ok is false when
+	// no tree session is active. Callers re-read it whenever they need
+	// current values rather than caching it.
+	SessionSnapshot() (app.SessionSnapshot, bool)
+	// SessionTree returns the session's entry tree projected into value
+	// nodes, or nil when no tree session is active. Used by /tree and /fork.
+	SessionTree() []app.TreeNodeView
+	// SessionHistory returns the conversation messages on the session's
+	// current branch, oldest first. Used to replay the transcript after
+	// resuming or forking a session.
+	SessionHistory() []message.Message
+	// SetSessionName sets the session's display name. Used by /name.
+	SetSessionName(name string) error
+	// NewSession replaces the active session with a brand new one created in
+	// cwd, closing the old one. Used by /new.
+	NewSession(cwd string) error
+	// ForkSession creates a new session in cwd holding the history up to
+	// targetID and switches to it. Used by /fork and tree-node selection.
+	ForkSession(cwd, targetID string) error
+	// SessionSystemPromptEntry marshals a system-prompt entry describing the
+	// given prompt plus the session's current model/provider, for embedding
+	// in exported and shared session files. fallbackModelID is used when the
+	// session records no model of its own.
+	SessionSystemPromptEntry(systemPrompt, fallbackModelID string) ([]byte, error)
 	// SendUIMessage re-injects a UI-internal message into the program's Update
 	// loop asynchronously. Safe to call from any goroutine. Used by extension
 	// command goroutines (and other async UI work) to deliver results back to
@@ -1520,17 +1538,13 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Tree selector events ─────────────────────────────────────────────────
 	case uicore.TreeNodeSelectedMsg:
 		// User selected a node in the tree. Branch to it and return to input.
-		if ts := m.appCtrl.GetTreeSession(); ts != nil {
+		if _, ok := m.appCtrl.SessionSnapshot(); ok {
 			// For user messages: branch to parent (so user can resubmit).
 			// For other entries: branch directly to the selected entry.
 			targetID := msg.ID
 			if msg.IsUser {
 				// Branch to parent of user message, place text in editor.
-				if node := ts.GetEntry(msg.ID); node != nil {
-					if me, ok := node.(*session.MessageEntry); ok {
-						targetID = me.ParentID
-					}
-				}
+				targetID = msg.ParentID
 			}
 
 			// Emit before-fork event in a goroutine so that extension handlers
@@ -5115,17 +5129,17 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 
 // handleTreeCommand opens the tree selector overlay.
 func (m *AppModel) handleTreeCommand() tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
 		return nil
 	}
-	if ts.EntryCount() == 0 {
+	if snap.EntryCount == 0 {
 		m.printSystemMessage("No entries in session yet.")
 		return nil
 	}
 
-	m.treeSelector = NewTreeSelector(ts, m.width, m.height)
+	m.treeSelector = NewTreeSelector(m.appCtrl.SessionTree(), snap.LeafID, m.width, m.height)
 	m.state = stateTreeSelector
 	return nil
 }
@@ -5135,18 +5149,18 @@ func (m *AppModel) handleTreeCommand() tea.Cmd {
 // Unlike /tree which shows the full tree, /fork shows only user messages
 // (matching Pi's behavior) and creates a new session file when a message is selected.
 func (m *AppModel) handleForkCommand() tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active. Start with `--continue` or `--resume` to enable tree sessions.")
 		return nil
 	}
-	if ts.EntryCount() == 0 {
+	if snap.EntryCount == 0 {
 		m.printSystemMessage("No entries to fork from.")
 		return nil
 	}
 
 	// Use the fork-specific selector that shows only user messages.
-	m.treeSelector = NewTreeSelectorForFork(ts, m.width, m.height)
+	m.treeSelector = NewTreeSelectorForFork(m.appCtrl.SessionTree(), snap.LeafID, m.width, m.height)
 	m.state = stateTreeSelector
 	return nil
 }
@@ -5185,8 +5199,7 @@ func (m *AppModel) handleNewCommand(initialPrompt string) tea.Cmd {
 // context from the previous conversation. If initialPrompt is non-empty it
 // is submitted as the first user turn (with @file expansion).
 func (m *AppModel) performNewSession(initialPrompt string) tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	if _, ok := m.appCtrl.SessionSnapshot(); !ok {
 		// No tree session — just clear messages.
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
@@ -5203,16 +5216,14 @@ func (m *AppModel) performNewSession(initialPrompt string) tea.Cmd {
 		return cmd
 	}
 
-	// Create a brand new session file (Pi-style /new behavior)
-	newTs, err := session.CreateTreeSession(m.cwd)
-	if err != nil {
+	// Create a brand new session file (Pi-style /new behavior) and switch to
+	// it, closing the old one.
+	if err := m.appCtrl.NewSession(m.cwd); err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to create new session: %v", err))
 		m.signalNewSessionResult(fmt.Errorf("create new session: %w", err))
 		return nil
 	}
 
-	// Switch to the new session, closing the old one
-	m.appCtrl.SwitchTreeSession(newTs)
 	// Reset usage statistics for the new session
 	if m.usageTracker != nil {
 		m.usageTracker.Reset()
@@ -5290,22 +5301,18 @@ func (m *AppModel) submitInitialPrompt(prompt string) tea.Cmd {
 // Called either directly (when no before-hook exists) or after the async
 // before-fork hook completes.
 func (m *AppModel) performFork(targetID string, isUser bool, userText string) tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	if _, ok := m.appCtrl.SessionSnapshot(); !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
 
-	// Create a new session by forking from the target entry.
-	// This creates a new session file with the history up to the target point.
-	newTs, err := ts.ForkToNewSession(m.cwd, targetID)
-	if err != nil {
+	// Create a new session by forking from the target entry. This writes a
+	// new session file with the history up to the target point and switches
+	// to it.
+	if err := m.appCtrl.ForkSession(m.cwd, targetID); err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to fork session: %v", err))
 		return nil
 	}
-
-	// Switch to the new forked session.
-	m.appCtrl.SwitchTreeSession(newTs)
 
 	// Reset usage statistics for the new session.
 	if m.usageTracker != nil {
@@ -5333,17 +5340,16 @@ func (m *AppModel) performFork(targetID string, isUser bool, userText string) te
 //
 //	/name             — shows the current name.
 func (m *AppModel) handleNameCommand(args string) tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
 
 	if args == "" {
 		// No argument — show current name.
-		currentName := ts.GetSessionName()
-		if currentName != "" {
-			m.printSystemMessage(fmt.Sprintf("Session name: %q\nTo rename: `/name <new name>`", currentName))
+		if snap.Name != "" {
+			m.printSystemMessage(fmt.Sprintf("Session name: %q\nTo rename: `/name <new name>`", snap.Name))
 		} else {
 			m.printSystemMessage("Session has no name. Set one with: `/name <new name>`")
 		}
@@ -5351,7 +5357,7 @@ func (m *AppModel) handleNameCommand(args string) tea.Cmd {
 	}
 
 	// Set the session name.
-	if _, err := ts.AppendSessionInfo(args); err != nil {
+	if err := m.appCtrl.SetSessionName(args); err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to set session name: %v", err))
 		return nil
 	}
@@ -5584,13 +5590,13 @@ func (m *AppModel) handleEditCommand(args string) tea.Cmd {
 //
 //	/export path.jsonl — copies to the specified path.
 func (m *AppModel) handleExportCommand(args string) tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
 
-	srcPath := ts.GetFilePath()
+	srcPath := snap.FilePath
 	if srcPath == "" {
 		m.printSystemMessage("Session is in-memory (not persisted). Nothing to export.")
 		return nil
@@ -5600,17 +5606,12 @@ func (m *AppModel) handleExportCommand(args string) tea.Cmd {
 	dstPath := args
 	if dstPath == "" {
 		// Generate a name based on session name or ID.
-		name := ts.GetSessionName()
+		name := snap.Name
 		if name == "" {
-			name = ts.GetSessionID()[:12]
+			name = shortSessionID(snap.ID)
 		}
 		// Sanitize for filename.
-		name = strings.Map(func(r rune) rune {
-			if r == '/' || r == '\\' || r == ':' || r == ' ' {
-				return '_'
-			}
-			return r
-		}, name)
+		name = sanitizeFileName(name)
 		dstPath = fmt.Sprintf("session_%s.jsonl", name)
 	}
 
@@ -5634,13 +5635,13 @@ func (m *AppModel) handleExportCommand(args string) tea.Cmd {
 // a shareable viewer URL. Requires the GitHub CLI (gh) to be installed and
 // authenticated.
 func (m *AppModel) handleShareCommand() tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
 
-	srcPath := ts.GetFilePath()
+	srcPath := snap.FilePath
 	if srcPath == "" {
 		m.printSystemMessage("Session is in-memory (not persisted). Nothing to share.")
 		return nil
@@ -5666,33 +5667,23 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		return nil
 	}
 
-	// Capture the current system prompt and model info.
-	systemPrompt := viper.GetString("system-prompt")
-	_, provider, modelID := ts.BuildContext()
-	if modelID == "" {
-		// Fallback to viper if no model change recorded in session
-		modelID = viper.GetString("model")
-	}
-
-	// Create a SystemPromptEntry with both prompt and model info.
-	sysPromptEntry := session.NewSystemPromptEntry(systemPrompt, modelID, provider)
-	sysPromptJSON, err := session.MarshalEntry(sysPromptEntry)
+	// Capture the current system prompt and model info as a system-prompt
+	// entry so the shared file records the context the conversation ran under.
+	sysPromptJSON, err := m.appCtrl.SessionSystemPromptEntry(
+		viper.GetString("system-prompt"),
+		viper.GetString("model"),
+	)
 	if err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to marshal system prompt: %v", err))
 		return nil
 	}
 
-	name := ts.GetSessionName()
+	name := snap.Name
 	if name == "" {
 		name = "session"
 	}
 	// Sanitize for filename.
-	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == ' ' {
-			return '_'
-		}
-		return r
-	}, name)
+	name = sanitizeFileName(name)
 
 	tmpPath, err := buildShareFile(name, data, sysPromptJSON)
 	if err != nil {
@@ -5820,17 +5811,20 @@ func (m *AppModel) handleResumeCommand() tea.Cmd {
 // This gives the user visual context of the conversation when resuming or
 // importing a session. Call this after switchSession succeeds.
 func (m *AppModel) renderSessionHistory() {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	if _, ok := m.appCtrl.SessionSnapshot(); !ok {
+		// No session to render from — leave the transcript untouched rather
+		// than blanking a conversation the session layer knows nothing about
+		// (e.g. an in-memory run).
 		return
 	}
 
-	branch := ts.GetBranch("")
-	if len(branch) == 0 {
-		return
-	}
+	history := m.appCtrl.SessionHistory()
 
 	// Clear existing messages so we start fresh with the resumed session.
+	// This must happen even when the history is empty: /retry and /undo pop
+	// the last user message and can leave the branch with no messages at all,
+	// and forking or resuming can land on an empty session. Returning early
+	// here would leave the previous transcript on screen.
 	m.messages = []MessageItem{}
 
 	// First pass: build a map of tool call ID → {name, args} from assistant
@@ -5840,16 +5834,8 @@ func (m *AppModel) renderSessionHistory() {
 		Args string
 	}
 	toolCallMap := make(map[string]toolCallInfo)
-	for _, entry := range branch {
-		me, ok := entry.(*session.MessageEntry)
-		if !ok {
-			continue
-		}
-		if me.Role != "assistant" {
-			continue
-		}
-		msg, err := me.ToMessage()
-		if err != nil {
+	for _, msg := range history {
+		if msg.Role != message.RoleAssistant {
 			continue
 		}
 		for _, tc := range msg.ToolCalls() {
@@ -5858,16 +5844,7 @@ func (m *AppModel) renderSessionHistory() {
 	}
 
 	// Second pass: create MessageItems for each message in order.
-	for _, entry := range branch {
-		me, ok := entry.(*session.MessageEntry)
-		if !ok {
-			continue
-		}
-		msg, err := me.ToMessage()
-		if err != nil {
-			continue
-		}
-
+	for _, msg := range history {
 		switch msg.Role {
 		case message.RoleUser:
 			text := strings.TrimSpace(msg.Content())
@@ -5940,15 +5917,35 @@ func (m *AppModel) renderSessionHistory() {
 	m.pendingGotoBottom = true
 }
 
+// sanitizeFileName replaces path separators and other characters that are
+// awkward in file names with underscores, so a user-chosen session name can
+// be embedded in an export/share filename safely.
+func sanitizeFileName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == ' ' {
+			return '_'
+		}
+		return r
+	}, name)
+}
+
+// shortSessionID returns a filename-friendly prefix of a session ID, used as
+// a fallback export name for unnamed sessions.
+func shortSessionID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
 // handleSessionInfoCommand shows session statistics.
 func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
-	ts := m.appCtrl.GetTreeSession()
-	if ts == nil {
+	snap, ok := m.appCtrl.SessionSnapshot()
+	if !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
 
-	header := ts.GetHeader()
 	info := fmt.Sprintf("## Session Info\n\n"+
 		"- **ID:** `%s`\n"+
 		"- **File:** `%s`\n"+
@@ -5957,17 +5954,17 @@ func (m *AppModel) handleSessionInfoCommand() tea.Cmd {
 		"- **Entries:** %d\n"+
 		"- **Messages:** %d\n"+
 		"- **Current Leaf:** `%s`\n",
-		header.ID,
-		ts.GetFilePath(),
-		header.Cwd,
-		header.Timestamp.Format(time.RFC3339),
-		ts.EntryCount(),
-		ts.MessageCount(),
-		ts.GetLeafID(),
+		snap.ID,
+		snap.FilePath,
+		snap.Cwd,
+		snap.Created.Format(time.RFC3339),
+		snap.EntryCount,
+		snap.MessageCount,
+		snap.LeafID,
 	)
 
-	if name := ts.GetSessionName(); name != "" {
-		info += fmt.Sprintf("- **Name:** %s\n", name)
+	if snap.Name != "" {
+		info += fmt.Sprintf("- **Name:** %s\n", snap.Name)
 	}
 
 	m.printSystemMessage(info)
