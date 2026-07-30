@@ -562,9 +562,11 @@ func TestFinishShareFileReturnsPathOnSuccess(t *testing.T) {
 	}
 }
 
-// TestWriteShareableSessionLeavesNoTempFilesOnSuccess guards the temp
-// directory against accumulating share files across successful runs.
-func TestWriteShareableSessionCleansUpAfterCaller(t *testing.T) {
+// TestWriteShareableSessionLeavesOnlyTheShareFile checks that a successful
+// share leaves exactly the file it returns in the temp directory, with no
+// half-written strays alongside it. Removing the returned file is the
+// caller's job, so it is expected to still be there.
+func TestWriteShareableSessionLeavesOnlyTheShareFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("TMPDIR", tmpDir)
 
