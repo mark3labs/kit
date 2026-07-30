@@ -48,6 +48,13 @@ type ScrollList struct {
 	// must invalidate the affected height-cache entries (SetSelectedIndex).
 	selectedIdx int
 
+	// selectionLabel and selectionHint are spliced into the selected item's
+	// frame — top edge and bottom edge respectively. Set by the owner on
+	// selection change (SetSelectionFrame); they replace border characters, so
+	// they never change the framed item's height.
+	selectionLabel string
+	selectionHint  string
+
 	// Character-level text selection (crush-style).
 	sel selection.State
 }
@@ -874,7 +881,31 @@ func (s *ScrollList) renderItem(idx int) string {
 		// the selection can't conjure a box out of blank space.
 		return ""
 	}
-	return applySelectionBorder(content, s.width, style.GetTheme().Border)
+
+	// theme.Border is a near-invisible panel edge on a dark terminal, which is
+	// the wrong weight for a cursor: the status bar announces MESSAGE NAV in
+	// Accent, so the thing the mode is pointing at gets the same colour.
+	return applySelectionBorder(
+		content, s.width, style.GetTheme().Accent,
+		s.selectionLabel, s.selectionHint,
+	)
+}
+
+// SetSelectionFrame sets the text spliced into the selected item's frame:
+// label into the top edge, hint into the bottom.
+//
+// The labels are pushed in on selection change rather than derived here per
+// frame. Working out which message the selection is on, and what its role is,
+// means walking the item list; doing that inside the render path would repeat
+// the walk on every frame for an answer that only changes on a keypress.
+func (s *ScrollList) SetSelectionFrame(label, hint string) {
+	if label == s.selectionLabel && hint == s.selectionHint {
+		return
+	}
+	s.selectionLabel = label
+	s.selectionHint = hint
+	// The frame's height is unchanged by its labels, so no height cache entry
+	// needs dropping here.
 }
 
 // abs returns the absolute value of x.

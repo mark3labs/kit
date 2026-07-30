@@ -58,10 +58,39 @@ type TextMessageItem struct {
 	// items, whose rendered content is fixed at construction.
 	render func() string
 
+	// toolCall holds the structured parts of a tool call when this item
+	// displays one. The inspector needs them to re-render the body at full
+	// length; the flattened raw content cannot be taken apart again.
+	toolCall *ToolCallInfo
+
 	// rendered is the memoized styled content, valid for theme generation
 	// themeStamp.gen when render is non-nil.
 	rendered string
 	themeStamp
+}
+
+// ToolCallInfo holds the structured parts of a tool call, as handed to the
+// tool-body renderers.
+type ToolCallInfo struct {
+	Name    string
+	Args    string
+	Result  string
+	IsError bool
+}
+
+// ToolInspectable is implemented by scrollback items that retain the structured
+// parts of the tool call they display.
+//
+// The scrollback caps each tool body at a per-tool line limit so one large
+// result cannot bury the rest of the transcript. The inspector opens precisely
+// because something was capped, so it re-renders the body with the caps lifted
+// rather than falling back to plain text and discarding the diff colouring,
+// line gutters and panel fills. Reconstructing the call from the item's
+// flattened raw content is not possible, so it is kept alongside.
+type ToolInspectable interface {
+	// ToolCall returns the call's parts, and false for items that do not
+	// display a tool call.
+	ToolCall() (ToolCallInfo, bool)
 }
 
 // NewStyledMessageItem creates a message item from fixed, pre-rendered content.
@@ -112,6 +141,22 @@ func (m *TextMessageItem) RawContent() string {
 // Role returns the message role ("user", "assistant", "tool", ...).
 func (m *TextMessageItem) Role() string {
 	return m.role
+}
+
+// WithToolCall attaches the structured parts of the tool call this item
+// displays, so the inspector can re-render its body uncapped. Returns the item
+// for chaining at the construction site.
+func (m *TextMessageItem) WithToolCall(info ToolCallInfo) *TextMessageItem {
+	m.toolCall = &info
+	return m
+}
+
+// ToolCall implements ToolInspectable.
+func (m *TextMessageItem) ToolCall() (ToolCallInfo, bool) {
+	if m.toolCall == nil {
+		return ToolCallInfo{}, false
+	}
+	return *m.toolCall, true
 }
 
 // Invalidate discards the memoized render so the next draw re-runs the render

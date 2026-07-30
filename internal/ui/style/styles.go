@@ -91,6 +91,17 @@ func NewNoteTypography(label string) *herald.Typography {
 // GetMarkdownTypography returns a herald.Typography configured with our
 // active theme colors. The typography is cached and only rebuilt when
 // the theme changes via SetTheme.
+//
+// The theme is assembled from a palette plus per-element overrides rather than
+// from a herald.Theme literal. WithTheme *replaces* the theme wholesale, so a
+// literal leaves every field it does not mention at its zero value — and many
+// of herald's fields are glyphs and widths, not colors. A literal therefore
+// silently erased the list bullet char, the nested-list bullets and indent, the
+// blockquote bar, the heading bar, the horizontal-rule char and width, and the
+// entire table border set: `- item` rendered as a bare indented line, `---`
+// rendered as nothing at all, and a table collapsed to `a│b`. Seeding from the
+// palette keeps herald's defaults for every token and spends the overrides
+// only where the color has to be ours.
 func GetMarkdownTypography() *herald.Typography {
 	if markdownTypographyCache != nil {
 		return markdownTypographyCache
@@ -99,59 +110,93 @@ func GetMarkdownTypography() *herald.Typography {
 	theme := GetTheme()
 	md := theme.Markdown
 
-	// Build herald theme from our theme colors
-	hty := herald.Theme{
-		// Headings - use heading color
-		H1: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
-		H2: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
-		H3: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
-		H4: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
-		H5: lipgloss.NewStyle().Foreground(md.Heading).Bold(true),
-		H6: lipgloss.NewStyle().Foreground(md.Muted).Bold(true),
+	ty := herald.New(
+		// Palette first: it supplies a complete theme, including the glyph and
+		// width tokens none of the overrides below touch.
+		herald.WithPalette(herald.ColorPalette{
+			Primary:   md.Heading,
+			Secondary: md.Heading,
+			Tertiary:  md.Link,
+			Accent:    theme.Accent,
+			Highlight: theme.Highlight,
+			Muted:     md.Muted,
+			Text:      md.Text,
+			Surface:   theme.Background,
+			Base:      theme.CodeBg,
+		}),
+
+		// Headings all take the heading color; the palette would otherwise
+		// spread them across five different hues.
+		herald.WithH1Style(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithH2Style(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithH3Style(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithH4Style(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithH5Style(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithH6Style(lipgloss.NewStyle().Foreground(md.Muted).Bold(true)),
 
 		// Body text carries no explicit foreground so it inherits whatever the
 		// user's terminal uses for normal text. Pinning it to a theme color
 		// overrides a deliberate color scheme and can land a near-invisible
 		// gray on an unusual background. Color is spent only where it carries
 		// meaning: headings, links, emphasis and semantic badges.
-		Paragraph:  lipgloss.NewStyle(),
-		Blockquote: lipgloss.NewStyle().Foreground(md.Muted).Italic(true),
-		CodeInline: lipgloss.NewStyle().Foreground(md.Code),
-		CodeBlock:  lipgloss.NewStyle().Foreground(md.Code),
-		HR:         lipgloss.NewStyle().Foreground(md.Muted),
+		//
+		// The bottom margin the palette puts under every paragraph goes too: in
+		// a scrollback, a blank line after each paragraph doubles the height of
+		// ordinary prose.
+		herald.WithParagraphStyle(lipgloss.NewStyle()),
+		herald.WithBlockquoteStyle(lipgloss.NewStyle().Foreground(md.Muted).Italic(true)),
+		herald.WithCodeInlineStyle(lipgloss.NewStyle().Foreground(md.Code)),
+		herald.WithHRStyle(lipgloss.NewStyle().Foreground(md.Muted)),
 
-		// Lists
-		ListBullet: lipgloss.NewStyle().Foreground(md.Muted),
-		ListItem:   lipgloss.NewStyle(),
+		// Code blocks stay background-free. The transcript already uses filled
+		// panels for tool output, and giving assistant prose a second kind of
+		// surface makes the two compete; highlighting carries the distinction
+		// instead. The foreground is the fallback for an unlabelled fence,
+		// where there is no language to pick a lexer from.
+		herald.WithCodeBlockStyle(lipgloss.NewStyle().Foreground(md.Code)),
+
+		herald.WithListBulletStyle(lipgloss.NewStyle().Foreground(md.Muted)),
+		herald.WithListItemStyle(lipgloss.NewStyle()),
 
 		// Inline styles
-		Bold:          lipgloss.NewStyle().Bold(true),
-		Italic:        lipgloss.NewStyle().Foreground(md.Emph).Italic(true),
-		Strikethrough: lipgloss.NewStyle().Foreground(md.Muted).Strikethrough(true),
-		Link:          lipgloss.NewStyle().Foreground(md.Link).Underline(true),
+		herald.WithBoldStyle(lipgloss.NewStyle().Bold(true)),
+		herald.WithItalicStyle(lipgloss.NewStyle().Foreground(md.Emph).Italic(true)),
+		herald.WithStrikethroughStyle(lipgloss.NewStyle().Foreground(md.Muted).Strikethrough(true)),
+		herald.WithLinkStyle(lipgloss.NewStyle().Foreground(md.Link).Underline(true)),
 
 		// Definition lists
-		DT: lipgloss.NewStyle().Bold(true),
-		DD: lipgloss.NewStyle().Foreground(md.Muted),
+		herald.WithDTStyle(lipgloss.NewStyle().Bold(true)),
+		herald.WithDDStyle(lipgloss.NewStyle().Foreground(md.Muted)),
 
 		// Key-value
-		KVKey:   lipgloss.NewStyle().Bold(true),
-		KVValue: lipgloss.NewStyle().Foreground(md.Muted),
+		herald.WithKVKeyStyle(lipgloss.NewStyle().Bold(true)),
+		herald.WithKVValueStyle(lipgloss.NewStyle().Foreground(md.Muted)),
 
 		// Badges/Tags - use semantic colors
-		Badge:        lipgloss.NewStyle().Bold(true),
-		SuccessBadge: lipgloss.NewStyle().Foreground(theme.Success).Bold(true),
-		WarningBadge: lipgloss.NewStyle().Foreground(theme.Warning).Bold(true),
-		ErrorBadge:   lipgloss.NewStyle().Foreground(theme.Error).Bold(true),
-		InfoBadge:    lipgloss.NewStyle().Foreground(theme.Info).Bold(true),
+		herald.WithBadgeStyle(lipgloss.NewStyle().Bold(true)),
+		herald.WithSuccessBadgeStyle(lipgloss.NewStyle().Foreground(theme.Success).Bold(true)),
+		herald.WithWarningBadgeStyle(lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)),
+		herald.WithErrorBadgeStyle(lipgloss.NewStyle().Foreground(theme.Error).Bold(true)),
+		herald.WithInfoBadgeStyle(lipgloss.NewStyle().Foreground(theme.Info).Bold(true)),
+
+		// Tables borrow the muted frame color used by every other box in the
+		// UI rather than the palette's heading-colored one.
+		herald.WithTableHeaderStyle(lipgloss.NewStyle().Foreground(md.Heading).Bold(true)),
+		herald.WithTableBorderStyle(lipgloss.NewStyle().Foreground(theme.Border)),
 
 		// Heading decorations
-		H1UnderlineChar: "═",
-		H2UnderlineChar: "─",
-		H3UnderlineChar: "·",
-	}
+		herald.WithH1UnderlineChar("═"),
+		herald.WithH2UnderlineChar("─"),
+		herald.WithH3UnderlineChar("·"),
 
-	ty := herald.New(herald.WithTheme(hty))
+		// Fenced code blocks get real syntax highlighting. herald calls this
+		// only when the fence carries an info string, so an unlabelled block
+		// falls through to the CodeBlock foreground above.
+		herald.WithCodeFormatter(func(code, language string) string {
+			return HighlightLang(code, language)
+		}),
+	)
+
 	markdownTypographyCache = ty
 	return ty
 }

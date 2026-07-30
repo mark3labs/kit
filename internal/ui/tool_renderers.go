@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -10,8 +9,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/alecthomas/chroma/v2/formatters"
-	"github.com/alecthomas/chroma/v2/lexers"
 	udiff "github.com/aymanbagabas/go-udiff"
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/indaco/herald"
@@ -26,7 +23,53 @@ const (
 	maxWriteLines = 10 // lines for Write blocks
 	maxBashLines  = 20 // lines for Bash output (matches Read)
 	maxLsLines    = 20 // lines for Ls directory listings
+	maxAgentLines = 5  // preview lines for Subagent results
 )
+
+// toolLineLimits caps how many rows each kind of tool body renders before it
+// elides the remainder.
+//
+// The caps exist so one `read` of a 4000-line file cannot bury the rest of the
+// transcript — a scrollback concern, not a property of the content. The message
+// inspector opens precisely because something was elided, so it renders the
+// same bodies with the caps lifted rather than falling back to plain text and
+// throwing away the diff colouring, the line gutters and the panel fills.
+type toolLineLimits struct {
+	diff  int // side-by-side diff rows
+	code  int // Read / code block lines
+	write int // Write block lines
+	bash  int // shell output lines
+	list  int // ls / find / grep entries
+	agent int // subagent preview lines
+}
+
+// scrollbackLimits are the caps used when rendering into the transcript.
+func scrollbackLimits() toolLineLimits {
+	return toolLineLimits{
+		diff:  maxDiffLines,
+		code:  maxCodeLines,
+		write: maxWriteLines,
+		bash:  maxBashLines,
+		list:  maxLsLines,
+		agent: maxAgentLines,
+	}
+}
+
+// inspectorLimits lifts every cap, for the message inspector.
+//
+// The sentinel is large rather than infinite so the arithmetic each renderer
+// does on its limit (offsets, gutter widths) stays well clear of overflow.
+func inspectorLimits() toolLineLimits {
+	const noLimit = 1 << 30
+	return toolLineLimits{
+		diff:  noLimit,
+		code:  noLimit,
+		write: noLimit,
+		bash:  noLimit,
+		list:  noLimit,
+		agent: noLimit,
+	}
+}
 
 // minDiffContent is the narrowest code column a diff panel is worth drawing.
 // Below it the text is too clipped to compare against anything, so the layout
@@ -120,39 +163,46 @@ func captionTypography() *herald.Typography {
 }
 
 // renderToolBody dispatches to tool-specific body renderers based on tool name.
-// Returns the styled body string, or empty string to fall back to default rendering.
+// Returns the styled body string, or empty string to fall back to default
+// rendering. Bodies are capped at the transcript's per-tool line limits.
 func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
+	return renderToolBodyLimited(toolName, toolArgs, toolResult, width, scrollbackLimits())
+}
+
+// renderToolBodyLimited is renderToolBody with caller-chosen line caps, so the
+// message inspector can render the same bodies in full.
+func renderToolBodyLimited(toolName, toolArgs, toolResult string, width int, lim toolLineLimits) string {
 	switch {
 	case toolName == "edit":
-		if body := renderEditBody(toolArgs, toolResult, width); body != "" {
+		if body := renderEditBody(toolArgs, toolResult, width, lim.diff); body != "" {
 			return body
 		}
 	case toolName == "ls":
-		if body := renderLsBody(toolResult, width); body != "" {
+		if body := renderLsBody(toolResult, width, lim.list); body != "" {
 			return body
 		}
 	case toolName == "read":
-		if body := renderReadBody(toolArgs, toolResult, width); body != "" {
+		if body := renderReadBody(toolArgs, toolResult, width, lim.code); body != "" {
 			return body
 		}
 	case toolName == "write":
-		if body := renderWriteBody(toolArgs, toolResult, width); body != "" {
+		if body := renderWriteBody(toolArgs, toolResult, width, lim.write); body != "" {
 			return body
 		}
 	case toolName == "find":
-		if body := renderFindBody(toolResult, width); body != "" {
+		if body := renderFindBody(toolResult, width, lim.list); body != "" {
 			return body
 		}
 	case toolName == "grep":
-		if body := renderGrepBody(toolResult, width); body != "" {
+		if body := renderGrepBody(toolResult, width, lim.list); body != "" {
 			return body
 		}
 	case isShellTool(toolName):
-		if body := renderBashBody(toolArgs, toolResult, width); body != "" {
+		if body := renderBashBody(toolArgs, toolResult, width, lim.bash); body != "" {
 			return body
 		}
 	case toolName == "subagent":
-		if body := renderSubagentBody(toolResult, width); body != "" {
+		if body := renderSubagentBody(toolResult, width, lim.agent); body != "" {
 			return body
 		}
 	}
@@ -164,7 +214,8 @@ func renderToolBody(toolName, toolArgs, toolResult string, width int) string {
 // ---------------------------------------------------------------------------
 
 // renderEditBody renders a side-by-side diff from the edits array in toolArgs.
-func renderEditBody(toolArgs, toolResult string, width int) string {
+// maxLines caps the rows each diff contributes.
+func renderEditBody(toolArgs, toolResult string, width, maxLines int) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 		return ""
@@ -184,7 +235,7 @@ func renderEditBody(toolArgs, toolResult string, width int) string {
 			oldText, _ := e["old_text"].(string)
 			newText, _ := e["new_text"].(string)
 			if oldText != "" || newText != "" {
-				diff := renderDiffBlock(oldText, newText, startLine, width)
+				diff := renderDiffBlock(oldText, newText, startLine, width, maxLines)
 				if diff != "" {
 					results = append(results, diff)
 				}
@@ -228,8 +279,9 @@ type splitLine struct {
 	afterKind  udiff.OpKind
 }
 
-// renderDiffBlock renders old→new as a side-by-side diff with colored backgrounds.
-func renderDiffBlock(before, after string, startLine int, width int) string {
+// renderDiffBlock renders old→new as a side-by-side diff with colored
+// backgrounds, capped at maxLines rows.
+func renderDiffBlock(before, after string, startLine, width, maxLines int) string {
 	// Normalise tabs and ensure trailing newlines
 	before = strings.ReplaceAll(before, "\t", "    ")
 	after = strings.ReplaceAll(after, "\t", "    ")
@@ -319,11 +371,11 @@ func renderDiffBlock(before, after string, startLine int, width int) string {
 		return ""
 	}
 
-	// Truncate to maxDiffLines visible rows
+	// Truncate to maxLines visible rows
 	var diffHiddenCount int
-	if len(lines) > maxDiffLines {
-		diffHiddenCount = len(lines) - maxDiffLines
-		lines = lines[:maxDiffLines]
+	if len(lines) > maxLines {
+		diffHiddenCount = len(lines) - maxLines
+		lines = lines[:maxLines]
 	}
 
 	// Layout calculations
@@ -502,10 +554,10 @@ func renderUnifiedDiff(lines []splitLine, hiddenCount, availableWidth, gutterWid
 // ---------------------------------------------------------------------------
 
 // renderPlainListBody renders tool output as a plain list with code background
-// and no line-number gutter, truncated to maxLsLines. When lines were hidden by
+// and no line-number gutter, truncated to maxLines. When lines were hidden by
 // truncation, caption(total, hidden) supplies the herald.Figure caption text.
 // Shared pipeline for renderFindBody, renderGrepBody, and renderLsBody.
-func renderPlainListBody(toolResult string, width int, caption func(total, hidden int) string) string {
+func renderPlainListBody(toolResult string, width, maxLines int, caption func(total, hidden int) string) string {
 	content := strings.TrimSpace(toolResult)
 	if content == "" {
 		return ""
@@ -514,11 +566,11 @@ func renderPlainListBody(toolResult string, width int, caption func(total, hidde
 	lines := strings.Split(content, "\n")
 	total := len(lines)
 
-	// Truncate to maxLsLines for display
+	// Truncate to maxLines for display
 	var hiddenCount int
-	if len(lines) > maxLsLines {
-		hiddenCount = len(lines) - maxLsLines
-		lines = lines[:maxLsLines]
+	if len(lines) > maxLines {
+		hiddenCount = len(lines) - maxLines
+		lines = lines[:maxLines]
 	}
 
 	panel := newToolPanel(width)
@@ -541,8 +593,8 @@ func renderPlainListBody(toolResult string, width int, caption func(total, hidde
 
 // renderFindBody renders find output as a plain list with code background.
 // Similar to ls but with results-specific caption.
-func renderFindBody(toolResult string, width int) string {
-	return renderPlainListBody(toolResult, width, func(total, hidden int) string {
+func renderFindBody(toolResult string, width, maxLines int) string {
+	return renderPlainListBody(toolResult, width, maxLines, func(total, hidden int) string {
 		count := fmt.Sprintf("%d results", total)
 		if total == 1 {
 			count = "1 result"
@@ -553,8 +605,8 @@ func renderFindBody(toolResult string, width int) string {
 
 // renderGrepBody renders grep output as a plain list with code background.
 // Similar to find but with match-specific caption terminology.
-func renderGrepBody(toolResult string, width int) string {
-	return renderPlainListBody(toolResult, width, func(total, hidden int) string {
+func renderGrepBody(toolResult string, width, maxLines int) string {
+	return renderPlainListBody(toolResult, width, maxLines, func(total, hidden int) string {
 		count := fmt.Sprintf("%d matches", total)
 		if total == 1 {
 			count = "1 match"
@@ -565,8 +617,8 @@ func renderGrepBody(toolResult string, width int) string {
 
 // renderLsBody renders ls output as a plain list with code background and no
 // line-number gutter.
-func renderLsBody(toolResult string, width int) string {
-	return renderPlainListBody(toolResult, width, func(_, hidden int) string {
+func renderLsBody(toolResult string, width, maxLines int) string {
+	return renderPlainListBody(toolResult, width, maxLines, func(_, hidden int) string {
 		return fmt.Sprintf("%d more entries", hidden)
 	})
 }
@@ -577,8 +629,8 @@ func renderLsBody(toolResult string, width int) string {
 
 // renderReadBody renders Read tool output using herald.CodeBlock with line numbers
 // and syntax highlighting. Uses WithCodeLineNumberOffset to show correct offsets
-// based on the Read tool's offset parameter.
-func renderReadBody(toolArgs, toolResult string, width int) string {
+// based on the Read tool's offset parameter. maxLines caps the rendered lines.
+func renderReadBody(toolArgs, toolResult string, width, maxLines int) string {
 	if strings.TrimSpace(toolResult) == "" {
 		return ""
 	}
@@ -615,11 +667,11 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 		footerLines = append(footerLines, line)
 	}
 
-	// Apply maxCodeLines truncation
+	// Apply the line cap
 	totalCodeLines := len(codeLines)
-	if totalCodeLines > maxCodeLines {
-		codeHiddenCount = totalCodeLines - maxCodeLines
-		codeLines = codeLines[:maxCodeLines]
+	if totalCodeLines > maxLines {
+		codeHiddenCount = totalCodeLines - maxLines
+		codeLines = codeLines[:maxLines]
 	}
 
 	// Clamp each line to the space actually available.
@@ -725,8 +777,9 @@ func renderReadBody(toolArgs, toolResult string, width int) string {
 // ---------------------------------------------------------------------------
 
 // renderWriteBody extracts content from toolArgs and renders it as a green-tinted
-// code block with line numbers and an "End of file" footer.
-func renderWriteBody(toolArgs, toolResult string, width int) string {
+// code block with line numbers and an "End of file" footer. maxLines caps the
+// rendered lines.
+func renderWriteBody(toolArgs, toolResult string, width, maxLines int) string {
 	var args map[string]any
 	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
 		return ""
@@ -742,20 +795,20 @@ func renderWriteBody(toolArgs, toolResult string, width int) string {
 		fileName = p
 	}
 
-	return renderWriteBlock(content, fileName, width)
+	return renderWriteBlock(content, fileName, width, maxLines)
 }
 
 // renderWriteBlock renders file content with green-tinted background, line numbers,
-// and a footer showing the total line count.
-func renderWriteBlock(content, fileName string, width int) string {
+// and a footer showing the total line count, capped at maxLines rendered lines.
+func renderWriteBlock(content, fileName string, width, maxLines int) string {
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
-	// Truncate to maxWriteLines for display
+	// Truncate to maxLines for display
 	var hiddenCount int
-	if totalLines > maxWriteLines {
-		hiddenCount = totalLines - maxWriteLines
-		lines = lines[:maxWriteLines]
+	if totalLines > maxLines {
+		hiddenCount = totalLines - maxLines
+		lines = lines[:maxLines]
 	}
 
 	// Line number width
@@ -816,8 +869,8 @@ func renderWriteBlock(content, fileName string, width int) string {
 // ---------------------------------------------------------------------------
 
 // renderBashBody renders bash output with per-line background and stderr
-// in error color.
-func renderBashBody(toolArgs, toolResult string, width int) string {
+// in error color, capped at maxLines rendered lines.
+func renderBashBody(toolArgs, toolResult string, width, maxLines int) string {
 	if strings.TrimSpace(toolResult) == "" {
 		return ""
 	}
@@ -834,12 +887,12 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 		result = parseBashOutput(result, theme)
 	}
 
-	// Truncate to maxBashLines for display
+	// Truncate to maxLines for display
 	lines := strings.Split(result, "\n")
 	var hiddenCount int
-	if len(lines) > maxBashLines {
-		hiddenCount = len(lines) - maxBashLines
-		lines = lines[:maxBashLines]
+	if len(lines) > maxLines {
+		hiddenCount = len(lines) - maxLines
+		lines = lines[:maxLines]
 	}
 
 	panel := newToolPanel(width)
@@ -888,52 +941,14 @@ func renderBashBody(toolArgs, toolResult string, width int) string {
 // Syntax highlighting via Chroma
 // ---------------------------------------------------------------------------
 
-// syntaxHighlight applies syntax highlighting to source code using chroma.
-// Uses the catppuccin-mocha style for dark terminals, catppuccin-latte for light.
-// Returns the source unchanged if highlighting fails.
+// syntaxHighlight applies syntax highlighting to source code, choosing a lexer
+// from fileName. Returns the source unchanged if highlighting fails.
+//
+// The implementation lives in the style package alongside the theme-derived
+// chroma palette, because the markdown typography needs the same highlighter
+// and style cannot import ui.
 func syntaxHighlight(source, fileName string) string {
-	if source == "" {
-		return source
-	}
-
-	// Detect lexer from filename
-	lexer := lexers.Match(fileName)
-	if lexer == nil {
-		// Try content-based detection
-		lexer = lexers.Analyse(source)
-	}
-	if lexer == nil {
-		return source // no highlighting
-	}
-
-	// Use true-color formatter
-	formatter := formatters.Get("terminal16m")
-	if formatter == nil {
-		formatter = formatters.Get("terminal256")
-	}
-	if formatter == nil {
-		return source
-	}
-
-	// Build the highlighting palette from the active theme so code sits in
-	// the same color family as the UI around it. Token backgrounds are unset
-	// there, letting the containing lipgloss style own the fill.
-	chromaStyle := SyntaxStyle()
-
-	iterator, err := lexer.Tokenise(nil, source)
-	if err != nil {
-		return source
-	}
-
-	var buf bytes.Buffer
-	if err := formatter.Format(&buf, chromaStyle, iterator); err != nil {
-		return source
-	}
-
-	// Replace full ANSI resets with fg-only resets so they don't clear
-	// the background set by lipgloss.
-	result := strings.ReplaceAll(buf.String(), "\x1b[0m", "\x1b[39;22;23;24m")
-	return strings.TrimRight(result, "\n")
+	return style.HighlightFile(source, fileName)
 }
 
 // ---------------------------------------------------------------------------
@@ -994,8 +1009,9 @@ func truncateLine(s string, maxWidth int) string {
 }
 
 // renderSubagentBody renders a clean summary of subagent results with bash-style
-// background styling for consistency with other tools.
-func renderSubagentBody(toolResult string, width int) string {
+// background styling for consistency with other tools. maxLines caps the preview
+// drawn from the result body.
+func renderSubagentBody(toolResult string, width, maxLines int) string {
 	result := strings.TrimSpace(toolResult)
 	if result == "" {
 		return ""
@@ -1028,7 +1044,7 @@ func renderSubagentBody(toolResult string, width int) string {
 			resultContent = strings.TrimSpace(resultContent)
 			if resultContent != "" {
 				// Show first few meaningful lines as preview
-				previewLines := extractSubagentPreviewLines(resultContent, 5, panel.textWidth)
+				previewLines := extractSubagentPreviewLines(resultContent, maxLines, panel.textWidth)
 				if len(previewLines) > 0 {
 					// Add blank separator line
 					contentLines = append(contentLines, panel.blank())
@@ -1043,7 +1059,9 @@ func renderSubagentBody(toolResult string, width int) string {
 		if _, errorContent, found := strings.Cut(result, "Error:\n"); found {
 			errorContent = strings.TrimSpace(errorContent)
 			if errorContent != "" {
-				previewLines := extractSubagentPreviewLines(errorContent, 3, panel.textWidth)
+				// Errors get a shorter preview than successes: the useful part
+				// of a failure is at the top, and the tail is usually a stack.
+				previewLines := extractSubagentPreviewLines(errorContent, min(maxLines, 3), panel.textWidth)
 				if len(previewLines) > 0 {
 					contentLines = append(contentLines, panel.blank())
 					for _, line := range previewLines {

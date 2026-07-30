@@ -841,6 +841,15 @@ type AppModel struct {
 	// reflected the moment the user presses Esc.
 	navReturnState appState
 
+	// navNotice is a one-shot acknowledgement shown in the status bar's
+	// navigation slot — currently only the result of a copy.
+	//
+	// Navigation feedback cannot use printSystemMessage: that appends an item
+	// to the very list being navigated, which shifts the frame's position
+	// counter and can move the selection off screen. The notice is cleared by
+	// the next navigation keystroke.
+	navNotice string
+
 	// cwd is the working directory for @file path resolution.
 	cwd string
 
@@ -1815,6 +1824,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Message navigation consumes every key it understands so the
 		// composer never sees j/k as text while the user is browsing.
 		if m.state == stateMessageNav {
+			// Any navigation key retires the previous acknowledgement, except
+			// the one that produces a fresh copy.
+			if msg.String() != "y" {
+				m.navNotice = ""
+			}
 			switch msg.String() {
 			case "up", "k":
 				m.moveMessageSelection(-1)
@@ -1831,6 +1845,18 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx := m.lastSelectableIndex(); idx >= 0 {
 					m.selectMessage(idx)
 				}
+				return m, tea.Batch(cmds...)
+			// Jump between the user's own turns. "Scroll back to what I asked"
+			// is the dominant reason to enter navigation at all, and stepping
+			// there one tool result at a time is a lot of keypresses.
+			case "u":
+				m.jumpToRole("user", -1)
+				return m, tea.Batch(cmds...)
+			case "U":
+				m.jumpToRole("user", 1)
+				return m, tea.Batch(cmds...)
+			case "y":
+				cmds = append(cmds, m.copySelectedMessage())
 				return m, tea.Batch(cmds...)
 			case "enter":
 				m.inspectSelectedMessage()
@@ -3146,12 +3172,28 @@ func (m *AppModel) renderStatusBar() string {
 	// While message navigation owns the keyboard its key hints take that
 	// slot instead: the rebound keys are transient and need discovering,
 	// whereas the path is ambient and always recoverable by pressing Esc.
+	//
+	// The mode label stays up while the inspector is open, because Esc there
+	// returns to navigation rather than leaving it. Its key hints do not: the
+	// dialog carries its own, and showing both would advertise two sets of
+	// bindings for one keyboard.
 	var leftSide string
-	if m.state == stateMessageNav {
+	if m.navActive() {
+		var trailing string
+		switch {
+		case m.state != stateMessageNav:
+			// A modal opened from navigation owns the keyboard and the hints.
+		case m.navNotice != "":
+			// A notice displaces the key hints rather than crowding in beside
+			// them: it is transient and answers something the user just did,
+			// whereas the hints are always one Esc away from being needed.
+			trailing = "  " + lipgloss.NewStyle().Foreground(theme.Success).Render(m.navNotice)
+		default:
+			trailing = veryMuted.Render("  ↑/↓ move · u/U user · y copy · enter open · esc exit")
+		}
 		leftSide = " " + lipgloss.NewStyle().
 			Foreground(theme.Accent).
-			Render("MESSAGE NAV") +
-			veryMuted.Render("  ↑/↓ move · enter open · esc exit")
+			Render("MESSAGE NAV") + trailing
 	} else if m.cwd != "" {
 		left := tildeHome(m.cwd)
 		if m.gitBranch != "" {
@@ -3624,6 +3666,13 @@ func (m *AppModel) printToolResult(evt app.ToolResultEvent) {
 	// closure so the block repaints itself after a theme change.
 	msg := NewThemedMessageItem(generateMessageID(), "tool", raw, func() string {
 		return m.renderer.RenderToolMessage(evt.ToolName, evt.ToolArgs, evt.Result, evt.IsError).Content
+	}).WithToolCall(ToolCallInfo{
+		// Kept structured as well as flattened: the inspector re-renders the
+		// body uncapped, which needs the parts, not the transcript's summary.
+		Name:    evt.ToolName,
+		Args:    evt.ToolArgs,
+		Result:  evt.Result,
+		IsError: evt.IsError,
 	})
 	m.messages = append(m.messages, msg)
 
@@ -5870,6 +5919,11 @@ func (m *AppModel) renderSessionHistory() {
 				content, isError := tr.Content, tr.IsError
 				item := NewThemedMessageItem(generateMessageID(), "tool", raw, func() string {
 					return m.renderer.RenderToolMessage(toolName, toolArgs, content, isError).Content
+				}).WithToolCall(ToolCallInfo{
+					Name:    toolName,
+					Args:    toolArgs,
+					Result:  content,
+					IsError: isError,
 				})
 				m.messages = append(m.messages, item)
 			}
@@ -6166,6 +6220,15 @@ func (m *AppModel) updateOverlayState(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.notifyResize()
+		_, cmd := m.overlay.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case tea.MouseWheelMsg:
+		// The overlay is modal, so the wheel belongs to it rather than to the
+		// scrollback behind it. Without this the wheel silently scrolled the
+		// transcript underneath a dialog the reader was trying to page through.
 		_, cmd := m.overlay.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
