@@ -5811,12 +5811,20 @@ func (m *AppModel) handleResumeCommand() tea.Cmd {
 // This gives the user visual context of the conversation when resuming or
 // importing a session. Call this after switchSession succeeds.
 func (m *AppModel) renderSessionHistory() {
-	history := m.appCtrl.SessionHistory()
-	if len(history) == 0 {
+	if _, ok := m.appCtrl.SessionSnapshot(); !ok {
+		// No session to render from — leave the transcript untouched rather
+		// than blanking a conversation the session layer knows nothing about
+		// (e.g. an in-memory run).
 		return
 	}
 
+	history := m.appCtrl.SessionHistory()
+
 	// Clear existing messages so we start fresh with the resumed session.
+	// This must happen even when the history is empty: /retry and /undo pop
+	// the last user message and can leave the branch with no messages at all,
+	// and forking or resuming can land on an empty session. Returning early
+	// here would leave the previous transcript on screen.
 	m.messages = []MessageItem{}
 
 	// First pass: build a map of tool call ID → {name, args} from assistant

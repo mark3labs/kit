@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/mark3labs/kit/internal/message"
@@ -225,8 +226,10 @@ func (a *App) SetSessionName(name string) error {
 	if tm == nil {
 		return ErrNoSession
 	}
-	_, err := tm.AppendSessionInfo(name)
-	return err
+	if _, err := tm.AppendSessionInfo(name); err != nil {
+		return fmt.Errorf("append session info: %w", err)
+	}
+	return nil
 }
 
 // NewSession replaces the active tree session with a brand new one created in
@@ -242,7 +245,7 @@ func (a *App) NewSession(cwd string) error {
 	}
 	ts, err := session.CreateTreeSession(cwd)
 	if err != nil {
-		return err
+		return fmt.Errorf("create tree session: %w", err)
 	}
 	a.SwitchTreeSession(ts)
 	return nil
@@ -258,7 +261,7 @@ func (a *App) ForkSession(cwd, targetID string) error {
 	}
 	ts, err := tm.ForkToNewSession(cwd, targetID)
 	if err != nil {
-		return err
+		return fmt.Errorf("fork session from entry %q: %w", targetID, err)
 	}
 	a.SwitchTreeSession(ts)
 	return nil
@@ -280,5 +283,9 @@ func (a *App) SessionSystemPromptEntry(systemPrompt, fallbackModelID string) ([]
 	if modelID == "" {
 		modelID = fallbackModelID
 	}
-	return session.MarshalEntry(session.NewSystemPromptEntry(systemPrompt, modelID, provider))
+	data, err := session.MarshalEntry(session.NewSystemPromptEntry(systemPrompt, modelID, provider))
+	if err != nil {
+		return nil, fmt.Errorf("marshal system prompt entry: %w", err)
+	}
+	return data, nil
 }

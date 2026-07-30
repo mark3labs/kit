@@ -25,6 +25,11 @@ type stubAppController struct {
 	clearQueueCalled int
 	clearMsgCalled   int
 	queueLen         int
+
+	// hasSession controls whether SessionSnapshot reports an active session,
+	// and sessionHistory is what SessionHistory returns for it.
+	hasSession     bool
+	sessionHistory []message.Message
 }
 
 func (s *stubAppController) Run(prompt string) int {
@@ -58,7 +63,10 @@ func (s *stubAppController) CompactConversation(_ string) error {
 }
 
 func (s *stubAppController) SessionSnapshot() (app.SessionSnapshot, bool) {
-	return app.SessionSnapshot{}, false
+	if !s.hasSession {
+		return app.SessionSnapshot{}, false
+	}
+	return app.SessionSnapshot{ID: "stub-session"}, true
 }
 
 func (s *stubAppController) SessionTree() []app.TreeNodeView {
@@ -66,7 +74,7 @@ func (s *stubAppController) SessionTree() []app.TreeNodeView {
 }
 
 func (s *stubAppController) SessionHistory() []message.Message {
-	return nil
+	return s.sessionHistory
 }
 
 func (s *stubAppController) SetSessionName(_ string) error {
