@@ -70,8 +70,13 @@ func currentTerminalCapabilities() terminalCapabilities {
 // It exists so a frontend can supply the capabilities of the terminal it is
 // actually serving instead of inheriting whatever the process's own fds report.
 // This replaces the former package-init probes, which fired once against the
-// process stdin/stdout and could not represent more than one terminal. Safe to
-// call from any goroutine.
+// process stdin/stdout and could not represent more than one terminal.
+//
+// Call this on the UI goroutine, the same as SetTheme: besides the
+// mutex-guarded capability swap, it rebuilds theme-derived caches
+// (currentTheme, the generation counter, the typography/style/syntax caches)
+// that the render loop reads unsynchronized. It is intended to be called once
+// during setup, before the render loop starts, or from within Update.
 func SetTerminalCapabilities(darkBackground bool, colorProfile colorprofile.Profile) {
 	termCapsMu.Lock()
 	termCaps = &terminalCapabilities{
@@ -139,6 +144,10 @@ func AdaptiveColor(light, dark string) color.Color {
 // DefaultTheme — which calls AdaptiveColor and would therefore probe the
 // terminal — is not evaluated at package-init time. Resolved lazily by
 // GetTheme, or set explicitly by SetTheme.
+//
+// Like themeGeneration below, this and themeExplicitlySet are mutated only on
+// the UI goroutine (SetTheme / SetTerminalCapabilities) and read from the same
+// Update/View cycle, so they carry no lock of their own.
 var currentTheme *Theme
 
 // themeExplicitlySet records whether the active theme came from SetTheme (true)
