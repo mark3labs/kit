@@ -67,4 +67,10 @@ var (
 	AdaptiveColor           = style.AdaptiveColor
 	IsDarkBackground        = style.IsDarkBackground
 	SyntaxStyle             = style.SyntaxStyle
+
+	// SetTerminalCapabilities and ResolveTerminalCapabilities let a frontend
+	// control per-terminal styling inputs instead of relying on a process-global
+	// probe. See internal/ui/style.
+	SetTerminalCapabilities     = style.SetTerminalCapabilities
+	ResolveTerminalCapabilities = style.ResolveTerminalCapabilities
 )

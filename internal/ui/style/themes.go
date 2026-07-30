@@ -61,7 +61,7 @@ func blendHex(base, tint string, amount float64) string {
 func deriveInputBg(bgPair [2]string) color.Color {
 	idx := 0
 	contrast := "#000000"
-	if isDarkBg {
+	if isDarkBackground() {
 		idx = 1
 		contrast = "#ffffff"
 	}
@@ -89,7 +89,7 @@ func deriveDiffBg(bgPair, successPair, errorPair [2]string) (diffInsert, diffDel
 
 	// Pick the correct index based on detected background.
 	idx := 0
-	if isDarkBg {
+	if isDarkBackground() {
 		idx = 1
 	}
 	insL, delL, eqL, missL := derive(idx)

@@ -1760,6 +1760,12 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		MCPResourceReader:        mcpResourceReader,
 	})
 
+	// Resolve terminal capabilities (background, colour profile) now, before
+	// the TUI takes over stdin. The detection runs a synchronous OSC query, so
+	// it must happen here rather than lazily mid-render where it would race the
+	// event loop. No-op if a theme in config already resolved them.
+	ui.ResolveTerminalCapabilities()
+
 	program := tea.NewProgram(appModel)
 
 	// Register the program with the app layer so agent events are sent to the TUI.
