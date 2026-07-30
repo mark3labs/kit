@@ -36,8 +36,10 @@ type CtrlCResetMsg struct{}
 type TreeNodeSelectedMsg struct {
 	// ID is the entry ID of the selected node.
 	ID string
-	// Entry is the underlying entry object.
-	Entry any
+	// ParentID is the entry ID of the selected node's parent, empty for
+	// root entries. Forking a user message branches from the parent so the
+	// message itself can be edited and resubmitted.
+	ParentID string
 	// IsUser is true if the selected entry is a user message.
 	IsUser bool
 	// UserText is the user message text (only set when IsUser is true).

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/ui/core"
 )
 
@@ -43,8 +42,8 @@ func (m TreeFilterMode) String() string {
 
 // FlatNode is a tree entry flattened for list rendering with indentation info.
 type FlatNode struct {
-	Entry    any    // the underlying entry
-	ID       string // entry ID
+	Node     app.TreeNodeView // value projection of the entry
+	ID       string           // entry ID
 	ParentID string
 	Depth    int    // indentation level
 	IsLast   bool   // last child at this depth
@@ -59,8 +58,8 @@ type FlatNode struct {
 // filtered node list and a custom RenderItem that draws each tree node with
 // its indentation prefix and role colors.
 type TreeSelectorComponent struct {
-	tm         *session.TreeManager
-	flatNodes  []FlatNode // visible nodes (matches popup.Items() 1:1)
+	roots      []app.TreeNodeView // value projection of the session tree
+	flatNodes  []FlatNode         // visible nodes (matches popup.Items() 1:1)
 	filter     TreeFilterMode
 	leafID     string // real leaf for "active" marker
 	popup      *PopupList
@@ -71,12 +70,13 @@ type TreeSelectorComponent struct {
 	cancelled  bool
 }
 
-// NewTreeSelector creates a tree selector from a TreeManager.
-func NewTreeSelector(tm *session.TreeManager, width, height int) *TreeSelectorComponent {
+// NewTreeSelector creates a tree selector over a session tree snapshot.
+// roots is the projected entry tree and leafID marks the active branch tip.
+func NewTreeSelector(roots []app.TreeNodeView, leafID string, width, height int) *TreeSelectorComponent {
 	ts := &TreeSelectorComponent{
-		tm:     tm,
+		roots:  roots,
 		filter: TreeFilterDefault,
-		leafID: tm.GetLeafID(),
+		leafID: leafID,
 		width:  width,
 		height: height,
 		active: true,
@@ -95,11 +95,11 @@ func NewTreeSelector(tm *session.TreeManager, width, height int) *TreeSelectorCo
 
 // NewTreeSelectorForFork creates a tree selector for the /fork command.
 // It shows only user messages (flat list) matching Pi's fork behavior.
-func NewTreeSelectorForFork(tm *session.TreeManager, width, height int) *TreeSelectorComponent {
+func NewTreeSelectorForFork(roots []app.TreeNodeView, leafID string, width, height int) *TreeSelectorComponent {
 	ts := &TreeSelectorComponent{
-		tm:     tm,
+		roots:  roots,
 		filter: TreeFilterUserOnly,
-		leafID: tm.GetLeafID(),
+		leafID: leafID,
 		width:  width,
 		height: height,
 		active: true,
@@ -108,7 +108,7 @@ func NewTreeSelectorForFork(tm *session.TreeManager, width, height int) *TreeSel
 	ts.rebuild()
 	// Position cursor at the last user message before the leaf.
 	for i := len(ts.flatNodes) - 1; i >= 0; i-- {
-		if ts.isUserMessage(ts.flatNodes[i].Entry) {
+		if ts.flatNodes[i].Node.IsUserMessage() {
 			ts.popup.SetCursor(i)
 			break
 		}
@@ -191,9 +191,9 @@ func (ts *TreeSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return ts, func() tea.Msg {
 					return core.TreeNodeSelectedMsg{
 						ID:       node.ID,
-						Entry:    node.Entry,
-						IsUser:   ts.isUserMessage(node.Entry),
-						UserText: ts.extractUserText(node.Entry),
+						ParentID: node.ParentID,
+						IsUser:   node.Node.IsUserMessage(),
+						UserText: userText(node.Node),
 					}
 				}
 			}
@@ -235,9 +235,8 @@ func (ts *TreeSelectorComponent) IsActive() bool {
 // with PopupItems. Called on initial load and whenever the filter changes.
 func (ts *TreeSelectorComponent) rebuild() {
 	ts.flatNodes = ts.flatNodes[:0]
-	tree := ts.tm.GetTree()
-	for i, root := range tree {
-		isLast := i == len(tree)-1
+	for i, root := range ts.roots {
+		isLast := i == len(ts.roots)-1
 		ts.flattenNode(root, 0, isLast, "")
 	}
 	ts.publishItems()
@@ -263,7 +262,7 @@ func (ts *TreeSelectorComponent) publishItems() {
 	items := make([]PopupItem, len(ts.flatNodes))
 	for i, n := range ts.flatNodes {
 		items[i] = PopupItem{
-			Label:  ts.entryDisplayText(n.Entry),
+			Label:  entryDisplayText(n.Node),
 			Active: n.ID == ts.leafID,
 			Meta:   n,
 		}
@@ -273,7 +272,7 @@ func (ts *TreeSelectorComponent) publishItems() {
 	ts.syncFlatNodes()
 }
 
-func (ts *TreeSelectorComponent) flattenNode(node *session.TreeNode, depth int, isLast bool, gutterPrefix string) {
+func (ts *TreeSelectorComponent) flattenNode(node app.TreeNodeView, depth int, isLast bool, gutterPrefix string) {
 	if !ts.passesFilter(node) {
 		// Still recurse into children in case they pass.
 		for i, child := range node.Children {
@@ -292,16 +291,14 @@ func (ts *TreeSelectorComponent) flattenNode(node *session.TreeNode, depth int, 
 		prefix = gutterPrefix + "├─ "
 	}
 
-	label := ts.tm.GetLabel(node.ID)
-
 	ts.flatNodes = append(ts.flatNodes, FlatNode{
-		Entry:    node.Entry,
+		Node:     node,
 		ID:       node.ID,
 		ParentID: node.ParentID,
 		Depth:    depth,
 		IsLast:   isLast,
 		Prefix:   prefix,
-		Label:    label,
+		Label:    node.Label,
 	})
 
 	// Build gutter prefix for children.
@@ -320,39 +317,34 @@ func (ts *TreeSelectorComponent) flattenNode(node *session.TreeNode, depth int, 
 	}
 }
 
-func (ts *TreeSelectorComponent) passesFilter(node *session.TreeNode) bool {
+func (ts *TreeSelectorComponent) passesFilter(node app.TreeNodeView) bool {
 	switch ts.filter {
 	case TreeFilterAll:
 		return true
 
 	case TreeFilterDefault:
 		// Hide settings entries.
-		switch node.Entry.(type) {
-		case *session.ModelChangeEntry, *session.LabelEntry, *session.SessionInfoEntry:
+		switch node.Kind {
+		case app.EntryKindModelChange, app.EntryKindLabel, app.EntryKindSessionInfo:
 			return false
 		}
 		// Hide tool messages unless they're the leaf.
-		if me, ok := node.Entry.(*session.MessageEntry); ok {
-			if me.Role == "tool" && node.ID != ts.leafID {
-				return false
-			}
+		if node.Kind == app.EntryKindMessage && node.Role == "tool" && node.ID != ts.leafID {
+			return false
 		}
 		return true
 
 	case TreeFilterNoTools:
-		if me, ok := node.Entry.(*session.MessageEntry); ok {
-			return me.Role != "tool"
+		if node.Kind == app.EntryKindMessage {
+			return node.Role != "tool"
 		}
 		return true
 
 	case TreeFilterUserOnly:
-		if me, ok := node.Entry.(*session.MessageEntry); ok {
-			return me.Role == "user"
-		}
-		return false
+		return node.IsUserMessage()
 
 	case TreeFilterLabelOnly:
-		return ts.tm.GetLabel(node.ID) != ""
+		return node.Label != ""
 
 	default:
 		return true
@@ -415,7 +407,7 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 	// Reserve space for indicator(2) + prefix + right parts.
 	available := max(innerWidth-2-prefixW-rightW, 4)
 
-	text := ts.entryDisplayText(node.Entry)
+	text := entryDisplayText(node.Node)
 	text = truncateRunes(text, available)
 
 	// Selected row: emit raw text. The outer row style applies fg+bg in one
@@ -426,9 +418,9 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 
 	// Role-based text color.
 	var textStyle lipgloss.Style
-	switch e := node.Entry.(type) {
-	case *session.MessageEntry:
-		switch e.Role {
+	switch node.Node.Kind {
+	case app.EntryKindMessage:
+		switch node.Node.Role {
 		case "user":
 			textStyle = lipgloss.NewStyle().Foreground(theme.Accent)
 		case "assistant":
@@ -436,9 +428,9 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 		default:
 			textStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 		}
-	case *session.BranchSummaryEntry:
+	case app.EntryKindBranchSummary:
 		textStyle = lipgloss.NewStyle().Foreground(theme.Warning).Italic(true)
-	case *session.CompactionEntry:
+	case app.EntryKindCompaction:
 		textStyle = lipgloss.NewStyle().Foreground(theme.Info).Italic(true)
 	default:
 		textStyle = lipgloss.NewStyle().Foreground(theme.Muted)
@@ -458,31 +450,33 @@ func (ts *TreeSelectorComponent) renderNode(item PopupItem, innerWidth int, isCu
 	return parts
 }
 
-func (ts *TreeSelectorComponent) entryDisplayText(entry any) string {
-	switch e := entry.(type) {
-	case *session.MessageEntry:
-		role := e.Role
-		text := collapseToLine(extractTextFromParts(e.Parts))
-		text = truncateRunes(text, 200)
+// entryDisplayText renders a one-line summary of a tree node. It switches on
+// the app-layer EntryKind rather than on session storage types, so new entry
+// kinds degrade to the "(unknown entry)" fallback instead of breaking the
+// build.
+func entryDisplayText(node app.TreeNodeView) string {
+	switch node.Kind {
+	case app.EntryKindMessage:
+		text := truncateRunes(collapseToLine(node.Text), 200)
 		if text == "" {
 			text = "(tool interaction)"
 		}
-		return fmt.Sprintf("%s: %s", role, text)
+		return fmt.Sprintf("%s: %s", node.Role, text)
 
-	case *session.ModelChangeEntry:
-		return fmt.Sprintf("model: %s/%s", e.Provider, e.ModelID)
+	case app.EntryKindModelChange:
+		return fmt.Sprintf("model: %s", node.Text)
 
-	case *session.BranchSummaryEntry:
-		return fmt.Sprintf("branch summary: %s", truncateRunes(collapseToLine(e.Summary), 200))
+	case app.EntryKindBranchSummary:
+		return fmt.Sprintf("branch summary: %s", truncateRunes(collapseToLine(node.Text), 200))
 
-	case *session.CompactionEntry:
-		return fmt.Sprintf("compaction: %s", truncateRunes(collapseToLine(e.Summary), 200))
+	case app.EntryKindCompaction:
+		return fmt.Sprintf("compaction: %s", truncateRunes(collapseToLine(node.Text), 200))
 
-	case *session.LabelEntry:
-		return fmt.Sprintf("label: %s", e.Label)
+	case app.EntryKindLabel:
+		return fmt.Sprintf("label: %s", node.Text)
 
-	case *session.SessionInfoEntry:
-		return fmt.Sprintf("name: %s", e.Name)
+	case app.EntryKindSessionInfo:
+		return fmt.Sprintf("name: %s", node.Text)
 
 	default:
 		return "(unknown entry)"
@@ -496,37 +490,11 @@ func collapseToLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-func (ts *TreeSelectorComponent) isUserMessage(entry any) bool {
-	if me, ok := entry.(*session.MessageEntry); ok {
-		return me.Role == "user"
-	}
-	return false
-}
-
-func (ts *TreeSelectorComponent) extractUserText(entry any) string {
-	if me, ok := entry.(*session.MessageEntry); ok && me.Role == "user" {
-		return extractTextFromParts(me.Parts)
+// userText returns the full, untruncated text of a user message so it can be
+// placed back into the editor on fork. Empty for every other node.
+func userText(node app.TreeNodeView) string {
+	if node.IsUserMessage() {
+		return node.Text
 	}
 	return ""
-}
-
-// extractTextFromParts extracts text content from type-tagged parts JSON.
-func extractTextFromParts(partsJSON []byte) string {
-	// Quick extraction without full unmarshal.
-	var parts []struct {
-		Type string `json:"type"`
-		Data struct {
-			Text string `json:"text"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(partsJSON, &parts); err != nil {
-		return ""
-	}
-	var texts []string
-	for _, p := range parts {
-		if p.Type == "text" && p.Data.Text != "" {
-			texts = append(texts, p.Data.Text)
-		}
-	}
-	return strings.Join(texts, "\n")
 }
