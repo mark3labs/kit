@@ -65,7 +65,7 @@ func (s *stubAppController) SwitchTreeSession(_ *session.TreeManager) {
 	// no-op in tests
 }
 
-func (s *stubAppController) SendEvent(_ tea.Msg) {
+func (s *stubAppController) SendUIMessage(_ tea.Msg) {
 	// no-op in tests
 }
 
@@ -1298,7 +1298,7 @@ func TestNewSessionRequestEvent_cancelledByExtension(t *testing.T) {
 	})
 	// The before-hook runs in a goroutine, which sends back a
 	// beforeSessionSwitchResultMsg. Pump that synchronously by reading
-	// the SendEvent call indirectly: SendEvent on stub is a no-op so we
+	// the SendUIMessage call indirectly: SendUIMessage on stub is a no-op so we
 	// need to dispatch the message ourselves to simulate the round trip.
 	sendMsg(m, beforeSessionSwitchResultMsg{
 		cancelled:     true,
