@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/ui/style"
@@ -114,12 +115,23 @@ func NewSessionSelector(store SessionStore, cwd string, width, height int) *Sess
 		confirmDelete: -1,
 	}
 
-	// Load sessions (errors are swallowed — empty list is fine).
+	// Listing failures degrade to an empty list rather than blocking the
+	// picker, but they are logged: a permissions or disk error would otherwise
+	// be indistinguishable from "no sessions yet". Log output is redirected to
+	// a file while the TUI runs, so this cannot corrupt the alt-screen.
 	if cwd != "" {
-		ss.cwdSessions, _ = store.ListSessions(cwd)
+		sessions, err := store.ListSessions(cwd)
+		if err != nil {
+			log.Warn("session picker: listing sessions for cwd failed", "cwd", cwd, "err", err)
+		}
+		ss.cwdSessions = sessions
 		ss.scope = SessionScopeCwd
 	}
-	ss.allSessions, _ = store.ListAllSessions()
+	all, err := store.ListAllSessions()
+	if err != nil {
+		log.Warn("session picker: listing all sessions failed", "err", err)
+	}
+	ss.allSessions = all
 
 	if cwd == "" || len(ss.cwdSessions) == 0 {
 		ss.scope = SessionScopeAll

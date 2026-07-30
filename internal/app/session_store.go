@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -194,19 +195,40 @@ func (a *App) systemPromptEntry(systemPrompt, fallbackModelID string) ([]byte, e
 
 // writeShareFile writes data to a temporary JSONL file with sysPromptJSON
 // spliced in after the header line, and returns the temp file's path.
-func writeShareFile(name string, data, sysPromptJSON []byte) (tmpPath string, err error) {
+func writeShareFile(name string, data, sysPromptJSON []byte) (string, error) {
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
-	tmpPath = tmpFile.Name()
-	defer func() {
-		_ = tmpFile.Close()
-		if err != nil {
-			_ = os.Remove(tmpPath)
-		}
-	}()
+	return finishShareFile(tmpFile, data, sysPromptJSON)
+}
 
+// finishShareFile splices sysPromptJSON into data, writes the result to f and
+// closes it. If anything fails, f is closed and removed so no partial share
+// file is left behind, and the returned path is empty.
+//
+// The file is taken as a parameter rather than created here so that the
+// cleanup-on-failure path is directly testable.
+func finishShareFile(f *os.File, data, sysPromptJSON []byte) (string, error) {
+	path := f.Name()
+	if err := spliceShareEntries(f, data, sysPromptJSON); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	// Close is checked rather than deferred: a buffered write can surface its
+	// error only here, and reporting success for a truncated share file would
+	// be worse than failing outright.
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close temp file: %w", err)
+	}
+	return path, nil
+}
+
+// spliceShareEntries writes data to w with sysPromptJSON inserted directly
+// after the header line. Empty lines in data are skipped.
+func spliceShareEntries(w io.Writer, data, sysPromptJSON []byte) error {
 	// The header is the first line, so we write:
 	// 1. First line (header) from the original data
 	// 2. System prompt entry
@@ -216,27 +238,27 @@ func writeShareFile(name string, data, sysPromptJSON []byte) (tmpPath string, er
 		lines = lines[:len(lines)-1] // Remove trailing empty line
 	}
 	if len(lines) == 0 {
-		return tmpPath, nil
+		return nil
 	}
 
-	if _, err = tmpFile.WriteString(lines[0] + "\n"); err != nil {
-		return "", fmt.Errorf("write temp file: %w", err)
+	if _, err := io.WriteString(w, lines[0]+"\n"); err != nil {
+		return fmt.Errorf("write temp file: %w", err)
 	}
-	if _, err = tmpFile.Write(sysPromptJSON); err != nil {
-		return "", fmt.Errorf("write system prompt: %w", err)
+	if _, err := w.Write(sysPromptJSON); err != nil {
+		return fmt.Errorf("write system prompt: %w", err)
 	}
-	if _, err = tmpFile.WriteString("\n"); err != nil {
-		return "", fmt.Errorf("write temp file: %w", err)
+	if _, err := io.WriteString(w, "\n"); err != nil {
+		return fmt.Errorf("write temp file: %w", err)
 	}
 	for i := 1; i < len(lines); i++ {
 		if lines[i] == "" {
 			continue // Skip empty lines
 		}
-		if _, err = tmpFile.WriteString(lines[i] + "\n"); err != nil {
-			return "", fmt.Errorf("write temp file: %w", err)
+		if _, err := io.WriteString(w, lines[i]+"\n"); err != nil {
+			return fmt.Errorf("write temp file: %w", err)
 		}
 	}
-	return tmpPath, nil
+	return nil
 }
 
 // sanitizeFileName replaces path separators and other characters that are

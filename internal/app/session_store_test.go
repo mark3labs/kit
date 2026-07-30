@@ -445,3 +445,145 @@ func TestShortSessionID(t *testing.T) {
 		})
 	}
 }
+
+// --------------------------------------------------------------------------
+// Share file assembly and cleanup
+// --------------------------------------------------------------------------
+
+// failingWriter fails on the Nth write, so each error branch of
+// spliceShareEntries can be exercised in turn.
+type failingWriter struct {
+	failOn int // 1-based index of the write that fails
+	n      int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.n++
+	if w.n == w.failOn {
+		return 0, errors.New("disk full")
+	}
+	return len(p), nil
+}
+
+func TestSpliceShareEntriesPropagatesWriteErrors(t *testing.T) {
+	data := []byte("header\nentry-1\nentry-2\n")
+	sysPrompt := []byte(`{"type":"system_prompt"}`)
+
+	tests := []struct {
+		name    string
+		failOn  int
+		wantMsg string
+	}{
+		{"header write", 1, "write temp file"},
+		{"system prompt write", 2, "write system prompt"},
+		{"separator write", 3, "write temp file"},
+		{"entry write", 4, "write temp file"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := spliceShareEntries(&failingWriter{failOn: tt.failOn}, data, sysPrompt)
+			if err == nil {
+				t.Fatalf("write %d failed but spliceShareEntries returned nil", tt.failOn)
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("error = %q, want it to mention %q", err, tt.wantMsg)
+			}
+			if !strings.Contains(err.Error(), "disk full") {
+				t.Errorf("error = %q, want the cause wrapped", err)
+			}
+		})
+	}
+}
+
+func TestSpliceShareEntriesEmptyData(t *testing.T) {
+	// No lines means nothing to splice; the writer must not be touched, and
+	// in particular the system prompt must not be written without a header.
+	w := &failingWriter{failOn: 1}
+	if err := spliceShareEntries(w, nil, []byte("sys")); err != nil {
+		t.Fatalf("spliceShareEntries on empty data: %v", err)
+	}
+	if w.n != 0 {
+		t.Errorf("performed %d writes on empty data, want 0", w.n)
+	}
+}
+
+// TestFinishShareFileRemovesFileOnWriteFailure is the regression test for the
+// temp-file leak: the cleanup path must remove the file that was actually
+// created. A read-only handle makes every write fail with EBADF.
+func TestFinishShareFileRemovesFileOnWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "share.jsonl")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	// Opened read-only, so writes fail.
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	got, err := finishShareFile(f, []byte("header\nentry\n"), []byte("sys"))
+	if err == nil {
+		t.Fatal("finishShareFile on a read-only file = nil, want an error")
+	}
+	if got != "" {
+		t.Errorf("path = %q, want empty on failure", got)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("temp file leaked at %s (stat err = %v)", path, statErr)
+	}
+}
+
+func TestFinishShareFileReturnsPathOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "share.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := finishShareFile(f, []byte("header\nentry\n"), []byte("sys"))
+	if err != nil {
+		t.Fatalf("finishShareFile: %v", err)
+	}
+	if got != path {
+		t.Errorf("path = %q, want %q", got, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "header\nsys\nentry\n" {
+		t.Errorf("content = %q, want the system prompt spliced after the header", data)
+	}
+	// The file must be closed; writing through the stale handle should fail.
+	if _, err := f.WriteString("x"); err == nil {
+		t.Error("file still open after finishShareFile")
+	}
+}
+
+// TestWriteShareableSessionLeavesNoTempFilesOnSuccess guards the temp
+// directory against accumulating share files across successful runs.
+func TestWriteShareableSessionCleansUpAfterCaller(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+
+	a, tm := newPersistedApp(t)
+	appendUserMessage(t, tm, "hello")
+
+	path, err := a.WriteShareableSession("be helpful", "model")
+	if err != nil {
+		t.Fatalf("WriteShareableSession: %v", err)
+	}
+	if filepath.Dir(path) != tmpDir {
+		t.Fatalf("share file at %q, want it under the sandboxed temp dir %q", path, tmpDir)
+	}
+
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("temp dir holds %d files, want exactly the one share file", len(entries))
+	}
+}
