@@ -30,6 +30,15 @@ type stubAppController struct {
 	// and sessionHistory is what SessionHistory returns for it.
 	hasSession     bool
 	sessionHistory []message.Message
+
+	// sessions/allSessions back the session listing methods, deleted records
+	// the paths passed to DeleteSession, and listErr/deleteErr let a test
+	// force the failure paths.
+	sessions    []app.SessionSummary
+	allSessions []app.SessionSummary
+	deleted     []string
+	listErr     error
+	deleteErr   error
 }
 
 func (s *stubAppController) Run(prompt string) int {
@@ -89,8 +98,25 @@ func (s *stubAppController) ForkSession(_, _ string) error {
 	return app.ErrNoSession
 }
 
-func (s *stubAppController) SessionSystemPromptEntry(_, _ string) ([]byte, error) {
-	return nil, app.ErrNoSession
+func (s *stubAppController) ListSessions(_ string) ([]app.SessionSummary, error) {
+	return s.sessions, s.listErr
+}
+
+func (s *stubAppController) ListAllSessions() ([]app.SessionSummary, error) {
+	return s.allSessions, s.listErr
+}
+
+func (s *stubAppController) DeleteSession(path string) error {
+	s.deleted = append(s.deleted, path)
+	return s.deleteErr
+}
+
+func (s *stubAppController) ExportSession(_ string) (string, int, error) {
+	return "", 0, app.ErrNoSession
+}
+
+func (s *stubAppController) WriteShareableSession(_, _ string) (string, error) {
+	return "", app.ErrNoSession
 }
 
 func (s *stubAppController) SendUIMessage(_ tea.Msg) {

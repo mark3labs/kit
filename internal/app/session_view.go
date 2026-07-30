@@ -266,26 +266,3 @@ func (a *App) ForkSession(cwd, targetID string) error {
 	a.SwitchTreeSession(ts)
 	return nil
 }
-
-// SessionSystemPromptEntry marshals a system-prompt entry describing the
-// given system prompt together with the model and provider currently in
-// effect for the session. It is embedded in exported and shared session files
-// so a reader can reconstruct the context the conversation ran under.
-//
-// fallbackModelID is used when the session records no model change of its
-// own. Returns ErrNoSession when no tree session is active.
-func (a *App) SessionSystemPromptEntry(systemPrompt, fallbackModelID string) ([]byte, error) {
-	tm := a.opts.TreeSession
-	if tm == nil {
-		return nil, ErrNoSession
-	}
-	_, provider, modelID := tm.BuildContext()
-	if modelID == "" {
-		modelID = fallbackModelID
-	}
-	data, err := session.MarshalEntry(session.NewSystemPromptEntry(systemPrompt, modelID, provider))
-	if err != nil {
-		return nil, fmt.Errorf("marshal system prompt entry: %w", err)
-	}
-	return data, nil
-}

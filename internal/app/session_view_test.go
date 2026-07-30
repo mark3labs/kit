@@ -267,9 +267,6 @@ func TestSessionMutationsWithoutSession(t *testing.T) {
 	if err := a.ForkSession(t.TempDir(), "abc"); !errors.Is(err, ErrNoSession) {
 		t.Errorf("ForkSession err = %v, want ErrNoSession", err)
 	}
-	if _, err := a.SessionSystemPromptEntry("prompt", "model"); !errors.Is(err, ErrNoSession) {
-		t.Errorf("SessionSystemPromptEntry err = %v, want ErrNoSession", err)
-	}
 }
 
 func TestSetSessionName(t *testing.T) {
@@ -284,54 +281,5 @@ func TestSetSessionName(t *testing.T) {
 	}
 	if snap.Name != "renamed" {
 		t.Errorf("Name = %q, want %q", snap.Name, "renamed")
-	}
-}
-
-func TestSessionSystemPromptEntryUsesSessionModel(t *testing.T) {
-	a, tm := newSessionApp(t)
-	appendUserMessage(t, tm, "hello")
-	if _, err := tm.AppendModelChange("anthropic", "claude-sonnet-4-5"); err != nil {
-		t.Fatalf("AppendModelChange: %v", err)
-	}
-
-	data, err := a.SessionSystemPromptEntry("be helpful", "fallback-model")
-	if err != nil {
-		t.Fatalf("SessionSystemPromptEntry: %v", err)
-	}
-
-	entry, err := session.UnmarshalEntry(data)
-	if err != nil {
-		t.Fatalf("UnmarshalEntry: %v", err)
-	}
-	sp, ok := entry.(*session.SystemPromptEntry)
-	if !ok {
-		t.Fatalf("got %T, want *session.SystemPromptEntry", entry)
-	}
-	if sp.Content != "be helpful" {
-		t.Errorf("Content = %q, want %q", sp.Content, "be helpful")
-	}
-	if sp.Model != "claude-sonnet-4-5" {
-		t.Errorf("Model = %q, want the session's model", sp.Model)
-	}
-	if sp.Provider != "anthropic" {
-		t.Errorf("Provider = %q, want %q", sp.Provider, "anthropic")
-	}
-}
-
-func TestSessionSystemPromptEntryFallsBackToGivenModel(t *testing.T) {
-	a, tm := newSessionApp(t)
-	appendUserMessage(t, tm, "hello")
-
-	data, err := a.SessionSystemPromptEntry("be helpful", "fallback-model")
-	if err != nil {
-		t.Fatalf("SessionSystemPromptEntry: %v", err)
-	}
-	entry, err := session.UnmarshalEntry(data)
-	if err != nil {
-		t.Fatalf("UnmarshalEntry: %v", err)
-	}
-	sp := entry.(*session.SystemPromptEntry)
-	if sp.Model != "fallback-model" {
-		t.Errorf("Model = %q, want the fallback when the session records none", sp.Model)
 	}
 }

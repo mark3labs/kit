@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/mark3labs/kit/internal/session"
+	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -61,14 +61,31 @@ func (m SessionFilterMode) String() string {
 // controlCharsRe matches ASCII control characters for stripping from previews.
 var controlCharsRe = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 
+// SessionStore is the slice of the app layer the session picker needs: it
+// lists the sessions on disk and deletes them. The picker owns the loading
+// itself (rather than being handed a list) because it reloads across scope
+// toggles and mutates the list in place after a delete.
+type SessionStore interface {
+	// ListSessions returns summaries of the sessions recorded for cwd,
+	// newest first.
+	ListSessions(cwd string) ([]app.SessionSummary, error)
+	// ListAllSessions returns summaries of every session across all working
+	// directories, newest first.
+	ListAllSessions() ([]app.SessionSummary, error)
+	// DeleteSession removes a session file from disk.
+	DeleteSession(path string) error
+}
+
 // SessionSelectorComponent is a Bubble Tea component that lets the user browse
 // and select from available sessions. It wraps PopupList in FullScreen mode:
 // PopupList owns the cursor/search/scroll math/chrome; this component owns
 // the session list, scope/filter toggles, and delete-confirmation flow.
 type SessionSelectorComponent struct {
-	allSessions []session.SessionInfo
-	cwdSessions []session.SessionInfo
-	filtered    []session.SessionInfo // matches popup.Items() 1:1
+	store SessionStore
+
+	allSessions []app.SessionSummary
+	cwdSessions []app.SessionSummary
+	filtered    []app.SessionSummary // matches popup.Items() 1:1
 
 	scope  SessionScopeMode
 	filter SessionFilterMode
@@ -86,10 +103,11 @@ type SessionSelectorComponent struct {
 }
 
 // NewSessionSelector creates a session selector. It loads sessions for the
-// current working directory and all sessions across projects. If cwd is
-// empty, only "All" scope is available.
-func NewSessionSelector(cwd string, width, height int) *SessionSelectorComponent {
+// current working directory and all sessions across projects from store. If
+// cwd is empty, only "All" scope is available.
+func NewSessionSelector(store SessionStore, cwd string, width, height int) *SessionSelectorComponent {
 	ss := &SessionSelectorComponent{
+		store:         store,
 		width:         width,
 		height:        height,
 		active:        true,
@@ -98,10 +116,10 @@ func NewSessionSelector(cwd string, width, height int) *SessionSelectorComponent
 
 	// Load sessions (errors are swallowed — empty list is fine).
 	if cwd != "" {
-		ss.cwdSessions, _ = session.ListSessions(cwd)
+		ss.cwdSessions, _ = store.ListSessions(cwd)
 		ss.scope = SessionScopeCwd
 	}
-	ss.allSessions, _ = session.ListAllSessions()
+	ss.allSessions, _ = store.ListAllSessions()
 
 	if cwd == "" || len(ss.cwdSessions) == 0 {
 		ss.scope = SessionScopeAll
@@ -145,7 +163,7 @@ func (ss *SessionSelectorComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ss.confirmDelete = -1
 				if idx < len(ss.filtered) {
 					info := ss.filtered[idx]
-					if err := session.DeleteSession(info.Path); err == nil {
+					if err := ss.store.DeleteSession(info.Path); err == nil {
 						name := sessionDisplayName(info)
 						ss.removeSession(info.Path)
 						ss.rebuild()
@@ -257,7 +275,7 @@ func (ss *SessionSelectorComponent) IsActive() bool {
 // rebuild applies the scope and filter selections, then publishes the
 // resulting session list to the popup.
 func (ss *SessionSelectorComponent) rebuild() {
-	var source []session.SessionInfo
+	var source []app.SessionSummary
 	if ss.scope == SessionScopeCwd {
 		source = ss.cwdSessions
 	} else {
@@ -265,7 +283,7 @@ func (ss *SessionSelectorComponent) rebuild() {
 	}
 
 	if ss.filter == SessionFilterNamed {
-		var named []session.SessionInfo
+		var named []app.SessionSummary
 		for _, s := range source {
 			if s.Name != "" {
 				named = append(named, s)
@@ -291,12 +309,12 @@ func (ss *SessionSelectorComponent) rebuild() {
 }
 
 // syncFiltered refreshes the filtered slice from popup.Items() so cursor
-// indices map back to session.SessionInfo for the parent.
+// indices map back to app.SessionSummary for the parent.
 func (ss *SessionSelectorComponent) syncFiltered() {
 	items := ss.popup.Items()
-	out := make([]session.SessionInfo, 0, len(items))
+	out := make([]app.SessionSummary, 0, len(items))
 	for _, it := range items {
-		if s, ok := it.Meta.(session.SessionInfo); ok {
+		if s, ok := it.Meta.(app.SessionSummary); ok {
 			out = append(out, s)
 		}
 	}
@@ -308,8 +326,8 @@ func (ss *SessionSelectorComponent) removeSession(path string) {
 	ss.allSessions = removeByPath(ss.allSessions, path)
 }
 
-func removeByPath(sessions []session.SessionInfo, path string) []session.SessionInfo {
-	result := make([]session.SessionInfo, 0, len(sessions))
+func removeByPath(sessions []app.SessionSummary, path string) []app.SessionSummary {
+	result := make([]app.SessionSummary, 0, len(sessions))
 	for _, s := range sessions {
 		if s.Path != path {
 			result = append(result, s)
@@ -328,7 +346,7 @@ func removeByPath(sessions []session.SessionInfo, path string) []session.Session
 // because each inner Render emits an ANSI reset that drops the background.
 func (ss *SessionSelectorComponent) renderEntry(item PopupItem, innerWidth int, isCursor bool) string {
 	theme := style.GetTheme()
-	info, ok := item.Meta.(session.SessionInfo)
+	info, ok := item.Meta.(app.SessionSummary)
 	if !ok {
 		return item.Label
 	}
@@ -392,7 +410,7 @@ func (ss *SessionSelectorComponent) renderEntry(item PopupItem, innerWidth int, 
 
 // sessionDisplayName returns the best display string for a session:
 // the name if set, the first message, or a fallback.
-func sessionDisplayName(info session.SessionInfo) string {
+func sessionDisplayName(info app.SessionSummary) string {
 	if info.Name != "" {
 		return info.Name
 	}

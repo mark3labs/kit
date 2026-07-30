@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -121,11 +122,23 @@ type AppController interface {
 	// ForkSession creates a new session in cwd holding the history up to
 	// targetID and switches to it. Used by /fork and tree-node selection.
 	ForkSession(cwd, targetID string) error
-	// SessionSystemPromptEntry marshals a system-prompt entry describing the
-	// given prompt plus the session's current model/provider, for embedding
-	// in exported and shared session files. fallbackModelID is used when the
-	// session records no model of its own.
-	SessionSystemPromptEntry(systemPrompt, fallbackModelID string) ([]byte, error)
+	// ListSessions returns summaries of the sessions recorded for cwd,
+	// newest first. Used by the session picker.
+	ListSessions(cwd string) ([]app.SessionSummary, error)
+	// ListAllSessions returns summaries of every session across all working
+	// directories, newest first. Used by the session picker's "All" scope.
+	ListAllSessions() ([]app.SessionSummary, error)
+	// DeleteSession removes a session file from disk. Used by the session
+	// picker's delete flow.
+	DeleteSession(path string) error
+	// ExportSession copies the active session's file to dstPath, deriving a
+	// name when dstPath is empty, and reports the path written and byte
+	// count. Used by /export.
+	ExportSession(dstPath string) (string, int, error)
+	// WriteShareableSession writes a shareable copy of the active session
+	// (with a system-prompt entry spliced in) to a temporary file and returns
+	// its path. The caller must remove the file. Used by /share.
+	WriteShareableSession(systemPrompt, fallbackModelID string) (string, error)
 	// SendUIMessage re-injects a UI-internal message into the program's Update
 	// loop asynchronously. Safe to call from any goroutine. Used by extension
 	// command goroutines (and other async UI work) to deliver results back to
@@ -1150,7 +1163,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	// If --resume was passed, open the session picker immediately.
 	if opts.ShowSessionPicker {
-		m.sessionSelector = NewSessionSelector(opts.Cwd, width, height)
+		m.sessionSelector = NewSessionSelector(appCtrl, opts.Cwd, width, height)
 		m.state = stateSessionSelector
 	}
 
@@ -5590,44 +5603,17 @@ func (m *AppModel) handleEditCommand(args string) tea.Cmd {
 //
 //	/export path.jsonl — copies to the specified path.
 func (m *AppModel) handleExportCommand(args string) tea.Cmd {
-	snap, ok := m.appCtrl.SessionSnapshot()
-	if !ok {
+	dstPath, written, err := m.appCtrl.ExportSession(args)
+	switch {
+	case errors.Is(err, app.ErrNoSession):
 		m.printSystemMessage("No tree session active.")
-		return nil
-	}
-
-	srcPath := snap.FilePath
-	if srcPath == "" {
+	case errors.Is(err, app.ErrSessionNotPersisted):
 		m.printSystemMessage("Session is in-memory (not persisted). Nothing to export.")
-		return nil
+	case err != nil:
+		m.printSystemMessage(fmt.Sprintf("Failed to export session: %v", err))
+	default:
+		m.printSystemMessage(fmt.Sprintf("Session exported to: %s (%d bytes)", dstPath, written))
 	}
-
-	// Determine destination path.
-	dstPath := args
-	if dstPath == "" {
-		// Generate a name based on session name or ID.
-		name := snap.Name
-		if name == "" {
-			name = shortSessionID(snap.ID)
-		}
-		// Sanitize for filename.
-		name = sanitizeFileName(name)
-		dstPath = fmt.Sprintf("session_%s.jsonl", name)
-	}
-
-	// Copy the file.
-	data, err := os.ReadFile(srcPath)
-	if err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to read session file: %v", err))
-		return nil
-	}
-
-	if err := os.WriteFile(dstPath, data, 0644); err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to write export file: %v", err))
-		return nil
-	}
-
-	m.printSystemMessage(fmt.Sprintf("Session exported to: %s (%d bytes)", dstPath, len(data)))
 	return nil
 }
 
@@ -5635,14 +5621,14 @@ func (m *AppModel) handleExportCommand(args string) tea.Cmd {
 // a shareable viewer URL. Requires the GitHub CLI (gh) to be installed and
 // authenticated.
 func (m *AppModel) handleShareCommand() tea.Cmd {
+	// Check the session is shareable before probing for gh, so an in-memory
+	// session reports that rather than a missing-CLI error.
 	snap, ok := m.appCtrl.SessionSnapshot()
 	if !ok {
 		m.printSystemMessage("No tree session active.")
 		return nil
 	}
-
-	srcPath := snap.FilePath
-	if srcPath == "" {
+	if snap.FilePath == "" {
 		m.printSystemMessage("Session is in-memory (not persisted). Nothing to share.")
 		return nil
 	}
@@ -5660,32 +5646,12 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		return nil
 	}
 
-	// Read the original session file.
-	data, err := os.ReadFile(srcPath)
-	if err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to read session file: %v", err))
-		return nil
-	}
-
-	// Capture the current system prompt and model info as a system-prompt
-	// entry so the shared file records the context the conversation ran under.
-	sysPromptJSON, err := m.appCtrl.SessionSystemPromptEntry(
+	// The app layer writes the session plus a system-prompt entry recording
+	// the context the conversation ran under; we own the temp file from here.
+	tmpPath, err := m.appCtrl.WriteShareableSession(
 		viper.GetString("system-prompt"),
 		viper.GetString("model"),
 	)
-	if err != nil {
-		m.printSystemMessage(fmt.Sprintf("Failed to marshal system prompt: %v", err))
-		return nil
-	}
-
-	name := snap.Name
-	if name == "" {
-		name = "session"
-	}
-	// Sanitize for filename.
-	name = sanitizeFileName(name)
-
-	tmpPath, err := buildShareFile(name, data, sysPromptJSON)
 	if err != nil {
 		m.printSystemMessage(fmt.Sprintf("Failed to share session: %v", err))
 		return nil
@@ -5713,56 +5679,6 @@ func (m *AppModel) handleShareCommand() tea.Cmd {
 		viewerURL := fmt.Sprintf("https://go-kit.dev/session/#%s", gistID)
 		return shareResultMsg{gistURL: gistURL, viewerURL: viewerURL}
 	}
-}
-
-// buildShareFile assembles a temp JSONL file containing the session data
-// with the system-prompt entry inserted after the header line. On success
-// the caller owns the returned file and must remove it when done; on error
-// any partially-written temp file has already been cleaned up.
-func buildShareFile(name string, data, sysPromptJSON []byte) (tmpPath string, err error) {
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kit-%s-*.jsonl", name))
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath = tmpFile.Name()
-	defer func() {
-		_ = tmpFile.Close()
-		if err != nil {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	// Write the session data with the system prompt entry inserted after the
-	// header. The header is the first line, so we write:
-	// 1. First line (header) from original data
-	// 2. System prompt entry
-	// 3. Remaining lines from original data
-	lines := strings.Split(string(data), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1] // Remove trailing empty line
-	}
-	if len(lines) == 0 {
-		return tmpPath, nil
-	}
-
-	if _, err = tmpFile.WriteString(lines[0] + "\n"); err != nil {
-		return "", fmt.Errorf("write temp file: %w", err)
-	}
-	if _, err = tmpFile.Write(sysPromptJSON); err != nil {
-		return "", fmt.Errorf("write system prompt: %w", err)
-	}
-	if _, err = tmpFile.WriteString("\n"); err != nil {
-		return "", fmt.Errorf("write temp file: %w", err)
-	}
-	for i := 1; i < len(lines); i++ {
-		if lines[i] == "" {
-			continue // Skip empty lines
-		}
-		if _, err = tmpFile.WriteString(lines[i] + "\n"); err != nil {
-			return "", fmt.Errorf("write temp file: %w", err)
-		}
-	}
-	return tmpPath, nil
 }
 
 // handleImportCommand imports a session from a JSONL file.
@@ -5801,7 +5717,7 @@ func (m *AppModel) handleResumeCommand() tea.Cmd {
 		return nil
 	}
 
-	m.sessionSelector = NewSessionSelector(m.cwd, m.width, m.height)
+	m.sessionSelector = NewSessionSelector(m.appCtrl, m.cwd, m.width, m.height)
 	m.state = stateSessionSelector
 	return nil
 }
@@ -5915,27 +5831,6 @@ func (m *AppModel) renderSessionHistory() {
 	m.refreshContent()
 	m.layoutDirty = true
 	m.pendingGotoBottom = true
-}
-
-// sanitizeFileName replaces path separators and other characters that are
-// awkward in file names with underscores, so a user-chosen session name can
-// be embedded in an export/share filename safely.
-func sanitizeFileName(name string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == ' ' {
-			return '_'
-		}
-		return r
-	}, name)
-}
-
-// shortSessionID returns a filename-friendly prefix of a session ID, used as
-// a fallback export name for unnamed sessions.
-func shortSessionID(id string) string {
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
 }
 
 // handleSessionInfoCommand shows session statistics.
