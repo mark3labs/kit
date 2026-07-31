@@ -55,6 +55,14 @@ func WithBorderColor(c color.Color) renderingOption {
 	}
 }
 
+// WithBackground returns a renderingOption that sets a background color for
+// the entire block, including the padded region.
+func WithBackground(c color.Color) renderingOption {
+	return func(r *blockRenderer) {
+		r.background = &c
+	}
+}
+
 // WithMarginBottom returns a renderingOption that sets the bottom margin
 // for the block. The margin is specified in number of lines and adds
 // vertical space below the block.

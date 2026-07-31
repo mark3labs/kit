@@ -59,7 +59,7 @@ Passed to event handlers, the `Context` object provides runtime access to Kit's 
 - **Output** — `ctx.Print(...)`, `ctx.PrintInfo(...)`, `ctx.PrintError(...)`
 - **UI components** — `ctx.SetWidget(...)`, `ctx.SetHeader(...)`, `ctx.SetFooter(...)`, `ctx.SetStatus(...)`
 - **Editor** — `ctx.SetEditor(...)`, `ctx.ResetEditor()`
-- **Prompts** — `ctx.PromptSelect(...)`, `ctx.PromptConfirm(...)`, `ctx.PromptInput(...)`
+- **Prompts** — `ctx.PromptSelect(...)`, `ctx.PromptMultiSelect(...)`, `ctx.PromptConfirm(...)`, `ctx.PromptInput(...)`
 - **Overlays** — `ctx.ShowOverlay(...)`
 - **Messages** — `ctx.SendMessage(...)`, `ctx.GetMessages()`
 - **Model** — `ctx.SetModel(...)`, `ctx.GetAvailableModels()`, `ctx.GetThinkingLevel()`

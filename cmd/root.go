@@ -521,8 +521,11 @@ func widgetProviderForUI(k *kit.Kit) func(string) []ui.WidgetData {
 		widgets := make([]ui.WidgetData, len(configs))
 		for i, c := range configs {
 			widgets[i] = ui.WidgetData{
+				ID:          c.ID,
 				Text:        c.Content.Text,
 				Markdown:    c.Content.Markdown,
+				Render:      c.Content.Render,
+				RefreshHz:   c.Content.RefreshHz,
 				BorderColor: c.Style.BorderColor,
 				NoBorder:    c.Style.NoBorder,
 			}
@@ -546,6 +549,8 @@ func headerFooterProviderForUI(k *kit.Kit, getter func() *extensions.HeaderFoote
 		return &ui.WidgetData{
 			Text:        cfg.Content.Text,
 			Markdown:    cfg.Content.Markdown,
+			Render:      cfg.Content.Render,
+			RefreshHz:   cfg.Content.RefreshHz,
 			BorderColor: cfg.Style.BorderColor,
 			NoBorder:    cfg.Style.NoBorder,
 		}

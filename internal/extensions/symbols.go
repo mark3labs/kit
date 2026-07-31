@@ -11,11 +11,23 @@ import (
 //
 //	import "kit/ext"
 //
-// IMPORTANT: Only concrete types (structs, constants) are exported. Interfaces
-// (Event, Result) and the HandlerFunc type are NOT exported because Yaegi
-// cannot generate interface wrappers for them. Instead, extensions use
-// event-specific methods like api.OnToolCall() which accept concrete function
-// signatures.
+// IMPORTANT: Only concrete types (structs, constants) are exported.
+//
+// Yaegi cannot SYNTHESIZE an interface wrapper at runtime: when interpreted
+// code must produce a value of a host interface type, it panics in
+// genInterfaceWrapper. Two consequences shape this table:
+//
+//  1. The Event, Result and HandlerFunc types are not exported, so there is
+//     no generic On(EventType, HandlerFunc). Extensions use event-specific
+//     methods like api.OnToolCall() with concrete function signatures.
+//     Measured: a handler returning a concrete Result works, but the
+//     idiomatic `return nil` panics during Eval — which is why the generic
+//     form is not offered.
+//  2. Build-time wrappers (the `_Iface` structs that `yaegi extract`
+//     generates) DO work, and would let interpreted types satisfy host
+//     interfaces. Adopting them additionally requires the export key to
+//     match the type's real Go package path — the virtual "kit/ext" path
+//     works for structs but yields a nil dereference for interfaces.
 func Symbols() interp.Exports {
 	return interp.Exports{
 		"kit/ext/ext": map[string]reflect.Value{

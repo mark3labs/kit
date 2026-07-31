@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -19,10 +20,11 @@ import (
 type promptMode string
 
 const (
-	promptModeSelect   promptMode = "select"
-	promptModeConfirm  promptMode = "confirm"
-	promptModeInput    promptMode = "input"
-	promptModePassword promptMode = "password"
+	promptModeSelect      promptMode = "select"
+	promptModeMultiSelect promptMode = "multiselect"
+	promptModeConfirm     promptMode = "confirm"
+	promptModeInput       promptMode = "input"
+	promptModePassword    promptMode = "password"
 )
 
 // promptResult carries the synchronous outcome of a prompt overlay update.
@@ -33,6 +35,8 @@ type promptResult struct {
 	cancelled bool
 	value     string
 	index     int
+	values    []string
+	indices   []int
 	confirmed bool
 }
 
@@ -45,6 +49,7 @@ type promptOverlay struct {
 	message   string
 	options   []string       // select: available choices
 	selected  int            // select: currently highlighted index
+	checked   []bool         // multiselect: per-option toggle state
 	confirmed bool           // confirm: current yes/no value
 	inputTA   textarea.Model // input: text editor
 	width     int
@@ -57,6 +62,35 @@ func newSelectPrompt(message string, options []string, width, height int) *promp
 		mode:    promptModeSelect,
 		message: message,
 		options: options,
+		width:   width,
+		height:  height,
+	}
+}
+
+// newMultiSelectPrompt creates a prompt overlay for a multi-selection list.
+//
+// defaultSelected lists the indices checked when the prompt opens; a nil slice
+// checks every option, matching the documented PromptMultiSelectConfig
+// behaviour. Out-of-range indices are ignored.
+func newMultiSelectPrompt(message string, options []string, defaultSelected []int, width, height int) *promptOverlay {
+	checked := make([]bool, len(options))
+	if defaultSelected == nil {
+		for i := range checked {
+			checked[i] = true
+		}
+	} else {
+		for _, idx := range defaultSelected {
+			if idx >= 0 && idx < len(checked) {
+				checked[idx] = true
+			}
+		}
+	}
+
+	return &promptOverlay{
+		mode:    promptModeMultiSelect,
+		message: message,
+		options: options,
+		checked: checked,
 		width:   width,
 		height:  height,
 	}
@@ -157,6 +191,8 @@ func (p *promptOverlay) Update(msg tea.Msg) (*promptResult, tea.Cmd) {
 		switch p.mode {
 		case promptModeSelect:
 			return p.updateSelect(msg)
+		case promptModeMultiSelect:
+			return p.updateMultiSelect(msg)
 		case promptModeConfirm:
 			return p.updateConfirm(msg)
 		case promptModeInput:
@@ -197,6 +233,50 @@ func (p *promptOverlay) updateSelect(msg tea.KeyPressMsg) (*promptResult, tea.Cm
 			value = p.options[p.selected]
 		}
 		return &promptResult{completed: true, value: value, index: p.selected}, nil
+	case "esc":
+		return &promptResult{cancelled: true}, nil
+	}
+	return nil, nil
+}
+
+func (p *promptOverlay) updateMultiSelect(msg tea.KeyPressMsg) (*promptResult, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if p.selected > 0 {
+			p.selected--
+		}
+	case "down", "j":
+		if p.selected < len(p.options)-1 {
+			p.selected++
+		}
+	case "home":
+		p.selected = 0
+	case "end":
+		if len(p.options) > 0 {
+			p.selected = len(p.options) - 1
+		}
+	case " ", "space", "x":
+		if p.selected < len(p.checked) {
+			p.checked[p.selected] = !p.checked[p.selected]
+		}
+	case "a":
+		for i := range p.checked {
+			p.checked[i] = true
+		}
+	case "n":
+		for i := range p.checked {
+			p.checked[i] = false
+		}
+	case "enter":
+		values := []string{}
+		indices := []int{}
+		for i, on := range p.checked {
+			if on {
+				values = append(values, p.options[i])
+				indices = append(indices, i)
+			}
+		}
+		return &promptResult{completed: true, values: values, indices: indices}, nil
 	case "esc":
 		return &promptResult{cancelled: true}, nil
 	}
@@ -257,6 +337,8 @@ func (p *promptOverlay) Render() string {
 	switch p.mode {
 	case promptModeSelect:
 		content = p.viewSelect(theme)
+	case promptModeMultiSelect:
+		content = p.viewMultiSelect(theme)
 	case promptModeConfirm:
 		content = p.viewConfirm(theme)
 	case promptModeInput:
@@ -292,6 +374,46 @@ func (p *promptOverlay) viewSelect(theme style.Theme) string {
 	lines = append(lines, lipgloss.NewStyle().
 		Foreground(theme.Muted).
 		Render("  up/down navigate  Enter select  Esc cancel"))
+
+	return strings.Join(lines, "\n")
+}
+
+func (p *promptOverlay) viewMultiSelect(theme style.Theme) string {
+	var lines []string
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render(p.message))
+	lines = append(lines, "")
+
+	count := 0
+	for i, opt := range p.options {
+		on := i < len(p.checked) && p.checked[i]
+		if on {
+			count++
+		}
+
+		box := "[ ] "
+		if on {
+			box = "[x] "
+		}
+
+		if i == p.selected {
+			cursor := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("> ")
+			label := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render(box + opt)
+			lines = append(lines, "  "+cursor+label)
+			continue
+		}
+
+		boxStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		if on {
+			boxStyle = lipgloss.NewStyle().Foreground(theme.Accent)
+		}
+		lines = append(lines, "    "+boxStyle.Render(box)+
+			lipgloss.NewStyle().Foreground(theme.Text).Render(opt))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Render(fmt.Sprintf("  %d selected  ·  Space toggle  a all  n none  Enter confirm  Esc cancel", count)))
 
 	return strings.Join(lines, "\n")
 }

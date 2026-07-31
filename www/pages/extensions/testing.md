@@ -168,6 +168,29 @@ func TestWidgets(t *testing.T) {
 }
 ```
 
+The `AssertWidgetText` helpers read `Content.Text`, which is empty for a widget
+that supplies a [`Render` callback](/extensions/capabilities#custom-rendering).
+Call the function directly instead — it is a plain `func(width int) string`, so
+you can invoke it at whatever width you want to assert against:
+
+```go
+func TestRenderedWidget(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+
+    widget, ok := harness.Context().GetWidget("my-widget")
+    if !ok || widget.Content.Render == nil {
+        t.Fatal("expected a widget with a Render callback")
+    }
+
+    out := widget.Content.Render(80)
+    if !strings.Contains(out, "expected fragment") {
+        t.Errorf("unexpected render output: %q", out)
+    }
+}
+```
+
 ### Testing Input Handling
 
 ```go

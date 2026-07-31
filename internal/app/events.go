@@ -325,6 +325,11 @@ type PromptResponse struct {
 	Value string
 	// Index is the zero-based index of the selected option (select only).
 	Index int
+	// Values holds the text of every selected option (multiselect only).
+	Values []string
+	// Indices holds the zero-based index of every selected option
+	// (multiselect only).
+	Indices []int
 	// Confirmed is the boolean answer for confirm prompts.
 	Confirmed bool
 	// Cancelled is true if the user dismissed the prompt (ESC) or the
@@ -333,19 +338,22 @@ type PromptResponse struct {
 }
 
 // PromptRequestEvent is sent when an extension requests an interactive
-// prompt from the user (select, confirm, or text input). The TUI enters a
-// modal prompt state, renders the prompt, and sends a single PromptResponse
-// through ResponseCh when the user completes or cancels.
+// prompt from the user (select, multiselect, confirm, or text input). The TUI
+// enters a modal prompt state, renders the prompt, and sends a single
+// PromptResponse through ResponseCh when the user completes or cancels.
 //
 // The extension goroutine blocks on the read side of ResponseCh until the
 // TUI sends a response. The channel must have buffer size >= 1.
 type PromptRequestEvent struct {
-	// PromptType is "select", "confirm", or "input".
+	// PromptType is "select", "multiselect", "confirm", or "input".
 	PromptType string
 	// Message is the question displayed to the user.
 	Message string
-	// Options lists the choices for select prompts.
+	// Options lists the choices for select and multiselect prompts.
 	Options []string
+	// DefaultSelected holds the indices pre-selected when a multiselect
+	// prompt opens. A nil slice selects every option.
+	DefaultSelected []int
 	// Default is the pre-filled value: "true"/"false" for confirm prompts,
 	// or the initial text for input prompts.
 	Default string

@@ -16,6 +16,8 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | [`header-footer-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/header-footer-demo.go) | Custom headers and footers |
 | [`status-footer.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/status-footer.go) | Configurable status bar footer: model, context, cache, cost, clock, turn timing |
 | [`widget-status.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/widget-status.go) | Persistent status widgets |
+| [`arbitrary-ui.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go) | Animated dashboard — per-frame `Render` widgets, `RefreshHz`, markdown headers, multi-select, styled tool blocks |
+| [`bad-apple.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go) | 30fps ASCII video in a widget — stress test for the `Render`/`RefreshHz` path |
 | [`overlay-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/overlay-demo.go) | Modal dialogs |
 | [`tool-renderer-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/tool-renderer-demo.go) | Custom tool call rendering |
 | [`custom-editor-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/custom-editor-demo.go) | Vim-like modal editor |

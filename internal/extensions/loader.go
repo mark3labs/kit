@@ -364,6 +364,36 @@ func globalExtensionsDir() string {
 	return filepath.Join(base, "kit", "extensions")
 }
 
+// evalExtensionSource evaluates extension source in the interpreter,
+// converting a panic into an error.
+//
+// Yaegi panics rather than returning an error for several classes of bad
+// input (CFG failures such as returning an untyped nil for an interface
+// result, and any runtime panic in top-level code). Without this recovery a
+// single malformed extension takes down the whole Kit process with a raw Go
+// stack trace, which is both alarming and useless to the extension author.
+func evalExtensionSource(i *interp.Interpreter, src string) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic while evaluating source: %v", rec)
+		}
+	}()
+	_, err = i.Eval(src)
+	return err
+}
+
+// callExtensionInit runs an extension's Init function, converting a panic
+// into an error so one broken extension cannot crash Kit at startup.
+func callExtensionInit(initFn func(API), api API) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic in Init: %v", rec)
+		}
+	}()
+	initFn(api)
+	return nil
+}
+
 // loadSingleExtension loads one .go file into a fresh Yaegi interpreter,
 // calls the Init(ext.API) function, and returns the registered handlers.
 func loadSingleExtension(path string) (*LoadedExtension, error) {
@@ -400,7 +430,7 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		return nil, fmt.Errorf("reading file: %w", err)
 	}
 
-	if _, err := i.Eval(string(src)); err != nil {
+	if err := evalExtensionSource(i, string(src)); err != nil {
 		return nil, fmt.Errorf("evaluating source: %w", err)
 	}
 
@@ -489,7 +519,11 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 	}
 
 	// Call Init — the extension registers its handlers, tools, commands.
-	initFn(api)
+	// A panic here is the extension's fault, not Kit's, so it is reported as
+	// a load failure and the remaining extensions still load.
+	if err := callExtensionInit(initFn, api); err != nil {
+		return nil, err
+	}
 
 	return ext, nil
 }

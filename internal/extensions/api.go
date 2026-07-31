@@ -1668,13 +1668,51 @@ const (
 )
 
 // WidgetContent describes what to render in a widget slot.
+//
+// Content is resolved in priority order: Render (if non-nil), then Text.
+// Render gives the extension the terminal width and takes whatever string it
+// returns verbatim, so it can emit arbitrary ANSI, box drawing, sparklines,
+// or per-frame animation. Text is the simple declarative form.
 type WidgetContent struct {
-	// Text is the content to display.
+	// Text is the content to display. Ignored when Render is non-nil.
 	Text string
 
 	// Markdown, when true, renders Text as styled markdown instead of
-	// plain text.
+	// plain text. Ignored when Render is non-nil — a Render function is
+	// expected to do its own styling.
 	Markdown bool
+
+	// Render, if non-nil, produces the widget body on every frame. It
+	// receives the width in columns available for content (the gutter and
+	// padding are already subtracted) and returns the string to display,
+	// which Kit uses verbatim. Returning an empty string hides the widget.
+	//
+	// Because it runs on every frame it must be cheap and must not block:
+	// no network calls, no locks held across the call. Compute in an event
+	// handler or goroutine, store the result, and format it here.
+	//
+	// IMPORTANT (Yaegi): assign an anonymous closure, or declare the target
+	// function ABOVE this code. A bare reference to a function declared
+	// later in the file silently renders nothing. See the extension docs.
+	Render func(width int) string
+
+	// RefreshHz requests continuous repainting for an animated widget.
+	//
+	// Kit's animation clock is demand-driven: it runs while the startup logo
+	// or the activity spinner needs it and stops otherwise, so an idle
+	// session costs nothing. A widget that only reads state repaints
+	// whenever something else already caused a render, which when idle means
+	// roughly twice a second (the input cursor blink). That is fine for a
+	// counter and visibly choppy for a spinner or a sweeping gradient.
+	//
+	// Set RefreshHz to the rate the widget wants (1..30) and Kit keeps the
+	// shared clock alive and calls Render at approximately that rate. Zero
+	// (the default) means static: no clock is held open.
+	//
+	// This is a real cost. A non-zero value means the app never idles, so
+	// ask for the lowest rate that looks right — 4-8Hz for a status pulse,
+	// 10-15Hz for a spinner, 30 only for smooth motion.
+	RefreshHz int
 }
 
 // WidgetStyle configures the visual appearance of a widget.
@@ -2055,9 +2093,14 @@ type MessageRendererConfig struct {
 	Name string
 
 	// Render produces the styled output string from raw content. Receives
-	// the content and the terminal width in columns. Return the final
-	// ANSI-styled string to print; it will be emitted via tea.Println
-	// (or plain stdout in non-interactive mode).
+	// the content and the terminal width in columns.
+	//
+	// The returned string is NOT emitted verbatim: in interactive mode Kit
+	// re-wraps it to the content width and nests it inside a system message
+	// block (gutter glyph plus indent), so box drawing that assumes full
+	// terminal width will be wrapped a second time. Size output to roughly
+	// width-4 and prefer inline styling over full-width frames. For output
+	// Kit uses as-is, use a widget with a Render callback instead.
 	Render func(content string, width int) string
 }
 
@@ -2191,19 +2234,28 @@ type EditorKeyAction struct {
 //
 // Uses concrete function fields instead of interfaces for Yaegi safety.
 //
-// IMPORTANT (Yaegi limitation): Function fields MUST be set using anonymous
-// function literals (closures), NOT bare function references. Yaegi does not
-// correctly propagate return values from named function references assigned to
-// struct fields. Wrap any named function in a closure:
+// IMPORTANT (Yaegi limitation — forward references lose their bodies):
+// If you reference a function BY NAME from inside a function literal, and
+// that function is declared LATER in the file, Yaegi builds the wrapper
+// before the function is compiled. The field then holds a callable that does
+// nothing and returns zero values — no panic, no error. This affects every
+// Kit API taking a function, and also direct arguments such as
+// api.OnToolCall(fn) and api.RegisterShortcut(def, fn).
 //
-//	// WRONG — Yaegi returns zero values:
-//	ctx.SetEditor(ext.EditorConfig{HandleKey: myHandler, Render: myRender})
-//
-//	// CORRECT — closure wrapper works:
-//	ctx.SetEditor(ext.EditorConfig{
-//	    HandleKey: func(k string, t string) ext.EditorKeyAction { return myHandler(k, t) },
-//	    Render:    func(w int, c string) string { return myRender(w, c) },
+//	// BROKEN — myHandler is declared below this closure:
+//	api.OnAgentStart(func(e ext.AgentStartEvent, ctx ext.Context) {
+//	    ctx.SetEditor(ext.EditorConfig{HandleKey: myHandler})
 //	})
+//	func myHandler(k, t string) ext.EditorKeyAction { ... }
+//
+// Any one of these fixes it:
+//
+//  1. Declare helpers ABOVE the code that references them (simplest).
+//  2. Wrap in an anonymous closure:
+//     HandleKey: func(k string, t string) ext.EditorKeyAction { return myHandler(k, t) }
+//  3. Assign to a local first: f := myHandler; ...{HandleKey: f}
+//
+// Verified against yaegi v0.12.0-v0.16.1; not fixed upstream.
 type EditorConfig struct {
 	// HandleKey intercepts key presses before they reach the built-in editor.
 	// It receives the key name (e.g., "a", "enter", "ctrl+c", "backspace")

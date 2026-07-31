@@ -134,21 +134,108 @@ Add persistent status displays above or below the input area:
 
 ```go
 ctx.SetWidget(ext.WidgetConfig{
-    ID:       "token-count",
-    Position: "bottom",
-    Content:  ext.WidgetContent{Text: "Tokens: 1,234"},
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 1,234"},
 })
 
-// Update later
+// Update later — same ID replaces the previous widget
 ctx.SetWidget(ext.WidgetConfig{
-    ID:       "token-count",
-    Position: "bottom",
-    Content:  ext.WidgetContent{Text: "Tokens: 2,456"},
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 2,456"},
 })
 
 // Remove
 ctx.RemoveWidget("token-count")
 ```
+
+`Placement` is `ext.WidgetAbove` or `ext.WidgetBelow`. `Priority` orders
+multiple widgets within the same slot (lower renders first).
+
+### Markdown content
+
+Set `Markdown: true` to render `Text` as styled markdown — headings, bold,
+inline code and lists are formatted and sized to the widget's content column:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "notes",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Markdown: true,
+        Text:     "## Build\n\n**passing** — `go test ./...`",
+    },
+})
+```
+
+### Custom rendering
+
+`Text` covers static content. For anything Kit has no vocabulary for — sparklines,
+gauges, box drawing, sprites — supply a `Render` function instead. It receives the
+width in columns available for content (the gutter and padding are already
+subtracted) and Kit uses the returned string **verbatim**:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "cpu-gauge",
+    Placement: ext.WidgetAbove,
+    Style:     ext.WidgetStyle{NoBorder: true},
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            filled := int(load * float64(width))
+            return "\033[38;5;82m" + strings.Repeat("━", filled) +
+                "\033[0m" + strings.Repeat("─", width-filled)
+        },
+    },
+})
+```
+
+`Render` takes priority over `Text`, and `Markdown` is ignored when it is set —
+a render function is expected to do its own styling. Returning an empty string
+hides the widget. A panic inside `Render` is contained: the widget is hidden and
+the error logged, rather than taking down the TUI.
+
+`Render` also works on headers and footers via `HeaderFooterConfig`.
+
+### Animated widgets
+
+Kit's animation clock is demand-driven — it runs while the startup logo or the
+activity spinner needs it and stops otherwise, so an idle session costs nothing.
+A widget that only reads state repaints whenever something *else* causes a
+render, which when idle means roughly twice a second (the input cursor blink).
+That is fine for a counter and visibly choppy for a spinner.
+
+Set `RefreshHz` to hold the clock open and repaint at a chosen rate:
+
+```go
+Content: ext.WidgetContent{
+    RefreshHz: 15,
+    Render:    func(width int) string { return spinnerFrame() + " working" },
+},
+```
+
+| `RefreshHz` | Behaviour | Use for |
+|---|---|---|
+| `0` (default) | Static. Repaints only when something else renders. | Counters, status text |
+| `4`–`8` | Gentle pulse | Slow progress, breathing indicators |
+| `10`–`15` | Smooth | Spinners, meters |
+| `30` | Kit's ceiling | Continuous motion |
+
+This is a real cost: a non-zero value means the app never idles. Ask for the
+lowest rate that looks right. Kit calls `Render` at approximately the requested
+rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
+interpreter crossings.
+
+::: warning
+Because `Render` runs on every frame it must be cheap and must not block — no
+network calls, no locks held across the call. Compute in an event handler or
+goroutine, store the result, and format it here.
+:::
+
+See [`arbitrary-ui.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go)
+for a live dashboard and [`bad-apple.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go)
+for 30fps playback.
 
 ## Headers and footers
 
@@ -164,9 +251,13 @@ ctx.SetFooter(ext.HeaderFooterConfig{
 })
 ```
 
-Content is rendered at **full terminal width with no truncation** — a longer
+Headers and footers accept the same `WidgetContent` as widgets, so `Markdown`,
+`Render` and `RefreshHz` all apply.
+
+Plain `Text` is rendered at **full terminal width with no truncation** — a longer
 line wraps and silently consumes a row of scrollback. Measure against
-`ctx.GetTerminalSize()` and truncate before calling `SetHeader`/`SetFooter`.
+`ctx.GetTerminalSize()` and truncate before calling `SetHeader`/`SetFooter`, or
+use `Render`, which is handed the exact width to draw into.
 
 ## Terminal size
 
@@ -262,29 +353,67 @@ ctx.ShowOverlay(ext.OverlayConfig{
 
 ## Tool renderers
 
-Customize how specific tool calls are displayed in the TUI:
+Customize how specific tool calls are displayed in the TUI. `RenderHeader`
+replaces the parameter summary on the header line; `RenderBody` replaces the
+result body. Both receive the width they may draw into, and returning an empty
+string falls back to Kit's default rendering:
 
 ```go
 api.RegisterToolRenderer(ext.ToolRenderConfig{
-    ToolName: "bash",
-    Render: func(name, args, result string, isError bool) string {
-        return "$ " + args + "\n" + result
+    ToolName:    "bash",
+    DisplayName: "Shell",
+    RenderHeader: func(toolArgs string, width int) string {
+        return "$ " + toolArgs
+    },
+    RenderBody: func(toolResult string, isError bool, width int) string {
+        return toolResult
     },
 })
 ```
+
+Set `BorderColor` and/or `Background` (hex strings) to give the tool block its
+own stripe and backdrop. Tool blocks are otherwise unattributed, so the stripe
+appears only when asked for — it marks a tool as special rather than restyling
+every call:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:    "deploy",
+    BorderColor: "#c678dd",
+    Background:  "#1b1b2b",
+    RenderBody: func(result string, isError bool, width int) string {
+        return result
+    },
+})
+```
+
+Set `BodyMarkdown: true` to pass `RenderBody`'s output through the markdown
+renderer.
 
 ## Message renderers
 
-Custom rendering for assistant messages:
+Named renderers invoked explicitly from extension code via
+`ctx.RenderMessage(name, content)`:
 
 ```go
 api.RegisterMessageRenderer(ext.MessageRendererConfig{
-    Name: "custom",
-    Render: func(content string) string {
-        return ">> " + content
+    Name: "build-status",
+    Render: func(content string, width int) string {
+        return "▸ " + content
     },
 })
+
+ctx.RenderMessage("build-status", "all tests passed")
 ```
+
+::: info
+The returned string is **not** emitted verbatim. In interactive mode Kit
+re-wraps it to the content width and nests it inside a system message block
+(gutter glyph plus indent), so box drawing that assumes full terminal width is
+wrapped a second time. Size output to roughly `width-4` and prefer inline
+styling over full-width frames. For output Kit uses as-is, use a
+[widget with a `Render` callback](#custom-rendering).
+:::
 
 ## Editor interceptors
 
@@ -303,26 +432,46 @@ ctx.SetEditor(ext.EditorConfig{
 
 ## Interactive prompts
 
-Select, confirm, input, and multi-select dialogs:
+Select, multi-select, confirm, and text input dialogs. Each blocks the calling
+goroutine until the user answers, and each returns a result struct whose
+`Cancelled` field is true if the user pressed ESC or the prompt was unavailable
+(non-interactive mode):
 
 ```go
 // Single select
-response := ctx.PromptSelect(ext.PromptSelectConfig{
-    Title:   "Choose a model",
+res := ctx.PromptSelect(ext.PromptSelectConfig{
+    Message: "Choose a model",
     Options: []string{"claude-sonnet", "gpt-4o", "llama3"},
 })
+if !res.Cancelled {
+    ctx.PrintInfo("picked " + res.Value)  // also res.Index
+}
+
+// Multi-select — Space toggles, a selects all, n clears, Enter confirms
+pick := ctx.PromptMultiSelect(ext.PromptMultiSelectConfig{
+    Message:         "Which checks should run?",
+    Options:         []string{"vet", "test", "lint"},
+    DefaultSelected: []int{0, 1},  // nil selects everything
+})
+if !pick.Cancelled {
+    ctx.PrintInfo(strings.Join(pick.Values, ", "))  // also pick.Indices
+}
 
 // Confirm
-confirmed := ctx.PromptConfirm(ext.PromptConfirmConfig{
-    Title: "Delete this file?",
+yes := ctx.PromptConfirm(ext.PromptConfirmConfig{
+    Message: "Delete this file?",
 })
 
 // Text input
 name := ctx.PromptInput(ext.PromptInputConfig{
-    Title:       "Enter project name",
+    Message:     "Enter project name",
     Placeholder: "my-project",
 })
 ```
+
+`PromptMultiSelect` returns both `Values` (the selected option text) and
+`Indices` (their zero-based positions), so you can map back to your own data
+without string matching.
 
 ## Options
 

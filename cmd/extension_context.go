@@ -162,6 +162,24 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		}
 		return extensions.PromptSelectResult{Value: resp.Value, Index: resp.Index}
 	}
+	ec.PromptMultiSelect = func(config extensions.PromptMultiSelectConfig) extensions.PromptMultiSelectResult {
+		ch := make(chan app.PromptResponse, 1)
+		appInstance.SendPromptRequest(app.PromptRequestEvent{
+			PromptType:      "multiselect",
+			Message:         config.Message,
+			Options:         config.Options,
+			DefaultSelected: config.DefaultSelected,
+			ResponseCh:      ch,
+		})
+		resp := <-ch
+		if resp.Cancelled {
+			return extensions.PromptMultiSelectResult{Cancelled: true}
+		}
+		return extensions.PromptMultiSelectResult{
+			Values:  resp.Values,
+			Indices: resp.Indices,
+		}
+	}
 	ec.PromptConfirm = func(config extensions.PromptConfirmConfig) extensions.PromptConfirmResult {
 		ch := make(chan app.PromptResponse, 1)
 		def := "false"

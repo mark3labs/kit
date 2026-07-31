@@ -415,6 +415,28 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 		"",
 		body,
 	)
+
+	// An extension renderer may claim the block's stripe color and background.
+	// Tool blocks are otherwise unattributed (no gutter), so the stripe is
+	// added only when asked for — it marks "this tool is special" rather than
+	// restyling every tool call.
+	if extRd != nil && (extRd.BorderColor != "" || extRd.Background != "") {
+		opts := []renderingOption{
+			WithAlign(lipgloss.Left),
+			WithPaddingTop(0),
+			WithPaddingBottom(0),
+		}
+		if extRd.BorderColor != "" {
+			opts = append(opts, WithBorderColor(lipgloss.Color(extRd.BorderColor)))
+		} else {
+			opts = append(opts, WithNoBorder())
+		}
+		if extRd.Background != "" {
+			opts = append(opts, WithBackground(lipgloss.Color(extRd.Background)))
+		}
+		fullContent = renderContentBlock(fullContent, r.width, opts...)
+	}
+
 	fullContent = styleMarginBottom1.Render(fullContent)
 
 	return UIMessage{

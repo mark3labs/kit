@@ -88,6 +88,12 @@
       "name": "herald-md",
       "url": "https://github.com/indaco/herald-md",
       "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "mvm",
+      "url": "https://github.com/mvm-sh/mvm",
+      "branch": "main"
     }
   ],
   "model": "claude-haiku-4-5",

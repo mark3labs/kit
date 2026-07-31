@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/x/editor"
 	"github.com/spf13/viper"
 
@@ -308,14 +309,33 @@ type EditorInterceptor struct {
 	Render func(width int, defaultContent string) string
 }
 
+// widgetRenderCache holds the last output of an animated widget's Render
+// callback, so the interpreter is re-entered at the widget's requested rate
+// rather than on every frame the shared clock ticks.
+type widgetRenderCache struct {
+	content string
+	width   int
+	beat    int
+}
+
 // WidgetData is the UI-layer representation of an extension widget. It
 // decouples the UI package from the extensions package. The CLI layer
 // converts extension WidgetConfig values to WidgetData for rendering.
 type WidgetData struct {
-	// Text is the content to display.
+	// ID uniquely identifies the widget. Used to key the animation render
+	// cache; empty for header/footer, which get synthetic keys.
+	ID string
+	// Text is the content to display. Ignored when Render is non-nil.
 	Text string
 	// Markdown, when true, renders Text as styled markdown.
 	Markdown bool
+	// Render, if non-nil, produces the widget body per frame from the
+	// content width. Its output is used verbatim.
+	Render func(width int) string
+	// RefreshHz, when > 0, asks the shared animation clock to keep running
+	// so the widget repaints continuously. It also bounds how often Render
+	// is actually invoked. Zero means a static widget.
+	RefreshHz int
 	// BorderColor is a hex color (e.g. "#a6e3a1") for the left border.
 	// Empty uses the theme's default accent color.
 	BorderColor string
@@ -741,6 +761,16 @@ type AppModel struct {
 	// frames is the shared animation clock. Every animated component in the
 	// app advances on its beat; see frameclock.go for why there is only one.
 	frames frameClock
+
+	// widgetRenders caches output from animated extension widgets, keyed by
+	// widget ID (headers and footers use synthetic keys).
+	widgetRenders map[string]widgetRenderCache
+
+	// renderEpoch increments once per View() pass. Widget Render callbacks
+	// are cached against it so the measurement pass in distributeHeight and
+	// the paint pass in View always see identical content — a time-varying
+	// widget would otherwise be able to measure N lines and paint N+1.
+	renderEpoch int
 
 	// getSkillItems returns the current skill items. Used to refresh the
 	// skill list after content hot-reload. May be nil.
@@ -1445,7 +1475,10 @@ func (m *AppModel) wantsFrames() bool {
 	if m.stream != nil && m.stream.IsSpinning() {
 		return true
 	}
-	return false
+	// An extension widget can hold the clock open for its own animation.
+	// This is the only path by which a session with nothing else moving stays
+	// awake, so it is deliberately gated on an explicit RefreshHz opt-in.
+	return m.animatedWidgets()
 }
 
 // wakeFrameClock resumes the clock if something needs frames and it is idle,
@@ -2734,6 +2767,8 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.PromptType {
 		case "select":
 			m.prompt = newSelectPrompt(msg.Message, msg.Options, m.width, m.height)
+		case "multiselect":
+			m.prompt = newMultiSelectPrompt(msg.Message, msg.Options, msg.DefaultSelected, m.width, m.height)
 		case "confirm":
 			defaultVal := msg.Default == "true"
 			m.prompt = newConfirmPrompt(msg.Message, defaultVal, m.width, m.height)
@@ -2986,6 +3021,7 @@ func (m *AppModel) View() tea.View {
 	// and only repopulated by the distributeHeight() call below, so a stale
 	// render can never leak into a later frame.
 	m.chrome.valid = false
+	m.renderEpoch++
 	if m.layoutDirty {
 		m.distributeHeight()
 		m.layoutDirty = false
@@ -3022,7 +3058,7 @@ func (m *AppModel) View() tea.View {
 	m.scrollbackYOffset = 0
 	headerView := m.chrome.header
 	if !m.chrome.valid {
-		headerView = m.renderHeaderFooter(m.getHeader)
+		headerView = m.renderHeaderFooter("header", m.getHeader)
 	}
 	if headerView != "" {
 		parts = append(parts, headerView)
@@ -3104,7 +3140,7 @@ func (m *AppModel) View() tea.View {
 	// Custom footer (if set by extension) — below everything.
 	footerView := m.chrome.footer
 	if !m.chrome.valid {
-		footerView = m.renderHeaderFooter(m.getFooter)
+		footerView = m.renderHeaderFooter("footer", m.getFooter)
 	}
 	if footerView != "" {
 		parts = append(parts, footerView)
@@ -3388,7 +3424,10 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 	theme := style.GetTheme()
 	var blocks []string
 	for _, w := range widgets {
-		content := w.Text
+		content, ok := m.resolveWidgetContent(w, placement+":"+w.ID, m.width)
+		if !ok {
+			continue
+		}
 
 		var opts []renderingOption
 		opts = append(opts, WithAlign(lipgloss.Left))
@@ -3416,7 +3455,7 @@ func (m *AppModel) renderWidgetSlot(placement string) string {
 // getter function returns the current data (*WidgetData) or nil when inactive.
 // Returns "" when the getter is nil or returns nil. Uses the same rendering
 // pipeline as widgets for visual consistency.
-func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
+func (m *AppModel) renderHeaderFooter(slot string, getter func() *WidgetData) string {
 	if getter == nil {
 		return ""
 	}
@@ -3426,6 +3465,11 @@ func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
 	}
 
 	theme := style.GetTheme()
+
+	content, ok := m.resolveWidgetContent(*data, slot, m.width)
+	if !ok {
+		return ""
+	}
 
 	var opts []renderingOption
 	opts = append(opts, WithAlign(lipgloss.Left))
@@ -3443,7 +3487,167 @@ func (m *AppModel) renderHeaderFooter(getter func() *WidgetData) string {
 	// Compact padding like widgets.
 	opts = append(opts, WithPaddingTop(0), WithPaddingBottom(0))
 
-	return renderContentBlock(data.Text, m.width, opts...)
+	return renderContentBlock(content, m.width, opts...)
+}
+
+// widgetContentWidth returns the number of columns available to widget content
+// once the block's gutter glyph and horizontal padding are subtracted. This is
+// the width handed to a WidgetData.Render callback, so extensions can size
+// their own output to the exact column they will be drawn into.
+func widgetContentWidth(containerWidth int, noBorder bool) int {
+	borderChars := 1
+	if noBorder {
+		borderChars = 0
+	}
+	return containerWidth - borderChars - (style.ContentOffset - 1) - style.RightMargin
+}
+
+// widgetFrameDivisor maps a requested repaint rate to a number of shared-clock
+// frames. The clock runs at a fixed FrameClockFPS, so a widget that wants less
+// than that subdivides it, exactly as the activity spinner does.
+func widgetFrameDivisor(hz int) int {
+	if hz <= 0 || hz >= FrameClockFPS {
+		return 1
+	}
+	return FrameClockFPS / hz
+}
+
+// animatedWidgets reports whether any extension widget, header or footer has
+// asked for continuous repaints. It is what lets an extension keep the shared
+// animation clock alive; see wantsFrames.
+func (m *AppModel) animatedWidgets() bool {
+	if m.getWidgets != nil {
+		for _, placement := range []string{"above", "below"} {
+			for _, w := range m.getWidgets(placement) {
+				if w.Render != nil && w.RefreshHz > 0 {
+					return true
+				}
+			}
+		}
+	}
+	for _, get := range []func() *WidgetData{m.getHeader, m.getFooter} {
+		if get == nil {
+			continue
+		}
+		if d := get(); d != nil && d.Render != nil && d.RefreshHz > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveWidgetContent produces the body for a widget, header or footer slot.
+//
+// A Render callback wins over Text and its output is used verbatim, which is
+// what lets an extension draw arbitrary UI. Text is styled as markdown only
+// when asked for. The bool result is false when the slot should be skipped
+// entirely (empty content, or a width too small to draw into).
+//
+// key identifies the slot for the animation render cache. Every View() pass
+// invalidates the chrome cache, so without this an animated widget would
+// re-enter the interpreter on every one of the 30 frames a second the clock
+// ticks at. Gating on the widget's own rate keeps that crossing proportional
+// to what it actually asked for.
+func (m *AppModel) resolveWidgetContent(w WidgetData, key string, containerWidth int) (string, bool) {
+	width := widgetContentWidth(containerWidth, w.NoBorder)
+
+	if w.Render != nil {
+		if width < 1 {
+			return "", false
+		}
+
+		if cached, ok := m.cachedWidgetRender(w, key, width); ok {
+			if cached == "" {
+				return "", false
+			}
+			return cached, true
+		}
+
+		// Extension code runs here. A panic in a widget must not take down the
+		// TUI, so it degrades to a hidden widget.
+		content := safeWidgetRender(w.Render, width)
+		m.storeWidgetRender(w, key, width, content)
+		if content == "" {
+			return "", false
+		}
+		return content, true
+	}
+
+	if w.Text == "" {
+		return "", false
+	}
+	if w.Markdown {
+		return widgetMarkdown(w.Text, containerWidth, w.NoBorder), true
+	}
+	return w.Text, true
+}
+
+// widgetBeat returns the cache generation for a widget's Render output.
+//
+// An animated widget advances on its own subdivision of the shared clock, so
+// its Render is entered at the rate it asked for rather than on every frame.
+// A static widget uses the current View() pass, which caches nothing across
+// frames but does guarantee the measure and paint passes agree.
+func (m *AppModel) widgetBeat(w WidgetData) int {
+	if w.RefreshHz > 0 {
+		return m.frames.frame / widgetFrameDivisor(w.RefreshHz)
+	}
+	return m.renderEpoch
+}
+
+// cachedWidgetRender returns a previously rendered body when the widget is not
+// due to advance. See widgetBeat for what "due" means in each mode.
+func (m *AppModel) cachedWidgetRender(w WidgetData, key string, width int) (string, bool) {
+	if key == "" {
+		return "", false
+	}
+	entry, ok := m.widgetRenders[key]
+	if !ok || entry.width != width || entry.beat != m.widgetBeat(w) {
+		return "", false
+	}
+	return entry.content, true
+}
+
+// storeWidgetRender records a render for the widget cache.
+func (m *AppModel) storeWidgetRender(w WidgetData, key string, width int, content string) {
+	if key == "" {
+		return
+	}
+	if m.widgetRenders == nil {
+		m.widgetRenders = make(map[string]widgetRenderCache)
+	}
+	m.widgetRenders[key] = widgetRenderCache{
+		content: content,
+		width:   width,
+		beat:    m.widgetBeat(w),
+	}
+}
+
+// safeWidgetRender invokes an extension render callback, converting a panic
+// into empty output rather than crashing the render loop.
+func safeWidgetRender(render func(int) string, width int) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("extension widget render panicked", "error", r)
+			out = ""
+		}
+	}()
+	return render(width)
+}
+
+// widgetMarkdown renders widget/header/footer content as styled markdown,
+// sized to the text column that renderContentBlock will lay it into.
+//
+// The block reserves one column for the gutter glyph (when bordered), plus
+// the shared left content offset and the right margin; rendering markdown at
+// the full container width would wrap a second time inside those paddings.
+func widgetMarkdown(content string, containerWidth int, noBorder bool) string {
+	width := widgetContentWidth(containerWidth, noBorder)
+	if width < 1 {
+		return content
+	}
+
+	return strings.TrimSuffix(style.ToMarkdown(content, width), "\n")
 }
 
 // maxQueuedMessageLines is the maximum number of visible content lines
@@ -4773,12 +4977,12 @@ func (m *AppModel) distributeHeight() {
 	// Measure header/footer heights.
 	var headerFooterLines int
 	m.lastHeaderHeight = 0
-	if headerView := m.renderHeaderFooter(m.getHeader); headerView != "" {
+	if headerView := m.renderHeaderFooter("header", m.getHeader); headerView != "" {
 		m.lastHeaderHeight = lipgloss.Height(headerView)
 		headerFooterLines += m.lastHeaderHeight
 		m.chrome.header = headerView
 	}
-	if footerView := m.renderHeaderFooter(m.getFooter); footerView != "" {
+	if footerView := m.renderHeaderFooter("footer", m.getFooter); footerView != "" {
 		headerFooterLines += lipgloss.Height(footerView)
 		m.chrome.footer = footerView
 	}
@@ -5984,6 +6188,8 @@ func (m *AppModel) updatePromptState(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resolvePrompt(app.PromptResponse{
 					Value:     result.value,
 					Index:     result.index,
+					Values:    result.values,
+					Indices:   result.indices,
 					Confirmed: result.confirmed,
 				})
 			}

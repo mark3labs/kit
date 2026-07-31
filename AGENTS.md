@@ -54,11 +54,17 @@ func OldName() { return NewName() }
 ## Key Patterns
 
 ### Yaegi (Extension Interpreter) Gotchas
-- **No interfaces across boundary**: All extension-facing API types must be concrete structs, never interfaces. Yaegi crashes on interface wrapper generation.
-- **Function field bug**: Named function references assigned to struct fields return zero values across the interpreter boundary. Always use anonymous closure literals:
+- **No interfaces synthesized at runtime**: Yaegi crashes (`genInterfaceWrapper` nil deref) when an interpreted type must satisfy a host interface and no wrapper exists. Hand-written `interp.Exports` therefore exposes only concrete structs. Note: `yaegi extract` CAN generate working `_Iface` wrappers at build time, and the export key must match the type's real Go package path — so this is a solvable constraint, not an absolute one.
+- **Forward-reference function bug**: referencing a func BY NAME from inside a function literal, where the func is declared LATER in the file, yields a callable that does nothing and returns zero values — silently. Affects struct fields AND direct args (`api.OnToolCall(fn)`). Fix by declaring helpers above their use, wrapping in a closure, or assigning to a local first:
   ```go
-  // WRONG: ctx.SetEditor(ext.EditorConfig{HandleKey: myHandler})
-  // RIGHT: ctx.SetEditor(ext.EditorConfig{HandleKey: func(k, t string) ext.EditorKeyAction { return myHandler(k, t) }})
+  // BROKEN: helper declared after this closure
+  api.OnAgentStart(func(e ext.AgentStartEvent, ctx ext.Context) {
+      ctx.SetEditor(ext.EditorConfig{HandleKey: myHandler})
+  })
+  func myHandler(k, t string) ext.EditorKeyAction { ... }
+
+  // RIGHT: declare myHandler above, or wrap:
+  // HandleKey: func(k, t string) ext.EditorKeyAction { return myHandler(k, t) }
   ```
 - **Symbol exports**: Every new type exposed to extensions must be added to `internal/extensions/symbols.go`
 
