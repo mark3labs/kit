@@ -379,11 +379,11 @@ That is fine for a counter and visibly choppy for a spinner.</p>
 lowest rate that looks right. Kit calls <code>Render</code> at approximately the requested
 rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
 interpreter crossings.</p>
-<p>::: warning
-Because <code>Render</code> runs on every frame it must be cheap and must not block — no
-network calls, no locks held across the call. Compute in an event handler or
-goroutine, store the result, and format it here.
-:::</p>
+<blockquote>
+<p><strong>Because <code>Render</code> runs on every frame it must be cheap and must not block.</strong>
+No network calls, no locks held across the call. Compute in an event handler
+or goroutine, store the result, and format it here.</p>
+</blockquote>
 <p>See <a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go"><code>arbitrary-ui.go</code></a>
 for a live dashboard and <a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go"><code>bad-apple.go</code></a>
 for 30fps playback.</p>
@@ -467,6 +467,51 @@ ACP, or script mode.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // handle shortcut</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Handlers run in a goroutine, so they may call blocking APIs like
+<code>ctx.PromptSelect</code> without stalling the TUI.</p>
+<p>Run <code>/shortcuts</code> in the TUI to list every registered binding, grouped by the
+extension file that registered it.</p>
+<h3 id="key-names"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#key-names"><span class="icon icon-link"></span></a>Key names</h3>
+<p>Keys are normalized at registration, so modifier order and casing do not
+matter — <code>"Ctrl+Shift+S"</code>, <code>"control+shift+s"</code> and <code>"shift+ctrl+s"</code> all resolve
+to the same binding. <code>control</code>, <code>option</code>/<code>opt</code>, <code>cmd</code>/<code>command</code> and <code>win</code> are
+accepted as aliases for <code>ctrl</code>, <code>alt</code>, <code>meta</code> and <code>super</code>.</p>
+<p>A shifted key can be written either way: <code>"shift+a"</code> and <code>"A"</code> both match the
+same press, as do <code>"shift+/"</code> and <code>"?"</code>. Common key-name spellings are folded
+too (<code>escape</code> → <code>esc</code>, <code>return</code> → <code>enter</code>, <code>pgdn</code>/<code>pagedown</code> → <code>pgdown</code>).</p>
+<p>A bare single character keeps its case, because <code>"A"</code> and <code>"a"</code> are genuinely
+different presses.</p>
+<h3 id="reserved-and-shadowed-keys"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reserved-and-shadowed-keys"><span class="icon icon-link"></span></a>Reserved and shadowed keys</h3>
+<p>Kit dispatches extension shortcuts early — before its own scrollback, selector
+and chord bindings — so a shortcut can claim almost any key. Two cases are
+handled specially:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctrl+c</code></td>
+<td><strong>Rejected.</strong> Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning.</td>
+</tr>
+<tr>
+<td><code>esc</code>, <code>ctrl+x</code>, <code>pgup</code>, <code>pgdown</code>, <code>ctrl+home</code>, <code>ctrl+end</code>, <code>shift+tab</code>, <code>enter</code>, <code>tab</code>, <code>up</code>, <code>down</code></td>
+<td><strong>Accepted with a warning.</strong> The shortcut wins, shadowing Kit's built-in behaviour.</td>
+</tr>
+</tbody>
+</table>
+<p>An armed <code>Ctrl+X</code> leader chord takes precedence over shortcuts, so binding a
+chord suffix such as <code>"s"</code> does not break <code>Ctrl+X s</code>.</p>
+<blockquote>
+<p><strong>Prefer modifier combinations.</strong> A bare character like <code>"s"</code> fires on every
+press of that key outside a modal — including while you are typing a slash
+command.</p>
+</blockquote>
+<p>Shortcuts do not fire while a modal prompt or overlay is open, or during
+message navigation.</p>
 <h2 id="overlays"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#overlays"><span class="icon icon-link"></span></a>Overlays</h2>
 <p>Modal dialogs with markdown content:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShowOverlay</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OverlayConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -513,24 +558,60 @@ renderer.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RenderMessage</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"all tests passed"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
-<p>::: info
-The returned string is <strong>not</strong> emitted verbatim. In interactive mode Kit
-re-wraps it to the content width and nests it inside a system message block
-(gutter glyph plus indent), so box drawing that assumes full terminal width is
-wrapped a second time. Size output to roughly <code>width-4</code> and prefer inline
-styling over full-width frames. For output Kit uses as-is, use a
-<a href="#custom-rendering">widget with a <code>Render</code> callback</a>.
-:::</p>
+<blockquote>
+<p><strong>Note:</strong> the returned string is <em>not</em> emitted verbatim. In interactive mode
+Kit re-wraps it to the content width and nests it inside a system message
+block (gutter glyph plus indent), so box drawing that assumes full terminal
+width is wrapped a second time. Size output to roughly <code>width-4</code> and prefer
+inline styling over full-width frames. For output Kit uses as-is, use a
+<a href="#custom-rendering">widget with a <code>Render</code> callback</a>.</p>
+</blockquote>
 <h2 id="editor-interceptors"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#editor-interceptors"><span class="icon icon-link"></span></a>Editor interceptors</h2>
 <p>Handle key events and wrap the editor's rendering:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetEditor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    HandleKey: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">key</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">text</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> key </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "escape"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Handled: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> key </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "esc"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Type: ext.EditorKeyConsumed}</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Handled: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">false</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorKeyAction</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Type: ext.EditorKeyPassthrough}</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>Type</code> is one of:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ext.EditorKeyPassthrough</code></td>
+<td>Let the built-in editor handle the key normally. Any unrecognized <code>Type</code> behaves this way too, so a zero-value action passes through.</td>
+</tr>
+<tr>
+<td><code>ext.EditorKeyConsumed</code></td>
+<td>The extension handled it; the editor never sees the key.</td>
+</tr>
+<tr>
+<td><code>ext.EditorKeyRemap</code></td>
+<td>Replace the key with <code>RemappedKey</code> before the editor sees it.</td>
+</tr>
+<tr>
+<td><code>ext.EditorKeySubmit</code></td>
+<td>Submit immediately, using <code>SubmitText</code> (or the current text when empty).</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong><code>HandleKey</code> runs synchronously on the TUI event loop.</strong> Unlike a shortcut
+handler, a blocking call here freezes the whole interface. Keep it fast and
+hand slow work to a goroutine.</p>
+</blockquote>
+<p>The interceptor is the last hook before the editor, so it never sees keys an
+earlier stage already consumed: <code>ctrl+c</code>, any registered extension shortcut,
+<code>esc</code> while a turn is running, <code>ctrl+x</code> and its chord suffix, and the
+scrollback bindings such as <code>pgup</code>.</p>
 <h2 id="interactive-prompts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-prompts"><span class="icon icon-link"></span></a>Interactive prompts</h2>
 <p>Select, multi-select, confirm, and text input dialogs. Each blocks the calling
 goroutine until the user answers, and each returns a result struct whose
@@ -832,7 +913,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:3,text:"Markdown content",id:"markdown-content"},{depth:3,text:"Custom rendering",id:"custom-rendering"},{depth:3,text:"Animated widgets",id:"animated-widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:3,text:"Markdown content",id:"markdown-content"},{depth:3,text:"Custom rendering",id:"custom-rendering"},{depth:3,text:"Animated widgets",id:"animated-widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:3,text:"Key names",id:"key-names"},{depth:3,text:"Reserved and shadowed keys",id:"reserved-and-shadowed-keys"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -1057,11 +1138,9 @@ lowest rate that looks right. Kit calls \`Render\` at approximately the requeste
 rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
 interpreter crossings.
 
-::: warning
-Because \`Render\` runs on every frame it must be cheap and must not block — no
-network calls, no locks held across the call. Compute in an event handler or
-goroutine, store the result, and format it here.
-:::
+> **Because \`Render\` runs on every frame it must be cheap and must not block.**
+> No network calls, no locks held across the call. Compute in an event handler
+> or goroutine, store the result, and format it here.
 
 See [\`arbitrary-ui.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go)
 for a live dashboard and [\`bad-apple.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go)
@@ -1170,6 +1249,47 @@ api.RegisterShortcut(ext.ShortcutDef{
 })
 \`\`\`
 
+Handlers run in a goroutine, so they may call blocking APIs like
+\`ctx.PromptSelect\` without stalling the TUI.
+
+Run \`/shortcuts\` in the TUI to list every registered binding, grouped by the
+extension file that registered it.
+
+### Key names
+
+Keys are normalized at registration, so modifier order and casing do not
+matter — \`"Ctrl+Shift+S"\`, \`"control+shift+s"\` and \`"shift+ctrl+s"\` all resolve
+to the same binding. \`control\`, \`option\`/\`opt\`, \`cmd\`/\`command\` and \`win\` are
+accepted as aliases for \`ctrl\`, \`alt\`, \`meta\` and \`super\`.
+
+A shifted key can be written either way: \`"shift+a"\` and \`"A"\` both match the
+same press, as do \`"shift+/"\` and \`"?"\`. Common key-name spellings are folded
+too (\`escape\` → \`esc\`, \`return\` → \`enter\`, \`pgdn\`/\`pagedown\` → \`pgdown\`).
+
+A bare single character keeps its case, because \`"A"\` and \`"a"\` are genuinely
+different presses.
+
+### Reserved and shadowed keys
+
+Kit dispatches extension shortcuts early — before its own scrollback, selector
+and chord bindings — so a shortcut can claim almost any key. Two cases are
+handled specially:
+
+| Key | Behaviour |
+|-----|-----------|
+| \`ctrl+c\` | **Rejected.** Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning. |
+| \`esc\`, \`ctrl+x\`, \`pgup\`, \`pgdown\`, \`ctrl+home\`, \`ctrl+end\`, \`shift+tab\`, \`enter\`, \`tab\`, \`up\`, \`down\` | **Accepted with a warning.** The shortcut wins, shadowing Kit's built-in behaviour. |
+
+An armed \`Ctrl+X\` leader chord takes precedence over shortcuts, so binding a
+chord suffix such as \`"s"\` does not break \`Ctrl+X s\`.
+
+> **Prefer modifier combinations.** A bare character like \`"s"\` fires on every
+> press of that key outside a modal — including while you are typing a slash
+> command.
+
+Shortcuts do not fire while a modal prompt or overlay is open, or during
+message navigation.
+
 ## Overlays
 
 Modal dialogs with markdown content:
@@ -1236,14 +1356,12 @@ api.RegisterMessageRenderer(ext.MessageRendererConfig{
 ctx.RenderMessage("build-status", "all tests passed")
 \`\`\`
 
-::: info
-The returned string is **not** emitted verbatim. In interactive mode Kit
-re-wraps it to the content width and nests it inside a system message block
-(gutter glyph plus indent), so box drawing that assumes full terminal width is
-wrapped a second time. Size output to roughly \`width-4\` and prefer inline
-styling over full-width frames. For output Kit uses as-is, use a
-[widget with a \`Render\` callback](#custom-rendering).
-:::
+> **Note:** the returned string is *not* emitted verbatim. In interactive mode
+> Kit re-wraps it to the content width and nests it inside a system message
+> block (gutter glyph plus indent), so box drawing that assumes full terminal
+> width is wrapped a second time. Size output to roughly \`width-4\` and prefer
+> inline styling over full-width frames. For output Kit uses as-is, use a
+> [widget with a \`Render\` callback](#custom-rendering).
 
 ## Editor interceptors
 
@@ -1252,13 +1370,31 @@ Handle key events and wrap the editor's rendering:
 \`\`\`go
 ctx.SetEditor(ext.EditorConfig{
     HandleKey: func(key, text string) ext.EditorKeyAction {
-        if key == "escape" {
-            return ext.EditorKeyAction{Handled: true}
+        if key == "esc" {
+            return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
         }
-        return ext.EditorKeyAction{Handled: false}
+        return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
     },
 })
 \`\`\`
+
+\`Type\` is one of:
+
+| Type | Effect |
+|------|--------|
+| \`ext.EditorKeyPassthrough\` | Let the built-in editor handle the key normally. Any unrecognized \`Type\` behaves this way too, so a zero-value action passes through. |
+| \`ext.EditorKeyConsumed\` | The extension handled it; the editor never sees the key. |
+| \`ext.EditorKeyRemap\` | Replace the key with \`RemappedKey\` before the editor sees it. |
+| \`ext.EditorKeySubmit\` | Submit immediately, using \`SubmitText\` (or the current text when empty). |
+
+> **\`HandleKey\` runs synchronously on the TUI event loop.** Unlike a shortcut
+> handler, a blocking call here freezes the whole interface. Keep it fast and
+> hand slow work to a goroutine.
+
+The interceptor is the last hook before the editor, so it never sees keys an
+earlier stage already consumed: \`ctrl+c\`, any registered extension shortcut,
+\`esc\` while a turn is running, \`ctrl+x\` and its chord suffix, and the
+scrollback bindings such as \`pgup\`.
 
 ## Interactive prompts
 

@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-C0FgOhww.js"></script>
+<script type="module" src="/assets/index-BkhLvZQA.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"SDK Options","description":"Configuration options for the Kit Go SDK.","url":"https://go-kit.dev/sdk/options","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -17,11 +17,10 @@
 
 Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 
-::: tip
-For simple setups, `kit.NewAgent(ctx, ...Option)` provides functional-options
-helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...) over the same `Options`
-struct. See [Functional options](/sdk/overview#functional-options-newagent).
-:::
+> **Tip:** for simple setups, `kit.NewAgent(ctx, ...Option)` provides
+> functional-options helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...)
+> over the same `Options` struct. See
+> [Functional options](/sdk/overview#functional-options-newagent).
 
 Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
 these options never leak between Kit instances in the same process. See
@@ -358,11 +357,10 @@ func (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL str
 }
 ```
 
-::: warning
-`DefaultMCPAuthHandler` with no `OnAuthURL` set will silently drop the
-authorization URL and hang until the 2-minute callback timeout fires. Always
-set `OnAuthURL`, or use a higher-level wrapper like `CLIMCPAuthHandler`.
-:::
+> **Warning:** `DefaultMCPAuthHandler` with no `OnAuthURL` set will silently
+> drop the authorization URL and hang until the 2-minute callback timeout
+> fires. Always set `OnAuthURL`, or use a higher-level wrapper like
+> `CLIMCPAuthHandler`.
 
 ## MCP Tasks
 

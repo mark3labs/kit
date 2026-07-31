@@ -86,7 +86,7 @@
         "ACP server"
       ],
       "tags": [],
-      "wordCount": 1875
+      "wordCount": 1896
     },
     {
       "id": "cli/flags",
@@ -170,6 +170,8 @@
         "Thinking level",
         "Turn state",
         "Shortcuts",
+        "Key names",
+        "Reserved and shadowed keys",
         "Overlays",
         "Tool renderers",
         "Message renderers",
@@ -191,7 +193,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 3497
+      "wordCount": 3940
     },
     {
       "id": "extensions/examples",
@@ -404,7 +406,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3301
+      "wordCount": 3305
     },
     {
       "id": "sdk/overview",
