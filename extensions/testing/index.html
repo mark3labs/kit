@@ -7,7 +7,7 @@
 <meta name="description" content="Write unit tests for your Kit extensions using the test package.">
 <link rel="canonical" href="/extensions/testing">
 <link rel="stylesheet" href="/assets/index-Di_r5hA0.css">
-<script type="module" src="/assets/index-6c-Az8Wt.js"></script>
+<script type="module" src="/assets/index-C0FgOhww.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Testing Extensions","description":"Write unit tests for your Kit extensions using the test package.","url":"https://go-kit.dev/extensions/testing","isPartOf":{"@type":"WebSite","name":"Kit","url":"https://go-kit.dev"}}</script>
 </head>
 <body>
@@ -174,6 +174,29 @@ func TestWidgets(t *testing.T) {
     widget, ok := harness.Context().GetWidget("my-widget")
     if ok {
         t.Logf("Border color: %s", widget.Style.BorderColor)
+    }
+}
+```
+
+The `AssertWidgetText` helpers read `Content.Text`, which is empty for a widget
+that supplies a [`Render` callback](/extensions/capabilities#custom-rendering).
+Call the function directly instead — it is a plain `func(width int) string`, so
+you can invoke it at whatever width you want to assert against:
+
+```go
+func TestRenderedWidget(t *testing.T) {
+    harness := test.New(t)
+    harness.LoadFile("my-ext.go")
+    _, _ = harness.Emit(extensions.SessionStartEvent{SessionID: "test"})
+
+    widget, ok := harness.Context().GetWidget("my-widget")
+    if !ok || widget.Content.Render == nil {
+        t.Fatal("expected a widget with a Render callback")
+    }
+
+    out := widget.Content.Render(80)
+    if !strings.Contains(out, "expected fragment") {
+        t.Errorf("unexpected render output: %q", out)
     }
 }
 ```

@@ -161,6 +161,9 @@
         "Tools",
         "Commands",
         "Widgets",
+        "Markdown content",
+        "Custom rendering",
+        "Animated widgets",
         "Headers and footers",
         "Terminal size",
         "Status bar",
@@ -188,7 +191,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 2699
+      "wordCount": 3497
     },
     {
       "id": "extensions/examples",
@@ -208,7 +211,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 511
+      "wordCount": 545
     },
     {
       "id": "extensions/loading",
@@ -224,10 +227,11 @@
         "Single-file extensions",
         "Subdirectory extensions",
         "Package-level state",
-        "Standard library access"
+        "Standard library access",
+        "Failure isolation"
       ],
       "tags": [],
-      "wordCount": 448
+      "wordCount": 557
     },
     {
       "id": "extensions/overview",
@@ -242,7 +246,7 @@
         "The Context object"
       ],
       "tags": [],
-      "wordCount": 316
+      "wordCount": 317
     },
     {
       "id": "extensions/testing",
@@ -282,7 +286,7 @@
         "Complete Example"
       ],
       "tags": [],
-      "wordCount": 1448
+      "wordCount": 1539
     },
     {
       "id": "index",

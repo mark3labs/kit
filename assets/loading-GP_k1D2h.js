@@ -120,7 +120,17 @@ API key) and any vars the user exported before launching Kit.</p>
 snapshotted when the extension loads, and calls to <code>os.Setenv</code> mutate only the
 extension's sandboxed copy — they never change Kit's process environment or the
 host. This keeps extensions from leaking state into Kit or other extensions
-while still letting them read the configuration they need.</p>`,headings:[{depth:2,text:"Auto-discovery",id:"auto-discovery"},{depth:2,text:"Explicit loading",id:"explicit-loading"},{depth:2,text:"Disabling extensions",id:"disabling-extensions"},{depth:2,text:"Installing from git",id:"installing-from-git"},{depth:2,text:"Extension structure",id:"extension-structure"},{depth:3,text:"Single-file extensions",id:"single-file-extensions"},{depth:3,text:"Subdirectory extensions",id:"subdirectory-extensions"},{depth:3,text:"Package-level state",id:"package-level-state"},{depth:3,text:"Standard library access",id:"standard-library-access"}],raw:`
+while still letting them read the configuration they need.</p>
+<h3 id="failure-isolation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#failure-isolation"><span class="icon icon-link"></span></a>Failure isolation</h3>
+<p>Each extension is loaded into its own interpreter, and a failure in one never
+stops the others. A syntax error, a bad <code>Init</code> signature, a panic while the
+source is evaluated, or a panic inside <code>Init</code> is reported as a load failure for
+that file only — Kit continues starting up with the remaining extensions.</p>
+<p>At runtime the same applies to widget rendering: a panic inside a
+<a href="/extensions/capabilities#custom-rendering"><code>Render</code> callback</a> hides that widget
+and logs the error rather than taking down the TUI.</p>
+<p>This is isolation, not sandboxing. Extensions run in-process with <code>os/exec</code>
+access, so only load a <code>.go</code> file you would be willing to run directly.</p>`,headings:[{depth:2,text:"Auto-discovery",id:"auto-discovery"},{depth:2,text:"Explicit loading",id:"explicit-loading"},{depth:2,text:"Disabling extensions",id:"disabling-extensions"},{depth:2,text:"Installing from git",id:"installing-from-git"},{depth:2,text:"Extension structure",id:"extension-structure"},{depth:3,text:"Single-file extensions",id:"single-file-extensions"},{depth:3,text:"Subdirectory extensions",id:"subdirectory-extensions"},{depth:3,text:"Package-level state",id:"package-level-state"},{depth:3,text:"Standard library access",id:"standard-library-access"},{depth:3,text:"Failure isolation",id:"failure-isolation"}],raw:`
 # Loading Extensions
 
 ## Auto-discovery
@@ -266,4 +276,18 @@ snapshotted when the extension loads, and calls to \`os.Setenv\` mutate only the
 extension's sandboxed copy — they never change Kit's process environment or the
 host. This keeps extensions from leaking state into Kit or other extensions
 while still letting them read the configuration they need.
+
+### Failure isolation
+
+Each extension is loaded into its own interpreter, and a failure in one never
+stops the others. A syntax error, a bad \`Init\` signature, a panic while the
+source is evaluated, or a panic inside \`Init\` is reported as a load failure for
+that file only — Kit continues starting up with the remaining extensions.
+
+At runtime the same applies to widget rendering: a panic inside a
+[\`Render\` callback](/extensions/capabilities#custom-rendering) hides that widget
+and logs the error rather than taking down the TUI.
+
+This is isolation, not sandboxing. Extensions run in-process with \`os/exec\`
+access, so only load a \`.go\` file you would be willing to run directly.
 `};export{s as default};

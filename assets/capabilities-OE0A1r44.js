@@ -284,20 +284,109 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <h2 id="widgets"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#widgets"><span class="icon icon-link"></span></a>Widgets</h2>
 <p>Add persistent status displays above or below the input area:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"token-count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Position: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bottom"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content:  </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Tokens: 1,234"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"token-count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetBelow,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content:   </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Tokens: 1,234"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Update later</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Update later — same ID replaces the previous widget</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"token-count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Position: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bottom"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content:  </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Tokens: 2,456"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"token-count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetBelow,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content:   </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Tokens: 2,456"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Remove</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"token-count"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p><code>Placement</code> is <code>ext.WidgetAbove</code> or <code>ext.WidgetBelow</code>. <code>Priority</code> orders
+multiple widgets within the same slot (lower renders first).</p>
+<h3 id="markdown-content"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#markdown-content"><span class="icon icon-link"></span></a>Markdown content</h3>
+<p>Set <code>Markdown: true</code> to render <code>Text</code> as styled markdown — headings, bold,
+inline code and lists are formatted and sized to the widget's content column:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"notes"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetAbove,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Markdown: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Text:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"## Build</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">**passing** — \`go test ./...\`"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h3 id="custom-rendering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-rendering"><span class="icon icon-link"></span></a>Custom rendering</h3>
+<p><code>Text</code> covers static content. For anything Kit has no vocabulary for — sparklines,
+gauges, box drawing, sprites — supply a <code>Render</code> function instead. It receives the
+width in columns available for content (the gutter and padding are already
+subtracted) and Kit uses the returned string <strong>verbatim</strong>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"cpu-gauge"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetAbove,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Style:     </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetStyle</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{NoBorder: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            filled </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(load </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(width))</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\033</span><span style="color:#032F62;--shiki-dark:#9ECBFF">[38;5;82m"</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Repeat</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"━"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, filled) </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">                "</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\033</span><span style="color:#032F62;--shiki-dark:#9ECBFF">[0m"</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Repeat</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"─"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, width</span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8">filled)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>Render</code> takes priority over <code>Text</code>, and <code>Markdown</code> is ignored when it is set —
+a render function is expected to do its own styling. Returning an empty string
+hides the widget. A panic inside <code>Render</code> is contained: the widget is hidden and
+the error logged, rather than taking down the TUI.</p>
+<p><code>Render</code> also works on headers and footers via <code>HeaderFooterConfig</code>.</p>
+<h3 id="animated-widgets"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#animated-widgets"><span class="icon icon-link"></span></a>Animated widgets</h3>
+<p>Kit's animation clock is demand-driven — it runs while the startup logo or the
+activity spinner needs it and stops otherwise, so an idle session costs nothing.
+A widget that only reads state repaints whenever something <em>else</em> causes a
+render, which when idle means roughly twice a second (the input cursor blink).
+That is fine for a counter and visibly choppy for a spinner.</p>
+<p>Set <code>RefreshHz</code> to hold the clock open and repaint at a chosen rate:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RefreshHz: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">15</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Render:    </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> spinnerFrame</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> " working"</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th><code>RefreshHz</code></th>
+<th>Behaviour</th>
+<th>Use for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code> (default)</td>
+<td>Static. Repaints only when something else renders.</td>
+<td>Counters, status text</td>
+</tr>
+<tr>
+<td><code>4</code>–<code>8</code></td>
+<td>Gentle pulse</td>
+<td>Slow progress, breathing indicators</td>
+</tr>
+<tr>
+<td><code>10</code>–<code>15</code></td>
+<td>Smooth</td>
+<td>Spinners, meters</td>
+</tr>
+<tr>
+<td><code>30</code></td>
+<td>Kit's ceiling</td>
+<td>Continuous motion</td>
+</tr>
+</tbody>
+</table>
+<p>This is a real cost: a non-zero value means the app never idles. Ask for the
+lowest rate that looks right. Kit calls <code>Render</code> at approximately the requested
+rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
+interpreter crossings.</p>
+<p>::: warning
+Because <code>Render</code> runs on every frame it must be cheap and must not block — no
+network calls, no locks held across the call. Compute in an event handler or
+goroutine, store the result, and format it here.
+:::</p>
+<p>See <a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go"><code>arbitrary-ui.go</code></a>
+for a live dashboard and <a href="https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go"><code>bad-apple.go</code></a>
+for 30fps playback.</p>
 <h2 id="headers-and-footers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#headers-and-footers"><span class="icon icon-link"></span></a>Headers and footers</h2>
 <p>Persistent content above and below the conversation:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetHeader</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">HeaderFooterConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -307,9 +396,12 @@ const s={frontmatter:{title:"Capabilities",description:"All extension capabiliti
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetFooter</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">HeaderFooterConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Text: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Plan Mode (read-only)"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p>Content is rendered at <strong>full terminal width with no truncation</strong> — a longer
+<p>Headers and footers accept the same <code>WidgetContent</code> as widgets, so <code>Markdown</code>,
+<code>Render</code> and <code>RefreshHz</code> all apply.</p>
+<p>Plain <code>Text</code> is rendered at <strong>full terminal width with no truncation</strong> — a longer
 line wraps and silently consumes a row of scrollback. Measure against
-<code>ctx.GetTerminalSize()</code> and truncate before calling <code>SetHeader</code>/<code>SetFooter</code>.</p>
+<code>ctx.GetTerminalSize()</code> and truncate before calling <code>SetHeader</code>/<code>SetFooter</code>, or
+use <code>Render</code>, which is handed the exact width to draw into.</p>
 <h2 id="terminal-size"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#terminal-size"><span class="icon icon-link"></span></a>Terminal size</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">width, height </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTerminalSize</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// 0, 0 outside the interactive TUI</span></span>
 <span class="line"></span>
@@ -382,21 +474,53 @@ ACP, or script mode.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"# Keyboard Shortcuts</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">- **ctrl+t** — Toggle plan mode</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">- **ctrl+s** — Save session"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="tool-renderers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-renderers"><span class="icon icon-link"></span></a>Tool renderers</h2>
-<p>Customize how specific tool calls are displayed in the TUI:</p>
+<p>Customize how specific tool calls are displayed in the TUI. <code>RenderHeader</code>
+replaces the parameter summary on the header line; <code>RenderBody</code> replaces the
+result body. Both receive the width they may draw into, and returning an empty
+string falls back to Kit's default rendering:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterToolRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolRenderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ToolName: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bash"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">name</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">args</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">result</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">isError</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "$ "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> args </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ToolName:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bash"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    DisplayName: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Shell"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RenderHeader: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">toolArgs</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "$ "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> toolArgs</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RenderBody: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">toolResult</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">isError</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> toolResult</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Set <code>BorderColor</code> and/or <code>Background</code> (hex strings) to give the tool block its
+own stripe and backdrop. Tool blocks are otherwise unattributed, so the stripe
+appears only when asked for — it marks a tool as special rather than restyling
+every call:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterToolRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolRenderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ToolName:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"deploy"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    BorderColor: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#c678dd"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Background:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#1b1b2b"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    RenderBody: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">result</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">isError</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> result</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>Set <code>BodyMarkdown: true</code> to pass <code>RenderBody</code>'s output through the markdown
+renderer.</p>
 <h2 id="message-renderers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#message-renderers"><span class="icon icon-link"></span></a>Message renderers</h2>
-<p>Custom rendering for assistant messages:</p>
+<p>Named renderers invoked explicitly from extension code via
+<code>ctx.RenderMessage(name, content)</code>:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterMessageRenderer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MessageRendererConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Name: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"custom"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">content</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "&gt;&gt; "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> content</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Name: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">content</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "▸ "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> content</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RenderMessage</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"all tests passed"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p>::: info
+The returned string is <strong>not</strong> emitted verbatim. In interactive mode Kit
+re-wraps it to the content width and nests it inside a system message block
+(gutter glyph plus indent), so box drawing that assumes full terminal width is
+wrapped a second time. Size output to roughly <code>width-4</code> and prefer inline
+styling over full-width frames. For output Kit uses as-is, use a
+<a href="#custom-rendering">widget with a <code>Render</code> callback</a>.
+:::</p>
 <h2 id="editor-interceptors"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#editor-interceptors"><span class="icon icon-link"></span></a>Editor interceptors</h2>
 <p>Handle key events and wrap the editor's rendering:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetEditor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EditorConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -408,23 +532,42 @@ ACP, or script mode.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="interactive-prompts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#interactive-prompts"><span class="icon icon-link"></span></a>Interactive prompts</h2>
-<p>Select, confirm, input, and multi-select dialogs:</p>
+<p>Select, multi-select, confirm, and text input dialogs. Each blocks the calling
+goroutine until the user answers, and each returns a result struct whose
+<code>Cancelled</code> field is true if the user pressed ESC or the prompt was unavailable
+(non-interactive mode):</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Single select</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">response </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptSelect</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptSelectConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Title:   </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Choose a model"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">res </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptSelect</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptSelectConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Message: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Choose a model"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Options: []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"claude-sonnet"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"gpt-4o"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"llama3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#D73A49;--shiki-dark:#F97583"> !</span><span style="color:#24292E;--shiki-dark:#E1E4E8">res.Cancelled {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"picked "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> res.Value)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// also res.Index</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Multi-select — Space toggles, a selects all, n clears, Enter confirms</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">pick </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptMultiSelect</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptMultiSelectConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Message:         </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Which checks should run?"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Options:         []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"vet"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"test"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"lint"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    DefaultSelected: []</span><span style="color:#D73A49;--shiki-dark:#F97583">int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#005CC5;--shiki-dark:#79B8FF">0</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">1</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// nil selects everything</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#D73A49;--shiki-dark:#F97583"> !</span><span style="color:#24292E;--shiki-dark:#E1E4E8">pick.Cancelled {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PrintInfo</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Join</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(pick.Values, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">", "</span><span style="color:#24292E;--shiki-dark:#E1E4E8">))  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// also pick.Indices</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Confirm</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">confirmed </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptConfirm</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptConfirmConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Title: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Delete this file?"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">yes </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptConfirm</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptConfirmConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Message: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Delete this file?"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Text input</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">name </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptInput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">PromptInputConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
-<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Title:       </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Enter project name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Message:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Enter project name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placeholder: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"my-project"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>PromptMultiSelect</code> returns both <code>Values</code> (the selected option text) and
+<code>Indices</code> (their zero-based positions), so you can map back to your own data
+without string matching.</p>
 <h2 id="options"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#options"><span class="icon icon-link"></span></a>Options</h2>
 <p>Register configurable extension options:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">api.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterOption</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OptionDef</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -689,7 +832,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:3,text:"Markdown content",id:"markdown-content"},{depth:3,text:"Custom rendering",id:"custom-rendering"},{depth:3,text:"Animated widgets",id:"animated-widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -821,21 +964,108 @@ Add persistent status displays above or below the input area:
 
 \`\`\`go
 ctx.SetWidget(ext.WidgetConfig{
-    ID:       "token-count",
-    Position: "bottom",
-    Content:  ext.WidgetContent{Text: "Tokens: 1,234"},
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 1,234"},
 })
 
-// Update later
+// Update later — same ID replaces the previous widget
 ctx.SetWidget(ext.WidgetConfig{
-    ID:       "token-count",
-    Position: "bottom",
-    Content:  ext.WidgetContent{Text: "Tokens: 2,456"},
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 2,456"},
 })
 
 // Remove
 ctx.RemoveWidget("token-count")
 \`\`\`
+
+\`Placement\` is \`ext.WidgetAbove\` or \`ext.WidgetBelow\`. \`Priority\` orders
+multiple widgets within the same slot (lower renders first).
+
+### Markdown content
+
+Set \`Markdown: true\` to render \`Text\` as styled markdown — headings, bold,
+inline code and lists are formatted and sized to the widget's content column:
+
+\`\`\`go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "notes",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Markdown: true,
+        Text:     "## Build\\n\\n**passing** — \`go test ./...\`",
+    },
+})
+\`\`\`
+
+### Custom rendering
+
+\`Text\` covers static content. For anything Kit has no vocabulary for — sparklines,
+gauges, box drawing, sprites — supply a \`Render\` function instead. It receives the
+width in columns available for content (the gutter and padding are already
+subtracted) and Kit uses the returned string **verbatim**:
+
+\`\`\`go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "cpu-gauge",
+    Placement: ext.WidgetAbove,
+    Style:     ext.WidgetStyle{NoBorder: true},
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            filled := int(load * float64(width))
+            return "\\033[38;5;82m" + strings.Repeat("━", filled) +
+                "\\033[0m" + strings.Repeat("─", width-filled)
+        },
+    },
+})
+\`\`\`
+
+\`Render\` takes priority over \`Text\`, and \`Markdown\` is ignored when it is set —
+a render function is expected to do its own styling. Returning an empty string
+hides the widget. A panic inside \`Render\` is contained: the widget is hidden and
+the error logged, rather than taking down the TUI.
+
+\`Render\` also works on headers and footers via \`HeaderFooterConfig\`.
+
+### Animated widgets
+
+Kit's animation clock is demand-driven — it runs while the startup logo or the
+activity spinner needs it and stops otherwise, so an idle session costs nothing.
+A widget that only reads state repaints whenever something *else* causes a
+render, which when idle means roughly twice a second (the input cursor blink).
+That is fine for a counter and visibly choppy for a spinner.
+
+Set \`RefreshHz\` to hold the clock open and repaint at a chosen rate:
+
+\`\`\`go
+Content: ext.WidgetContent{
+    RefreshHz: 15,
+    Render:    func(width int) string { return spinnerFrame() + " working" },
+},
+\`\`\`
+
+| \`RefreshHz\` | Behaviour | Use for |
+|---|---|---|
+| \`0\` (default) | Static. Repaints only when something else renders. | Counters, status text |
+| \`4\`–\`8\` | Gentle pulse | Slow progress, breathing indicators |
+| \`10\`–\`15\` | Smooth | Spinners, meters |
+| \`30\` | Kit's ceiling | Continuous motion |
+
+This is a real cost: a non-zero value means the app never idles. Ask for the
+lowest rate that looks right. Kit calls \`Render\` at approximately the requested
+rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
+interpreter crossings.
+
+::: warning
+Because \`Render\` runs on every frame it must be cheap and must not block — no
+network calls, no locks held across the call. Compute in an event handler or
+goroutine, store the result, and format it here.
+:::
+
+See [\`arbitrary-ui.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go)
+for a live dashboard and [\`bad-apple.go\`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go)
+for 30fps playback.
 
 ## Headers and footers
 
@@ -851,9 +1081,13 @@ ctx.SetFooter(ext.HeaderFooterConfig{
 })
 \`\`\`
 
-Content is rendered at **full terminal width with no truncation** — a longer
+Headers and footers accept the same \`WidgetContent\` as widgets, so \`Markdown\`,
+\`Render\` and \`RefreshHz\` all apply.
+
+Plain \`Text\` is rendered at **full terminal width with no truncation** — a longer
 line wraps and silently consumes a row of scrollback. Measure against
-\`ctx.GetTerminalSize()\` and truncate before calling \`SetHeader\`/\`SetFooter\`.
+\`ctx.GetTerminalSize()\` and truncate before calling \`SetHeader\`/\`SetFooter\`, or
+use \`Render\`, which is handed the exact width to draw into.
 
 ## Terminal size
 
@@ -949,29 +1183,67 @@ ctx.ShowOverlay(ext.OverlayConfig{
 
 ## Tool renderers
 
-Customize how specific tool calls are displayed in the TUI:
+Customize how specific tool calls are displayed in the TUI. \`RenderHeader\`
+replaces the parameter summary on the header line; \`RenderBody\` replaces the
+result body. Both receive the width they may draw into, and returning an empty
+string falls back to Kit's default rendering:
 
 \`\`\`go
 api.RegisterToolRenderer(ext.ToolRenderConfig{
-    ToolName: "bash",
-    Render: func(name, args, result string, isError bool) string {
-        return "$ " + args + "\\n" + result
+    ToolName:    "bash",
+    DisplayName: "Shell",
+    RenderHeader: func(toolArgs string, width int) string {
+        return "$ " + toolArgs
+    },
+    RenderBody: func(toolResult string, isError bool, width int) string {
+        return toolResult
     },
 })
 \`\`\`
+
+Set \`BorderColor\` and/or \`Background\` (hex strings) to give the tool block its
+own stripe and backdrop. Tool blocks are otherwise unattributed, so the stripe
+appears only when asked for — it marks a tool as special rather than restyling
+every call:
+
+\`\`\`go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:    "deploy",
+    BorderColor: "#c678dd",
+    Background:  "#1b1b2b",
+    RenderBody: func(result string, isError bool, width int) string {
+        return result
+    },
+})
+\`\`\`
+
+Set \`BodyMarkdown: true\` to pass \`RenderBody\`'s output through the markdown
+renderer.
 
 ## Message renderers
 
-Custom rendering for assistant messages:
+Named renderers invoked explicitly from extension code via
+\`ctx.RenderMessage(name, content)\`:
 
 \`\`\`go
 api.RegisterMessageRenderer(ext.MessageRendererConfig{
-    Name: "custom",
-    Render: func(content string) string {
-        return ">> " + content
+    Name: "build-status",
+    Render: func(content string, width int) string {
+        return "▸ " + content
     },
 })
+
+ctx.RenderMessage("build-status", "all tests passed")
 \`\`\`
+
+::: info
+The returned string is **not** emitted verbatim. In interactive mode Kit
+re-wraps it to the content width and nests it inside a system message block
+(gutter glyph plus indent), so box drawing that assumes full terminal width is
+wrapped a second time. Size output to roughly \`width-4\` and prefer inline
+styling over full-width frames. For output Kit uses as-is, use a
+[widget with a \`Render\` callback](#custom-rendering).
+:::
 
 ## Editor interceptors
 
@@ -990,26 +1262,46 @@ ctx.SetEditor(ext.EditorConfig{
 
 ## Interactive prompts
 
-Select, confirm, input, and multi-select dialogs:
+Select, multi-select, confirm, and text input dialogs. Each blocks the calling
+goroutine until the user answers, and each returns a result struct whose
+\`Cancelled\` field is true if the user pressed ESC or the prompt was unavailable
+(non-interactive mode):
 
 \`\`\`go
 // Single select
-response := ctx.PromptSelect(ext.PromptSelectConfig{
-    Title:   "Choose a model",
+res := ctx.PromptSelect(ext.PromptSelectConfig{
+    Message: "Choose a model",
     Options: []string{"claude-sonnet", "gpt-4o", "llama3"},
 })
+if !res.Cancelled {
+    ctx.PrintInfo("picked " + res.Value)  // also res.Index
+}
+
+// Multi-select — Space toggles, a selects all, n clears, Enter confirms
+pick := ctx.PromptMultiSelect(ext.PromptMultiSelectConfig{
+    Message:         "Which checks should run?",
+    Options:         []string{"vet", "test", "lint"},
+    DefaultSelected: []int{0, 1},  // nil selects everything
+})
+if !pick.Cancelled {
+    ctx.PrintInfo(strings.Join(pick.Values, ", "))  // also pick.Indices
+}
 
 // Confirm
-confirmed := ctx.PromptConfirm(ext.PromptConfirmConfig{
-    Title: "Delete this file?",
+yes := ctx.PromptConfirm(ext.PromptConfirmConfig{
+    Message: "Delete this file?",
 })
 
 // Text input
 name := ctx.PromptInput(ext.PromptInputConfig{
-    Title:       "Enter project name",
+    Message:     "Enter project name",
     Placeholder: "my-project",
 })
 \`\`\`
+
+\`PromptMultiSelect\` returns both \`Values\` (the selected option text) and
+\`Indices\` (their zero-based positions), so you can map back to your own data
+without string matching.
 
 ## Options
 
