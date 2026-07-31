@@ -171,6 +171,8 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/clear-queue` | Clear queued messages |
 | `/usage` | Show token usage |
 | `/reset-usage` | Reset usage statistics |
+| `/shortcuts` | List keyboard shortcuts registered by extensions |
+| `/reload-ext` | Hot-reload all extensions from disk (alias: `/re`) |
 | `/tree` | Navigate session tree |
 | `/fork` | Fork to new session from an earlier message |
 | `/new` | Start a new session (creates new session file) |

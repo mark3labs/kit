@@ -7,11 +7,10 @@ description: Configuration options for the Kit Go SDK.
 
 Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 
-::: tip
-For simple setups, `kit.NewAgent(ctx, ...Option)` provides functional-options
-helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...) over the same `Options`
-struct. See [Functional options](/sdk/overview#functional-options-newagent).
-:::
+> **Tip:** for simple setups, `kit.NewAgent(ctx, ...Option)` provides
+> functional-options helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...)
+> over the same `Options` struct. See
+> [Functional options](/sdk/overview#functional-options-newagent).
 
 Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
 these options never leak between Kit instances in the same process. See
@@ -348,11 +347,10 @@ func (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL str
 }
 ```
 
-::: warning
-`DefaultMCPAuthHandler` with no `OnAuthURL` set will silently drop the
-authorization URL and hang until the 2-minute callback timeout fires. Always
-set `OnAuthURL`, or use a higher-level wrapper like `CLIMCPAuthHandler`.
-:::
+> **Warning:** `DefaultMCPAuthHandler` with no `OnAuthURL` set will silently
+> drop the authorization URL and hang until the 2-minute callback timeout
+> fires. Always set `OnAuthURL`, or use a higher-level wrapper like
+> `CLIMCPAuthHandler`.
 
 ## MCP Tasks
 

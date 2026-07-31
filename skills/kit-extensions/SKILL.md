@@ -385,6 +385,32 @@ api.RegisterShortcut(ext.ShortcutDef{
 })
 ```
 
+Handlers run in a goroutine, so they can safely block on prompts or I/O.
+`/shortcuts` lists every registered binding, grouped by extension file.
+
+**Key names are normalized.** Modifier order and casing don't matter:
+`"Ctrl+Shift+S"`, `"control+shift+s"` and `"shift+ctrl+s"` are the same binding.
+`control`, `option`/`opt`, `cmd`/`command` and `win` alias to `ctrl`, `alt`,
+`meta` and `super`. Key-name spellings fold too (`escape` → `esc`,
+`return` → `enter`, `pgdn`/`pagedown` → `pgdown`).
+
+A shifted key works spelled either way — `"shift+a"` and `"A"` match the same
+press, as do `"shift+/"` and `"?"`. A bare single character keeps its case,
+since `"A"` and `"a"` are different presses.
+
+| Key | Behaviour |
+|-----|-----------|
+| `ctrl+c` | **Rejected at load** — Kit consumes it before extensions are consulted, so the handler could never fire |
+| `esc`, `ctrl+x`, `pgup`, `pgdown`, `ctrl+home`, `ctrl+end`, `shift+tab`, `enter`, `tab`, `up`, `down` | Accepted, but logs a warning: the shortcut shadows Kit's built-in binding |
+| everything else | Fires normally |
+
+An armed `Ctrl+X` leader chord beats shortcuts, so binding `"s"` won't break
+`Ctrl+X s`. Shortcuts don't fire during modal prompts, overlays, or message
+navigation.
+
+**Prefer modifier combinations.** A bare `"s"` fires on every press of that key
+outside a modal — including while typing a slash command.
+
 ---
 
 ## Registering Options
@@ -567,6 +593,14 @@ ctx.SetEditorText("prefilled")     // set editor text content
 - `ext.EditorKeyConsumed` — swallow the key, do nothing
 - `ext.EditorKeyRemap` — remap to a different key: `EditorKeyAction{Type: ext.EditorKeyRemap, RemappedKey: "up"}`
 - `ext.EditorKeySubmit` — submit text: `EditorKeyAction{Type: ext.EditorKeySubmit, SubmitText: "text"}`
+
+**`HandleKey` runs synchronously on the TUI event loop** — unlike a shortcut
+handler, blocking here freezes the whole interface. Keep it fast; hand slow work
+to a goroutine.
+
+It is also the last hook before the editor, so it never sees keys an earlier
+stage consumed: `ctrl+c`, any registered extension shortcut, `esc` during a
+running turn, `ctrl+x` and its chord suffix, and scrollback keys like `pgup`.
 
 ### Terminal Size
 

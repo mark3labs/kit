@@ -227,11 +227,9 @@ lowest rate that looks right. Kit calls `Render` at approximately the requested
 rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
 interpreter crossings.
 
-::: warning
-Because `Render` runs on every frame it must be cheap and must not block — no
-network calls, no locks held across the call. Compute in an event handler or
-goroutine, store the result, and format it here.
-:::
+> **Because `Render` runs on every frame it must be cheap and must not block.**
+> No network calls, no locks held across the call. Compute in an event handler
+> or goroutine, store the result, and format it here.
 
 See [`arbitrary-ui.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go)
 for a live dashboard and [`bad-apple.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go)
@@ -340,6 +338,47 @@ api.RegisterShortcut(ext.ShortcutDef{
 })
 ```
 
+Handlers run in a goroutine, so they may call blocking APIs like
+`ctx.PromptSelect` without stalling the TUI.
+
+Run `/shortcuts` in the TUI to list every registered binding, grouped by the
+extension file that registered it.
+
+### Key names
+
+Keys are normalized at registration, so modifier order and casing do not
+matter — `"Ctrl+Shift+S"`, `"control+shift+s"` and `"shift+ctrl+s"` all resolve
+to the same binding. `control`, `option`/`opt`, `cmd`/`command` and `win` are
+accepted as aliases for `ctrl`, `alt`, `meta` and `super`.
+
+A shifted key can be written either way: `"shift+a"` and `"A"` both match the
+same press, as do `"shift+/"` and `"?"`. Common key-name spellings are folded
+too (`escape` → `esc`, `return` → `enter`, `pgdn`/`pagedown` → `pgdown`).
+
+A bare single character keeps its case, because `"A"` and `"a"` are genuinely
+different presses.
+
+### Reserved and shadowed keys
+
+Kit dispatches extension shortcuts early — before its own scrollback, selector
+and chord bindings — so a shortcut can claim almost any key. Two cases are
+handled specially:
+
+| Key | Behaviour |
+|-----|-----------|
+| `ctrl+c` | **Rejected.** Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning. |
+| `esc`, `ctrl+x`, `pgup`, `pgdown`, `ctrl+home`, `ctrl+end`, `shift+tab`, `enter`, `tab`, `up`, `down` | **Accepted with a warning.** The shortcut wins, shadowing Kit's built-in behaviour. |
+
+An armed `Ctrl+X` leader chord takes precedence over shortcuts, so binding a
+chord suffix such as `"s"` does not break `Ctrl+X s`.
+
+> **Prefer modifier combinations.** A bare character like `"s"` fires on every
+> press of that key outside a modal — including while you are typing a slash
+> command.
+
+Shortcuts do not fire while a modal prompt or overlay is open, or during
+message navigation.
+
 ## Overlays
 
 Modal dialogs with markdown content:
@@ -406,14 +445,12 @@ api.RegisterMessageRenderer(ext.MessageRendererConfig{
 ctx.RenderMessage("build-status", "all tests passed")
 ```
 
-::: info
-The returned string is **not** emitted verbatim. In interactive mode Kit
-re-wraps it to the content width and nests it inside a system message block
-(gutter glyph plus indent), so box drawing that assumes full terminal width is
-wrapped a second time. Size output to roughly `width-4` and prefer inline
-styling over full-width frames. For output Kit uses as-is, use a
-[widget with a `Render` callback](#custom-rendering).
-:::
+> **Note:** the returned string is *not* emitted verbatim. In interactive mode
+> Kit re-wraps it to the content width and nests it inside a system message
+> block (gutter glyph plus indent), so box drawing that assumes full terminal
+> width is wrapped a second time. Size output to roughly `width-4` and prefer
+> inline styling over full-width frames. For output Kit uses as-is, use a
+> [widget with a `Render` callback](#custom-rendering).
 
 ## Editor interceptors
 
@@ -422,13 +459,31 @@ Handle key events and wrap the editor's rendering:
 ```go
 ctx.SetEditor(ext.EditorConfig{
     HandleKey: func(key, text string) ext.EditorKeyAction {
-        if key == "escape" {
-            return ext.EditorKeyAction{Handled: true}
+        if key == "esc" {
+            return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
         }
-        return ext.EditorKeyAction{Handled: false}
+        return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
     },
 })
 ```
+
+`Type` is one of:
+
+| Type | Effect |
+|------|--------|
+| `ext.EditorKeyPassthrough` | Let the built-in editor handle the key normally. Any unrecognized `Type` behaves this way too, so a zero-value action passes through. |
+| `ext.EditorKeyConsumed` | The extension handled it; the editor never sees the key. |
+| `ext.EditorKeyRemap` | Replace the key with `RemappedKey` before the editor sees it. |
+| `ext.EditorKeySubmit` | Submit immediately, using `SubmitText` (or the current text when empty). |
+
+> **`HandleKey` runs synchronously on the TUI event loop.** Unlike a shortcut
+> handler, a blocking call here freezes the whole interface. Keep it fast and
+> hand slow work to a goroutine.
+
+The interceptor is the last hook before the editor, so it never sees keys an
+earlier stage already consumed: `ctrl+c`, any registered extension shortcut,
+`esc` while a turn is running, `ctrl+x` and its chord suffix, and the
+scrollback bindings such as `pgup`.
 
 ## Interactive prompts
 
