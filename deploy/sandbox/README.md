@@ -50,7 +50,57 @@ docker buildx build --platform linux/amd64 \
 ```
 
 Override pinned versions with `--build-arg` (`GO_VERSION`, `KIT_VERSION`,
-`GH_VERSION`, `GLAB_VERSION`, `TEA_VERSION`, `DIRENV_VERSION`, `NIX_VERSION`).
+`GH_VERSION`, `GLAB_VERSION`, `TEA_VERSION`, `UV_VERSION`, `BUN_VERSION`,
+`DIRENV_VERSION`, `NIX_VERSION`, plus `GOPLS_VERSION`, `GOLANGCI_LINT_VERSION`,
+`DELVE_VERSION`, `STATICCHECK_VERSION`, `GOIMPORTS_VERSION`).
+
+### Building an unreleased `kit`
+
+By default `kit` is installed from the module proxy
+(`go install github.com/mark3labs/kit/cmd/kit@${KIT_VERSION}`), so the build
+never reads the build context at all. To bake in the *working tree* instead:
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -f deploy/sandbox/Dockerfile \
+  --build-arg KIT_SOURCE=local \
+  --build-arg KIT_VERSION=dev-$(git rev-parse --short HEAD) \
+  -t kit-sandbox .
+```
+
+That stage copies `go.mod`/`go.sum` and runs `go mod download` before copying
+the rest of the tree, so editing Go files re-links `kit` without re-resolving
+the module graph. The root `.dockerignore` keeps the context small (~7 MB) —
+anything it lets through becomes part of that stage's cache key.
+
+## Build-cache layout
+
+The Dockerfile is multi-stage on purpose. Every third-party tool is fetched in
+its **own** stage and only the resulting binary is `COPY`ed into the final
+image:
+
+- **Independent invalidation.** Bumping `GH_VERSION` rebuilds `fetch-gh` and
+  one cheap `COPY` — not glab/tea/uv/bun/direnv/nix, as it did when everything
+  lived in a single linear `RUN` chain.
+- **Volatility ordering.** `kit` is the last thing copied into the final stage,
+  because it changes on every release. A `KIT_VERSION` bump rebuilds only the
+  `kit` stage plus the final `COPY` + smoke test (~30 s instead of ~3 min).
+- **Parallelism.** BuildKit schedules the independent stages concurrently, so a
+  cold build downloads the CLIs, installs nix and compiles the Go tooling at
+  the same time.
+- **Smaller image.** Tarballs, the Go module cache and the Go build cache live
+  in throwaway stages / `--mount=type=cache` mounts, so they never end up in a
+  layer (~1.5 GB instead of ~2.9 GB).
+
+Nix is installed in its own stage and the `/nix` store is copied in
+(a single-user store is self-contained, so this is equivalent to installing in
+place); the profile symlinks and `/etc/nix/nix.conf` are recreated in the final
+stage. The build-time smoke test runs `nix eval` to prove the copied store is
+usable.
+
+CI keeps this cache across runs with `cache-from/cache-to: type=gha,mode=max`,
+which exports every stage. Note that `--mount=type=cache` contents are *not*
+exported to the GHA cache — they only speed up local rebuilds.
 
 ## CI / publishing
 

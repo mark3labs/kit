@@ -1,0 +1,36 @@
+# Build context for deploy/sandbox/Dockerfile.
+#
+# With the default KIT_SOURCE=proxy nothing is COPYed from the context at all
+# (BuildKit then skips transferring it entirely). With KIT_SOURCE=local the
+# `kit-local` stage does `COPY . .`, so anything let through here becomes part
+# of that stage's cache key — keep this list tight: every ignored path is one
+# less reason to recompile kit.
+.git
+.github
+.agents
+.vscode
+.idea
+
+# Build outputs / local artifacts
+output
+dist
+kit
+*.log
+*.test
+*.out
+
+# Docs, site and assets — not needed to compile ./cmd/kit
+www
+contribute
+skills
+npm
+logo.jpg
+LICENSE
+README.md
+AGENTS.md
+**/node_modules
+
+# Container/CI plumbing (changing the Dockerfile shouldn't bust the src layer)
+deploy
+Dockerfile*
+.dockerignore
