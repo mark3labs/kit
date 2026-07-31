@@ -1532,6 +1532,22 @@ func (a *API) RegisterOption(opt OptionDef) {
 // with text input. If multiple extensions register the same key, the last
 // registration wins. The handler runs in a goroutine so it can call blocking
 // APIs like PromptSelect without stalling the TUI event loop.
+//
+// Keys are normalized at registration, so "Ctrl+Shift+S", "control+shift+s"
+// and "shift+ctrl+s" all resolve to the same binding. Both spellings of a
+// shifted key work: "shift+a" and "A" match the same press.
+//
+// Two classes of binding are handled specially:
+//
+//   - "ctrl+c" is reserved. Kit consumes it for cancel/quit before extensions
+//     are consulted, so the registration is rejected with a logged warning
+//     rather than silently never firing.
+//   - Keys bound by Kit itself ("esc", "ctrl+x", "pgup", "enter", ...) are
+//     accepted but log a warning, because the shortcut dispatcher runs first
+//     and will shadow the built-in behaviour.
+//
+// An armed Ctrl+X leader chord takes precedence over shortcuts, so binding a
+// chord suffix does not break the built-in chords.
 func (a *API) RegisterShortcut(def ShortcutDef, handler func(Context)) {
 	if a.registerShortcutFn != nil {
 		a.registerShortcutFn(def, handler)
@@ -2062,8 +2078,9 @@ type CommandDef struct {
 // characters like "a" or "x" which conflict with text input.
 type ShortcutDef struct {
 	// Key is the key binding (e.g., "ctrl+p", "alt+t", "f1", "ctrl+shift+s").
+	// Normalized at registration: modifier order and casing do not matter.
 	Key string
-	// Description explains what the shortcut does (shown in /shortcuts help).
+	// Description explains what the shortcut does (shown in /shortcuts).
 	Description string
 }
 
@@ -2258,9 +2275,18 @@ type EditorKeyAction struct {
 // Verified against yaegi v0.12.0-v0.16.1; not fixed upstream.
 type EditorConfig struct {
 	// HandleKey intercepts key presses before they reach the built-in editor.
-	// It receives the key name (e.g., "a", "enter", "ctrl+c", "backspace")
+	// It receives the key name (e.g., "a", "enter", "alt+p", "backspace")
 	// and the editor's current text content. Return an EditorKeyAction to
 	// control how the key is handled.
+	//
+	// Unlike RegisterShortcut handlers, this is called synchronously on the
+	// TUI event loop: a blocking call here freezes the whole interface. Keep
+	// it fast, and dispatch slow work to a goroutine.
+	//
+	// The interceptor is the last hook before the editor, so it never sees
+	// keys an earlier stage consumed — among them "ctrl+c", any registered
+	// extension shortcut, "esc" while a turn is running, "ctrl+x" and its
+	// chord suffix, and the scrollback bindings such as "pgup".
 	//
 	// If nil, all keys pass through to the built-in editor unchanged.
 	HandleKey func(key string, currentText string) EditorKeyAction

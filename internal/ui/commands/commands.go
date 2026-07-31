@@ -121,6 +121,11 @@ var SlashCommands = []SlashCommand{
 		},
 	},
 	{
+		Name:        "/shortcuts",
+		Description: "List keyboard shortcuts registered by extensions",
+		Category:    "System",
+	},
+	{
 		Name:        "/reload-ext",
 		Description: "Hot-reload all extensions from disk",
 		Category:    "System",

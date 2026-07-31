@@ -723,6 +723,29 @@ func globalShortcutsProviderForUI(k *kit.Kit) func() map[string]func() {
 	}
 }
 
+// shortcutListProviderForUI returns a callback that lists extension-registered
+// shortcuts for the /shortcuts command, converting them to the UI's type.
+func shortcutListProviderForUI(k *kit.Kit) func() []ui.ShortcutInfo {
+	if !k.Extensions().HasExtensions() {
+		return nil
+	}
+	return func() []ui.ShortcutInfo {
+		infos := k.Extensions().GetShortcutInfos()
+		if len(infos) == 0 {
+			return nil
+		}
+		out := make([]ui.ShortcutInfo, 0, len(infos))
+		for _, info := range infos {
+			out = append(out, ui.ShortcutInfo{
+				Key:         info.Key,
+				Description: info.Description,
+				Source:      info.Source,
+			})
+		}
+		return out
+	}
+}
+
 // validateModeFlags rejects invalid flag combinations for the root command.
 func validateModeFlags() error {
 	if quietFlag && positionalPrompt == "" {
@@ -1159,6 +1182,7 @@ func runNormalMode(ctx context.Context) error {
 	emitBeforeFork := beforeForkProviderForUI(kitInstance)
 	emitBeforeSessionSwitch := beforeSessionSwitchProviderForUI(kitInstance)
 	getGlobalShortcuts := globalShortcutsProviderForUI(kitInstance)
+	getShortcutList := shortcutListProviderForUI(kitInstance)
 	getExtensionCommands := func() []commands.ExtensionCommand {
 		return extensionCommandsForUI(kitInstance)
 	}
@@ -1419,6 +1443,7 @@ func runNormalMode(ctx context.Context) error {
 		emitBeforeFork:           emitBeforeFork,
 		emitBeforeSessionSwitch:  emitBeforeSessionSwitch,
 		getGlobalShortcuts:       getGlobalShortcuts,
+		getShortcutList:          getShortcutList,
 		getExtensionCommands:     getExtensionCommands,
 		setModel:                 setModelForUI,
 		emitModelChange:          emitModelChangeForUI,
@@ -1581,6 +1606,7 @@ type runModeDeps struct {
 	emitBeforeFork           func(string, bool, string) (bool, string)
 	emitBeforeSessionSwitch  func(string, string) (bool, string)
 	getGlobalShortcuts       func() map[string]func()
+	getShortcutList          func() []ui.ShortcutInfo
 	getExtensionCommands     func() []commands.ExtensionCommand
 	setModel                 func(string) error
 	emitModelChange          func(string, string, string)
@@ -1749,6 +1775,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		EmitBeforeFork:           deps.emitBeforeFork,
 		EmitBeforeSessionSwitch:  deps.emitBeforeSessionSwitch,
 		GetGlobalShortcuts:       deps.getGlobalShortcuts,
+		GetShortcutList:          deps.getShortcutList,
 		GetExtensionCommands:     deps.getExtensionCommands,
 		SetModel:                 deps.setModel,
 		EmitModelChange:          deps.emitModelChange,

@@ -502,7 +502,9 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 			ext.Options = append(ext.Options, opt)
 		},
 		registerShortcutFn: func(def ShortcutDef, handler func(Context)) {
-			ext.Shortcuts = append(ext.Shortcuts, ShortcutEntry{Def: def, Handler: handler})
+			if entry, ok := prepareShortcut(def, handler, path); ok {
+				ext.Shortcuts = append(ext.Shortcuts, entry)
+			}
 		},
 		onSubagentStart:  notifyReg[SubagentStartEvent](reg, SubagentStart),
 		onSubagentChunk:  notifyReg[SubagentChunkEvent](reg, SubagentChunk),

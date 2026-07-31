@@ -108,7 +108,14 @@ type Runner struct {
 	stateSaver      func()                    // optional persistence hook invoked after each state mutation
 	termWidth       int                       // live terminal width (0 = unknown/headless)
 	termHeight      int                       // live terminal height
-	mu              sync.RWMutex
+
+	// Shortcut lookup caches. Rebuilt lazily and invalidated on reload, since
+	// the TUI queries them on every key press.
+	shortcutsBuilt   bool
+	shortcutEntries  map[string]ShortcutEntry
+	shortcutHandlers map[string]func()
+
+	mu sync.RWMutex
 }
 
 // SetConfigStore sets the per-instance configuration store used by GetOption
@@ -125,6 +132,9 @@ func (r *Runner) SetConfigStore(v *viper.Viper) {
 type ShortcutEntry struct {
 	Def     ShortcutDef
 	Handler func(Context)
+	// Source is the file name of the registering extension, used to attribute
+	// bindings in the /shortcuts listing.
+	Source string
 }
 
 // LoadedExtension represents a single extension that has been discovered,
@@ -969,6 +979,7 @@ func (r *Runner) Reload(exts []LoadedExtension) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.extensions = exts
+	r.invalidateShortcutsLocked()
 	r.widgets = nil
 	r.statusEntries = nil
 	r.header = nil
@@ -1141,36 +1152,106 @@ func (r *Runner) RegisteredOptions() []OptionDef {
 // ---------------------------------------------------------------------------
 
 // GetShortcuts returns all registered keyboard shortcuts as a map of
-// key binding → handler. If multiple extensions register the same key,
-// the last registration wins. Thread-safe (reads extension list which is
-// immutable after loading).
+// key binding → handler. Keys are normalized (see NormalizeShortcutKey). If
+// multiple extensions register the same key, the last registration wins.
+//
+// The result is cached and rebuilt only when the extension set changes, since
+// this is called on every key press. The returned map is shared and must not
+// be mutated by callers. Thread-safe.
 func (r *Runner) GetShortcuts() map[string]ShortcutEntry {
-	result := make(map[string]ShortcutEntry)
-	for i := range r.extensions {
-		for _, sc := range r.extensions[i].Shortcuts {
-			result[sc.Def.Key] = sc
-		}
+	r.mu.RLock()
+	if r.shortcutsBuilt {
+		entries := r.shortcutEntries
+		r.mu.RUnlock()
+		return entries
 	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	r.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buildShortcutsLocked()
+	return r.shortcutEntries
 }
 
-// RegisteredShortcuts returns all shortcut definitions from all loaded
-// extensions. Used for help/listing commands.
-func (r *Runner) RegisteredShortcuts() []ShortcutDef {
-	var defs []ShortcutDef
-	seen := make(map[string]bool)
-	// Iterate in reverse so last registration for a key wins.
-	for i := len(r.extensions) - 1; i >= 0; i-- {
+// GetShortcutHandlers returns the key → handler map used by the TUI, with each
+// handler already bound to the runner's live context. The binding closure
+// resolves the context at fire time, so the cache stays valid across session
+// and model changes. Thread-safe.
+func (r *Runner) GetShortcutHandlers() map[string]func() {
+	r.mu.RLock()
+	if r.shortcutsBuilt {
+		handlers := r.shortcutHandlers
+		r.mu.RUnlock()
+		return handlers
+	}
+	r.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buildShortcutsLocked()
+	return r.shortcutHandlers
+}
+
+// buildShortcutsLocked populates the shortcut caches. Callers must hold r.mu
+// for writing.
+func (r *Runner) buildShortcutsLocked() {
+	if r.shortcutsBuilt {
+		return
+	}
+	r.shortcutsBuilt = true
+
+	entries := make(map[string]ShortcutEntry)
+	for i := range r.extensions {
 		for _, sc := range r.extensions[i].Shortcuts {
-			if !seen[sc.Def.Key] {
-				seen[sc.Def.Key] = true
-				defs = append(defs, sc.Def)
+			if prev, dup := entries[sc.Def.Key]; dup && prev.Source != sc.Source {
+				log.Printf("WARN extension shortcut conflict, last registration wins: key=%s overridden=%s winner=%s",
+					sc.Def.Key, prev.Source, sc.Source)
 			}
+			entries[sc.Def.Key] = sc
 		}
 	}
+
+	if len(entries) == 0 {
+		r.shortcutEntries = nil
+		r.shortcutHandlers = nil
+		return
+	}
+
+	handlers := make(map[string]func(), len(entries))
+	for key, entry := range entries {
+		h := entry.Handler
+		handlers[key] = func() {
+			h(r.GetContext())
+		}
+	}
+
+	r.shortcutEntries = entries
+	r.shortcutHandlers = handlers
+}
+
+// invalidateShortcutsLocked clears the shortcut caches so the next lookup
+// rebuilds them. Callers must hold r.mu for writing.
+func (r *Runner) invalidateShortcutsLocked() {
+	r.shortcutsBuilt = false
+	r.shortcutEntries = nil
+	r.shortcutHandlers = nil
+}
+
+// RegisteredShortcuts returns the effective shortcut bindings across all
+// loaded extensions, sorted by source file then key. Used by /shortcuts.
+// Thread-safe.
+func (r *Runner) RegisteredShortcuts() []ShortcutEntry {
+	entries := r.GetShortcuts()
+	defs := make([]ShortcutEntry, 0, len(entries))
+	for _, entry := range entries {
+		defs = append(defs, entry)
+	}
+	sort.Slice(defs, func(i, j int) bool {
+		if defs[i].Source != defs[j].Source {
+			return defs[i].Source < defs[j].Source
+		}
+		return defs[i].Def.Key < defs[j].Def.Key
+	})
 	return defs
 }
 

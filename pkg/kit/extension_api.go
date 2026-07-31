@@ -53,6 +53,18 @@ type ExtensionEntry = extensions.ExtensionEntry
 // ExtensionStatusBarEntry describes a status bar entry registered by an extension.
 type ExtensionStatusBarEntry = extensions.StatusBarEntry
 
+// ExtensionShortcutInfo describes a keyboard shortcut registered by an
+// extension. Unlike the internal entry it carries no handler, so it is safe to
+// hand to presentation code.
+type ExtensionShortcutInfo struct {
+	// Key is the normalized binding, e.g. "ctrl+p".
+	Key string
+	// Description explains what the shortcut does.
+	Description string
+	// Source is the file name of the extension that registered the shortcut.
+	Source string
+}
+
 // ExtensionToolInfo describes a tool available to the agent, as seen by extensions.
 type ExtensionToolInfo = extensions.ToolInfo
 
@@ -172,6 +184,7 @@ type ExtensionAPI interface {
 
 	// Shortcuts
 	GetShortcuts() map[string]func()
+	GetShortcutInfos() []ExtensionShortcutInfo
 
 	// Tools
 	GetToolInfos() []ExtensionToolInfo
@@ -524,20 +537,30 @@ func (e *extensionAPI) GetShortcuts() map[string]func() {
 	if e.kit.extRunner == nil {
 		return nil
 	}
-	entries := e.kit.extRunner.GetShortcuts()
-	if entries == nil {
+	// The runner caches the bound handler map and invalidates it on reload,
+	// so this is allocation-free on the per-key-press hot path.
+	return e.kit.extRunner.GetShortcutHandlers()
+}
+
+// GetShortcutInfos returns the effective extension shortcut bindings, sorted
+// by source file then key. Used to render the /shortcuts listing.
+func (e *extensionAPI) GetShortcutInfos() []ExtensionShortcutInfo {
+	if e.kit.extRunner == nil {
 		return nil
 	}
-	result := make(map[string]func(), len(entries))
-	for key, entry := range entries {
-		h := entry.Handler
-		r := e.kit.extRunner
-		result[key] = func() {
-			ctx := r.GetContext()
-			h(ctx)
-		}
+	entries := e.kit.extRunner.RegisteredShortcuts()
+	if len(entries) == 0 {
+		return nil
 	}
-	return result
+	infos := make([]ExtensionShortcutInfo, 0, len(entries))
+	for _, entry := range entries {
+		infos = append(infos, ExtensionShortcutInfo{
+			Key:         entry.Def.Key,
+			Description: entry.Def.Description,
+			Source:      entry.Source,
+		})
+	}
+	return infos
 }
 
 // Tools

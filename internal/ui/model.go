@@ -274,6 +274,17 @@ var styleMarginBottom1 = lipgloss.NewStyle().MarginBottom(1)
 // Editor interceptor types (UI-layer, decoupled from extensions package)
 // ---------------------------------------------------------------------------
 
+// ShortcutInfo describes one extension-registered keyboard shortcut for the
+// /shortcuts listing. Mirrors extensions.ShortcutEntry for package decoupling.
+type ShortcutInfo struct {
+	// Key is the normalized binding, e.g. "ctrl+p".
+	Key string
+	// Description explains what the shortcut does.
+	Description string
+	// Source is the file name of the extension that registered it.
+	Source string
+}
+
 // EditorKeyActionType defines the outcome of an editor key interception.
 // Mirrors extensions.EditorKeyActionType for package decoupling.
 type EditorKeyActionType string
@@ -520,6 +531,11 @@ type AppModelOptions struct {
 	// Handlers are called in a goroutine to avoid blocking the TUI event
 	// loop. May be nil if no extensions are loaded.
 	GetGlobalShortcuts func() map[string]func()
+
+	// GetShortcutList, if non-nil, returns the registered extension shortcuts
+	// for the /shortcuts listing, sorted for display. May be nil if no
+	// extensions are loaded.
+	GetShortcutList func() []ShortcutInfo
 
 	// GetExtensionCommands, if non-nil, returns the current extension
 	// commands. Called on WidgetUpdateEvent to refresh the command list
@@ -832,6 +848,9 @@ type AppModel struct {
 	// May be nil if no extensions are loaded.
 	getGlobalShortcuts func() map[string]func()
 
+	// getShortcutList returns extension shortcuts for the /shortcuts listing.
+	getShortcutList func() []ShortcutInfo
+
 	// getExtensionCommands returns the current extension commands. Used
 	// to refresh the command list after an extension hot-reload. May be nil.
 	getExtensionCommands func() []commands.ExtensionCommand
@@ -1076,6 +1095,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.emitBeforeFork = opts.EmitBeforeFork
 	m.emitBeforeSessionSwitch = opts.EmitBeforeSessionSwitch
 	m.getGlobalShortcuts = opts.GetGlobalShortcuts
+	m.getShortcutList = opts.GetShortcutList
 	m.getExtensionCommands = opts.GetExtensionCommands
 	m.setModel = opts.SetModel
 	m.emitModelChange = opts.EmitModelChange
@@ -1809,11 +1829,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// above) and message navigation, which rebinds plain keys like j/k
 		// and enter for itself — an extension shortcut on one of those would
 		// otherwise consume it first and silently break navigation.
+		//
+		// An armed leader chord (Ctrl+X) also takes precedence: the chord owns
+		// the next key press outright. Without this guard a shortcut bound to
+		// a chord suffix (s/t/m/e) stole the key and returned early, leaving
+		// leaderKeyActive latched on forever.
+		//
 		// Matched shortcuts are consumed — the key does not propagate
 		// to child components.
-		if m.getGlobalShortcuts != nil && m.state != stateMessageNav {
+		if m.getGlobalShortcuts != nil && m.state != stateMessageNav && !m.leaderKeyActive {
 			if shortcuts := m.getGlobalShortcuts(); shortcuts != nil {
-				if handler, ok := shortcuts[msg.String()]; ok {
+				if handler, ok := lookupShortcut(shortcuts, msg); ok {
 					// Run in goroutine so blocking extension calls
 					// (PromptSelect, etc.) don't stall the event loop.
 					go handler()
@@ -4041,6 +4067,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleCompactCommand(args)
 	case "/reload-ext":
 		return m.handleReloadExtCommand()
+	case "/shortcuts":
+		return m.handleShortcutsCommand()
 	case "/clear":
 		if m.appCtrl != nil {
 			m.appCtrl.ClearMessages()
@@ -4615,6 +4643,48 @@ func (m *AppModel) handleReloadExtCommand() tea.Cmd {
 	}
 }
 
+// handleShortcutsCommand lists the keyboard shortcuts registered by
+// extensions, grouped by the file that registered them.
+func (m *AppModel) handleShortcutsCommand() tea.Cmd {
+	if m.getShortcutList == nil {
+		m.printSystemMessage("No extensions loaded, so no shortcuts are registered.")
+		return nil
+	}
+	list := m.getShortcutList()
+	if len(list) == 0 {
+		m.printSystemMessage("No extension shortcuts are registered.")
+		return nil
+	}
+
+	// Width of the key column, so descriptions line up.
+	keyWidth := 0
+	for _, sc := range list {
+		if w := len([]rune(sc.Key)); w > keyWidth {
+			keyWidth = w
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("Extension keyboard shortcuts\n")
+	currentSource := ""
+	for _, sc := range list {
+		if sc.Source != currentSource {
+			currentSource = sc.Source
+			b.WriteString("\n")
+			b.WriteString(currentSource)
+			b.WriteString("\n")
+		}
+		desc := sc.Description
+		if desc == "" {
+			desc = "(no description)"
+		}
+		fmt.Fprintf(&b, "  %-*s  %s\n", keyWidth, sc.Key, desc)
+	}
+
+	m.printSystemMessage(strings.TrimRight(b.String(), "\n"))
+	return nil
+}
+
 func (m *AppModel) handleCompactCommand(customInstructions string) tea.Cmd {
 	if m.appCtrl == nil {
 		m.printSystemMessage("Compaction is not available.")
@@ -5027,6 +5097,34 @@ func repeatRune(r rune, n int) string {
 		runes[i] = r
 	}
 	return string(runes)
+}
+
+// --------------------------------------------------------------------------
+// Extension shortcut matching
+// --------------------------------------------------------------------------
+
+// lookupShortcut resolves a key press against the extension shortcut map.
+//
+// The terminal layer renders a key press two different ways and extension
+// authors legitimately use either. String() yields the key's *text* where one
+// exists, so Shift+A arrives as "A" and Shift+/ as "?". Keystroke() always
+// yields the modifier form, "shift+a" and "shift+/". Matching only String()
+// meant a perfectly reasonable binding like "shift+a" could never fire.
+//
+// Both forms are tried, text first, so a binding on the literal character
+// still wins over the modifier spelling of the same press.
+func lookupShortcut[T any](shortcuts map[string]T, msg tea.KeyPressMsg) (T, bool) {
+	text := msg.String()
+	if v, ok := shortcuts[text]; ok {
+		return v, true
+	}
+	if stroke := msg.Keystroke(); stroke != text {
+		if v, ok := shortcuts[stroke]; ok {
+			return v, true
+		}
+	}
+	var zero T
+	return zero, false
 }
 
 // --------------------------------------------------------------------------

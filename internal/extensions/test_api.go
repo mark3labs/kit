@@ -184,7 +184,9 @@ func NewTestAPI(ext *LoadedExtension) API {
 			ext.Options = append(ext.Options, opt)
 		},
 		registerShortcutFn: func(def ShortcutDef, handler func(Context)) {
-			ext.Shortcuts = append(ext.Shortcuts, ShortcutEntry{Def: def, Handler: handler})
+			if entry, ok := prepareShortcut(def, handler, ext.Path); ok {
+				ext.Shortcuts = append(ext.Shortcuts, entry)
+			}
 		},
 		registerMessageRendererFn: func(config MessageRendererConfig) {
 			ext.MessageRenderers = append(ext.MessageRenderers, config)
