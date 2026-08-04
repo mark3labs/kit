@@ -332,6 +332,9 @@ subtracted) and Kit uses the returned string <strong>verbatim</strong>:</p>
 a render function is expected to do its own styling. Returning an empty string
 hides the widget. A panic inside <code>Render</code> is contained: the widget is hidden and
 the error logged, rather than taking down the TUI.</p>
+<p>The example above hardcodes its color. To follow whatever theme the user has
+active instead, read <a href="#reading-the-active-theme"><code>ctx.GetTheme()</code></a> inside
+<code>Render</code> and paint with <code>ANSI</code> / <code>ANSIBold</code>.</p>
 <p><code>Render</code> also works on headers and footers via <code>HeaderFooterConfig</code>.</p>
 <h3 id="animated-widgets"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#animated-widgets"><span class="icon icon-link"></span></a>Animated widgets</h3>
 <p>Kit's animation clock is demand-driven — it runs while the startup logo or the
@@ -714,7 +717,7 @@ without string matching.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Prompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Summarize this in one sentence: "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> content,</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <h2 id="themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themes"><span class="icon icon-link"></span></a>Themes</h2>
-<p>Register and switch color themes at runtime:</p>
+<p>Register, switch, and read color themes at runtime:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Register a custom theme</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"neon"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColorConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Primary:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThemeColor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Light: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#CC00FF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Dark: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"#FF00FF"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
@@ -732,6 +735,60 @@ without string matching.</p>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// List all available themes</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">names </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListThemes</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<h3 id="reading-the-active-theme"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reading-the-active-theme"><span class="icon icon-link"></span></a>Reading the active theme</h3>
+<p><code>ctx.GetTheme()</code> reports the colors currently in effect, so a widget can follow
+the user's theme instead of hardcoding a palette. The light/dark variants are
+already resolved for the terminal's appearance and every slot is a <code>"#rrggbb"</code>
+string:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Name     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "catppuccin" — "" when the derived default is in effect</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Dark     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// true when the dark variants were resolved</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Accent   </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "#89b4fa"</span></span></code></pre>
+<p>Widget <code>Render</code> output is used <strong>verbatim</strong>, so nothing styles it for you. Two
+helpers turn a theme color into an escape sequence:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>theme.ANSI(color, text)</code></td>
+<td>Truecolor foreground, auto-reset</td>
+</tr>
+<tr>
+<td><code>theme.ANSIBold(color, text)</code></td>
+<td>Same, with the bold attribute</td>
+</tr>
+</tbody>
+</table>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetAbove,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            th </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()          </span><span style="color:#6A737D;--shiki-dark:#6A737D">// read per frame, not cached</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> th.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ANSIBold</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(th.Accent, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Build"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "  "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">                th.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ANSI</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(th.Success, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"passing"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Style: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetStyle</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{BorderColor: ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">().Accent},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.</p>
+<p><code>ThemeColors</code> carries the same field names as <a href="/themes#themecolorconfig-fields"><code>ThemeColorConfig</code></a>,
+but as a single resolved string per slot rather than a light/dark pair — it is
+the read counterpart to the type you register with.</p>
+<blockquote>
+<p><strong>Call <code>GetTheme()</code> inside <code>Render</code>, not once at setup.</strong> <code>Render</code> runs on
+every frame, so reading there means a <code>/theme</code> switch repaints in the new
+colors automatically. <code>WidgetStyle.BorderColor</code>, by contrast, is captured when
+the widget is set: to keep a border in sync, call <code>SetWidget</code> again when the
+theme changes. There is no theme-change event, so poll <code>GetTheme().Accent</code>
+from a goroutine if that matters.</p>
+</blockquote>
 <p>See <a href="/themes">Themes</a> for the full theme file format, built-in themes, and color reference.</p>
 <h2 id="custom-events"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-events"><span class="icon icon-link"></span></a>Custom events</h2>
 <p>Inter-extension communication:</p>
@@ -913,7 +970,7 @@ free.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    saved </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> float64</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(usage.TotalCacheReadTokens) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (p.Input </span><span style="color:#D73A49;--shiki-dark:#F97583">-</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> p.CacheRead) </span><span style="color:#D73A49;--shiki-dark:#F97583">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 1000000</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>The same <code>Pricing</code> field is present on each entry from
-<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:3,text:"Markdown content",id:"markdown-content"},{depth:3,text:"Custom rendering",id:"custom-rendering"},{depth:3,text:"Animated widgets",id:"animated-widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:3,text:"Key names",id:"key-names"},{depth:3,text:"Reserved and shadowed keys",id:"reserved-and-shadowed-keys"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
+<code>ctx.GetAvailableModels()</code>.</p>`,headings:[{depth:2,text:"Lifecycle events",id:"lifecycle-events"},{depth:3,text:"Example",id:"example"},{depth:2,text:"Tools",id:"tools"},{depth:2,text:"Commands",id:"commands"},{depth:2,text:"Widgets",id:"widgets"},{depth:3,text:"Markdown content",id:"markdown-content"},{depth:3,text:"Custom rendering",id:"custom-rendering"},{depth:3,text:"Animated widgets",id:"animated-widgets"},{depth:2,text:"Headers and footers",id:"headers-and-footers"},{depth:2,text:"Terminal size",id:"terminal-size"},{depth:2,text:"Status bar",id:"status-bar"},{depth:2,text:"Thinking level",id:"thinking-level"},{depth:2,text:"Turn state",id:"turn-state"},{depth:2,text:"Shortcuts",id:"shortcuts"},{depth:3,text:"Key names",id:"key-names"},{depth:3,text:"Reserved and shadowed keys",id:"reserved-and-shadowed-keys"},{depth:2,text:"Overlays",id:"overlays"},{depth:2,text:"Tool renderers",id:"tool-renderers"},{depth:2,text:"Message renderers",id:"message-renderers"},{depth:2,text:"Editor interceptors",id:"editor-interceptors"},{depth:2,text:"Interactive prompts",id:"interactive-prompts"},{depth:2,text:"Options",id:"options"},{depth:2,text:"Subagents",id:"subagents"},{depth:3,text:"Monitoring subagents spawned by the main agent",id:"monitoring-subagents-spawned-by-the-main-agent"},{depth:2,text:"LLM completion",id:"llm-completion"},{depth:2,text:"Themes",id:"themes"},{depth:3,text:"Reading the active theme",id:"reading-the-active-theme"},{depth:2,text:"Custom events",id:"custom-events"},{depth:2,text:"Session state",id:"session-state"},{depth:3,text:"When to use which persistence primitive",id:"when-to-use-which-persistence-primitive"},{depth:2,text:"Bridged SDK APIs",id:"bridged-sdk-apis"},{depth:3,text:"Tree Navigation",id:"tree-navigation"},{depth:3,text:"Skill Loading",id:"skill-loading"},{depth:3,text:"Template Parsing",id:"template-parsing"},{depth:3,text:"Model Resolution",id:"model-resolution"},{depth:3,text:"Model pricing",id:"model-pricing"}],raw:`
 # Extension Capabilities
 
 ## Lifecycle events
@@ -1106,6 +1163,10 @@ ctx.SetWidget(ext.WidgetConfig{
 a render function is expected to do its own styling. Returning an empty string
 hides the widget. A panic inside \`Render\` is contained: the widget is hidden and
 the error logged, rather than taking down the TUI.
+
+The example above hardcodes its color. To follow whatever theme the user has
+active instead, read [\`ctx.GetTheme()\`](#reading-the-active-theme) inside
+\`Render\` and paint with \`ANSI\` / \`ANSIBold\`.
 
 \`Render\` also works on headers and footers via \`HeaderFooterConfig\`.
 
@@ -1528,7 +1589,7 @@ response := ctx.Complete(ext.CompleteRequest{
 
 ## Themes
 
-Register and switch color themes at runtime:
+Register, switch, and read color themes at runtime:
 
 \`\`\`go
 // Register a custom theme
@@ -1549,6 +1610,57 @@ ctx.SetTheme("neon")
 // List all available themes
 names := ctx.ListThemes()
 \`\`\`
+
+### Reading the active theme
+
+\`ctx.GetTheme()\` reports the colors currently in effect, so a widget can follow
+the user's theme instead of hardcoding a palette. The light/dark variants are
+already resolved for the terminal's appearance and every slot is a \`"#rrggbb"\`
+string:
+
+\`\`\`go
+theme := ctx.GetTheme()
+theme.Name     // "catppuccin" — "" when the derived default is in effect
+theme.Dark     // true when the dark variants were resolved
+theme.Accent   // "#89b4fa"
+\`\`\`
+
+Widget \`Render\` output is used **verbatim**, so nothing styles it for you. Two
+helpers turn a theme color into an escape sequence:
+
+| Method | Description |
+|---|---|
+| \`theme.ANSI(color, text)\` | Truecolor foreground, auto-reset |
+| \`theme.ANSIBold(color, text)\` | Same, with the bold attribute |
+
+\`\`\`go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "build-status",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            th := ctx.GetTheme()          // read per frame, not cached
+            return th.ANSIBold(th.Accent, "Build") + "  " +
+                th.ANSI(th.Success, "passing")
+        },
+    },
+    Style: ext.WidgetStyle{BorderColor: ctx.GetTheme().Accent},
+})
+\`\`\`
+
+An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.
+
+\`ThemeColors\` carries the same field names as [\`ThemeColorConfig\`](/themes#themecolorconfig-fields),
+but as a single resolved string per slot rather than a light/dark pair — it is
+the read counterpart to the type you register with.
+
+> **Call \`GetTheme()\` inside \`Render\`, not once at setup.** \`Render\` runs on
+> every frame, so reading there means a \`/theme\` switch repaints in the new
+> colors automatically. \`WidgetStyle.BorderColor\`, by contrast, is captured when
+> the widget is set: to keep a border in sync, call \`SetWidget\` again when the
+> theme changes. There is no theme-change event, so poll \`GetTheme().Accent\`
+> from a goroutine if that matters.
 
 See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
 

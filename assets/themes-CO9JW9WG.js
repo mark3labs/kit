@@ -279,6 +279,88 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"dracula"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
 <h3 id="listing-available-themes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#listing-available-themes"><span class="icon icon-link"></span></a>Listing available themes</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">names </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListThemes</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<h3 id="reading-the-active-theme"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reading-the-active-theme"><span class="icon icon-link"></span></a>Reading the active theme</h3>
+<p><code>ctx.GetTheme()</code> returns the colors currently in effect as <code>ThemeColors</code>. The
+light/dark variants are already resolved for the terminal's appearance, so every
+slot is a single <code>"#rrggbb"</code> string:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Name     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "catppuccin" — "" when the derived default is in effect</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Dark     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// true when the dark variants were resolved</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">theme.Accent   </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "#89b4fa"</span></span></code></pre>
+<p>This is the read counterpart to <code>ThemeColorConfig</code>: the same field names, but a
+single resolved color per slot instead of a <code>Light</code>/<code>Dark</code> pair, plus <code>Name</code> and
+<code>Dark</code>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>ThemeColorConfig</code></th>
+<th><code>ThemeColors</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direction</td>
+<td>Write — passed to <code>RegisterTheme</code></td>
+<td>Read — returned by <code>GetTheme</code></td>
+</tr>
+<tr>
+<td>Per slot</td>
+<td><code>ThemeColor{Light, Dark}</code></td>
+<td>one <code>"#rrggbb"</code> string</td>
+</tr>
+<tr>
+<td>Resolution</td>
+<td>both variants kept</td>
+<td>resolved for this terminal</td>
+</tr>
+<tr>
+<td>Extra fields</td>
+<td>—</td>
+<td><code>Name</code>, <code>Dark</code></td>
+</tr>
+</tbody>
+</table>
+<p>Widget content produced by a <code>Render</code> function is used <strong>verbatim</strong>, so an
+extension that wants to match the user's theme has to paint the escape codes
+itself. <code>ThemeColors</code> provides two helpers for that:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SetWidget</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-status"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Placement: ext.WidgetAbove,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Content: </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WidgetContent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Render: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">width</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">            th </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetTheme</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()          </span><span style="color:#6A737D;--shiki-dark:#6A737D">// read per frame, not cached</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> th.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ANSIBold</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(th.Accent, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Build"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">+</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "  "</span><span style="color:#D73A49;--shiki-dark:#F97583"> +</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">                th.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ANSI</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(th.Success, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"passing"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>theme.ANSI(color, text)</code></td>
+<td>Truecolor foreground, auto-reset</td>
+</tr>
+<tr>
+<td><code>theme.ANSIBold(color, text)</code></td>
+<td>Same, with the bold attribute</td>
+</tr>
+</tbody>
+</table>
+<p>An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.</p>
+<p>Read the theme inside <code>Render</code> rather than caching it: <code>Render</code> runs per frame,
+so a <code>/theme</code> switch repaints in the new colors on its own. <code>WidgetStyle.BorderColor</code>
+is captured when the widget is set, so re-call <code>SetWidget</code> if a border needs to
+track theme changes.</p>
+<p>See <a href="/extensions/capabilities#themes">Extension capabilities</a> for how this fits
+alongside the rest of the widget API.</p>
 <h3 id="themecolorconfig-fields"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#themecolorconfig-fields"><span class="icon icon-link"></span></a>ThemeColorConfig fields</h3>
 <table>
 <thead>
@@ -379,6 +461,8 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 </tbody>
 </table>
 <p>Each field is an <code>ext.ThemeColor</code> with <code>Light</code> and <code>Dark</code> hex strings. Empty fields inherit from the default theme.</p>
+<p><code>ThemeColors</code> — returned by <code>ctx.GetTheme()</code> — uses these same field names, with
+a single resolved <code>"#rrggbb"</code> string per slot plus <code>Name</code> and <code>Dark</code>.</p>
 <h2 id="precedence-order"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#precedence-order"><span class="icon icon-link"></span></a>Precedence order</h2>
 <p>When multiple sources define the same theme name, later sources win:</p>
 <ol>
@@ -395,7 +479,7 @@ const s={frontmatter:{title:"Themes",description:"Customize Kit's appearance wit
 <li><strong>Default <code>kitt</code> theme</strong> — fallback</li>
 </ol>
 <p>The preferences file is updated automatically whenever you use <code>/theme</code> or <code>ctx.SetTheme()</code>. It is separate from <code>.kit.yml</code> so it never clobbers your config comments or formatting.</p>
-<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>`,headings:[{depth:2,text:"Quick start",id:"quick-start"},{depth:2,text:"Built-in themes",id:"built-in-themes"},{depth:2,text:"Custom theme files",id:"custom-theme-files"},{depth:3,text:"Theme file format",id:"theme-file-format"},{depth:3,text:"Partial themes",id:"partial-themes"},{depth:3,text:"Distributing themes",id:"distributing-themes"},{depth:2,text:"Config file theme",id:"config-file-theme"},{depth:2,text:"Extension theme API",id:"extension-theme-api"},{depth:3,text:"Registering a theme",id:"registering-a-theme"},{depth:3,text:"Switching themes",id:"switching-themes"},{depth:3,text:"Listing available themes",id:"listing-available-themes"},{depth:3,text:"ThemeColorConfig fields",id:"themecolorconfig-fields"},{depth:2,text:"Precedence order",id:"precedence-order"},{depth:3,text:"Startup theme resolution",id:"startup-theme-resolution"}],raw:`
+<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>`,headings:[{depth:2,text:"Quick start",id:"quick-start"},{depth:2,text:"Built-in themes",id:"built-in-themes"},{depth:2,text:"Custom theme files",id:"custom-theme-files"},{depth:3,text:"Theme file format",id:"theme-file-format"},{depth:3,text:"Partial themes",id:"partial-themes"},{depth:3,text:"Distributing themes",id:"distributing-themes"},{depth:2,text:"Config file theme",id:"config-file-theme"},{depth:2,text:"Extension theme API",id:"extension-theme-api"},{depth:3,text:"Registering a theme",id:"registering-a-theme"},{depth:3,text:"Switching themes",id:"switching-themes"},{depth:3,text:"Listing available themes",id:"listing-available-themes"},{depth:3,text:"Reading the active theme",id:"reading-the-active-theme"},{depth:3,text:"ThemeColorConfig fields",id:"themecolorconfig-fields"},{depth:2,text:"Precedence order",id:"precedence-order"},{depth:3,text:"Startup theme resolution",id:"startup-theme-resolution"}],raw:`
 # Themes
 
 Kit ships with 22 built-in color themes and supports custom themes via YAML/JSON files or the extension API. Themes control all UI colors: input borders, popups, system messages, markdown rendering, syntax highlighting, and diff displays.
@@ -633,6 +717,64 @@ err := ctx.SetTheme("dracula")
 names := ctx.ListThemes()
 \`\`\`
 
+### Reading the active theme
+
+\`ctx.GetTheme()\` returns the colors currently in effect as \`ThemeColors\`. The
+light/dark variants are already resolved for the terminal's appearance, so every
+slot is a single \`"#rrggbb"\` string:
+
+\`\`\`go
+theme := ctx.GetTheme()
+theme.Name     // "catppuccin" — "" when the derived default is in effect
+theme.Dark     // true when the dark variants were resolved
+theme.Accent   // "#89b4fa"
+\`\`\`
+
+This is the read counterpart to \`ThemeColorConfig\`: the same field names, but a
+single resolved color per slot instead of a \`Light\`/\`Dark\` pair, plus \`Name\` and
+\`Dark\`.
+
+| | \`ThemeColorConfig\` | \`ThemeColors\` |
+|---|---|---|
+| Direction | Write — passed to \`RegisterTheme\` | Read — returned by \`GetTheme\` |
+| Per slot | \`ThemeColor{Light, Dark}\` | one \`"#rrggbb"\` string |
+| Resolution | both variants kept | resolved for this terminal |
+| Extra fields | — | \`Name\`, \`Dark\` |
+
+Widget content produced by a \`Render\` function is used **verbatim**, so an
+extension that wants to match the user's theme has to paint the escape codes
+itself. \`ThemeColors\` provides two helpers for that:
+
+\`\`\`go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "build-status",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            th := ctx.GetTheme()          // read per frame, not cached
+            return th.ANSIBold(th.Accent, "Build") + "  " +
+                th.ANSI(th.Success, "passing")
+        },
+    },
+})
+\`\`\`
+
+| Method | Description |
+|---|---|
+| \`theme.ANSI(color, text)\` | Truecolor foreground, auto-reset |
+| \`theme.ANSIBold(color, text)\` | Same, with the bold attribute |
+
+An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.
+
+Read the theme inside \`Render\` rather than caching it: \`Render\` runs per frame,
+so a \`/theme\` switch repaints in the new colors on its own. \`WidgetStyle.BorderColor\`
+is captured when the widget is set, so re-call \`SetWidget\` if a border needs to
+track theme changes.
+
+See [Extension capabilities](/extensions/capabilities#themes) for how this fits
+alongside the rest of the widget API.
+
 ### ThemeColorConfig fields
 
 | Field | Description |
@@ -661,6 +803,9 @@ names := ctx.ListThemes()
 | \`MdComment\` | Syntax: comments |
 
 Each field is an \`ext.ThemeColor\` with \`Light\` and \`Dark\` hex strings. Empty fields inherit from the default theme.
+
+\`ThemeColors\` — returned by \`ctx.GetTheme()\` — uses these same field names, with
+a single resolved \`"#rrggbb"\` string per slot plus \`Name\` and \`Dark\`.
 
 ## Precedence order
 

@@ -182,6 +182,7 @@
         "Monitoring subagents spawned by the main agent",
         "LLM completion",
         "Themes",
+        "Reading the active theme",
         "Custom events",
         "Session state",
         "When to use which persistence primitive",
@@ -193,7 +194,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 3940
+      "wordCount": 4245
     },
     {
       "id": "extensions/examples",
@@ -213,7 +214,7 @@
         "Project-local example"
       ],
       "tags": [],
-      "wordCount": 545
+      "wordCount": 570
     },
     {
       "id": "extensions/loading",
@@ -501,12 +502,13 @@
         "Registering a theme",
         "Switching themes",
         "Listing available themes",
+        "Reading the active theme",
         "ThemeColorConfig fields",
         "Precedence order",
         "Startup theme resolution"
       ],
       "tags": [],
-      "wordCount": 1031
+      "wordCount": 1368
     }
   ]
 }
