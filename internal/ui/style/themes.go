@@ -542,6 +542,7 @@ func ApplyTheme(name string) error {
 		return err
 	}
 	SetTheme(t)
+	activeThemeName = name
 	_ = prefs.SaveThemePreference(name)
 	return nil
 }
@@ -555,6 +556,7 @@ func ApplyThemeWithoutSave(name string) error {
 		return err
 	}
 	SetTheme(t)
+	activeThemeName = name
 	return nil
 }
 

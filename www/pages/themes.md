@@ -240,6 +240,64 @@ err := ctx.SetTheme("dracula")
 names := ctx.ListThemes()
 ```
 
+### Reading the active theme
+
+`ctx.GetTheme()` returns the colors currently in effect as `ThemeColors`. The
+light/dark variants are already resolved for the terminal's appearance, so every
+slot is a single `"#rrggbb"` string:
+
+```go
+theme := ctx.GetTheme()
+theme.Name     // "catppuccin" — "" when the derived default is in effect
+theme.Dark     // true when the dark variants were resolved
+theme.Accent   // "#89b4fa"
+```
+
+This is the read counterpart to `ThemeColorConfig`: the same field names, but a
+single resolved color per slot instead of a `Light`/`Dark` pair, plus `Name` and
+`Dark`.
+
+| | `ThemeColorConfig` | `ThemeColors` |
+|---|---|---|
+| Direction | Write — passed to `RegisterTheme` | Read — returned by `GetTheme` |
+| Per slot | `ThemeColor{Light, Dark}` | one `"#rrggbb"` string |
+| Resolution | both variants kept | resolved for this terminal |
+| Extra fields | — | `Name`, `Dark` |
+
+Widget content produced by a `Render` function is used **verbatim**, so an
+extension that wants to match the user's theme has to paint the escape codes
+itself. `ThemeColors` provides two helpers for that:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "build-status",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            th := ctx.GetTheme()          // read per frame, not cached
+            return th.ANSIBold(th.Accent, "Build") + "  " +
+                th.ANSI(th.Success, "passing")
+        },
+    },
+})
+```
+
+| Method | Description |
+|---|---|
+| `theme.ANSI(color, text)` | Truecolor foreground, auto-reset |
+| `theme.ANSIBold(color, text)` | Same, with the bold attribute |
+
+An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.
+
+Read the theme inside `Render` rather than caching it: `Render` runs per frame,
+so a `/theme` switch repaints in the new colors on its own. `WidgetStyle.BorderColor`
+is captured when the widget is set, so re-call `SetWidget` if a border needs to
+track theme changes.
+
+See [Extension capabilities](/extensions/capabilities#themes) for how this fits
+alongside the rest of the widget API.
+
 ### ThemeColorConfig fields
 
 | Field | Description |
@@ -268,6 +326,9 @@ names := ctx.ListThemes()
 | `MdComment` | Syntax: comments |
 
 Each field is an `ext.ThemeColor` with `Light` and `Dark` hex strings. Empty fields inherit from the default theme.
+
+`ThemeColors` — returned by `ctx.GetTheme()` — uses these same field names, with
+a single resolved `"#rrggbb"` string per slot plus `Name` and `Dark`.
 
 ## Precedence order
 

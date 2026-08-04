@@ -62,6 +62,8 @@ var (
 	ApplyTheme              = style.ApplyTheme
 	ApplyThemeWithoutSave   = style.ApplyThemeWithoutSave
 	ListThemes              = style.ListThemes
+	CurrentThemeName        = style.CurrentThemeName
+	HexOf                   = style.HexOf
 	RegisterThemeFromConfig = style.RegisterThemeFromConfig
 	KitBanner               = style.KitBanner
 	AdaptiveColor           = style.AdaptiveColor

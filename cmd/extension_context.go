@@ -312,6 +312,36 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 	ec.ListThemes = func() []string {
 		return ui.ListThemes()
 	}
+	ec.GetTheme = func() extensions.ThemeColors {
+		t := ui.GetTheme()
+		hex := ui.HexOf
+		return extensions.ThemeColors{
+			Name:        ui.CurrentThemeName(),
+			Dark:        ui.IsDarkBackground(),
+			Primary:     hex(t.Primary),
+			Secondary:   hex(t.Secondary),
+			Success:     hex(t.Success),
+			Warning:     hex(t.Warning),
+			Error:       hex(t.Error),
+			Info:        hex(t.Info),
+			Text:        hex(t.Text),
+			Muted:       hex(t.Muted),
+			VeryMuted:   hex(t.VeryMuted),
+			Background:  hex(t.Background),
+			Border:      hex(t.Border),
+			MutedBorder: hex(t.MutedBorder),
+			System:      hex(t.System),
+			Tool:        hex(t.Tool),
+			Accent:      hex(t.Accent),
+			Highlight:   hex(t.Highlight),
+			MdHeading:   hex(t.Markdown.Heading),
+			MdLink:      hex(t.Markdown.Link),
+			MdKeyword:   hex(t.Markdown.Keyword),
+			MdString:    hex(t.Markdown.String),
+			MdNumber:    hex(t.Markdown.Number),
+			MdComment:   hex(t.Markdown.Comment),
+		}
+	}
 
 	// Skill context-injection (drives a new agent turn through the TUI).
 	ec.InjectSkillAsContext = func(skillName string) string {

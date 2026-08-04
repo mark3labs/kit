@@ -147,6 +147,7 @@ func Symbols() interp.Exports {
 			// Theme types
 			"ThemeColor":       reflect.ValueOf((*ThemeColor)(nil)),
 			"ThemeColorConfig": reflect.ValueOf((*ThemeColorConfig)(nil)),
+			"ThemeColors":      reflect.ValueOf((*ThemeColors)(nil)),
 
 			// Tree navigation types
 			"TreeNode":             reflect.ValueOf((*TreeNode)(nil)),

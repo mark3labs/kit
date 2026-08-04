@@ -40,6 +40,7 @@ Kit ships with a rich set of example extensions in the `examples/extensions/` di
 | Extension | Description |
 |-----------|-------------|
 | [`prompt-demo.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/prompt-demo.go) | Interactive prompts (select/confirm/input) |
+| [`ask-question.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/ask-question.go) | `ask_question` tool — the agent asks you multiple-choice questions in a themed modal popup (`Render` widget + editor interceptor + `GetTheme`) |
 | [`bookmark.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bookmark.go) | Bookmark conversations |
 | [`inline-bash.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/inline-bash.go) | Inline bash execution |
 | [`interactive-shell.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/interactive-shell.go) | Interactive shell integration |

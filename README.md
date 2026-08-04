@@ -367,7 +367,7 @@ kit -e examples/extensions/minimal.go
 - **Interactive Prompts**: Select, confirm, input, and multi-select dialogs
 - **Subagents**: Spawn in-process child Kit instances
 - **LLM Completion**: Direct model calls via `Complete()`
-- **Themes**: Register and switch color themes via `RegisterTheme`, `SetTheme`, `ListThemes`
+- **Themes**: Register, switch, and read color themes via `RegisterTheme`, `SetTheme`, `ListThemes`, `GetTheme` (read the active palette to paint widgets in the user's theme)
 - **Custom Events**: Inter-extension communication via `EmitCustomEvent`
 
 **Bridged SDK APIs** (NEW): Extensions can now access internal SDK capabilities:

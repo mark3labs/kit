@@ -348,6 +348,9 @@ func normalizeContext(ctx Context) Context {
 	if ctx.ListThemes == nil {
 		ctx.ListThemes = func() []string { return nil }
 	}
+	if ctx.GetTheme == nil {
+		ctx.GetTheme = func() ThemeColors { return ThemeColors{} }
+	}
 	if ctx.ReloadExtensions == nil {
 		ctx.ReloadExtensions = func() error { return nil }
 	}

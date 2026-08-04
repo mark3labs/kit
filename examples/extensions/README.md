@@ -37,6 +37,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `widget-status.go` | Persistent status widget | `SetWidget`, `RemoveWidget` |
 | `header-footer-demo.go` | Custom header/footer | `SetHeader`, `SetFooter` |
 | `overlay-demo.go` | Modal overlay dialogs | `ShowOverlay` |
+| `ask-question.go` | Agent asks the user multiple-choice questions in a themed modal popup | `RegisterTool`, `SetWidget` + `Render`, `SetEditor`, `GetTheme` |
 | `compact-notify.go` | Compact mode notifications | `PrintBlock` |
 | `branded-output.go` | Custom styled output | `PrintBlock` with colors |
 

@@ -196,6 +196,29 @@ func SetTheme(theme Theme) {
 	invalidateThemeCaches()
 }
 
+// activeThemeName records the name last passed to ApplyTheme. It is reported
+// by CurrentThemeName so callers outside this package — the extension API's
+// ctx.GetTheme, for instance — can name the active theme without keeping
+// their own parallel bookkeeping.
+var activeThemeName string
+
+// CurrentThemeName returns the name of the active theme, or "" when no theme
+// has been applied by name and the lazily derived default is in effect.
+func CurrentThemeName() string { return activeThemeName }
+
+// HexOf renders a color as a "#rrggbb" string.
+//
+// color.Color reports 16-bit premultiplied channels, so each is scaled down to
+// 8 bits. A nil color yields "", which callers treat as "unset" rather than
+// black — the two are not interchangeable when the value feeds a theme slot.
+func HexOf(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
+
 // invalidateThemeCaches bumps the theme generation and drops every cache whose
 // contents depend on the active theme colours, so the next access rebuilds
 // them. Shared by SetTheme and SetTerminalCapabilities.

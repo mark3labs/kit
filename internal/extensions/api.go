@@ -2,6 +2,9 @@ package extensions
 
 import (
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 )
 
 // ErrAgentBusy is returned (wrapped) when an extension API call that requires
@@ -679,6 +682,21 @@ type Context struct {
 
 	// ListThemes returns the names of all available themes.
 	ListThemes func() []string
+
+	// GetTheme returns the colors of the currently active theme, already
+	// resolved for the terminal's light/dark appearance and formatted as
+	// "#rrggbb" hex strings.
+	//
+	// Use it to draw widget content that follows the user's theme instead of
+	// hardcoding a palette. Pair it with ThemeColors.ANSI to emit escape
+	// sequences:
+	//
+	//	theme := ctx.GetTheme()
+	//	line := theme.ANSI(theme.Accent, "selected")
+	//
+	// Call it inside the render path rather than caching the result, so a
+	// theme switch is picked up on the next frame.
+	GetTheme func() ThemeColors
 
 	// ReloadExtensions hot-reloads all extensions from disk. Existing
 	// extensions receive a SessionShutdown event, then new code is loaded
@@ -2890,6 +2908,86 @@ type LLMUsageEvent struct {
 }
 
 func (e LLMUsageEvent) Type() EventType { return LLMUsage }
+
+// ThemeColors holds the active theme's colors as "#rrggbb" hex strings, with
+// the light/dark variants already resolved for the terminal's appearance.
+// Returned by ctx.GetTheme().
+//
+// It is the read counterpart to ThemeColorConfig: that type describes a theme
+// being registered (light and dark for each slot), this one reports the colors
+// actually in effect right now.
+type ThemeColors struct {
+	// Name is the active theme's name, e.g. "catppuccin".
+	Name string
+	// Dark is true when the resolved colors are the dark variants.
+	Dark bool
+
+	Primary     string
+	Secondary   string
+	Success     string
+	Warning     string
+	Error       string
+	Info        string
+	Text        string
+	Muted       string
+	VeryMuted   string
+	Background  string
+	Border      string
+	MutedBorder string
+	System      string
+	Tool        string
+	Accent      string
+	Highlight   string
+
+	// Markdown/syntax highlighting colors.
+	MdHeading string
+	MdLink    string
+	MdKeyword string
+	MdString  string
+	MdNumber  string
+	MdComment string
+}
+
+// ANSI wraps text in a truecolor foreground escape for the given theme hex
+// color and resets afterwards. An empty or malformed color returns text
+// unchanged, so a partially-defined theme degrades to plain output rather
+// than leaking escape codes.
+//
+// Widget Render output is used verbatim, so this is how an extension paints
+// arbitrary UI in the user's theme.
+func (t ThemeColors) ANSI(hexColor, text string) string {
+	r, g, b, ok := parseThemeHex(hexColor)
+	if !ok {
+		return text
+	}
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm%s\033[0m", r, g, b, text)
+}
+
+// ANSIBold is ANSI with the bold attribute set.
+func (t ThemeColors) ANSIBold(hexColor, text string) string {
+	r, g, b, ok := parseThemeHex(hexColor)
+	if !ok {
+		return "\033[1m" + text + "\033[0m"
+	}
+	return fmt.Sprintf("\033[1;38;2;%d;%d;%dm%s\033[0m", r, g, b, text)
+}
+
+// parseThemeHex accepts "#rgb" and "#rrggbb" (with or without the leading #).
+func parseThemeHex(s string) (r, g, b int, ok bool) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
+	switch len(s) {
+	case 3:
+		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
+	case 6:
+	default:
+		return 0, 0, 0, false
+	}
+	v, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return int(v>>16) & 0xFF, int(v>>8) & 0xFF, int(v) & 0xFF, true
+}
 
 // ThemeColor is an adaptive color pair with light and dark hex values.
 // Either field may be empty to inherit from the default theme.

@@ -196,6 +196,10 @@ a render function is expected to do its own styling. Returning an empty string
 hides the widget. A panic inside `Render` is contained: the widget is hidden and
 the error logged, rather than taking down the TUI.
 
+The example above hardcodes its color. To follow whatever theme the user has
+active instead, read [`ctx.GetTheme()`](#reading-the-active-theme) inside
+`Render` and paint with `ANSI` / `ANSIBold`.
+
 `Render` also works on headers and footers via `HeaderFooterConfig`.
 
 ### Animated widgets
@@ -617,7 +621,7 @@ response := ctx.Complete(ext.CompleteRequest{
 
 ## Themes
 
-Register and switch color themes at runtime:
+Register, switch, and read color themes at runtime:
 
 ```go
 // Register a custom theme
@@ -638,6 +642,57 @@ ctx.SetTheme("neon")
 // List all available themes
 names := ctx.ListThemes()
 ```
+
+### Reading the active theme
+
+`ctx.GetTheme()` reports the colors currently in effect, so a widget can follow
+the user's theme instead of hardcoding a palette. The light/dark variants are
+already resolved for the terminal's appearance and every slot is a `"#rrggbb"`
+string:
+
+```go
+theme := ctx.GetTheme()
+theme.Name     // "catppuccin" — "" when the derived default is in effect
+theme.Dark     // true when the dark variants were resolved
+theme.Accent   // "#89b4fa"
+```
+
+Widget `Render` output is used **verbatim**, so nothing styles it for you. Two
+helpers turn a theme color into an escape sequence:
+
+| Method | Description |
+|---|---|
+| `theme.ANSI(color, text)` | Truecolor foreground, auto-reset |
+| `theme.ANSIBold(color, text)` | Same, with the bold attribute |
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "build-status",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            th := ctx.GetTheme()          // read per frame, not cached
+            return th.ANSIBold(th.Accent, "Build") + "  " +
+                th.ANSI(th.Success, "passing")
+        },
+    },
+    Style: ext.WidgetStyle{BorderColor: ctx.GetTheme().Accent},
+})
+```
+
+An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.
+
+`ThemeColors` carries the same field names as [`ThemeColorConfig`](/themes#themecolorconfig-fields),
+but as a single resolved string per slot rather than a light/dark pair — it is
+the read counterpart to the type you register with.
+
+> **Call `GetTheme()` inside `Render`, not once at setup.** `Render` runs on
+> every frame, so reading there means a `/theme` switch repaints in the new
+> colors automatically. `WidgetStyle.BorderColor`, by contrast, is captured when
+> the widget is set: to keep a border in sync, call `SetWidget` again when the
+> theme changes. There is no theme-change event, so poll `GetTheme().Accent`
+> from a goroutine if that matters.
 
 See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
 
