@@ -2223,6 +2223,7 @@ These examples demonstrate the new bridged SDK APIs that give extensions access 
 | Extension | Description |
 |-----------|-------------|
 | [`kit-kit.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/kit-kit.go) | Kit-in-Kit sub-agent spawning |
+| [`subagent-monitor.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-monitor.go) | Live subagent dashboard with a composited full-transcript modal |
 | [`subagent-widget.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-widget.go) | Multi-agent orchestration with status widget |
 | [`subagent-test.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/subagent-test.go) | Subagent testing utilities |
 
