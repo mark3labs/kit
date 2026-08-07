@@ -408,6 +408,7 @@ See the `examples/extensions/` directory:
 - [`prompt-templates.go`](examples/extensions/prompt-templates.go) - **NEW** Frontmatter-driven templates with model switching and skill injection
 - [`protected-paths.go`](examples/extensions/protected-paths.go) - Path protection for sensitive files
 - [`status-footer.go`](examples/extensions/status-footer.go) - **NEW** Configurable status bar footer (model, context, cache, cost, clock, turn timing)
+- [`subagent-monitor.go`](examples/extensions/subagent-monitor.go) - **NEW** Live subagent dashboard: per-frame `Render` strip, `RefreshHz` animation, theme-aware colors, and a real `ShowOverlay` modal for the full transcript (`ctrl+alt+s`)
 - [`subagent-widget.go`](examples/extensions/subagent-widget.go) - Multi-agent orchestration with status widget
 - [`subagent-test.go`](examples/extensions/subagent-test.go) - Subagent testing utilities
 - [`summarize.go`](examples/extensions/summarize.go) - Conversation summarization
