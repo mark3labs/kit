@@ -954,6 +954,12 @@ type AppModel struct {
 	// requires the transcript to be resized. See syncInputHeight.
 	lastInputHeight int
 
+	// lastActivityPresent records whether the activity row was rendered by the
+	// last distributeHeight. The row appears when the agent starts working and
+	// disappears when it stops, and nothing in that transition otherwise marks
+	// the layout dirty, so it is compared every frame. See syncActivityRow.
+	lastActivityPresent bool
+
 	// mcpResourceReader is an optional callback to read MCP resources when
 	// processing @mcp:server:uri tokens at submit time. Set by the parent.
 	mcpResourceReader fileutil.MCPResourceReader
@@ -3048,6 +3054,7 @@ func (m *AppModel) View() tea.View {
 	// render can never leak into a later frame.
 	m.chrome.valid = false
 	m.renderEpoch++
+	m.syncActivityRow()
 	if m.layoutDirty {
 		m.distributeHeight()
 		m.layoutDirty = false
@@ -5012,6 +5019,9 @@ func (m *AppModel) distributeHeight() {
 		activityLines = lipgloss.Height(activityView)
 		m.chrome.activity = activityView
 	}
+	// Remember whether the row was present so syncActivityRow can detect the
+	// next time the agent starts or stops working.
+	m.lastActivityPresent = activityLines > 0
 
 	// Measure the actual rendered input (or prompt overlay) height so we
 	// don't rely on a fragile constant that drifts when styling changes.

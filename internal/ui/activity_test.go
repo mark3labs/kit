@@ -630,3 +630,59 @@ func TestStepErrorEmitsFailedReceipt(t *testing.T) {
 		t.Error("StepErrorEvent must emit a Failed turn receipt; turnFailed is unreachable otherwise")
 	}
 }
+
+// TestSyncActivityRow_TranscriptAbsorbsTheRow verifies the activity row's line
+// is taken from the transcript, which is what keeps the frame the same height.
+//
+// The row is drawn only while the agent is working, so every turn adds a line
+// of chrome. Reaching the working state does not by itself mark the layout
+// dirty, so before syncActivityRow the transcript kept its idle height and the
+// joined view was one line taller than the terminal — silently clipping the
+// status bar off the bottom for the whole turn.
+//
+// The transition is made by assigning m.state directly, with no intervening
+// message. That is the point of the test: no other event is available to
+// trigger the relayout.
+func TestSyncActivityRow_TranscriptAbsorbsTheRow(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _ := newTestAppModelWithRealStream(ctrl)
+	m = sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Idle frame establishes the baseline and clears layoutDirty.
+	_ = m.View()
+	idleHeight := m.scrollList.height
+
+	m.state = stateWorking
+	m.turnStartedAt = time.Now().Add(-3 * time.Second)
+	if row := m.renderActivityRow(); row == "" {
+		t.Fatal("expected a non-empty activity row while working")
+	}
+	_ = m.View()
+
+	if got := m.scrollList.height; got != idleHeight-1 {
+		t.Errorf("transcript height while working = %d, want %d (idle %d minus the activity row)",
+			got, idleHeight-1, idleHeight)
+	}
+}
+
+// TestSyncActivityRow_RestoresHeightWhenIdle verifies the line is given back
+// when the turn ends, rather than leaving a permanent gap above the composer.
+func TestSyncActivityRow_RestoresHeightWhenIdle(t *testing.T) {
+	ctrl := &stubAppController{}
+	m, _ := newTestAppModelWithRealStream(ctrl)
+	m = sendMsg(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	_ = m.View()
+	idleHeight := m.scrollList.height
+
+	m.state = stateWorking
+	m.turnStartedAt = time.Now()
+	_ = m.View()
+
+	m.state = stateInput
+	_ = m.View()
+
+	if got := m.scrollList.height; got != idleHeight {
+		t.Errorf("transcript height back at idle = %d, want %d", got, idleHeight)
+	}
+}

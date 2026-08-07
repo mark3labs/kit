@@ -429,3 +429,25 @@ func (m *AppModel) syncInputHeight() {
 		m.layoutDirty = true
 	}
 }
+
+// syncActivityRow marks the layout dirty when the activity row appears or
+// disappears.
+//
+// The row is rendered only while the agent is working, so every turn adds a
+// line to the chrome and every completion removes one. That transition is
+// driven by state changes that do not otherwise touch the layout, so without
+// this the transcript keeps its idle height: the joined view is one line
+// taller than the terminal and the status bar is silently clipped off the
+// bottom for the whole turn.
+//
+// Presence is compared rather than height because the row is always a single
+// line; distributeHeight measures it for real. Like syncInputHeight this only
+// records that a relayout is needed — View() performs it once per frame.
+func (m *AppModel) syncActivityRow() {
+	if m.layoutDirty {
+		return
+	}
+	if m.agentWorking() != m.lastActivityPresent {
+		m.layoutDirty = true
+	}
+}
