@@ -1,5 +1,7 @@
 # KIT Agent Guidelines
 
+Always talk in ASD-STE100 Simplified Technical English
+
 ## Build/Test Commands
 - **Build**: `go build -o output/kit ./cmd/kit`
 - **Test all**: `go test -race ./...`
