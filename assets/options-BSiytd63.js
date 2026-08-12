@@ -1,0 +1,819 @@
+var e={frontmatter:{title:`SDK Options`,description:`Configuration options for the Kit Go SDK.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="sdk-options"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sdk-options"><span class="icon icon-link"></span></a>SDK Options</h1>
+<p>Pass an <code>Options</code> struct to <code>kit.New()</code> to configure the Kit instance.</p>
+<blockquote>
+<p><strong>Tip:</strong> for simple setups, <code>kit.NewAgent(ctx, ...Option)</code> provides
+functional-options helpers (<code>WithModel</code>, <code>WithStreaming</code>, <code>Ephemeral</code>, ...)
+over the same <code>Options</code> struct. See
+<a href="/sdk/overview#functional-options-newagent">Functional options</a>.</p>
+</blockquote>
+<p>Each <code>kit.New</code> / <code>kit.NewAgent</code> call owns an isolated configuration store, so
+these options never leak between Kit instances in the same process. See
+<a href="/sdk/overview#per-instance-config-isolation">Per-instance config isolation</a>.</p>
+<h2 id="full-options-reference"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#full-options-reference"><span class="icon icon-link"></span></a>Full options reference</h2>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Model</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:        </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"ollama/llama3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SystemPrompt: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a helpful bot"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ConfigFile:   </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/config.yml"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Behavior</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MaxSteps:     </span><span style="color:#005CC5;--shiki-dark:#79B8FF">10</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Streaming:    </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ptrBool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">), </span><span style="color:#6A737D;--shiki-dark:#6A737D">// *bool: nil = unset (default true), &amp;false = off</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Quiet:        </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Debug:        </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    DebugLogger:  myLogger,       </span><span style="color:#6A737D;--shiki-dark:#6A737D">// optional; overrides Debug + built-in logger when non-nil</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Generation parameters (override env/config/per-model defaults)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MaxTokens:        </span><span style="color:#005CC5;--shiki-dark:#79B8FF">16384</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,              </span><span style="color:#6A737D;--shiki-dark:#6A737D">// 0 = auto-resolve; non-zero suppresses right-sizing</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ThinkingLevel:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"medium"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,           </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "off", "none", "minimal", "low", "medium", "high"</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Temperature:      </span><span style="color:#6F42C1;--shiki-dark:#B392F0">ptrFloat32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">0.2</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// pointer so explicit 0.0 != unset</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    TopP:             </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                 </span><span style="color:#6A737D;--shiki-dark:#6A737D">// nil = provider/per-model default</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    TopK:             </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    FrequencyPenalty: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    PresencePenalty:  </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Provider configuration</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderAPIKey: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"sk-..."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                      </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "" = use config / provider env var</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderURL:    </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"https://proxy.internal/v1"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "" = provider default endpoint</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ProviderWire:   </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "" = infer wire from model database</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    TLSSkipVerify:  </span><span style="color:#005CC5;--shiki-dark:#79B8FF">false</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                         </span><span style="color:#6A737D;--shiki-dark:#6A737D">// only effective when true</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Session</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionPath:  </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"./session.jsonl"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionDir:   </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/custom/sessions/"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Continue:     </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSession:    </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Tools</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Tools:            []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Tool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#D73A49;--shiki-dark:#F97583">...</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// Replace default tool set entirely</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ExtraTools:       []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Tool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#D73A49;--shiki-dark:#F97583">...</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    DisableCoreTools: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                </span><span style="color:#6A737D;--shiki-dark:#6A737D">// Use no core tools (0 tools, for chat-only)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    CoreToolList:     []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,            </span><span style="color:#6A737D;--shiki-dark:#6A737D">// List of core tools to include, if empty (default) include all</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Configuration</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SkipConfig:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,                   </span><span style="color:#6A737D;--shiki-dark:#6A737D">// Skip .kit.yml files (viper defaults + env vars still apply)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Compaction</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    AutoCompact:  </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Skills</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Skills:        []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skill.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SkillsDir:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skills/"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SkillsDisable: []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"noisy-skill"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoSkills:      </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Feature toggles</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoExtensions:   </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,               </span><span style="color:#6A737D;--shiki-dark:#6A737D">// disable Yaegi extension loading</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoContextFiles: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,               </span><span style="color:#6A737D;--shiki-dark:#6A737D">// disable automatic AGENTS.md loading</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    NoAgents:       </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,               </span><span style="color:#6A737D;--shiki-dark:#6A737D">// disable named agent discovery (.agents/agents/, .kit/agents/, ~/.config/kit/agents/, and built-ins)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Session (advanced)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionManager: myCustomSession,    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// custom SessionManager implementation</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // MCP OAuth — both opt-in. Leave MCPAuthHandler nil to disable</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // OAuth entirely (remote MCP 401s bubble up as errors). CLI apps</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // pass kit.NewCLIMCPAuthHandler(); custom UX embedders implement</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // MCPAuthHandler or configure DefaultMCPAuthHandler + OnAuthURL.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPAuthHandler: authHandler,                  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// nil = OAuth disabled</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTokenStoreFactory: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">serverURL</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPTokenStore</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> myStore</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(serverURL), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // In-Process MCP Servers</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    InProcessMCPServers: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPServer</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "docs"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: mcpSrv,  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// *server.MCPServer from mcp-go</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<h2 id="options-fields"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#options-fields"><span class="icon icon-link"></span></a>Options fields</h2>
+<h3 id="core"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#core"><span class="icon icon-link"></span></a>Core</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Model</code></td>
+<td><code>string</code></td>
+<td>config default</td>
+<td>Model string (provider/model format)</td>
+</tr>
+<tr>
+<td><code>SystemPrompt</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>System prompt text or file path</td>
+</tr>
+<tr>
+<td><code>ConfigFile</code></td>
+<td><code>string</code></td>
+<td><code>~/.kit.yml</code></td>
+<td>Path to config file</td>
+</tr>
+<tr>
+<td><code>MaxSteps</code></td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+<td>Max agent steps (0 = unlimited)</td>
+</tr>
+<tr>
+<td><code>Streaming</code></td>
+<td><code>*bool</code></td>
+<td><code>nil</code></td>
+<td>Enable streaming output. <code>nil</code> leaves it to the precedence chain (env → config → default <code>true</code>); <code>&amp;true</code>/<code>&amp;false</code> forces it. Pointer so unset is distinct from explicit <code>false</code>.</td>
+</tr>
+<tr>
+<td><code>Quiet</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Suppress output</td>
+</tr>
+<tr>
+<td><code>Debug</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Enable debug logging via the built-in console / buffered logger. Ignored when <code>DebugLogger</code> is non-nil.</td>
+</tr>
+<tr>
+<td><code>DebugLogger</code></td>
+<td><code>DebugLogger</code></td>
+<td><code>nil</code></td>
+<td>Caller-supplied logger that receives low-level engine + MCP tool plumbing debug output. When non-nil this overrides <code>Debug</code> — the supplied logger's <code>IsDebugEnabled()</code> controls downstream emission. See <a href="#custom-debug-logger">Custom debug logger</a>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="generation-parameters"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#generation-parameters"><span class="icon icon-link"></span></a>Generation parameters</h3>
+<p>These fields override the corresponding values from <code>.kit.yml</code> / <code>KIT_*</code>
+environment variables. Leaving a field at its zero/nil value lets the
+precedence chain resolve a value (<code>KIT_*</code> env → config file → per-model
+defaults from <code>modelSettings</code>/<code>customModels</code> → an 8192 SDK floor for
+<code>MaxTokens</code> (matching the CLI <code>--max-tokens</code> default) and provider-level
+defaults for samplers).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MaxTokens</code></td>
+<td><code>int</code></td>
+<td>auto-resolved</td>
+<td>Max output tokens per response. <code>0</code> = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as <code>--max-tokens</code>).</td>
+</tr>
+<tr>
+<td><code>ThinkingLevel</code></td>
+<td><code>string</code></td>
+<td>auto-resolved</td>
+<td>Reasoning effort: <code>"off"</code>, <code>"none"</code>, <code>"minimal"</code>, <code>"low"</code>, <code>"medium"</code>, <code>"high"</code>. <code>""</code> falls through to config/env/per-model/<code>"off"</code>.</td>
+</tr>
+<tr>
+<td><code>Temperature</code></td>
+<td><code>*float32</code></td>
+<td>—</td>
+<td>Sampling randomness. Pointer type so explicit <code>0.0</code> is distinguishable from "unset".</td>
+</tr>
+<tr>
+<td><code>TopP</code></td>
+<td><code>*float32</code></td>
+<td>—</td>
+<td>Nucleus sampling cutoff. <code>nil</code> leaves provider/per-model default.</td>
+</tr>
+<tr>
+<td><code>TopK</code></td>
+<td><code>*int32</code></td>
+<td>—</td>
+<td>Top-K sampling limit. <code>nil</code> leaves provider/per-model default.</td>
+</tr>
+<tr>
+<td><code>FrequencyPenalty</code></td>
+<td><code>*float32</code></td>
+<td>—</td>
+<td>OpenAI-family frequency penalty. <code>nil</code> leaves provider default.</td>
+</tr>
+<tr>
+<td><code>PresencePenalty</code></td>
+<td><code>*float32</code></td>
+<td>—</td>
+<td>OpenAI-family presence penalty. <code>nil</code> leaves provider default.</td>
+</tr>
+</tbody>
+</table>
+<p>Pointer-typed fields (<code>Streaming</code> and the samplers) are populated via tiny helpers:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ptrBool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">v</span><span style="color:#D73A49;--shiki-dark:#F97583"> bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">          { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8">v }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ptrFloat32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">v</span><span style="color:#D73A49;--shiki-dark:#F97583"> float32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*float32</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8">v }</span></span></code></pre>
+<p>These fields eliminate the need for <code>viper.Set()</code> calls before <code>kit.New()</code>
+when embedding Kit as a library.</p>
+<h3 id="provider-configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-configuration"><span class="icon icon-link"></span></a>Provider configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ProviderAPIKey</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>API key used to authenticate with the provider. <code>""</code> falls back to config / provider-specific env var (e.g. <code>ANTHROPIC_API_KEY</code>). When set, it takes precedence over config and env values on this instance's store.</td>
+</tr>
+<tr>
+<td><code>ProviderURL</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). <code>""</code> = provider default.</td>
+</tr>
+<tr>
+<td><code>ProviderWire</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>Override the wire protocol for auto-routed providers: <code>openai</code> (Responses API), <code>openai-compat</code> (chat completions), <code>anthropic</code>, or <code>google</code>. <code>""</code> = infer from the model database. Takes precedence over per-provider <code>wire</code> declarations in the <a href="/configuration#provider-overrides"><code>providers</code> config section</a>. Combine with <code>ProviderURL</code> to target providers not in the database.</td>
+</tr>
+<tr>
+<td><code>TLSSkipVerify</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Disable TLS certificate verification on the provider HTTP client. Only effective when <code>true</code>; to force-disable, use config file or env var instead. For self-signed dev certs only.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="session"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session"><span class="icon icon-link"></span></a>Session</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SessionPath</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>Open a specific session file</td>
+</tr>
+<tr>
+<td><code>SessionDir</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>Base directory for session discovery</td>
+</tr>
+<tr>
+<td><code>Continue</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Resume most recent session</td>
+</tr>
+<tr>
+<td><code>NoSession</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Ephemeral mode (no persistence)</td>
+</tr>
+<tr>
+<td><code>SessionManager</code></td>
+<td><code>SessionManager</code></td>
+<td>—</td>
+<td>Custom session backend (advanced)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tools--extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tools--extensions"><span class="icon icon-link"></span></a>Tools &amp; extensions</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tools</code></td>
+<td><code>[]Tool</code></td>
+<td>—</td>
+<td>Replace the entire default tool set</td>
+</tr>
+<tr>
+<td><code>ExtraTools</code></td>
+<td><code>[]Tool</code></td>
+<td>—</td>
+<td>Additional tools alongside core/MCP/extension tools</td>
+</tr>
+<tr>
+<td><code>DisableCoreTools</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Use no core tools (0 tools, for chat-only)</td>
+</tr>
+<tr>
+<td><code>CoreToolList</code></td>
+<td><code>[]string</code></td>
+<td>—</td>
+<td>Allow-list of core tool names; empty/nil means all. Build with <a href="/sdk/overview#filtering-core-tools"><code>FilterCoreToolNames</code></a> from include/exclude filters.</td>
+</tr>
+<tr>
+<td><code>NoExtensions</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Disable Yaegi extension loading</td>
+</tr>
+<tr>
+<td><code>NoContextFiles</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Disable automatic AGENTS.md loading</td>
+</tr>
+<tr>
+<td><code>NoAgents</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Disable named agent discovery (built-ins and <code>.agents/agents/</code> / <code>.kit/agents/</code> / <code>~/.config/kit/agents/</code> files); see <a href="/advanced/subagents#named-agents">Subagents</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="skills--configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#skills--configuration"><span class="icon icon-link"></span></a>Skills &amp; configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SkipConfig</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Skip <code>.kit.yml</code> file loading (viper defaults + env vars still apply)</td>
+</tr>
+<tr>
+<td><code>Skills</code></td>
+<td><code>[]string</code></td>
+<td>—</td>
+<td>Explicit skill files/dirs to load</td>
+</tr>
+<tr>
+<td><code>SkillsDir</code></td>
+<td><code>string</code></td>
+<td>—</td>
+<td>Scan this directory directly for skills (overrides auto-discovery; scanned as-is)</td>
+</tr>
+<tr>
+<td><code>SkillsDisable</code></td>
+<td><code>[]string</code></td>
+<td>—</td>
+<td>Skill names to hide from the model catalog (still usable via <code>/skill:</code>)</td>
+</tr>
+<tr>
+<td><code>SkillTrustPrompt</code></td>
+<td><code>func(projectDir string, skillCount int) TrustDecision</code></td>
+<td><code>nil</code></td>
+<td>Callback gating project-local skill loading on a trust decision (see below)</td>
+</tr>
+<tr>
+<td><code>NoSkills</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Disable skill loading entirely</td>
+</tr>
+</tbody>
+</table>
+<h4 id="project-skill-trust-gate"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#project-skill-trust-gate"><span class="icon icon-link"></span></a>Project-skill trust gate</h4>
+<p>Project-local skills (under <code>&lt;project&gt;/.agents/skills/</code> or <code>&lt;project&gt;/.kit/skills/</code>)
+are injected into the system prompt, so loading them from an untrusted, freshly
+cloned repository is a prompt-injection vector. Set <code>SkillTrustPrompt</code> to gate
+that first load on an explicit decision. When <code>nil</code> (the default), project
+skills load without prompting — preserving historical behaviour.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">opts </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SkillTrustPrompt: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">projectDir</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">skillCount</span><span style="color:#D73A49;--shiki-dark:#F97583"> int</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TrustDecision</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // Consult your own UI / policy here.</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        if</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> userApproves</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(projectDir, skillCount) {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">            return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.TrustProject     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// load and persist the directory as trusted</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.SkipProjectSkills    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// do not load project skills</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>The callback returns one of three <code>TrustDecision</code> values:</p>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kit.TrustProject</code></td>
+<td>Load project skills and persist <code>projectDir</code> to <code>~/.config/kit/trusted-projects.json</code> (not prompted again)</td>
+</tr>
+<tr>
+<td><code>kit.TrustProjectOnce</code></td>
+<td>Load project skills for this run only, without persisting</td>
+</tr>
+<tr>
+<td><code>kit.SkipProjectSkills</code></td>
+<td>Do not load project skills</td>
+</tr>
+</tbody>
+</table>
+<p>A directory already on the persisted allowlist is trusted without invoking the
+callback. The Kit CLI wires this to an interactive terminal prompt automatically
+for TTY sessions.</p>
+<p>These fields only control the <strong>initial</strong> skill and context-file set picked
+up by <code>New()</code>. To add, remove, or replace skills and <code>AGENTS.md</code>-style
+context files at runtime (e.g. per user or per session), use the
+<code>AddSkill</code> / <code>LoadAndAddSkill</code> / <code>RemoveSkill</code> / <code>SetSkills</code> /
+<code>DisableSkill</code> / <code>EnableSkill</code> and
+<code>AddContextFile</code> / <code>AddContextFileContent</code> / <code>RemoveContextFile</code> /
+<code>SetContextFiles</code> methods on <code>*kit.Kit</code>. See
+<a href="/sdk/overview#runtime-skills-and-context-files">Runtime skills and context files</a>.</p>
+<h3 id="compaction--mcp"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#compaction--mcp"><span class="icon icon-link"></span></a>Compaction &amp; MCP</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AutoCompact</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Compact proactively before turns that near the context limit. Independent of this setting, Kit always compacts <strong>reactively</strong> and replays the turn once when a provider call fails with a context-overflow error.</td>
+</tr>
+<tr>
+<td><code>CompactionOptions</code></td>
+<td><code>*CompactionOptions</code></td>
+<td>—</td>
+<td>Configuration for compaction; zero-value budget fields adapt to the model's limits. See <a href="#compactionoptions">CompactionOptions</a> below.</td>
+</tr>
+<tr>
+<td><code>MCPConfig</code></td>
+<td><code>*Config</code></td>
+<td>—</td>
+<td>Pre-loaded MCP configuration. When set, <code>LoadAndValidateConfig</code> is skipped during Kit creation — useful for in-process subagents (inheriting a parent's loaded config) and programmatic setups that build config without reading <code>.kit.yml</code>.</td>
+</tr>
+<tr>
+<td><code>MCPAuthHandler</code></td>
+<td><code>MCPAuthHandler</code></td>
+<td>—</td>
+<td>OAuth handler for remote MCP servers. <code>nil</code> disables OAuth (servers returning 401 fail with the authorization-required error). See <a href="#mcp-oauth-authorization">MCP OAuth</a> below.</td>
+</tr>
+<tr>
+<td><code>MCPTokenStoreFactory</code></td>
+<td><code>func</code></td>
+<td>—</td>
+<td>Custom OAuth token storage for MCP servers (default: JSON file in <code>$XDG_CONFIG_HOME/.kit/mcp_tokens.json</code>).</td>
+</tr>
+<tr>
+<td><code>InProcessMCPServers</code></td>
+<td><code>map[string]*MCPServer</code></td>
+<td>—</td>
+<td>In-process mcp-go servers (no subprocess)</td>
+</tr>
+<tr>
+<td><code>MCPTaskMode</code></td>
+<td><code>map[string]MCPTaskMode</code></td>
+<td>—</td>
+<td>Per-server override for task-augmented <code>tools/call</code>. Keys are server names; missing entries fall back to the <code>tasksMode</code> field of the matching <code>MCPServerConfig</code>. See <a href="#mcp-tasks">MCP Tasks</a>.</td>
+</tr>
+<tr>
+<td><code>MCPTaskTimeout</code></td>
+<td><code>time.Duration</code></td>
+<td><code>15m</code></td>
+<td>Maximum wall-clock to wait for a task to reach a terminal state. Independent of any per-call context deadline.</td>
+</tr>
+<tr>
+<td><code>MCPTaskTTL</code></td>
+<td><code>time.Duration</code></td>
+<td>—</td>
+<td>TTL hint sent in <code>TaskParams</code> for every task-augmented call. Zero omits the field and lets the server pick.</td>
+</tr>
+<tr>
+<td><code>MCPTaskPollInterval</code></td>
+<td><code>time.Duration</code></td>
+<td><code>1s</code></td>
+<td>Fallback interval between <code>tasks/get</code> requests when the server does not suggest one.</td>
+</tr>
+<tr>
+<td><code>MCPTaskMaxPollInterval</code></td>
+<td><code>time.Duration</code></td>
+<td><code>5s</code></td>
+<td>Cap on the polling interval (a server-supplied <code>pollInterval</code> can otherwise grow without bound).</td>
+</tr>
+<tr>
+<td><code>MCPTaskProgress</code></td>
+<td><code>MCPTaskProgressHandler</code></td>
+<td>—</td>
+<td>Optional callback invoked once when a task is accepted and on every observed status transition. The final invocation always carries a terminal status.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="compactionoptions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#compactionoptions"><span class="icon icon-link"></span></a>CompactionOptions</h3>
+<p><code>CompactionOptions</code> controls how conversations are summarized. The token
+budgets are adaptive: leave a field at zero and it scales to the model's
+limits, or set an explicit value to override.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Zero-value behaviour</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ContextWindow</code></td>
+<td><code>int</code></td>
+<td>auto-populated from the model registry</td>
+<td>Model's context window size in tokens</td>
+</tr>
+<tr>
+<td><code>MaxOutputTokens</code></td>
+<td><code>int</code></td>
+<td>auto-populated from the model registry</td>
+<td>Model's max output tokens; scales the adaptive <code>ReserveTokens</code></td>
+</tr>
+<tr>
+<td><code>ReserveTokens</code></td>
+<td><code>int</code></td>
+<td><code>min(16384, MaxOutputTokens)</code></td>
+<td>Tokens reserved for the LLM response</td>
+</tr>
+<tr>
+<td><code>KeepRecentTokens</code></td>
+<td><code>int</code></td>
+<td>a quarter of the usable context (<code>ContextWindow − ReserveTokens</code>), floored at 2000</td>
+<td>Recent tokens preserved verbatim (not summarized)</td>
+</tr>
+<tr>
+<td><code>SummaryPrompt</code></td>
+<td><code>string</code></td>
+<td>built-in structured checkpoint prompt</td>
+<td>Custom summarization prompt</td>
+</tr>
+</tbody>
+</table>
+<p>When a session compacts more than once, the previous summary is fed back into
+the summarization prompt and updated incrementally (anchored summaries), so
+detail is preserved across compaction generations.</p>
+<h4 id="reactive-compaction-on-context-overflow"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reactive-compaction-on-context-overflow"><span class="icon icon-link"></span></a>Reactive compaction on context overflow</h4>
+<p>Token estimates inevitably drift from real tokenizer counts, and a single
+huge mid-turn tool result can overflow the context even when the turn started
+well under the limit. When the provider rejects a request with a
+context-overflow error, Kit automatically:</p>
+<ol>
+<li>Compacts the conversation (persisting any completed steps first, so the
+replay resumes rather than restarts).</li>
+<li>Replays the turn once with the rebuilt context, replacing media
+attachments with text placeholders (media cannot be shrunk by
+summarization).</li>
+<li>If the replay still overflows, fails the turn with <code>kit.ErrContextOverflow</code>
+("conversation too large to compact").</li>
+</ol>
+<p>This safety net is always on — it does not require <code>AutoCompact</code>, which only
+controls the <em>proactive</em> check before each turn.</p>
+<h2 id="mcp-oauth-authorization"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-oauth-authorization"><span class="icon icon-link"></span></a>MCP OAuth Authorization</h2>
+<p>When a remote MCP server (SSE or Streamable HTTP) requires OAuth, Kit runs
+the full authorization flow (dynamic client registration → PKCE → user
+consent → token exchange → token persistence) but delegates the <strong>user-facing
+step</strong> — displaying the authorization URL and receiving the callback — to
+an <code>MCPAuthHandler</code>.</p>
+<p>The SDK is deliberately inert when <code>MCPAuthHandler</code> is <code>nil</code>: it does <strong>not</strong>
+auto-construct a default handler, bind a local TCP port, or open a browser.
+This keeps library, daemon, and web-app embedders free of surprise I/O.
+Consumers opt in by passing a handler explicitly.</p>
+<table>
+<thead>
+<tr>
+<th>Building block</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MCPAuthHandler = nil</code> (default)</td>
+<td>OAuth disabled. Remote MCP servers requiring auth fail with a clear error. Correct for libraries, daemons, and web apps.</td>
+</tr>
+<tr>
+<td><code>kit.NewCLIMCPAuthHandler()</code></td>
+<td>CLI/TUI apps. Opens the system browser, prints status to stderr (or via <code>NotifyFunc</code>), runs a localhost callback server. Used by the <code>kit</code> binary.</td>
+</tr>
+<tr>
+<td><code>kit.NewDefaultMCPAuthHandler()</code> + <code>OnAuthURL</code></td>
+<td>Custom UX. Use the SDK's port reservation and callback server; plug in your own presentation via the <code>OnAuthURL(serverName, authURL)</code> closure.</td>
+</tr>
+<tr>
+<td>Implement <code>kit.MCPAuthHandler</code> directly</td>
+<td>Full control. No localhost binding — e.g. return the URL from an HTTP endpoint and have the consumer POST the callback URL back.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>CLI-style embedder:</strong></p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">authHandler, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewCLIMCPAuthHandler</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Fatal</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> authHandler.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Close</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#6A737D;--shiki-dark:#6A737D">// release the reserved port</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPAuthHandler: authHandler,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><strong>Custom UX embedder (TUI modal, QR code, web redirect, etc.):</strong></p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">authHandler, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewDefaultMCPAuthHandler</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">authHandler.OnAuthURL </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">serverName</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">authURL</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // No browser or terminal assumptions — render however you like.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    myUI.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ShowAuthPrompt</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(serverName, authURL)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">defer</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> authHandler.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Close</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPAuthHandler: authHandler,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><strong>Fully custom handler (no local port binding at all):</strong></p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> WebAuthHandler</span><span style="color:#D73A49;--shiki-dark:#F97583"> struct</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    redirectURI </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    callbacks   </span><span style="color:#D73A49;--shiki-dark:#F97583">chan</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span><span style="color:#E36209;--shiki-dark:#FFAB70">h </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WebAuthHandler</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">RedirectURI</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> h.redirectURI }</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span><span style="color:#E36209;--shiki-dark:#FFAB70">h </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WebAuthHandler</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">HandleAuth</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">serverName</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">authURL</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Push the URL to the user's existing browser session via your web app,</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // then block on the callback that your HTTP handler pushes onto the channel.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    h.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">pushToUserSession</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(serverName, authURL)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    select</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> callbackURL </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> &lt;-</span><span style="color:#24292E;--shiki-dark:#E1E4E8">h.callbacks:</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> callbackURL, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    case</span><span style="color:#D73A49;--shiki-dark:#F97583"> &lt;-</span><span style="color:#24292E;--shiki-dark:#E1E4E8">ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Done</span><span style="color:#24292E;--shiki-dark:#E1E4E8">():</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ""</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Err</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<blockquote>
+<p><strong>Warning:</strong> <code>DefaultMCPAuthHandler</code> with no <code>OnAuthURL</code> set will silently
+drop the authorization URL and hang until the 2-minute callback timeout
+fires. Always set <code>OnAuthURL</code>, or use a higher-level wrapper like
+<code>CLIMCPAuthHandler</code>.</p>
+</blockquote>
+<h2 id="mcp-tasks"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mcp-tasks"><span class="icon icon-link"></span></a>MCP Tasks</h2>
+<p>The <a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks">MCP Tasks utility</a>
+turns a synchronous <code>tools/call</code> into a pollable async job: the server
+returns a <code>taskId</code> with status <code>working</code> immediately, and the client polls
+<code>tasks/get</code> / <code>tasks/result</code> until the task reaches a terminal state.</p>
+<p>Kit advertises task support during <code>initialize</code> and, by default, augments
+<code>tools/call</code> with task metadata only when the server advertises
+<code>tasks/toolCalls</code> capability — so any existing MCP server keeps its previous
+synchronous behaviour bit-for-bit. Long-running tools (builds, deployments,
+batch jobs, sub-agent runs) get HTTP/SSE timeout-resistance and clean
+cancellation "for free" once both sides opt in.</p>
+<h3 id="per-server-mode"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#per-server-mode"><span class="icon icon-link"></span></a>Per-server mode</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">time</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskMode: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPTaskMode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: kit.MCPTaskModeAlways, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// force task-augmented calls</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">        "chat-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">:  kit.MCPTaskModeNever,  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// force synchronous calls</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // any server not in the map honours its \`tasksMode\` config field</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">        // (default "auto")</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MCPTaskModeAuto</code> (default)</td>
+<td>Augment <code>tools/call</code> with <code>TaskParams</code> only when the server advertised <code>tasks/toolCalls</code>.</td>
+</tr>
+<tr>
+<td><code>MCPTaskModeNever</code></td>
+<td>Always issue <code>tools/call</code> synchronously, ignoring server capability.</td>
+</tr>
+<tr>
+<td><code>MCPTaskModeAlways</code></td>
+<td>Always opt in, even when the server didn't advertise the capability. The server may still respond synchronously.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="progress-callbacks"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#progress-callbacks"><span class="icon icon-link"></span></a>Progress callbacks</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskTimeout:  </span><span style="color:#005CC5;--shiki-dark:#79B8FF">15</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,        </span><span style="color:#6A737D;--shiki-dark:#6A737D">// total wall-clock cap</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskTTL:      </span><span style="color:#005CC5;--shiki-dark:#79B8FF">30</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> time.Minute,        </span><span style="color:#6A737D;--shiki-dark:#6A737D">// server retention hint</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    MCPTaskProgress: </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">p</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">MCPTaskProgress</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        log.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> %s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, p.Server, p.TaskID, p.Status, p.Message)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>The handler fires once when a task is accepted and again on every observed
+status transition. The final call always carries a terminal status
+(<code>MCPTaskStatusCompleted</code>, <code>MCPTaskStatusFailed</code>, or <code>MCPTaskStatusCancelled</code>).
+Do not block in the handler — dispatch long work on a goroutine.</p>
+<h3 id="inspecting-and-cancelling-tasks"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#inspecting-and-cancelling-tasks"><span class="icon icon-link"></span></a>Inspecting and cancelling tasks</h3>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">tasks, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ListMCPTasks</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, t </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> tasks {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> (</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">)</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, t.TaskID, t.Status, t.StatusMessage)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">t, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetMCPTask</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, taskID)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#D73A49;--shiki-dark:#F97583"> !</span><span style="color:#24292E;--shiki-dark:#E1E4E8">t.Status.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsTerminal</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    _, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CancelMCPTask</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"build-server"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, taskID)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>Kit.ListMCPTasks</code>, <code>Kit.GetMCPTask</code>, and <code>Kit.CancelMCPTask</code> work against any
+loaded MCP server that advertises the corresponding capability.
+<code>MCPTaskStatus.IsTerminal()</code> is the canonical check for completion.</p>
+<p>Context cancellation also works end-to-end: cancelling the <code>ctx</code> passed to a
+tool execution triggers a best-effort <code>tasks/cancel</code> before the call returns.</p>
+<h2 id="custom-debug-logger"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-debug-logger"><span class="icon icon-link"></span></a>Custom debug logger</h2>
+<p>Kit's engine and MCP tool plumbing emit low-level debug output through a
+<code>DebugLogger</code> interface. By default, setting <code>Debug: true</code> (or calling
+<code>WithDebug()</code>) installs the built-in console logger. To route the same output
+into your application's logging system instead, provide a custom
+implementation via <code>Options.DebugLogger</code> or <code>WithDebugLogger</code>.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> DebugLogger</span><span style="color:#D73A49;--shiki-dark:#F97583"> interface</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    LogDebug</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">message</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">    IsDebugEnabled</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#D73A49;--shiki-dark:#F97583">bool</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>When <code>DebugLogger</code> is non-nil it takes precedence over <code>Debug</code> — the
+supplied logger's <code>IsDebugEnabled()</code> reports whether downstream code should
+bother formatting messages.</p>
+<p><strong>Example: forward to <code>log/slog</code>:</strong></p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">log/slog</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> slogDebugLogger</span><span style="color:#D73A49;--shiki-dark:#F97583"> struct</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{ l </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">slog</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Logger</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> }</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span><span style="color:#E36209;--shiki-dark:#FFAB70">s </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">slogDebugLogger</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">LogDebug</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">m</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)    { s.l.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Debug</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(m) }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span><span style="color:#E36209;--shiki-dark:#FFAB70">s </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">slogDebugLogger</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsDebugEnabled</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() </span><span style="color:#D73A49;--shiki-dark:#F97583">bool</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> true</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> }</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithDebugLogger</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">slogDebugLogger</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{l: slog.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Default</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()}),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p>Implementations must be safe for concurrent use — messages can arrive
+from the engine goroutine, MCP connection pool, and tool execution paths
+simultaneously.</p>
+<h2 id="precedence"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#precedence"><span class="icon icon-link"></span></a>Precedence</h2>
+<p>For any given generation or provider field, the effective value is resolved
+in this order (highest priority first):</p>
+<ol>
+<li><code>Options.X</code> (SDK caller)</li>
+<li><code>KIT_X</code> environment variable</li>
+<li><code>.kit.yml</code> (project-local then <code>~/.kit.yml</code>)</li>
+<li>Per-model defaults (<code>modelSettings[provider/model]</code> or <code>customModels[...].params</code>)</li>
+<li>Provider-level defaults (e.g. Anthropic's own temperature default)</li>
+<li>SDK last-resort floor (currently: <code>MaxTokens = 8192</code>, matching the CLI <code>--max-tokens</code> default)</li>
+</ol>
+<p>Sampling params that remain <code>nil</code> after the SDK resolution step are left out
+of the provider call entirely, so the LLM library applies its own default.</p>
+<h2 id="tool-configuration"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-configuration"><span class="icon icon-link"></span></a>Tool configuration</h2>
+<p><strong><code>Tools</code></strong> replaces ALL default tools (core + MCP + extension). <strong><code>ExtraTools</code></strong> adds tools alongside the defaults. Use <code>Tools</code> to restrict capabilities; use <code>ExtraTools</code> to extend them.</p>
+<p>To keep the default tool set but narrow the built-in core tools, set
+<strong><code>CoreToolList</code></strong> (an allow-list of names such as <code>"bash"</code>, <code>"read"</code>,
+<code>"write"</code>, <code>"edit"</code>, <code>"grep"</code>, <code>"find"</code>, <code>"ls"</code>, <code>"subagent"</code>). Build the list
+from include/exclude filters with
+<a href="/sdk/overview#filtering-core-tools"><code>kit.FilterCoreToolNames</code></a>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">list, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">FilterCoreToolNames</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"bash"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"write"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// drop two</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{CoreToolList: list})</span></span></code></pre>
+<p><code>DisableCoreTools: true</code> is the chat-only shortcut for an empty core set.
+<code>CoreToolFilterHelper(*viper.Viper)</code> is deprecated — prefer
+<code>FilterCoreToolNames</code>, which does not expose the configuration library.</p>
+<p>Create custom tools with <code>kit.NewTool</code> — no external dependencies needed:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">type</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> LookupInput</span><span style="color:#D73A49;--shiki-dark:#F97583"> struct</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ID </span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> \`json:"id" description:"Record ID to look up"\`</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">lookupTool </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewTool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"lookup"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"Look up a record by ID"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">input</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> LookupInput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolOutput</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        record </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> db.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Find</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(input.ID)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">TextResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(record.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">String</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()), </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    },</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, _ </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    ExtraTools: []</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Tool</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{lookupTool},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>See <a href="/sdk/overview#custom-tools">Overview</a> for full custom tool documentation.</p>`,headings:[{depth:2,text:`Full options reference`,id:`full-options-reference`},{depth:2,text:`Options fields`,id:`options-fields`},{depth:3,text:`Core`,id:`core`},{depth:3,text:`Generation parameters`,id:`generation-parameters`},{depth:3,text:`Provider configuration`,id:`provider-configuration`},{depth:3,text:`Session`,id:`session`},{depth:3,text:`Tools &amp; extensions`,id:`tools--extensions`},{depth:3,text:`Skills &amp; configuration`,id:`skills--configuration`},{depth:4,text:`Project-skill trust gate`,id:`project-skill-trust-gate`},{depth:3,text:`Compaction &amp; MCP`,id:`compaction--mcp`},{depth:3,text:`CompactionOptions`,id:`compactionoptions`},{depth:4,text:`Reactive compaction on context overflow`,id:`reactive-compaction-on-context-overflow`},{depth:2,text:`MCP OAuth Authorization`,id:`mcp-oauth-authorization`},{depth:2,text:`MCP Tasks`,id:`mcp-tasks`},{depth:3,text:`Per-server mode`,id:`per-server-mode`},{depth:3,text:`Progress callbacks`,id:`progress-callbacks`},{depth:3,text:`Inspecting and cancelling tasks`,id:`inspecting-and-cancelling-tasks`},{depth:2,text:`Custom debug logger`,id:`custom-debug-logger`},{depth:2,text:`Precedence`,id:`precedence`},{depth:2,text:`Tool configuration`,id:`tool-configuration`}],raw:'\n# SDK Options\n\nPass an `Options` struct to `kit.New()` to configure the Kit instance.\n\n> **Tip:** for simple setups, `kit.NewAgent(ctx, ...Option)` provides\n> functional-options helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...)\n> over the same `Options` struct. See\n> [Functional options](/sdk/overview#functional-options-newagent).\n\nEach `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so\nthese options never leak between Kit instances in the same process. See\n[Per-instance config isolation](/sdk/overview#per-instance-config-isolation).\n\n## Full options reference\n\n```go\nhost, err := kit.New(ctx, &kit.Options{\n    // Model\n    Model:        "ollama/llama3",\n    SystemPrompt: "You are a helpful bot",\n    ConfigFile:   "/path/to/config.yml",\n\n    // Behavior\n    MaxSteps:     10,\n    Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off\n    Quiet:        true,\n    Debug:        true,\n    DebugLogger:  myLogger,       // optional; overrides Debug + built-in logger when non-nil\n\n    // Generation parameters (override env/config/per-model defaults)\n    MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing\n    ThinkingLevel:    "medium",           // "off", "none", "minimal", "low", "medium", "high"\n    Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset\n    TopP:             nil,                 // nil = provider/per-model default\n    TopK:             nil,\n    FrequencyPenalty: nil,\n    PresencePenalty:  nil,\n\n    // Provider configuration\n    ProviderAPIKey: "sk-...",                      // "" = use config / provider env var\n    ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint\n    ProviderWire:   "anthropic",                  // "" = infer wire from model database\n    TLSSkipVerify:  false,                         // only effective when true\n\n    // Session\n    SessionPath:  "./session.jsonl",\n    SessionDir:   "/custom/sessions/",\n    Continue:     true,\n    NoSession:    true,\n\n    // Tools\n    Tools:            []kit.Tool{...},     // Replace default tool set entirely\n    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)\n    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)\n    CoreToolList:     []string,            // List of core tools to include, if empty (default) include all\n\n    // Configuration\n    SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)\n\n    // Compaction\n    AutoCompact:  true,\n\n    // Skills\n    Skills:        []string{"/path/to/skill.md"},\n    SkillsDir:     "/path/to/skills/",\n    SkillsDisable: []string{"noisy-skill"},\n    NoSkills:      true,\n\n    // Feature toggles\n    NoExtensions:   true,               // disable Yaegi extension loading\n    NoContextFiles: true,               // disable automatic AGENTS.md loading\n    NoAgents:       true,               // disable named agent discovery (.agents/agents/, .kit/agents/, ~/.config/kit/agents/, and built-ins)\n\n    // Session (advanced)\n    SessionManager: myCustomSession,    // custom SessionManager implementation\n\n    // MCP OAuth — both opt-in. Leave MCPAuthHandler nil to disable\n    // OAuth entirely (remote MCP 401s bubble up as errors). CLI apps\n    // pass kit.NewCLIMCPAuthHandler(); custom UX embedders implement\n    // MCPAuthHandler or configure DefaultMCPAuthHandler + OnAuthURL.\n    MCPAuthHandler: authHandler,                  // nil = OAuth disabled\n    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {\n        return myStore(serverURL), nil\n    },\n\n    // In-Process MCP Servers\n    InProcessMCPServers: map[string]*kit.MCPServer{\n        "docs": mcpSrv,  // *server.MCPServer from mcp-go\n    },\n})\n```\n\n## Options fields\n\n### Core\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `Model` | `string` | config default | Model string (provider/model format) |\n| `SystemPrompt` | `string` | — | System prompt text or file path |\n| `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |\n| `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |\n| `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |\n| `Quiet` | `bool` | `false` | Suppress output |\n| `Debug` | `bool` | `false` | Enable debug logging via the built-in console / buffered logger. Ignored when `DebugLogger` is non-nil. |\n| `DebugLogger` | `DebugLogger` | `nil` | Caller-supplied logger that receives low-level engine + MCP tool plumbing debug output. When non-nil this overrides `Debug` — the supplied logger\'s `IsDebugEnabled()` controls downstream emission. See [Custom debug logger](#custom-debug-logger). |\n\n### Generation parameters\n\nThese fields override the corresponding values from `.kit.yml` / `KIT_*`\nenvironment variables. Leaving a field at its zero/nil value lets the\nprecedence chain resolve a value (`KIT_*` env → config file → per-model\ndefaults from `modelSettings`/`customModels` → an 8192 SDK floor for\n`MaxTokens` (matching the CLI `--max-tokens` default) and provider-level\ndefaults for samplers).\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |\n| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. |\n| `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |\n| `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |\n| `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |\n| `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |\n| `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |\n\nPointer-typed fields (`Streaming` and the samplers) are populated via tiny helpers:\n\n```go\nfunc ptrBool(v bool) *bool          { return &v }\nfunc ptrFloat32(v float32) *float32 { return &v }\n```\n\nThese fields eliminate the need for `viper.Set()` calls before `kit.New()`\nwhen embedding Kit as a library.\n\n### Provider configuration\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance\'s store. |\n| `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |\n| `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |\n| `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |\n\n### Session\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `SessionPath` | `string` | — | Open a specific session file |\n| `SessionDir` | `string` | — | Base directory for session discovery |\n| `Continue` | `bool` | `false` | Resume most recent session |\n| `NoSession` | `bool` | `false` | Ephemeral mode (no persistence) |\n| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |\n\n### Tools & extensions\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `Tools` | `[]Tool` | — | Replace the entire default tool set |\n| `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |\n| `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |\n| `CoreToolList` | `[]string` | — | Allow-list of core tool names; empty/nil means all. Build with [`FilterCoreToolNames`](/sdk/overview#filtering-core-tools) from include/exclude filters. |\n| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |\n| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |\n| `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |\n\n### Skills & configuration\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |\n| `Skills` | `[]string` | — | Explicit skill files/dirs to load |\n| `SkillsDir` | `string` | — | Scan this directory directly for skills (overrides auto-discovery; scanned as-is) |\n| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/skill:`) |\n| `SkillTrustPrompt` | `func(projectDir string, skillCount int) TrustDecision` | `nil` | Callback gating project-local skill loading on a trust decision (see below) |\n| `NoSkills` | `bool` | `false` | Disable skill loading entirely |\n\n#### Project-skill trust gate\n\nProject-local skills (under `<project>/.agents/skills/` or `<project>/.kit/skills/`)\nare injected into the system prompt, so loading them from an untrusted, freshly\ncloned repository is a prompt-injection vector. Set `SkillTrustPrompt` to gate\nthat first load on an explicit decision. When `nil` (the default), project\nskills load without prompting — preserving historical behaviour.\n\n```go\nopts := &kit.Options{\n    SkillTrustPrompt: func(projectDir string, skillCount int) kit.TrustDecision {\n        // Consult your own UI / policy here.\n        if userApproves(projectDir, skillCount) {\n            return kit.TrustProject     // load and persist the directory as trusted\n        }\n        return kit.SkipProjectSkills    // do not load project skills\n    },\n}\n```\n\nThe callback returns one of three `TrustDecision` values:\n\n| Decision | Effect |\n|----------|--------|\n| `kit.TrustProject` | Load project skills and persist `projectDir` to `~/.config/kit/trusted-projects.json` (not prompted again) |\n| `kit.TrustProjectOnce` | Load project skills for this run only, without persisting |\n| `kit.SkipProjectSkills` | Do not load project skills |\n\nA directory already on the persisted allowlist is trusted without invoking the\ncallback. The Kit CLI wires this to an interactive terminal prompt automatically\nfor TTY sessions.\n\nThese fields only control the **initial** skill and context-file set picked\nup by `New()`. To add, remove, or replace skills and `AGENTS.md`-style\ncontext files at runtime (e.g. per user or per session), use the\n`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` /\n`DisableSkill` / `EnableSkill` and\n`AddContextFile` / `AddContextFileContent` / `RemoveContextFile` /\n`SetContextFiles` methods on `*kit.Kit`. See\n[Runtime skills and context files](/sdk/overview#runtime-skills-and-context-files).\n\n### Compaction & MCP\n\n| Field | Type | Default | Description |\n|-------|------|---------|-------------|\n| `AutoCompact` | `bool` | `false` | Compact proactively before turns that near the context limit. Independent of this setting, Kit always compacts **reactively** and replays the turn once when a provider call fails with a context-overflow error. |\n| `CompactionOptions` | `*CompactionOptions` | — | Configuration for compaction; zero-value budget fields adapt to the model\'s limits. See [CompactionOptions](#compactionoptions) below. |\n| `MCPConfig` | `*Config` | — | Pre-loaded MCP configuration. When set, `LoadAndValidateConfig` is skipped during Kit creation — useful for in-process subagents (inheriting a parent\'s loaded config) and programmatic setups that build config without reading `.kit.yml`. |\n| `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |\n| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |\n| `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |\n| `MCPTaskMode` | `map[string]MCPTaskMode` | — | Per-server override for task-augmented `tools/call`. Keys are server names; missing entries fall back to the `tasksMode` field of the matching `MCPServerConfig`. See [MCP Tasks](#mcp-tasks). |\n| `MCPTaskTimeout` | `time.Duration` | `15m` | Maximum wall-clock to wait for a task to reach a terminal state. Independent of any per-call context deadline. |\n| `MCPTaskTTL` | `time.Duration` | — | TTL hint sent in `TaskParams` for every task-augmented call. Zero omits the field and lets the server pick. |\n| `MCPTaskPollInterval` | `time.Duration` | `1s` | Fallback interval between `tasks/get` requests when the server does not suggest one. |\n| `MCPTaskMaxPollInterval` | `time.Duration` | `5s` | Cap on the polling interval (a server-supplied `pollInterval` can otherwise grow without bound). |\n| `MCPTaskProgress` | `MCPTaskProgressHandler` | — | Optional callback invoked once when a task is accepted and on every observed status transition. The final invocation always carries a terminal status. |\n\n### CompactionOptions\n\n`CompactionOptions` controls how conversations are summarized. The token\nbudgets are adaptive: leave a field at zero and it scales to the model\'s\nlimits, or set an explicit value to override.\n\n| Field | Type | Zero-value behaviour | Description |\n|-------|------|----------------------|-------------|\n| `ContextWindow` | `int` | auto-populated from the model registry | Model\'s context window size in tokens |\n| `MaxOutputTokens` | `int` | auto-populated from the model registry | Model\'s max output tokens; scales the adaptive `ReserveTokens` |\n| `ReserveTokens` | `int` | `min(16384, MaxOutputTokens)` | Tokens reserved for the LLM response |\n| `KeepRecentTokens` | `int` | a quarter of the usable context (`ContextWindow − ReserveTokens`), floored at 2000 | Recent tokens preserved verbatim (not summarized) |\n| `SummaryPrompt` | `string` | built-in structured checkpoint prompt | Custom summarization prompt |\n\nWhen a session compacts more than once, the previous summary is fed back into\nthe summarization prompt and updated incrementally (anchored summaries), so\ndetail is preserved across compaction generations.\n\n#### Reactive compaction on context overflow\n\nToken estimates inevitably drift from real tokenizer counts, and a single\nhuge mid-turn tool result can overflow the context even when the turn started\nwell under the limit. When the provider rejects a request with a\ncontext-overflow error, Kit automatically:\n\n1. Compacts the conversation (persisting any completed steps first, so the\n   replay resumes rather than restarts).\n2. Replays the turn once with the rebuilt context, replacing media\n   attachments with text placeholders (media cannot be shrunk by\n   summarization).\n3. If the replay still overflows, fails the turn with `kit.ErrContextOverflow`\n   ("conversation too large to compact").\n\nThis safety net is always on — it does not require `AutoCompact`, which only\ncontrols the *proactive* check before each turn.\n\n## MCP OAuth Authorization\n\nWhen a remote MCP server (SSE or Streamable HTTP) requires OAuth, Kit runs\nthe full authorization flow (dynamic client registration → PKCE → user\nconsent → token exchange → token persistence) but delegates the **user-facing\nstep** — displaying the authorization URL and receiving the callback — to\nan `MCPAuthHandler`.\n\nThe SDK is deliberately inert when `MCPAuthHandler` is `nil`: it does **not**\nauto-construct a default handler, bind a local TCP port, or open a browser.\nThis keeps library, daemon, and web-app embedders free of surprise I/O.\nConsumers opt in by passing a handler explicitly.\n\n| Building block | When to use |\n|---|---|\n| `MCPAuthHandler = nil` (default) | OAuth disabled. Remote MCP servers requiring auth fail with a clear error. Correct for libraries, daemons, and web apps. |\n| `kit.NewCLIMCPAuthHandler()` | CLI/TUI apps. Opens the system browser, prints status to stderr (or via `NotifyFunc`), runs a localhost callback server. Used by the `kit` binary. |\n| `kit.NewDefaultMCPAuthHandler()` + `OnAuthURL` | Custom UX. Use the SDK\'s port reservation and callback server; plug in your own presentation via the `OnAuthURL(serverName, authURL)` closure. |\n| Implement `kit.MCPAuthHandler` directly | Full control. No localhost binding — e.g. return the URL from an HTTP endpoint and have the consumer POST the callback URL back. |\n\n**CLI-style embedder:**\n\n```go\nauthHandler, err := kit.NewCLIMCPAuthHandler()\nif err != nil {\n    log.Fatal(err)\n}\ndefer authHandler.Close() // release the reserved port\n\nhost, _ := kit.New(ctx, &kit.Options{\n    MCPAuthHandler: authHandler,\n})\n```\n\n**Custom UX embedder (TUI modal, QR code, web redirect, etc.):**\n\n```go\nauthHandler, _ := kit.NewDefaultMCPAuthHandler()\nauthHandler.OnAuthURL = func(serverName, authURL string) {\n    // No browser or terminal assumptions — render however you like.\n    myUI.ShowAuthPrompt(serverName, authURL)\n}\ndefer authHandler.Close()\n\nhost, _ := kit.New(ctx, &kit.Options{\n    MCPAuthHandler: authHandler,\n})\n```\n\n**Fully custom handler (no local port binding at all):**\n\n```go\ntype WebAuthHandler struct {\n    redirectURI string\n    callbacks   chan string\n}\n\nfunc (h *WebAuthHandler) RedirectURI() string { return h.redirectURI }\n\nfunc (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL string) (string, error) {\n    // Push the URL to the user\'s existing browser session via your web app,\n    // then block on the callback that your HTTP handler pushes onto the channel.\n    h.pushToUserSession(serverName, authURL)\n    select {\n    case callbackURL := <-h.callbacks:\n        return callbackURL, nil\n    case <-ctx.Done():\n        return "", ctx.Err()\n    }\n}\n```\n\n> **Warning:** `DefaultMCPAuthHandler` with no `OnAuthURL` set will silently\n> drop the authorization URL and hang until the 2-minute callback timeout\n> fires. Always set `OnAuthURL`, or use a higher-level wrapper like\n> `CLIMCPAuthHandler`.\n\n## MCP Tasks\n\nThe [MCP Tasks utility](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)\nturns a synchronous `tools/call` into a pollable async job: the server\nreturns a `taskId` with status `working` immediately, and the client polls\n`tasks/get` / `tasks/result` until the task reaches a terminal state.\n\nKit advertises task support during `initialize` and, by default, augments\n`tools/call` with task metadata only when the server advertises\n`tasks/toolCalls` capability — so any existing MCP server keeps its previous\nsynchronous behaviour bit-for-bit. Long-running tools (builds, deployments,\nbatch jobs, sub-agent runs) get HTTP/SSE timeout-resistance and clean\ncancellation "for free" once both sides opt in.\n\n### Per-server mode\n\n```go\nimport "time"\n\nhost, _ := kit.New(ctx, &kit.Options{\n    MCPTaskMode: map[string]kit.MCPTaskMode{\n        "build-server": kit.MCPTaskModeAlways, // force task-augmented calls\n        "chat-server":  kit.MCPTaskModeNever,  // force synchronous calls\n        // any server not in the map honours its `tasksMode` config field\n        // (default "auto")\n    },\n})\n```\n\n| Mode | Behaviour |\n|---|---|\n| `MCPTaskModeAuto` (default) | Augment `tools/call` with `TaskParams` only when the server advertised `tasks/toolCalls`. |\n| `MCPTaskModeNever` | Always issue `tools/call` synchronously, ignoring server capability. |\n| `MCPTaskModeAlways` | Always opt in, even when the server didn\'t advertise the capability. The server may still respond synchronously. |\n\n### Progress callbacks\n\n```go\nhost, _ := kit.New(ctx, &kit.Options{\n    MCPTaskTimeout:  15 * time.Minute,        // total wall-clock cap\n    MCPTaskTTL:      30 * time.Minute,        // server retention hint\n    MCPTaskProgress: func(p kit.MCPTaskProgress) {\n        log.Printf("%s/%s: %s %s", p.Server, p.TaskID, p.Status, p.Message)\n    },\n})\n```\n\nThe handler fires once when a task is accepted and again on every observed\nstatus transition. The final call always carries a terminal status\n(`MCPTaskStatusCompleted`, `MCPTaskStatusFailed`, or `MCPTaskStatusCancelled`).\nDo not block in the handler — dispatch long work on a goroutine.\n\n### Inspecting and cancelling tasks\n\n```go\ntasks, _ := host.ListMCPTasks(ctx, "build-server")\nfor _, t := range tasks {\n    fmt.Printf("%s: %s (%s)\\n", t.TaskID, t.Status, t.StatusMessage)\n}\n\nt, _ := host.GetMCPTask(ctx, "build-server", taskID)\nif !t.Status.IsTerminal() {\n    _, _ = host.CancelMCPTask(ctx, "build-server", taskID)\n}\n```\n\n`Kit.ListMCPTasks`, `Kit.GetMCPTask`, and `Kit.CancelMCPTask` work against any\nloaded MCP server that advertises the corresponding capability.\n`MCPTaskStatus.IsTerminal()` is the canonical check for completion.\n\nContext cancellation also works end-to-end: cancelling the `ctx` passed to a\ntool execution triggers a best-effort `tasks/cancel` before the call returns.\n\n## Custom debug logger\n\nKit\'s engine and MCP tool plumbing emit low-level debug output through a\n`DebugLogger` interface. By default, setting `Debug: true` (or calling\n`WithDebug()`) installs the built-in console logger. To route the same output\ninto your application\'s logging system instead, provide a custom\nimplementation via `Options.DebugLogger` or `WithDebugLogger`.\n\n```go\ntype DebugLogger interface {\n    LogDebug(message string)\n    IsDebugEnabled() bool\n}\n```\n\nWhen `DebugLogger` is non-nil it takes precedence over `Debug` — the\nsupplied logger\'s `IsDebugEnabled()` reports whether downstream code should\nbother formatting messages.\n\n**Example: forward to `log/slog`:**\n\n```go\nimport "log/slog"\n\ntype slogDebugLogger struct{ l *slog.Logger }\n\nfunc (s *slogDebugLogger) LogDebug(m string)    { s.l.Debug(m) }\nfunc (s *slogDebugLogger) IsDebugEnabled() bool { return true }\n\nhost, _ := kit.NewAgent(ctx,\n    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),\n    kit.WithDebugLogger(&slogDebugLogger{l: slog.Default()}),\n)\n```\n\nImplementations must be safe for concurrent use — messages can arrive\nfrom the engine goroutine, MCP connection pool, and tool execution paths\nsimultaneously.\n\n## Precedence\n\nFor any given generation or provider field, the effective value is resolved\nin this order (highest priority first):\n\n1. `Options.X` (SDK caller)\n2. `KIT_X` environment variable\n3. `.kit.yml` (project-local then `~/.kit.yml`)\n4. Per-model defaults (`modelSettings[provider/model]` or `customModels[...].params`)\n5. Provider-level defaults (e.g. Anthropic\'s own temperature default)\n6. SDK last-resort floor (currently: `MaxTokens = 8192`, matching the CLI `--max-tokens` default)\n\nSampling params that remain `nil` after the SDK resolution step are left out\nof the provider call entirely, so the LLM library applies its own default.\n\n## Tool configuration\n\n**`Tools`** replaces ALL default tools (core + MCP + extension). **`ExtraTools`** adds tools alongside the defaults. Use `Tools` to restrict capabilities; use `ExtraTools` to extend them.\n\nTo keep the default tool set but narrow the built-in core tools, set\n**`CoreToolList`** (an allow-list of names such as `"bash"`, `"read"`,\n`"write"`, `"edit"`, `"grep"`, `"find"`, `"ls"`, `"subagent"`). Build the list\nfrom include/exclude filters with\n[`kit.FilterCoreToolNames`](/sdk/overview#filtering-core-tools):\n\n```go\nlist, _ := kit.FilterCoreToolNames(nil, []string{"bash", "write"}) // drop two\nhost, _ := kit.New(ctx, &kit.Options{CoreToolList: list})\n```\n\n`DisableCoreTools: true` is the chat-only shortcut for an empty core set.\n`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer\n`FilterCoreToolNames`, which does not expose the configuration library.\n\nCreate custom tools with `kit.NewTool` — no external dependencies needed:\n\n```go\ntype LookupInput struct {\n    ID string `json:"id" description:"Record ID to look up"`\n}\n\nlookupTool := kit.NewTool("lookup", "Look up a record by ID",\n    func(ctx context.Context, input LookupInput) (kit.ToolOutput, error) {\n        record := db.Find(input.ID)\n        return kit.TextResult(record.String()), nil\n    },\n)\n\nhost, _ := kit.New(ctx, &kit.Options{\n    ExtraTools: []kit.Tool{lookupTool},\n})\n```\n\nSee [Overview](/sdk/overview#custom-tools) for full custom tool documentation.\n'};export{e as default};

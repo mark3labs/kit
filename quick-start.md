@@ -1,0 +1,88 @@
+
+# Quick Start
+
+## Basic usage
+
+Start an interactive session:
+
+```bash
+kit
+```
+
+Run a one-off prompt:
+
+```bash
+kit "List files in src/"
+```
+
+Attach files as context using the `@` prefix:
+
+```bash
+kit @main.go @test.go "Review these files"
+```
+
+Binary files (images, audio, PDFs) are automatically detected via MIME type and sent as multimodal attachments. You can also reference MCP resources:
+
+```bash
+kit @mcp:myserver:file:///data/report.csv "Summarize this data"
+```
+
+Use a specific model:
+
+```bash
+kit --model anthropic/claude-sonnet-latest
+```
+
+## Non-interactive mode
+
+Kit can run as a non-interactive tool for scripting and automation.
+
+Get JSON output:
+
+```bash
+kit "Explain main.go" --json
+```
+
+Quiet mode (final response only, no TUI):
+
+```bash
+kit "Run tests" --quiet
+```
+
+Ephemeral mode (no session file created):
+
+```bash
+kit "Quick question" --no-session
+```
+
+## Resuming sessions
+
+Continue the most recent session for the current directory:
+
+```bash
+kit --continue
+# or
+kit -c
+```
+
+Pick from previous sessions interactively:
+
+```bash
+kit --resume
+# or
+kit -r
+```
+
+## ACP server mode
+
+Kit can run as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server, enabling ACP-compatible clients (such as [OpenCode](https://github.com/sst/opencode)) to drive Kit as a remote coding agent over stdio:
+
+```bash
+# Start Kit as an ACP server (JSON-RPC 2.0 on stdin/stdout)
+kit acp
+
+# With debug logging to stderr
+kit acp --debug
+```
+
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.

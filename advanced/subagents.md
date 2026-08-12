@@ -1,0 +1,292 @@
+
+# Subagents
+
+Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
+
+## Subprocess pattern
+
+Spawn Kit as a subprocess for isolated agent execution:
+
+```bash
+kit "Analyze codebase" \
+    --json \
+    --no-session \
+    --no-extensions \
+    --quiet \
+    --model anthropic/claude-haiku-latest
+```
+
+Key flags for subprocess usage:
+
+| Flag | Purpose |
+|------|---------|
+| `--quiet` | Stdout only, no TUI |
+| `--no-session` | Ephemeral, no persistence |
+| `--no-extensions` | Prevent recursive extension loading |
+| `--json` | Machine-readable output |
+| `--system-prompt` | Custom system prompt (string or file path) |
+
+Positional arguments are the prompt. `@file` arguments attach file content as context.
+
+## Built-in subagent tool
+
+Kit includes a built-in `subagent` tool that the LLM can use to delegate tasks to independent child agents:
+
+```
+subagent(
+    task: "Analyze the test files and summarize coverage",
+    agent: "explore",                                  // optional named agent
+    model: "anthropic/claude-haiku-latest",   // optional
+    system_prompt: "You are a test analysis expert.",  // optional
+    timeout_seconds: 300,                              // optional, max 1800
+    session_id: "..."                                  // optional, resume a previous subagent
+)
+```
+
+Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+## Session linking and resuming
+
+Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:
+
+- **Parent → child**: every successful `subagent` tool call returns the child's session ID as `subagent_session_id` in the tool-response metadata (also `SubagentResult.SessionID` in the SDK).
+- **Child → parent**: when the parent is running with a persisted session, the child session's header records `parent_session_id` (the parent's session UUID), `parent_session` (the parent's file path), and `subagent_task` (the original task prompt), so viewers can navigate delegated work as a session tree.
+
+Passing a previous run's `subagent_session_id` back via the `session_id` parameter resumes that child session instead of starting fresh — the subagent keeps its accumulated context (files read, findings, state), making iterative delegation cheap:
+
+```
+subagent(task: "Research how session persistence works")
+→ "Subagent completed successfully..." (subagent_session_id: "abc123...")
+
+subagent(task: "Now check how it handles errors", session_id: "abc123...")
+→ follow-up runs in the same child session, reusing its context
+```
+
+Resumed sessions keep their original parent link; an unknown `session_id` is an error. Resuming is incompatible with ephemeral (`NoSession`) runs.
+
+## Named agents
+
+Named agents are reusable subagent presets defined in markdown files. They are advertised in the `subagent` tool description, so the LLM can delegate to the right specialist by name — with a preset system prompt, model, tool allowlist, temperature, and timeout.
+
+### Definition files
+
+The filename (minus `.md`) is the agent name; YAML frontmatter configures it; the markdown body is the system prompt:
+
+```markdown
+---
+description: Reviews code for quality and best practices   # required
+model: anthropic/claude-sonnet-4                           # optional model override
+tools: [read, grep, find, ls]                              # optional tool allowlist
+temperature: 0.1                                           # optional
+timeout: 300                                               # optional, seconds
+hidden: false                                              # optional: resolvable but not advertised
+disabled: false                                            # optional: remove this agent (and anything it shadows)
+---
+You are in code review mode. Focus on correctness, security, and
+maintainability. Report findings with file paths and line references.
+```
+
+### Discovery and precedence
+
+Definitions are discovered from (highest to lowest precedence):
+
+| Location | Scope |
+|----------|-------|
+| `<project>/.agents/agents/*.md` | Project-local (cross-client convention) |
+| `<project>/.kit/agents/*.md` | Project-local (Kit-specific) |
+| `~/.config/kit/agents/*.md` | User-level (`$XDG_CONFIG_HOME` aware) |
+| Built-in | Ships with Kit |
+
+Higher-precedence definitions override lower ones by name, so a project can replace — or disable via `disabled: true` — a built-in or user-level agent.
+
+Two built-in agents ship with Kit:
+
+| Agent | Tools | Purpose |
+|-------|-------|---------|
+| `general` | all tools | General-purpose research and multi-step task execution |
+| `explore` | `read`, `grep`, `find`, `ls` | Read-only codebase exploration |
+
+### Tool allowlists
+
+An agent without a `tools:` list gets the default subagent tool set (everything except `subagent`, preventing recursion). With a `tools:` allowlist, the subagent is restricted to exactly those tools — a read-only `explore`-style agent cannot edit files or run commands. Explicit `model` / `system_prompt` / `timeout_seconds` arguments in the tool call override the agent's presets.
+
+Disable named-agent discovery entirely with `--no-agents`, the `no-agents` config key, or `KIT_NO_AGENTS=true`.
+
+## Extension subagents
+
+Extensions can spawn subagents programmatically:
+
+```go
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Review this code for security issues",
+    Model:        "anthropic/claude-sonnet-latest",
+    SystemPrompt: "You are a security auditor.",
+    Blocking:     true,
+})
+```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (result is nil); use `OnComplete`/`OnEvent` callbacks or the handle to observe the run:
+
+```go
+handle, _, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt: "Write unit tests for UserService",
+    OnOutput: func(chunk string) {
+        // Live assistant text chunks (e.g. update a widget)
+    },
+    OnComplete: func(result ext.SubagentResult) {
+        ctx.SendMessage("Subagent finished:\n" + result.Response)
+    },
+})
+// handle.Kill()   — cancel the running subagent
+// handle.Wait()   — block until completion, returns SubagentResult
+// <-handle.Done() — channel that closes on completion
+```
+
+Background subagents run in-process (no subprocess): they get their own session, event bus, and agent loop, inherit the parent's active tools minus the `subagent` tool, and do not load extensions. Sessions are persisted by default; set `NoSession: true` for ephemeral runs.
+
+Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent's session for follow-up prompts, and `ParentSessionID` to override the parent link recorded in the child session's header (it defaults to the host's active persisted session — see [Session linking and resuming](#session-linking-and-resuming)).
+
+### Monitoring subagents from extensions
+
+When the LLM (not the extension itself) spawns a subagent using the `subagent` tool, extensions can monitor its activity in real-time using three lifecycle event handlers:
+
+```go
+// Track active subagents and display their output
+var subagentWidgets map[string]*SubagentWidget
+
+func Init(api ext.API) {
+    // Subagent started by the main agent
+    api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+        // e.ToolCallID — unique ID for this subagent invocation
+        // e.Task — the task/prompt sent to the subagent
+        widget := NewWidget(e.ToolCallID, e.Task)
+        subagentWidgets[e.ToolCallID] = widget
+        ctx.SetWidget(widget.Config())
+    })
+
+    // Real-time streaming from subagent
+    api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+        // e.ToolCallID — matches the start event
+        // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+        // e.Content — text content
+        // e.ToolName — tool name (for tool chunks)
+        // e.IsError — true if tool result failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.AddOutput(e)
+            ctx.SetWidget(widget.Config())
+        }
+    })
+
+    // Subagent completed
+    api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+        // e.Response — final response from subagent
+        // e.ErrorMsg — error message if subagent failed
+        widget := subagentWidgets[e.ToolCallID]
+        if widget != nil {
+            widget.MarkComplete(e.Response, e.ErrorMsg)
+            ctx.SetWidget(widget.Config())
+            delete(subagentWidgets, e.ToolCallID)
+        }
+    })
+}
+```
+
+**Event structs:**
+
+```go
+type SubagentStartEvent struct {
+    ToolCallID string  // Unique ID for this subagent invocation
+    Task       string  // The task/prompt sent to subagent
+}
+
+type SubagentChunkEvent struct {
+    ToolCallID string  // Matches SubagentStartEvent.ToolCallID
+    Task       string  // Task description
+    ChunkType  string  // "text", "tool_call", "tool_execution_start", "tool_result"
+    Content    string  // For text chunks
+    ToolName   string  // For tool-related chunks
+    IsError    bool    // For tool_result chunks
+}
+
+type SubagentEndEvent struct {
+    ToolCallID string  // Matches start event
+    Task       string  // Task description
+    Response   string  // Final response from subagent
+    ErrorMsg   string  // Error message if failed
+}
+```
+
+This enables building monitoring widgets that display real-time activity from all subagents spawned by the main agent.
+
+## Go SDK subagents
+
+The SDK provides in-process subagent spawning:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:       "Summarize the changes in this PR",
+    Model:        "anthropic/claude-haiku-latest",
+    SystemPrompt: "You are a code reviewer.",
+    Timeout:      5 * time.Minute,
+})
+```
+
+Set `Agent` to run the task with a [named agent](#named-agents)'s presets; explicitly set fields still win:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // preset prompt + read-only tool allowlist
+})
+```
+
+Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent's session, so follow-ups reuse its accumulated context instead of re-establishing it from scratch:
+
+```go
+first, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Research how session persistence works",
+})
+
+followUp, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Now check how it handles errors",
+    SessionID: first.SessionID, // resume the same child session
+})
+```
+
+New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set `ParentSessionID` to override the recorded link.
+
+Inspect the discovered definitions:
+
+```go
+defs := host.GetAgents()             // snapshot of discovered definitions
+def, ok := host.GetAgent("explore")  // lookup by name
+
+// Standalone discovery without a Kit instance:
+defs, err := kit.LoadAgentDefinitions("") // "" = current working directory
+```
+
+### Real-time subagent events
+
+Use `SubscribeSubagent` to receive real-time events from LLM-initiated subagents (i.e., when the model uses the `subagent` tool). Register inside an `OnToolCall` handler using the tool call ID:
+
+```go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk) // streaming text from child
+            case kit.ToolCallEvent:
+                fmt.Printf("Child calling: %s\n", ev.ToolName)
+            case kit.ToolResultEvent:
+                fmt.Printf("Child result: %s\n", ev.ToolName)
+            }
+        })
+    }
+})
+```
+
+The listener receives the same event types as `Subscribe()` (`ToolCallEvent`, `MessageUpdateEvent`, `ReasoningDeltaEvent`, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.
+
+If no listeners are registered for a tool call, no event dispatching overhead is incurred.

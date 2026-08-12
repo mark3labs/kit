@@ -1,0 +1,279 @@
+
+# Commands
+
+## Authentication
+
+For OAuth-enabled providers like Anthropic.
+
+```bash
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+kit auth login [provider] --set-default  # Set provider's default model as system default
+kit auth logout [provider]       # Remove credentials for provider
+kit auth status                    # Check authentication status
+```
+
+## Model database
+
+Manage the local model database that maps provider names to API configurations.
+
+```bash
+kit models [provider]        # List available models (optionally filter by provider)
+kit models --all             # Show all providers (not just LLM-compatible)
+kit update-models [source]   # Update model database
+```
+
+The `update-models` command accepts an optional source argument:
+- *(none)* — update from [models.dev](https://models.dev)
+- A URL — fetch from a custom endpoint
+- A file path — load from a local file
+- `embedded` — reset to the bundled database
+
+## Extension management
+
+```bash
+kit extensions list          # List discovered extensions
+kit extensions validate      # Validate extension files
+kit extensions init          # Generate example extension template
+```
+
+### Installing extensions from git
+
+```bash
+kit install <git-url>        # Install extensions from git repositories
+kit install -l <git-url>     # Install to project-local .kit/git/ directory
+kit install -u <git-url>     # Update an already-installed package
+kit install --uninstall <pkg> # Remove an installed package
+kit install --all            # Install all extensions without prompting
+```
+
+## Skills
+
+```bash
+kit skill                    # Install the Kit extensions skill via skills.sh
+```
+
+### Skills CLI flags
+
+Control which skills are loaded at startup:
+
+```bash
+# Load a specific skill file
+kit --skill path/to/skill.md "prompt"
+
+# Load multiple skill files or directories (flag is repeatable)
+kit --skill ./skill1.md --skill ./skill2.md "prompt"
+
+# Scan a directory directly for skills (overrides auto-discovery)
+kit --skills-dir /path/to/skills "prompt"
+
+# Hide a skill from the model catalog by name (still usable via /skill:)
+kit --skill-disable noisy-skill "prompt"
+
+# Disable all skill loading (auto-discovery and explicit)
+kit --no-skills "prompt"
+```
+
+Skills follow the [agentskills.io](https://agentskills.io/specification) convention. They are auto-discovered from four canonical scopes:
+
+| Scope | Location |
+|-------|----------|
+| User-level (cross-client) | `~/.agents/skills/` |
+| User-level (Kit) | `~/.config/kit/skills/` (honors `$XDG_CONFIG_HOME`) |
+| Project-local (cross-client) | `<project>/.agents/skills/` |
+| Project-local (Kit) | `<project>/.kit/skills/` |
+
+When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
+
+Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/skill:<name>` command.
+
+### Skill frontmatter
+
+A skill is a markdown file (`SKILL.md` in a directory, or a standalone `.md`/`.txt` file) with optional YAML frontmatter. Kit reads the full [agentskills.io](https://agentskills.io/specification) field set plus two Kit-specific extensions:
+
+```yaml
+---
+name: pdf-extractor                 # required
+description: Use when extracting tables from PDFs   # required (drives model discovery)
+license: MIT                        # optional, SPDX identifier
+compatibility: claude-code, cursor  # optional, targeted environments
+allowed-tools: read, bash           # optional (experimental) tool restriction
+disable-model-invocation: false     # optional; true hides from the catalog
+metadata:                           # optional arbitrary key/value pairs
+  author: you
+tags: [pdf, data]                   # Kit extension
+when: on-demand                     # Kit extension
+---
+```
+
+`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
+
+### Project trust prompt
+
+Because project-local skills are injected into the system prompt, entering a repository that ships `.agents/skills/` or `.kit/skills/` for the first time prompts you to trust it before any project skill loads — a safeguard against a freshly cloned, untrusted repo smuggling instructions into the agent:
+
+```
+This project provides 2 skills under .agents/skills or .kit/skills:
+  /path/to/repo
+Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
+```
+
+Choosing **trust always** persists the directory to `~/.config/kit/trusted-projects.json` so you are not asked again. The prompt is skipped (skills load silently) in non-interactive runs — when a prompt is passed positionally, `--quiet` is set, or stdin is not a TTY.
+
+## GitHub integration
+
+Scaffold a GitHub Actions workflow that runs Kit as an automated collaborator/reviewer. The workflow triggers when someone comments `/kit ...` on an issue or pull request review, runs the agent non-interactively in the runner, and lets it respond.
+
+```bash
+kit github install           # Scaffold .github/workflows/kit.yml
+kit github install --model anthropic/claude-sonnet-4-5-20250929  # Skip the model prompt
+kit github install --force   # Overwrite an existing workflow file
+kit github install --no-secret # Skip the offer to set the provider secret via the gh CLI
+```
+
+By default the command prompts for the model (pre-filled with a sensible default). If the [`gh` CLI](https://cli.github.com/) is detected on your `PATH` and the provider API key is present in your environment, you'll be offered the option to store it as a repository secret automatically.
+
+The generated workflow:
+
+- Triggers only on `issue_comment` and `pull_request_review_comment` (`types: [created]`).
+- Runs only when the comment begins with the `/kit` command token.
+- Restricts triggers to repository owners, members, and collaborators (via `author_association`).
+- Uses least-privilege `permissions` and `persist-credentials: false`.
+- Authenticates git/PR operations with the built-in `secrets.GITHUB_TOKEN` and the provider via a repository secret (e.g. `ANTHROPIC_API_KEY`).
+
+After committing the workflow and setting the provider secret, comment `/kit <your request>` on any issue or pull request to trigger Kit.
+
+The generated workflow uses the bundled [`mark3labs/kit`](https://github.com/mark3labs/kit/blob/master/action.yml) composite action, which installs the Kit binary and runs `kit github run`. That command reads the triggering event, enforces permissions, reacts with an emoji, runs the agent against the issue thread or PR, posts the response as a comment, and — if the agent changed files — pushes a `kit-agent[bot]` branch and opens a pull request.
+
+| Flag | Description |
+|------|-------------|
+| `--model` | Provider/model to write into the workflow |
+| `--force` | Overwrite an existing workflow file |
+| `--no-secret` | Skip the offer to set the provider secret via the `gh` CLI |
+
+## Interactive slash commands
+
+These commands are available inside the Kit TUI during an interactive session:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/tools` | List available MCP tools |
+| `/servers` | Show connected MCP servers |
+| `/model [name]` | Switch model or open model selector |
+| `/theme [name]` | Switch color theme or list available themes |
+| `/thinking [level]` | Set thinking level (off, none, minimal, low, medium, high) |
+| `/compact [focus]` | Summarize older messages to free context |
+| `/clear` | Clear conversation |
+| `/clear-queue` | Clear queued messages |
+| `/usage` | Show token usage |
+| `/reset-usage` | Reset usage statistics |
+| `/shortcuts` | List keyboard shortcuts registered by extensions |
+| `/reload-ext` | Hot-reload all extensions from disk (alias: `/re`) |
+| `/tree` | Navigate session tree |
+| `/fork` | Fork to new session from an earlier message |
+| `/new` | Start a new session (creates new session file) |
+| `/name [name]` | Set or show session display name |
+| `/resume` | Open session picker to switch sessions (alias: `/r`) |
+| `/session` | Show session info |
+| `/export [path]` | Export session as JSONL (default: auto-generated path) |
+| `/import <path>` | Import a session from a JSONL file |
+| `/share` | Upload session to GitHub Gist and get a shareable viewer URL |
+| `/quit` | Exit Kit |
+
+### Prompt history
+
+Use **↑** and **↓** arrow keys to navigate through previously submitted prompts. Kit keeps the last 100 entries. Consecutive duplicates are skipped.
+
+### Cancelling operations
+
+Press **ESC twice** to cancel the current operation:
+- During a tool call: rolls back the entire turn to maintain API message pairing
+- During streaming: stops the response generation
+
+This ensures that `tool_use` and `tool_result` messages are always sent to the API as matched pairs, avoiding errors from orphaned tool calls.
+
+### External editor
+
+Press **Ctrl+X e** to open your `$VISUAL` or `$EDITOR` in a temporary file pre-populated with the current input text. On save and quit, the edited content replaces the input textarea. On error exit (e.g., `:cq` in Vim), the original input is preserved.
+
+### Mid-turn steering
+
+Press **Ctrl+X s** during streaming to inject a system-level instruction mid-turn. This allows you to steer the conversation direction without waiting for the model to finish:
+
+- Works during streaming output
+- Sends a steering instruction as a system message
+- Model continues from the interruption point with the new guidance
+
+Example: While the model is writing code, press Ctrl+X s and type "Use async/await instead" to change the implementation approach.
+
+### Image attachments
+
+Attach images to your next prompt straight from the clipboard:
+
+- Copy an image (e.g. a screenshot) to the system clipboard, then press **Ctrl+V** in the input to attach it.
+- Press **Ctrl+U** to clear all pending image attachments.
+- Attachments are sent alongside your text when you submit, and cleared afterward.
+
+When a terminal supports color, Kit renders a small low-resolution **thumbnail preview** of each pending image directly in the input, below the `[N image(s) attached]` indicator, so you can confirm the right image was attached before sending.
+
+The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like **tmux** and **zellij**. Thumbnails are capped to a small cell box for a glanceable, low-res look.
+
+- Best fidelity needs a **truecolor** terminal (`COLORTERM=truecolor`); Kit degrades to 256-color where truecolor is unavailable.
+- On terminals with neither, the preview is skipped and the `[N image(s) attached]` text indicator is shown alone.
+
+You can also attach image files by referencing them with `@path/to/image.png` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the `@` attachment syntax.
+
+## Prompt templates
+
+### Creating templates
+
+Templates use YAML frontmatter for metadata and support argument placeholders:
+
+```markdown
+---
+description: Review code for issues
+---
+Review the following code for bugs and security issues.
+Focus on $1 specifically.
+```
+
+Save to `~/.kit/prompts/review.md` or `.kit/prompts/review.md`.
+
+### Using templates
+
+Templates appear as slash commands:
+
+```
+/review error handling
+```
+
+### Argument placeholders
+
+| Placeholder | Description |
+|-------------|-------------|
+| `$1`, `$2`, etc. | Individual arguments by position |
+| `$@`, `$ARGUMENTS` | All arguments joined with spaces (zero or more) |
+| `$+` | All arguments joined with spaces (one or more required) |
+| `${@:N}` | Arguments from position N onwards |
+| `${@:N:L}` | L arguments starting at position N |
+
+Placeholders inside fenced code blocks (`` ``` ``) and inline code spans are ignored, so documentation examples won't be substituted.
+
+### CLI flags
+
+```bash
+# Load a specific template by name
+kit --prompt-template review
+
+# Disable template loading
+kit --no-prompt-templates
+```
+
+## ACP server
+
+Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.
+
+```bash
+kit acp                      # Start as ACP agent
+kit acp --debug              # With debug logging to stderr
+```

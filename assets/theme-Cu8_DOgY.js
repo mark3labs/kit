@@ -1,0 +1,1 @@
+var e={};throw Error(`Could not resolve "@docsearch/react" imported by "@tomehq/theme". Is it installed?`);export{e as default};

@@ -1,0 +1,759 @@
+
+# Go SDK
+
+The `pkg/kit` package lets you embed Kit as a library in your Go applications.
+
+## Installation
+
+```bash
+go get github.com/mark3labs/kit/pkg/kit
+```
+
+## Basic usage
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    kit "github.com/mark3labs/kit/pkg/kit"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create Kit instance with default configuration
+    host, err := kit.New(ctx, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer host.Close()
+
+    // Send a prompt
+    response, err := host.Prompt(ctx, "What is 2+2?")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    println(response)
+}
+```
+
+## Functional options (`NewAgent`)
+
+For simple programmatic setups, `kit.NewAgent` offers an ergonomic
+functional-options front door over `kit.New`. Streaming is **enabled by
+default**; pass `kit.WithStreaming(false)` to opt out.
+
+```go
+host, err := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithSystemPrompt("You are a helpful assistant."),
+    kit.WithMaxTokens(8192),
+    kit.WithThinkingLevel("medium"),
+    kit.Ephemeral(), // in-memory session, no persistence
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer host.Close()
+```
+
+Available options:
+
+| Option | Sets |
+|--------|------|
+| `WithModel(string)` | `Options.Model` (provider/model format) |
+| `WithSystemPrompt(string)` | `Options.SystemPrompt` (inline text or file path) |
+| `WithStreaming(bool)` | `Options.Streaming` (default `true` under `NewAgent`) |
+| `WithMaxTokens(int)` | `Options.MaxTokens` |
+| `WithThinkingLevel(string)` | `Options.ThinkingLevel` |
+| `WithTools(...Tool)` | `Options.Tools` (replaces the default set) |
+| `WithExtraTools(...Tool)` | `Options.ExtraTools` (adds alongside defaults) |
+| `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
+| `WithProviderURL(string)` | `Options.ProviderURL` |
+| `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
+| `WithConfigFile(string)` | `Options.ConfigFile` |
+| `WithDebug()` | `Options.Debug = true` |
+| `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
+| `Ephemeral()` | `Options.NoSession = true` |
+
+Options are applied in order, so later options override earlier ones. `Option`
+is a plain `func(*Options)`, so you can define your own. For advanced
+configuration not covered by the helpers (custom MCP config, in-process MCP
+servers, session backends, MCP task tuning) construct an `Options` value
+explicitly and call `kit.New`.
+
+### When to use which
+
+| Constructor | Use when |
+|-------------|----------|
+| `kit.NewAgent(ctx, ...Option)` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
+| `kit.New(ctx, *Options)` | You need fields without a `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task tuning, etc.), or you already hold an `Options` value. |
+
+## Per-instance config isolation
+
+Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
+so constructing multiple Kit instances in the same process is safe: setting the
+model, thinking level, or generation parameters on one never affects another,
+and runtime mutators (`SetModel`, `SetThinkingLevel`) only touch the owning
+instance. This makes subagent spawning and multi-Kit embedding race-free with
+no external synchronization required.
+
+```go
+a, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("low"))
+b, _ := kit.NewAgent(ctx, kit.WithThinkingLevel("high"))
+
+a.SetThinkingLevel(ctx, "medium")
+// a.GetThinkingLevel() == "medium"; b.GetThinkingLevel() is still "high"
+```
+
+## Multi-turn conversations
+
+Conversations retain context automatically across calls:
+
+```go
+host.Prompt(ctx, "My name is Alice")
+response, _ := host.Prompt(ctx, "What's my name?")
+// response: "Your name is Alice"
+```
+
+## Additional prompt methods
+
+The SDK provides several prompt variants:
+
+| Method | Description |
+|--------|-------------|
+| `Prompt(ctx, message)` | Simple prompt, returns response string |
+| `PromptWithOptions(ctx, message, opts)` | With per-call options (model, tools, thinking level, provider creds) |
+| `PromptResult(ctx, message)` | Returns full `TurnResult` with usage stats |
+| `PromptResultWithOptions(ctx, message, opts)` | Per-call options variant that returns the full `TurnResult` |
+| `PromptResultWithFiles(ctx, message, files)` | Multimodal with file attachments |
+| `Steer(ctx, instruction)` | System-level steering without user message |
+| `FollowUp(ctx, text)` | Continue without new user input |
+
+### Per-call overrides
+
+`PromptOptions` scopes configuration to a **single call** and restores the
+agent's prior state afterwards — no need to rebuild a `*Kit` per request. This
+suits multi-tenant hosts that resolve the model, credentials, or tool set per
+request:
+
+```go
+result, err := host.PromptResultWithOptions(ctx, "Summarise this ticket", kit.PromptOptions{
+    SystemMessage:  "You are a concise triage assistant.", // prepended for this call
+    Model:          "anthropic/claude-haiku-3-5-20241022", // overrides the default model
+    ThinkingLevel:  "low",                                 // "off" | "low" | "medium" | "high"
+    ExtraTools:     []kit.Tool{lookupTool},                // added on top of the core set
+    ProviderURL:    "https://proxy.tenant-a/v1",           // per-tenant endpoint
+    ProviderAPIKey: tenantKey,                             // per-tenant credential
+})
+```
+
+Every field is optional; a zero value means "use the agent's default." The
+prior model, thinking level, provider credentials, and tool set are all
+restored before the call returns, and concurrent option-driven prompts are
+serialized so the apply/restore window of one call never races another.
+
+## Custom tools
+
+Create custom tools with `kit.NewTool`. The JSON schema is auto-generated from the input struct — no external dependencies required:
+
+```go
+type WeatherInput struct {
+    City string `json:"city" description:"City name"`
+}
+
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{weatherTool},
+})
+```
+
+Struct tags control the schema:
+
+- `json:"name"` — parameter name
+- `description:"..."` — description shown to the LLM
+- `enum:"a,b,c"` — restrict valid values
+- `omitempty` — marks the parameter as optional
+
+Return values:
+
+| Helper | Description |
+|--------|-------------|
+| `kit.TextResult(s)` | Successful text result |
+| `kit.ErrorResult(s)` | Error result (LLM sees it as a tool error) |
+| `kit.ImageResult(s, data, mediaType)` | Image result with binary data (e.g. `"image/png"`) |
+| `kit.MediaResult(s, data, mediaType)` | Non-image media result (e.g. `"audio/mpeg"`) |
+
+Binary data (images, audio, etc.) in `ToolOutput.Data` is automatically forwarded to the LLM when `MediaType` is set. For advanced use, return a `kit.ToolOutput` struct directly with `Data`, `MediaType`, and `Metadata` fields.
+
+Use `kit.NewParallelTool` for tools that are safe to run concurrently. Use `kit.ToolCallIDFromContext(ctx)` to retrieve the LLM-assigned call ID for logging or tracing.
+
+`Options.ExtraTools` fixes the native tool set at construction time. To add or remove native tools on a live host, see [Runtime native tools](#runtime-native-tools).
+
+### Schema-driven tools
+
+When the tool's input shape isn't known at compile time — tools sourced from
+JSON Schema definitions in skill files, MCP server catalogs, or user-supplied
+definitions — use `kit.NewRawTool`. It takes a JSON Schema and a handler that
+receives the decoded arguments as a `map[string]any`, so no Go input type is
+required:
+
+```go
+schema := map[string]any{
+    "type": "object",
+    "properties": map[string]any{
+        "city": map[string]any{"type": "string", "description": "City name"},
+    },
+    "required": []any{"city"},
+}
+
+weatherTool := kit.NewRawTool("get_weather", "Get current weather for a city", schema,
+    func(ctx context.Context, args map[string]any) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + args["city"].(string)), nil
+    },
+)
+```
+
+The `schema` is advertised to the model as the tool's parameter schema. If the
+model sends arguments that aren't a valid JSON object, the call short-circuits
+with an error result before your handler runs.
+
+### Halting the agent loop
+
+For structured-result patterns — the model calls a `finish(...)` tool with a
+typed argument and the loop should terminate, returning that value to the
+caller — set `Halt` and `FinalValue` on the returned `ToolOutput` instead of
+smuggling the value out through a side-channel:
+
+```go
+finishTool := kit.NewTool("finish", "Return the final structured answer",
+    func(ctx context.Context, input AnswerInput) (kit.ToolOutput, error) {
+        return kit.ToolOutput{
+            Content:    "done",
+            Halt:       true,       // terminate the agent loop after this call
+            FinalValue: input,      // surfaced to the caller
+        }, nil
+    },
+)
+
+result, _ := host.PromptResult(ctx, "Extract the order details")
+if result.HaltedByTool == "finish" {
+    answer := result.FinalValue.(AnswerInput) // the typed value your handler stored
+    _ = answer
+}
+```
+
+`TurnResult.HaltedByTool` names the tool that halted the turn (empty if the
+turn ended for any other reason), and `TurnResult.FinalValue` carries whatever
+your handler placed in `ToolOutput.FinalValue`. `Halt`/`FinalValue` work with
+`NewTool`, `NewParallelTool`, and `NewRawTool` alike.
+
+## Generation & provider overrides
+
+SDK consumers can configure generation parameters and provider endpoints
+entirely in-code via `Options`, without touching `.kit.yml` or `viper.Set()`:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    Model:          "anthropic/claude-sonnet-4-5-20250929",
+    MaxTokens:      16384,             // 0 = auto-resolve (env → config → per-model → floor)
+    ThinkingLevel:  "high",            // "off" | "none" | "minimal" | "low" | "medium" | "high"
+    Temperature:    ptrFloat32(0.2),   // nil = provider/per-model default
+    ProviderAPIKey: os.Getenv("MY_SECRET"), // overrides pre-existing viper state
+    ProviderURL:    "https://proxy.internal/v1",
+})
+
+func ptrFloat32(v float32) *float32 { return &v }
+```
+
+See [Options](/sdk/options#generation-parameters) for the full field reference,
+including `TopP`, `TopK`, `FrequencyPenalty`, `PresencePenalty`, and `TLSSkipVerify`.
+
+## Event system
+
+Subscribe to events for monitoring:
+
+```go
+unsubscribe := host.OnToolCall(func(event kit.ToolCallEvent) {
+    fmt.Println("Tool called:", event.Name)
+})
+defer unsubscribe()
+
+host.OnToolResult(func(event kit.ToolResultEvent) {
+    fmt.Println("Tool result:", event.Name)
+})
+
+host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
+    fmt.Print(event.Chunk)
+})
+```
+
+## Model management
+
+Switch models at runtime and inspect the registry:
+
+```go
+host.SetModel(ctx, "openai/gpt-4o")
+info := host.GetModelInfo()
+
+// Advisory list of known models — each entry is a kit.ModelInfoEntry
+// (Provider, ModelID, Name, ContextLimit, OutputLimit, Reasoning, Pricing).
+// Models not in the registry can still be used by provider/model string.
+models := host.GetAvailableModels()
+for _, m := range models {
+    if m.Reasoning {
+        fmt.Printf("%s/%s context=%d\n", m.Provider, m.ModelID, m.ContextLimit)
+    }
+}
+
+// Prefer a chain of models; first available wins.
+result := kit.ResolveModelChain([]string{
+    "anthropic/claude-sonnet-4-5-20250929",
+    "openai/gpt-4o",
+})
+if result.Error == "" {
+    _ = host.SetModel(ctx, result.Model)
+}
+```
+
+Each `ModelInfoEntry` and `ModelCapabilities` carries a `Pricing` field with
+per-million-token costs from the registry:
+
+```go
+caps, errStr := kit.GetModelCapabilities("anthropic/claude-sonnet-4-5-20250929")
+if errStr == "" && caps.Pricing.Known {
+    fmt.Printf("in $%.2f/1M  out $%.2f/1M\n", caps.Pricing.Input, caps.Pricing.Output)
+}
+```
+
+Check `Pricing.Known` before using any rate. It is `false` for local models and
+custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
+unpriced model looks identical to a free one. Cache rates are similarly guarded
+by `HasCacheRead` / `HasCacheWrite`.
+
+## One-shot completions
+
+`ExecuteCompletion` runs a single LLM call outside the agent loop — useful for
+summaries, classifiers, or any side request that should not touch the session
+or tools. When `CompleteRequest.Model` is empty the current agent model is
+reused (no extra provider setup); set it to spin up a temporary provider that
+is closed when the call returns.
+
+```go
+resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    // Model: "openai/gpt-4o-mini", // optional override
+    System: "You are a terse classifier.",
+    Prompt: "Is this a bug report? Reply yes or no.\n\n" + userText,
+    MaxTokens: 16,
+})
+if err != nil {
+    return err
+}
+fmt.Println(resp.Text, resp.InputTokens, resp.OutputTokens, resp.Model)
+
+// Streaming: set OnChunk to receive text deltas as they arrive.
+_, err = host.ExecuteCompletion(ctx, kit.CompleteRequest{
+    Prompt: "Write a haiku about terminals.",
+    OnChunk: func(chunk string) { fmt.Print(chunk) },
+})
+```
+
+## Mid-turn steering
+
+`InjectSteer` queues a user message that is injected between agent steps while
+a turn is active (after the current tool finishes, before the next LLM call).
+If no turn is running the message is dropped — check `IsGenerating()` first,
+or use `Prompt` / `Steer` for idle-state messaging. Unconsumed messages can be
+reclaimed with `DrainSteer` after the turn ends.
+
+```go
+go func() {
+    // e.g. from a UI cancel/redirect button
+    if host.IsGenerating() {
+        host.InjectSteer("Stop exploring and summarise what you found.")
+        // host.InjectSteerWithFiles(msg, []kit.LLMFilePart{...}) for images
+    }
+}()
+
+// After the turn completes, reclaim anything that arrived too late to inject:
+for _, msg := range host.DrainSteer() {
+    fmt.Println("unconsumed steer:", msg.Text)
+}
+```
+
+## Filtering core tools
+
+`Options.CoreToolList` accepts an explicit allow-list of core tool names. Build
+it from include/exclude filters with `FilterCoreToolNames` (nil means "all core
+tools"). Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`,
+which leaks the configuration library into the public signature.
+
+```go
+// Keep only read-only tools:
+list, err := kit.FilterCoreToolNames(
+    []string{"read", "grep", "find", "ls"}, // include
+    nil,                                    // exclude
+)
+if err != nil {
+    return err
+}
+
+// Or drop bash and write:
+list, err = kit.FilterCoreToolNames(nil, []string{"bash", "write"})
+
+host, err := kit.New(ctx, &kit.Options{
+    CoreToolList: list,
+})
+```
+
+At most one of include/exclude may be non-empty. Unknown names are skipped with
+a warning. `DisableCoreTools: true` is still the right switch for chat-only
+hosts that need zero core tools.
+
+## Dynamic MCP servers
+
+Add and remove MCP servers at runtime:
+
+```go
+n, err := host.AddMCPServer(ctx, "github", kit.MCPServerConfig{
+    Command: []string{"npx", "-y", "@modelcontextprotocol/server-github"},
+})
+fmt.Printf("Loaded %d tools\n", n)
+
+err = host.RemoveMCPServer("github")
+servers := host.ListMCPServers() // []kit.MCPServerStatus
+```
+
+### In-process MCP servers
+
+Register mcp-go servers running in the same process — zero subprocess overhead:
+
+```go
+import (
+    "github.com/mark3labs/mcp-go/mcp"
+    "github.com/mark3labs/mcp-go/server"
+)
+
+mcpSrv := server.NewMCPServer("my-tools", "1.0.0",
+    server.WithToolCapabilities(true),
+)
+mcpSrv.AddTool(mcp.NewTool("search_docs",
+    mcp.WithDescription("Search documentation"),
+    mcp.WithString("query", mcp.Required()),
+), searchHandler)
+
+// At init time
+host, _ := kit.New(ctx, &kit.Options{
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,
+    },
+})
+
+// Or at runtime
+n, _ := host.AddInProcessMCPServer(ctx, "docs", mcpSrv)
+```
+
+## Runtime native tools
+
+`Options.Tools` / `Options.ExtraTools` freeze the native Go tool set at
+construction time. For progressive disclosure (loading a domain's tools only
+when the model asks for them) or multi-tenant hosts that swap tool catalogs per
+request, mutate the native tool set on a live host — mirroring the runtime MCP
+and skill APIs. No host rebuild, so session history, MCP connections, and the
+system-prompt snapshot all survive.
+
+```go
+weatherTool := kit.NewTool("get_weather", "Get current weather for a city",
+    func(ctx context.Context, input WeatherInput) (kit.ToolOutput, error) {
+        return kit.TextResult("72°F, sunny in " + input.City), nil
+    },
+)
+
+// Add tools that persist for the session (visible on the next turn).
+host.AddTools(weatherTool)
+
+// Drop tools by name when a domain is no longer needed.
+if err := host.RemoveTools("get_weather"); err != nil {
+    log.Printf("remove tools: %v", err)
+}
+
+// Replace the entire native extra-tool set in one call.
+host.SetExtraTools(activeToolsForUser...)
+
+// Inspect the current set (snapshot copy — safe to mutate).
+extra := host.GetExtraTools()
+```
+
+Key points:
+
+- **Scope is `extraTools` only.** These methods manage the same slice as
+  `Options.ExtraTools`. Core tools, MCP tools, and extension-registered tools are
+  never touched, and `GetExtraTools` excludes extension tools.
+- **Last-write-wins on name.** `AddTools` replaces any existing extra tool that
+  shares a `Info().Name`, then appends the rest. Duplicate names within a single
+  call also resolve to the last one provided.
+- **`RemoveTools` is atomic.** If any supplied name is not currently registered,
+  it returns an error listing the missing names (deduped and sorted) and leaves
+  the tool set unchanged.
+- **Next-step visibility.** Mutations apply from the next LLM step. If a turn is
+  in progress, the running step finishes with its existing tool set.
+- **Composes with per-call tools.** [`PromptOptions.ExtraTools`](#per-call-overrides)
+  still layers on top for a single call and is reverted afterwards, snapshotting
+  around whatever persistent set is active.
+- **Thread safety.** All four methods are safe to call concurrently; the
+  extra-tool state is guarded by an internal `RWMutex`.
+- **Not session-persisted.** Native tool *definitions* are not serialized into
+  session state. Re-add them on session resume, just as with `Options.ExtraTools`.
+
+## Runtime skills and context files
+
+Kit auto-discovers skills and `AGENTS.md`-style context files during `New()`,
+but multi-tenant hosts (chatbots, web services, per-user agents) often need
+to swap these **after** construction. The runtime mutators below recompose
+the system prompt and apply it to the agent so the next turn picks up the
+updated instructions — no restart, no file shuffling.
+
+```go
+// Add a programmatic skill — no file on disk required.
+host.AddSkill(&kit.Skill{
+    Name:        "polite-french",
+    Description: "Respond in French and always greet the user.",
+    Content:     "Always reply in French. Open every response with 'Bonjour'.",
+})
+
+// Or load one from disk.
+host.LoadAndAddSkill("/var/skills/refund-policy.md")
+
+// Project context (AGENTS.md equivalents): inline content from a DB...
+host.AddContextFileContent(
+    fmt.Sprintf("session://%s/AGENTS.md", userID),
+    rulesFromDB,
+)
+// ...or load from disk.
+host.LoadAndAddContextFile("/etc/agents/tenant-acme.md")
+
+// Remove individually when a session ends.
+host.RemoveSkill("polite-french")
+host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
+
+// Hide a skill from the model-facing catalog without unloading it — it stays
+// available for explicit /skill: activation. EnableSkill reverses this.
+host.DisableSkill("refund-policy")
+host.EnableSkill("refund-policy")
+
+// Or replace the whole set in one call.
+host.SetSkills(activeSkillsForUser)
+host.SetContextFiles(activeContextForUser)
+
+// Inspect current state (snapshot copies — safe to mutate).
+skills := host.GetSkills()
+ctxFiles := host.GetContextFiles()
+```
+
+Key points:
+
+- **Auto-refresh.** Every `Add*` / `Remove*` / `Set*` call recomposes the system
+  prompt against the captured base prompt (preserving per-model overrides and
+  `--system-prompt` resolution) and pushes the result onto the agent. Call
+  `host.RefreshSystemPrompt()` only if you mutate state through a different
+  path and need to force a re-render.
+- **Dedup keys.** Skills dedupe by `Name`; context files dedupe by `Path`.
+  Re-adding the same key replaces the entry instead of appending a duplicate.
+- **Path is opaque.** `ContextFile.Path` does not have to point at a real file
+  — it's only used for dedup and for the `Instructions from: <Path>` header
+  injected into the prompt. URIs like `session://user-123/AGENTS.md` work fine.
+- **Thread safety.** All readers and mutators are safe to call concurrently
+  from multiple goroutines; the underlying state is guarded by an internal
+  `RWMutex`.
+- **Init-time options still apply.** `Options.Skills`, `Options.SkillsDir`,
+  `Options.SkillsDisable`, `Options.SkillTrustPrompt`, `Options.NoSkills`, and
+  `Options.NoContextFiles` continue to control the startup set; the runtime API
+  mutates from whatever state `New()` produced.
+  See [SDK options](/sdk/options#skills--configuration).
+- **Auto-discovery scopes.** When no explicit `Skills`/`SkillsDir` are given,
+  `New()` scans four [agentskills.io](https://agentskills.io/specification)
+  locations: `~/.agents/skills/`, `~/.config/kit/skills/`,
+  `<project>/.agents/skills/`, and `<project>/.kit/skills/`. Project-level
+  skills override user-level skills of the same `name`. Skills missing a
+  `description` are skipped with a logged warning, and a skill's
+  `disable-model-invocation: true` (or `Options.SkillsDisable`) hides it from
+  the catalog while keeping it available for explicit activation.
+- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory) and
+  `Resources()` (the files bundled under `scripts/`, `references/`, and
+  `assets/`), which power the `<skill_resources>` enumeration shown when a skill
+  is activated.
+- **`fs.FS`-backed discovery.** The package-level loaders `kit.LoadSkill`,
+  `kit.LoadSkillsFromDir`, and `kit.LoadSkills` are path-string based;
+  `kit.LoadSkillsFromFS(fsys, root)` is the `fs.FS`-typed counterpart for
+  `embed.FS` distribution, `fstest.MapFS` tests, or per-tenant virtual
+  filesystems. Feed the result into `host.SetSkills(...)`:
+
+  ```go
+  //go:embed skills
+  var skillsFS embed.FS
+
+  loaded, _ := kit.LoadSkillsFromFS(skillsFS, "skills")
+  host.SetSkills(loaded)
+  ```
+
+## MCP prompts and resources
+
+Query prompts and resources exposed by connected MCP servers:
+
+```go
+// List and expand prompts
+prompts := host.ListMCPPrompts()
+result, _ := host.GetMCPPrompt(ctx, "server", "prompt-name", map[string]string{"key": "value"})
+
+// List and read resources
+resources := host.ListMCPResources()
+content, _ := host.ReadMCPResource(ctx, "server", "file:///path")
+```
+
+## MCP tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize`, so cooperating servers can return a `taskId` immediately
+and let Kit poll `tasks/get` / `tasks/result` until the operation completes.
+This avoids HTTP/SSE proxy timeouts on long tools and gives you clean
+cancellation via context.
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways,
+    },
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s: %s", p.TaskID, p.Status)
+    },
+})
+
+// Inspect / cancel in-flight tasks
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+_, _    = host.CancelMCPTask(ctx, "build-server", tasks[0].TaskID)
+```
+
+Defaults to `MCPTaskModeAuto` per server, so any existing MCP server keeps
+its previous synchronous behaviour. See [SDK options → MCP Tasks](/sdk/options#mcp-tasks)
+for the full surface.
+
+## Context and compaction
+
+Monitor and manage context usage:
+
+```go
+tokens := host.EstimateContextTokens()
+stats := host.GetContextStats()
+
+if host.ShouldCompact() {
+    result, err := host.Compact(ctx, nil, "")
+}
+```
+
+Token estimates count every message part (tool-call arguments, tool results,
+reasoning, file attachments), and after the first turn the real API-reported
+token count is preferred over the heuristic. Compaction budgets adapt to the
+model's context and output limits when left at their zero values; pass a
+`*kit.CompactionOptions` as the second argument to `Compact` to override
+them — see [SDK options → CompactionOptions](/sdk/options#compactionoptions).
+
+Estimates can still undercount. When a provider call fails with a
+context-overflow error, the turn loop automatically compacts and replays the
+turn once before surfacing `kit.ErrContextOverflow` — see
+[Reactive compaction](/sdk/options#reactive-compaction-on-context-overflow).
+
+## Provider error classification
+
+Provider failures are wrapped with exported sentinels so you can branch on the
+failure category with `errors.Is` instead of string-matching the underlying
+HTTP error. `PromptResult` / `Prompt` already return classified errors; you can
+also classify any provider error yourself with `kit.ClassifyProviderError`:
+
+```go
+_, err := host.PromptResult(ctx, prompt)
+switch {
+case errors.Is(err, kit.ErrContextOverflow):
+    // Kit already compacted and replayed the turn once before surfacing
+    // this — reaching here means the conversation cannot fit even after
+    // compaction (e.g. start a new session or trim input).
+    handleUnrecoverableOverflow()
+case errors.Is(err, kit.ErrRateLimit):
+    backoffAndRetry()
+case errors.Is(err, kit.ErrAuth):
+    rePromptForKey()
+case errors.Is(err, kit.ErrProviderUnavailable):
+    retryLater()
+case errors.Is(err, kit.ErrInvalidRequest):
+    log.Printf("non-retryable: %v", err)
+}
+```
+
+| Sentinel | Meaning |
+|----------|---------|
+| `kit.ErrContextOverflow` | Request exceeded the model's context window — surfaced only after Kit's automatic compact-and-replay recovery also failed |
+| `kit.ErrRateLimit` | Provider throttled the request |
+| `kit.ErrAuth` | Credential / authorization failure |
+| `kit.ErrProviderUnavailable` | Transient upstream failure (5xx, network, timeout) |
+| `kit.ErrInvalidRequest` | Structurally invalid request — retrying won't help |
+
+The original error stays reachable via `errors.Is`, so you never lose the
+provider's detail message.
+
+## Graceful shutdown
+
+`Close()` releases MCP connections, model resources, and the session file
+handle. When shutdown must be bounded by a deadline, use `CloseContext`:
+
+```go
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+if err := host.CloseContext(shutdownCtx); err != nil {
+    log.Printf("shutdown: %v", err)
+}
+```
+
+`Close()` is equivalent to `CloseContext(context.Background())`.
+
+## In-process subagents
+
+Spawn child Kit instances without subprocess overhead:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt:    "Analyze the test files",
+    Model:     "anthropic/claude-haiku-3-5-20241022",
+    NoSession: true,
+    Timeout:   2 * time.Minute,
+})
+```
+
+Set `Agent` to a named agent definition (discovered from `.agents/agents/*.md`,
+`.kit/agents/*.md`, `~/.config/kit/agents/*.md`, or the built-ins `general` /
+`explore`) to apply its preset system prompt, model, tool allowlist, and
+timeout:
+
+```go
+result, err := host.Subagent(ctx, kit.SubagentConfig{
+    Prompt: "Map out the session persistence flow",
+    Agent:  "explore", // read-only preset
+})
+```
+
+Session-backed runs are linked to the parent: new child sessions record the
+parent's session ID in their header, and `result.SessionID` can be passed back
+as `SubagentConfig.SessionID` to resume the child session for follow-up
+prompts that reuse its accumulated context.
+
+See [Subagents](/advanced/subagents#named-agents) for definition file format
+and discovery precedence.
+
+See [Options](/sdk/options), [Callbacks](/sdk/callbacks), and [Sessions](/sdk/sessions) for more details.

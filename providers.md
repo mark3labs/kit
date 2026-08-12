@@ -1,0 +1,258 @@
+
+# Providers
+
+Kit supports a wide range of LLM providers through a unified `provider/model` string format.
+
+## Supported providers
+
+| Provider | Prefix | Description |
+|----------|--------|-------------|
+| **Anthropic** | `anthropic/` | Claude models (native, prompt caching, OAuth) |
+| **OpenAI** | `openai/` | GPT models |
+| **GitHub Copilot** | `copilot/` | Copilot models through GitHub device login (experimental) |
+| **Google** | `google/` or `gemini/` | Gemini models |
+| **Ollama** | `ollama/` | Local models |
+| **Azure OpenAI** | `azure/` | Azure-hosted OpenAI |
+| **AWS Bedrock** | `bedrock/` | Bedrock models |
+| **Google Vertex** | `google-vertex-anthropic/` | Claude on Vertex AI |
+| **OpenRouter** | `openrouter/` | Multi-provider router |
+| **Vercel AI** | `vercel/` | Vercel AI SDK models |
+| **Custom** | `custom/` | Any OpenAI-compatible endpoint |
+| **Auto-routed** | any | Any provider from the models.dev database |
+
+## Model string format
+
+```bash
+provider/model            # Standard format
+anthropic/claude-sonnet-latest
+openai/gpt-4o
+copilot/gpt-5.5
+ollama/llama3
+google/gemini-2.5-flash
+```
+
+## Model aliases
+
+Kit provides aliases for commonly used models:
+
+### Anthropic Claude
+
+```bash
+claude-opus-latest        → claude-opus-4-6
+claude-sonnet-latest      → claude-sonnet-4-6
+claude-haiku-latest       → claude-haiku-4-5
+claude-4-opus-latest      → claude-opus-4-6
+claude-4-sonnet-latest    → claude-sonnet-4-6
+claude-4-haiku-latest     → claude-haiku-4-5
+claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
+claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
+claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
+claude-3-opus-latest      → claude-3-opus-20240229
+```
+
+### OpenAI GPT
+
+```bash
+o1-latest                 → o1
+o3-latest                 → o3
+o4-latest                 → o4-mini
+gpt-5-latest              → gpt-5.4
+gpt-5-chat-latest         → gpt-5.4
+gpt-4-latest              → gpt-4o
+gpt-4                     → gpt-4o
+gpt-3.5-latest            → gpt-3.5-turbo
+gpt-3.5                   → gpt-3.5-turbo
+codex-latest              → codex-mini-latest
+```
+
+### Google Gemini
+
+```bash
+gemini-pro-latest         → gemini-2.5-pro
+gemini-flash-latest       → gemini-2.5-flash
+gemini-flash              → gemini-2.5-flash
+gemini-pro                → gemini-2.5-pro
+```
+
+## Specifying a model
+
+Via CLI flag:
+
+```bash
+kit --model openai/gpt-4o
+kit -m ollama/llama3
+```
+
+Via config file:
+
+```yaml
+model: anthropic/claude-sonnet-latest
+```
+
+Via environment variable:
+
+```bash
+export KIT_MODEL="google/gemini-2.0-flash-exp"
+```
+
+## Authentication
+
+### API keys
+
+Set the appropriate environment variable for your provider:
+
+```bash
+export ANTHROPIC_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="..."
+```
+
+Or pass it directly:
+
+```bash
+kit --provider-api-key "sk-..." --model openai/gpt-4o
+```
+
+### OAuth
+
+For providers that support OAuth:
+
+```bash
+kit auth login anthropic     # Anthropic OAuth
+kit auth login openai        # ChatGPT/Codex OAuth
+kit auth login copilot       # GitHub Copilot device login (experimental)
+kit auth status              # Check authentication status
+kit auth logout copilot      # Remove credentials
+```
+
+The experimental `copilot/` provider requires an active GitHub Copilot subscription
+and uses GitHub device login; no OpenAI account or OpenAI API key is required.
+
+### Custom provider URL
+
+For self-hosted or proxy endpoints:
+
+```bash
+kit --provider-url "https://my-proxy.example.com/v1" --model openai/gpt-4o
+```
+
+When `--provider-url` is set with an explicit `--model`, Kit routes through the
+`custom` (OpenAI-compatible) wire and strips any provider prefix from the model
+name. So `openai/gpt-4o`, `google/gemma-4-12b`, and bare `gpt-4o` all resolve
+to the same endpoint — Kit treats `--provider-url` as authoritative about *where*
+to send the request, and the model string as just the upstream model id.
+
+This avoids name collisions when a local server (LM Studio, Ollama, vLLM, ...)
+happens to expose a model whose name matches a known cloud provider.
+
+When `--provider-url` is provided without `--model`, Kit automatically defaults to `custom/custom`:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" "Hello"
+```
+
+The `custom/custom` model has zero cost, 262K context window, and supports reasoning. It routes through the `openaicompat` provider and accepts any OpenAI-compatible API endpoint.
+
+Optionally set `CUSTOM_API_KEY` environment variable or use `--provider-api-key` for endpoints requiring authentication.
+
+## Auto-routed providers
+
+Any provider in the [models.dev](https://models.dev) database can be used with the
+standard `provider/model` format, even without a dedicated native integration. Kit
+auto-routes the request through the matching **wire protocol** — the actual API
+shape the provider speaks — rather than requiring a per-provider code path:
+
+| Wire protocol | npm package (models.dev) | Transport used |
+|---------------|--------------------------|----------------|
+| OpenAI (Responses API) | `@ai-sdk/openai` | OpenAI |
+| OpenAI (chat completions) | `@ai-sdk/openai-compatible` | OpenAI-compatible |
+| Anthropic | `@ai-sdk/anthropic` | Anthropic |
+| Google Gemini | `@ai-sdk/google` | Google |
+
+The provider's `api` URL from the database is used as the base URL. A provider
+whose npm package isn't recognized but that has an `api` URL falls back to the
+OpenAI-compatible wire.
+
+Because routing follows the wire protocol, aggregator/proxy providers work across
+**all** of their models — including ones they re-flavor onto a different protocol
+via a per-model override. For example, an aggregator that proxies Claude, GPT,
+*and* Gemini routes them to the Anthropic, OpenAI, and Google transports
+respectively:
+
+```bash
+kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
+kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
+kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+```
+
+Provide the provider's API key the same way as any other — via its environment
+variable (e.g. `OPENCODE_API_KEY`) or `--provider-api-key`.
+
+## Provider overrides
+
+The wire protocol is normally inferred from the model database, but you can
+declare it explicitly — either to patch a provider the database routes wrongly,
+or to define an entirely new provider (e.g. an internal LLM gateway) that the
+database doesn't know about. Add a `providers` section to your config file:
+
+```yaml
+# ~/.kit.yml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: https://llm.internal.corp/api
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+All fields are optional; unset fields inherit the database values. Accepted
+`wire` values are `openai` (Responses API), `openai-compat` (chat completions),
+`anthropic`, and `google`. `apiKeyEnv` lists environment variables tried in
+order, and `headers` adds default HTTP headers to every request. See the
+[provider override fields reference](/configuration#provider-overrides) for
+the full field table.
+
+For one-off use without editing config, pass `--provider-wire` together with
+`--provider-url`. Unlike `--provider-url` alone (which always speaks the
+OpenAI-compatible wire via `custom/`), this routes the model's own provider
+prefix through the declared wire — and works even for providers not in the
+database:
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 \
+    --provider-url https://llm.internal.corp/api \
+    --provider-wire anthropic \
+    --provider-api-key "$CORP_LLM_KEY" "Hello"
+```
+
+### When to use which
+
+| Mechanism | Wire protocols | Scope | Best for |
+|-----------|---------------|-------|----------|
+| `--provider-url` alone | OpenAI-compatible only | One-off (routes via `custom/`) | Quick tests against local/OpenAI-compatible endpoints |
+| [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
+| [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
+| `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+
+## Model database
+
+Kit ships with a local model database that maps provider names to API configurations. You can manage it with:
+
+```bash
+kit models                   # List available models
+kit models openai            # Filter by provider
+kit models --all             # Show all providers
+kit update-models            # Update from models.dev
+kit update-models embedded   # Reset to bundled database
+```

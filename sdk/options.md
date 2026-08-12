@@ -1,0 +1,516 @@
+
+# SDK Options
+
+Pass an `Options` struct to `kit.New()` to configure the Kit instance.
+
+> **Tip:** for simple setups, `kit.NewAgent(ctx, ...Option)` provides
+> functional-options helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...)
+> over the same `Options` struct. See
+> [Functional options](/sdk/overview#functional-options-newagent).
+
+Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
+these options never leak between Kit instances in the same process. See
+[Per-instance config isolation](/sdk/overview#per-instance-config-isolation).
+
+## Full options reference
+
+```go
+host, err := kit.New(ctx, &kit.Options{
+    // Model
+    Model:        "ollama/llama3",
+    SystemPrompt: "You are a helpful bot",
+    ConfigFile:   "/path/to/config.yml",
+
+    // Behavior
+    MaxSteps:     10,
+    Streaming:    ptrBool(true), // *bool: nil = unset (default true), &false = off
+    Quiet:        true,
+    Debug:        true,
+    DebugLogger:  myLogger,       // optional; overrides Debug + built-in logger when non-nil
+
+    // Generation parameters (override env/config/per-model defaults)
+    MaxTokens:        16384,              // 0 = auto-resolve; non-zero suppresses right-sizing
+    ThinkingLevel:    "medium",           // "off", "none", "minimal", "low", "medium", "high"
+    Temperature:      ptrFloat32(0.2),    // pointer so explicit 0.0 != unset
+    TopP:             nil,                 // nil = provider/per-model default
+    TopK:             nil,
+    FrequencyPenalty: nil,
+    PresencePenalty:  nil,
+
+    // Provider configuration
+    ProviderAPIKey: "sk-...",                      // "" = use config / provider env var
+    ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint
+    ProviderWire:   "anthropic",                  // "" = infer wire from model database
+    TLSSkipVerify:  false,                         // only effective when true
+
+    // Session
+    SessionPath:  "./session.jsonl",
+    SessionDir:   "/custom/sessions/",
+    Continue:     true,
+    NoSession:    true,
+
+    // Tools
+    Tools:            []kit.Tool{...},     // Replace default tool set entirely
+    ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)
+    DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
+    CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
+
+    // Configuration
+    SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
+
+    // Compaction
+    AutoCompact:  true,
+
+    // Skills
+    Skills:        []string{"/path/to/skill.md"},
+    SkillsDir:     "/path/to/skills/",
+    SkillsDisable: []string{"noisy-skill"},
+    NoSkills:      true,
+
+    // Feature toggles
+    NoExtensions:   true,               // disable Yaegi extension loading
+    NoContextFiles: true,               // disable automatic AGENTS.md loading
+    NoAgents:       true,               // disable named agent discovery (.agents/agents/, .kit/agents/, ~/.config/kit/agents/, and built-ins)
+
+    // Session (advanced)
+    SessionManager: myCustomSession,    // custom SessionManager implementation
+
+    // MCP OAuth — both opt-in. Leave MCPAuthHandler nil to disable
+    // OAuth entirely (remote MCP 401s bubble up as errors). CLI apps
+    // pass kit.NewCLIMCPAuthHandler(); custom UX embedders implement
+    // MCPAuthHandler or configure DefaultMCPAuthHandler + OnAuthURL.
+    MCPAuthHandler: authHandler,                  // nil = OAuth disabled
+    MCPTokenStoreFactory: func(serverURL string) (kit.MCPTokenStore, error) {
+        return myStore(serverURL), nil
+    },
+
+    // In-Process MCP Servers
+    InProcessMCPServers: map[string]*kit.MCPServer{
+        "docs": mcpSrv,  // *server.MCPServer from mcp-go
+    },
+})
+```
+
+## Options fields
+
+### Core
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Model` | `string` | config default | Model string (provider/model format) |
+| `SystemPrompt` | `string` | — | System prompt text or file path |
+| `ConfigFile` | `string` | `~/.kit.yml` | Path to config file |
+| `MaxSteps` | `int` | `0` | Max agent steps (0 = unlimited) |
+| `Streaming` | `*bool` | `nil` | Enable streaming output. `nil` leaves it to the precedence chain (env → config → default `true`); `&true`/`&false` forces it. Pointer so unset is distinct from explicit `false`. |
+| `Quiet` | `bool` | `false` | Suppress output |
+| `Debug` | `bool` | `false` | Enable debug logging via the built-in console / buffered logger. Ignored when `DebugLogger` is non-nil. |
+| `DebugLogger` | `DebugLogger` | `nil` | Caller-supplied logger that receives low-level engine + MCP tool plumbing debug output. When non-nil this overrides `Debug` — the supplied logger's `IsDebugEnabled()` controls downstream emission. See [Custom debug logger](#custom-debug-logger). |
+
+### Generation parameters
+
+These fields override the corresponding values from `.kit.yml` / `KIT_*`
+environment variables. Leaving a field at its zero/nil value lets the
+precedence chain resolve a value (`KIT_*` env → config file → per-model
+defaults from `modelSettings`/`customModels` → an 8192 SDK floor for
+`MaxTokens` (matching the CLI `--max-tokens` default) and provider-level
+defaults for samplers).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
+| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. |
+| `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
+| `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
+| `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |
+| `FrequencyPenalty` | `*float32` | — | OpenAI-family frequency penalty. `nil` leaves provider default. |
+| `PresencePenalty` | `*float32` | — | OpenAI-family presence penalty. `nil` leaves provider default. |
+
+Pointer-typed fields (`Streaming` and the samplers) are populated via tiny helpers:
+
+```go
+func ptrBool(v bool) *bool          { return &v }
+func ptrFloat32(v float32) *float32 { return &v }
+```
+
+These fields eliminate the need for `viper.Set()` calls before `kit.New()`
+when embedding Kit as a library.
+
+### Provider configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ProviderAPIKey` | `string` | — | API key used to authenticate with the provider. `""` falls back to config / provider-specific env var (e.g. `ANTHROPIC_API_KEY`). When set, it takes precedence over config and env values on this instance's store. |
+| `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
+| `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
+| `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
+
+### Session
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `SessionPath` | `string` | — | Open a specific session file |
+| `SessionDir` | `string` | — | Base directory for session discovery |
+| `Continue` | `bool` | `false` | Resume most recent session |
+| `NoSession` | `bool` | `false` | Ephemeral mode (no persistence) |
+| `SessionManager` | `SessionManager` | — | Custom session backend (advanced) |
+
+### Tools & extensions
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Tools` | `[]Tool` | — | Replace the entire default tool set |
+| `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
+| `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
+| `CoreToolList` | `[]string` | — | Allow-list of core tool names; empty/nil means all. Build with [`FilterCoreToolNames`](/sdk/overview#filtering-core-tools) from include/exclude filters. |
+| `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
+| `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
+| `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
+
+### Skills & configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |
+| `Skills` | `[]string` | — | Explicit skill files/dirs to load |
+| `SkillsDir` | `string` | — | Scan this directory directly for skills (overrides auto-discovery; scanned as-is) |
+| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+| `SkillTrustPrompt` | `func(projectDir string, skillCount int) TrustDecision` | `nil` | Callback gating project-local skill loading on a trust decision (see below) |
+| `NoSkills` | `bool` | `false` | Disable skill loading entirely |
+
+#### Project-skill trust gate
+
+Project-local skills (under `<project>/.agents/skills/` or `<project>/.kit/skills/`)
+are injected into the system prompt, so loading them from an untrusted, freshly
+cloned repository is a prompt-injection vector. Set `SkillTrustPrompt` to gate
+that first load on an explicit decision. When `nil` (the default), project
+skills load without prompting — preserving historical behaviour.
+
+```go
+opts := &kit.Options{
+    SkillTrustPrompt: func(projectDir string, skillCount int) kit.TrustDecision {
+        // Consult your own UI / policy here.
+        if userApproves(projectDir, skillCount) {
+            return kit.TrustProject     // load and persist the directory as trusted
+        }
+        return kit.SkipProjectSkills    // do not load project skills
+    },
+}
+```
+
+The callback returns one of three `TrustDecision` values:
+
+| Decision | Effect |
+|----------|--------|
+| `kit.TrustProject` | Load project skills and persist `projectDir` to `~/.config/kit/trusted-projects.json` (not prompted again) |
+| `kit.TrustProjectOnce` | Load project skills for this run only, without persisting |
+| `kit.SkipProjectSkills` | Do not load project skills |
+
+A directory already on the persisted allowlist is trusted without invoking the
+callback. The Kit CLI wires this to an interactive terminal prompt automatically
+for TTY sessions.
+
+These fields only control the **initial** skill and context-file set picked
+up by `New()`. To add, remove, or replace skills and `AGENTS.md`-style
+context files at runtime (e.g. per user or per session), use the
+`AddSkill` / `LoadAndAddSkill` / `RemoveSkill` / `SetSkills` /
+`DisableSkill` / `EnableSkill` and
+`AddContextFile` / `AddContextFileContent` / `RemoveContextFile` /
+`SetContextFiles` methods on `*kit.Kit`. See
+[Runtime skills and context files](/sdk/overview#runtime-skills-and-context-files).
+
+### Compaction & MCP
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `AutoCompact` | `bool` | `false` | Compact proactively before turns that near the context limit. Independent of this setting, Kit always compacts **reactively** and replays the turn once when a provider call fails with a context-overflow error. |
+| `CompactionOptions` | `*CompactionOptions` | — | Configuration for compaction; zero-value budget fields adapt to the model's limits. See [CompactionOptions](#compactionoptions) below. |
+| `MCPConfig` | `*Config` | — | Pre-loaded MCP configuration. When set, `LoadAndValidateConfig` is skipped during Kit creation — useful for in-process subagents (inheriting a parent's loaded config) and programmatic setups that build config without reading `.kit.yml`. |
+| `MCPAuthHandler` | `MCPAuthHandler` | — | OAuth handler for remote MCP servers. `nil` disables OAuth (servers returning 401 fail with the authorization-required error). See [MCP OAuth](#mcp-oauth-authorization) below. |
+| `MCPTokenStoreFactory` | `func` | — | Custom OAuth token storage for MCP servers (default: JSON file in `$XDG_CONFIG_HOME/.kit/mcp_tokens.json`). |
+| `InProcessMCPServers` | `map[string]*MCPServer` | — | In-process mcp-go servers (no subprocess) |
+| `MCPTaskMode` | `map[string]MCPTaskMode` | — | Per-server override for task-augmented `tools/call`. Keys are server names; missing entries fall back to the `tasksMode` field of the matching `MCPServerConfig`. See [MCP Tasks](#mcp-tasks). |
+| `MCPTaskTimeout` | `time.Duration` | `15m` | Maximum wall-clock to wait for a task to reach a terminal state. Independent of any per-call context deadline. |
+| `MCPTaskTTL` | `time.Duration` | — | TTL hint sent in `TaskParams` for every task-augmented call. Zero omits the field and lets the server pick. |
+| `MCPTaskPollInterval` | `time.Duration` | `1s` | Fallback interval between `tasks/get` requests when the server does not suggest one. |
+| `MCPTaskMaxPollInterval` | `time.Duration` | `5s` | Cap on the polling interval (a server-supplied `pollInterval` can otherwise grow without bound). |
+| `MCPTaskProgress` | `MCPTaskProgressHandler` | — | Optional callback invoked once when a task is accepted and on every observed status transition. The final invocation always carries a terminal status. |
+
+### CompactionOptions
+
+`CompactionOptions` controls how conversations are summarized. The token
+budgets are adaptive: leave a field at zero and it scales to the model's
+limits, or set an explicit value to override.
+
+| Field | Type | Zero-value behaviour | Description |
+|-------|------|----------------------|-------------|
+| `ContextWindow` | `int` | auto-populated from the model registry | Model's context window size in tokens |
+| `MaxOutputTokens` | `int` | auto-populated from the model registry | Model's max output tokens; scales the adaptive `ReserveTokens` |
+| `ReserveTokens` | `int` | `min(16384, MaxOutputTokens)` | Tokens reserved for the LLM response |
+| `KeepRecentTokens` | `int` | a quarter of the usable context (`ContextWindow − ReserveTokens`), floored at 2000 | Recent tokens preserved verbatim (not summarized) |
+| `SummaryPrompt` | `string` | built-in structured checkpoint prompt | Custom summarization prompt |
+
+When a session compacts more than once, the previous summary is fed back into
+the summarization prompt and updated incrementally (anchored summaries), so
+detail is preserved across compaction generations.
+
+#### Reactive compaction on context overflow
+
+Token estimates inevitably drift from real tokenizer counts, and a single
+huge mid-turn tool result can overflow the context even when the turn started
+well under the limit. When the provider rejects a request with a
+context-overflow error, Kit automatically:
+
+1. Compacts the conversation (persisting any completed steps first, so the
+   replay resumes rather than restarts).
+2. Replays the turn once with the rebuilt context, replacing media
+   attachments with text placeholders (media cannot be shrunk by
+   summarization).
+3. If the replay still overflows, fails the turn with `kit.ErrContextOverflow`
+   ("conversation too large to compact").
+
+This safety net is always on — it does not require `AutoCompact`, which only
+controls the *proactive* check before each turn.
+
+## MCP OAuth Authorization
+
+When a remote MCP server (SSE or Streamable HTTP) requires OAuth, Kit runs
+the full authorization flow (dynamic client registration → PKCE → user
+consent → token exchange → token persistence) but delegates the **user-facing
+step** — displaying the authorization URL and receiving the callback — to
+an `MCPAuthHandler`.
+
+The SDK is deliberately inert when `MCPAuthHandler` is `nil`: it does **not**
+auto-construct a default handler, bind a local TCP port, or open a browser.
+This keeps library, daemon, and web-app embedders free of surprise I/O.
+Consumers opt in by passing a handler explicitly.
+
+| Building block | When to use |
+|---|---|
+| `MCPAuthHandler = nil` (default) | OAuth disabled. Remote MCP servers requiring auth fail with a clear error. Correct for libraries, daemons, and web apps. |
+| `kit.NewCLIMCPAuthHandler()` | CLI/TUI apps. Opens the system browser, prints status to stderr (or via `NotifyFunc`), runs a localhost callback server. Used by the `kit` binary. |
+| `kit.NewDefaultMCPAuthHandler()` + `OnAuthURL` | Custom UX. Use the SDK's port reservation and callback server; plug in your own presentation via the `OnAuthURL(serverName, authURL)` closure. |
+| Implement `kit.MCPAuthHandler` directly | Full control. No localhost binding — e.g. return the URL from an HTTP endpoint and have the consumer POST the callback URL back. |
+
+**CLI-style embedder:**
+
+```go
+authHandler, err := kit.NewCLIMCPAuthHandler()
+if err != nil {
+    log.Fatal(err)
+}
+defer authHandler.Close() // release the reserved port
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Custom UX embedder (TUI modal, QR code, web redirect, etc.):**
+
+```go
+authHandler, _ := kit.NewDefaultMCPAuthHandler()
+authHandler.OnAuthURL = func(serverName, authURL string) {
+    // No browser or terminal assumptions — render however you like.
+    myUI.ShowAuthPrompt(serverName, authURL)
+}
+defer authHandler.Close()
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPAuthHandler: authHandler,
+})
+```
+
+**Fully custom handler (no local port binding at all):**
+
+```go
+type WebAuthHandler struct {
+    redirectURI string
+    callbacks   chan string
+}
+
+func (h *WebAuthHandler) RedirectURI() string { return h.redirectURI }
+
+func (h *WebAuthHandler) HandleAuth(ctx context.Context, serverName, authURL string) (string, error) {
+    // Push the URL to the user's existing browser session via your web app,
+    // then block on the callback that your HTTP handler pushes onto the channel.
+    h.pushToUserSession(serverName, authURL)
+    select {
+    case callbackURL := <-h.callbacks:
+        return callbackURL, nil
+    case <-ctx.Done():
+        return "", ctx.Err()
+    }
+}
+```
+
+> **Warning:** `DefaultMCPAuthHandler` with no `OnAuthURL` set will silently
+> drop the authorization URL and hang until the 2-minute callback timeout
+> fires. Always set `OnAuthURL`, or use a higher-level wrapper like
+> `CLIMCPAuthHandler`.
+
+## MCP Tasks
+
+The [MCP Tasks utility](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+turns a synchronous `tools/call` into a pollable async job: the server
+returns a `taskId` with status `working` immediately, and the client polls
+`tasks/get` / `tasks/result` until the task reaches a terminal state.
+
+Kit advertises task support during `initialize` and, by default, augments
+`tools/call` with task metadata only when the server advertises
+`tasks/toolCalls` capability — so any existing MCP server keeps its previous
+synchronous behaviour bit-for-bit. Long-running tools (builds, deployments,
+batch jobs, sub-agent runs) get HTTP/SSE timeout-resistance and clean
+cancellation "for free" once both sides opt in.
+
+### Per-server mode
+
+```go
+import "time"
+
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskMode: map[string]kit.MCPTaskMode{
+        "build-server": kit.MCPTaskModeAlways, // force task-augmented calls
+        "chat-server":  kit.MCPTaskModeNever,  // force synchronous calls
+        // any server not in the map honours its `tasksMode` config field
+        // (default "auto")
+    },
+})
+```
+
+| Mode | Behaviour |
+|---|---|
+| `MCPTaskModeAuto` (default) | Augment `tools/call` with `TaskParams` only when the server advertised `tasks/toolCalls`. |
+| `MCPTaskModeNever` | Always issue `tools/call` synchronously, ignoring server capability. |
+| `MCPTaskModeAlways` | Always opt in, even when the server didn't advertise the capability. The server may still respond synchronously. |
+
+### Progress callbacks
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    MCPTaskTimeout:  15 * time.Minute,        // total wall-clock cap
+    MCPTaskTTL:      30 * time.Minute,        // server retention hint
+    MCPTaskProgress: func(p kit.MCPTaskProgress) {
+        log.Printf("%s/%s: %s %s", p.Server, p.TaskID, p.Status, p.Message)
+    },
+})
+```
+
+The handler fires once when a task is accepted and again on every observed
+status transition. The final call always carries a terminal status
+(`MCPTaskStatusCompleted`, `MCPTaskStatusFailed`, or `MCPTaskStatusCancelled`).
+Do not block in the handler — dispatch long work on a goroutine.
+
+### Inspecting and cancelling tasks
+
+```go
+tasks, _ := host.ListMCPTasks(ctx, "build-server")
+for _, t := range tasks {
+    fmt.Printf("%s: %s (%s)\n", t.TaskID, t.Status, t.StatusMessage)
+}
+
+t, _ := host.GetMCPTask(ctx, "build-server", taskID)
+if !t.Status.IsTerminal() {
+    _, _ = host.CancelMCPTask(ctx, "build-server", taskID)
+}
+```
+
+`Kit.ListMCPTasks`, `Kit.GetMCPTask`, and `Kit.CancelMCPTask` work against any
+loaded MCP server that advertises the corresponding capability.
+`MCPTaskStatus.IsTerminal()` is the canonical check for completion.
+
+Context cancellation also works end-to-end: cancelling the `ctx` passed to a
+tool execution triggers a best-effort `tasks/cancel` before the call returns.
+
+## Custom debug logger
+
+Kit's engine and MCP tool plumbing emit low-level debug output through a
+`DebugLogger` interface. By default, setting `Debug: true` (or calling
+`WithDebug()`) installs the built-in console logger. To route the same output
+into your application's logging system instead, provide a custom
+implementation via `Options.DebugLogger` or `WithDebugLogger`.
+
+```go
+type DebugLogger interface {
+    LogDebug(message string)
+    IsDebugEnabled() bool
+}
+```
+
+When `DebugLogger` is non-nil it takes precedence over `Debug` — the
+supplied logger's `IsDebugEnabled()` reports whether downstream code should
+bother formatting messages.
+
+**Example: forward to `log/slog`:**
+
+```go
+import "log/slog"
+
+type slogDebugLogger struct{ l *slog.Logger }
+
+func (s *slogDebugLogger) LogDebug(m string)    { s.l.Debug(m) }
+func (s *slogDebugLogger) IsDebugEnabled() bool { return true }
+
+host, _ := kit.NewAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithDebugLogger(&slogDebugLogger{l: slog.Default()}),
+)
+```
+
+Implementations must be safe for concurrent use — messages can arrive
+from the engine goroutine, MCP connection pool, and tool execution paths
+simultaneously.
+
+## Precedence
+
+For any given generation or provider field, the effective value is resolved
+in this order (highest priority first):
+
+1. `Options.X` (SDK caller)
+2. `KIT_X` environment variable
+3. `.kit.yml` (project-local then `~/.kit.yml`)
+4. Per-model defaults (`modelSettings[provider/model]` or `customModels[...].params`)
+5. Provider-level defaults (e.g. Anthropic's own temperature default)
+6. SDK last-resort floor (currently: `MaxTokens = 8192`, matching the CLI `--max-tokens` default)
+
+Sampling params that remain `nil` after the SDK resolution step are left out
+of the provider call entirely, so the LLM library applies its own default.
+
+## Tool configuration
+
+**`Tools`** replaces ALL default tools (core + MCP + extension). **`ExtraTools`** adds tools alongside the defaults. Use `Tools` to restrict capabilities; use `ExtraTools` to extend them.
+
+To keep the default tool set but narrow the built-in core tools, set
+**`CoreToolList`** (an allow-list of names such as `"bash"`, `"read"`,
+`"write"`, `"edit"`, `"grep"`, `"find"`, `"ls"`, `"subagent"`). Build the list
+from include/exclude filters with
+[`kit.FilterCoreToolNames`](/sdk/overview#filtering-core-tools):
+
+```go
+list, _ := kit.FilterCoreToolNames(nil, []string{"bash", "write"}) // drop two
+host, _ := kit.New(ctx, &kit.Options{CoreToolList: list})
+```
+
+`DisableCoreTools: true` is the chat-only shortcut for an empty core set.
+`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer
+`FilterCoreToolNames`, which does not expose the configuration library.
+
+Create custom tools with `kit.NewTool` — no external dependencies needed:
+
+```go
+type LookupInput struct {
+    ID string `json:"id" description:"Record ID to look up"`
+}
+
+lookupTool := kit.NewTool("lookup", "Look up a record by ID",
+    func(ctx context.Context, input LookupInput) (kit.ToolOutput, error) {
+        record := db.Find(input.ID)
+        return kit.TextResult(record.String()), nil
+    },
+)
+
+host, _ := kit.New(ctx, &kit.Options{
+    ExtraTools: []kit.Tool{lookupTool},
+})
+```
+
+See [Overview](/sdk/overview#custom-tools) for full custom tool documentation.

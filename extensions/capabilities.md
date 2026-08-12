@@ -1,0 +1,897 @@
+
+# Extension Capabilities
+
+## Lifecycle events
+
+Extensions can hook into 30 lifecycle events:
+
+| Event | Description |
+|-------|-------------|
+| `OnSessionStart` | Session initialized |
+| `OnSessionShutdown` | Session ending |
+| `OnBeforeAgentStart` | Before the agent loop begins |
+| `OnAgentStart` | Agent loop started |
+| `OnAgentEnd` | Agent loop completed (carries per-turn aggregates: tool counts, token deltas, cost, duration) |
+| `OnLLMUsage` | Per-LLM-call token + cost delta (fires once per provider round-trip) |
+| `OnToolCall` | Tool call requested by the model |
+| `OnToolCallInputStart` | LLM began generating tool call arguments (tool name known, args streaming) |
+| `OnToolCallInputDelta` | Streamed JSON fragment of tool call arguments |
+| `OnToolCallInputEnd` | Tool argument streaming complete, before execution begins |
+| `OnToolExecutionStart` | Tool execution beginning |
+| `OnToolOutput` | Streaming tool output chunk (for long-running tools) |
+| `OnToolExecutionEnd` | Tool execution completed |
+| `OnToolResult` | Tool result returned |
+| `OnInput` | User input received |
+| `OnMessageStart` | Assistant message started |
+| `OnMessageUpdate` | Streaming text chunk received |
+| `OnMessageEnd` | Assistant message completed |
+| `OnModelChange` | Model switched |
+| `OnThinkingLevelChange` | Extended-thinking effort level changed |
+| `OnTerminalResize` | Terminal resized (also fires once at startup) |
+| `OnTurnStateChange` | UI entered or left the working state |
+| `OnContextPrepare` | Context being assembled for the model |
+| `OnBeforeFork` | Before forking a conversation branch |
+| `OnBeforeSessionSwitch` | Before switching sessions |
+| `OnBeforeCompact` | Before conversation compaction |
+| `OnCustomEvent` | Custom inter-extension event received |
+| `OnSubagentStart` | Subagent spawned by the main agent |
+| `OnSubagentChunk` | Real-time output from subagent (text, tool calls, results) |
+| `OnSubagentEnd` | Subagent completed with final response/error |
+
+### Example
+
+```go
+api.OnToolCall(func(event ext.ToolCallEvent, ctx ext.Context) {
+    ctx.PrintInfo("Calling tool: " + event.Name)
+})
+
+api.OnAgentEnd(func(e ext.AgentEndEvent, ctx ext.Context) {
+    // Per-turn aggregates populated by Kit's runtime — no parallel
+    // bookkeeping required in the handler.
+    ctx.PrintInfo(fmt.Sprintf(
+        "Turn finished: %d tool calls (%v), %d LLM round-trips, $%.4f, %dms",
+        e.ToolCallCount, e.ToolNames, e.LLMCallCount, e.CostDelta, e.DurationMs,
+    ))
+})
+
+// Per-LLM-call usage — fires multiple times per turn (once per round-trip).
+// Use for accurate budget enforcement between calls.
+api.OnLLMUsage(func(e ext.LLMUsageEvent, ctx ext.Context) {
+    ctx.PrintInfo(fmt.Sprintf(
+        "%s/%s step=%d tokens=↑%d ↓%d cost=$%.4f (%s)",
+        e.Provider, e.Model, e.StepNumber,
+        e.InputTokens, e.OutputTokens, e.Cost, e.FinishReason,
+    ))
+})
+```
+
+**`AgentEndEvent` fields** (in addition to `Response` and `StopReason`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ToolCallCount` | `int` | Total tool invocations during the turn |
+| `ToolNames` | `[]string` | Tool names in call order (duplicates preserved) |
+| `LLMCallCount` | `int` | LLM round-trips / tool-loop iterations |
+| `InputTokensDelta` | `int` | Sum of input tokens across all LLM calls this turn |
+| `OutputTokensDelta` | `int` | Sum of output tokens across all LLM calls this turn |
+| `CacheReadTokensDelta` | `int` | Sum of cache-read tokens this turn |
+| `CacheWriteTokensDelta` | `int` | Sum of cache-write tokens this turn |
+| `CostDelta` | `float64` | Cost in USD (zero when pricing is unknown or OAuth credentials) |
+| `DurationMs` | `int64` | Wall-clock time from `AgentStart` to `AgentEnd` |
+
+**`LLMUsageEvent` fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `InputTokens` / `OutputTokens` | `int` | Per-call token deltas |
+| `CacheReadTokens` / `CacheWriteTokens` | `int` | Per-call cache token deltas |
+| `Cost` | `float64` | Per-call USD cost (zero when pricing unknown) |
+| `Model` / `Provider` | `string` | Model used for this specific call — may differ from earlier calls if `ctx.SetModel` was called mid-turn |
+| `StepNumber` | `int` | Zero-based step index within the turn |
+| `FinishReason` | `string` | Provider finish reason for this call (`"stop"`, `"tool_calls"`, `"length"`, ...) |
+| `RequestID` | `string` | Optional provider correlation id (may be empty) |
+
+## Tools
+
+Register custom tools that the LLM can invoke:
+
+```go
+api.RegisterTool(ext.ToolDef{
+    Name:        "weather",
+    Description: "Get current weather for a location",
+    Parameters: map[string]ext.ParameterDef{
+        "city": {Type: "string", Description: "City name", Required: true},
+    },
+    Handler: func(ctx ext.Context, params map[string]any) (string, error) {
+        city := params["city"].(string)
+        return "Sunny, 72°F in " + city, nil
+    },
+})
+```
+
+## Commands
+
+Register slash commands that users can invoke directly:
+
+```go
+api.RegisterCommand(ext.CommandDef{
+    Name:        "stats",
+    Description: "Show context statistics",
+    Handler: func(ctx ext.Context, args string) {
+        stats := ctx.GetContextStats()
+        ctx.PrintInfo(fmt.Sprintf("Tokens: %d", stats.TotalTokens))
+    },
+})
+```
+
+## Widgets
+
+Add persistent status displays above or below the input area:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 1,234"},
+})
+
+// Update later — same ID replaces the previous widget
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "token-count",
+    Placement: ext.WidgetBelow,
+    Content:   ext.WidgetContent{Text: "Tokens: 2,456"},
+})
+
+// Remove
+ctx.RemoveWidget("token-count")
+```
+
+`Placement` is `ext.WidgetAbove` or `ext.WidgetBelow`. `Priority` orders
+multiple widgets within the same slot (lower renders first).
+
+### Markdown content
+
+Set `Markdown: true` to render `Text` as styled markdown — headings, bold,
+inline code and lists are formatted and sized to the widget's content column:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "notes",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Markdown: true,
+        Text:     "## Build\n\n**passing** — `go test ./...`",
+    },
+})
+```
+
+### Custom rendering
+
+`Text` covers static content. For anything Kit has no vocabulary for — sparklines,
+gauges, box drawing, sprites — supply a `Render` function instead. It receives the
+width in columns available for content (the gutter and padding are already
+subtracted) and Kit uses the returned string **verbatim**:
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "cpu-gauge",
+    Placement: ext.WidgetAbove,
+    Style:     ext.WidgetStyle{NoBorder: true},
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            filled := int(load * float64(width))
+            return "\033[38;5;82m" + strings.Repeat("━", filled) +
+                "\033[0m" + strings.Repeat("─", width-filled)
+        },
+    },
+})
+```
+
+`Render` takes priority over `Text`, and `Markdown` is ignored when it is set —
+a render function is expected to do its own styling. Returning an empty string
+hides the widget. A panic inside `Render` is contained: the widget is hidden and
+the error logged, rather than taking down the TUI.
+
+The example above hardcodes its color. To follow whatever theme the user has
+active instead, read [`ctx.GetTheme()`](#reading-the-active-theme) inside
+`Render` and paint with `ANSI` / `ANSIBold`.
+
+`Render` also works on headers and footers via `HeaderFooterConfig`.
+
+### Animated widgets
+
+Kit's animation clock is demand-driven — it runs while the startup logo or the
+activity spinner needs it and stops otherwise, so an idle session costs nothing.
+A widget that only reads state repaints whenever something *else* causes a
+render, which when idle means roughly twice a second (the input cursor blink).
+That is fine for a counter and visibly choppy for a spinner.
+
+Set `RefreshHz` to hold the clock open and repaint at a chosen rate:
+
+```go
+Content: ext.WidgetContent{
+    RefreshHz: 15,
+    Render:    func(width int) string { return spinnerFrame() + " working" },
+},
+```
+
+| `RefreshHz` | Behaviour | Use for |
+|---|---|---|
+| `0` (default) | Static. Repaints only when something else renders. | Counters, status text |
+| `4`–`8` | Gentle pulse | Slow progress, breathing indicators |
+| `10`–`15` | Smooth | Spinners, meters |
+| `30` | Kit's ceiling | Continuous motion |
+
+This is a real cost: a non-zero value means the app never idles. Ask for the
+lowest rate that looks right. Kit calls `Render` at approximately the requested
+rate rather than on every frame, so a 5Hz widget does not pay 30Hz of
+interpreter crossings.
+
+> **Because `Render` runs on every frame it must be cheap and must not block.**
+> No network calls, no locks held across the call. Compute in an event handler
+> or goroutine, store the result, and format it here.
+
+See [`arbitrary-ui.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/arbitrary-ui.go)
+for a live dashboard and [`bad-apple.go`](https://github.com/mark3labs/kit/blob/master/examples/extensions/bad-apple.go)
+for 30fps playback.
+
+## Headers and footers
+
+Persistent content above and below the conversation:
+
+```go
+ctx.SetHeader(ext.HeaderFooterConfig{
+    Content: ext.WidgetContent{Text: "Project: my-app | Branch: main"},
+})
+
+ctx.SetFooter(ext.HeaderFooterConfig{
+    Content: ext.WidgetContent{Text: "Plan Mode (read-only)"},
+})
+```
+
+Headers and footers accept the same `WidgetContent` as widgets, so `Markdown`,
+`Render` and `RefreshHz` all apply.
+
+Plain `Text` is rendered at **full terminal width with no truncation** — a longer
+line wraps and silently consumes a row of scrollback. Measure against
+`ctx.GetTerminalSize()` and truncate before calling `SetHeader`/`SetFooter`, or
+use `Render`, which is handed the exact width to draw into.
+
+## Terminal size
+
+```go
+width, height := ctx.GetTerminalSize()  // 0, 0 outside the interactive TUI
+
+api.OnTerminalResize(func(e ext.TerminalResizeEvent, ctx ext.Context) {
+    // e.Width, e.Height — re-render chrome at the new size
+})
+```
+
+`OnTerminalResize` also fires once at startup, so a handler can lay out
+immediately instead of waiting for the user to resize.
+
+This is a **function, not a field**, so it reports the live size. A long-lived
+goroutine (a ticking clock in a footer, say) that captured a `Context` still
+observes resizes; a struct field would freeze at the value copied when the
+handler was invoked.
+
+Note that multi-byte characters occupy more than one column — count display
+width, not bytes or runes, when fitting text to `width`.
+
+## Status bar
+
+Custom status bar entries:
+
+```go
+ctx.SetStatus("mode", "Planning")
+ctx.RemoveStatus("mode")
+```
+
+## Thinking level
+
+```go
+level := ctx.GetThinkingLevel()  // "off", "none", "minimal", "low", "medium", "high"
+
+api.OnThinkingLevelChange(func(e ext.ThinkingLevelChangeEvent, ctx ext.Context) {
+    // e.NewLevel, e.PreviousLevel string
+    // e.Source string — "user" (/thinking or shift+tab) or "model_fallback"
+})
+```
+
+Models without reasoning support report `"off"`. To distinguish "reasoning is
+switched off" from "this model cannot reason at all", pair it with
+`ctx.GetModelCapabilities("").Reasoning`.
+
+`Source` is `"model_fallback"` when Kit downgrades the level automatically
+because the newly selected model does not support the previous one.
+
+## Turn state
+
+```go
+api.OnTurnStateChange(func(e ext.TurnStateChangeEvent, ctx ext.Context) {
+    // e.State, e.Previous string — "working" or "idle"
+})
+```
+
+This is a **superset of `OnAgentStart`/`OnAgentEnd`**: it also covers work that
+never reaches the agent loop (shell commands run with `!`) and fires on every
+path back to idle, including cancellation and error.
+
+| Use | For |
+|-----|-----|
+| `OnTurnStateChange` | UI that tracks whether Kit is busy — a spinner, a turn timer |
+| `OnAgentStart` / `OnAgentEnd` | Agent turns specifically, plus their token usage and cost |
+
+Interactive TUI only — like `OnTerminalResize`, this does not fire in headless,
+ACP, or script mode.
+
+## Shortcuts
+
+Global keyboard shortcuts:
+
+```go
+api.RegisterShortcut(ext.ShortcutDef{
+    Key:         "ctrl+t",
+    Description: "Toggle plan mode",
+}, func(ctx ext.Context) {
+    // handle shortcut
+})
+```
+
+Handlers run in a goroutine, so they may call blocking APIs like
+`ctx.PromptSelect` without stalling the TUI.
+
+Run `/shortcuts` in the TUI to list every registered binding, grouped by the
+extension file that registered it.
+
+### Key names
+
+Keys are normalized at registration, so modifier order and casing do not
+matter — `"Ctrl+Shift+S"`, `"control+shift+s"` and `"shift+ctrl+s"` all resolve
+to the same binding. `control`, `option`/`opt`, `cmd`/`command` and `win` are
+accepted as aliases for `ctrl`, `alt`, `meta` and `super`.
+
+A shifted key can be written either way: `"shift+a"` and `"A"` both match the
+same press, as do `"shift+/"` and `"?"`. Common key-name spellings are folded
+too (`escape` → `esc`, `return` → `enter`, `pgdn`/`pagedown` → `pgdown`).
+
+A bare single character keeps its case, because `"A"` and `"a"` are genuinely
+different presses.
+
+### Reserved and shadowed keys
+
+Kit dispatches extension shortcuts early — before its own scrollback, selector
+and chord bindings — so a shortcut can claim almost any key. Two cases are
+handled specially:
+
+| Key | Behaviour |
+|-----|-----------|
+| `ctrl+c` | **Rejected.** Kit consumes it for cancel/quit before extensions are consulted, so the handler could never fire. The registration is dropped with a logged warning. |
+| `esc`, `ctrl+x`, `pgup`, `pgdown`, `ctrl+home`, `ctrl+end`, `shift+tab`, `enter`, `tab`, `up`, `down` | **Accepted with a warning.** The shortcut wins, shadowing Kit's built-in behaviour. |
+
+An armed `Ctrl+X` leader chord takes precedence over shortcuts, so binding a
+chord suffix such as `"s"` does not break `Ctrl+X s`.
+
+> **Prefer modifier combinations.** A bare character like `"s"` fires on every
+> press of that key outside a modal — including while you are typing a slash
+> command.
+
+Shortcuts do not fire while a modal prompt or overlay is open, or during
+message navigation.
+
+## Overlays
+
+Modal dialogs with markdown content:
+
+```go
+ctx.ShowOverlay(ext.OverlayConfig{
+    Title:   "Help",
+    Content: "# Keyboard Shortcuts\n\n- **ctrl+t** — Toggle plan mode\n- **ctrl+s** — Save session",
+})
+```
+
+## Tool renderers
+
+Customize how specific tool calls are displayed in the TUI. `RenderHeader`
+replaces the parameter summary on the header line; `RenderBody` replaces the
+result body. Both receive the width they may draw into, and returning an empty
+string falls back to Kit's default rendering:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:    "bash",
+    DisplayName: "Shell",
+    RenderHeader: func(toolArgs string, width int) string {
+        return "$ " + toolArgs
+    },
+    RenderBody: func(toolResult string, isError bool, width int) string {
+        return toolResult
+    },
+})
+```
+
+Set `BorderColor` and/or `Background` (hex strings) to give the tool block its
+own stripe and backdrop. Tool blocks are otherwise unattributed, so the stripe
+appears only when asked for — it marks a tool as special rather than restyling
+every call:
+
+```go
+api.RegisterToolRenderer(ext.ToolRenderConfig{
+    ToolName:    "deploy",
+    BorderColor: "#c678dd",
+    Background:  "#1b1b2b",
+    RenderBody: func(result string, isError bool, width int) string {
+        return result
+    },
+})
+```
+
+Set `BodyMarkdown: true` to pass `RenderBody`'s output through the markdown
+renderer.
+
+## Message renderers
+
+Named renderers invoked explicitly from extension code via
+`ctx.RenderMessage(name, content)`:
+
+```go
+api.RegisterMessageRenderer(ext.MessageRendererConfig{
+    Name: "build-status",
+    Render: func(content string, width int) string {
+        return "▸ " + content
+    },
+})
+
+ctx.RenderMessage("build-status", "all tests passed")
+```
+
+> **Note:** the returned string is *not* emitted verbatim. In interactive mode
+> Kit re-wraps it to the content width and nests it inside a system message
+> block (gutter glyph plus indent), so box drawing that assumes full terminal
+> width is wrapped a second time. Size output to roughly `width-4` and prefer
+> inline styling over full-width frames. For output Kit uses as-is, use a
+> [widget with a `Render` callback](#custom-rendering).
+
+## Editor interceptors
+
+Handle key events and wrap the editor's rendering:
+
+```go
+ctx.SetEditor(ext.EditorConfig{
+    HandleKey: func(key, text string) ext.EditorKeyAction {
+        if key == "esc" {
+            return ext.EditorKeyAction{Type: ext.EditorKeyConsumed}
+        }
+        return ext.EditorKeyAction{Type: ext.EditorKeyPassthrough}
+    },
+})
+```
+
+`Type` is one of:
+
+| Type | Effect |
+|------|--------|
+| `ext.EditorKeyPassthrough` | Let the built-in editor handle the key normally. Any unrecognized `Type` behaves this way too, so a zero-value action passes through. |
+| `ext.EditorKeyConsumed` | The extension handled it; the editor never sees the key. |
+| `ext.EditorKeyRemap` | Replace the key with `RemappedKey` before the editor sees it. |
+| `ext.EditorKeySubmit` | Submit immediately, using `SubmitText` (or the current text when empty). |
+
+> **`HandleKey` runs synchronously on the TUI event loop.** Unlike a shortcut
+> handler, a blocking call here freezes the whole interface. Keep it fast and
+> hand slow work to a goroutine.
+
+The interceptor is the last hook before the editor, so it never sees keys an
+earlier stage already consumed: `ctrl+c`, any registered extension shortcut,
+`esc` while a turn is running, `ctrl+x` and its chord suffix, and the
+scrollback bindings such as `pgup`.
+
+## Interactive prompts
+
+Select, multi-select, confirm, and text input dialogs. Each blocks the calling
+goroutine until the user answers, and each returns a result struct whose
+`Cancelled` field is true if the user pressed ESC or the prompt was unavailable
+(non-interactive mode):
+
+```go
+// Single select
+res := ctx.PromptSelect(ext.PromptSelectConfig{
+    Message: "Choose a model",
+    Options: []string{"claude-sonnet", "gpt-4o", "llama3"},
+})
+if !res.Cancelled {
+    ctx.PrintInfo("picked " + res.Value)  // also res.Index
+}
+
+// Multi-select — Space toggles, a selects all, n clears, Enter confirms
+pick := ctx.PromptMultiSelect(ext.PromptMultiSelectConfig{
+    Message:         "Which checks should run?",
+    Options:         []string{"vet", "test", "lint"},
+    DefaultSelected: []int{0, 1},  // nil selects everything
+})
+if !pick.Cancelled {
+    ctx.PrintInfo(strings.Join(pick.Values, ", "))  // also pick.Indices
+}
+
+// Confirm
+yes := ctx.PromptConfirm(ext.PromptConfirmConfig{
+    Message: "Delete this file?",
+})
+
+// Text input
+name := ctx.PromptInput(ext.PromptInputConfig{
+    Message:     "Enter project name",
+    Placeholder: "my-project",
+})
+```
+
+`PromptMultiSelect` returns both `Values` (the selected option text) and
+`Indices` (their zero-based positions), so you can map back to your own data
+without string matching.
+
+## Options
+
+Register configurable extension options:
+
+```go
+api.RegisterOption(ext.OptionDef{
+    Name:         "auto-commit",
+    Description:  "Automatically commit on shutdown",
+    DefaultValue: "false",
+})
+```
+
+## Subagents
+
+Spawn in-process child Kit instances:
+
+```go
+_, result, err := ctx.SpawnSubagent(ext.SubagentConfig{
+    Prompt:       "Analyze the test files and summarize coverage",
+    Model:        "anthropic/claude-haiku-latest",
+    SystemPrompt: "You are a test analysis expert.",
+    Blocking:     true,
+})
+```
+
+With `Blocking: false` (the default), the subagent runs in a background goroutine and `SpawnSubagent` returns immediately with a non-nil handle (`handle.Wait()`, `handle.Done()`, `handle.Kill()`); use `OnComplete`/`OnEvent` callbacks for results. See [Subagents](/advanced/subagents) for a full background-mode example.
+
+Subagent sessions are persisted and linked to the host session by default. Set `SessionID` to a previous run's `SubagentResult.SessionID` to resume that subagent for follow-up prompts; see [Session linking and resuming](/advanced/subagents#session-linking-and-resuming).
+
+### Monitoring subagents spawned by the main agent
+
+When the LLM uses the built-in `subagent` tool, extensions can monitor the subagent's activity in real-time using three lifecycle events:
+
+```go
+// Subagent started
+api.OnSubagentStart(func(e ext.SubagentStartEvent, ctx ext.Context) {
+    // e.ToolCallID — unique ID for this subagent invocation
+    // e.Task — the task/prompt sent to the subagent
+    ctx.PrintInfo(fmt.Sprintf("Subagent started: %s", e.Task))
+})
+
+// Real-time streaming output from subagent
+api.OnSubagentChunk(func(e ext.SubagentChunkEvent, ctx ext.Context) {
+    // e.ToolCallID — matches the start event
+    // e.Task — task description
+    // e.ChunkType — "text", "tool_call", "tool_execution_start", "tool_result"
+    // e.Content — text content (for text chunks)
+    // e.ToolName — tool name (for tool-related chunks)
+    // e.IsError — true if tool result is an error
+    switch e.ChunkType {
+    case "text":
+        // Streaming text output
+    case "tool_call":
+        // Subagent is calling a tool
+    case "tool_execution_start":
+        // Tool execution started
+    case "tool_result":
+        // Tool execution completed (check e.IsError)
+    }
+})
+
+// Subagent completed
+api.OnSubagentEnd(func(e ext.SubagentEndEvent, ctx ext.Context) {
+    // e.ToolCallID — matches start event
+    // e.Task — task description
+    // e.Response — final response from subagent
+    // e.ErrorMsg — error message if subagent failed
+    if e.ErrorMsg != "" {
+        ctx.PrintError(fmt.Sprintf("Subagent failed: %s", e.ErrorMsg))
+    } else {
+        ctx.PrintInfo(fmt.Sprintf("Subagent completed: %s", e.Response))
+    }
+})
+```
+
+This enables building widgets that display real-time subagent activity.
+
+## LLM completion
+
+Make direct model calls without going through the agent loop:
+
+```go
+response := ctx.Complete(ext.CompleteRequest{
+    Prompt: "Summarize this in one sentence: " + content,
+})
+```
+
+## Themes
+
+Register, switch, and read color themes at runtime:
+
+```go
+// Register a custom theme
+ctx.RegisterTheme("neon", ext.ThemeColorConfig{
+    Primary:    ext.ThemeColor{Light: "#CC00FF", Dark: "#FF00FF"},
+    Secondary:  ext.ThemeColor{Light: "#0088CC", Dark: "#00FFFF"},
+    Success:    ext.ThemeColor{Light: "#00CC44", Dark: "#00FF66"},
+    Warning:    ext.ThemeColor{Light: "#CCAA00", Dark: "#FFFF00"},
+    Error:      ext.ThemeColor{Light: "#CC0033", Dark: "#FF0055"},
+    Info:       ext.ThemeColor{Light: "#0088CC", Dark: "#00CCFF"},
+    Text:       ext.ThemeColor{Light: "#111111", Dark: "#F0F0F0"},
+    Background: ext.ThemeColor{Light: "#F0F0F0", Dark: "#0A0A14"},
+})
+
+// Switch to it
+ctx.SetTheme("neon")
+
+// List all available themes
+names := ctx.ListThemes()
+```
+
+### Reading the active theme
+
+`ctx.GetTheme()` reports the colors currently in effect, so a widget can follow
+the user's theme instead of hardcoding a palette. The light/dark variants are
+already resolved for the terminal's appearance and every slot is a `"#rrggbb"`
+string:
+
+```go
+theme := ctx.GetTheme()
+theme.Name     // "catppuccin" — "" when the derived default is in effect
+theme.Dark     // true when the dark variants were resolved
+theme.Accent   // "#89b4fa"
+```
+
+Widget `Render` output is used **verbatim**, so nothing styles it for you. Two
+helpers turn a theme color into an escape sequence:
+
+| Method | Description |
+|---|---|
+| `theme.ANSI(color, text)` | Truecolor foreground, auto-reset |
+| `theme.ANSIBold(color, text)` | Same, with the bold attribute |
+
+```go
+ctx.SetWidget(ext.WidgetConfig{
+    ID:        "build-status",
+    Placement: ext.WidgetAbove,
+    Content: ext.WidgetContent{
+        Render: func(width int) string {
+            th := ctx.GetTheme()          // read per frame, not cached
+            return th.ANSIBold(th.Accent, "Build") + "  " +
+                th.ANSI(th.Success, "passing")
+        },
+    },
+    Style: ext.WidgetStyle{BorderColor: ctx.GetTheme().Accent},
+})
+```
+
+An empty or malformed color returns the text unchanged, so a partially-defined
+theme degrades to plain output rather than leaking escape codes.
+
+`ThemeColors` carries the same field names as [`ThemeColorConfig`](/themes#themecolorconfig-fields),
+but as a single resolved string per slot rather than a light/dark pair — it is
+the read counterpart to the type you register with.
+
+> **Call `GetTheme()` inside `Render`, not once at setup.** `Render` runs on
+> every frame, so reading there means a `/theme` switch repaints in the new
+> colors automatically. `WidgetStyle.BorderColor`, by contrast, is captured when
+> the widget is set: to keep a border in sync, call `SetWidget` again when the
+> theme changes. There is no theme-change event, so poll `GetTheme().Accent`
+> from a goroutine if that matters.
+
+See [Themes](/themes) for the full theme file format, built-in themes, and color reference.
+
+## Custom events
+
+Inter-extension communication:
+
+```go
+// Emit
+ctx.EmitCustomEvent("my-extension:data-ready", payload)
+
+// Listen
+api.OnCustomEvent("my-extension:data-ready", func(data any, ctx ext.Context) {
+    // handle event
+})
+```
+
+## Session state
+
+Last-write-wins key-value store, scoped to the current session and persisted to a sidecar file (`<session>.ext-state.json`) outside the conversation tree:
+
+```go
+ctx.SetState("myext:budget-cap", "10.00")
+
+if cap, ok := ctx.GetState("myext:budget-cap"); ok {
+    // ...
+}
+
+ctx.DeleteState("myext:budget-cap")
+keys := ctx.ListState()  // []string, unspecified order
+```
+
+Reads are O(1) (no branch walk), writes don't grow the session JSONL, and the store is not duplicated when the conversation forks. State is invisible to the LLM and survives session resume.
+
+### When to use which persistence primitive
+
+| Need | Use | Why |
+|------|-----|-----|
+| Snapshot state ("current value of X") | `SetState` / `GetState` | O(1) reads, sidecar file, last-write-wins |
+| Audit log / event history | `AppendEntry` / `GetEntries` | Append-only, lives in conversation tree, fork-aware |
+| One-shot per-turn signal | Enriched `AgentEndEvent` fields | No persistence needed; runtime tracks it for you |
+| Per-LLM-call observation | `OnLLMUsage` event | Already attributed to model/provider/step |
+
+Using `AppendEntry` for snapshot state has a cost: it's O(branch_length) to read, fsyncs into the JSONL on every write, and the entry list duplicates on every fork. Prefer `SetState` for "what's the current value of X?"-style data.
+
+For ephemeral / in-memory sessions (no JSONL path) the state lives only in memory for the lifetime of the runner.
+
+## Bridged SDK APIs
+
+Extensions can access powerful internal SDK capabilities that enable advanced features like conversation tree navigation, dynamic skill loading, template parsing, and model resolution.
+
+### Tree Navigation
+
+Navigate the conversation tree, summarize branches, and implement "fresh context" loops:
+
+```go
+// Get a specific node by ID with full metadata and children
+node := ctx.GetTreeNode("entry-id")
+// node.ID, node.ParentID, node.Type ("message"/"branch_summary"/etc)
+// node.Role, node.Content, node.Model, node.Children ([]string)
+
+// Get the current branch from root to leaf
+branch := ctx.GetCurrentBranch()  // []ext.TreeNode
+
+// Get child entry IDs of a node
+children := ctx.GetChildren("entry-id")  // []string
+
+// Navigate/fork to a different entry in the tree
+result := ctx.NavigateTo("entry-id")  // ext.TreeNavigationResult{Success, Error}
+
+// Summarize a range of the branch using LLM
+summary := ctx.SummarizeBranch("from-id", "to-id")  // string
+
+// Collapse a branch range into a summary entry (fresh context primitive)
+result := ctx.CollapseBranch("from-id", "to-id", "summary text")
+```
+
+### Skill Loading
+
+Load and inject skills dynamically at runtime:
+
+```go
+// Discover skills from standard locations
+result := ctx.DiscoverSkills()  // ext.SkillLoadResult{Skills, Error}
+// Standard locations: ~/.agents/skills/, ~/.config/kit/skills/,
+//                     <project>/.agents/skills/, <project>/.kit/skills/
+
+// Load a specific skill file
+skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
+// Spec fields: skill.Name, skill.Description, skill.License, skill.Compatibility,
+//              skill.Metadata, skill.AllowedTools, skill.DisableModelInvocation
+// Plus content/path and Kit extensions: skill.Content, skill.Path, skill.Tags, skill.When
+
+// Load all skills from a directory
+result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
+
+// Inject a skill as context (pre-loads for next turn)
+err := ctx.InjectSkillAsContext("skill-name")  // error string
+
+// Inject a skill file directly
+err := ctx.InjectRawSkillAsContext("/path/to/skill.md")  // error string
+
+// Get all discovered skills
+skills := ctx.GetAvailableSkills()  // []ext.Skill
+```
+
+### Template Parsing
+
+Parse and render templates with variable substitution:
+
+```go
+// Parse a template to extract {{variables}}
+tpl := ctx.ParseTemplate("name", "Hello {{name}}, welcome to {{place}}!")
+// tpl.Name, tpl.Content, tpl.Variables ([]string)
+
+// Render a template with variable values
+vars := map[string]string{"name": "Alice", "place": "Kit"}
+rendered := ctx.RenderTemplate(tpl, vars)  // "Hello Alice, welcome to Kit!"
+
+// Parse command-line style arguments
+pattern := ext.ArgumentPattern{
+    Positional: []string{"command", "target"},  // $1, $2
+    Rest:       "args",                         // $@
+    Flags:      map[string]string{"--loop": "loop", "-f": "force"},
+}
+result := ctx.ParseArguments("deploy staging --loop 5", pattern)
+// result.Vars["command"] = "deploy"
+// result.Vars["target"] = "staging"
+// result.Flags["--loop"] = "5"
+
+// Simple positional argument parsing ($1, $2, $@)
+args := ctx.SimpleParseArguments("deploy staging --force", 2)
+// args[0] = "deploy staging --force" (full input)
+// args[1] = "deploy" ($1)
+// args[2] = "staging" ($2)
+// args[3] = "--force" ($@)
+
+// Evaluate model conditionals with wildcards
+matches := ctx.EvaluateModelConditional("claude-*")  // bool
+// Patterns: * matches any, ? matches single char, comma = OR
+
+// Render content with <if-model> conditionals
+content := `<if-model is="claude-*">Hi Claude<else>Hi there</if-model>`
+rendered := ctx.RenderWithModelConditionals(content)  // based on current model
+```
+
+### Model Resolution
+
+Resolve model fallback chains and query capabilities:
+
+```go
+// Resolve a chain of model preferences (tries each until available)
+result := ctx.ResolveModelChain([]string{
+    "anthropic/claude-opus-4",
+    "anthropic/claude-sonnet-4",
+    "openai/gpt-4o",
+})
+// result.Model (selected), result.Capabilities, result.Attempted, result.Error
+
+// Get capabilities for a specific model
+caps, err := ctx.GetModelCapabilities("anthropic/claude-sonnet-4")
+// caps.Provider, caps.ModelID, caps.ContextLimit, caps.Reasoning, caps.Streaming
+// caps.Pricing (see Model pricing below)
+
+// Pass an empty string for the model currently in use
+caps, err = ctx.GetModelCapabilities("")
+
+// Check if a model is available (provider exists)
+available := ctx.CheckModelAvailable("anthropic/claude-sonnet-4")  // bool
+
+// Get current provider/model ID
+provider := ctx.GetCurrentProvider()  // "anthropic"
+modelID := ctx.GetCurrentModelID()    // "claude-sonnet-4"
+```
+
+### Model pricing
+
+`ModelCapabilities.Pricing` reports registry token costs in **US dollars per
+million tokens**, so a cost is `tokens * rate / 1_000_000`:
+
+```go
+caps, _ := ctx.GetModelCapabilities("")
+p := caps.Pricing
+// p.Input, p.Output           float64 — $ per 1M tokens
+// p.CacheRead, p.CacheWrite   float64 — valid only when the Has* flag is true
+// p.HasCacheRead, p.HasCacheWrite bool
+// p.Known                     bool
+```
+
+Always check `Known` before rendering a cost. It is `false` for local models and
+custom OpenAI-compatible endpoints, where every rate is zero — without the flag
+an unpriced model is indistinguishable from a free one. Likewise check
+`HasCacheRead` rather than assuming a zero `CacheRead` means cache reads are
+free.
+
+Computing prompt-cache savings:
+
+```go
+usage := ctx.GetSessionUsage()
+if p.Known && p.HasCacheRead {
+    saved := float64(usage.TotalCacheReadTokens) * (p.Input - p.CacheRead) / 1000000
+}
+```
+
+The same `Pricing` field is present on each entry from
+`ctx.GetAvailableModels()`.

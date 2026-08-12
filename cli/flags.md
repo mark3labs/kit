@@ -1,0 +1,77 @@
+
+# Global Flags
+
+All flags can be passed to the root `kit` command.
+
+## Model and provider
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--model` | `-m` | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
+| `--provider-api-key` | — | — | API key for the provider |
+| `--provider-url` | — | — | Base URL for provider API |
+| `--provider-wire` | — | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` ([overrides the model database](/providers#provider-overrides)) |
+| `--tls-skip-verify` | — | `false` | Skip TLS certificate verification |
+
+## Session management
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--session` | `-s` | — | Open specific JSONL session file |
+| `--continue` | `-c` | `false` | Resume most recent session for current directory |
+| `--resume` | `-r` | `false` | Interactive session picker |
+| `--no-session` | — | `false` | Ephemeral mode, no persistence |
+
+## Behavior
+
+These flags control Kit's behavior. When a prompt is passed as a positional argument, Kit runs in non-interactive mode.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--quiet` | — | `false` | Suppress all output (non-interactive only) |
+| `--json` | — | `false` | Output response as JSON (non-interactive only) |
+| `--no-exit` | — | `false` | Enter interactive mode after prompt completes |
+| `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
+| `--stream` | — | `true` | Enable streaming output |
+| `--compact` | — | `false` | Enable compact output mode |
+| `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
+
+## Extensions
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--extension` | `-e` | — | Load additional extension file(s) (repeatable) |
+| `--no-extensions` | — | `false` | Disable all extensions |
+| `--prompt-template` | — | — | Load a specific prompt template by name |
+| `--no-prompt-templates` | — | `false` | Disable prompt template loading |
+
+## Skills
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--skill` | — | — | Load skill file or directory (repeatable) |
+| `--skills-dir` | — | — | Scan this directory directly for skills (overrides auto-discovery) |
+| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/skill:` |
+| `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
+| `--no-agents` | — | `false` | Disable named agent discovery (built-ins and [definition files](/advanced/subagents#named-agents)) |
+
+## Generation parameters
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--max-tokens` | — | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. |
+| `--temperature` | — | `0.7` | Randomness 0.0–1.0 |
+| `--top-p` | — | `0.95` | Nucleus sampling 0.0–1.0 |
+| `--top-k` | — | `40` | Limit top K tokens |
+| `--stop-sequences` | — | — | Custom stop sequences (comma-separated) |
+| `--frequency-penalty` | — | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `--presence-penalty` | — | `0.0` | Penalize present tokens (0.0–2.0) |
+| `--thinking-level` | — | `off` | Extended thinking level: off, none, minimal, low, medium, high |
+
+## System
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--config` | — | `~/.kit.yml` | Config file path |
+| `--system-prompt` | — | — | System prompt text or file path |
+| `--debug` | — | `false` | Enable debug logging |

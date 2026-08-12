@@ -1,0 +1,309 @@
+
+# Configuration
+
+Kit looks for configuration in the following locations, in order of priority:
+
+1. CLI flags
+2. Environment variables (with `KIT_` prefix)
+3. `./.kit.yml` / `./.kit.yaml` / `./.kit.json` (project-local)
+4. `~/.kit.yml` / `~/.kit.yaml` / `~/.kit.json` (global)
+
+## Basic configuration
+
+Create `~/.kit.yml`:
+
+```yaml
+model: anthropic/claude-sonnet-latest
+max-tokens: 8192
+temperature: 0.7
+stream: true
+```
+
+## All configuration keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `model` | string | `anthropic/claude-sonnet-latest` | Model to use (provider/model format) |
+| `max-tokens` | int | `8192` | Base cap for output tokens. Auto-raised per-model up to 32768 when the model's catalog ceiling is higher and no explicit value is set. Use [`modelSettings[provider/model].maxTokens`](#per-model-settings) to override per-model. |
+| `temperature` | float | `0.7` | Randomness 0.0–1.0 |
+| `top-p` | float | `0.95` | Nucleus sampling 0.0–1.0 |
+| `top-k` | int | `40` | Limit top K tokens |
+| `stream` | bool | `true` | Enable streaming output |
+| `debug` | bool | `false` | Enable debug logging |
+| `compact` | bool | `false` | Enable compact output mode |
+| `system-prompt` | string | — | System prompt text or file path |
+| `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
+| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
+| `provider-api-key` | string | — | API key for the provider |
+| `provider-url` | string | — | Base URL for provider API |
+| `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
+| `tls-skip-verify` | bool | `false` | Skip TLS certificate verification |
+| `frequency-penalty` | float | `0.0` | Penalize frequent tokens (0.0–2.0) |
+| `presence-penalty` | float | `0.0` | Penalize present tokens (0.0–2.0) |
+| `stop-sequences` | list | — | Custom stop sequences |
+| `theme` | object or string | — | UI theme ([inline overrides or file path](/themes)) |
+| `prompt-templates` | bool | `true` | Enable prompt template loading |
+| `prompt-template` | string | — | Specific template to load by name |
+| `no-skills` | bool | `false` | Disable skill loading (auto-discovery and explicit) |
+| `no-agents` | bool | `false` | Disable named agent discovery ([built-ins and definition files](/advanced/subagents#named-agents)) |
+| `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
+| `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
+| `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+
+## Environment variables
+
+Any configuration key can be set via environment variable with the `KIT_` prefix. Hyphens become underscores:
+
+```bash
+export KIT_MODEL="openai/gpt-4o"
+export KIT_MAX_TOKENS="8192"
+export KIT_TEMPERATURE="0.5"
+```
+
+Provider API keys use their own environment variables:
+
+```bash
+export ANTHROPIC_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."
+export GOOGLE_API_KEY="..."
+```
+
+## MCP server configuration
+
+Add external MCP servers to your `.kit.yml`:
+
+```yaml
+mcpServers:
+  filesystem:
+    type: local
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed"]
+    environment:
+      LOG_LEVEL: "info"
+    allowedTools: ["read_file", "write_file"]
+    excludedTools: ["delete_file"]
+
+  search:
+    type: remote
+    url: "https://mcp.example.com/search"
+
+  pubmed:
+    type: remote
+    url: "https://pubmed.mcp.example.com"
+    noOAuth: true  # skip OAuth for public servers
+    headers:
+      - "ApiKey: ${env://API_KEY}"              # required env var
+      - "X-Tenant: ${env://TENANT_ID:-default}" # with fallback default
+
+  builds:
+    type: remote
+    url: "https://builds.mcp.example.com"
+    tasksMode: always  # always run tools/call as async tasks (Phase 1 MVP)
+```
+
+### MCP server fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `local` (stdio) or `remote` (streamable HTTP) |
+| `command` | list | Command and args for local servers |
+| `environment` | map | Environment variables for the server process |
+| `url` | string | URL for remote servers |
+| `allowedTools` | list | Whitelist of tool names to expose |
+| `excludedTools` | list | Blacklist of tool names to hide |
+| `noOAuth` | bool | Skip OAuth for this server (for public servers that don't require auth) |
+| `headers` | list of strings | HTTP headers to attach to every request, each as a `"Key: Value"` string. Values support env-substitution: `${env://VAR}` or `${env://VAR:-default}`. |
+| `tasksMode` | string | When to augment `tools/call` with MCP task metadata: `auto` (default — only when the server advertises task support), `never`, or `always`. See [MCP tasks](#mcp-tasks-long-running-tools). |
+
+A legacy format with `transport`, `args`, and `env` fields is also supported; `headers` works in both the current and legacy formats.
+
+### MCP tasks (long-running tools)
+
+Kit advertises [MCP task support](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+during `initialize` so servers can respond to `tools/call` with a
+`CreateTaskResult` (a task ID + `working` status) instead of blocking until
+the operation finishes. Kit then polls `tasks/get` / `tasks/result` until the
+task reaches a terminal state, and best-effort `tasks/cancel`s on context
+cancellation.
+
+This avoids HTTP/SSE proxy timeouts on long builds, deploys, and batch jobs,
+and lets the user/agent abort cleanly with Ctrl-C.
+
+**Per-server `tasksMode`:**
+
+| Value | Behaviour |
+|-------|-----------|
+| `auto` (default) | Augment `tools/call` with task metadata only when the server advertised `tasks/toolCalls` capability. Servers that don't advertise it run synchronously, exactly as before. |
+| `never` | Always issue `tools/call` synchronously, regardless of server capability. |
+| `always` | Always opt into task augmentation, even when the server didn't advertise the capability. The server may still respond synchronously — this just expresses client intent unconditionally. |
+
+Defaults are safe: any existing MCP server keeps its previous behaviour
+bit-for-bit. SDK consumers can also override the mode programmatically and
+plug in a progress callback — see [SDK options](/sdk/options#mcp-tasks).
+
+## Provider overrides
+
+Declare or patch providers in the model registry with the `providers` section. Use it to fix a wire protocol the model database routes wrongly, or to define an entirely new provider (such as an internal LLM gateway) that the database doesn't know about:
+
+```yaml
+providers:
+  # Patch the wire protocol of a known provider
+  minimax:
+    wire: anthropic
+
+  # Declare a brand-new provider
+  corp-llm:
+    name: "Corp LLM Gateway"
+    wire: anthropic
+    baseUrl: "https://llm.internal.corp/api"
+    apiKeyEnv: [CORP_LLM_KEY, LLM_GATEWAY_KEY]
+    headers:
+      X-Team: platform
+```
+
+```bash
+kit --model corp-llm/claude-sonnet-4-5 "Hello"
+```
+
+### Provider override fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name for the provider |
+| `wire` | string | Wire protocol: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google` |
+| `baseUrl` | string | API base URL |
+| `apiKeyEnv` | list | Environment variable names tried in order when resolving the API key |
+| `headers` | map | Default HTTP headers added to every request |
+
+All fields are optional. Non-empty fields override the model database; unset fields inherit the database values. An invalid `wire` value causes the whole override to be skipped with a warning. Wire resolution precedence: `--provider-wire` flag > `providers` config > the database's own routing.
+
+Unlike [custom models](#custom-models) (which define individual models under the `custom` provider, always on the OpenAI-compatible wire), provider overrides operate at the provider level and support all four wire protocols. See [Auto-routed providers](/providers#auto-routed-providers) for how routing works.
+
+## Custom models
+
+Define custom models in your `.kit.yml` for use with the `custom` provider. This is useful for self-hosted models or API endpoints not in the built-in database (for non-OpenAI wire protocols or provider-level declarations, use [provider overrides](#provider-overrides) instead):
+
+```yaml
+customModels:
+  my-model:
+    name: "My Custom Model"
+    baseUrl: "http://localhost:8080/v1"
+    apiKey: "my-secret-key"
+    apiModelName: "gpt-4-turbo"
+    reasoning: true
+    temperature: true
+    cost:
+      input: 0.002
+      output: 0.004
+    limit:
+      context: 128000
+      output: 32000
+```
+
+### Custom model fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name for the model |
+| `baseUrl` | string | No | Per-model base URL override; when set, `--provider-url` is not required |
+| `apiKey` | string | No | Per-model API key override |
+| `apiModelName` | string | No | Overrides the model identifier sent in API requests; defaults to the config key |
+| `reasoning` | bool | No | Whether the model supports reasoning/thinking |
+| `temperature` | bool | No | Whether the model supports temperature adjustment |
+| `cost.input` | float | No | Cost per 1K input tokens |
+| `cost.output` | float | No | Cost per 1K output tokens |
+| `limit.context` | int | Yes | Maximum context window in tokens |
+| `limit.output` | int | No | Maximum output tokens |
+
+Use with a per-model `baseUrl` (no `--provider-url` needed):
+
+```bash
+kit --model custom/my-model "Hello"
+```
+
+Or override the base URL at runtime:
+
+```bash
+kit --provider-url "http://localhost:8080/v1" --model custom/my-model "Hello"
+```
+
+When `--provider-url` is specified without `--model`, Kit defaults to `custom/custom` which has zero cost tracking and a 262K context window.
+
+## Per-model settings
+
+Override generation parameters and system prompt on a per-model basis using `modelSettings`:
+
+```yaml
+modelSettings:
+  anthropic/claude-sonnet-4-5-20250929:
+    temperature: 0.3
+    maxTokens: 8192
+    systemPrompt: "You are a concise coding assistant."
+  openai/gpt-4o:
+    temperature: 0.7
+    frequencyPenalty: 0.5
+```
+
+### Per-model fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `temperature` | float | Temperature override for this model |
+| `maxTokens` | int | Max output tokens override |
+| `topP` | float | Top-p override |
+| `topK` | int | Top-k override |
+| `frequencyPenalty` | float | Frequency penalty override |
+| `presencePenalty` | float | Presence penalty override |
+| `stopSequences` | list | Stop sequences override |
+| `thinkingLevel` | string | Thinking level override |
+| `systemPrompt` | string | Per-model system prompt (used when no explicit prompt is set) |
+
+Settings from `modelSettings` and `customModels.params` act as model-level defaults — explicit CLI flags, `KIT_*` environment variables, global config values, and SDK `Options.*` fields all take precedence over them.
+
+When switching models via `/model` or `SetModel()`, if the new model has a per-model system prompt and no custom global prompt was set, the per-model prompt automatically replaces the previous one.
+
+### Precedence summary
+
+For the generation and provider parameters documented above, the resolved value at runtime comes from the first source that sets it:
+
+1. CLI flag (e.g. `--max-tokens`, `--temperature`, `--provider-api-key`)
+2. SDK `Options.X` when embedding Kit as a library (`kit.Options.MaxTokens`, `Temperature`, `ProviderAPIKey`, etc.)
+3. `KIT_*` environment variable (`KIT_MAX_TOKENS`, `KIT_TEMPERATURE`, ...)
+4. `.kit.yml` / `.kit.yaml` / `.kit.json` (project-local, then global)
+5. Per-model defaults (`modelSettings[provider/model]` / `customModels[...].params`)
+6. Provider-level defaults (e.g. Anthropic's own temperature default)
+7. SDK last-resort floor — currently an 8192 output-token ceiling matching the CLI `--max-tokens` default, auto-raised per-model up to 32768 when the model's catalog ceiling is higher
+
+See the [SDK options reference](/sdk/options) for the full list of `kit.Options` fields that map to these keys.
+
+## Theme configuration
+
+```yaml
+# Inline partial overrides (unspecified fields inherit from default)
+theme:
+  primary:
+    light: "#8839ef"
+    dark: "#cba6f7"
+  error:
+    dark: "#FF0000"
+```
+
+```yaml
+# Reference external theme file
+theme: "./themes/my-custom-theme.yml"
+```
+
+See [Themes](/themes) for the full theme file format, built-in themes, and the extension theme API.
+
+## Preferences persistence
+
+Kit automatically saves your UI preferences across sessions to `~/.config/kit/preferences.yml`:
+
+- **Theme** — Set via `/theme <name>` or `ctx.SetTheme()`
+- **Model** — Set via `/model <name>` or the model selector
+- **Thinking level** — Set via `/thinking <level>` or Shift+Tab cycling
+
+These preferences are restored on next launch. Precedence (highest to lowest):
+1. CLI flags (`--model`, `--thinking-level`)
+2. Config file (`model:`, `thinking-level:`)
+3. Saved preferences (`~/.config/kit/preferences.yml`)
+4. Default values

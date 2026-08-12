@@ -1,0 +1,106 @@
+
+# SDK Sessions
+
+## Automatic persistence
+
+By default, Kit automatically persists sessions to JSONL files. Multi-turn conversations retain context across calls:
+
+```go
+host.Prompt(ctx, "My name is Alice")
+response, _ := host.Prompt(ctx, "What's my name?")
+// response: "Your name is Alice"
+```
+
+## Accessing session info
+
+```go
+// Get the current session file path
+path := host.GetSessionPath()
+
+// Get the session ID
+id := host.GetSessionID()
+
+// Get the current model string
+model := host.GetModelString()
+```
+
+## Configuring sessions via Options
+
+Session behavior is configured at initialization:
+
+```go
+// Open a specific session file
+host, _ := kit.New(ctx, &kit.Options{
+    SessionPath: "./my-session.jsonl",
+})
+
+// Resume the most recent session for the current directory
+host, _ := kit.New(ctx, &kit.Options{
+    Continue: true,
+})
+
+// Ephemeral mode (no file persistence)
+host, _ := kit.New(ctx, &kit.Options{
+    NoSession: true,
+})
+
+// Custom session directory
+host, _ := kit.New(ctx, &kit.Options{
+    SessionDir: "/custom/sessions/",
+})
+```
+
+## Clearing history
+
+Clear the in-memory conversation history (does not delete the session file):
+
+```go
+host.ClearSession()
+```
+
+## Tree-based sessions
+
+Kit's session model is tree-based, supporting branching. You can branch from any entry to explore alternate conversation paths:
+
+```go
+// Access the tree session manager
+ts := host.GetTreeSession()
+
+// Branch from a specific entry
+err := host.Branch("entry-id-123")
+```
+
+## Listing and managing sessions
+
+Package-level functions for session discovery:
+
+```go
+// List sessions for a specific directory
+sessions := kit.ListSessions("/home/user/project")
+
+// List all sessions across all directories
+all := kit.ListAllSessions()
+
+// Delete a session file
+kit.DeleteSession("/path/to/session.jsonl")
+```
+
+## Custom session manager
+
+For advanced use cases (databases, cloud storage, multi-user apps), implement the `SessionManager` interface to replace the default JSONL file backend:
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    SessionManager: myCustomSession,
+})
+```
+
+The interface requires methods for message storage, branching, compaction, branch summaries, extension data, and lifecycle management. See the [`SessionManager` interface definition](https://pkg.go.dev/github.com/mark3labs/kit/pkg/kit#SessionManager) for the complete method set.
+
+The `AppendBranchSummary(fromID, summary)` method backs `host.CollapseBranch`,
+which collapses a branch range into a single summary entry. Custom managers
+that don't track branch summaries can return `kit.ErrBranchSummaryNotSupported`
+from that method; `host.CollapseBranch` then surfaces the same sentinel so
+callers can detect it with `errors.Is`.
+
+When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.
