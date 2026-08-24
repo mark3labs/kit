@@ -433,8 +433,9 @@ Also see [`.kit/extensions/go-edit-lint.go`](.kit/extensions/go-edit-lint.go) (i
 - `.kit/git/` (project-local git-installed packages)
 
 The system-wide directory serves packaged installs (rpm, deb, ...). Set
-`KIT_SYSTEM_EXTENSIONS_DIR` to use other directories (separated by `:`), or
-set it empty to disable system-wide discovery. Packagers can change the
+`KIT_SYSTEM_EXTENSIONS_DIR` to use other directories (separated by the platform
+list separator: `:` on Unix, `;` on Windows), or set it empty to disable
+system-wide discovery. Packagers can change the
 compiled-in default with
 `-ldflags "-X github.com/mark3labs/kit/internal/extensions.SystemExtensionsDir=/opt/kit/extensions"`.
 

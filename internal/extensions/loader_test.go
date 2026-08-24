@@ -392,12 +392,28 @@ func Init(api ext.API) {
 	}
 }
 
-func TestUserExtensionsDir_XDG(t *testing.T) {
-	// Save and restore XDG_CONFIG_HOME.
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
+// unsetEnv removes key for the duration of the test and restores its original
+// state, set or unset, afterwards. t.Setenv cannot be used where a test needs
+// the variable genuinely absent, because systemExtensionsDirs distinguishes an
+// unset variable from an empty one via os.LookupEnv.
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	orig, had := os.LookupEnv(key)
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(key, orig)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+}
 
-	_ = os.Setenv("XDG_CONFIG_HOME", "/custom/config")
+func TestUserExtensionsDir_XDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
+
 	dir := userExtensionsDir()
 	expected := "/custom/config/kit/extensions"
 	if dir != expected {
@@ -406,10 +422,10 @@ func TestUserExtensionsDir_XDG(t *testing.T) {
 }
 
 func TestUserExtensionsDir_Default(t *testing.T) {
-	orig := os.Getenv("XDG_CONFIG_HOME")
-	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
+	// userExtensionsDir reads with os.Getenv, so empty and unset are
+	// equivalent here and t.Setenv suffices.
+	t.Setenv("XDG_CONFIG_HOME", "")
 
-	_ = os.Setenv("XDG_CONFIG_HOME", "")
 	dir := userExtensionsDir()
 	home, _ := os.UserHomeDir()
 	expected := filepath.Join(home, ".config", "kit", "extensions")
@@ -419,8 +435,7 @@ func TestUserExtensionsDir_Default(t *testing.T) {
 }
 
 func TestSystemExtensionsDirs_Default(t *testing.T) {
-	t.Setenv(SystemExtensionsDirEnv, "")
-	_ = os.Unsetenv(SystemExtensionsDirEnv)
+	unsetEnv(t, SystemExtensionsDirEnv)
 
 	dirs := systemExtensionsDirs()
 	if len(dirs) != 1 || dirs[0] != SystemExtensionsDir {
@@ -447,7 +462,7 @@ func TestSystemExtensionsDirs_EnvDisables(t *testing.T) {
 }
 
 func TestSystemExtensionsDirs_BuildTimeOverrideDisables(t *testing.T) {
-	_ = os.Unsetenv(SystemExtensionsDirEnv)
+	unsetEnv(t, SystemExtensionsDirEnv)
 	orig := SystemExtensionsDir
 	defer func() { SystemExtensionsDir = orig }()
 
@@ -474,6 +489,50 @@ func TestDiscoverExtensionPaths_SystemDir(t *testing.T) {
 	want, _ := filepath.Abs(sysExt)
 	if len(paths) == 0 || paths[0] != want {
 		t.Errorf("expected system extension %q first, got %v", want, paths)
+	}
+}
+
+func TestAuthoredSearchPaths_Scopes(t *testing.T) {
+	unsetEnv(t, SystemExtensionsDirEnv)
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
+
+	paths := AuthoredSearchPaths()
+	if len(paths) != 3 {
+		t.Fatalf("expected system, user and project scopes, got %v", paths)
+	}
+
+	want := []SearchPath{
+		{Dir: SystemExtensionsDir, Scope: "system"},
+		{Dir: "/custom/config/kit/extensions", Scope: "user"},
+		{Dir: filepath.Join(".kit", "extensions"), Scope: "project"},
+	}
+	if !slices.Equal(paths, want) {
+		t.Errorf("expected %v, got %v", want, paths)
+	}
+}
+
+func TestAuthoredSearchPaths_SystemDisabled(t *testing.T) {
+	t.Setenv(SystemExtensionsDirEnv, "")
+
+	for _, sp := range AuthoredSearchPaths() {
+		if sp.Scope == "system" {
+			t.Errorf("expected no system scope when disabled, got %v", sp)
+		}
+	}
+}
+
+func TestAuthoredSearchPaths_MultipleSystemDirs(t *testing.T) {
+	custom := strings.Join([]string{"/opt/kit/extensions", "/srv/kit/extensions"}, string(os.PathListSeparator))
+	t.Setenv(SystemExtensionsDirEnv, custom)
+
+	var system []string
+	for _, sp := range AuthoredSearchPaths() {
+		if sp.Scope == "system" {
+			system = append(system, sp.Dir)
+		}
+	}
+	if !slices.Equal(system, []string{"/opt/kit/extensions", "/srv/kit/extensions"}) {
+		t.Errorf("expected both system dirs in order, got %v", system)
 	}
 }
 

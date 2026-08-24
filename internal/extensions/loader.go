@@ -361,6 +361,40 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 	return results
 }
 
+// SearchPath is one directory that extension auto-discovery scans, paired
+// with a short scope label for display in diagnostics.
+type SearchPath struct {
+	// Dir is the resolved directory path.
+	Dir string
+	// Scope labels the directory: "system", "user" or "project".
+	Scope string
+}
+
+// AuthoredSearchPaths returns the directories that auto-discovery scans for
+// hand-written extensions, in load order, with their scope labels. Entries
+// are returned whether or not the directory exists, because the list
+// describes where an extension may be placed rather than what is installed.
+//
+// The system scope expands to however many directories
+// $KIT_SYSTEM_EXTENSIONS_DIR configures, and to none at all when it is
+// disabled, so callers must not assume a fixed length.
+//
+// Git package roots are deliberately excluded: those are managed by
+// "kit install" rather than authored by hand.
+func AuthoredSearchPaths() []SearchPath {
+	paths := make([]SearchPath, 0, 3)
+	for _, dir := range systemExtensionsDirs() {
+		paths = append(paths, SearchPath{Dir: dir, Scope: "system"})
+	}
+	if dir := userExtensionsDir(); dir != "" {
+		paths = append(paths, SearchPath{Dir: dir, Scope: "user"})
+	}
+	return append(paths, SearchPath{
+		Dir:   filepath.Join(".kit", "extensions"),
+		Scope: "project",
+	})
+}
+
 // SystemExtensionsDir is the system-wide extensions directory. It holds
 // extensions that ship with a packaged installation of Kit (rpm, deb, and
 // so on) and are shared by every user of the machine.

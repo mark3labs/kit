@@ -15,9 +15,9 @@ Kit automatically discovers and loads extensions from these paths, in order:
 | `/usr/share/kit/extensions/*/main.go` | System-wide subdirectory extensions |
 | `~/.config/kit/extensions/*.go` | User single files |
 | `~/.config/kit/extensions/*/main.go` | User subdirectory extensions |
+| `~/.local/share/kit/git/` | Global git-installed packages |
 | `.kit/extensions/*.go` | Project-local single files |
 | `.kit/extensions/*/main.go` | Project-local subdirectory extensions |
-| `~/.local/share/kit/git/` | Global git-installed packages |
 | `.kit/git/` | Project-local git-installed packages |
 
 Kit loads every extension it finds. The order in the table is the order in
@@ -32,7 +32,8 @@ install of Kit (rpm, deb, Homebrew, and so on) and are shared by every
 user of the machine. It defaults to `/usr/share/kit/extensions`.
 
 Set `KIT_SYSTEM_EXTENSIONS_DIR` to use different directories. Give more
-than one directory with the platform list separator (`:` on Unix):
+than one directory with the platform list separator (`:` on Unix, `;` on
+Windows):
 
 ```bash
 KIT_SYSTEM_EXTENSIONS_DIR=/opt/kit/extensions:/srv/kit/extensions kit

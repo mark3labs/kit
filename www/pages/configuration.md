@@ -77,7 +77,7 @@ equivalent:
 
 | Variable | Effect |
 |----------|--------|
-| `KIT_SYSTEM_EXTENSIONS_DIR` | Overrides the system-wide extension directories (`:`-separated). Empty disables system-wide discovery. See [Loading Extensions](/extensions/loading#system-wide-extensions). |
+| `KIT_SYSTEM_EXTENSIONS_DIR` | Overrides the system-wide extension directories, separated by the platform list separator (`:` on Unix, `;` on Windows). Empty disables system-wide discovery. See [Loading Extensions](/extensions/loading#system-wide-extensions). |
 
 ## MCP server configuration
 
