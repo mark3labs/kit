@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -548,7 +549,7 @@ func (s *ScrollList) bottomOffset() (offsetIdx, offsetLine int) {
 	}
 
 	budget := s.height
-	for idx := len(s.items) - 1; idx >= 0; idx-- {
+	for idx := range slices.Backward(s.items) {
 		ih := s.itemHeight(idx)
 
 		// Account for gap *above* this item (gap between idx-1 and idx).

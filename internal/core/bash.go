@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -141,8 +142,7 @@ func rewriteSudoForStdin(command string) string {
 
 	// Build result from end to start to preserve indices
 	result := command
-	for i := len(matches) - 1; i >= 0; i-- {
-		match := matches[i]
+	for _, match := range slices.Backward(matches) {
 		start, end := match[0], match[1]
 		matchedText := result[start:end]
 

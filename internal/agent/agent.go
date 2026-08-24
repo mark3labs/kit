@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1049,12 +1050,12 @@ func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.FilePa
 	}
 
 	// Walk backwards to find the last user message
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == fantasy.MessageRoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role == fantasy.MessageRoleUser {
 			// Extract text and file parts from the user message
 			var prompt string
 			var files []fantasy.FilePart
-			for _, part := range messages[i].Content {
+			for _, part := range message.Content {
 				switch p := part.(type) {
 				case fantasy.TextPart:
 					if prompt == "" {

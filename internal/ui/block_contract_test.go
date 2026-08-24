@@ -2,6 +2,7 @@ package ui
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -52,8 +53,8 @@ func widestColumn(rendered string) int {
 func trailingBlankLines(rendered string) int {
 	lines := visibleLines(rendered)
 	n := 0
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.TrimSpace(lines[i]) != "" {
+	for _, line := range slices.Backward(lines) {
+		if strings.TrimSpace(line) != "" {
 			break
 		}
 		n++

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -107,8 +108,8 @@ func NewTreeSelectorForFork(roots []app.TreeNodeView, leafID string, width, heig
 	ts.initPopup()
 	ts.rebuild()
 	// Position cursor at the last user message before the leaf.
-	for i := len(ts.flatNodes) - 1; i >= 0; i-- {
-		if ts.flatNodes[i].Node.IsUserMessage() {
+	for i, v := range slices.Backward(ts.flatNodes) {
+		if v.Node.IsUserMessage() {
 			ts.popup.SetCursor(i)
 			break
 		}

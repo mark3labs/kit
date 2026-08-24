@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -3281,8 +3282,8 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 	m.promptOptsMu.Lock()
 	var restores []func()
 	restore := func() {
-		for i := len(restores) - 1; i >= 0; i-- {
-			restores[i]()
+		for _, fn := range slices.Backward(restores) {
+			fn()
 		}
 		m.promptOptsMu.Unlock()
 	}
