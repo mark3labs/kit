@@ -36,7 +36,13 @@ than one directory with the platform list separator (`:` on Unix, `;` on
 Windows):
 
 ```bash
+# Unix
 KIT_SYSTEM_EXTENSIONS_DIR=/opt/kit/extensions:/srv/kit/extensions kit
+```
+
+```powershell
+# Windows (PowerShell)
+$env:KIT_SYSTEM_EXTENSIONS_DIR = "C:\ProgramData\kit\extensions;D:\kit\extensions"; kit
 ```
 
 Set the variable to an empty value to turn off system-wide discovery:
