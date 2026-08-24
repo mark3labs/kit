@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -391,29 +392,130 @@ func Init(api ext.API) {
 	}
 }
 
-func TestGlobalExtensionsDir_XDG(t *testing.T) {
+func TestUserExtensionsDir_XDG(t *testing.T) {
 	// Save and restore XDG_CONFIG_HOME.
 	orig := os.Getenv("XDG_CONFIG_HOME")
 	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
 
 	_ = os.Setenv("XDG_CONFIG_HOME", "/custom/config")
-	dir := globalExtensionsDir()
+	dir := userExtensionsDir()
 	expected := "/custom/config/kit/extensions"
 	if dir != expected {
 		t.Errorf("expected %q, got %q", expected, dir)
 	}
 }
 
-func TestGlobalExtensionsDir_Default(t *testing.T) {
+func TestUserExtensionsDir_Default(t *testing.T) {
 	orig := os.Getenv("XDG_CONFIG_HOME")
 	defer func() { _ = os.Setenv("XDG_CONFIG_HOME", orig) }()
 
 	_ = os.Setenv("XDG_CONFIG_HOME", "")
-	dir := globalExtensionsDir()
+	dir := userExtensionsDir()
 	home, _ := os.UserHomeDir()
 	expected := filepath.Join(home, ".config", "kit", "extensions")
 	if dir != expected {
 		t.Errorf("expected %q, got %q", expected, dir)
+	}
+}
+
+func TestSystemExtensionsDirs_Default(t *testing.T) {
+	t.Setenv(SystemExtensionsDirEnv, "")
+	_ = os.Unsetenv(SystemExtensionsDirEnv)
+
+	dirs := systemExtensionsDirs()
+	if len(dirs) != 1 || dirs[0] != SystemExtensionsDir {
+		t.Errorf("expected [%q], got %v", SystemExtensionsDir, dirs)
+	}
+}
+
+func TestSystemExtensionsDirs_EnvOverride(t *testing.T) {
+	custom := strings.Join([]string{"/opt/kit/extensions", "/srv/kit/extensions"}, string(os.PathListSeparator))
+	t.Setenv(SystemExtensionsDirEnv, custom)
+
+	dirs := systemExtensionsDirs()
+	if len(dirs) != 2 || dirs[0] != "/opt/kit/extensions" || dirs[1] != "/srv/kit/extensions" {
+		t.Errorf("expected both override dirs, got %v", dirs)
+	}
+}
+
+func TestSystemExtensionsDirs_EnvDisables(t *testing.T) {
+	t.Setenv(SystemExtensionsDirEnv, "")
+
+	if dirs := systemExtensionsDirs(); len(dirs) != 0 {
+		t.Errorf("expected no dirs when env is empty, got %v", dirs)
+	}
+}
+
+func TestSystemExtensionsDirs_BuildTimeOverrideDisables(t *testing.T) {
+	_ = os.Unsetenv(SystemExtensionsDirEnv)
+	orig := SystemExtensionsDir
+	defer func() { SystemExtensionsDir = orig }()
+
+	SystemExtensionsDir = ""
+	if dirs := systemExtensionsDirs(); len(dirs) != 0 {
+		t.Errorf("expected no dirs when SystemExtensionsDir is empty, got %v", dirs)
+	}
+}
+
+func TestDiscoverExtensionPaths_SystemDir(t *testing.T) {
+	sysDir := t.TempDir()
+	src := "package main\n\nimport \"kit/ext\"\n\nfunc Init(api ext.API) {}\n"
+	sysExt := filepath.Join(sysDir, "system-ext.go")
+	if err := os.WriteFile(sysExt, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(SystemExtensionsDirEnv, sysDir)
+	// Keep user and git discovery out of the way.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	paths := discoverExtensionPaths(nil)
+	want, _ := filepath.Abs(sysExt)
+	if len(paths) == 0 || paths[0] != want {
+		t.Errorf("expected system extension %q first, got %v", want, paths)
+	}
+}
+
+func TestDiscoverExtensionPaths_SystemBeforeUser(t *testing.T) {
+	sysDir := t.TempDir()
+	configHome := t.TempDir()
+	userDir := filepath.Join(configHome, "kit", "extensions")
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	src := "package main\n\nimport \"kit/ext\"\n\nfunc Init(api ext.API) {}\n"
+	sysExt := filepath.Join(sysDir, "a-system.go")
+	userExt := filepath.Join(userDir, "b-user.go")
+	for _, p := range []string{sysExt, userExt} {
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv(SystemExtensionsDirEnv, sysDir)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	paths := discoverExtensionPaths(nil)
+	sysAbs, _ := filepath.Abs(sysExt)
+	userAbs, _ := filepath.Abs(userExt)
+
+	sysIdx, userIdx := -1, -1
+	for i, p := range paths {
+		switch p {
+		case sysAbs:
+			sysIdx = i
+		case userAbs:
+			userIdx = i
+		}
+	}
+	if sysIdx < 0 || userIdx < 0 {
+		t.Fatalf("expected both extensions, got %v", paths)
+	}
+	if sysIdx > userIdx {
+		t.Errorf("expected system extension before user extension, got %v", paths)
 	}
 }
 

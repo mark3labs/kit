@@ -423,12 +423,20 @@ Also see [`.kit/extensions/go-edit-lint.go`](.kit/extensions/go-edit-lint.go) (i
 ### Loading Extensions
 
 **Auto-discovery** (loads automatically):
-- `~/.config/kit/extensions/*.go` (global single files)
-- `~/.config/kit/extensions/*/main.go` (global subdirectory extensions)
+- `/usr/share/kit/extensions/*.go` (system-wide single files)
+- `/usr/share/kit/extensions/*/main.go` (system-wide subdirectory extensions)
+- `~/.config/kit/extensions/*.go` (user single files)
+- `~/.config/kit/extensions/*/main.go` (user subdirectory extensions)
 - `.kit/extensions/*.go` (project-local single files)
 - `.kit/extensions/*/main.go` (project-local subdirectory extensions)
 - `~/.local/share/kit/git/` (global git-installed packages)
 - `.kit/git/` (project-local git-installed packages)
+
+The system-wide directory serves packaged installs (rpm, deb, ...). Set
+`KIT_SYSTEM_EXTENSIONS_DIR` to use other directories (separated by `:`), or
+set it empty to disable system-wide discovery. Packagers can change the
+compiled-in default with
+`-ldflags "-X github.com/mark3labs/kit/internal/extensions.SystemExtensionsDir=/opt/kit/extensions"`.
 
 **Explicit loading**:
 ```bash

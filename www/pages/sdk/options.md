@@ -170,6 +170,12 @@ when embedding Kit as a library.
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 | `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
 
+Unless `NoExtensions` is set, an embedded Kit uses the same
+[auto-discovery paths](/extensions/loading#auto-discovery) as the CLI, which
+include the system-wide `/usr/share/kit/extensions` directory. Set
+`NoExtensions: true` for a hermetic embed that must not pick up extensions
+from the host machine.
+
 ### Skills & configuration
 
 | Field | Type | Default | Description |

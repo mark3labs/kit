@@ -31,8 +31,10 @@ The `//go:build ignore` tag prevents `go build` from compiling the file directly
 
 Extensions are auto-loaded from these directories:
 
-- `~/.config/kit/extensions/*.go` (global, single files)
-- `~/.config/kit/extensions/*/main.go` (global, subdirectories)
+- `/usr/share/kit/extensions/*.go` (system-wide, single files)
+- `/usr/share/kit/extensions/*/main.go` (system-wide, subdirectories)
+- `~/.config/kit/extensions/*.go` (user, single files)
+- `~/.config/kit/extensions/*/main.go` (user, subdirectories)
 - `.kit/extensions/*.go` (project-local, single files)
 - `.kit/extensions/*/main.go` (project-local, subdirectories)
 

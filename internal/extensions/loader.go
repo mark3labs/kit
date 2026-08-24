@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -14,8 +15,10 @@ import (
 
 // Discovery paths searched in order (lowest to highest precedence):
 //
-//	~/.config/kit/extensions/*.go          global single files
-//	~/.config/kit/extensions/*/main.go     global subdirectories
+//	/usr/share/kit/extensions/*.go         system-wide single files
+//	/usr/share/kit/extensions/*/main.go    system-wide subdirectories
+//	~/.config/kit/extensions/*.go          user single files
+//	~/.config/kit/extensions/*/main.go     user subdirectories
 //	.kit/extensions/*.go                   project-local single files
 //	.kit/extensions/*/main.go              project-local subdirectories
 //
@@ -66,13 +69,21 @@ func (ps *pathSet) add(p string) bool {
 }
 
 // discoverExtensionPaths returns deduplicated paths to extension files in
-// load-order (global first, then project-local, then explicit).
+// load-order (system-wide first, then user, then project-local, then
+// explicit).
 func discoverExtensionPaths(extraPaths []string) []string {
 	ps := newPathSet()
 
-	// Global extensions: $XDG_CONFIG_HOME/kit/extensions/ (default ~/.config/kit/extensions/)
-	globalDir := globalExtensionsDir()
-	for _, p := range findExtensionsInDir(globalDir) {
+	// System-wide extensions: /usr/share/kit/extensions/ (packaged installs)
+	for _, dir := range systemExtensionsDirs() {
+		for _, p := range findExtensionsInDir(dir) {
+			ps.add(p)
+		}
+	}
+
+	// User extensions: $XDG_CONFIG_HOME/kit/extensions/ (default ~/.config/kit/extensions/)
+	userDir := userExtensionsDir()
+	for _, p := range findExtensionsInDir(userDir) {
 		ps.add(p)
 	}
 
@@ -350,9 +361,44 @@ func findExtensionsInGitPackages(gitRoot string) []string {
 	return results
 }
 
-// globalExtensionsDir returns the global extensions directory, respecting
+// SystemExtensionsDir is the system-wide extensions directory. It holds
+// extensions that ship with a packaged installation of Kit (rpm, deb, and
+// so on) and are shared by every user of the machine.
+//
+// Packagers can point it somewhere else at build time:
+//
+//	go build -ldflags "-X github.com/mark3labs/kit/internal/extensions.SystemExtensionsDir=/opt/kit/extensions" ./cmd/kit
+//
+// Set it to an empty string to disable system-wide discovery.
+var SystemExtensionsDir = "/usr/share/kit/extensions"
+
+// SystemExtensionsDirEnv is the environment variable that overrides
+// SystemExtensionsDir at runtime. It accepts one or more directories
+// separated by the platform list separator (":" on Unix). An empty value
+// disables system-wide discovery.
+const SystemExtensionsDirEnv = "KIT_SYSTEM_EXTENSIONS_DIR"
+
+// systemExtensionsDirs returns the system-wide extension directories in
+// load order. $KIT_SYSTEM_EXTENSIONS_DIR, when set, replaces the build-time
+// SystemExtensionsDir default.
+func systemExtensionsDirs() []string {
+	raw := SystemExtensionsDir
+	if env, ok := os.LookupEnv(SystemExtensionsDirEnv); ok {
+		raw = env
+	}
+
+	var dirs []string
+	for _, dir := range filepath.SplitList(raw) {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
+// userExtensionsDir returns the per-user extensions directory, respecting
 // $XDG_CONFIG_HOME. Defaults to ~/.config/kit/extensions.
-func globalExtensionsDir() string {
+func userExtensionsDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -441,7 +487,7 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 		return nil, fmt.Errorf("no Init function: %w", err)
 	}
 
-	initFn, ok := initVal.Interface().(func(API))
+	initFn, ok := reflect.TypeAssert[func(API)](initVal)
 	if !ok {
 		return nil, fmt.Errorf("init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
 	}
