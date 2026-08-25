@@ -414,10 +414,13 @@ func hasResponsesProviderOptions(opts fantasy.ProviderOptions) bool {
 //  1. config.ProviderWire (--provider-wire flag) — always wins.
 //  2. providerInfo.Wire — explicit declaration from the `providers` config
 //     section.
-//  3. npm-package heuristic (npmToWireProtocol), with per-model npm
+//  3. Per-model wire pin (modelWireOverrides) for catalogs that mix wires
+//     and publish no npm hint (e.g. opencode's gpt-* and grok-* families,
+//     which answer only on the OpenAI Responses API).
+//  4. npm-package heuristic (npmToWireProtocol), with per-model npm
 //     overrides resolved first (e.g. opencode's claude-* uses
 //     @ai-sdk/anthropic and its gemini-* uses @ai-sdk/google).
-//  4. Providers with an api URL but no recognizable wire fall back to the
+//  5. Providers with an api URL but no recognizable wire fall back to the
 //     OpenAI-compatible wire.
 //
 // A provider absent from the registry is synthesized on the fly when both
@@ -447,10 +450,14 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 		npmPackage = modelInfo.ProviderNPM
 	}
 
-	// Wire resolution: explicit flag > config override > npm heuristic.
+	// Wire resolution: explicit flag > config override > per-model pin > npm
+	// heuristic.
 	wire, known := parseWire(config.ProviderWire)
 	if !known {
 		wire, known = parseWire(providerInfo.Wire)
+	}
+	if !known {
+		wire, known = lookupModelWire(provider, modelName)
 	}
 	if !known {
 		wire, known = npmToWireProtocol[npmPackage]
@@ -658,7 +665,15 @@ func createAutoRoutedAnthropicProvider(ctx context.Context, config *ProviderConf
 }
 
 // createAutoRoutedOpenAIProvider creates an openai provider for
-// third-party providers with openai-compatible APIs.
+// third-party providers whose wire protocol is the OpenAI Responses API.
+//
+// The SDK only upgrades a model to the Responses API when its ID passes an
+// OpenAI-shaped name test (gpt-4*, gpt-5*, or a fixed list). Third-party
+// proxies serve Responses-only models under vendor names that fail that test
+// (e.g. opencode's grok-4.5 / grok-4.6), so the request silently downgrades to
+// /chat/completions and the proxy rejects it. Selecting this wire is an
+// explicit statement about the transport, thus force the Responses API for
+// every model ID here.
 func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName string, info *ProviderInfo) (*ProviderResult, error) {
 	apiKey, err := resolveAutoRouteAPIKey(config, info)
 	if err != nil {
@@ -668,6 +683,7 @@ func createAutoRoutedOpenAIProvider(ctx context.Context, config *ProviderConfig,
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithUseResponsesAPI())
+	opts = append(opts, openai.WithResponsesAPIFunc(func(string) bool { return true }))
 
 	if config.ProviderURL != "" {
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))

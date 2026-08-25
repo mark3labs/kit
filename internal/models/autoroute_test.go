@@ -156,6 +156,111 @@ func TestAutoRouteProvider_WireRouting(t *testing.T) {
 	}
 }
 
+// TestLookupModelWire verifies the per-model wire pins that correct catalogs
+// which mix wires under a single npm package (opencode zen).
+func TestLookupModelWire(t *testing.T) {
+	tests := []struct {
+		provider string
+		model    string
+		wantWire wireProtocol
+		wantOK   bool
+	}{
+		{"opencode", "grok-4.5", wireOpenAI, true},
+		{"opencode", "grok-4.6", wireOpenAI, true},
+		{"opencode", "grok-build-0.1", wireOpenAI, true},
+		{"opencode", "gpt-5.4", wireOpenAI, true},
+		{"opencode", "GPT-5-Nano", wireOpenAI, true},
+		// Open-weight and native-wire families keep the npm heuristic.
+		{"opencode", "kimi-k2.5", wireUnknown, false},
+		{"opencode", "claude-opus-4-5", wireUnknown, false},
+		{"opencode", "gemini-3.5-flash", wireUnknown, false},
+		{"opencode", "big-pickle", wireUnknown, false},
+		// Other providers are untouched.
+		{"xai", "grok-4.5", wireUnknown, false},
+	}
+
+	for _, tt := range tests {
+		gotWire, gotOK := lookupModelWire(tt.provider, tt.model)
+		if gotWire != tt.wantWire || gotOK != tt.wantOK {
+			t.Errorf("lookupModelWire(%q, %q) = (%d, %v), want (%d, %v)",
+				tt.provider, tt.model, gotWire, gotOK, tt.wantWire, tt.wantOK)
+		}
+	}
+}
+
+// TestAutoRouteProvider_ModelWirePin is the regression test for opencode's
+// grok-* and gpt-* models. models.dev declares @ai-sdk/openai-compatible for
+// the whole opencode catalog, which routed these models to /chat/completions —
+// an endpoint the zen gateway answers with HTTP 500/503 for these families.
+// The per-model pin must route them to the Responses API instead, whatever the
+// model ID looks like.
+func TestAutoRouteProvider_ModelWirePin(t *testing.T) {
+	tests := []struct {
+		modelID  string
+		wantType string
+	}{
+		{"grok-4.5", "openai.responsesLanguageModel"},
+		{"grok-4.6", "openai.responsesLanguageModel"},
+		{"gpt-5.4", "openai.responsesLanguageModel"},
+		// Open-weight models stay on chat completions.
+		{"kimi-k2.5", "openai.languageModel"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
+			reg := &ModelsRegistry{
+				providers: map[string]ProviderInfo{
+					"opencode": {
+						ID:   "opencode",
+						Name: "opencode",
+						Env:  []string{"OPENCODE_API_KEY"},
+						NPM:  "@ai-sdk/openai-compatible",
+						API:  "https://opencode.ai/zen/v1",
+						Models: map[string]ModelInfo{
+							tt.modelID: {ID: tt.modelID, Name: tt.modelID},
+						},
+					},
+				},
+			}
+			config := &ProviderConfig{ProviderAPIKey: "test-key"}
+
+			result, err := autoRouteProvider(context.Background(), config, "opencode", tt.modelID, reg)
+			if err != nil {
+				t.Fatalf("autoRouteProvider returned error: %v", err)
+			}
+			if gotType := reflect.TypeOf(result.Model).String(); gotType != tt.wantType {
+				t.Errorf("routed %s to %s, want %s", tt.modelID, gotType, tt.wantType)
+			}
+		})
+	}
+}
+
+// TestAutoRouteProvider_WireFlagBeatsModelPin verifies that --provider-wire
+// still overrides a per-model pin.
+func TestAutoRouteProvider_WireFlagBeatsModelPin(t *testing.T) {
+	reg := &ModelsRegistry{
+		providers: map[string]ProviderInfo{
+			"opencode": {
+				ID:     "opencode",
+				Name:   "opencode",
+				Env:    []string{"OPENCODE_API_KEY"},
+				NPM:    "@ai-sdk/openai-compatible",
+				API:    "https://opencode.ai/zen/v1",
+				Models: map[string]ModelInfo{"grok-4.6": {ID: "grok-4.6", Name: "grok-4.6"}},
+			},
+		},
+	}
+	config := &ProviderConfig{ProviderAPIKey: "test-key", ProviderWire: WireNameOpenAICompat}
+
+	result, err := autoRouteProvider(context.Background(), config, "opencode", "grok-4.6", reg)
+	if err != nil {
+		t.Fatalf("autoRouteProvider returned error: %v", err)
+	}
+	if gotType := reflect.TypeOf(result.Model).String(); gotType != "openai.languageModel" {
+		t.Errorf("routed to %s, want openai.languageModel", gotType)
+	}
+}
+
 // TestAutoRouteProvider_UnknownNpmNoAPI verifies the improved error message for
 // a provider whose npm has no known wire protocol and that has no API URL to
 // fall back on.

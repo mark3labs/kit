@@ -1168,7 +1168,13 @@ routes:
 kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
 kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
 kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+kit --model opencode/grok-4.6 "Hello"             # → OpenAI Responses wire
 ```
+
+When an aggregator mixes wires inside one catalog without publishing a hint for
+every family, Kit pins the family itself. opencode's `gpt-*` and `grok-*` models
+answer only on the OpenAI Responses API — their `/chat/completions` route
+returns HTTP 500/503 — so Kit routes them to the Responses wire automatically.
 
 ### Provider Overrides
 
