@@ -193,7 +193,13 @@ via a per-model override. For example, an aggregator that proxies Claude, GPT,
 respectively:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/claude-haiku-4-5</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Anthropic wire</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gpt-5</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">                # → OpenAI wire</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gemini-3.5-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Google wire</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/gemini-3.5-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # → Google wire</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> opencode/grok-4.6</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "Hello"</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # → OpenAI Responses wire</span></span></code></pre>
+<p>When an aggregator mixes wires inside one catalog without publishing a hint for
+every family, Kit pins the family itself. opencode's <code>gpt-*</code> and <code>grok-*</code> models
+answer only on the OpenAI Responses API — their <code>/chat/completions</code> route
+returns HTTP 500/503 — so Kit routes them to the Responses wire automatically.
+Use <code>--provider-wire</code> to override the pin.</p>
 <p>Provide the provider's API key the same way as any other — via its environment
 variable (e.g. <code>OPENCODE_API_KEY</code>) or <code>--provider-api-key</code>.</p>
 <h2 id="provider-overrides"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#provider-overrides"><span class="icon icon-link"></span></a>Provider overrides</h2>
@@ -459,7 +465,14 @@ respectively:
 kit --model opencode/claude-haiku-4-5 "Hello"     # → Anthropic wire
 kit --model opencode/gpt-5 "Hello"                # → OpenAI wire
 kit --model opencode/gemini-3.5-flash "Hello"     # → Google wire
+kit --model opencode/grok-4.6 "Hello"             # → OpenAI Responses wire
 \`\`\`
+
+When an aggregator mixes wires inside one catalog without publishing a hint for
+every family, Kit pins the family itself. opencode's \`gpt-*\` and \`grok-*\` models
+answer only on the OpenAI Responses API — their \`/chat/completions\` route
+returns HTTP 500/503 — so Kit routes them to the Responses wire automatically.
+Use \`--provider-wire\` to override the pin.
 
 Provide the provider's API key the same way as any other — via its environment
 variable (e.g. \`OPENCODE_API_KEY\`) or \`--provider-api-key\`.
