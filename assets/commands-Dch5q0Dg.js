@@ -266,11 +266,16 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 <li>Attachments are sent alongside your text when you submit, and cleared afterward.</li>
 </ul>
 <p>When a terminal supports color, Kit renders a small low-resolution <strong>thumbnail preview</strong> of each pending image directly in the input, below the <code>[N image(s) attached]</code> indicator, so you can confirm the right image was attached before sending.</p>
-<p>The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like <strong>tmux</strong> and <strong>zellij</strong>. Thumbnails are capped to a small cell box for a glanceable, low-res look.</p>
+<p>Kit probes the terminal at startup and draws the preview the best way it actually supports. A terminal that answers the <strong>Kitty graphics protocol</strong> gets a real image; anything else gets a thumbnail built from Unicode half-block characters and ordinary terminal colors, which renders correctly everywhere. Thumbnails are capped to a small cell box for a glanceable, low-res look.</p>
+<p>Detection is a live query rather than a guess from <code>$TERM</code>, because a multiplexer can forward the query to the terminal behind it and appear to support graphics it cannot draw:</p>
 <ul>
+<li><strong>kitty</strong> and similar: real images, in both the input preview and the transcript.</li>
+<li><strong>zellij</strong>: real images in the input preview. Submitted images fall back to half blocks in the transcript, because a scrolling transcript needs the image to move with its message and zellij cannot yet do that.</li>
+<li><strong>tmux</strong>: half blocks. tmux answers the query itself while forwarding it onward, so the terminal's late reply would be printed into the UI as stray escape codes.</li>
 <li>Best fidelity needs a <strong>truecolor</strong> terminal (<code>COLORTERM=truecolor</code>); Kit degrades to 256-color where truecolor is unavailable.</li>
 <li>On terminals with neither, the preview is skipped and the <code>[N image(s) attached]</code> text indicator is shown alone.</li>
 </ul>
+<p>Set <code>KIT_IMAGE_PROTOCOL=kitty</code> to force the graphics protocol, or <code>KIT_IMAGE_PROTOCOL=halfblock</code> to force half blocks, when the probe gets it wrong.</p>
 <p>You can also attach image files by referencing them with <code>@path/to/image.png</code> — binary files are auto-detected by MIME type. See <a href="/quick-start">Quick Start</a> for the <code>@</code> attachment syntax.</p>
 <h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
 <h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
@@ -544,10 +549,17 @@ Attach images to your next prompt straight from the clipboard:
 
 When a terminal supports color, Kit renders a small low-resolution **thumbnail preview** of each pending image directly in the input, below the \`[N image(s) attached]\` indicator, so you can confirm the right image was attached before sending.
 
-The preview is drawn with Unicode half-block characters and ordinary terminal colors — not a graphics protocol — so it renders correctly inside terminal multiplexers like **tmux** and **zellij**. Thumbnails are capped to a small cell box for a glanceable, low-res look.
+Kit probes the terminal at startup and draws the preview the best way it actually supports. A terminal that answers the **Kitty graphics protocol** gets a real image; anything else gets a thumbnail built from Unicode half-block characters and ordinary terminal colors, which renders correctly everywhere. Thumbnails are capped to a small cell box for a glanceable, low-res look.
 
+Detection is a live query rather than a guess from \`$TERM\`, because a multiplexer can forward the query to the terminal behind it and appear to support graphics it cannot draw:
+
+- **kitty** and similar: real images, in both the input preview and the transcript.
+- **zellij**: real images in the input preview. Submitted images fall back to half blocks in the transcript, because a scrolling transcript needs the image to move with its message and zellij cannot yet do that.
+- **tmux**: half blocks. tmux answers the query itself while forwarding it onward, so the terminal's late reply would be printed into the UI as stray escape codes.
 - Best fidelity needs a **truecolor** terminal (\`COLORTERM=truecolor\`); Kit degrades to 256-color where truecolor is unavailable.
 - On terminals with neither, the preview is skipped and the \`[N image(s) attached]\` text indicator is shown alone.
+
+Set \`KIT_IMAGE_PROTOCOL=kitty\` to force the graphics protocol, or \`KIT_IMAGE_PROTOCOL=halfblock\` to force half blocks, when the probe gets it wrong.
 
 You can also attach image files by referencing them with \`@path/to/image.png\` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the \`@\` attachment syntax.
 
