@@ -73,9 +73,10 @@ type Capabilities struct {
 	//
 	// It is captured when capabilities are resolved rather than read at draw
 	// time, so that the preview mode is a pure function of this struct. It
-	// matters for graphics because placeholder cells carry the image id in
-	// their foreground colour: a 256-colour terminal would quantise that colour
-	// and corrupt the id.
+	// decides only between the two graphics modes: placeholder cells carry the
+	// image id as a 24-bit foreground colour, which a smaller palette would
+	// quantise into a different id, whereas a direct placement carries the id
+	// in the escape sequence and does not care.
 	TrueColor bool
 
 	// UnicodePlaceholders reports that placeholder cells reach the terminal
@@ -215,16 +216,14 @@ func (m Mode) String() string {
 
 // PreviewMode reports how image previews should be drawn in this terminal.
 //
-// Kitty graphics need protocol support, a reported cell size, and truecolor:
+// Kitty graphics need protocol support and a reported cell size. The cell size
+// matters because a multiplexer that merely forwards the graphics query to the
+// terminal behind it will answer yes without being able to draw; see
+// [Capabilities.CellWidth].
 //
-//   - Cell size, because a multiplexer that merely forwards the graphics query
-//     to the terminal behind it will answer yes without being able to draw.
-//     See [Capabilities.CellWidth].
-//   - Truecolor, because placeholder cells carry the image id in their
-//     foreground colour. See [Capabilities.TrueColor].
-//
-// The choice between the two graphics modes is about the placeholder encoding
-// rather than the protocol. See [Capabilities.UnicodePlaceholders].
+// The choice between the two graphics modes turns on whether placeholder cells
+// survive to the terminal and whether it has truecolor to carry the image id
+// in. See [Capabilities.UnicodePlaceholders] and [Capabilities.TrueColor].
 func PreviewMode() Mode {
 	return previewMode(Current())
 }
@@ -237,13 +236,19 @@ func PreviewMode() Mode {
 // here would make it unsafe to call while holding capsMu, which is how a
 // startup deadlock was introduced once already.
 func previewMode(c Capabilities) Mode {
-	if !c.KittyGraphics || c.CellWidth <= 0 || c.CellHeight <= 0 || !c.TrueColor {
+	if !c.KittyGraphics || c.CellWidth <= 0 || c.CellHeight <= 0 {
 		return ModeHalfBlock
 	}
-	if !c.UnicodePlaceholders {
-		return ModeDirect
+	// Truecolor gates the placeholder encoding rather than graphics as a whole.
+	// Placeholder cells carry the image id as a 24-bit foreground colour, which
+	// a smaller palette would quantise into a different id, leaving the
+	// terminal with nothing to draw. A direct placement carries the id in the
+	// escape sequence itself, so it is unaffected and remains the better
+	// fallback for a graphics-capable terminal that lacks truecolor.
+	if c.UnicodePlaceholders && c.TrueColor {
+		return ModePlaceholder
 	}
-	return ModePlaceholder
+	return ModeDirect
 }
 
 // UseKittyGraphics reports whether image previews use the Kitty graphics
@@ -257,14 +262,21 @@ func detect(in, out *os.File, timeout time.Duration) Capabilities {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvOverride))) {
 	case "kitty":
 		// Forcing the protocol must also supply a cell size, because
-		// UseKittyGraphics treats a missing one as "not really capable". Use
-		// the terminal's real geometry when it offers one so the image is
-		// resampled at the right resolution, and fall back to a plausible
-		// default when it does not — the override means the user is asserting
-		// support the probe cannot confirm.
+		// PreviewMode treats a missing one as "not really capable". Use the
+		// terminal's real geometry when it offers one so the image is resampled
+		// at the right resolution, and fall back to a plausible default when it
+		// does not — the override means the user is asserting support the probe
+		// cannot confirm.
+		//
+		// Truecolor is still resolved honestly rather than assumed. The user is
+		// asserting graphics support, not a colour depth, and claiming truecolor
+		// that is not there would select placeholder cells whose image id gets
+		// quantised into a different id. Reporting it truthfully instead falls
+		// back to a direct placement, which carries the id in the escape
+		// sequence and draws correctly at any colour depth.
 		c := Capabilities{
 			KittyGraphics:       true,
-			TrueColor:           true,
+			TrueColor:           terminalTrueColor(),
 			UnicodePlaceholders: unicodePlaceholdersWork(),
 		}
 		c.CellWidth, c.CellHeight = detectCellSize(out)
@@ -370,9 +382,14 @@ func Probe(in, out *os.File, timeout time.Duration) (Capabilities, error) {
 	// Capture the remaining capabilities now, so that every later decision is
 	// a pure function of this struct rather than a fresh look at the
 	// environment. See [Capabilities.TrueColor].
-	c.TrueColor = colorprofile.Env(os.Environ()) >= colorprofile.TrueColor
+	c.TrueColor = terminalTrueColor()
 	c.UnicodePlaceholders = unicodePlaceholdersWork()
 	return c, nil
+}
+
+// terminalTrueColor reports whether the terminal accepts 24-bit colour.
+func terminalTrueColor() bool {
+	return colorprofile.Env(os.Environ()) >= colorprofile.TrueColor
 }
 
 // unicodePlaceholdersWork reports whether placeholder cells survive the trip to

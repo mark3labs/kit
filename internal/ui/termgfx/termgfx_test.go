@@ -163,10 +163,20 @@ func TestPreviewMode(t *testing.T) {
 		},
 		{
 			// Placeholders carry the image id in their foreground colour, which
-			// a 256-colour terminal would quantise and corrupt.
+			// a smaller palette would quantise into a different id. A direct
+			// placement carries the id in the escape sequence, so it still
+			// draws correctly and is the better fallback than half blocks.
 			name: "no truecolor",
 			caps: withCaps(func(c *Capabilities) { c.TrueColor = false }),
-			want: ModeHalfBlock,
+			want: ModeDirect,
+		},
+		{
+			name: "neither placeholders nor truecolor",
+			caps: withCaps(func(c *Capabilities) {
+				c.TrueColor = false
+				c.UnicodePlaceholders = false
+			}),
+			want: ModeDirect,
 		},
 		{
 			name: "nothing detected",
@@ -250,10 +260,33 @@ func TestEnvOverride(t *testing.T) {
 	// Forcing the protocol on must produce capabilities that UseKittyGraphics
 	// actually accepts. Returning support without a cell size would make the
 	// override silently do nothing.
+	// Forcing the protocol on must not fabricate a colour depth. Claiming
+	// truecolor that is not there would select placeholder cells whose image id
+	// is carried in a 24-bit foreground colour, and a smaller palette would
+	// quantise it into a different id, so nothing would draw.
+	t.Run("does not fabricate truecolor", func(t *testing.T) {
+		t.Setenv(EnvOverride, "kitty")
+		t.Setenv("TERM", "xterm-256color")
+		t.Setenv("COLORTERM", "")
+		t.Setenv("ZELLIJ", "")
+
+		got := detect(nil, nil, time.Second)
+		if got.TrueColor {
+			t.Error("detect() claimed truecolor in a 256-colour terminal")
+		}
+		// The override must still deliver graphics, via the mode that works
+		// without truecolor.
+		if mode := previewMode(got); mode != ModeDirect {
+			t.Errorf("previewMode() = %v, want %v", mode, ModeDirect)
+		}
+	})
+
 	for _, v := range []string{"kitty", "KITTY"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(EnvOverride, v)
 			t.Setenv("ZELLIJ", "")
+			t.Setenv("TERM", "xterm-kitty")
+			t.Setenv("COLORTERM", "truecolor")
 			got := detect(nil, nil, time.Second)
 			if !got.KittyGraphics {
 				t.Errorf("detect() = %+v, want graphics support", got)

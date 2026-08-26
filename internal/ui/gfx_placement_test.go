@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -262,4 +263,58 @@ func testGradientPNG(t *testing.T) []byte {
 		t.Fatalf("encode test png: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// ClearPendingImages must hand back the cleanup command.
+//
+// A terminal holds transmitted image data until told to drop it, and the ids
+// are discarded when the pending set is cleared, so a caller that cannot run
+// the cleanup leaks every preview image for the rest of the session. The
+// function used to free the images internally and throw the command away,
+// which meant the delete sequence never reached the terminal.
+func TestClearPendingImagesReturnsCleanup(t *testing.T) {
+	ic := NewInputComponent(80, nil)
+	ic.pendingImages = make([]uicore.ImageAttachment, 1)
+	ic.imageThumbs = []string{"thumb"}
+	ic.imageIDs = []uint32{99} // a transmitted image the terminal is holding
+	ic.imagePlace = []string{"\x1b_Ga=p,i=99\x1b\\"}
+
+	images, cleanup := ic.ClearPendingImages()
+	if len(images) != 1 {
+		t.Fatalf("got %d attachments, want 1", len(images))
+	}
+	if cleanup == nil {
+		t.Fatal("no cleanup command returned; the transmitted image would leak")
+	}
+
+	raw, ok := cleanup().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("cleanup produced %T, want tea.RawMsg", cleanup())
+	}
+	seq, _ := raw.Msg.(string)
+	if !strings.Contains(seq, "a=d") || !strings.Contains(seq, "i=99") {
+		t.Errorf("cleanup does not delete image 99: %q", seq)
+	}
+
+	if len(ic.pendingImages) != 0 || len(ic.imageIDs) != 0 {
+		t.Error("pending image state was not cleared")
+	}
+}
+
+// With nothing transmitted there is nothing to free, so callers get no command
+// to run rather than an empty escape sequence.
+func TestClearPendingImagesNoCleanupForTextThumbnails(t *testing.T) {
+	ic := NewInputComponent(80, nil)
+	ic.pendingImages = make([]uicore.ImageAttachment, 1)
+	ic.imageThumbs = []string{"▀▀▀▀"}
+	ic.imageIDs = []uint32{0} // half blocks own no terminal resource
+	ic.imagePlace = []string{""}
+
+	images, cleanup := ic.ClearPendingImages()
+	if len(images) != 1 {
+		t.Fatalf("got %d attachments, want 1", len(images))
+	}
+	if cleanup != nil {
+		t.Error("cleanup command returned when no image was transmitted")
+	}
 }

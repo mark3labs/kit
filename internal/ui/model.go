@@ -2053,7 +2053,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if ic, ok := m.input.(*InputComponent); ok {
 							ic.pushHistory(text)
 							ic.textarea.SetValue("")
-							images = ic.ClearPendingImages()
+							var cleanup tea.Cmd
+							images, cleanup = ic.ClearPendingImages()
+							if cleanup != nil {
+								cmds = append(cmds, cleanup)
+							}
 						}
 
 						// Preprocess @file references (text files are XML-inlined,
@@ -2209,7 +2213,11 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if text == "" {
 							if ic, ok := m.input.(*InputComponent); ok {
 								text = strings.TrimSpace(ic.textarea.Value())
-								images = ic.ClearPendingImages()
+								var cleanup tea.Cmd
+								images, cleanup = ic.ClearPendingImages()
+								if cleanup != nil {
+									cmds = append(cmds, cleanup)
+								}
 								ic.textarea.SetValue("")
 								ic.textarea.CursorEnd()
 							}

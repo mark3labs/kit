@@ -990,19 +990,19 @@ func readClipboardImageCmd() tea.Cmd {
 	}
 }
 
-// ClearPendingImages removes all pending image attachments and returns them.
-// Used by the parent model when consuming images for submission.
+// ClearPendingImages removes all pending image attachments and returns them,
+// along with a command that frees any images transmitted to the terminal.
 //
-// Any transmitted preview images are freed as a side effect. Because this
-// returns attachments rather than a command, the escape sequence cannot be
-// routed through the event loop, so it is dropped here; the ids are discarded
-// either way and the terminal reclaims the data when the session ends.
-func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
+// The cleanup command must be run. A terminal holds transmitted image data
+// until told to drop it, and these ids are discarded here, so a caller that
+// ignores the command leaks every preview image for the rest of the session.
+// It is nil when there is nothing to free.
+func (s *InputComponent) ClearPendingImages() ([]core.ImageAttachment, tea.Cmd) {
 	images := s.pendingImages
 	s.pendingImages = nil
-	s.releaseImages()
+	cleanup := s.releaseImages()
 	s.imageGen++
-	return images
+	return images, cleanup
 }
 
 // PendingImageCount returns the number of images currently attached.
