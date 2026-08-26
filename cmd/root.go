@@ -20,6 +20,7 @@ import (
 	"github.com/mark3labs/kit/internal/ui"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/progress"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 	"github.com/mark3labs/kit/internal/watcher"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -1732,6 +1733,12 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		// TUI is running. Point it at the same file so no structured log
 		// output reaches the terminal.
 		charmlog.SetOutput(logFile)
+		// --debug turns on the structured debug output that diagnoses
+		// terminal-capability and layout decisions. Without this the default
+		// Info level silently drops it.
+		if debugMode {
+			charmlog.SetLevel(charmlog.DebugLevel)
+		}
 	}
 
 	// Determine terminal size; fall back gracefully.
@@ -1797,6 +1804,12 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 	// it must happen here rather than lazily mid-render where it would race the
 	// event loop. No-op if a theme in config already resolved them.
 	ui.ResolveTerminalCapabilities()
+
+	// Detect the inline-graphics protocols the terminal honours, for the same
+	// reason and at the same point: the probe reads raw replies from stdin, so
+	// it must finish before the event loop owns that fd. Image previews fall
+	// back to half-block thumbnails when the probe finds no support.
+	termgfx.Resolve()
 
 	program := tea.NewProgram(appModel)
 

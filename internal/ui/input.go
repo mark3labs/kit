@@ -10,12 +10,14 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/log"
 
 	"github.com/mark3labs/kit/internal/clipboard"
 	"github.com/mark3labs/kit/internal/ui/commands"
 	"github.com/mark3labs/kit/internal/ui/core"
 	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/style"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
 // InputComponent is the interactive text input field for the parent AppModel.
@@ -87,15 +89,34 @@ type InputComponent struct {
 	// Images are added via Ctrl+V and cleared on submit or Ctrl+U.
 	pendingImages []core.ImageAttachment
 
-	// imageThumbs caches the rendered half-block thumbnail for each entry in
+	// imageThumbs caches the rendered thumbnail for each entry in
 	// pendingImages (1:1 index correspondence). Thumbnails are rendered
 	// asynchronously off the Bubble Tea event loop (decode + resample is too
 	// slow to run inside Update), so an entry starts as the empty string
 	// placeholder and is filled in when the matching thumbnailReadyMsg
-	// arrives. An entry stays empty when the terminal cannot display a
-	// half-block preview, in which case the text pill is shown alone.
-	// See internal/ui/imagepreview.
+	// arrives. An entry stays empty when the terminal can display no preview
+	// at all, in which case the text pill is shown alone.
+	//
+	// The contents are either half-block art or a grid of Unicode placeholders
+	// that display a transmitted image; both are ordinary styled text as far as
+	// the view is concerned. See internal/ui/imagepreview.
 	imageThumbs []string
+
+	// imageIDs holds the terminal image id backing each entry in imageThumbs
+	// (1:1 index correspondence), or 0 when the thumbnail is half-block art and
+	// owns no terminal resource. Ids are kept so the images can be freed when
+	// the pending set is cleared; terminals hold transmitted image data until
+	// told to drop it.
+	imageIDs []uint32
+
+	// imagePlace holds the placement escape sequence for each entry in
+	// imageThumbs (1:1 index correspondence), or "" when the thumbnail draws
+	// itself as text and needs no placement.
+	//
+	// A directly-placed image is painted over the screen rather than being part
+	// of the view, so it must be redrawn at its absolute position after every
+	// frame. See DirectPlacements.
+	imagePlace []string
 
 	// imageGen is a monotonic generation counter incremented whenever the
 	// pending image set is cleared. Async thumbnail results carry the
@@ -156,6 +177,19 @@ type thumbnailReadyMsg struct {
 	gen   int
 	index int
 	thumb string
+
+	// transmit carries image data that must reach the terminal outside the
+	// view text, and is empty for half-block thumbnails. See
+	// imagepreview.Thumbnail.
+	transmit string
+
+	// imageID identifies the transmitted image so it can be freed later, and is
+	// zero for half-block thumbnails.
+	imageID uint32
+
+	// place is the escape sequence that draws the image at the cursor, for
+	// thumbnails that are painted over the screen instead of drawn as text.
+	place string
 }
 
 // NewInputComponent creates a new InputComponent with the given width and
@@ -272,6 +306,8 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Reserve a placeholder; the async render fills it in via
 			// thumbnailReadyMsg so Update never blocks on decode/resample.
 			s.imageThumbs = append(s.imageThumbs, "")
+			s.imageIDs = append(s.imageIDs, 0)
+			s.imagePlace = append(s.imagePlace, "")
 			cols := s.thumbCols()
 			if cols < 1 {
 				return s, nil
@@ -281,8 +317,36 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case thumbnailReadyMsg:
-		if msg.gen == s.imageGen && msg.index >= 0 && msg.index < len(s.imageThumbs) {
-			s.imageThumbs[msg.index] = msg.thumb
+		if msg.gen != s.imageGen || msg.index < 0 || msg.index >= len(s.imageThumbs) {
+			// The slot is gone (cleared, or re-attached under a new
+			// generation). Free the image rather than leaking it in the
+			// terminal, which has already been told to hold the data.
+			if seq := imagepreview.DeleteImage(msg.imageID); seq != "" {
+				return s, tea.Raw(seq)
+			}
+			return s, nil
+		}
+		s.imageThumbs[msg.index] = msg.thumb
+		if msg.index < len(s.imageIDs) {
+			s.imageIDs[msg.index] = msg.imageID
+		}
+		if msg.index < len(s.imagePlace) {
+			s.imagePlace[msg.index] = msg.place
+		}
+		if msg.transmit != "" {
+			// The image data must be written straight to the terminal; it
+			// cannot travel inside the view text. For placeholder thumbnails
+			// the cells are already in the view and the terminal fills them in
+			// as soon as the data lands.
+			cmds := []tea.Cmd{tea.Raw(msg.transmit)}
+			if msg.place != "" {
+				// A directly-placed image is drawn by AppModel, which can only
+				// work out where it goes once this frame has been laid out.
+				// Nothing else would arrive to trigger that write, so ask for
+				// one more Update after the coming View.
+				cmds = append(cmds, gfxNudgeCmd())
+			}
+			return s, tea.Batch(cmds...)
 		}
 		return s, nil
 
@@ -338,10 +402,10 @@ func (s *InputComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+u":
 				// Clear all pending image attachments.
 				if len(s.pendingImages) > 0 {
+					cleanup := s.releaseImages()
 					s.pendingImages = nil
-					s.imageThumbs = nil
 					s.imageGen++
-					return s, nil
+					return s, cleanup
 				}
 			}
 		}
@@ -584,12 +648,39 @@ func (s *InputComponent) handleSubmit(value string) tea.Cmd {
 	// prompts) hand off to the parent via submitMsg. Attach any pending
 	// images and clear them.
 	images := s.pendingImages
+	cleanup := s.releaseImages()
 	s.pendingImages = nil
-	s.imageThumbs = nil
 	s.imageGen++
-	return func() tea.Msg {
+	submit := func() tea.Msg {
 		return core.SubmitMsg{Text: trimmed, Images: images}
 	}
+	if cleanup == nil {
+		return submit
+	}
+	// Free the preview images before handing off. tea.Sequence keeps the order
+	// so the terminal drops them while their placeholder cells are still on
+	// screen, rather than after the composer has already been redrawn.
+	return tea.Sequence(cleanup, submit)
+}
+
+// releaseImages returns a command that frees every transmitted preview image
+// and resets the thumbnail caches, or nil when nothing was transmitted.
+//
+// A terminal keeps transmitted image data until it is told to drop it, so a
+// session that attaches and clears many images would otherwise leave all of
+// them resident.
+func (s *InputComponent) releaseImages() tea.Cmd {
+	var seq strings.Builder
+	for _, id := range s.imageIDs {
+		seq.WriteString(imagepreview.DeleteImage(id))
+	}
+	s.imageThumbs = nil
+	s.imageIDs = nil
+	s.imagePlace = nil
+	if seq.Len() == 0 {
+		return nil
+	}
+	return tea.Raw(seq.String())
 }
 
 // pushHistory adds a prompt to the history ring buffer. Empty strings and
@@ -641,19 +732,124 @@ func (s *InputComponent) thumbCols() int {
 	return cols
 }
 
-// renderThumbnailCmd returns a tea.Cmd that renders a half-block ANSI preview
-// off the Bubble Tea event loop. The decode + resample work runs in the Cmd
-// goroutine, and the result is delivered as a thumbnailReadyMsg tagged with
-// the generation and slot index it was enqueued for. An empty thumbnail
-// (terminal unsupported or render error) leaves the text pill in place.
+// renderThumbnailCmd returns a tea.Cmd that renders an image preview off the
+// Bubble Tea event loop. The decode + resample work runs in the Cmd goroutine,
+// and the result is delivered as a thumbnailReadyMsg tagged with the
+// generation and slot index it was enqueued for. An empty thumbnail (terminal
+// unsupported or render error) leaves the text pill in place.
+//
+// A terminal that answered the graphics probe gets a real image; anything else
+// gets half-block art. The Kitty path falls back to half-block on error rather
+// than showing nothing, so a malformed image degrades instead of vanishing.
 func renderThumbnailCmd(img core.ImageAttachment, cols, rows int, bg color.Color, gen, index int) tea.Cmd {
 	return func() tea.Msg {
-		thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, rows, bg)
+		caps := termgfx.Current()
+		var (
+			kt  imagepreview.Thumbnail
+			err error
+		)
+		switch termgfx.PreviewMode() {
+		case termgfx.ModePlaceholder:
+			kt, err = imagepreview.RenderKitty(img.Data, cols, rows, caps.CellWidth, caps.CellHeight)
+		case termgfx.ModeDirect:
+			kt, err = imagepreview.RenderKittyDirect(img.Data, cols, rows, caps.CellWidth, caps.CellHeight)
+		}
+		if kt.Cells != "" && err == nil {
+			return thumbnailReadyMsg{
+				gen:      gen,
+				index:    index,
+				thumb:    kt.Cells,
+				transmit: kt.Transmit,
+				imageID:  kt.ImageID,
+				place:    kt.Place(),
+			}
+		}
 		if err != nil {
+			log.Debug("kitty thumbnail failed, using half blocks", "error", err)
+		}
+		thumb, rerr := imagepreview.Render(img.Data, img.MediaType, cols, rows, bg)
+		if rerr != nil {
 			thumb = ""
 		}
 		return thumbnailReadyMsg{gen: gen, index: index, thumb: thumb}
 	}
+}
+
+// gfxNudgeMsg asks for one more Update/View cycle. It carries no data and is
+// handled as a no-op: its only purpose is to give AppModel.Update a chance to
+// write a graphics placement that the View before it has just computed.
+type gfxNudgeMsg struct{}
+
+// gfxNudgeCmd delivers a gfxNudgeMsg immediately.
+func gfxNudgeCmd() tea.Cmd {
+	return func() tea.Msg { return gfxNudgeMsg{} }
+}
+
+// DirectPlacement locates one directly-placed preview image within the input
+// component's view.
+type DirectPlacement struct {
+	// RowOffset is the image's first row, counted from the top of the input
+	// component's own view.
+	RowOffset int
+
+	// Col is the image's first column, counted from the left edge.
+	Col int
+
+	// Sequence draws the image at the cursor.
+	Sequence string
+}
+
+// DirectPlacements returns the placement of every preview image that is
+// painted over the screen rather than drawn as view text, positioned relative
+// to the top-left of this component's view.
+//
+// It returns nil in the usual case, where previews are either half-block art
+// or Unicode placeholders and therefore need no separate placement.
+//
+// The offsets must match the layout built by View exactly; the two are kept
+// in step by thumbRowOffsets.
+func (s *InputComponent) DirectPlacements() []DirectPlacement {
+	var out []DirectPlacement
+	for i, off := range s.thumbRowOffsets() {
+		if i < len(s.imagePlace) && s.imagePlace[i] != "" {
+			out = append(out, DirectPlacement{
+				RowOffset: off,
+				Col:       thumbPaddingLeft,
+				Sequence:  s.imagePlace[i],
+			})
+		}
+	}
+	return out
+}
+
+// thumbPaddingLeft is the left padding applied to each thumbnail by View. It
+// is a constant so DirectPlacements and View cannot disagree about where a
+// thumbnail starts.
+const thumbPaddingLeft = 1
+
+// thumbRowOffsets returns, for each pending image, the row its thumbnail
+// starts on relative to the top of this component's view, or -1 when that
+// image has no thumbnail yet.
+//
+// This mirrors the stacking order in View: the composer bar, then the "N
+// image(s) attached" label, then one block per rendered thumbnail.
+func (s *InputComponent) thumbRowOffsets() []int {
+	if len(s.pendingImages) == 0 {
+		return nil
+	}
+	// The composer bar, followed by the attachment label.
+	row := lipgloss.Height(s.textarea.View()) + 1
+
+	offsets := make([]int, len(s.pendingImages))
+	for i := range s.pendingImages {
+		if i >= len(s.imageThumbs) || s.imageThumbs[i] == "" {
+			offsets[i] = -1
+			continue
+		}
+		offsets[i] = row
+		row += lipgloss.Height(s.imageThumbs[i])
+	}
+	return offsets
 }
 
 // View implements tea.Model. Renders the composer bar and any pending image
@@ -686,7 +882,7 @@ func (s *InputComponent) View() tea.View {
 		view.WriteString("\n")
 		view.WriteString(imgStyle.Render(label))
 
-		thumbStyle := lipgloss.NewStyle().PaddingLeft(1)
+		thumbStyle := lipgloss.NewStyle().PaddingLeft(thumbPaddingLeft)
 		for i := range s.pendingImages {
 			if i < len(s.imageThumbs) && s.imageThumbs[i] != "" {
 				view.WriteString("\n")
@@ -794,14 +990,19 @@ func readClipboardImageCmd() tea.Cmd {
 	}
 }
 
-// ClearPendingImages removes all pending image attachments and returns them.
-// Used by the parent model when consuming images for submission.
-func (s *InputComponent) ClearPendingImages() []core.ImageAttachment {
+// ClearPendingImages removes all pending image attachments and returns them,
+// along with a command that frees any images transmitted to the terminal.
+//
+// The cleanup command must be run. A terminal holds transmitted image data
+// until told to drop it, and these ids are discarded here, so a caller that
+// ignores the command leaks every preview image for the rest of the session.
+// It is nil when there is nothing to free.
+func (s *InputComponent) ClearPendingImages() ([]core.ImageAttachment, tea.Cmd) {
 	images := s.pendingImages
 	s.pendingImages = nil
-	s.imageThumbs = nil
+	cleanup := s.releaseImages()
 	s.imageGen++
-	return images
+	return images, cleanup
 }
 
 // PendingImageCount returns the number of images currently attached.
