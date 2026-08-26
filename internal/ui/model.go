@@ -33,6 +33,7 @@ import (
 	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/prefs"
 	"github.com/mark3labs/kit/internal/ui/style"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 	kit "github.com/mark3labs/kit/pkg/kit"
 )
 
@@ -2381,6 +2382,16 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.insertMessageAfter(msg.anchorID, item)
 			m.refreshContent()
 			m.layoutDirty = true
+			if msg.transmit != "" {
+				// The image data cannot travel inside the view text. The
+				// placeholder cells just inserted into the transcript display
+				// it as soon as it lands.
+				//
+				// It is deliberately never deleted: the message stays in the
+				// scrollback for the rest of the session, and freeing the data
+				// would blank the preview the next time it scrolls into view.
+				cmds = append(cmds, tea.Raw(msg.transmit))
+			}
 		}
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
@@ -3892,15 +3903,30 @@ func truncateMessageForBlock(msg string, maxLines, width int) string {
 type imagePreviewReadyMsg struct {
 	block    string
 	anchorID string
+
+	// transmit carries image data that must reach the terminal outside the
+	// view text, and is empty for half-block previews. See
+	// imagepreview.Thumbnail.
+	transmit string
 }
 
-// transcriptPreviewCmd returns a tea.Cmd that renders half-block thumbnail
-// previews for the given clipboard images off the Bubble Tea event loop
-// (decode + resample must not block Update). The rendered block is delivered
-// via imagePreviewReadyMsg, tagged with anchorID so the consumer can place it
+// transcriptPreviewCmd returns a tea.Cmd that renders thumbnail previews for
+// the given clipboard images off the Bubble Tea event loop (decode + resample
+// must not block Update). The rendered block is delivered via
+// imagePreviewReadyMsg, tagged with anchorID so the consumer can place it
 // directly after the originating user message. Returns nil when there is
 // nothing to render or no room for a preview; an empty result (terminal lacks
 // color support) yields a nil message that Bubble Tea ignores.
+//
+// Unicode placeholders are used when the terminal supports them, because a
+// transcript preview lives in the scrollback: the ScrollList scrolls and clips
+// its items, and placeholder cells are text, so the image scrolls and clips
+// with the message it belongs to.
+//
+// Direct placement deliberately is not used here even where the composer uses
+// it. A directly placed image is painted at a fixed screen position and would
+// neither scroll with the transcript nor vanish when its message scrolls away,
+// so those terminals keep half blocks for transcript previews.
 func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorID string) tea.Cmd {
 	if len(images) == 0 {
 		return nil
@@ -3914,10 +3940,22 @@ func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorI
 	}
 	bg := style.GetTheme().Background
 	imgs := images
+	usePlaceholders := termgfx.PreviewMode() == termgfx.ModePlaceholder
+	caps := termgfx.Current()
 	return func() tea.Msg {
 		pad := lipgloss.NewStyle().PaddingLeft(style.ContentOffset)
 		var blocks []string
+		var transmit strings.Builder
 		for _, img := range imgs {
+			if usePlaceholders {
+				kt, err := imagepreview.RenderKitty(img.Data, cols, thumbMaxRows, caps.CellWidth, caps.CellHeight)
+				if err == nil && kt.Cells != "" {
+					transmit.WriteString(kt.Transmit)
+					blocks = append(blocks, pad.Render(kt.Cells))
+					continue
+				}
+				log.Debug("kitty transcript preview failed, using half blocks", "error", err)
+			}
 			thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, bg)
 			if err != nil || thumb == "" {
 				continue
@@ -3927,7 +3965,11 @@ func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorI
 		if len(blocks) == 0 {
 			return nil
 		}
-		return imagePreviewReadyMsg{block: strings.Join(blocks, "\n"), anchorID: anchorID}
+		return imagePreviewReadyMsg{
+			block:    strings.Join(blocks, "\n"),
+			anchorID: anchorID,
+			transmit: transmit.String(),
+		}
 	}
 }
 

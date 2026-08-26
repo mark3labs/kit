@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -8,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	uicore "github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
 // A directly-placed image must land inside the composer, immediately above the
@@ -146,4 +151,98 @@ func TestFlushGfxPlacementStopsWhenImagesGo(t *testing.T) {
 	if m.gfxDirty {
 		t.Error("gfxDirty still set, which would spin the render loop")
 	}
+}
+
+// A transcript preview must never use a direct placement.
+//
+// The transcript lives in the scrollback, which scrolls and clips its items.
+// Placeholder cells are text and move with the message they belong to; a
+// directly placed image is painted at a fixed screen position and would sit
+// still while the transcript scrolled underneath it, and would outlive the
+// message scrolling away entirely. Terminals that need direct placement
+// therefore keep half blocks here, even though the composer uses graphics.
+func TestTranscriptPreviewNeverPlacesDirectly(t *testing.T) {
+	t.Cleanup(func() {
+		termgfx.Set(termgfx.Capabilities{})
+	})
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("ZELLIJ", "0") // the terminal that needs direct placement
+	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+
+	if termgfx.PreviewMode() != termgfx.ModeDirect {
+		t.Fatalf("PreviewMode() = %v, want %v; the test premise no longer holds",
+			termgfx.PreviewMode(), termgfx.ModeDirect)
+	}
+
+	m := &AppModel{width: 100, height: 40}
+	cmd := m.transcriptPreviewCmd([]uicore.ImageAttachment{
+		{Data: testGradientPNG(t), MediaType: "image/png"},
+	}, "anchor-1")
+	if cmd == nil {
+		t.Fatal("transcriptPreviewCmd returned nil, want a preview")
+	}
+	msg, ok := cmd().(imagePreviewReadyMsg)
+	if !ok {
+		t.Fatalf("got %T, want imagePreviewReadyMsg", cmd())
+	}
+	if msg.transmit != "" {
+		t.Error("transcript preview transmitted an image in a direct-placement terminal")
+	}
+	if !strings.Contains(msg.block, "▀") {
+		t.Error("transcript preview is not half-block art")
+	}
+}
+
+// Where placeholders work the transcript must use them, so a submitted image
+// looks the same as it did in the composer.
+func TestTranscriptPreviewUsesPlaceholders(t *testing.T) {
+	t.Cleanup(func() {
+		termgfx.Set(termgfx.Capabilities{})
+	})
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("TMUX", "")
+	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+
+	if termgfx.PreviewMode() != termgfx.ModePlaceholder {
+		t.Fatalf("PreviewMode() = %v, want %v; the test premise no longer holds",
+			termgfx.PreviewMode(), termgfx.ModePlaceholder)
+	}
+
+	m := &AppModel{width: 100, height: 40}
+	cmd := m.transcriptPreviewCmd([]uicore.ImageAttachment{
+		{Data: testGradientPNG(t), MediaType: "image/png"},
+	}, "anchor-1")
+	if cmd == nil {
+		t.Fatal("transcriptPreviewCmd returned nil, want a preview")
+	}
+	msg, ok := cmd().(imagePreviewReadyMsg)
+	if !ok {
+		t.Fatalf("got %T, want imagePreviewReadyMsg", cmd())
+	}
+	if msg.transmit == "" {
+		t.Error("transcript preview did not transmit the image")
+	}
+	if !strings.ContainsRune(msg.block, '\U0010EEEE') {
+		t.Error("transcript preview does not contain placeholder cells")
+	}
+	if strings.Contains(msg.block, "▀") {
+		t.Error("transcript preview fell back to half blocks")
+	}
+}
+
+// testGradientPNG returns a small encoded PNG.
+func testGradientPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 64, 32))
+	for y := range 32 {
+		for x := range 64 {
+			img.Set(x, y, color.RGBA{R: uint8(x * 4), G: uint8(y * 8), B: 200, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode test png: %v", err)
+	}
+	return buf.Bytes()
 }
