@@ -128,7 +128,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1881
+      "wordCount": 1927
     },
     {
       "id": "development",
@@ -223,6 +223,7 @@
       "description": "How Kit discovers and loads extensions.",
       "headings": [
         "Auto-discovery",
+        "System-wide extensions",
         "Explicit loading",
         "Disabling extensions",
         "Installing from git",
@@ -234,7 +235,7 @@
         "Failure isolation"
       ],
       "tags": [],
-      "wordCount": 557
+      "wordCount": 721
     },
     {
       "id": "extensions/overview",
@@ -407,7 +408,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3305
+      "wordCount": 3343
     },
     {
       "id": "sdk/overview",

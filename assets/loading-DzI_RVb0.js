@@ -10,12 +10,24 @@ var e={frontmatter:{title:`Loading Extensions`,description:`How Kit discovers an
 </thead>
 <tbody>
 <tr>
+<td><code>/usr/share/kit/extensions/*.go</code></td>
+<td>System-wide single files</td>
+</tr>
+<tr>
+<td><code>/usr/share/kit/extensions/*/main.go</code></td>
+<td>System-wide subdirectory extensions</td>
+</tr>
+<tr>
 <td><code>~/.config/kit/extensions/*.go</code></td>
-<td>Global single files</td>
+<td>User single files</td>
 </tr>
 <tr>
 <td><code>~/.config/kit/extensions/*/main.go</code></td>
-<td>Global subdirectory extensions</td>
+<td>User subdirectory extensions</td>
+</tr>
+<tr>
+<td><code>~/.local/share/kit/git/</code></td>
+<td>Global git-installed packages</td>
 </tr>
 <tr>
 <td><code>.kit/extensions/*.go</code></td>
@@ -26,15 +38,33 @@ var e={frontmatter:{title:`Loading Extensions`,description:`How Kit discovers an
 <td>Project-local subdirectory extensions</td>
 </tr>
 <tr>
-<td><code>~/.local/share/kit/git/</code></td>
-<td>Global git-installed packages</td>
-</tr>
-<tr>
 <td><code>.kit/git/</code></td>
 <td>Project-local git-installed packages</td>
 </tr>
 </tbody>
 </table>
+<p>Kit loads every extension it finds. The order in the table is the order in
+which extensions load and in which their event handlers run, thus a
+project-local extension runs after a user one, and a user extension runs
+after a system-wide one.</p>
+<h2 id="system-wide-extensions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#system-wide-extensions"><span class="icon icon-link"></span></a>System-wide extensions</h2>
+<p>The system-wide directory holds extensions that come with a packaged
+install of Kit (rpm, deb, Homebrew, and so on) and are shared by every
+user of the machine. It defaults to <code>/usr/share/kit/extensions</code>.</p>
+<p>Set <code>KIT_SYSTEM_EXTENSIONS_DIR</code> to use different directories. Give more
+than one directory with the platform list separator (<code>:</code> on Unix, <code>;</code> on
+Windows):</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Unix</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">KIT_SYSTEM_EXTENSIONS_DIR</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/opt/kit/extensions:/srv/kit/extensions</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span></span></code></pre>
+<pre class="tome-code" data-lang="powershell"><code># Windows (PowerShell)
+$env:KIT_SYSTEM_EXTENSIONS_DIR = "C:\\ProgramData\\kit\\extensions;D:\\kit\\extensions"; kit
+</code></pre>
+<p>Set the variable to an empty value to turn off system-wide discovery:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">KIT_SYSTEM_EXTENSIONS_DIR</span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span></span></code></pre>
+<p>Packagers can change the compiled-in default at build time:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -ldflags</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">  "-X github.com/mark3labs/kit/internal/extensions.SystemExtensionsDir=/opt/kit/extensions"</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> \\</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">  ./cmd/kit</span></span></code></pre>
 <h2 id="explicit-loading"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#explicit-loading"><span class="icon icon-link"></span></a>Explicit loading</h2>
 <p>Load extensions by path using the <code>-e</code> flag:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -e</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> path/to/extension.go</span></span></code></pre>
@@ -130,7 +160,7 @@ that file only — Kit continues starting up with the remaining extensions.</p>
 <a href="/extensions/capabilities#custom-rendering"><code>Render</code> callback</a> hides that widget
 and logs the error rather than taking down the TUI.</p>
 <p>This is isolation, not sandboxing. Extensions run in-process with <code>os/exec</code>
-access, so only load a <code>.go</code> file you would be willing to run directly.</p>`,headings:[{depth:2,text:`Auto-discovery`,id:`auto-discovery`},{depth:2,text:`Explicit loading`,id:`explicit-loading`},{depth:2,text:`Disabling extensions`,id:`disabling-extensions`},{depth:2,text:`Installing from git`,id:`installing-from-git`},{depth:2,text:`Extension structure`,id:`extension-structure`},{depth:3,text:`Single-file extensions`,id:`single-file-extensions`},{depth:3,text:`Subdirectory extensions`,id:`subdirectory-extensions`},{depth:3,text:`Package-level state`,id:`package-level-state`},{depth:3,text:`Standard library access`,id:`standard-library-access`},{depth:3,text:`Failure isolation`,id:`failure-isolation`}],raw:`
+access, so only load a <code>.go</code> file you would be willing to run directly.</p>`,headings:[{depth:2,text:`Auto-discovery`,id:`auto-discovery`},{depth:2,text:`System-wide extensions`,id:`system-wide-extensions`},{depth:2,text:`Explicit loading`,id:`explicit-loading`},{depth:2,text:`Disabling extensions`,id:`disabling-extensions`},{depth:2,text:`Installing from git`,id:`installing-from-git`},{depth:2,text:`Extension structure`,id:`extension-structure`},{depth:3,text:`Single-file extensions`,id:`single-file-extensions`},{depth:3,text:`Subdirectory extensions`,id:`subdirectory-extensions`},{depth:3,text:`Package-level state`,id:`package-level-state`},{depth:3,text:`Standard library access`,id:`standard-library-access`},{depth:3,text:`Failure isolation`,id:`failure-isolation`}],raw:`
 # Loading Extensions
 
 ## Auto-discovery
@@ -139,12 +169,53 @@ Kit automatically discovers and loads extensions from these paths, in order:
 
 | Path | Scope |
 |------|-------|
-| \`~/.config/kit/extensions/*.go\` | Global single files |
-| \`~/.config/kit/extensions/*/main.go\` | Global subdirectory extensions |
+| \`/usr/share/kit/extensions/*.go\` | System-wide single files |
+| \`/usr/share/kit/extensions/*/main.go\` | System-wide subdirectory extensions |
+| \`~/.config/kit/extensions/*.go\` | User single files |
+| \`~/.config/kit/extensions/*/main.go\` | User subdirectory extensions |
+| \`~/.local/share/kit/git/\` | Global git-installed packages |
 | \`.kit/extensions/*.go\` | Project-local single files |
 | \`.kit/extensions/*/main.go\` | Project-local subdirectory extensions |
-| \`~/.local/share/kit/git/\` | Global git-installed packages |
 | \`.kit/git/\` | Project-local git-installed packages |
+
+Kit loads every extension it finds. The order in the table is the order in
+which extensions load and in which their event handlers run, thus a
+project-local extension runs after a user one, and a user extension runs
+after a system-wide one.
+
+## System-wide extensions
+
+The system-wide directory holds extensions that come with a packaged
+install of Kit (rpm, deb, Homebrew, and so on) and are shared by every
+user of the machine. It defaults to \`/usr/share/kit/extensions\`.
+
+Set \`KIT_SYSTEM_EXTENSIONS_DIR\` to use different directories. Give more
+than one directory with the platform list separator (\`:\` on Unix, \`;\` on
+Windows):
+
+\`\`\`bash
+# Unix
+KIT_SYSTEM_EXTENSIONS_DIR=/opt/kit/extensions:/srv/kit/extensions kit
+\`\`\`
+
+\`\`\`powershell
+# Windows (PowerShell)
+$env:KIT_SYSTEM_EXTENSIONS_DIR = "C:\\ProgramData\\kit\\extensions;D:\\kit\\extensions"; kit
+\`\`\`
+
+Set the variable to an empty value to turn off system-wide discovery:
+
+\`\`\`bash
+KIT_SYSTEM_EXTENSIONS_DIR= kit
+\`\`\`
+
+Packagers can change the compiled-in default at build time:
+
+\`\`\`bash
+go build -ldflags \\
+  "-X github.com/mark3labs/kit/internal/extensions.SystemExtensionsDir=/opt/kit/extensions" \\
+  ./cmd/kit
+\`\`\`
 
 ## Explicit loading
 

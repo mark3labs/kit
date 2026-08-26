@@ -68,6 +68,13 @@ export OPENAI_API_KEY="sk-..."
 export GOOGLE_API_KEY="..."
 ```
 
+A few environment variables are read directly and have no `.kit.yml`
+equivalent:
+
+| Variable | Effect |
+|----------|--------|
+| `KIT_SYSTEM_EXTENSIONS_DIR` | Overrides the system-wide extension directories, separated by the platform list separator (`:` on Unix, `;` on Windows). Empty disables system-wide discovery. See [Loading Extensions](/extensions/loading#system-wide-extensions). |
+
 ## MCP server configuration
 
 Add external MCP servers to your `.kit.yml`:
