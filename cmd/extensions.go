@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -29,9 +30,11 @@ var extensionsListCmd = &cobra.Command{
 			fmt.Println("No extensions found.")
 			fmt.Println()
 			fmt.Println("Extension search paths:")
-			fmt.Println("  ~/.config/kit/extensions/*.go        (global)")
-			fmt.Println("  .kit/extensions/*.go                 (project)")
+			for _, sp := range extensions.AuthoredSearchPaths() {
+				fmt.Printf("  %-36s (%s)\n", filepath.Join(sp.Dir, "*.go"), sp.Scope)
+			}
 			fmt.Println()
+			fmt.Println("Subdirectories are scanned too, as <dir>/<name>/main.go.")
 			fmt.Println("Run 'kit extensions init' to create an example extension.")
 			return nil
 		}

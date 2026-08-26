@@ -30,15 +30,16 @@ func NewWatcher(dirs []string, onReload func()) (*Watcher, error) {
 }
 
 // WatchedDirs returns the directories to watch for extension changes.
-// This includes the global extensions directory and the project-local
-// .kit/extensions/ directory (if they exist). Explicit -e paths that
-// point to directories are also included; explicit file paths cause
-// their parent directory to be watched instead.
+// This includes the system-wide extensions directories, the per-user
+// extensions directory and the project-local .kit/extensions/ directory
+// (if they exist). Explicit -e paths that point to directories are also
+// included; explicit file paths cause their parent directory to be
+// watched instead.
 func WatchedDirs(extraPaths []string) []string {
-	standard := []string{
-		globalExtensionsDir(),
+	standard := append(systemExtensionsDirs(),
+		userExtensionsDir(),
 		filepath.Join(".kit", "extensions"),
-	}
+	)
 
 	// Filter explicit paths into directories (passed through) and files
 	// (parent dir watched) for CollectDirs to dedupe.

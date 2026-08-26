@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -775,11 +776,10 @@ func (r *Runner) GetUIVisibility() *UIVisibility {
 // (extensions are immutable after loading).
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 	// Walk extensions in reverse so last-registered wins.
-	for i := len(r.extensions) - 1; i >= 0; i-- {
-		for j := len(r.extensions[i].ToolRenderers) - 1; j >= 0; j-- {
-			if r.extensions[i].ToolRenderers[j].ToolName == toolName {
-				config := r.extensions[i].ToolRenderers[j]
-				return &config
+	for _, ext := range slices.Backward(r.extensions) {
+		for _, renderer := range slices.Backward(ext.ToolRenderers) {
+			if renderer.ToolName == toolName {
+				return &renderer
 			}
 		}
 	}
@@ -794,11 +794,10 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 // extension registered a renderer with that name. If multiple extensions
 // register the same name, the last one (by load order) wins.
 func (r *Runner) GetMessageRenderer(name string) *MessageRendererConfig {
-	for i := len(r.extensions) - 1; i >= 0; i-- {
-		for j := len(r.extensions[i].MessageRenderers) - 1; j >= 0; j-- {
-			if r.extensions[i].MessageRenderers[j].Name == name {
-				config := r.extensions[i].MessageRenderers[j]
-				return &config
+	for _, ext := range slices.Backward(r.extensions) {
+		for _, renderer := range slices.Backward(ext.MessageRenderers) {
+			if renderer.Name == name {
+				return &renderer
 			}
 		}
 	}
