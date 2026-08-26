@@ -165,9 +165,23 @@ func TestTranscriptPreviewNeverPlacesDirectly(t *testing.T) {
 	t.Cleanup(func() {
 		termgfx.Set(termgfx.Capabilities{})
 	})
-	t.Setenv("COLORTERM", "truecolor")
-	t.Setenv("ZELLIJ", "0") // the terminal that needs direct placement
-	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+	// A terminal that draws graphics but strips the combining marks that
+	// placeholders are built from, so it needs a direct placement. Stated as
+	// capabilities rather than environment variables: the decision is a pure
+	// function of them, and an env-based setup passed only where TERM happened
+	// to be set.
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+	// The half-block renderer reads the colour profile from the environment
+	// and draws nothing below 256 colours, which is what a bare CI environment
+	// reports. Give it a terminal so the fallback actually produces art to
+	// assert on.
+	t.Setenv("TERM", "xterm-256color")
 
 	if termgfx.PreviewMode() != termgfx.ModeDirect {
 		t.Fatalf("PreviewMode() = %v, want %v; the test premise no longer holds",
@@ -199,10 +213,13 @@ func TestTranscriptPreviewUsesPlaceholders(t *testing.T) {
 	t.Cleanup(func() {
 		termgfx.Set(termgfx.Capabilities{})
 	})
-	t.Setenv("COLORTERM", "truecolor")
-	t.Setenv("ZELLIJ", "")
-	t.Setenv("TMUX", "")
-	termgfx.Set(termgfx.Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: true,
+	})
 
 	if termgfx.PreviewMode() != termgfx.ModePlaceholder {
 		t.Fatalf("PreviewMode() = %v, want %v; the test premise no longer holds",

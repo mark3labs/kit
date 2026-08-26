@@ -68,6 +68,27 @@ type Capabilities struct {
 	// a truthful one. See ptyPixelSize.
 	CellWidth  int
 	CellHeight int
+
+	// TrueColor reports that the terminal accepts 24-bit colour.
+	//
+	// It is captured when capabilities are resolved rather than read at draw
+	// time, so that the preview mode is a pure function of this struct. It
+	// matters for graphics because placeholder cells carry the image id in
+	// their foreground colour: a 256-colour terminal would quantise that colour
+	// and corrupt the id.
+	TrueColor bool
+
+	// UnicodePlaceholders reports that placeholder cells reach the terminal
+	// intact, and therefore that an image can be drawn as view text.
+	//
+	// This is a separate capability from the protocol itself. Zellij 0.45
+	// forwards the graphics protocol and draws real images, but discards the
+	// combining marks that tell each placeholder cell which part of the image
+	// it holds, so placeholders render nothing there while direct placement
+	// works. Naming the capability rather than the terminal keeps the decision
+	// in one place: a future release that fixes the marks changes detection,
+	// not the renderer.
+	UnicodePlaceholders bool
 }
 
 // kittyProbeID is the image id used by the query. Kitty echoes the id back in
@@ -200,31 +221,26 @@ func (m Mode) String() string {
 //     to the terminal behind it will answer yes without being able to draw.
 //     See [Capabilities.CellWidth].
 //   - Truecolor, because placeholder cells carry the image id in their
-//     foreground colour. A 256-colour terminal would quantise that colour and
-//     corrupt the id. Direct placement does not depend on this, but a terminal
-//     that cannot do truecolor is not one to attempt graphics in.
+//     foreground colour. See [Capabilities.TrueColor].
 //
-// The choice between the two graphics modes is about the placeholder encoding,
-// not the protocol. Zellij forwards the protocol — verified drawing a real
-// image — but discards the combining marks that tell each placeholder cell
-// which part of the image it holds, so it needs a direct placement.
+// The choice between the two graphics modes is about the placeholder encoding
+// rather than the protocol. See [Capabilities.UnicodePlaceholders].
 func PreviewMode() Mode {
 	return previewMode(Current())
 }
 
-// previewMode is the lock-free core of PreviewMode. It takes the capabilities
-// as an argument so callers holding capsMu, or holding a freshly resolved
-// value, can reach the same decision without reading the cache. Reading the
-// cache here would make this unsafe to call under the lock, which is how a
+// previewMode is the pure core of PreviewMode. It decides only from the
+// resolved capabilities, and reads neither the environment nor the cache.
+//
+// Keeping it pure matters twice over. It is called for every thumbnail render,
+// so it must not re-sniff the environment each time; and reading the cache
+// here would make it unsafe to call while holding capsMu, which is how a
 // startup deadlock was introduced once already.
 func previewMode(c Capabilities) Mode {
-	if !c.KittyGraphics || c.CellWidth <= 0 || c.CellHeight <= 0 {
+	if !c.KittyGraphics || c.CellWidth <= 0 || c.CellHeight <= 0 || !c.TrueColor {
 		return ModeHalfBlock
 	}
-	if colorprofile.Env(os.Environ()) < colorprofile.TrueColor {
-		return ModeHalfBlock
-	}
-	if insideZellij() {
+	if !c.UnicodePlaceholders {
 		return ModeDirect
 	}
 	return ModePlaceholder
@@ -246,7 +262,11 @@ func detect(in, out *os.File, timeout time.Duration) Capabilities {
 		// resampled at the right resolution, and fall back to a plausible
 		// default when it does not — the override means the user is asserting
 		// support the probe cannot confirm.
-		c := Capabilities{KittyGraphics: true}
+		c := Capabilities{
+			KittyGraphics:       true,
+			TrueColor:           true,
+			UnicodePlaceholders: unicodePlaceholdersWork(),
+		}
 		c.CellWidth, c.CellHeight = detectCellSize(out)
 		if c.CellWidth <= 0 || c.CellHeight <= 0 {
 			c.CellWidth, c.CellHeight = fallbackCellWidth, fallbackCellHeight
@@ -346,7 +366,25 @@ func Probe(in, out *os.File, timeout time.Duration) (Capabilities, error) {
 	if w, h := detectCellSize(out); w > 0 && h > 0 {
 		c.CellWidth, c.CellHeight = w, h
 	}
+
+	// Capture the remaining capabilities now, so that every later decision is
+	// a pure function of this struct rather than a fresh look at the
+	// environment. See [Capabilities.TrueColor].
+	c.TrueColor = colorprofile.Env(os.Environ()) >= colorprofile.TrueColor
+	c.UnicodePlaceholders = unicodePlaceholdersWork()
 	return c, nil
+}
+
+// unicodePlaceholdersWork reports whether placeholder cells survive the trip to
+// the terminal.
+//
+// There is no query for this, so it is a known-bad list of one: zellij 0.45
+// forwards the graphics protocol and draws real images, but strips the
+// combining marks that placeholders are built from. Everything else is assumed
+// to pass text through unchanged, which is the safe assumption — a terminal
+// that mangles combining marks would garble ordinary text too.
+func unicodePlaceholdersWork() bool {
+	return !insideZellij()
 }
 
 // terminalGrid returns the terminal size in cells.

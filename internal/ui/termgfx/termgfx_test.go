@@ -115,25 +115,111 @@ func TestQueryHandlesEarlyEOF(t *testing.T) {
 	}
 }
 
-// Zellij needs a direct placement: it forwards the graphics protocol but drops
-// the combining marks that Unicode placeholders depend on.
-func TestPreviewModeChoosesDirectInZellij(t *testing.T) {
-	t.Cleanup(func() {
-		capsMu.Lock()
-		caps = nil
-		capsMu.Unlock()
-	})
-	t.Setenv("COLORTERM", "truecolor")
-	capable := Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20}
+// capableTerminal is a terminal that can draw graphics every way Kit knows
+// how. Tests narrow it to describe the terminal they are about.
+//
+// previewMode decides only from these fields, never from the environment, so
+// the tests below need no environment at all. That matters: an earlier version
+// read COLORTERM at decision time and passed only on developer machines,
+// because colorprofile reports no colour when TERM is unset the way it is in
+// CI.
+var capableTerminal = Capabilities{
+	KittyGraphics:       true,
+	CellWidth:           10,
+	CellHeight:          20,
+	TrueColor:           true,
+	UnicodePlaceholders: true,
+}
 
+func TestPreviewMode(t *testing.T) {
+	tests := []struct {
+		name string
+		caps Capabilities
+		want Mode
+	}{
+		{
+			name: "graphics terminal",
+			caps: capableTerminal,
+			want: ModePlaceholder,
+		},
+		{
+			// Zellij forwards the protocol and draws real images, but strips
+			// the combining marks placeholders are built from.
+			name: "placeholders stripped",
+			caps: withCaps(func(c *Capabilities) { c.UnicodePlaceholders = false }),
+			want: ModeDirect,
+		},
+		{
+			name: "no protocol support",
+			caps: withCaps(func(c *Capabilities) { c.KittyGraphics = false }),
+			want: ModeHalfBlock,
+		},
+		{
+			// A borrowed answer: a multiplexer forwarded the query to the
+			// terminal behind it and reports no pixel geometry of its own.
+			name: "no cell size",
+			caps: withCaps(func(c *Capabilities) { c.CellWidth, c.CellHeight = 0, 0 }),
+			want: ModeHalfBlock,
+		},
+		{
+			// Placeholders carry the image id in their foreground colour, which
+			// a 256-colour terminal would quantise and corrupt.
+			name: "no truecolor",
+			caps: withCaps(func(c *Capabilities) { c.TrueColor = false }),
+			want: ModeHalfBlock,
+		},
+		{
+			name: "nothing detected",
+			caps: Capabilities{},
+			want: ModeHalfBlock,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := previewMode(tt.caps); got != tt.want {
+				t.Errorf("previewMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// withCaps returns capableTerminal with one field changed.
+func withCaps(f func(*Capabilities)) Capabilities {
+	c := capableTerminal
+	f(&c)
+	return c
+}
+
+// The preview mode must not depend on the environment it is called in. It is
+// consulted for every thumbnail render, and an ambient read there is both a
+// per-render cost and a source of decisions that differ between a developer's
+// terminal and CI.
+func TestPreviewModeIgnoresEnvironment(t *testing.T) {
+	want := previewMode(capableTerminal)
+
+	t.Setenv("TERM", "")
+	t.Setenv("COLORTERM", "")
+	t.Setenv("ZELLIJ", "1")
+	t.Setenv("TMUX", "1")
+	t.Setenv("NO_COLOR", "1")
+
+	if got := previewMode(capableTerminal); got != want {
+		t.Errorf("previewMode() = %v with the environment cleared, want %v", got, want)
+	}
+}
+
+// Zellij is the terminal that needs a direct placement, so detection must
+// report its placeholders as unusable.
+func TestUnicodePlaceholdersDetection(t *testing.T) {
 	t.Setenv("ZELLIJ", "0")
-	if got := previewMode(capable); got != ModeDirect {
-		t.Errorf("previewMode() in zellij = %v, want %v", got, ModeDirect)
+	if unicodePlaceholdersWork() {
+		t.Error("unicodePlaceholdersWork() = true in zellij, where the marks are stripped")
 	}
 
 	t.Setenv("ZELLIJ", "")
-	if got := previewMode(capable); got != ModePlaceholder {
-		t.Errorf("previewMode() in a bare terminal = %v, want %v", got, ModePlaceholder)
+	if !unicodePlaceholdersWork() {
+		t.Error("unicodePlaceholdersWork() = false outside zellij")
 	}
 }
 
@@ -145,17 +231,16 @@ func TestUseKittyGraphicsRequiresCellSize(t *testing.T) {
 		caps = nil
 		capsMu.Unlock()
 	})
-	t.Setenv("COLORTERM", "truecolor")
 
-	Set(Capabilities{KittyGraphics: true, CellWidth: 0, CellHeight: 0})
+	Set(withCaps(func(c *Capabilities) { c.CellWidth, c.CellHeight = 0, 0 }))
 	if UseKittyGraphics() {
 		t.Error("UseKittyGraphics() = true without a reported cell size")
 	}
-	Set(Capabilities{KittyGraphics: true, CellWidth: 10, CellHeight: 20})
+	Set(capableTerminal)
 	if !UseKittyGraphics() {
 		t.Error("UseKittyGraphics() = false with support and a cell size")
 	}
-	Set(Capabilities{KittyGraphics: false, CellWidth: 10, CellHeight: 20})
+	Set(withCaps(func(c *Capabilities) { c.KittyGraphics = false }))
 	if UseKittyGraphics() {
 		t.Error("UseKittyGraphics() = true without protocol support")
 	}
@@ -168,7 +253,7 @@ func TestEnvOverride(t *testing.T) {
 	for _, v := range []string{"kitty", "KITTY"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(EnvOverride, v)
-			t.Setenv("COLORTERM", "truecolor")
+			t.Setenv("ZELLIJ", "")
 			got := detect(nil, nil, time.Second)
 			if !got.KittyGraphics {
 				t.Errorf("detect() = %+v, want graphics support", got)
