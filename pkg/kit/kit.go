@@ -866,12 +866,30 @@ func (m *Kit) composeSystemPrompt(basePrompt string) string {
 	}
 
 	// Append current date/time and working directory.
-	pb.WithSection("", fmt.Sprintf(
-		"Current date and time: %s\nCurrent working directory: %s",
-		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
-	))
+	bare := m.opts != nil && m.opts.Bare
+	pb.WithSection("", environmentSection(cwd, bare))
 
 	return pb.Build()
+}
+
+// environmentSection renders the trailing system-prompt block describing the
+// runtime environment: the current time and working directory, plus a notice
+// when bare mode suppressed project context. Both Kit.New and
+// composeSystemPrompt use it so the two paths cannot drift.
+func environmentSection(cwd string, bare bool) string {
+	s := fmt.Sprintf(
+		"Current date and time: %s\nCurrent working directory: %s",
+		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+	)
+	// The working directory is still reported in bare mode because the file
+	// tools resolve relative paths against it. The notice stops the model
+	// treating that directory as the subject of the conversation.
+	if bare {
+		s += "\n\nNo project context was loaded (bare mode): no project" +
+			" instructions, skills or extensions are in effect. Treat the" +
+			" working directory as incidental unless the user refers to it."
+	}
+	return s
 }
 
 // GetCurrentModel returns the fully qualified "provider/model" string for the
@@ -927,9 +945,11 @@ func (m *Kit) ReloadExtensions() error {
 		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
 	}
 
-	// Re-load from disk.
+	// Re-load from disk. Bare mode is preserved across the reload so a hot
+	// reload cannot pull in directory-discovered extensions that startup
+	// deliberately skipped.
 	extraPaths := m.v.GetStringSlice("extension")
-	loaded, err := extensions.LoadExtensions(extraPaths)
+	loaded, err := extensions.LoadExtensionsScoped(extraPaths, m.opts != nil && m.opts.Bare)
 	if err != nil {
 		return fmt.Errorf("reloading extensions: %w", err)
 	}
@@ -1229,6 +1249,22 @@ type Options struct {
 	// [SubagentConfig].Agent cannot resolve.
 	NoAgents bool
 
+	// Bare disables every form of automatic context discovery, so starting
+	// Kit inside a directory does not implicitly load that directory's
+	// instructions, tooling or configuration. It suppresses:
+	//
+	//   - project context files (AGENTS.md)
+	//   - skills, from both project and user directories
+	//   - extensions, from both project and user directories
+	//   - named agent definitions
+	//   - project-local .kit.yml (see [ConfigInitOptions])
+	//
+	// Explicitly supplied values are unaffected: Skills, Extensions and
+	// SystemPrompt all still apply, as do the equivalent CLI flags. Core
+	// tools remain enabled and the working directory is unchanged; combine
+	// with NoCoreTools to remove filesystem access as well.
+	Bare bool
+
 	// MCPConfig provides a pre-loaded MCP configuration. When set,
 	// LoadAndValidateConfig is skipped during Kit creation — avoiding
 	// viper access entirely. This is set automatically for in-process
@@ -1392,6 +1428,7 @@ type CLIOptions struct {
 //
 // Behaviour based on Options:
 //   - NoSession:   in-memory tree session (no persistence)
+//   - Bare:        shared bare bucket, not tied to a working directory
 //   - Continue:    resume most recent session for SessionDir (or cwd)
 //   - SessionPath: open a specific JSONL session file
 //   - default:     create a new tree session for SessionDir (or cwd)
@@ -1403,6 +1440,14 @@ func InitTreeSession(opts *Options) (*TreeManager, error) {
 	sessionDir := opts.SessionDir
 	if sessionDir == "" {
 		sessionDir, _ = os.Getwd()
+	}
+
+	// Bare sessions are deliberately not filed under the working directory:
+	// the mode exists so the directory does not matter. One shared bucket
+	// keeps `--continue` and `--resume` working across directories. An
+	// explicit SessionPath still wins, below.
+	if opts.Bare {
+		sessionDir = session.BareSessionKey
 	}
 
 	if opts.NoSession {
@@ -1488,7 +1533,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
 		if !opts.SkipConfig && opts.CLI == nil {
-			if err := initConfig(v, opts.ConfigFile, false); err != nil {
+			if err := initConfig(v, opts.ConfigFile, false, opts.Bare); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
 		}
@@ -1566,7 +1611,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 
 		// Load context files (AGENTS.md) from the project root.
-		if !opts.NoContextFiles {
+		if !opts.NoContextFiles && !opts.Bare {
 			contextFiles = loadContextFiles(cwd)
 		}
 
@@ -1609,7 +1654,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// subagent tool description and resolvable via SubagentConfig.Agent.
 		// Per-file parse failures are non-fatal: usable agents still load and
 		// a warning is printed unless quiet.
-		if !opts.NoAgents && !v.GetBool("no-agents") {
+		if !opts.NoAgents && !opts.Bare && !v.GetBool("no-agents") {
 			var agErr error
 			namedAgents, agErr = LoadAgentDefinitions(cwd)
 			if agErr != nil && !opts.Quiet {
@@ -1685,10 +1730,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			}
 
 			// Append current date/time and working directory.
-			pb.WithSection("", fmt.Sprintf(
-				"Current date and time: %s\nCurrent working directory: %s",
-				time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
-			))
+			pb.WithSection("", environmentSection(cwd, opts.Bare))
 
 			v.Set("system-prompt", pb.Build())
 		}
@@ -1823,6 +1865,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		Debug:             debug,
 		DebugLogger:       opts.DebugLogger,
 		NoExtensions:      noExtensions,
+		Bare:              opts.Bare,
 		MaxSteps:          maxSteps,
 		StreamingEnabled:  streaming,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
@@ -2078,6 +2121,13 @@ func loadSkills(opts *Options) ([]*skills.Skill, error) {
 	// Auto-discover from the standard scopes rooted at the session directory.
 	// Project-local skills are injected into the system prompt, so they are
 	// gated on a trust decision when a SkillTrustPrompt is configured.
+	//
+	// Bare mode stops here: only skills named explicitly on the command line
+	// (handled above) load, so no directory contributes instructions merely
+	// because Kit happens to be running inside it.
+	if opts.Bare {
+		return nil, nil
+	}
 	cwd := opts.SessionDir
 	if cwd == "" {
 		cwd, _ = os.Getwd()

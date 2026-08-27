@@ -71,6 +71,9 @@ type AgentSetupOptions struct {
 	// NoExtensions skips extension loading. When false, viper is consulted.
 	// Only meaningful when ProviderConfig is also set.
 	NoExtensions bool
+	// Bare restricts extension loading to paths named explicitly via
+	// --extension / -e. No system, user or project directory is scanned.
+	Bare bool
 	// MaxSteps overrides the agent step limit. 0 means use viper value.
 	// Only meaningful when ProviderConfig is also set.
 	MaxSteps int
@@ -227,7 +230,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	var extCreationOpts extensionCreationOpts
 	if !noExtensions {
 		var extErr error
-		extRunner, extCreationOpts, extErr = loadExtensions(v)
+		extRunner, extCreationOpts, extErr = loadExtensions(v, opts.Bare)
 		if extErr != nil {
 			fmt.Printf("Warning: Failed to load extensions: %v\n", extErr)
 		}
@@ -297,12 +300,12 @@ type extensionCreationOpts struct {
 // and returns the tool wrapper/extra tools. The supplied store is used to
 // resolve the "extension" config key and is attached to the runner so
 // extension option lookups stay isolated to this Kit instance.
-func loadExtensions(v *viper.Viper) (*extensions.Runner, extensionCreationOpts, error) {
+func loadExtensions(v *viper.Viper, bare bool) (*extensions.Runner, extensionCreationOpts, error) {
 	if v == nil {
 		v = viper.GetViper()
 	}
 	extraPaths := v.GetStringSlice("extension")
-	loaded, err := extensions.LoadExtensions(extraPaths)
+	loaded, err := extensions.LoadExtensionsScoped(extraPaths, bare)
 	if err != nil {
 		return nil, extensionCreationOpts{}, err
 	}

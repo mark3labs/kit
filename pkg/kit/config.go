@@ -83,12 +83,38 @@ func setSDKDefaults(v *viper.Viper) {
 // This wraps [initConfig] using the process-global store and is retained for
 // the CLI, which binds its flags to the global viper.
 func InitConfig(configFile string, debug bool) error {
-	return initConfig(viper.GetViper(), configFile, debug)
+	return initConfig(viper.GetViper(), configFile, debug, false)
+}
+
+// ConfigInitOptions controls configuration discovery for
+// [InitConfigWithOptions].
+type ConfigInitOptions struct {
+	// ConfigFile is an explicit config file path. Empty means search the
+	// default locations (working directory, then home directory).
+	ConfigFile string
+
+	// Debug prints warnings about missing configs to stderr.
+	Debug bool
+
+	// Bare skips config discovery in the current working directory, so a
+	// project-local .kit.yml cannot contribute settings — most importantly
+	// mcpServers, which spawn processes, and system-prompt. The home
+	// directory config is still loaded, as are KIT_* environment overrides.
+	// An explicit ConfigFile is always honoured.
+	Bare bool
+}
+
+// InitConfigWithOptions initializes the process-global viper configuration
+// system with explicit control over discovery. Use it instead of [InitConfig]
+// when project-local configuration must be ignored.
+func InitConfigWithOptions(opts ConfigInitOptions) error {
+	return initConfig(viper.GetViper(), opts.ConfigFile, opts.Debug, opts.Bare)
 }
 
 // initConfig loads configuration into the supplied per-instance store. When v
-// is nil the process-global store is used.
-func initConfig(v *viper.Viper, configFile string, debug bool) error {
+// is nil the process-global store is used. When bare is true the working
+// directory is excluded from the config search path.
+func initConfig(v *viper.Viper, configFile string, debug, bare bool) error {
 	if v == nil {
 		v = viper.GetViper()
 	}
@@ -119,8 +145,12 @@ func initConfig(v *viper.Viper, configFile string, debug bool) error {
 		return fmt.Errorf("error finding home directory: %w", err)
 	}
 
-	// Current directory has higher priority than home directory.
-	v.AddConfigPath(".")
+	// Current directory has higher priority than home directory. Bare mode
+	// drops the working directory entirely so an unfamiliar project cannot
+	// inject settings simply because Kit was started inside it.
+	if !bare {
+		v.AddConfigPath(".")
+	}
 	v.AddConfigPath(home)
 
 	configLoaded := false

@@ -28,7 +28,15 @@ import (
 // any extra paths. Each extension is loaded into its own Yaegi interpreter
 // for isolation. Extensions that fail to load are logged and skipped.
 func LoadExtensions(extraPaths []string) ([]LoadedExtension, error) {
-	paths := discoverExtensionPaths(extraPaths)
+	return LoadExtensionsScoped(extraPaths, false)
+}
+
+// LoadExtensionsScoped is [LoadExtensions] with control over discovery. When
+// bare is true no directory is scanned — system, user and project locations
+// are all skipped — and only extraPaths load. Use it so that running Kit
+// inside a directory does not silently execute that directory's extensions.
+func LoadExtensionsScoped(extraPaths []string, bare bool) ([]LoadedExtension, error) {
+	paths := discoverExtensionPaths(extraPaths, bare)
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -70,10 +78,22 @@ func (ps *pathSet) add(p string) bool {
 
 // discoverExtensionPaths returns deduplicated paths to extension files in
 // load-order (system-wide first, then user, then project-local, then
-// explicit).
-func discoverExtensionPaths(extraPaths []string) []string {
+// explicit). When bare is true every directory scan is skipped and only
+// extraPaths are returned.
+func discoverExtensionPaths(extraPaths []string, bare bool) []string {
 	ps := newPathSet()
 
+	if !bare {
+		discoverExtensionDirs(ps)
+	}
+
+	// Explicit paths (highest precedence)
+	return appendExplicitExtensionPaths(ps, extraPaths)
+}
+
+// discoverExtensionDirs adds every auto-discovered extension path to ps, in
+// ascending order of precedence.
+func discoverExtensionDirs(ps *pathSet) {
 	// System-wide extensions: /usr/share/kit/extensions/ (packaged installs)
 	for _, dir := range systemExtensionsDirs() {
 		for _, p := range findExtensionsInDir(dir) {
@@ -104,8 +124,12 @@ func discoverExtensionPaths(extraPaths []string) []string {
 	for _, p := range findExtensionsInGitPackages(projectGitDir) {
 		ps.add(p)
 	}
+}
 
-	// Explicit paths (highest precedence)
+// appendExplicitExtensionPaths adds user-supplied extension paths (from
+// --extension / -e) to ps and returns the final ordered list. These always
+// load, including in bare mode, because the user named them.
+func appendExplicitExtensionPaths(ps *pathSet, extraPaths []string) []string {
 	for _, p := range extraPaths {
 		info, err := os.Stat(p)
 		if err != nil {

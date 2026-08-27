@@ -40,6 +40,49 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--compact` | — | `false` | Enable compact output mode |
 | `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
+## Context
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--bare` | — | `false` | No project context — skip all automatic discovery |
+
+`--bare` starts Kit without reading anything from the directory it runs in, so
+you can ask a question without first loading whatever project you happen to be
+standing in. It disables:
+
+- project context files (`AGENTS.md`)
+- skills, from both project and user directories
+- extensions, from both project and user directories
+- named agent definitions
+- prompt template directories
+- project-local `.kit.yml`
+
+Your home `~/.kit.yml` still loads, so API keys and your default model keep
+working, as do `KIT_*` environment variables and an explicit `--config` file.
+
+Anything you name on the command line still applies — `--extension`,
+`--skill`, `--prompt-template`, `--system-prompt` and `@file` attachments are
+unaffected. Bare mode suppresses what Kit finds on its own, never what you
+asked for.
+
+Core tools stay enabled and the working directory is unchanged, so the agent
+can still read files when you ask it to. Combine with `--no-core-tools` for a
+pure question-answering session:
+
+```bash
+kit --bare "why does a TLS handshake fail with an SNI mismatch"
+kit --bare --no-core-tools "explain the CAP theorem"
+kit --bare -e ~/my-ext.go "..."   # explicit extension still loads
+```
+
+Because a bare session is not tied to a directory, bare sessions share a
+single store rather than the usual per-directory one. `kit --bare -c` resumes
+your last bare conversation from anywhere on the filesystem.
+
+`--bare` cannot be set from a config file. It exists to ignore project
+configuration, so allowing a project config to enable it would be
+self-defeating.
+
 ## Extensions
 
 | Flag | Short | Default | Description |

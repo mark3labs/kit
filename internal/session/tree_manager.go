@@ -1436,6 +1436,13 @@ func (tm *TreeManager) buildTreeNodeDepth(id string, depth int, visited map[stri
 
 // --- Path conventions ---
 
+// BareSessionKey is the session bucket used in bare mode. Bare sessions are
+// not tied to a working directory — that is the point of the mode — so they
+// all share one bucket and `--continue` resumes the last bare conversation
+// from anywhere. The value contains no path separator and no character that
+// is illegal on Windows, so encodeCwdForDir passes it through unchanged.
+const BareSessionKey = "__bare__"
+
 // DefaultSessionDir returns the default session storage directory for a cwd.
 // Convention: ~/.kit/sessions/<encoded-cwd>, where path separators are
 // encoded as "--" with no leading or trailing dashes — e.g.

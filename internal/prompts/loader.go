@@ -21,6 +21,11 @@ type LoadOptions struct {
 	ConfigPaths []string
 	// IncludeDefaults determines whether to include built-in default templates.
 	IncludeDefaults bool
+	// Bare skips directory discovery entirely — the global, XDG and
+	// project-local prompt directories are not scanned. Built-in defaults
+	// (when IncludeDefaults is set), ConfigPaths and ExtraPaths still load,
+	// so templates named explicitly remain available.
+	Bare bool
 }
 
 // Diagnostic reports a template collision or loading issue.
@@ -91,23 +96,28 @@ func LoadAll(opts LoadOptions) ([]*PromptTemplate, []Diagnostic, error) {
 	}
 
 	// 2. Legacy global user templates: ~/.kit/prompts/
-	legacyGlobalDir := filepath.Join(opts.HomeDir, ".kit", "prompts")
-	if templates, err := LoadFromDir(legacyGlobalDir); err == nil {
-		addTemplates(templates, "global")
-	}
-
 	// 3. XDG global user templates: $XDG_CONFIG_HOME/kit/prompts/
-	//    Default: ~/.config/kit/prompts/. Aligns with extensions and skills.
-	if xdgDir := GlobalDir(); xdgDir != "" && xdgDir != legacyGlobalDir {
-		if templates, err := LoadFromDir(xdgDir); err == nil {
+	// 4. Project-local templates: .kit/prompts/
+	//
+	// Bare mode skips all three: nothing is picked up from a directory just
+	// because Kit was started there.
+	if !opts.Bare {
+		legacyGlobalDir := filepath.Join(opts.HomeDir, ".kit", "prompts")
+		if templates, err := LoadFromDir(legacyGlobalDir); err == nil {
 			addTemplates(templates, "global")
 		}
-	}
 
-	// 4. Project-local templates: .kit/prompts/
-	localDir := filepath.Join(opts.Cwd, ".kit", "prompts")
-	if templates, err := LoadFromDir(localDir); err == nil {
-		addTemplates(templates, "local")
+		//    Default: ~/.config/kit/prompts/. Aligns with extensions and skills.
+		if xdgDir := GlobalDir(); xdgDir != "" && xdgDir != legacyGlobalDir {
+			if templates, err := LoadFromDir(xdgDir); err == nil {
+				addTemplates(templates, "global")
+			}
+		}
+
+		localDir := filepath.Join(opts.Cwd, ".kit", "prompts")
+		if templates, err := LoadFromDir(localDir); err == nil {
+			addTemplates(templates, "local")
+		}
 	}
 
 	// 4. Config paths
