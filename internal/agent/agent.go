@@ -1216,8 +1216,12 @@ func (a *Agent) GetMCPToolNames() []string {
 	return names
 }
 
-// GetExtensionToolCount returns the number of tools registered by extensions.
-func (a *Agent) GetExtensionToolCount() int {
+// GetExtraToolCount returns the number of extra tools on the agent — that is,
+// every tool that is neither a core tool nor an MCP tool. The bucket mixes
+// extension-registered tools, the built-in activate_skill tool and tools
+// supplied by SDK callers, so it must not be reported as an extension count.
+// Ask the extension runner for that (see Kit.GetExtensionToolCount).
+func (a *Agent) GetExtraToolCount() int {
 	a.toolsMu.RLock()
 	defer a.toolsMu.RUnlock()
 	return len(a.extraTools)
