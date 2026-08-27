@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/fantasy"
@@ -308,8 +309,8 @@ func FindCutPoint(messages []fantasy.Message, keepRecentTokens int) int {
 
 	accumulated := 0
 
-	for i := len(messages) - 1; i >= 0; i-- {
-		accumulated += estimateSingleMessageTokens(messages[i])
+	for i, message := range slices.Backward(messages) {
+		accumulated += estimateSingleMessageTokens(message)
 		if accumulated > keepRecentTokens {
 			cut := i + 1
 

@@ -146,7 +146,7 @@ func TestColumnCountWithinBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	firstRow := strings.SplitN(out, "\n", 2)[0]
+	firstRow, _, _ := strings.Cut(out, "\n")
 	cols := strings.Count(firstRow, upperHalfBlock)
 	if cols > 8 {
 		t.Errorf("expected at most 8 columns, got %d", cols)

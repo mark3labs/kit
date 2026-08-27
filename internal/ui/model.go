@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -5906,8 +5907,8 @@ func (m *AppModel) handleCopyCommand() tea.Cmd {
 		text string
 		role string
 	)
-	for i := len(m.messages) - 1; i >= 0; i-- {
-		switch msg := m.messages[i].(type) {
+	for _, v := range slices.Backward(m.messages) {
+		switch msg := v.(type) {
 		case *TextMessageItem:
 			if msg.role == "user" || msg.role == "assistant" {
 				text = msg.content
