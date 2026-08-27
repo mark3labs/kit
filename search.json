@@ -97,13 +97,14 @@
         "Model and provider",
         "Session management",
         "Behavior",
+        "Context",
         "Extensions",
         "Skills",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 631
+      "wordCount": 903
     },
     {
       "id": "configuration",
