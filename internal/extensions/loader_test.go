@@ -16,7 +16,7 @@ func TestDiscoverExtensionPaths_ExplicitFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths := discoverExtensionPaths([]string{f})
+	paths := discoverExtensionPaths([]string{f}, false)
 	if len(paths) == 0 {
 		t.Fatal("expected at least 1 path")
 	}
@@ -34,7 +34,7 @@ func TestDiscoverExtensionPaths_ExplicitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths := discoverExtensionPaths([]string{dir})
+	paths := discoverExtensionPaths([]string{dir}, false)
 	abs, _ := filepath.Abs(f)
 	if !slices.Contains(paths, abs) {
 		t.Errorf("expected %q in discovered paths %v", abs, paths)
@@ -52,7 +52,7 @@ func TestDiscoverExtensionPaths_SubdirMainGo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths := discoverExtensionPaths([]string{dir})
+	paths := discoverExtensionPaths([]string{dir}, false)
 	abs, _ := filepath.Abs(main)
 	if !slices.Contains(paths, abs) {
 		t.Errorf("expected %q in discovered paths %v", abs, paths)
@@ -67,7 +67,7 @@ func TestDiscoverExtensionPaths_Dedup(t *testing.T) {
 	}
 
 	// Pass the same file twice.
-	paths := discoverExtensionPaths([]string{f, f})
+	paths := discoverExtensionPaths([]string{f, f}, false)
 	count := 0
 	abs, _ := filepath.Abs(f)
 	for _, p := range paths {
@@ -87,7 +87,7 @@ func TestDiscoverExtensionPaths_NonGoFileIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths := discoverExtensionPaths([]string{f})
+	paths := discoverExtensionPaths([]string{f}, false)
 	for _, p := range paths {
 		abs, _ := filepath.Abs(f)
 		if p == abs {
@@ -97,7 +97,7 @@ func TestDiscoverExtensionPaths_NonGoFileIgnored(t *testing.T) {
 }
 
 func TestDiscoverExtensionPaths_NonexistentIgnored(t *testing.T) {
-	paths := discoverExtensionPaths([]string{"/nonexistent/path/ext.go"})
+	paths := discoverExtensionPaths([]string{"/nonexistent/path/ext.go"}, false)
 	for _, p := range paths {
 		if p == "/nonexistent/path/ext.go" {
 			t.Error("nonexistent path should not be discovered")
@@ -485,7 +485,7 @@ func TestDiscoverExtensionPaths_SystemDir(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	paths := discoverExtensionPaths(nil)
+	paths := discoverExtensionPaths(nil, false)
 	want, _ := filepath.Abs(sysExt)
 	if len(paths) == 0 || paths[0] != want {
 		t.Errorf("expected system extension %q first, got %v", want, paths)
@@ -557,7 +557,7 @@ func TestDiscoverExtensionPaths_SystemBeforeUser(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	paths := discoverExtensionPaths(nil)
+	paths := discoverExtensionPaths(nil, false)
 	sysAbs, _ := filepath.Abs(sysExt)
 	userAbs, _ := filepath.Abs(userExt)
 

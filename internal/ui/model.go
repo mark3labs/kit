@@ -453,6 +453,11 @@ type AppModelOptions struct {
 	// AGENTS.md). Displayed in the [Context] startup section.
 	ContextPaths []string
 
+	// Bare reports that Kit started with no automatic context discovery.
+	// The splash says so, so an absent AGENTS.md or skill list reads as a
+	// deliberate choice rather than a failure to load.
+	Bare bool
+
 	// SkillItems lists loaded skills for the [Skills] startup section.
 	SkillItems []SkillItem
 
@@ -761,7 +766,9 @@ type AppModel struct {
 	// contextPaths and skillItems are used by AddStartupMessageToScrollList for the
 	// [Context] and [Skills] sections.
 	contextPaths []string
-	skillItems   []SkillItem
+	// bare reports that no automatic context discovery ran.
+	bare       bool
+	skillItems []SkillItem
 
 	// splashItem is the scrollback item holding the startup splash, retained
 	// while the logo animation is running so each frame can be painted into
@@ -1160,6 +1167,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 
 	// Store context/skills metadata and tool counts for startup display.
 	m.contextPaths = opts.ContextPaths
+	m.bare = opts.Bare
 	m.skillItems = opts.SkillItems
 	m.getSkillItems = opts.GetSkillItems
 	m.extensionItems = opts.ExtensionItems
@@ -1330,8 +1338,11 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 		pairs = append(pairs, [2]string{"status", m.loadingMessage})
 	}
 
-	// Context — loaded AGENTS.md files.
-	if len(m.contextPaths) > 0 {
+	// Context — loaded AGENTS.md files. Bare mode reports itself instead, so
+	// the absence of context below is legible as intent.
+	if m.bare {
+		pairs = append(pairs, [2]string{"context", "bare — no project context"})
+	} else if len(m.contextPaths) > 0 {
 		contextStr := tildeHome(m.contextPaths[0])
 		if len(m.contextPaths) > 1 {
 			contextStr += fmt.Sprintf(" +%d more", len(m.contextPaths)-1)

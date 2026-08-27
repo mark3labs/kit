@@ -300,9 +300,10 @@ func DeleteSession(path string) error {
 // FindSessionPathByID locates the JSONL session file whose header ID matches
 // the given session UUID. The session directory for cwd is searched first
 // (the common case for subagent sessions, which live alongside the parent's
-// sessions), then all session directories under ~/.kit/sessions. Only file
-// headers (first line) are read, so the scan is cheap even with many
-// sessions. Returns an error when no session with that ID exists.
+// sessions), then all session directories under ~/.kit/sessions, and finally
+// the bare bucket. Only file headers (first line) are read, so the scan is
+// cheap even with many sessions. Returns an error when no session with that
+// ID exists.
 func FindSessionPathByID(cwd, id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("session ID is required")
@@ -319,18 +320,25 @@ func FindSessionPathByID(cwd, id string) (string, error) {
 		return "", fmt.Errorf("session %q not found", id)
 	}
 	sessionsRoot := filepath.Join(home, ".kit", "sessions")
-	dirs, err := os.ReadDir(sessionsRoot)
-	if err != nil {
-		return "", fmt.Errorf("session %q not found", id)
-	}
-	for _, dir := range dirs {
-		if !dir.IsDir() {
-			continue
-		}
-		if path, ok := findSessionInDir(filepath.Join(sessionsRoot, dir.Name()), id); ok {
-			return path, nil
+	if dirs, err := os.ReadDir(sessionsRoot); err == nil {
+		for _, dir := range dirs {
+			if !dir.IsDir() {
+				continue
+			}
+			if path, ok := findSessionInDir(filepath.Join(sessionsRoot, dir.Name()), id); ok {
+				return path, nil
+			}
 		}
 	}
+
+	// Bare sessions deliberately live outside the cwd-keyed sessions/ subtree
+	// (see DefaultSessionDir), so neither the fast path nor the scan above can
+	// reach them. Without this a subagent session started in bare mode could
+	// not be resumed by ID. Checked last so ordinary lookups are unaffected.
+	if path, ok := findSessionInDir(DefaultSessionDir(BareSessionKey), id); ok {
+		return path, nil
+	}
+
 	return "", fmt.Errorf("session %q not found", id)
 }
 

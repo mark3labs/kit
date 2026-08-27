@@ -87,6 +87,9 @@ var (
 	// Named agents control
 	noAgentsFlag bool
 
+	// Bare mode — no automatic context discovery from any directory.
+	bareFlag bool
+
 	// TLS configuration
 	tlsSkipVerify bool
 
@@ -174,7 +177,11 @@ func GetRootCommand(v string) *cobra.Command {
 // InitConfig, injecting the CLI-specific configFile flag and debug mode.
 // This function is automatically called by cobra before command execution.
 func InitConfig() {
-	if err := kit.InitConfig(configFile, debugMode); err != nil {
+	if err := kit.InitConfigWithOptions(kit.ConfigInitOptions{
+		ConfigFile: configFile,
+		Debug:      debugMode,
+		Bare:       bareFlag,
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -292,6 +299,11 @@ func init() {
 		BoolVar(&noSessionFlag, "no-session", false, "ephemeral mode — no session persistence")
 	rootCmd.PersistentFlags().
 		BoolVar(&noExtensionsFlag, "no-extensions", false, "disable all extensions")
+	// --bare is deliberately NOT bound to viper. Every other flag can be set
+	// from a config file, but this one exists to ignore project config, so
+	// letting a project .kit.yml set it would be self-defeating.
+	rootCmd.PersistentFlags().
+		BoolVar(&bareFlag, "bare", false, "no project context: skip AGENTS.md, skills, extensions, agents, prompt templates and project .kit.yml")
 	rootCmd.PersistentFlags().
 		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)")
 	rootCmd.PersistentFlags().
@@ -917,6 +929,7 @@ func runNormalMode(ctx context.Context) error {
 		CoreToolList:     coreToolList,
 		NoSkills:         noSkillsFlag,
 		NoAgents:         noAgentsFlag,
+		Bare:             bareFlag,
 		Skills:           skillsPaths,
 		SkillsDir:        skillsDir,
 		SkillsDisable:    skillsDisable,
@@ -1087,6 +1100,7 @@ func runNormalMode(ctx context.Context) error {
 			ExtraPaths:      promptTemplatePaths,
 			ConfigPaths:     viper.GetStringSlice("prompts"),
 			IncludeDefaults: true,
+			Bare:            bareFlag,
 		})
 		if err != nil {
 			log.Printf("Warning: failed to load some prompt templates: %v", err)
@@ -1135,6 +1149,7 @@ func runNormalMode(ctx context.Context) error {
 			ExtraPaths:      promptTemplatePaths,
 			ConfigPaths:     viper.GetStringSlice("prompts"),
 			IncludeDefaults: true,
+			Bare:            bareFlag,
 		})
 		if err != nil {
 			log.Printf("Warning: failed to reload prompt templates: %v", err)
@@ -1343,7 +1358,15 @@ func runNormalMode(ctx context.Context) error {
 
 	// Start file watcher for automatic extension hot-reload.
 	extraPaths := viper.GetStringSlice("extension")
-	watchDirs := extensions.WatchedDirs(extraPaths)
+	// In bare mode only explicitly named extensions are loaded, so only those
+	// are watched. Watching the discovery directories would let a reload pull
+	// in extensions that startup deliberately skipped.
+	var watchDirs []string
+	if bareFlag {
+		watchDirs = watcher.CollectDirs(nil, extraPaths)
+	} else {
+		watchDirs = extensions.WatchedDirs(extraPaths)
+	}
 	if len(watchDirs) > 0 {
 		extWatcher, watchErr := extensions.NewWatcher(watchDirs, func() {
 			if err := reloadExtensionsForUI(); err != nil {
@@ -1361,30 +1384,36 @@ func runNormalMode(ctx context.Context) error {
 		}
 	}
 
-	// Start file watchers for automatic prompt and skill hot-reload.
+	// Start file watchers for automatic prompt and skill hot-reload. Bare
+	// mode watches only explicitly supplied paths: the standard directories
+	// were never loaded, so reacting to changes in them would reintroduce the
+	// context the mode exists to avoid.
 	{
 		homeDir, _ := os.UserHomeDir()
 		cwd, _ := os.Getwd()
 
-		// Collect prompt template directories.
-		promptDirs := watcher.CollectDirs(
-			[]string{
+		var promptStdDirs, skillStdDirs []string
+		if !bareFlag {
+			promptStdDirs = []string{
 				filepath.Join(homeDir, ".kit", "prompts"),
 				prompts.GlobalDir(),
 				filepath.Join(cwd, ".kit", "prompts"),
-			},
+			}
+			skillStdDirs = []string{
+				filepath.Join(homeDir, ".config", "kit", "skills"),
+				filepath.Join(cwd, ".agents", "skills"),
+				filepath.Join(cwd, ".kit", "skills"),
+			}
+		}
+
+		// Collect prompt template directories.
+		promptDirs := watcher.CollectDirs(
+			promptStdDirs,
 			append(promptTemplatePaths, viper.GetStringSlice("prompts")...),
 		)
 
 		// Collect skill directories.
-		skillDirs := watcher.CollectDirs(
-			[]string{
-				filepath.Join(homeDir, ".config", "kit", "skills"),
-				filepath.Join(cwd, ".agents", "skills"),
-				filepath.Join(cwd, ".kit", "skills"),
-			},
-			nil,
-		)
+		skillDirs := watcher.CollectDirs(skillStdDirs, skillsPaths)
 
 		// Combine all content directories and start a single watcher.
 		allContentDirs := append(promptDirs, skillDirs...)
@@ -1424,6 +1453,7 @@ func runNormalMode(ctx context.Context) error {
 		extCommands:              extCommands,
 		promptTemplates:          promptTemplates,
 		contextPaths:             contextPaths,
+		bare:                     bareFlag,
 		skillItems:               skillItems,
 		extensionItems:           extensionItems,
 		getPromptTemplates:       getPromptTemplates,
@@ -1587,6 +1617,7 @@ type runModeDeps struct {
 	extCommands              []commands.ExtensionCommand
 	promptTemplates          []*prompts.PromptTemplate
 	contextPaths             []string
+	bare                     bool
 	skillItems               []ui.SkillItem
 	extensionItems           []ui.ExtensionItem
 	getPromptTemplates       func() []*prompts.PromptTemplate
@@ -1767,6 +1798,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		GetMCPPrompts:            deps.getMCPPrompts,
 		ExpandMCPPrompt:          deps.expandMCPPrompt,
 		ContextPaths:             deps.contextPaths,
+		Bare:                     deps.bare,
 		SkillItems:               deps.skillItems,
 		GetSkillItems:            deps.getSkillItems,
 		ExtensionItems:           deps.extensionItems,

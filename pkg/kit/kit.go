@@ -875,12 +875,30 @@ func (m *Kit) composeSystemPrompt(basePrompt string) string {
 	}
 
 	// Append current date/time and working directory.
-	pb.WithSection("", fmt.Sprintf(
-		"Current date and time: %s\nCurrent working directory: %s",
-		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
-	))
+	bare := m.opts != nil && m.opts.Bare
+	pb.WithSection("", environmentSection(cwd, bare))
 
 	return pb.Build()
+}
+
+// environmentSection renders the trailing system-prompt block describing the
+// runtime environment: the current time and working directory, plus a notice
+// when bare mode suppressed project context. Both Kit.New and
+// composeSystemPrompt use it so the two paths cannot drift.
+func environmentSection(cwd string, bare bool) string {
+	s := fmt.Sprintf(
+		"Current date and time: %s\nCurrent working directory: %s",
+		time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
+	)
+	// The working directory is still reported in bare mode because the file
+	// tools resolve relative paths against it. The notice stops the model
+	// treating that directory as the subject of the conversation.
+	if bare {
+		s += "\n\nNo project context was loaded (bare mode): no project" +
+			" instructions, skills or extensions are in effect. Treat the" +
+			" working directory as incidental unless the user refers to it."
+	}
+	return s
 }
 
 // GetCurrentModel returns the fully qualified "provider/model" string for the
@@ -936,9 +954,11 @@ func (m *Kit) ReloadExtensions() error {
 		_, _ = m.extRunner.Emit(extensions.SessionShutdownEvent{})
 	}
 
-	// Re-load from disk.
+	// Re-load from disk. Bare mode is preserved across the reload so a hot
+	// reload cannot pull in directory-discovered extensions that startup
+	// deliberately skipped.
 	extraPaths := m.v.GetStringSlice("extension")
-	loaded, err := extensions.LoadExtensions(extraPaths)
+	loaded, err := extensions.LoadExtensionsScoped(extraPaths, m.opts != nil && m.opts.Bare)
 	if err != nil {
 		return fmt.Errorf("reloading extensions: %w", err)
 	}
@@ -1238,6 +1258,26 @@ type Options struct {
 	// [SubagentConfig].Agent cannot resolve.
 	NoAgents bool
 
+	// Bare disables every form of automatic context discovery, so starting
+	// Kit inside a directory does not implicitly load that directory's
+	// instructions, tooling or configuration. It suppresses:
+	//
+	//   - project context files (AGENTS.md)
+	//   - skills, from both project and user directories
+	//   - extensions, from every source: project, user and system directories
+	//   - named agent definitions
+	//   - project-local .kit.yml (see [ConfigInitOptions])
+	//
+	// Explicitly supplied values are unaffected: [Options.Skills],
+	// [Options.SystemPrompt] and extensions named via the "extension" config
+	// key (or the -e CLI flag) all still apply. Core tools remain enabled and
+	// the working directory is unchanged; combine with
+	// [Options.DisableCoreTools] to remove filesystem access as well.
+	//
+	// Subagents spawned by a bare Kit inherit Bare, so delegated work cannot
+	// reintroduce the project context the parent excluded.
+	Bare bool
+
 	// MCPConfig provides a pre-loaded MCP configuration. When set,
 	// LoadAndValidateConfig is skipped during Kit creation — avoiding
 	// viper access entirely. This is set automatically for in-process
@@ -1401,6 +1441,7 @@ type CLIOptions struct {
 //
 // Behaviour based on Options:
 //   - NoSession:   in-memory tree session (no persistence)
+//   - Bare:        shared bare bucket, not tied to a working directory
 //   - Continue:    resume most recent session for SessionDir (or cwd)
 //   - SessionPath: open a specific JSONL session file
 //   - default:     create a new tree session for SessionDir (or cwd)
@@ -1412,6 +1453,14 @@ func InitTreeSession(opts *Options) (*TreeManager, error) {
 	sessionDir := opts.SessionDir
 	if sessionDir == "" {
 		sessionDir, _ = os.Getwd()
+	}
+
+	// Bare sessions are deliberately not filed under the working directory:
+	// the mode exists so the directory does not matter. One shared bucket
+	// keeps `--continue` and `--resume` working across directories. An
+	// explicit SessionPath still wins, below.
+	if opts.Bare {
+		sessionDir = session.BareSessionKey
 	}
 
 	if opts.NoSession {
@@ -1497,7 +1546,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
 		if !opts.SkipConfig && opts.CLI == nil {
-			if err := initConfig(v, opts.ConfigFile, false); err != nil {
+			if err := initConfig(v, opts.ConfigFile, false, opts.Bare); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
 		}
@@ -1575,7 +1624,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		}
 
 		// Load context files (AGENTS.md) from the project root.
-		if !opts.NoContextFiles {
+		if !opts.NoContextFiles && !opts.Bare {
 			contextFiles = loadContextFiles(cwd)
 		}
 
@@ -1618,7 +1667,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// subagent tool description and resolvable via SubagentConfig.Agent.
 		// Per-file parse failures are non-fatal: usable agents still load and
 		// a warning is printed unless quiet.
-		if !opts.NoAgents && !v.GetBool("no-agents") {
+		if !opts.NoAgents && !opts.Bare && !v.GetBool("no-agents") {
 			var agErr error
 			namedAgents, agErr = LoadAgentDefinitions(cwd)
 			if agErr != nil && !opts.Quiet {
@@ -1694,10 +1743,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			}
 
 			// Append current date/time and working directory.
-			pb.WithSection("", fmt.Sprintf(
-				"Current date and time: %s\nCurrent working directory: %s",
-				time.Now().Format("Monday, January 2, 2006, 3:04:05 PM MST"), cwd,
-			))
+			pb.WithSection("", environmentSection(cwd, opts.Bare))
 
 			v.Set("system-prompt", pb.Build())
 		}
@@ -1832,6 +1878,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		Debug:             debug,
 		DebugLogger:       opts.DebugLogger,
 		NoExtensions:      noExtensions,
+		Bare:              opts.Bare,
 		MaxSteps:          maxSteps,
 		StreamingEnabled:  streaming,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
@@ -2087,6 +2134,13 @@ func loadSkills(opts *Options) ([]*skills.Skill, error) {
 	// Auto-discover from the standard scopes rooted at the session directory.
 	// Project-local skills are injected into the system prompt, so they are
 	// gated on a trust decision when a SkillTrustPrompt is configured.
+	//
+	// Bare mode stops here: only skills named explicitly on the command line
+	// (handled above) load, so no directory contributes instructions merely
+	// because Kit happens to be running inside it.
+	if opts.Bare {
+		return nil, nil
+	}
 	cwd := opts.SessionDir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -2364,6 +2418,21 @@ func inheritProviderConfig(child *Options, v *viper.Viper) {
 	}
 }
 
+// inheritIsolationOptions copies the parent's context-isolation settings onto
+// child Options so a subagent inherits the parent's discovery boundary.
+// Without it a bare parent spawns a child that re-runs project discovery and
+// loads the AGENTS.md, skills and extensions the parent deliberately refused.
+//
+// Kept as a helper rather than an inline assignment so that any future
+// isolation field is propagated by editing one place, and so the behaviour is
+// testable without spawning a real subagent. A nil child or parent is a no-op.
+func inheritIsolationOptions(child, parent *Options) {
+	if child == nil || parent == nil {
+		return
+	}
+	child.Bare = parent.Bare
+}
+
 // toolsIncludeMCP reports whether the provided tool set already contains any
 // of the parent's loaded MCP tools (matched by prefixed name). Used to decide
 // whether a spawned subagent needs to re-load MCP servers or can rely on the
@@ -2546,6 +2615,12 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// polling and no progress feedback even when the parent had configured
 	// custom values.
 	inheritMCPTaskOptions(childOpts, m.opts)
+	// Propagate context isolation. A bare parent must not spawn a child that
+	// re-discovers the working directory: the child would load AGENTS.md,
+	// skills and extensions the parent deliberately refused, reintroducing
+	// exactly the context (and the arbitrary extension code) bare mode exists
+	// to keep out.
+	inheritIsolationOptions(childOpts, m.opts)
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
