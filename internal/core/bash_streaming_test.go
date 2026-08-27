@@ -184,19 +184,31 @@ func TestBashStreaming_NoTruncationOnFastExit(t *testing.T) {
 // bogus "[output truncated: file already closed]" line on the output of every
 // `cmd &` invocation.
 func TestBashStreaming_BackgroundProcessNoSpuriousNotice(t *testing.T) {
-	// The sleep only has to outlive pipeDrainGrace. Keep it short so the test
-	// does not leave a long-lived orphan behind on the runner: the foreground
-	// shell exits immediately, so nothing reaps this process.
+	// The background process only has to outlive pipeDrainGrace. It is kept
+	// short so the test does not leave a long-lived orphan on the runner: the
+	// foreground shell exits immediately, so nothing reaps this process.
+	//
+	// The gap between the two outcomes is deliberately wide. A working
+	// watchdog returns after roughly pipeDrainGrace (500ms); an implementation
+	// that regressed to waiting for clean EOF would block for the full
+	// bgSleep. The bound below sits far from both.
+	const bgSleep = 10 * time.Second
+	const maxElapsed = 5 * time.Second
+
 	start := time.Now()
-	resp, chunks := runStreaming(t, "echo started; sleep 3 &")
+	resp, chunks := runStreaming(t, "echo started; sleep 10 &")
 	elapsed := time.Since(start)
 
-	// The call should have gone through the watchdog rather than a clean EOF.
-	// Without this the test could pass vacuously on a runner slow enough for
-	// the sleep to finish first, never exercising the forced close.
+	// Sandwich the timing so the test can only pass via the forced-close path.
+	// The lower bound rejects a clean EOF that never engaged the watchdog; the
+	// upper bound rejects waiting for the background process to exit.
 	if elapsed < pipeDrainGrace {
 		t.Errorf("returned in %v, before the %v drain grace — the forced-close path was not exercised",
 			elapsed, pipeDrainGrace)
+	}
+	if elapsed >= maxElapsed {
+		t.Errorf("returned in %v; expected the watchdog to force-close after ~%v rather than wait out the %v background process",
+			elapsed, pipeDrainGrace, bgSleep)
 	}
 
 	if strings.Contains(resp.Content, "output truncated") {
