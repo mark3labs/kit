@@ -184,7 +184,20 @@ func TestBashStreaming_NoTruncationOnFastExit(t *testing.T) {
 // bogus "[output truncated: file already closed]" line on the output of every
 // `cmd &` invocation.
 func TestBashStreaming_BackgroundProcessNoSpuriousNotice(t *testing.T) {
-	resp, chunks := runStreaming(t, "echo started; sleep 300 &")
+	// The sleep only has to outlive pipeDrainGrace. Keep it short so the test
+	// does not leave a long-lived orphan behind on the runner: the foreground
+	// shell exits immediately, so nothing reaps this process.
+	start := time.Now()
+	resp, chunks := runStreaming(t, "echo started; sleep 3 &")
+	elapsed := time.Since(start)
+
+	// The call should have gone through the watchdog rather than a clean EOF.
+	// Without this the test could pass vacuously on a runner slow enough for
+	// the sleep to finish first, never exercising the forced close.
+	if elapsed < pipeDrainGrace {
+		t.Errorf("returned in %v, before the %v drain grace — the forced-close path was not exercised",
+			elapsed, pipeDrainGrace)
+	}
 
 	if strings.Contains(resp.Content, "output truncated") {
 		t.Errorf("backgrounded process produced a spurious truncation notice: %q", resp.Content)
