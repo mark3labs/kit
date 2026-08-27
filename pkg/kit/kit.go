@@ -1259,10 +1259,11 @@ type Options struct {
 	//   - named agent definitions
 	//   - project-local .kit.yml (see [ConfigInitOptions])
 	//
-	// Explicitly supplied values are unaffected: Skills, Extensions and
-	// SystemPrompt all still apply, as do the equivalent CLI flags. Core
-	// tools remain enabled and the working directory is unchanged; combine
-	// with NoCoreTools to remove filesystem access as well.
+	// Explicitly supplied values are unaffected: [Options.Skills],
+	// [Options.SystemPrompt] and extensions named via the "extension" config
+	// key (or the -e CLI flag) all still apply. Core tools remain enabled and
+	// the working directory is unchanged; combine with
+	// [Options.DisableCoreTools] to remove filesystem access as well.
 	//
 	// Subagents spawned by a bare Kit inherit Bare, so delegated work cannot
 	// reintroduce the project context the parent excluded.

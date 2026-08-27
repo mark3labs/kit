@@ -56,3 +56,45 @@ func TestDefaultSessionDir_OrdinaryCwdsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// TestFindSessionPathByID_FindsBareSessions is a regression test for bare
+// sessions becoming unreachable by ID (CodeRabbit review on #109).
+//
+// Moving the bare bucket out of ~/.kit/sessions fixed the cwd collision but
+// put it beyond the reach of FindSessionPathByID, which scans only the cwd
+// directory and the sessions/ subtree. A subagent started in bare mode could
+// then not be resumed by SessionID.
+func TestFindSessionPathByID_FindsBareSessions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows
+
+	tm, err := CreateTreeSession(BareSessionKey)
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	id := tm.GetSessionID()
+	_ = tm.Close()
+
+	// Look up from an unrelated working directory, as Kit.Subagent does:
+	// it passes the parent's real cwd, not the bare sentinel.
+	got, err := FindSessionPathByID(filepath.Join(home, "some", "project"), id)
+	if err != nil {
+		t.Fatalf("bare session %q not found by ID: %v", id, err)
+	}
+	if filepath.Base(filepath.Dir(got)) != bareSessionDirName {
+		t.Errorf("resolved %q, want a file in %s/", got, bareSessionDirName)
+	}
+}
+
+// TestFindSessionPathByID_MissingIDStillErrors guards the negative path: the
+// added bare-bucket fallback must not turn "not found" into a false match.
+func TestFindSessionPathByID_MissingIDStillErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	if _, err := FindSessionPathByID(home, "nonexistent-id"); err == nil {
+		t.Error("expected an error for an unknown session ID")
+	}
+}
