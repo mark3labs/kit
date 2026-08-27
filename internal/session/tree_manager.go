@@ -1436,22 +1436,41 @@ func (tm *TreeManager) buildTreeNodeDepth(id string, depth int, visited map[stri
 
 // --- Path conventions ---
 
-// BareSessionKey is the session bucket used in bare mode. Bare sessions are
-// not tied to a working directory — that is the point of the mode — so they
-// all share one bucket and `--continue` resumes the last bare conversation
-// from anywhere. The value contains no path separator and no character that
-// is illegal on Windows, so encodeCwdForDir passes it through unchanged.
+// BareSessionKey is the sentinel passed in place of a working directory when
+// Kit runs in bare mode. Bare sessions are not tied to a working directory —
+// that is the point of the mode — so they all share one bucket and
+// `--continue` resumes the last bare conversation from anywhere.
+//
+// [DefaultSessionDir] maps this sentinel to a directory that sits beside the
+// cwd-keyed namespace rather than inside it, so no working directory can ever
+// resolve to the bare bucket. See the comment there.
 const BareSessionKey = "__bare__"
+
+// bareSessionDirName is the on-disk home for bare sessions. It deliberately
+// lives next to "sessions", not under it: every cwd-derived key is joined
+// beneath "sessions", so keeping bare outside that subtree makes a collision
+// structurally impossible rather than merely unlikely.
+const bareSessionDirName = "bare-sessions"
 
 // DefaultSessionDir returns the default session storage directory for a cwd.
 // Convention: ~/.kit/sessions/<encoded-cwd>, where path separators are
 // encoded as "--" with no leading or trailing dashes — e.g.
 // /home/user/proj becomes home--user--proj. See encodeCwdForDir for the
 // full encoding rules (including Windows path handling).
+//
+// The bare sentinel is special-cased to ~/.kit/bare-sessions. The encoding is
+// lossy — "/__bare__" and "__bare__" both encode to "__bare__" — so routing
+// bare sessions through it would let a project directory named /__bare__ share
+// the bare bucket and have `--continue` resume the wrong conversation.
+// Matching on the raw sentinel before encoding keeps the two namespaces apart:
+// a real /__bare__ directory still gets ~/.kit/sessions/__bare__.
 func DefaultSessionDir(cwd string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
+	}
+	if cwd == BareSessionKey {
+		return filepath.Join(home, ".kit", bareSessionDirName)
 	}
 	return filepath.Join(home, ".kit", "sessions", encodeCwdForDir(cwd))
 }

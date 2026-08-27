@@ -155,3 +155,29 @@ func TestBare_ExplicitSkillsStillLoad(t *testing.T) {
 		t.Error("explicitly named skill should reach the system prompt in bare mode")
 	}
 }
+
+// TestBare_SubagentInheritsIsolation is a regression test for a bare parent
+// spawning a non-bare child (CodeRabbit review on #109). The child would
+// re-run project discovery and load the AGENTS.md, skills and extensions the
+// parent deliberately refused — including executing extension code.
+//
+// It exercises the real helper Kit.Subagent uses, so any future isolation
+// field added to inheritIsolationOptions is covered automatically.
+func TestBare_SubagentInheritsIsolation(t *testing.T) {
+	child := &Options{}
+	inheritIsolationOptions(child, &Options{Bare: true})
+	if !child.Bare {
+		t.Error("bare parent must spawn a bare child")
+	}
+
+	// A non-bare parent must not silently make children bare.
+	child = &Options{}
+	inheritIsolationOptions(child, &Options{Bare: false})
+	if child.Bare {
+		t.Error("non-bare parent must not produce a bare child")
+	}
+
+	// Nil operands are a no-op rather than a panic.
+	inheritIsolationOptions(nil, &Options{Bare: true})
+	inheritIsolationOptions(&Options{}, nil)
+}

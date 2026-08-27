@@ -1255,7 +1255,7 @@ type Options struct {
 	//
 	//   - project context files (AGENTS.md)
 	//   - skills, from both project and user directories
-	//   - extensions, from both project and user directories
+	//   - extensions, from every source: project, user and system directories
 	//   - named agent definitions
 	//   - project-local .kit.yml (see [ConfigInitOptions])
 	//
@@ -1263,6 +1263,9 @@ type Options struct {
 	// SystemPrompt all still apply, as do the equivalent CLI flags. Core
 	// tools remain enabled and the working directory is unchanged; combine
 	// with NoCoreTools to remove filesystem access as well.
+	//
+	// Subagents spawned by a bare Kit inherit Bare, so delegated work cannot
+	// reintroduce the project context the parent excluded.
 	Bare bool
 
 	// MCPConfig provides a pre-loaded MCP configuration. When set,
@@ -2405,6 +2408,21 @@ func inheritProviderConfig(child *Options, v *viper.Viper) {
 	}
 }
 
+// inheritIsolationOptions copies the parent's context-isolation settings onto
+// child Options so a subagent inherits the parent's discovery boundary.
+// Without it a bare parent spawns a child that re-runs project discovery and
+// loads the AGENTS.md, skills and extensions the parent deliberately refused.
+//
+// Kept as a helper rather than an inline assignment so that any future
+// isolation field is propagated by editing one place, and so the behaviour is
+// testable without spawning a real subagent. A nil child or parent is a no-op.
+func inheritIsolationOptions(child, parent *Options) {
+	if child == nil || parent == nil {
+		return
+	}
+	child.Bare = parent.Bare
+}
+
 // toolsIncludeMCP reports whether the provided tool set already contains any
 // of the parent's loaded MCP tools (matched by prefixed name). Used to decide
 // whether a spawned subagent needs to re-load MCP servers or can rely on the
@@ -2587,6 +2605,12 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// polling and no progress feedback even when the parent had configured
 	// custom values.
 	inheritMCPTaskOptions(childOpts, m.opts)
+	// Propagate context isolation. A bare parent must not spawn a child that
+	// re-discovers the working directory: the child would load AGENTS.md,
+	// skills and extensions the parent deliberately refused, reintroducing
+	// exactly the context (and the arbitrary extension code) bare mode exists
+	// to keep out.
+	inheritIsolationOptions(childOpts, m.opts)
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)

@@ -52,7 +52,7 @@ standing in. It disables:
 
 - project context files (`AGENTS.md`)
 - skills, from both project and user directories
-- extensions, from both project and user directories
+- extensions, from every source — project, user and system directories
 - named agent definitions
 - prompt template directories
 - project-local `.kit.yml`
