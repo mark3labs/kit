@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,12 +29,29 @@ func runStreaming(t *testing.T, command string) (fantasy.ToolResponse, []string)
 	go func() {
 		ctx := context.Background()
 		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+
+		// executeBashStreaming drains stdout and stderr in two separate
+		// goroutines, so the callback is invoked concurrently. The production
+		// code guards its own chunk slices with a mutex; the callback we pass
+		// must do the same or the append races.
+		var mu sync.Mutex
 		var chunks []string
 		cb := func(_, _, chunk string, _ bool) {
+			mu.Lock()
 			chunks = append(chunks, chunk)
+			mu.Unlock()
 		}
+
 		resp, err := executeBashStreaming(ctx, bashCall(command, 0), cmd, cb, "")
-		done <- result{resp, chunks, err}
+
+		// executeBashStreaming has joined both stream goroutines by the time it
+		// returns, so no further callback can fire. Take the lock anyway to
+		// publish the final slice under the same mutex that guarded the writes.
+		mu.Lock()
+		snapshot := append([]string(nil), chunks...)
+		mu.Unlock()
+
+		done <- result{resp, snapshot, err}
 	}()
 
 	select {
