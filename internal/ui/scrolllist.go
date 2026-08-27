@@ -739,6 +739,79 @@ func (s *ScrollList) View() string {
 	return strings.Join(lines, "\n")
 }
 
+// VisibleItem locates one item inside the rendered viewport.
+//
+// It exists for content that is drawn beside the view rather than inside it —
+// a directly-placed terminal image, which is painted at an absolute screen
+// position and must therefore be told which rows of the viewport its item
+// currently owns. See AppModel.computeGfxPlacement.
+type VisibleItem struct {
+	// Index is the item's position in the list, and Item the item itself.
+	Index int
+	Item  MessageItem
+
+	// Row is the viewport row, counted from the top of the list's own view,
+	// that the item's first drawn line lands on.
+	Row int
+
+	// SkipTop is how many of the item's leading lines are scrolled off above
+	// the viewport, and Height how many of its lines are drawn.
+	SkipTop int
+	Height  int
+
+	// Framed reports that the item is drawn inside the selection border, which
+	// shifts its content one row down and one column right.
+	Framed bool
+}
+
+// VisibleItems returns the position of every item the next View will draw.
+//
+// It walks items exactly as View does — same render path, same empty-item and
+// gap handling — so the two cannot disagree about which rows an item occupies.
+// Anything else would drift a placed image away from the cells reserved for it.
+func (s *ScrollList) VisibleItems() []VisibleItem {
+	if s.height <= 0 || len(s.items) == 0 {
+		return nil
+	}
+
+	var out []VisibleItem
+	row := 0
+	remainingHeight := s.height
+	for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
+		content := s.renderItem(idx)
+		// An item that renders to nothing contributes no rows, matching View.
+		if content == "" {
+			continue
+		}
+		lines := strings.Count(content, "\n") + 1
+
+		skip := 0
+		if idx == s.offsetIdx {
+			skip = s.offsetLine
+		}
+		drawn := min(lines-skip, remainingHeight)
+		if drawn > 0 {
+			out = append(out, VisibleItem{
+				Index:   idx,
+				Item:    s.items[idx],
+				Row:     row,
+				SkipTop: skip,
+				Height:  drawn,
+				Framed:  idx == s.selectedIdx,
+			})
+			row += drawn
+			remainingHeight -= drawn
+		}
+
+		if remainingHeight > 0 && idx < len(s.items)-1 && s.itemGap > 0 {
+			gap := min(s.itemGap, remainingHeight)
+			row += gap
+			remainingHeight -= gap
+		}
+	}
+	return out
+}
+
 // ScrollPercent returns the current scroll position as a percentage (0.0-1.0).
 // 0.0 = at top, 1.0 = at bottom. Useful for scroll indicators.
 func (s *ScrollList) ScrollPercent() float64 {

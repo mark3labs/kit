@@ -238,6 +238,24 @@ func (m *AppModel) navActive() bool {
 	return false
 }
 
+// modalActive reports whether a surface is composited over the layout, hiding
+// the transcript behind it.
+//
+// It exists for content that is drawn beside the view rather than inside it. A
+// modal is composited into the frame at the cell level, so ordinary content
+// disappears behind it for free; a terminal image painted over the screen does
+// not, and would be the one thing on screen a dialog could not cover.
+func (m *AppModel) modalActive() bool {
+	switch m.state {
+	case stateOverlay, stateModelSelector, stateSessionSelector, stateTreeSelector, statePrompt:
+		return true
+	}
+	if ic, ok := m.input.(*InputComponent); ok {
+		return ic.PopupVisible()
+	}
+	return false
+}
+
 // setAgentState applies an agent lifecycle transition (stateWorking on turn
 // start, stateInput on turn end).
 //

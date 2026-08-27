@@ -55,8 +55,11 @@ func TestTranscriptPreviewCmdRendersBlock(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected imagePreviewReadyMsg, got %T", msg)
 	}
-	if !strings.Contains(ready.block, "▀") {
-		t.Errorf("preview block should contain half-block glyphs, got %q", ready.block)
+	if len(ready.previews) != 1 {
+		t.Fatalf("got %d previews, want 1", len(ready.previews))
+	}
+	if !strings.Contains(ready.previews[0].cells, "▀") {
+		t.Errorf("preview block should contain half-block glyphs, got %q", ready.previews[0].cells)
 	}
 	if ready.anchorID != "anchor-1" {
 		t.Errorf("preview should carry the originating anchorID, got %q", ready.anchorID)
@@ -66,7 +69,9 @@ func TestTranscriptPreviewCmdRendersBlock(t *testing.T) {
 func TestImagePreviewReadyMsgAppendsItem(t *testing.T) {
 	m, _, _ := newTestAppModel(nil)
 	before := len(m.messages)
-	m = sendMsg(m, imagePreviewReadyMsg{block: "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m"})
+	m = sendMsg(m, imagePreviewReadyMsg{previews: []transcriptPreview{
+		{cells: "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m"},
+	}})
 	if len(m.messages) != before+1 {
 		t.Fatalf("expected one appended message item, got %d (was %d)", len(m.messages), before)
 	}
@@ -90,7 +95,7 @@ func TestImagePreviewReadyMsgInsertsAfterAnchor(t *testing.T) {
 	m.messages = append(m.messages, userItem, assistantItem)
 
 	m = sendMsg(m, imagePreviewReadyMsg{
-		block:    "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m",
+		previews: []transcriptPreview{{cells: "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m"}},
 		anchorID: "user-anchor",
 	})
 
@@ -115,7 +120,7 @@ func TestImagePreviewReadyMsgUnknownAnchorAppends(t *testing.T) {
 	m, _, _ := newTestAppModel(nil)
 	m.messages = append(m.messages, NewStyledMessageItem("only", "user", "hi", "hi"))
 	m = sendMsg(m, imagePreviewReadyMsg{
-		block:    "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m",
+		previews: []transcriptPreview{{cells: "\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[0m"}},
 		anchorID: "does-not-exist",
 	})
 	if len(m.messages) != 2 {
@@ -129,8 +134,33 @@ func TestImagePreviewReadyMsgUnknownAnchorAppends(t *testing.T) {
 func TestImagePreviewReadyMsgEmptyBlockIgnored(t *testing.T) {
 	m, _, _ := newTestAppModel(nil)
 	before := len(m.messages)
-	m = sendMsg(m, imagePreviewReadyMsg{block: ""})
+	m = sendMsg(m, imagePreviewReadyMsg{previews: []transcriptPreview{{cells: ""}}})
 	if len(m.messages) != before {
 		t.Errorf("empty preview block should not append an item; got %d (was %d)", len(m.messages), before)
+	}
+}
+
+// Several images attached to one message must land in the order they were
+// attached, each as its own item: a directly-placed picture is located from
+// the rows of the item that reserves it, so one item per image is what keeps
+// the placement arithmetic honest.
+func TestImagePreviewReadyMsgKeepsPreviewOrder(t *testing.T) {
+	m, _, _ := newTestAppModel(nil)
+	m.messages = append(m.messages, NewStyledMessageItem("user-anchor", "user", "hi", "hi"))
+	before := len(m.messages)
+
+	m = sendMsg(m, imagePreviewReadyMsg{
+		anchorID: "user-anchor",
+		previews: []transcriptPreview{{cells: "first"}, {cells: "second"}},
+	})
+
+	if len(m.messages) != before+2 {
+		t.Fatalf("expected two appended items, got %d (was %d)", len(m.messages), before)
+	}
+	if got := m.messages[before-1+1].Render(0); got != "first" {
+		t.Errorf("first preview = %q, want %q", got, "first")
+	}
+	if got := m.messages[before-1+2].Render(0); got != "second" {
+		t.Errorf("second preview = %q, want %q", got, "second")
 	}
 }

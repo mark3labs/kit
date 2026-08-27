@@ -400,3 +400,89 @@ func TestPlaceReplacesRatherThanStacks(t *testing.T) {
 		t.Errorf("Place() should scope both the drop and the draw to %s: %q", id, place)
 	}
 }
+
+// A whole-image placement must carry no source rectangle.
+//
+// The rectangle is only meaningful for a clipped band, and adding it to every
+// placement would change a sequence that terminals already accept for no gain.
+func TestPlaceSendsNoSourceRectangle(t *testing.T) {
+	thumb, err := RenderKittyDirect(testPNG(t, 200, 100), 20, 10, 10, 20)
+	if err != nil {
+		t.Fatalf("RenderKittyDirect: %v", err)
+	}
+	for _, key := range []string{"x=", "y=", "w=", "h="} {
+		if strings.Contains(thumb.Place(), key) {
+			t.Errorf("Place() names a source rectangle (%s): %q", key, thumb.Place())
+		}
+	}
+}
+
+// A clipped placement must draw only the band it was asked for, named as the
+// matching slice of the source image.
+//
+// This is what lets a placed image live in a scrolling transcript: the rows
+// that have left the viewport must not be drawn, or they would land on top of
+// whatever is above the list.
+func TestPlaceRowsClipsToTheVisibleBand(t *testing.T) {
+	thumb, err := RenderKittyDirect(testPNG(t, 200, 100), 20, 10, 10, 20)
+	if err != nil {
+		t.Fatalf("RenderKittyDirect: %v", err)
+	}
+	if thumb.Rows < 4 {
+		t.Fatalf("thumbnail is %d rows; the test needs at least 4", thumb.Rows)
+	}
+	rowPx := thumb.PixelHeight / thumb.Rows
+
+	const skip = 2
+	visible := thumb.Rows - skip
+	place := thumb.PlaceRows(skip, visible)
+
+	for _, want := range []string{
+		"r=" + strconv.Itoa(visible),       // only the visible rows are drawn
+		"y=" + strconv.Itoa(skip*rowPx),    // starting at the matching pixel row
+		"h=" + strconv.Itoa(visible*rowPx), // for the matching pixel height
+		"w=" + strconv.Itoa(thumb.PixelWidth),
+		"x=0",
+		"C=1",
+	} {
+		if !strings.Contains(place, want) {
+			t.Errorf("PlaceRows(%d, %d) = %q, missing %q", skip, visible, place, want)
+		}
+	}
+	// The full row count would draw the hidden rows as well.
+	if strings.Contains(place, "r="+strconv.Itoa(thumb.Rows)) {
+		t.Errorf("PlaceRows drew all %d rows: %q", thumb.Rows, place)
+	}
+}
+
+// Asking for a band that has scrolled entirely out of view must draw nothing,
+// so callers can compute a band and emit the result unconditionally.
+func TestPlaceRowsEmptyBandDrawsNothing(t *testing.T) {
+	thumb, err := RenderKittyDirect(testPNG(t, 200, 100), 20, 10, 10, 20)
+	if err != nil {
+		t.Fatalf("RenderKittyDirect: %v", err)
+	}
+	if got := thumb.PlaceRows(thumb.Rows, 3); got != "" {
+		t.Errorf("PlaceRows past the end = %q, want empty", got)
+	}
+	if got := thumb.PlaceRows(0, 0); got != "" {
+		t.Errorf("PlaceRows(0, 0) = %q, want empty", got)
+	}
+}
+
+// Dropping placements must keep the image data, so the picture can be drawn
+// again without being sent again.
+func TestDeletePlacementsKeepsTheData(t *testing.T) {
+	got := DeletePlacements(42)
+	for _, want := range []string{"a=d", "d=i", "i=42", "q=2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("DeletePlacements(42) = %q, missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "d=I") {
+		t.Error("DeletePlacements discards the image data")
+	}
+	if got := DeletePlacements(0); got != "" {
+		t.Errorf("DeletePlacements(0) = %q, want empty", got)
+	}
+}

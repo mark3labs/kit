@@ -42,6 +42,12 @@ type Thumbnail struct {
 	// Cols and Rows are the size of the preview in terminal cells.
 	Cols, Rows int
 
+	// PixelWidth and PixelHeight are the dimensions of the transmitted image.
+	// They are what makes a partial placement possible: a slice of the image is
+	// named in pixels, so a caller must be able to convert a count of cell rows
+	// into the pixel band those rows cover. See PlaceRows.
+	PixelWidth, PixelHeight int
+
 	// NeedsPlacement reports that the image is drawn by a direct placement
 	// anchored at the cursor, rather than by placeholder cells that travel with
 	// the view text.
@@ -112,11 +118,13 @@ func RenderKitty(data []byte, maxCols, maxRows, cellW, cellH int) (Thumbnail, er
 	}
 
 	return Thumbnail{
-		Transmit: buf.String(),
-		Cells:    placeholderGrid(id, cols, rows),
-		ImageID:  id,
-		Cols:     cols,
-		Rows:     rows,
+		Transmit:    buf.String(),
+		Cells:       placeholderGrid(id, cols, rows),
+		ImageID:     id,
+		Cols:        cols,
+		Rows:        rows,
+		PixelWidth:  scaled.Bounds().Dx(),
+		PixelHeight: scaled.Bounds().Dy(),
 	}, nil
 }
 
@@ -178,6 +186,8 @@ func RenderKittyDirect(data []byte, maxCols, maxRows, cellW, cellH int) (Thumbna
 		ImageID:        id,
 		Cols:           cols,
 		Rows:           rows,
+		PixelWidth:     scaled.Bounds().Dx(),
+		PixelHeight:    scaled.Bounds().Dy(),
 		NeedsPlacement: true,
 	}, nil
 }
@@ -188,34 +198,94 @@ func RenderKittyDirect(data []byte, maxCols, maxRows, cellW, cellH int) (Thumbna
 // It returns an empty string for thumbnails that do not need a placement, so
 // callers can emit it unconditionally.
 func (t Thumbnail) Place() string {
+	return t.PlaceRows(0, t.Rows)
+}
+
+// PlaceRows returns the escape sequence that draws a horizontal band of an
+// already-transmitted image at the current cursor position: the first skip
+// cell rows of the image are left out and the next rows rows are drawn.
+//
+// Clipping is what lets a directly-placed image live in a scrolling list. The
+// image is painted over the screen instead of being part of the view, so one
+// whose top has scrolled out of the viewport would otherwise be drawn over
+// whatever sits above it. Naming only the visible band keeps the picture
+// aligned with the cells the list gave it, and lets it slide under the edge of
+// the viewport one row at a time.
+//
+// It returns an empty string when there is nothing left to draw, so callers
+// can emit it unconditionally.
+func (t Thumbnail) PlaceRows(skip, rows int) string {
 	if !t.NeedsPlacement || t.ImageID == 0 || t.Cols < 1 || t.Rows < 1 {
 		return ""
 	}
+	if skip < 0 {
+		skip = 0
+	}
+	if rows > t.Rows-skip {
+		rows = t.Rows - skip
+	}
+	if rows < 1 {
+		return ""
+	}
+
 	// Drop any earlier placement of this image first. Each a=p adds another
 	// placement rather than moving the existing one, so a redraw at a new row
 	// would leave the previous copy stranded on screen — two thumbnails for one
 	// attachment.
 	//
-	// The lowercase d=i deletes placements only and keeps the transmitted data,
-	// so the redraw that follows needs no retransmit. Deleting does not depend
-	// on the cursor, so it is safe to emit before positioning.
-	drop := ansi.KittyGraphics(nil,
-		"a=d",
-		"d=i",
-		fmt.Sprintf("i=%d", t.ImageID),
-		"q=2",
-	)
+	// Deleting placements keeps the transmitted data, so the redraw that
+	// follows needs no retransmit. It does not depend on the cursor either, so
+	// it is safe to emit before positioning.
+	drop := DeletePlacements(t.ImageID)
+
 	// C=1 keeps the cursor where it was: without it the terminal moves the
 	// cursor past the image and the frame renderer loses its position.
-	put := ansi.KittyGraphics(nil,
+	params := []string{
 		"a=p",
 		fmt.Sprintf("i=%d", t.ImageID),
 		fmt.Sprintf("c=%d", t.Cols),
-		fmt.Sprintf("r=%d", t.Rows),
+		fmt.Sprintf("r=%d", rows),
 		"C=1",
 		"q=2",
-	)
-	return drop + put
+	}
+	// A whole image needs no source rectangle. Naming one only for a partial
+	// band keeps the common sequence exactly what it always was, and keeps a
+	// thumbnail whose pixel size was never recorded working.
+	if (skip > 0 || rows < t.Rows) && t.PixelWidth > 0 && t.PixelHeight > 0 {
+		// The image was resampled to an exact multiple of its row count, so one
+		// cell row is a whole number of pixels tall and every band lands on a
+		// pixel boundary.
+		rowPx := max(t.PixelHeight/t.Rows, 1)
+		y := min(skip*rowPx, t.PixelHeight)
+		h := min(rows*rowPx, t.PixelHeight-y)
+		if h < 1 {
+			return ""
+		}
+		params = append(params,
+			"x=0",
+			fmt.Sprintf("y=%d", y),
+			fmt.Sprintf("w=%d", t.PixelWidth),
+			fmt.Sprintf("h=%d", h),
+		)
+	}
+	return drop + ansi.KittyGraphics(nil, params...)
+}
+
+// DeletePlacements returns the escape sequence that removes every placement of
+// an image while keeping the transmitted data, so the image can be drawn again
+// without being sent again.
+//
+// A directly-placed image is painted over the screen and stays there until it
+// is told to go; redrawing the cells underneath does not remove it. Anything
+// that takes such an image off screen — scrolling it out of the viewport,
+// covering it with a modal, clearing the transcript — must therefore drop its
+// placements explicitly.
+func DeletePlacements(id uint32) string {
+	if id == 0 {
+		return ""
+	}
+	// The lowercase d=i deletes placements only; d=I would free the data too.
+	return ansi.KittyGraphics(nil, "a=d", "d=i", fmt.Sprintf("i=%d", id), "q=2")
 }
 
 // scaleForCells decodes an image and resamples it to fill a cell box that fits

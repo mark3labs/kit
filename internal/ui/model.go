@@ -1024,6 +1024,16 @@ type AppModel struct {
 	// the screen was repainted.
 	gfxContentHash uint64
 
+	// gfxPlaced holds the id of every image that the last computed placement
+	// left painted on the screen.
+	//
+	// A directly-placed image is not part of the view, so redrawing the cells
+	// underneath does not remove it: an image whose message has scrolled out of
+	// the viewport, or that a modal now covers, has to be told to go. Comparing
+	// this set against the images the current frame draws is how the ones that
+	// vanished are found.
+	gfxPlaced map[uint32]struct{}
+
 	// pendingGotoBottom requests a GotoBottom() after the next layout
 	// recalculation. Set when loading a session so that scrolling to the
 	// bottom happens with the correct viewport height.
@@ -2382,24 +2392,46 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Async transcript image preview ───────────────────────────────────────
 	case imagePreviewReadyMsg:
-		if msg.block != "" {
-			// Static: the block is decoded pixel data, not a styled text
-			// block. Repainting it would mean re-decoding the image, and
-			// only its background tint comes from the theme.
-			item := NewStyledMessageItem(generateMessageID(), "user", "", msg.block)
-			m.insertMessageAfter(msg.anchorID, item)
+		// Each preview becomes its own item, chained after the one before it so
+		// several images attached to one message keep their order.
+		//
+		// Static: the block is decoded pixel data, not a styled text block.
+		// Repainting it would mean re-decoding the image, and only its
+		// background tint comes from the theme.
+		anchor := msg.anchorID
+		placed := false
+		for _, preview := range msg.previews {
+			if preview.cells == "" {
+				continue
+			}
+			item := NewStyledMessageItem(generateMessageID(), "user", "", preview.cells)
+			if preview.image != nil {
+				item = item.WithDirectImage(*preview.image)
+				placed = true
+			}
+			m.insertMessageAfter(anchor, item)
+			anchor = item.ID()
+		}
+		if anchor != msg.anchorID {
 			m.refreshContent()
 			m.layoutDirty = true
-			if msg.transmit != "" {
-				// The image data cannot travel inside the view text. The
-				// placeholder cells just inserted into the transcript display
-				// it as soon as it lands.
-				//
-				// It is deliberately never deleted: the message stays in the
-				// scrollback for the rest of the session, and freeing the data
-				// would blank the preview the next time it scrolls into view.
-				cmds = append(cmds, tea.Raw(msg.transmit))
-			}
+		}
+		if msg.transmit != "" {
+			// The image data cannot travel inside the view text. Placeholder
+			// cells just inserted into the transcript display it as soon as it
+			// lands; a directly-placed image is drawn separately, below.
+			//
+			// It is deliberately never deleted: the message stays in the
+			// scrollback for the rest of the session, and freeing the data
+			// would blank the preview the next time it scrolls into view.
+			cmds = append(cmds, tea.Raw(msg.transmit))
+		}
+		if placed {
+			// A directly-placed image is drawn by View, which can only work out
+			// where it goes once this frame has been laid out. Nothing else
+			// would arrive to trigger that write, so ask for one more Update
+			// after the coming View.
+			cmds = append(cmds, gfxNudgeCmd())
 		}
 
 	// ── Shell command (! / !!) ───────────────────────────────────────────────
@@ -3190,7 +3222,12 @@ func (m *AppModel) View() tea.View {
 	// Only include the scrollback region when it has content. When idle the
 	// scrollback renders "" which JoinVertical would pad to a full-width blank
 	// line, inflating the view unnecessarily.
+	//
+	// Its index is kept because a directly-placed transcript image is located
+	// relative to the top of this section.
+	scrollPartIndex := -1
 	if scrollbackView != "" {
+		scrollPartIndex = len(parts)
 		parts = append(parts, scrollbackView)
 	}
 
@@ -3271,7 +3308,7 @@ func (m *AppModel) View() tea.View {
 	// Record where directly-placed images landed. This must happen with the
 	// assembled parts in hand: the absolute screen row of a preview is only
 	// knowable once everything above and below it has been measured.
-	m.gfxPlacement = m.computeGfxPlacement(parts, inputPartIndex)
+	m.gfxPlacement = m.computeGfxPlacement(parts, inputPartIndex, scrollPartIndex)
 
 	// Composite every modal surface over the layout at the cell level, so
 	// the conversation stays visible around each one. Ordering is z-order:
@@ -3902,14 +3939,14 @@ func truncateMessageForBlock(msg string, maxLines, width int) string {
 // Print helpers — add content to ScrollList
 // --------------------------------------------------------------------------
 
-// imagePreviewReadyMsg carries an asynchronously rendered transcript image
-// preview block back to the Update loop, where it is inserted into the
+// imagePreviewReadyMsg carries asynchronously rendered transcript image
+// previews back to the Update loop, where they are inserted into the
 // ScrollList directly after the originating user message (identified by
 // anchorID). Inserting by anchor — rather than appending — keeps the preview
 // next to its message even when the agent's streamed reply has already been
 // appended while the thumbnail was being decoded off the event loop.
 type imagePreviewReadyMsg struct {
-	block    string
+	previews []transcriptPreview
 	anchorID string
 
 	// transmit carries image data that must reach the terminal outside the
@@ -3918,23 +3955,38 @@ type imagePreviewReadyMsg struct {
 	transmit string
 }
 
+// transcriptPreview is one rendered thumbnail on its way into the scrollback.
+//
+// Each preview becomes its own scrollback item. One item per image is what
+// makes a directly-placed picture locatable: the item's rows are the image's
+// rows, so the model can work out where the picture goes from the item's
+// position alone, with no arithmetic about what else shares the block.
+type transcriptPreview struct {
+	// cells is the text inserted into the transcript: half-block art,
+	// placeholder cells, or the blank block that reserves the area a directly
+	// placed image is painted over.
+	cells string
+
+	// image is the transmitted image when it must be placed over the screen,
+	// and nil when the cells draw themselves.
+	image *imagepreview.Thumbnail
+}
+
 // transcriptPreviewCmd returns a tea.Cmd that renders thumbnail previews for
 // the given clipboard images off the Bubble Tea event loop (decode + resample
-// must not block Update). The rendered block is delivered via
-// imagePreviewReadyMsg, tagged with anchorID so the consumer can place it
+// must not block Update). The rendered previews are delivered via
+// imagePreviewReadyMsg, tagged with anchorID so the consumer can place them
 // directly after the originating user message. Returns nil when there is
 // nothing to render or no room for a preview; an empty result (terminal lacks
 // color support) yields a nil message that Bubble Tea ignores.
 //
-// Unicode placeholders are used when the terminal supports them, because a
-// transcript preview lives in the scrollback: the ScrollList scrolls and clips
-// its items, and placeholder cells are text, so the image scrolls and clips
-// with the message it belongs to.
-//
-// Direct placement deliberately is not used here even where the composer uses
-// it. A directly placed image is painted at a fixed screen position and would
-// neither scroll with the transcript nor vanish when its message scrolls away,
-// so those terminals keep half blocks for transcript previews.
+// A transcript preview uses whichever graphics mode the terminal supports, so
+// a submitted image looks the same as it did in the composer. Where
+// placeholder cells survive, the image travels as text and scrolls and clips
+// with its message for free. Where they do not — zellij strips the combining
+// marks they are built from — the image is painted over the screen instead,
+// and the model re-places it against the transcript on every frame, clipping
+// it to the rows the viewport still shows. See computeGfxPlacement.
 func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorID string) tea.Cmd {
 	if len(images) == 0 {
 		return nil
@@ -3948,33 +4000,47 @@ func (m *AppModel) transcriptPreviewCmd(images []uicore.ImageAttachment, anchorI
 	}
 	bg := style.GetTheme().Background
 	imgs := images
-	usePlaceholders := termgfx.PreviewMode() == termgfx.ModePlaceholder
+	mode := termgfx.PreviewMode()
 	caps := termgfx.Current()
 	return func() tea.Msg {
 		pad := lipgloss.NewStyle().PaddingLeft(style.ContentOffset)
-		var blocks []string
+		var previews []transcriptPreview
 		var transmit strings.Builder
 		for _, img := range imgs {
-			if usePlaceholders {
-				kt, err := imagepreview.RenderKitty(img.Data, cols, thumbMaxRows, caps.CellWidth, caps.CellHeight)
-				if err == nil && kt.Cells != "" {
-					transmit.WriteString(kt.Transmit)
-					blocks = append(blocks, pad.Render(kt.Cells))
-					continue
+			var (
+				kt  imagepreview.Thumbnail
+				err error
+			)
+			switch mode {
+			case termgfx.ModePlaceholder:
+				kt, err = imagepreview.RenderKitty(img.Data, cols, thumbMaxRows, caps.CellWidth, caps.CellHeight)
+			case termgfx.ModeDirect:
+				kt, err = imagepreview.RenderKittyDirect(img.Data, cols, thumbMaxRows, caps.CellWidth, caps.CellHeight)
+			}
+			if err == nil && kt.Cells != "" {
+				transmit.WriteString(kt.Transmit)
+				preview := transcriptPreview{cells: pad.Render(kt.Cells)}
+				if kt.NeedsPlacement {
+					thumb := kt
+					preview.image = &thumb
 				}
+				previews = append(previews, preview)
+				continue
+			}
+			if err != nil {
 				log.Debug("kitty transcript preview failed, using half blocks", "error", err)
 			}
 			thumb, err := imagepreview.Render(img.Data, img.MediaType, cols, thumbMaxRows, bg)
 			if err != nil || thumb == "" {
 				continue
 			}
-			blocks = append(blocks, pad.Render(thumb))
+			previews = append(previews, transcriptPreview{cells: pad.Render(thumb)})
 		}
-		if len(blocks) == 0 {
+		if len(previews) == 0 {
 			return nil
 		}
 		return imagePreviewReadyMsg{
-			block:    strings.Join(blocks, "\n"),
+			previews: previews,
 			anchorID: anchorID,
 			transmit: transmit.String(),
 		}
@@ -6792,17 +6858,75 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 }
 
 // computeGfxPlacement returns the escape sequence that redraws every
-// directly-placed preview image at its current position, or "" when there is
-// nothing to place.
+// directly-placed image at its current position, or "" when there is nothing
+// to draw and nothing to take away.
 //
 // Direct placements are needed by terminals that carry the Kitty graphics
 // protocol but not its Unicode placeholder encoding, where an image is painted
 // over the screen at the cursor instead of travelling with the view text. That
-// makes the image's position a property of the finished layout, which is why
+// makes an image's position a property of the finished layout, which is why
 // this runs from View with the assembled parts in hand.
 //
-// parts are the stacked layout sections and inputPartIndex is the position of
-// the input section within them.
+// parts are the stacked layout sections; inputPartIndex is the position of the
+// input section within them and scrollPartIndex that of the transcript, or -1
+// when the transcript is not on screen.
+//
+// Images that were painted by the previous frame and are not painted by this
+// one are deleted here. A placement outlives the cells it covers, so a preview
+// whose message has scrolled away, or which a modal now covers, has to be told
+// to go; everything still on screen drops its own earlier placement as part of
+// being drawn again.
+func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex, scrollPartIndex int) string {
+	placements := m.composerPlacements(parts, inputPartIndex)
+	placements = append(placements, m.transcriptPlacements(parts, scrollPartIndex)...)
+
+	var draw strings.Builder
+	drawn := make(map[uint32]struct{}, len(placements))
+	for _, p := range placements {
+		if p.row < 1 || p.row > m.height {
+			continue // scrolled out of the visible area
+		}
+		draw.WriteString(ansi.CursorPosition(p.col, p.row))
+		draw.WriteString(p.seq)
+		if p.id != 0 {
+			drawn[p.id] = struct{}{}
+		}
+	}
+
+	var drops strings.Builder
+	for id := range m.gfxPlaced {
+		if _, ok := drawn[id]; !ok {
+			drops.WriteString(imagepreview.DeletePlacements(id))
+		}
+	}
+	m.gfxPlaced = drawn
+
+	if draw.Len() == 0 {
+		// Deleting a placement does not depend on the cursor, so the sequence
+		// that only removes images needs no cursor dance around it.
+		return drops.String()
+	}
+	// Save the cursor, draw each image at its absolute row, then restore. The
+	// renderer owns the cursor; moving it without putting it back would leave
+	// the next frame drawing in the wrong place.
+	return ansi.SaveCursor + draw.String() + ansi.RestoreCursor + drops.String()
+}
+
+// gfxPlacement is one image drawn at an absolute position on the screen.
+type gfxPlacement struct {
+	// row and col are 1-based screen coordinates of the image's top-left cell.
+	row, col int
+
+	// id is the terminal's id for the image, or 0 when the caller frees the
+	// image itself and does not want its placement tracked.
+	id uint32
+
+	// seq draws the image at the cursor.
+	seq string
+}
+
+// composerPlacements locates the directly-placed preview images in the
+// composer.
 //
 // The rows are counted up from the bottom of the screen, not down from the
 // top. The composer sits at the bottom with only the status bar and an
@@ -6810,14 +6934,18 @@ func (m *AppModel) handleShellCommandResult(msg uicore.ShellCommandResultMsg) te
 // short, fixed sections. Counting downwards would instead depend on the
 // scrollback's rendered height, and any disagreement between what it was
 // allotted and what it drew would float the image away from the composer.
-func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex int) string {
+//
+// The ids are deliberately left at zero: the input component owns these images
+// and deletes them outright when the attachment goes away, so tracking their
+// placements here would only duplicate that.
+func (m *AppModel) composerPlacements(parts []string, inputPartIndex int) []gfxPlacement {
 	ic, ok := m.input.(*InputComponent)
 	if !ok || inputPartIndex < 0 || inputPartIndex >= len(parts) {
-		return ""
+		return nil
 	}
 	placements := ic.DirectPlacements()
 	if len(placements) == 0 {
-		return ""
+		return nil
 	}
 
 	// Rows occupied by everything below the input section.
@@ -6829,19 +6957,87 @@ func (m *AppModel) computeGfxPlacement(parts []string, inputPartIndex int) strin
 	// its first row is that many rows further up.
 	inputTop := m.height - below - lipgloss.Height(parts[inputPartIndex]) + 1
 
-	var b strings.Builder
-	// Save the cursor, draw each image at its absolute row, then restore. The
-	// renderer owns the cursor; moving it without putting it back would leave
-	// the next frame drawing in the wrong place.
-	b.WriteString(ansi.SaveCursor)
+	out := make([]gfxPlacement, 0, len(placements))
 	for _, p := range placements {
-		row := inputTop + p.RowOffset
-		if row < 1 || row > m.height {
-			continue // scrolled out of the visible area
-		}
-		b.WriteString(ansi.CursorPosition(p.Col+1, row))
-		b.WriteString(p.Sequence)
+		out = append(out, gfxPlacement{
+			row: inputTop + p.RowOffset,
+			col: p.Col + 1,
+			seq: p.Sequence,
+		})
 	}
-	b.WriteString(ansi.RestoreCursor)
-	return b.String()
+	return out
+}
+
+// transcriptPlacements locates the directly-placed images in the scrollback,
+// clipped to the rows the viewport currently shows.
+//
+// Unlike the composer, the transcript scrolls, so an image here is a moving
+// target: its rows are whatever the list draws for its item this frame, and
+// only the visible band of the picture may be painted. Anything more would
+// spill over the message above or the composer below, because a placed image
+// is not part of the view and nothing clips it.
+//
+// The rows are counted down from the top of the screen, which for the
+// transcript depends only on the optional header above it. Counting up would
+// depend on every section below, of which there are many.
+func (m *AppModel) transcriptPlacements(parts []string, scrollPartIndex int) []gfxPlacement {
+	if m.scrollList == nil || scrollPartIndex < 0 || scrollPartIndex >= len(parts) {
+		return nil
+	}
+	// A modal covers the transcript, and an image painted over it would be the
+	// one thing on screen that the dialog could not hide. Returning nothing
+	// takes the images off screen for as long as the modal is up; they come
+	// back on the frame that closes it.
+	if m.modalActive() {
+		return nil
+	}
+	// Nothing is placed and nothing could be: skip the walk over visible items
+	// entirely in the terminals where previews are text.
+	if len(m.gfxPlaced) == 0 && termgfx.PreviewMode() != termgfx.ModeDirect {
+		return nil
+	}
+
+	// The transcript's first screen row, 1-based.
+	top := 1
+	for i := range scrollPartIndex {
+		top += lipgloss.Height(parts[i])
+	}
+
+	var out []gfxPlacement
+	for _, vis := range m.scrollList.VisibleItems() {
+		item, ok := vis.Item.(DirectImageItem)
+		if !ok {
+			continue
+		}
+		thumb, ok := item.DirectImage()
+		if !ok {
+			continue
+		}
+
+		// Where the picture sits inside its own item. Message navigation frames
+		// the selected item, which moves its content one row down and one
+		// column right.
+		imgTop, imgCol := 0, style.ContentOffset
+		if vis.Framed {
+			imgTop, imgCol = 1, style.ContentOffset+1
+		}
+
+		// Intersect the item's drawn lines with the lines the picture occupies.
+		first := max(vis.SkipTop, imgTop)
+		last := min(vis.SkipTop+vis.Height, imgTop+thumb.Rows)
+		if last <= first {
+			continue
+		}
+		seq := thumb.PlaceRows(first-imgTop, last-first)
+		if seq == "" {
+			continue
+		}
+		out = append(out, gfxPlacement{
+			row: top + vis.Row + (first - vis.SkipTop),
+			col: imgCol + 1,
+			id:  thumb.ImageID,
+			seq: seq,
+		})
+	}
+	return out
 }

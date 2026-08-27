@@ -20,7 +20,8 @@
 //   - kitty: answers the query and reports a cell size. Graphics used.
 //   - zellij 0.45.0: answers (via kitty) and reports no pixel geometry. It
 //     also strips the combining marks that Unicode placeholders depend on, so
-//     nothing would draw. Half blocks used.
+//     placeholder cells draw nothing. Graphics used, placed directly at the
+//     cursor instead.
 //   - tmux with allow-passthrough on: answers DA1 itself while forwarding the
 //     graphics query onward, so the terminal's reply arrives after the probe
 //     has stopped reading and leaks into the input stream as visible garbage.

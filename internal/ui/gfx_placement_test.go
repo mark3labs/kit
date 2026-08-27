@@ -5,14 +5,17 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	uicore "github.com/mark3labs/kit/internal/ui/core"
+	"github.com/mark3labs/kit/internal/ui/imagepreview"
+	"github.com/mark3labs/kit/internal/ui/style"
 	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
@@ -48,7 +51,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 	parts := []string{scrollback, inputView, statusBar}
 	const inputPartIndex = 1
 
-	got := m.computeGfxPlacement(parts, inputPartIndex)
+	got := m.computeGfxPlacement(parts, inputPartIndex, -1)
 	if got == "" {
 		t.Fatal("computeGfxPlacement returned nothing, want a placement")
 	}
@@ -69,13 +72,13 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 			wantRow, wantRow+imageRows-1, wantEnd)
 	}
 
-	want := ansi.CursorPosition(thumbPaddingLeft+1, wantRow)
+	want := xansi.CursorPosition(thumbPaddingLeft+1, wantRow)
 	if !strings.Contains(got, want) {
 		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, got, want)
 	}
 
 	// The renderer owns the cursor, so the sequence must put it back.
-	if !strings.HasPrefix(got, ansi.SaveCursor) || !strings.HasSuffix(got, ansi.RestoreCursor) {
+	if !strings.HasPrefix(got, xansi.SaveCursor) || !strings.HasSuffix(got, xansi.RestoreCursor) {
 		t.Error("placement does not save and restore the cursor")
 	}
 }
@@ -85,7 +88,7 @@ func TestComputeGfxPlacementAnchorsToComposer(t *testing.T) {
 func TestComputeGfxPlacementEmptyWithoutImages(t *testing.T) {
 	m := &AppModel{height: 40, width: 80}
 	m.input = NewInputComponent(80, nil)
-	if got := m.computeGfxPlacement([]string{"a", "b", "c"}, 1); got != "" {
+	if got := m.computeGfxPlacement([]string{"a", "b", "c"}, 1, -1); got != "" {
 		t.Errorf("computeGfxPlacement() = %q, want empty", got)
 	}
 }
@@ -101,7 +104,7 @@ func TestComputeGfxPlacementIgnoresTextThumbnails(t *testing.T) {
 	ic.imagePlace = []string{""} // text thumbnails carry no placement
 	m.input = ic
 
-	if got := m.computeGfxPlacement([]string{"scroll", ic.View().Content, "status"}, 1); got != "" {
+	if got := m.computeGfxPlacement([]string{"scroll", ic.View().Content, "status"}, 1, -1); got != "" {
 		t.Errorf("computeGfxPlacement() = %q, want empty for a text thumbnail", got)
 	}
 }
@@ -154,15 +157,15 @@ func TestFlushGfxPlacementStopsWhenImagesGo(t *testing.T) {
 	}
 }
 
-// A transcript preview must never use a direct placement.
+// A transcript preview must use the terminal's graphics protocol wherever the
+// composer does.
 //
-// The transcript lives in the scrollback, which scrolls and clips its items.
-// Placeholder cells are text and move with the message they belong to; a
-// directly placed image is painted at a fixed screen position and would sit
-// still while the transcript scrolled underneath it, and would outlive the
-// message scrolling away entirely. Terminals that need direct placement
-// therefore keep half blocks here, even though the composer uses graphics.
-func TestTranscriptPreviewNeverPlacesDirectly(t *testing.T) {
+// The transcript lives in the scrollback, which scrolls and clips its items,
+// so an image painted over the screen has to be re-placed and clipped on every
+// frame. That work happens in computeGfxPlacement; what this pins is that the
+// preview is a real image — blank cells reserving the area plus a transmitted
+// picture — rather than the half blocks it used to fall back to.
+func TestTranscriptPreviewPlacesDirectly(t *testing.T) {
 	t.Cleanup(func() {
 		termgfx.Set(termgfx.Capabilities{})
 	})
@@ -178,11 +181,6 @@ func TestTranscriptPreviewNeverPlacesDirectly(t *testing.T) {
 		TrueColor:           true,
 		UnicodePlaceholders: false,
 	})
-	// The half-block renderer reads the colour profile from the environment
-	// and draws nothing below 256 colours, which is what a bare CI environment
-	// reports. Give it a terminal so the fallback actually produces art to
-	// assert on.
-	t.Setenv("TERM", "xterm-256color")
 
 	if termgfx.PreviewMode() != termgfx.ModeDirect {
 		t.Fatalf("PreviewMode() = %v, want %v; the test premise no longer holds",
@@ -200,11 +198,96 @@ func TestTranscriptPreviewNeverPlacesDirectly(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T, want imagePreviewReadyMsg", cmd())
 	}
-	if msg.transmit != "" {
-		t.Error("transcript preview transmitted an image in a direct-placement terminal")
+	if msg.transmit == "" {
+		t.Error("transcript preview did not transmit the image")
 	}
-	if !strings.Contains(msg.block, "▀") {
-		t.Error("transcript preview is not half-block art")
+	if len(msg.previews) != 1 {
+		t.Fatalf("got %d previews, want 1", len(msg.previews))
+	}
+	preview := msg.previews[0]
+	if preview.image == nil {
+		t.Fatal("preview carries no image to place; it fell back to text")
+	}
+	if !preview.image.NeedsPlacement || preview.image.ImageID == 0 {
+		t.Errorf("preview image is not placeable: %+v", *preview.image)
+	}
+	if strings.Contains(preview.cells, "▀") {
+		t.Error("transcript preview fell back to half blocks")
+	}
+	// The cells only reserve the area the picture is painted over, so they must
+	// be blank and exactly as tall as the image.
+	if strings.TrimSpace(xansi.Strip(preview.cells)) != "" {
+		t.Errorf("reserved cells are not blank: %q", preview.cells)
+	}
+	if got := lipgloss.Height(preview.cells); got != preview.image.Rows {
+		t.Errorf("reserved %d rows for a %d-row image", got, preview.image.Rows)
+	}
+}
+
+// A directly-placed transcript image must be drawn at the row the scrollback
+// gave its message, counted from the top of the transcript.
+func TestTranscriptPlacementFollowsTheScrollback(t *testing.T) {
+	const (
+		screenH   = 40
+		imageRows = 6
+		imageCols = 20
+		headerH   = 2
+	)
+
+	// Direct placements only ever exist in a terminal that needs them, which is
+	// also what the placement path gates on.
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+
+	m := &AppModel{width: 80, height: screenH}
+	m.scrollList = NewScrollList(80, 20)
+
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+imageCols)+"\n", imageRows), "\n")
+	item := NewStyledMessageItem("preview-1", "user", "", blank).
+		WithDirectImage(imagepreview.Thumbnail{
+			ImageID:        7,
+			Cols:           imageCols,
+			Rows:           imageRows,
+			PixelWidth:     imageCols * 10,
+			PixelHeight:    imageRows * 20,
+			NeedsPlacement: true,
+		})
+	m.scrollList.SetItems([]MessageItem{
+		NewStyledMessageItem("msg-1", "user", "", "hello"),
+		item,
+	})
+
+	header := strings.TrimSuffix(strings.Repeat("header\n", headerH), "\n")
+	parts := []string{header, m.scrollList.View(), "status"}
+
+	got := m.computeGfxPlacement(parts, -1, 1)
+	if got == "" {
+		t.Fatal("no placement for a visible transcript image")
+	}
+	// The header takes the first rows, the "hello" message one more, so the
+	// image starts on the row after that.
+	wantRow := headerH + 1 + 1
+	want := xansi.CursorPosition(style.ContentOffset+1, wantRow)
+	if !strings.Contains(got, want) {
+		t.Errorf("placement does not position at row %d\n got: %q\nwant substring: %q", wantRow, got, want)
+	}
+	if !strings.Contains(got, "i=7") {
+		t.Errorf("placement does not name image 7: %q", got)
+	}
+
+	// Once the image is gone from the list its placement must be taken back:
+	// the picture is painted over the screen and redrawing the cells beneath
+	// does not remove it.
+	m.scrollList.SetItems([]MessageItem{NewStyledMessageItem("msg-1", "user", "", "hello")})
+	gone := m.computeGfxPlacement([]string{header, m.scrollList.View(), "status"}, -1, 1)
+	if !strings.Contains(gone, "a=d") || !strings.Contains(gone, "i=7") {
+		t.Errorf("image 7 was not deleted after leaving the transcript: %q", gone)
 	}
 }
 
@@ -241,10 +324,17 @@ func TestTranscriptPreviewUsesPlaceholders(t *testing.T) {
 	if msg.transmit == "" {
 		t.Error("transcript preview did not transmit the image")
 	}
-	if !strings.ContainsRune(msg.block, '\U0010EEEE') {
+	if len(msg.previews) != 1 {
+		t.Fatalf("got %d previews, want 1", len(msg.previews))
+	}
+	block := msg.previews[0].cells
+	if msg.previews[0].image != nil {
+		t.Error("placeholder cells draw themselves and need no placement")
+	}
+	if !strings.ContainsRune(block, '\U0010EEEE') {
 		t.Error("transcript preview does not contain placeholder cells")
 	}
-	if strings.Contains(msg.block, "▀") {
+	if strings.Contains(block, "▀") {
 		t.Error("transcript preview fell back to half blocks")
 	}
 }
@@ -316,5 +406,107 @@ func TestClearPendingImagesNoCleanupForTextThumbnails(t *testing.T) {
 	}
 	if cleanup != nil {
 		t.Error("cleanup command returned when no image was transmitted")
+	}
+}
+
+// An image whose top has scrolled out of the viewport must be drawn clipped,
+// starting on the viewport's first row.
+//
+// A placed image is not part of the view, so nothing clips it: drawing the
+// whole picture would paint the scrolled-away rows over whatever sits above
+// the transcript.
+func TestTranscriptPlacementClipsToTheViewport(t *testing.T) {
+	const (
+		imageRows = 6
+		imageCols = 20
+		visible   = 3
+	)
+
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+
+	m := &AppModel{width: 80, height: 40}
+	// A viewport shorter than the image, scrolled to the bottom, so the first
+	// imageRows-visible rows of the picture are above the top edge.
+	m.scrollList = NewScrollList(80, visible)
+
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+imageCols)+"\n", imageRows), "\n")
+	m.scrollList.SetItems([]MessageItem{
+		NewStyledMessageItem("preview-1", "user", "", blank).
+			WithDirectImage(imagepreview.Thumbnail{
+				ImageID:        7,
+				Cols:           imageCols,
+				Rows:           imageRows,
+				PixelWidth:     imageCols * 10,
+				PixelHeight:    imageRows * 20,
+				NeedsPlacement: true,
+			}),
+	})
+
+	got := m.computeGfxPlacement([]string{m.scrollList.View()}, -1, 0)
+	if got == "" {
+		t.Fatal("no placement for a partially visible transcript image")
+	}
+	// Drawn from the very top of the screen, since the transcript is the only
+	// section above it.
+	if want := xansi.CursorPosition(style.ContentOffset+1, 1); !strings.Contains(got, want) {
+		t.Errorf("clipped image is not drawn on the first row\n got: %q\nwant substring: %q", got, want)
+	}
+	if want := "r=" + strconv.Itoa(visible); !strings.Contains(got, want) {
+		t.Errorf("placement does not draw %d rows: %q", visible, got)
+	}
+	// The hidden rows must be skipped in the source image, not squeezed into
+	// the visible ones.
+	if want := "y=" + strconv.Itoa((imageRows-visible)*20); !strings.Contains(got, want) {
+		t.Errorf("placement does not skip the scrolled-away rows (%s): %q", want, got)
+	}
+}
+
+// A modal covers the transcript, so the images behind it must be taken off the
+// screen: a placed image is painted over the frame and would otherwise sit on
+// top of the dialog.
+func TestTranscriptPlacementYieldsToModals(t *testing.T) {
+	t.Cleanup(func() { termgfx.Set(termgfx.Capabilities{}) })
+	termgfx.Set(termgfx.Capabilities{
+		KittyGraphics:       true,
+		CellWidth:           10,
+		CellHeight:          20,
+		TrueColor:           true,
+		UnicodePlaceholders: false,
+	})
+
+	m := &AppModel{width: 80, height: 40}
+	m.scrollList = NewScrollList(80, 20)
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", style.ContentOffset+20)+"\n", 4), "\n")
+	m.scrollList.SetItems([]MessageItem{
+		NewStyledMessageItem("preview-1", "user", "", blank).
+			WithDirectImage(imagepreview.Thumbnail{
+				ImageID:        7,
+				Cols:           20,
+				Rows:           4,
+				PixelWidth:     200,
+				PixelHeight:    80,
+				NeedsPlacement: true,
+			}),
+	})
+
+	parts := []string{m.scrollList.View()}
+	if got := m.computeGfxPlacement(parts, -1, 0); !strings.Contains(got, "a=p") {
+		t.Fatalf("image not drawn before the modal opened: %q", got)
+	}
+
+	m.state = stateModelSelector
+	got := m.computeGfxPlacement(parts, -1, 0)
+	if strings.Contains(got, "a=p") {
+		t.Errorf("image drawn over a modal: %q", got)
+	}
+	if !strings.Contains(got, "a=d") || !strings.Contains(got, "i=7") {
+		t.Errorf("image 7 not removed while the modal is up: %q", got)
 	}
 }

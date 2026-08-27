@@ -1,15 +1,20 @@
-// Package imagepreview renders low-resolution, in-terminal thumbnails of
-// images using Unicode upper half-block characters (U+2580, "▀") combined
-// with SGR foreground/background color codes.
+// Package imagepreview renders in-terminal thumbnails of images.
 //
-// The technique stacks two vertical pixels into a single character cell: the
-// foreground color paints the top pixel and the background color paints the
-// bottom pixel. This produces pure styled text — no graphics escape sequences
-// — so the output survives terminal multiplexers (tmux, zellij) untouched.
+// It offers two techniques, chosen by the caller from what the terminal
+// accepts (see internal/ui/termgfx):
 //
-// The Kitty graphics protocol, Sixel, and iTerm2 inline images are
-// deliberately NOT used: those are graphics escape-sequence protocols that
-// tmux and zellij strip or mangle by default.
+//   - Half blocks, in this file: Unicode upper half-block characters (U+2580,
+//     "▀") with SGR colours stack two vertical pixels into one character cell,
+//     the foreground painting the top pixel and the background the bottom. The
+//     output is pure styled text, so it survives anywhere and needs no support
+//     beyond 256 colours.
+//   - Kitty graphics, in kitty.go: real pictures, either carried by Unicode
+//     placeholder cells that travel with the view text, or placed directly at
+//     the cursor for terminals that strip the combining marks placeholders are
+//     built from.
+//
+// Half blocks remain the fallback, and the only renderer that needs nothing
+// from the terminal but colour.
 package imagepreview
 
 import (

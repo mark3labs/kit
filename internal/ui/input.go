@@ -894,6 +894,15 @@ func (s *InputComponent) View() tea.View {
 	return tea.NewView(view.String())
 }
 
+// PopupVisible reports whether the autocomplete popup is drawn over the view.
+//
+// The popup is composited into the frame, so view text disappears behind it;
+// anything painted over the screen instead — a directly-placed image — must be
+// taken away by hand while it is up.
+func (s *InputComponent) PopupVisible() bool {
+	return s.showPopup && len(s.filtered) > 0
+}
+
 // RenderPopupBox renders the autocomplete popup for / or @ as a bare box.
 // Returns "" when the popup is not currently shown. The caller composites it
 // over the main view so the transcript stays visible around it.

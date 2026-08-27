@@ -179,3 +179,62 @@ func TestScrollList_EmptyItemsDoNotShiftMouseMapping(t *testing.T) {
 		t.Errorf("getItemAndLineAtY(3) = (%d,%d), want (2,1)", idx, line)
 	}
 }
+
+// VisibleItems must report the same geometry View draws, including the lines
+// clipped above the viewport.
+//
+// The two are separate walks over the same items, and a directly-placed image
+// is positioned from this one while the cells that reserve it come from the
+// other, so any disagreement puts the picture on the wrong rows.
+func TestVisibleItemsMatchesView(t *testing.T) {
+	list := NewScrollList(40, 5)
+	list.SetItems([]MessageItem{
+		NewStyledMessageItem("a", "user", "", "a1\na2\na3\na4"),
+		NewStyledMessageItem("b", "user", "", "b1\nb2\nb3"),
+	})
+	list.GotoBottom()
+
+	vis := list.VisibleItems()
+	if len(vis) != 2 {
+		t.Fatalf("got %d visible items, want 2", len(vis))
+	}
+
+	// The list is scrolled to the bottom of 7 lines in a 5-line viewport, so
+	// the first item has lost its first two lines.
+	if vis[0].SkipTop != 2 || vis[0].Row != 0 || vis[0].Height != 2 {
+		t.Errorf("first item = %+v, want SkipTop 2, Row 0, Height 2", vis[0])
+	}
+	if vis[1].SkipTop != 0 || vis[1].Row != 2 || vis[1].Height != 3 {
+		t.Errorf("second item = %+v, want SkipTop 0, Row 2, Height 3", vis[1])
+	}
+
+	// Every reported row must hold the line the item actually rendered there.
+	lines := strings.Split(list.View(), "\n")
+	for _, v := range vis {
+		itemLines := strings.Split(v.Item.Render(list.width), "\n")
+		for i := range v.Height {
+			if got, want := lines[v.Row+i], itemLines[v.SkipTop+i]; got != want {
+				t.Errorf("row %d = %q, want %q", v.Row+i, got, want)
+			}
+		}
+	}
+}
+
+// An item scrolled entirely off the top must not be reported: nothing of it is
+// drawn, so nothing may be positioned against it.
+func TestVisibleItemsSkipsScrolledAwayItems(t *testing.T) {
+	list := NewScrollList(40, 2)
+	list.SetItems([]MessageItem{
+		NewStyledMessageItem("a", "user", "", "a1\na2"),
+		NewStyledMessageItem("b", "user", "", "b1\nb2"),
+	})
+	list.GotoBottom()
+
+	vis := list.VisibleItems()
+	if len(vis) != 1 {
+		t.Fatalf("got %d visible items, want 1", len(vis))
+	}
+	if vis[0].Item.ID() != "b" {
+		t.Errorf("visible item = %q, want %q", vis[0].Item.ID(), "b")
+	}
+}

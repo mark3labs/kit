@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/mark3labs/kit/internal/ui/imagepreview"
 	"github.com/mark3labs/kit/internal/ui/render"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
@@ -62,6 +63,14 @@ type TextMessageItem struct {
 	// displays one. The inspector needs them to re-render the body at full
 	// length; the flattened raw content cannot be taken apart again.
 	toolCall *ToolCallInfo
+
+	// directImage holds the terminal image this item shows when the image is
+	// painted over the screen rather than drawn as text. The item's content is
+	// then blank cells that reserve the area, and the picture itself is placed
+	// by the model once the frame has been laid out. nil for every other item,
+	// including previews whose image travels inside the view as placeholder
+	// cells or half blocks.
+	directImage *imagepreview.Thumbnail
 
 	// rendered is the memoized styled content, valid for theme generation
 	// themeStamp.gen when render is non-nil.
@@ -157,6 +166,33 @@ func (m *TextMessageItem) ToolCall() (ToolCallInfo, bool) {
 		return ToolCallInfo{}, false
 	}
 	return *m.toolCall, true
+}
+
+// DirectImageItem is implemented by scrollback items whose image is painted
+// over the screen rather than drawn as view text.
+//
+// Such an item renders blank cells that reserve the area, and the picture is
+// placed separately at an absolute screen position once the frame is laid out.
+// The model looks for this interface among the visible items on every frame to
+// work out where each picture now belongs.
+type DirectImageItem interface {
+	// DirectImage returns the item's image, and false when it has none.
+	DirectImage() (imagepreview.Thumbnail, bool)
+}
+
+// WithDirectImage attaches the terminal image this item reserves space for.
+// Returns the item for chaining at the construction site.
+func (m *TextMessageItem) WithDirectImage(thumb imagepreview.Thumbnail) *TextMessageItem {
+	m.directImage = &thumb
+	return m
+}
+
+// DirectImage implements DirectImageItem.
+func (m *TextMessageItem) DirectImage() (imagepreview.Thumbnail, bool) {
+	if m.directImage == nil {
+		return imagepreview.Thumbnail{}, false
+	}
+	return *m.directImage, true
 }
 
 // Invalidate discards the memoized render so the next draw re-runs the render
