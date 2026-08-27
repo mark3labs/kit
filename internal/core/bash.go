@@ -389,6 +389,28 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 			}
 			mu.Unlock()
 		}
+
+		// A scan error ends the loop early and leaves data in the pipe. The
+		// common case is bufio.ErrTooLong: a single line longer than the 1 MB
+		// limit set above, which any minified JSON or packed asset produces.
+		//
+		// Draining is not optional. If the remainder is left unread the child
+		// blocks writing to a full pipe and cmd.Wait() below never returns, so
+		// the whole call hangs until the command timeout fires and every byte
+		// of output is lost. Discard the rest so the process can exit, and
+		// report the truncation instead of failing silently.
+		if err := scanner.Err(); err != nil {
+			discarded, _ := io.Copy(io.Discard, reader)
+			notice := fmt.Sprintf("[output truncated: %v; discarded %d further bytes]", err, discarded)
+			outputCallback(call.ID, "bash", notice, isStderr)
+			mu.Lock()
+			if isStderr {
+				stderrChunks = append(stderrChunks, notice)
+			} else {
+				stdoutChunks = append(stdoutChunks, notice)
+			}
+			mu.Unlock()
+		}
 	}
 
 	wg.Add(2)
