@@ -138,3 +138,63 @@ func TestBashStreaming_LongButUnderLimit(t *testing.T) {
 		t.Errorf("scanner should deliver the full 500000-byte line, got %d", got)
 	}
 }
+
+// TestBashStreaming_NoTruncationOnFastExit is a regression test for output
+// being silently truncated when the child exits while a scanner is still
+// draining the kernel buffer.
+//
+// The cause was Cmd.Wait closing the pipes it owns as soon as it observes the
+// child exit, without waiting for the reader. The fix gives the parent its own
+// os.Pipe read ends, which Wait cannot touch.
+//
+// The race needs the child to exit immediately after writing a large payload,
+// and it is scheduling-dependent, so this runs many iterations. On the
+// unfixed code it reported a spurious "output truncated" notice on the first
+// iteration under -cpu=1,2,4.
+func TestBashStreaming_NoTruncationOnFastExit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping repeated-iteration race check in short mode")
+	}
+
+	const wantBytes = 300000
+	for i := range 40 {
+		resp, chunks := runStreaming(t, `head -c 300000 /dev/zero | tr '\0' 'x'`)
+
+		if strings.Contains(resp.Content, "output truncated") {
+			t.Fatalf("iteration %d: output truncated even though the line is under the scanner limit", i)
+		}
+		total := 0
+		for _, c := range chunks {
+			total += len(c)
+		}
+		if len(chunks) != 1 || total != wantBytes {
+			t.Fatalf("iteration %d: got %d chunk(s) totalling %d bytes, want 1 chunk of %d",
+				i, len(chunks), total, wantBytes)
+		}
+	}
+}
+
+// TestBashStreaming_BackgroundProcessNoSpuriousNotice guards the interaction
+// between the drain watchdog and the truncation notice.
+//
+// When a backgrounded grandchild keeps a write end open, the parent
+// force-closes the pipes to avoid hanging. That makes the pending read fail,
+// which looks like a scan error but is not truncation: the foreground command
+// already completed and nothing it wrote was lost. Reporting it would put a
+// bogus "[output truncated: file already closed]" line on the output of every
+// `cmd &` invocation.
+func TestBashStreaming_BackgroundProcessNoSpuriousNotice(t *testing.T) {
+	resp, chunks := runStreaming(t, "echo started; sleep 300 &")
+
+	if strings.Contains(resp.Content, "output truncated") {
+		t.Errorf("backgrounded process produced a spurious truncation notice: %q", resp.Content)
+	}
+	if !strings.Contains(resp.Content, "started") {
+		t.Errorf("foreground output missing, got %q", resp.Content)
+	}
+	for _, c := range chunks {
+		if strings.Contains(c, "output truncated") {
+			t.Errorf("spurious truncation notice streamed to callback: %q", c)
+		}
+	}
+}

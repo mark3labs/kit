@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/fantasy"
@@ -258,36 +259,123 @@ func executeBash(ctx context.Context, call fantasy.ToolCall, workDir string, def
 	return executeBashBuffered(cmdCtx, call, cmd, sudoPassword)
 }
 
+// pipeDrainGrace bounds how long the parent waits for the output readers to
+// finish after the child process has exited. It only matters when a grandchild
+// process inherited the write end and is holding it open, in which case the
+// readers never observe EOF. Normal commands drain immediately and never touch
+// this timer.
+const pipeDrainGrace = 500 * time.Millisecond
+
+// bashPipes holds the parent's read ends of the child's output pipes. They are
+// created with os.Pipe and assigned to cmd.Stdout/cmd.Stderr rather than
+// obtained from cmd.StdoutPipe, which matters for correctness:
+//
+// Cmd.Wait closes the pipes it creates as soon as it observes the child exit,
+// without waiting for the reader to drain them. Any output still sitting in
+// the kernel buffer is then lost. Owning the read ends here keeps them open
+// until the readers reach EOF, so Wait can never truncate output.
+//
+// The cost is that Cmd.WaitDelay no longer force-closes these descriptors, so
+// the caller must bound the drain itself — see waitForDrain.
+type bashPipes struct {
+	stdout *os.File
+	stderr *os.File
+
+	// forced records that close was called deliberately by waitForDrain
+	// rather than the pipes reaching EOF. Readers use it to tell a real
+	// truncation from the expected shutdown of a lingering grandchild.
+	forced atomic.Bool
+}
+
+// close releases the parent's read ends, unblocking any reader still waiting
+// on a pipe that a surviving grandchild holds open. Safe to call more than
+// once.
+func (p *bashPipes) close() {
+	if p == nil {
+		return
+	}
+	if p.stdout != nil {
+		_ = p.stdout.Close()
+	}
+	if p.stderr != nil {
+		_ = p.stderr.Close()
+	}
+}
+
+// waitForDrain waits for the output readers to finish after the child has
+// exited. It returns once readersDone is closed, or force-closes the pipes
+// after pipeDrainGrace so a grandchild holding the write end cannot hang the
+// call. Either way it does not return until the readers have stopped, so the
+// caller can read the collected output without a race.
+func (p *bashPipes) waitForDrain(readersDone <-chan struct{}) {
+	select {
+	case <-readersDone:
+		// Normal path: both readers reached EOF and drained everything.
+	case <-time.After(pipeDrainGrace):
+		// A grandchild still holds a write end. Closing the read ends makes
+		// the pending reads fail, which ends the reader loops. Flag it first
+		// so those failures are not misreported as truncated output.
+		p.forced.Store(true)
+		p.close()
+		<-readersDone
+	}
+}
+
 // setupBashPipes opens stdout/stderr pipes (plus an optional sudo stdin),
 // starts the command, and asynchronously writes the sudo password if any.
 // Returns the readers ready for the caller to consume. If setup fails,
 // errResp is non-nil and the readers must not be used; the caller should
 // return the response directly.
-func setupBashPipes(cmd *exec.Cmd, sudoPassword string) (stdout, stderr io.Reader, errResp *fantasy.ToolResponse) {
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		r := fantasy.NewTextErrorResponse("failed to create stdout pipe")
-		return nil, nil, &r
+//
+// The caller owns the returned pipes and must drain them via
+// [bashPipes.waitForDrain] after cmd.Wait returns.
+func setupBashPipes(cmd *exec.Cmd, sudoPassword string) (pipes *bashPipes, errResp *fantasy.ToolResponse) {
+	fail := func(msg string) (*bashPipes, *fantasy.ToolResponse) {
+		r := fantasy.NewTextErrorResponse(msg)
+		return nil, &r
 	}
-	stderrPipe, err := cmd.StderrPipe()
+
+	// os.Pipe rather than cmd.StdoutPipe: see the bashPipes doc comment. The
+	// write ends are handed to the child and closed in the parent right after
+	// Start, so the readers see EOF once every writer has exited.
+	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
-		r := fantasy.NewTextErrorResponse("failed to create stderr pipe")
-		return nil, nil, &r
+		return fail("failed to create stdout pipe")
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
+		return fail("failed to create stderr pipe")
+	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
+
+	closeAll := func() {
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
+		_ = stderrR.Close()
+		_ = stderrW.Close()
 	}
 
 	var stdinPipe io.WriteCloser
 	if sudoPassword != "" {
 		stdinPipe, err = cmd.StdinPipe()
 		if err != nil {
-			r := fantasy.NewTextErrorResponse("failed to create stdin pipe")
-			return nil, nil, &r
+			closeAll()
+			return fail("failed to create stdin pipe")
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
-		r := fantasy.NewTextErrorResponse(fmt.Sprintf("failed to start command: %v", err))
-		return nil, nil, &r
+		closeAll()
+		return fail(fmt.Sprintf("failed to start command: %v", err))
 	}
+
+	// Drop the parent's copies of the write ends. Without this the readers
+	// would never see EOF, because this process would still count as a writer.
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
 
 	if sudoPassword != "" && stdinPipe != nil {
 		go func() {
@@ -296,7 +384,7 @@ func setupBashPipes(cmd *exec.Cmd, sudoPassword string) (stdout, stderr io.Reade
 		}()
 	}
 
-	return stdoutPipe, stderrPipe, nil
+	return &bashPipes{stdout: stdoutR, stderr: stderrR}, nil
 }
 
 // interpretBashExit decodes cmd.Wait()'s error into an exit code, mapping
@@ -322,10 +410,11 @@ func interpretBashExit(waitErr error, cmdCtx context.Context) (exitCode int, err
 // close them when grandchild processes hold pipe handles open after the
 // direct child exits.
 func executeBashBuffered(cmdCtx context.Context, _ fantasy.ToolCall, cmd *exec.Cmd, sudoPassword string) (fantasy.ToolResponse, error) {
-	stdoutPipe, stderrPipe, errResp := setupBashPipes(cmd, sudoPassword)
+	pipes, errResp := setupBashPipes(cmd, sudoPassword)
 	if errResp != nil {
 		return *errResp, nil
 	}
+	defer pipes.close()
 
 	// Read pipes concurrently
 	var wg sync.WaitGroup
@@ -334,20 +423,28 @@ func executeBashBuffered(cmdCtx context.Context, _ fantasy.ToolCall, cmd *exec.C
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(&stdout, stdoutPipe)
+		_, _ = io.Copy(&stdout, pipes.stdout)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(&stderr, stderrPipe)
+		_, _ = io.Copy(&stderr, pipes.stderr)
 	}()
 
-	// Wait for the process to exit first. cmd.WaitDelay ensures that if
-	// pipes remain open (held by grandchild processes), they'll be forcibly
-	// closed after the grace period, which unblocks the io.Copy goroutines.
+	readersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(readersDone)
+	}()
+
+	// Wait for the process to exit. cmd.Cancel plus cmd.WaitDelay ensure a
+	// runaway process tree is killed rather than blocking here forever.
+	// Because the output pipes are owned by us rather than by Cmd, this call
+	// cannot close them out from under the readers above.
 	waitErr := cmd.Wait()
 
-	// Wait for pipe readers to finish draining.
-	wg.Wait()
+	// Let the readers finish draining, bounded so a grandchild holding a write
+	// end open cannot hang the call.
+	pipes.waitForDrain(readersDone)
 
 	exitCode, errResp := interpretBashExit(waitErr, cmdCtx)
 	if errResp != nil {
@@ -359,10 +456,11 @@ func executeBashBuffered(cmdCtx context.Context, _ fantasy.ToolCall, cmd *exec.C
 
 // executeBashStreaming streams output as it arrives via the callback.
 func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *exec.Cmd, outputCallback ToolOutputCallback, sudoPassword string) (fantasy.ToolResponse, error) {
-	stdoutPipe, stderrPipe, errResp := setupBashPipes(cmd, sudoPassword)
+	pipes, errResp := setupBashPipes(cmd, sudoPassword)
 	if errResp != nil {
 		return *errResp, nil
 	}
+	defer pipes.close()
 
 	// Stream stdout and stderr concurrently
 	var wg sync.WaitGroup
@@ -399,7 +497,12 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 		// the whole call hangs until the command timeout fires and every byte
 		// of output is lost. Discard the rest so the process can exit, and
 		// report the truncation instead of failing silently.
-		if err := scanner.Err(); err != nil {
+		//
+		// A read failure caused by our own deliberate close is not truncation:
+		// the foreground command already finished and only a backgrounded
+		// grandchild still holds the pipe. Reporting it would put a spurious
+		// notice on the output of every `cmd &` invocation.
+		if err := scanner.Err(); err != nil && !pipes.forced.Load() {
 			discarded, _ := io.Copy(io.Discard, reader)
 			notice := fmt.Sprintf("[output truncated: %v; discarded %d further bytes]", err, discarded)
 			outputCallback(call.ID, "bash", notice, isStderr)
@@ -414,18 +517,26 @@ func executeBashStreaming(cmdCtx context.Context, call fantasy.ToolCall, cmd *ex
 	}
 
 	wg.Add(2)
-	go streamOutput(stdoutPipe, false)
-	go streamOutput(stderrPipe, true)
+	go streamOutput(pipes.stdout, false)
+	go streamOutput(pipes.stderr, true)
 
-	// Wait for the process to exit. cmd.WaitDelay ensures that if pipes
-	// remain open (held by grandchild processes), they'll be forcibly closed
-	// after the grace period, which unblocks the scanners above.
+	readersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(readersDone)
+	}()
+
+	// Wait for the process to exit. cmd.Cancel plus cmd.WaitDelay ensure a
+	// runaway process tree is killed rather than blocking here forever.
+	// Because the output pipes are owned by us rather than by Cmd, this call
+	// cannot close them out from under the scanners above — which previously
+	// truncated output whenever the child exited while a scanner was still
+	// draining the kernel buffer.
 	waitErr := cmd.Wait()
 
-	// Wait for the pipe readers to finish draining. This will complete
-	// quickly since cmd.Wait() (with WaitDelay) has already ensured
-	// the pipes are closed.
-	wg.Wait()
+	// Let the scanners finish draining, bounded so a grandchild holding a write
+	// end open cannot hang the call.
+	pipes.waitForDrain(readersDone)
 
 	exitCode, errResp := interpretBashExit(waitErr, cmdCtx)
 	if errResp != nil {
