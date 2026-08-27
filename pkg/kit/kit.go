@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -450,8 +451,16 @@ func (m *Kit) ListMCPServers() []MCPServerStatus {
 }
 
 // GetExtensionToolCount returns the number of tools registered by extensions.
+//
+// The count comes from the extension runner rather than the agent's extra-tool
+// list. That list is a shared bucket also holding the built-in activate_skill
+// tool, SDK-supplied Options.ExtraTools and tools added at runtime via
+// AddTools, so counting it would attribute all of those to extensions.
 func (m *Kit) GetExtensionToolCount() int {
-	return m.agent.GetExtensionToolCount()
+	if m.extRunner == nil {
+		return 0
+	}
+	return len(m.extRunner.RegisteredTools())
 }
 
 // --------------------------------------------------------------------------
@@ -3281,8 +3290,8 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 	m.promptOptsMu.Lock()
 	var restores []func()
 	restore := func() {
-		for i := len(restores) - 1; i >= 0; i-- {
-			restores[i]()
+		for _, restore := range slices.Backward(restores) {
+			restore()
 		}
 		m.promptOptsMu.Unlock()
 	}

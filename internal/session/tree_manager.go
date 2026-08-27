@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -841,8 +842,8 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 	// which older messages are replaced by the summary.
 	var lastCompaction *CompactionEntry
 	var compactionIndex = -1
-	for i := len(branch) - 1; i >= 0; i-- {
-		if c, ok := branch[i].(*CompactionEntry); ok {
+	for i, b := range slices.Backward(branch) {
+		if c, ok := b.(*CompactionEntry); ok {
 			lastCompaction = c
 			compactionIndex = i
 			break
@@ -1118,8 +1119,8 @@ func (tm *TreeManager) GetContextEntryIDs() []string {
 	// Find the last compaction entry for skip logic.
 	var lastCompaction *CompactionEntry
 	var compactionIndex = -1
-	for i := len(branch) - 1; i >= 0; i-- {
-		if c, ok := branch[i].(*CompactionEntry); ok {
+	for i, b := range slices.Backward(branch) {
+		if c, ok := b.(*CompactionEntry); ok {
 			lastCompaction = c
 			compactionIndex = i
 			break
@@ -1234,8 +1235,8 @@ func (tm *TreeManager) GetLastCompaction() *CompactionEntry {
 	}
 
 	branch := tm.getBranchLocked(tm.leafID)
-	for i := len(branch) - 1; i >= 0; i-- {
-		if c, ok := branch[i].(*CompactionEntry); ok {
+	for _, b := range slices.Backward(branch) {
+		if c, ok := b.(*CompactionEntry); ok {
 			return c
 		}
 	}

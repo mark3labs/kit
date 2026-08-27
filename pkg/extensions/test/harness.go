@@ -37,6 +37,7 @@ package test
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -120,7 +121,7 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 		h.t.Fatalf("extension has no Init function: %v", err)
 	}
 
-	initFn, ok := initVal.Interface().(func(extensions.API))
+	initFn, ok := reflect.TypeAssert[func(extensions.API)](initVal)
 	if !ok {
 		h.t.Fatalf("Init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
 	}

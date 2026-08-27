@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1049,12 +1050,12 @@ func splitPromptAndHistory(messages []fantasy.Message) (string, []fantasy.FilePa
 	}
 
 	// Walk backwards to find the last user message
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == fantasy.MessageRoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role == fantasy.MessageRoleUser {
 			// Extract text and file parts from the user message
 			var prompt string
 			var files []fantasy.FilePart
-			for _, part := range messages[i].Content {
+			for _, part := range message.Content {
 				switch p := part.(type) {
 				case fantasy.TextPart:
 					if prompt == "" {
@@ -1215,8 +1216,12 @@ func (a *Agent) GetMCPToolNames() []string {
 	return names
 }
 
-// GetExtensionToolCount returns the number of tools registered by extensions.
-func (a *Agent) GetExtensionToolCount() int {
+// GetExtraToolCount returns the number of extra tools on the agent — that is,
+// every tool that is neither a core tool nor an MCP tool. The bucket mixes
+// extension-registered tools, the built-in activate_skill tool and tools
+// supplied by SDK callers, so it must not be reported as an extension count.
+// Ask the extension runner for that (see Kit.GetExtensionToolCount).
+func (a *Agent) GetExtraToolCount() int {
 	a.toolsMu.RLock()
 	defer a.toolsMu.RUnlock()
 	return len(a.extraTools)

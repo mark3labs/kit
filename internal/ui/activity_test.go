@@ -177,7 +177,7 @@ func TestComposerFillsWidth(t *testing.T) {
 	ic := NewInputComponent(width, nil)
 
 	rendered := ic.View().Content
-	firstLine := strings.SplitN(rendered, "\n", 2)[0]
+	firstLine, _, _ := strings.Cut(rendered, "\n")
 
 	if got := lipgloss.Width(firstLine); got != width {
 		t.Errorf("expected composer to span %d columns, got %d: %q", width, got, firstLine)

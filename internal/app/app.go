@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -504,8 +505,8 @@ func (a *App) PopLastUserMessage() (string, []kit.LLMFilePart, error) {
 	// Walk the current branch backwards to find the most recent user message.
 	branch := ts.GetBranch("")
 	var target *session.MessageEntry
-	for i := len(branch) - 1; i >= 0; i-- {
-		me, ok := branch[i].(*session.MessageEntry)
+	for _, b := range slices.Backward(branch) {
+		me, ok := b.(*session.MessageEntry)
 		if !ok {
 			continue
 		}
