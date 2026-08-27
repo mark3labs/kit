@@ -39,7 +39,7 @@ func BuildAppOptions(mcpConfig *config.Config, modelName string, serverNames, to
 		ServerNames:      serverNames,
 		ToolNames:        toolNames,
 		StreamingEnabled: viper.GetBool("stream"),
-		Quiet:            quietFlag,
+		Quiet:            suppressChrome(),
 		Debug:            viper.GetBool("debug"),
 	}
 }
@@ -123,14 +123,15 @@ func DisplayDebugConfig(cli *ui.CLI, k *kit.Kit, mcpConfig *config.Config, provi
 }
 
 // SetupCLIForNonInteractive creates the CLI display layer for non-interactive
-// mode (--prompt). Returns nil when quiet mode is active.
+// mode (--prompt). Returns nil in quiet and JSON modes, where stdout is
+// reserved for the response payload.
 func SetupCLIForNonInteractive(k *kit.Kit) (*ui.CLI, error) {
 	agentAdapter := &kitUIAdapter{kit: k}
 	return ui.SetupCLI(&ui.CLISetupOptions{
 		Agent:          agentAdapter,
 		ModelString:    viper.GetString("model"),
 		Debug:          viper.GetBool("debug"),
-		Quiet:          quietFlag,
+		Quiet:          suppressChrome(),
 		ShowDebug:      false,
 		ProviderAPIKey: viper.GetString("provider-api-key"),
 	})

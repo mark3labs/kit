@@ -1368,6 +1368,13 @@ func (a *App) PrintFromExtension(level, text string) {
 	case "info":
 		fmt.Fprintf(os.Stderr, "[INFO] %s\n", text)
 	default:
+		// Quiet and JSON modes reserve stdout for the response payload, so
+		// unlevelled extension output goes to stderr too — otherwise a
+		// single ctx.Print breaks `kit "..." --json | jq`.
+		if a.opts.Quiet {
+			fmt.Fprintln(os.Stderr, text)
+			return
+		}
 		fmt.Println(text)
 	}
 }

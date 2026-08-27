@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -446,7 +447,9 @@ func (m *MCPToolManager) LoadTools(ctx context.Context, cfg *config.Config) erro
 	for r := range results {
 		if r.err != nil {
 			loadErrors = append(loadErrors, fmt.Sprintf("server %s: %v", r.name, r.err))
-			fmt.Printf("Warning: Failed to load MCP server '%s': %v\n", r.name, r.err)
+			// stderr: stdout is reserved for the response payload in
+			// --quiet / --json mode.
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load MCP server '%s': %v\n", r.name, r.err)
 		}
 	}
 

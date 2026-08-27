@@ -759,6 +759,16 @@ func shortcutListProviderForUI(k *kit.Kit) func() []ui.ShortcutInfo {
 	}
 }
 
+// suppressChrome reports whether all decorative output (startup banners,
+// spinners, warnings, extension prints) must stay off stdout.
+//
+// --quiet prints only the final response; --json prints only the JSON
+// envelope. Both modes are consumed by pipes and scripts, so any extra
+// stdout byte breaks the caller (e.g. `kit "..." --json | jq`).
+func suppressChrome() bool {
+	return quietFlag || jsonFlag
+}
+
 // validateModeFlags rejects invalid flag combinations for the root command.
 func validateModeFlags() error {
 	if quietFlag && positionalPrompt == "" {
@@ -880,7 +890,7 @@ func runNormalMode(ctx context.Context) error {
 
 	// Create spinner function for agent creation.
 	var spinnerFunc kit.SpinnerFunc
-	if !quietFlag {
+	if !suppressChrome() {
 		spinnerFunc = func(fn func() error) error {
 			tempCli, tempErr := ui.NewCLI(viper.GetBool("debug"))
 			if tempErr == nil {
@@ -918,7 +928,7 @@ func runNormalMode(ctx context.Context) error {
 	var appInstancePtr *app.App
 
 	kitOpts := &kit.Options{
-		Quiet:            quietFlag,
+		Quiet:            suppressChrome(),
 		Debug:            debugMode,
 		NoSession:        viper.GetBool("no-session"),
 		Continue:         continueFlag,

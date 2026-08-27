@@ -86,8 +86,9 @@ kit --model anthropic/claude-sonnet-latest
 ### Non-Interactive Mode
 
 ```bash
-# Get JSON output for scripting
-kit "Explain main.go" --json
+# Get JSON output for scripting (stdout carries only the JSON envelope,
+# so it pipes straight into jq; banners and warnings go to stderr)
+kit "Explain main.go" --json | jq -r .response
 
 # Quiet mode (final response only)
 kit "Run tests" --quiet

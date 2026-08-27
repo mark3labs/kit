@@ -6,6 +6,7 @@ package kitsetup
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"charm.land/fantasy"
 
@@ -232,7 +233,9 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		var extErr error
 		extRunner, extCreationOpts, extErr = loadExtensions(v, opts.Bare)
 		if extErr != nil {
-			fmt.Printf("Warning: Failed to load extensions: %v\n", extErr)
+			// stderr: stdout is reserved for the response payload in
+			// --quiet / --json mode.
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load extensions: %v\n", extErr)
 		}
 	}
 

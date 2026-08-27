@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -418,7 +419,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 			defer close(a.mcpReady)
 			if err := toolManager.LoadTools(ctx, agentConfig.MCPConfig); err != nil {
 				a.mcpErr = err
-				fmt.Printf("Warning: Failed to load MCP tools: %v\n", err)
+				// stderr: stdout is reserved for the response payload in
+				// --quiet / --json mode.
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load MCP tools: %v\n", err)
 			}
 		}()
 	}
