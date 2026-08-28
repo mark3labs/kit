@@ -524,10 +524,23 @@ async fn handle_connection(
     };
     status(&format!("PAIRING id={id}"));
 
-    let (mut send, mut recv) = match conn.accept_bi().await {
-        Ok(pair) => pair,
-        Err(e) => {
+    // Bound the stream open too: a peer that connects but never opens its
+    // bi stream would block here forever, holding its reserved session
+    // slot (eight such peers would lock the daemon). The SlotGuard below
+    // releases the slot when this timeout fires.
+    let (mut send, mut recv) = match tokio::time::timeout(
+        Duration::from_secs(HANDSHAKE_TIMEOUT),
+        conn.accept_bi(),
+    )
+    .await
+    {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => {
             status(&format!("ERROR msg=open stream: {e}"));
+            return;
+        }
+        Err(_) => {
+            status("DENIED reason=stream open timeout");
             return;
         }
     };
@@ -823,17 +836,27 @@ mod tests {
             backoff.clone(),
         ));
 
-        // One client endpoint opens MAX_SESSIONS connections that connect
-        // and send CLIENT_HELLO, then stall before authenticating.
+        // One client endpoint opens MAX_SESSIONS connections that stall
+        // before authenticating — half without ever opening a stream (the
+        // accept_bi path) and half with a bare CLIENT_HELLO (the handshake
+        // read path). Both variants must hold a slot only until the
+        // pre-auth timeout.
         let client = Endpoint::builder(presets::N0)
             .alpns(vec![ALPN.to_vec()])
             .transport_config(transport_config())
             .bind()
             .await
             .expect("client bind");
-        for _ in 0..MAX_SESSIONS {
+        let mut held_conns = Vec::new();
+        let mut held_streams = Vec::new();
+        for i in 0..MAX_SESSIONS {
             let conn = client.connect(server_id, ALPN).await.expect("connect");
-            let (mut send, _recv) = conn.open_bi().await.expect("open bi");
+            if i % 2 == 0 {
+                // Stall before any stream: exercises the accept_bi timeout.
+                held_conns.push(conn);
+                continue;
+            }
+            let (mut send, recv) = conn.open_bi().await.expect("open bi");
             let mut hello = Vec::with_capacity(2 + NONCE_LEN);
             hello.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
             hello.extend_from_slice(&random_nonce());
@@ -841,11 +864,7 @@ mod tests {
                 .await
                 .expect("client hello");
             // Hold the streams open until long after the pre-auth timeout.
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(120)).await;
-                drop(send);
-                drop(_recv);
-            });
+            held_streams.push((send, recv));
         }
 
         // Wait until every slot is reserved by a stalled peer.
