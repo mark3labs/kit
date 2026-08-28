@@ -47,7 +47,12 @@ export default {
     },
     {
       group: "Advanced",
-      pages: ["advanced/subagents", "advanced/json-output", "advanced/testing"],
+      pages: [
+          "advanced/remote-sessions",
+          "advanced/subagents",
+          "advanced/json-output",
+          "advanced/testing",
+        ],
     },
     {
       group: "Development",
