@@ -69,7 +69,7 @@ use iroh::endpoint::{
 use iroh::{Endpoint, SecretKey};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 const ALPN: &[u8] = b"kit/remote/1";
 const PROTOCOL_VERSION: u16 = 2;
@@ -77,6 +77,10 @@ const PROTOCOL_VERSION: u16 = 2;
 const MAX_PAYLOAD: usize = 65535;
 /// Cap on concurrent sessions over one endpoint; extra peers are denied.
 const MAX_SESSIONS: usize = 8;
+/// Cap on concurrent polite rejections of over-cap peers. Each rejection
+/// task lives at most one handshake timeout; beyond this budget over-cap
+/// peers are closed immediately without a denial frame.
+const REJECT_BUDGET: usize = 32;
 const HANDSHAKE_TIMEOUT: u64 = 30;
 
 // Frame types (shared with internal/daemon/protocol.go).
@@ -368,6 +372,7 @@ async fn serve(seed_hex: &str) {
     let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
     let active = Arc::new(AtomicUsize::new(0));
     let backoff: BackoffState = Arc::new(Mutex::new(Backoff::default()));
+    let reject_budget = Arc::new(Semaphore::new(REJECT_BUDGET));
 
     // Router: frames arriving on stdin are dispatched to the session named
     // in the frame header; unknown ids are dropped.
@@ -401,25 +406,35 @@ async fn serve(seed_hex: &str) {
         });
     }
 
-    accept_loop(endpoint, key, registry, active, backoff).await;
+    accept_loop(endpoint, key, registry, active, backoff, reject_budget).await;
 }
 
 /// The serve accept loop: reserves a session slot per incoming connection
 /// (atomically, so concurrent peers cannot all pass the cap check) and
 /// hands each to `handle_connection`.
+#[allow(clippy::too_many_arguments)]
 async fn accept_loop(
     endpoint: Endpoint,
     key: Arc<[u8; 32]>,
     registry: Registry,
     active: Arc<AtomicUsize>,
     backoff: BackoffState,
+    reject_budget: Arc<Semaphore>,
 ) {
     let mut next_id: u32 = 1;
     while let Some(incoming) = endpoint.accept().await {
         let slot = active.fetch_add(1, Ordering::Relaxed) + 1;
         if slot > MAX_SESSIONS {
             active.fetch_sub(1, Ordering::Relaxed);
-            tokio::spawn(reject_session_full(incoming));
+            // Beyond the polite-rejection budget, close the peer
+            // immediately: unbounded rejection tasks are their own
+            // resource leak under a connection flood.
+            match reject_budget.clone().try_acquire_owned() {
+                Ok(permit) => {
+                    tokio::spawn(reject_session_full(incoming, permit));
+                }
+                Err(_) => drop(incoming),
+            }
             continue;
         }
         let id = next_id;
@@ -490,7 +505,7 @@ impl Drop for SlotGuard<'_> {
 /// a stream, or stalls at any point, is reaped instead of pinning a
 /// rejection task), and the denial is finished before the connection drops
 /// so the peer reliably sees it.
-async fn reject_session_full(incoming: Incoming) {
+async fn reject_session_full(incoming: Incoming, _permit: tokio::sync::OwnedSemaphorePermit) {
     let opened = tokio::time::timeout(Duration::from_secs(HANDSHAKE_TIMEOUT), async move {
         let accepting = incoming.accept().map_err(|e| anyhow::anyhow!("{e}"))?;
         let conn = accepting.await?;
@@ -841,6 +856,7 @@ mod tests {
             registry.clone(),
             active.clone(),
             backoff.clone(),
+            Arc::new(Semaphore::new(REJECT_BUDGET)),
         ));
 
         // One client endpoint opens MAX_SESSIONS connections that stall
@@ -914,13 +930,34 @@ mod tests {
         // pre-auth timeout instead of leaking forever. Connect them now and
         // assert the reaps after the shared expiry window below.
         let mut over_cap = Vec::new();
-        for _ in 0..2 {
-            let conn = client
-                .connect(server_id, ALPN)
-                .await
-                .expect("over-cap connect");
-            over_cap.push(conn);
+        let mut refused_at_connect = 0;
+        let over_cap_count = REJECT_BUDGET + 8;
+        for _ in 0..over_cap_count {
+            match client.connect(server_id, ALPN).await {
+                Ok(conn) => over_cap.push(conn),
+                // Beyond-budget peers are dropped as unaccepted Incomings,
+                // which the client observes as a connect refusal.
+                Err(_) => refused_at_connect += 1,
+            }
         }
+
+        // Budgeted peers that connect silently hold until the pre-auth
+        // timeout; anything beyond the budget must already be gone.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let mut closed_now = 0;
+        for c in &over_cap {
+            if matches!(
+                tokio::time::timeout(Duration::ZERO, c.closed()).await,
+                Ok(_)
+            ) {
+                closed_now += 1;
+            }
+        }
+        assert!(
+            refused_at_connect + closed_now >= over_cap_count - REJECT_BUDGET,
+            "expected at least {} immediate refusals, got {refused_at_connect} connect-refused + {closed_now} instant-closed",
+            over_cap_count - REJECT_BUDGET
+        );
 
         // After the pre-auth timeout the stalled slots expire and the
         // cap opens again.
