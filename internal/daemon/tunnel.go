@@ -30,7 +30,9 @@ type Tunnel struct {
 }
 
 // FindTunnelBinary locates the kit-tunnel sidecar: KIT_TUNNEL_BIN first,
-// then next to the kit executable, then on PATH.
+// then next to the kit executable, then a repo checkout build (dev
+// convenience for `go run ./cmd/kit daemon` from the repo root), then on
+// PATH.
 func FindTunnelBinary() (string, error) {
 	if p := os.Getenv("KIT_TUNNEL_BIN"); p != "" {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
@@ -44,10 +46,16 @@ func FindTunnelBinary() (string, error) {
 			return candidate, nil
 		}
 	}
+	if wd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(wd, "contrib", "kit-tunnel", "target", "release", "kit-tunnel")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
 	if p, err := exec.LookPath("kit-tunnel"); err == nil {
 		return p, nil
 	}
-	return "", errors.New("daemon: kit-tunnel sidecar not found; install it next to the kit binary or set KIT_TUNNEL_BIN")
+	return "", errors.New("daemon: kit-tunnel sidecar not found; build it with 'task tunnel' or 'cargo build --release' in contrib/kit-tunnel, and place it next to the kit binary (or set KIT_TUNNEL_BIN)")
 }
 
 // StartTunnel launches the sidecar in serve or dial mode with the given

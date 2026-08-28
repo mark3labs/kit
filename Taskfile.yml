@@ -17,7 +17,9 @@ tasks:
   # -----------------------------------------------------------------------
 
   build:
-    desc: Build the kit binary
+    desc: Build the kit binary and the kit-tunnel sidecar
+    deps:
+      - tunnel
     cmds:
       - go build {{.BUILD_FLAGS}} -ldflags "{{.LDFLAGS}}" ./cmd/kit
     sources:
@@ -26,6 +28,24 @@ tasks:
       - go.sum
     generates:
       - "{{.OUTPUT_DIR}}/{{.BINARY}}"
+
+  tunnel:
+    desc: Build the kit-tunnel sidecar (Rust; required for daemon/remote)
+    cmds:
+      - |
+        if ! command -v cargo >/dev/null 2>&1; then
+          echo "warn: cargo not found — skipping kit-tunnel build; 'kit daemon' and '--remote' need it"
+          exit 0
+        fi
+        cargo build --release --manifest-path contrib/kit-tunnel/Cargo.toml
+        mkdir -p {{.OUTPUT_DIR}}
+        cp contrib/kit-tunnel/target/release/kit-tunnel {{.OUTPUT_DIR}}/kit-tunnel
+    sources:
+      - contrib/kit-tunnel/src/**/*.rs
+      - contrib/kit-tunnel/Cargo.toml
+      - contrib/kit-tunnel/Cargo.lock
+    generates:
+      - "{{.OUTPUT_DIR}}/kit-tunnel"
 
   build-all:
     desc: Build for all platforms (linux, darwin, windows)
