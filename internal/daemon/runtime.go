@@ -199,7 +199,7 @@ func ReadStatus() Status {
 	if err != nil {
 		return Status{}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // best effort: read-only probe
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return Status{Running: true, State: readStateFile(dir)}
 	}
