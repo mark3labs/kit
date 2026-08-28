@@ -485,16 +485,23 @@ impl Drop for SlotGuard<'_> {
     }
 }
 
-/// Politely refuse a peer when the session cap is reached.
+/// Politely refuse a peer when the session cap is reached. Fully bounded:
+/// every wait uses the handshake timeout (an over-cap peer that never opens
+/// a stream, or stalls at any point, is reaped instead of pinning a
+/// rejection task), and the denial is finished before the connection drops
+/// so the peer reliably sees it.
 async fn reject_session_full(incoming: Incoming) {
-    if let Ok(accepting) = incoming.accept() {
-        if let Ok(conn) = accepting.await {
-            if let Ok((mut send, mut recv)) = conn.accept_bi().await {
-                let _ = read_frame(&mut recv).await; // consume client hello
-                let _ = write_frame(&mut send, FRAME_DENIED, 0, b"too many sessions").await;
-                status("DENIED reason=too many sessions");
-            }
-        }
+    let opened = tokio::time::timeout(Duration::from_secs(HANDSHAKE_TIMEOUT), async move {
+        let accepting = incoming.accept().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = accepting.await?;
+        let (mut send, _recv) = conn.accept_bi().await?;
+        anyhow::Ok((send, conn))
+    })
+    .await;
+    if let Ok(Ok((mut send, _conn))) = opened {
+        let _ = write_frame(&mut send, FRAME_DENIED, 0, b"too many sessions").await;
+        let _ = send.finish();
+        status("DENIED reason=too many sessions");
     }
 }
 
@@ -902,6 +909,19 @@ mod tests {
         .expect("verdict in time");
         assert_eq!(verdict, FRAME_DENIED, "expected refusal for peer 9");
 
+        // Over-cap peers that NEVER open a stream must also be reaped: the
+        // rejection task is bounded, so their connections close within the
+        // pre-auth timeout instead of leaking forever. Connect them now and
+        // assert the reaps after the shared expiry window below.
+        let mut over_cap = Vec::new();
+        for _ in 0..2 {
+            let conn = client
+                .connect(server_id, ALPN)
+                .await
+                .expect("over-cap connect");
+            over_cap.push(conn);
+        }
+
         // After the pre-auth timeout the stalled slots expire and the
         // cap opens again.
         tokio::time::sleep(Duration::from_secs(HANDSHAKE_TIMEOUT + 2)).await;
@@ -909,6 +929,14 @@ mod tests {
             active.load(Ordering::Relaxed) < MAX_SESSIONS,
             "slots must expire after the pre-auth timeout"
         );
+
+        for conn in over_cap {
+            let closed = tokio::time::timeout(Duration::from_secs(10), conn.closed()).await;
+            assert!(
+                closed.is_ok(),
+                "over-cap silent peer connection must be reaped"
+            );
+        }
 
         accept_task.abort();
     }
