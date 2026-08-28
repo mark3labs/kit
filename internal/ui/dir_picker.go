@@ -57,6 +57,7 @@ type dirPickerModel struct {
 	height     int
 	showHidden bool
 	errMsg     string
+	quitting   bool
 
 	selected  string
 	cancelled bool
@@ -92,6 +93,7 @@ func (m *dirPickerModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.cancelled = true
+		m.quitting = true
 		return m, tea.Quit
 	case "ctrl+h":
 		m.showHidden = !m.showHidden
@@ -109,6 +111,7 @@ func (m *dirPickerModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case result.Cancelled:
 		m.cancelled = true
+		m.quitting = true
 		return m, tea.Quit
 	case result.Selected != nil:
 		entry, ok := result.Selected.Meta.(dirEntry)
@@ -117,6 +120,7 @@ func (m *dirPickerModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if entry.here {
 			m.selected = m.cwd
+			m.quitting = true
 			return m, tea.Quit
 		}
 		return m.enterDir(entry.path)
@@ -206,6 +210,18 @@ func listDirs(dir string, includeHidden bool) ([]listedDir, error) {
 }
 
 func (m *dirPickerModel) View() tea.View {
+	// Leave alt screen on the final render so the terminal returns to the
+	// normal buffer cleanly — mirrors AppModel's quitting behavior. Without
+	// this the picker's last frame stays painted in the normal buffer and
+	// reappears when the session TUI later leaves alt screen (very visible
+	// in remote sessions, where the client terminal mirrors the PTY).
+	if m.quitting {
+		v := tea.NewView("")
+		v.AltScreen = false
+		v.MouseMode = tea.MouseModeNone
+		return v
+	}
+
 	if m.popup.Items() == nil || (m.popup.Cursor() == 0 && len(m.popup.Items()) == 0) {
 		m.rebuild()
 	}
@@ -225,6 +241,8 @@ func (m *dirPickerModel) View() tea.View {
 	if height <= 0 {
 		height = 24
 	}
-	return tea.NewView(lipgloss.Place(width, height,
+	v := tea.NewView(lipgloss.Place(width, height,
 		lipgloss.Center, lipgloss.Center, content))
+	v.AltScreen = true
+	return v
 }

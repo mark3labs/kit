@@ -17,6 +17,16 @@ import (
 // forwarding the keystroke.
 const detachKey = 0x1d
 
+// terminalResetSeq restores terminal modes the remote TUI may have enabled
+// and we may not have seen disabled: alt screen off, cursor on, mouse and
+// bracketed paste off, kitty keyboard protocol popped. Emitted by the
+// client on teardown because the remote side may die mid-frame (SIGKILL,
+// network loss) without ever sending its own restore sequences.
+const terminalResetSeq = "\x1b[?1049l\x1b[?25h" +
+	"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" +
+	"\x1b[?2004l" +
+	"\x1b[<u\x1b[<u\x1b[<u"
+
 // RunRemote attaches the local terminal to a daemon session identified by
 // a pairing code: `kit --remote A1B2C3D4`. The remote daemon shows its
 // directory picker inside this terminal, then the session TUI takes over.
@@ -62,7 +72,10 @@ func RunRemote(ctx context.Context, rawCode string) error {
 	if err != nil {
 		return fmt.Errorf("daemon: raw mode: %w", err)
 	}
-	defer func() { _ = term.Restore(stdinFD, oldState) }()
+	defer func() {
+		_, _ = os.Stdout.WriteString(terminalResetSeq)
+		_ = term.Restore(stdinFD, oldState)
+	}()
 
 	done := make(chan struct{})
 	var once sync.Once
@@ -134,6 +147,7 @@ func RunRemote(ctx context.Context, rawCode string) error {
 
 	_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
 	tun.Close()
+	_, _ = os.Stdout.WriteString(terminalResetSeq)
 	_ = term.Restore(stdinFD, oldState)
 	if detached.Load() {
 		fmt.Fprintln(os.Stderr, "\nDetached from remote session.")
