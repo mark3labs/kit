@@ -6,7 +6,7 @@ pairing handshake, and frame relay between the network and its own stdio.
 
 ## Role in the system
 
-```
+```text
 kit --remote CODE ──iroh──► kit-tunnel dial   ⇄ stdio ⇄ kit (client)
 kit daemon        ──spawns──► kit-tunnel serve ⇄ stdio ⇄ kit daemon ⇄ PTY ⇄ kit --pick-dir (per session)
 ```

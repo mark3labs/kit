@@ -138,6 +138,7 @@ func (m *dirPickerModel) enterDir(path string) (tea.Model, tea.Cmd) {
 	}
 	if len(subs) == 0 {
 		m.selected = path
+		m.quitting = true
 		return m, tea.Quit
 	}
 	m.cwd = path

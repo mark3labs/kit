@@ -59,7 +59,7 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -367,7 +367,7 @@ async fn serve(seed_hex: &str) {
 
     let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
     let active = Arc::new(AtomicUsize::new(0));
-    let failures = Arc::new(AtomicUsize::new(0));
+    let backoff: BackoffState = Arc::new(Mutex::new(Backoff::default()));
 
     // Router: frames arriving on stdin are dispatched to the session named
     // in the frame header; unknown ids are dropped.
@@ -403,12 +403,13 @@ async fn serve(seed_hex: &str) {
 
     let mut next_id: u32 = 1;
     while let Some(incoming) = endpoint.accept().await {
-        // Failed handshakes back off exponentially (cap 8s); reset on success.
-        let f = failures.load(Ordering::Relaxed) as u64;
-        if f > 0 {
-            tokio::time::sleep(Duration::from_millis((f * 500).min(8000))).await;
-        }
-        if active.load(Ordering::Relaxed) >= MAX_SESSIONS {
+        // Reserve a session slot atomically in the accept loop: checking
+        // without reserving would let any number of concurrently
+        // authenticating peers pass the cap check before any of them
+        // counts as active.
+        let slot = active.fetch_add(1, Ordering::Relaxed) + 1;
+        if slot > MAX_SESSIONS {
+            active.fetch_sub(1, Ordering::Relaxed);
             tokio::spawn(reject_session_full(incoming));
             continue;
         }
@@ -420,8 +421,58 @@ async fn serve(seed_hex: &str) {
             key.clone(),
             registry.clone(),
             active.clone(),
-            failures.clone(),
+            backoff.clone(),
         ));
+    }
+}
+
+/// Handshake-failure backoff shared across connections: each consecutive
+/// failure raises the delay a connection waits before authenticating
+/// (500 ms steps, capped at 8 s). The count decays after two quiet minutes
+/// so a failed-guess burst cannot pin a permanent delay on legitimate
+/// peers, and it resets to zero on any successful handshake. The delay is
+/// applied inside the per-connection task: a failing peer delays itself
+/// and never blocks the accept loop.
+#[derive(Default)]
+struct Backoff {
+    count: usize,
+    last_failure: Option<Instant>,
+}
+
+type BackoffState = Arc<Mutex<Backoff>>;
+
+impl Backoff {
+    fn delay(&mut self) -> Duration {
+        let stale = self
+            .last_failure
+            .map(|t| t.elapsed() > Duration::from_secs(120))
+            .unwrap_or(true);
+        if self.count > 0 && stale {
+            self.count = 0;
+        }
+        Duration::from_millis((self.count as u64 * 500).min(8000))
+    }
+
+    fn record_success(&mut self) {
+        self.count = 0;
+        self.last_failure = None;
+    }
+
+    fn record_failure(&mut self) {
+        self.count = self.count.saturating_add(1);
+        self.last_failure = Some(Instant::now());
+    }
+}
+
+/// Releases the reserved session slot on every exit path of
+/// `handle_connection`, including handshake failures.
+struct SlotGuard<'a> {
+    active: &'a AtomicUsize,
+}
+
+impl Drop for SlotGuard<'_> {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -444,8 +495,11 @@ async fn handle_connection(
     key: Arc<[u8; 32]>,
     registry: Registry,
     active: Arc<AtomicUsize>,
-    failures: Arc<AtomicUsize>,
+    backoff: BackoffState,
 ) {
+    // The slot was reserved by the accept loop; drop releases it.
+    let _slot = SlotGuard { active: &active };
+
     let conn = match incoming.accept() {
         Ok(accepting) => match accepting.await {
             Ok(conn) => conn,
@@ -469,25 +523,33 @@ async fn handle_connection(
         }
     };
 
-    match tokio::time::timeout(
+    // Backoff is applied inside this connection's own task: a failing peer
+    // waits here before authenticating instead of stalling the accept loop.
+    let delay = { backoff.lock().unwrap().delay() };
+    if delay > Duration::ZERO {
+        tokio::time::sleep(delay).await;
+    }
+
+    let handshake = tokio::time::timeout(
         Duration::from_secs(HANDSHAKE_TIMEOUT),
         server_handshake(&mut send, &mut recv, &key, id),
     )
-    .await
-    {
-        Ok(Ok(())) => {}
+    .await;
+    match handshake {
+        Ok(Ok(())) => {
+            backoff.lock().unwrap().record_success();
+        }
         Ok(Err(e)) => {
+            backoff.lock().unwrap().record_failure();
             status(&format!("DENIED reason={e}"));
-            failures.fetch_add(1, Ordering::Relaxed);
             return;
         }
         Err(_) => {
+            backoff.lock().unwrap().record_failure();
             status("DENIED reason=handshake timeout");
-            failures.fetch_add(1, Ordering::Relaxed);
             return;
         }
     }
-    failures.store(0, Ordering::Relaxed);
 
     // Announce the session to the Go daemon, then register the routing
     // channel. Order matters: SESSION_OPEN must reach stdout before any of
@@ -501,7 +563,6 @@ async fn handle_connection(
         return; // daemon is gone
     }
     status(&format!("SESSION_OPEN id={id}"));
-    active.fetch_add(1, Ordering::Relaxed);
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
     registry.lock().unwrap().insert(id, tx);
@@ -517,7 +578,10 @@ async fn handle_connection(
                 break;
             }
             let out = Frame::new(frame.t, id, frame.payload);
-            if write_frame_sync(&mut io::stdout().lock(), &out).is_err() {
+            // Blocking stdout write: keep it off the async worker core.
+            if tokio::task::block_in_place(|| write_frame_sync(&mut io::stdout().lock(), &out))
+                .is_err()
+            {
                 break; // daemon gone
             }
         }
@@ -543,7 +607,6 @@ async fn handle_connection(
     }
 
     registry.lock().unwrap().remove(&id);
-    active.fetch_sub(1, Ordering::Relaxed);
     let _ = write_frame_sync(
         &mut io::stdout().lock(),
         &Frame::new(FRAME_SESSION_CLOSED, id, Vec::new()),
@@ -660,7 +723,8 @@ async fn dial(seed_hex: &str, timeout_secs: u64) {
             break;
         }
         let out = Frame::new(frame.t, 0, frame.payload);
-        if write_frame_sync(&mut io::stdout().lock(), &out).is_err() {
+        if tokio::task::block_in_place(|| write_frame_sync(&mut io::stdout().lock(), &out)).is_err()
+        {
             break;
         }
     }

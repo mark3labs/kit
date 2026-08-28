@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/creack/pty"
 )
 
@@ -159,7 +160,7 @@ func (table *sessionTable) openSession(id uint32) {
 	s := &remoteSession{id: id}
 	child, ptmx, err := spawnPickDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "daemon: session %d: spawn: %v\n", id, err)
+		log.Error("daemon: session spawn failed", "session_id", id, "error", err)
 		_ = table.writeTo(Frame{Type: FrameBye, Session: id})
 		return
 	}
@@ -170,7 +171,7 @@ func (table *sessionTable) openSession(id uint32) {
 	active := len(table.sessions)
 	table.mu.Unlock()
 	table.rt.setSessions(active)
-	fmt.Printf("  Session %d started.\n", id)
+	log.Info("session started", "session_id", id)
 
 	// PTY -> remote: raw child output as DATA frames tagged with the id.
 	go func(s *remoteSession) {
@@ -222,7 +223,7 @@ func (t *sessionTable) closeSession(id uint32) {
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	fmt.Printf("  Session %d ended.\n", id)
+	log.Info("session ended", "session_id", id)
 }
 
 func (t *sessionTable) teardownAll() {

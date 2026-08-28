@@ -258,6 +258,9 @@ func kitBanner() string {
 }
 
 func init() {
+	// Registered before InitConfig: remote attachment and directory
+	// selection must not depend on (or race) local configuration loading.
+	cobra.OnInitialize(preInitDispatch)
 	cobra.OnInitialize(InitConfig)
 
 	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
@@ -464,34 +467,52 @@ func processPositionalArgs(args []string) {
 	}
 }
 
-func runKit(ctx context.Context) error {
-	// Remote mode: attach this terminal to a kit daemon session. It must
-	// run before any config/agent setup — the client side performs no LLM
-	// or local-session work itself.
+// preInitDispatch handles the remote-session entry points before any
+// configuration is loaded. Cobra runs initializers in registration order,
+// ahead of RunE, so:
+//
+//   - `--remote` dispatches without touching local config: a broken
+//     ~/.config/kit or project config must not block attaching to a daemon,
+//     and a remote attachment must never load project settings.
+//   - `--pick-dir` changes the working directory before config discovery,
+//     so project-level configuration (.kit.* in the chosen directory) is
+//     honored instead of the directory kit happened to start in.
+//
+// The dispatcher exits the process directly; neither path returns into the
+// normal startup flow.
+func preInitDispatch() {
+	// Remote mode: attach this terminal to a kit daemon session. The client
+	// performs no local-session work itself.
 	if remoteCodeFlag != "" {
-		if positionalPrompt != "" {
-			return fmt.Errorf("prompt arguments cannot be combined with --remote")
+		if args := rootCmd.Flags().Args(); len(args) > 0 {
+			fmt.Fprintln(os.Stderr, "prompt arguments cannot be combined with --remote")
+			os.Exit(1)
 		}
-		return daemon.RunRemote(ctx, remoteCodeFlag)
+		if err := daemon.RunRemote(context.Background(), remoteCodeFlag); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
-	// Directory picker: runs before kit.New() so that config, skills,
-	// extensions, and context discovery all resolve against the chosen
-	// directory. Spawned by `kit daemon` inside a PTY; also useful locally.
 	if pickDirFlag {
 		home, _ := os.UserHomeDir()
 		chosen, err := ui.RunDirPicker(home)
 		if err != nil {
-			return err
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 		if chosen == "" {
-			return nil // cancelled
+			os.Exit(0) // cancelled
 		}
 		if err := os.Chdir(chosen); err != nil {
-			return fmt.Errorf("change to %s: %w", chosen, err)
+			fmt.Fprintf(os.Stderr, "change to %s: %v\n", chosen, err)
+			os.Exit(1)
 		}
 	}
+}
 
+func runKit(ctx context.Context) error {
 	return runNormalMode(ctx)
 }
 

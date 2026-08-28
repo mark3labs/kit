@@ -91,8 +91,8 @@ var daemonServiceInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install and start the systemd user service",
 	Args:  cobra.NoArgs,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		return daemon.InstallSystemService()
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return daemon.InstallSystemService(cmd.Context())
 	},
 }
 
@@ -100,8 +100,8 @@ var daemonServiceRemoveCmd = &cobra.Command{
 	Use:   "remove",
 	Short: "Stop and uninstall the systemd user service",
 	Args:  cobra.NoArgs,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		return daemon.RemoveSystemService()
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return daemon.RemoveSystemService(cmd.Context())
 	},
 }
 

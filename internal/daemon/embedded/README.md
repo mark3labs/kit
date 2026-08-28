@@ -1,8 +1,11 @@
 # Embedded kit-tunnel sidecar
 
 This directory holds platform-specific `kit-tunnel` binaries that are
-compiled into the kit binary via `go:embed`, so a kit build always carries
-its transport sidecar — no separate download needed.
+compiled into the kit binary via `go:embed`. After `task build` / `task
+tunnel` stages the binary for the current platform, a kit build carries
+its transport sidecar — no separate download needed. On a fresh checkout
+with nothing staged here, kit still builds and falls back to an external
+`kit-tunnel` at runtime.
 
 - Naming: `kit-tunnel-<GOOS>-<GOARCH>` (Go naming, e.g. `kit-tunnel-linux-amd64`,
   `kit-tunnel-darwin-arm64`, `kit-tunnel-windows-amd64`).

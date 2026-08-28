@@ -19,7 +19,10 @@ import (
 
 // CodeAlphabet excludes 0/O/1/I to keep codes readable and unambiguous when
 // read aloud or copied. 8 characters from a 32-symbol alphabet is ~40 bits
-// of entropy — enough for a short-lived, single-use, rate-limited pairing.
+// of entropy. The code stays valid for the daemon's lifetime and allows
+// multiple sessions; guessing is throttled by the tunnel's handshake
+// backoff (which also persists across failures), so treat the code like a
+// password for the duration of the daemon run.
 const (
 	CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	CodeLength   = 8

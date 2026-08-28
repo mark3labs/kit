@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -61,7 +60,7 @@ func acquireDaemonLock() (*daemonLock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("daemon: lock: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFileExclusive(f); err != nil {
 		_ = f.Close()
 		if st := readStateFile(dir); st != nil {
 			return nil, fmt.Errorf(
@@ -76,7 +75,7 @@ func acquireDaemonLock() (*daemonLock, error) {
 // release drops the lock. The process exit path also releases it implicitly
 // when the fd closes.
 func (l *daemonLock) release() {
-	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	unlockFile(l.f)
 	_ = l.f.Close()
 }
 
@@ -200,9 +199,9 @@ func ReadStatus() Status {
 		return Status{}
 	}
 	defer func() { _ = f.Close() }() // best effort: read-only probe
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFileExclusive(f); err != nil {
 		return Status{Running: true, State: readStateFile(dir)}
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	unlockFile(f)
 	return Status{Running: false, State: readStateFile(dir)}
 }

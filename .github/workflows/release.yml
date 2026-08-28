@@ -47,22 +47,21 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
+          use-cache: false
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: contrib/kit-tunnel
-
+      # --parallelism 1 keeps target builds sequential: the per-target pre
+      # hook stages the sidecar into the shared go:embed directory, and
+      # parallel builds could embed a sibling's sidecar mid-staging.
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

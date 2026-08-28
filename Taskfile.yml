@@ -52,6 +52,11 @@ tasks:
       - "{{.OUTPUT_DIR}}/kit-tunnel"
       - "internal/daemon/embedded/kit-tunnel-*"
 
+  # NOTE: these Go builds do NOT stage per-target kit-tunnel sidecars, so
+  # the artifacts fall back to an external sidecar at runtime. For
+  # distributable binaries with the sidecar embedded, use goreleaser
+  # (which runs scripts/stage-tunnel.sh per target), or stage each target
+  # first: GOOS=x GOARCH=y ./scripts/stage-tunnel.sh x y out
   build-all:
     desc: Build for all platforms (linux, darwin, windows)
     cmds:

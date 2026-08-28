@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -26,14 +27,14 @@ func systemdUnitPath() (string, error) {
 	return filepath.Join(home, ".config", "systemd", "user", serviceUnitName), nil
 }
 
-func systemctlUser(args ...string) error {
+func systemctlUser(ctx context.Context, args ...string) error {
 	if os.Getenv("XDG_RUNTIME_DIR") == "" {
 		return errors.New("systemd user session not available (XDG_RUNTIME_DIR is unset)")
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return errors.New("systemctl not found — this machine does not use systemd")
 	}
-	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
+	cmd := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
@@ -116,13 +117,19 @@ func writeServiceEnvFile() (string, bool, error) {
 // InstallSystemService writes the user unit and enables + starts it. When a
 // daemon is already running interactively, the service's own lock attempt
 // would fail forever, so refuse here instead of creating a restart loop.
-func InstallSystemService() error {
+func InstallSystemService(ctx context.Context) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("daemon: resolve kit binary: %w", err)
 	}
 	if st := ReadStatus(); st.Running {
-		return fmt.Errorf("daemon: an instance is already running (pid %d) — stop it before installing the service", st.State.PID)
+		// State may legitimately be nil: the lock is held before the first
+		// state snapshot is persisted.
+		pid := "unknown"
+		if st.State != nil {
+			pid = fmt.Sprint(st.State.PID)
+		}
+		return fmt.Errorf("daemon: an instance is already running (pid %s) — stop it before installing the service", pid)
 	}
 
 	envPath, envCreated, err := writeServiceEnvFile()
@@ -158,10 +165,10 @@ WantedBy=default.target
 		return fmt.Errorf("daemon: write unit: %w", err)
 	}
 
-	if err := systemctlUser("daemon-reload"); err != nil {
+	if err := systemctlUser(ctx, "daemon-reload"); err != nil {
 		return err
 	}
-	if err := systemctlUser("enable", "--now", serviceUnitName); err != nil {
+	if err := systemctlUser(ctx, "enable", "--now", serviceUnitName); err != nil {
 		return err
 	}
 	fmt.Printf("  Installed and started %s\n", unitPath)
@@ -175,7 +182,7 @@ WantedBy=default.target
 }
 
 // RemoveSystemService stops, disables, and deletes the user unit.
-func RemoveSystemService() error {
+func RemoveSystemService(ctx context.Context) error {
 	unitPath, err := systemdUnitPath()
 	if err != nil {
 		return err
@@ -183,13 +190,13 @@ func RemoveSystemService() error {
 	if _, err := os.Stat(unitPath); err != nil {
 		return fmt.Errorf("daemon: %s is not installed (%s not found)", serviceUnitName, unitPath)
 	}
-	if err := systemctlUser("disable", "--now", serviceUnitName); err != nil {
+	if err := systemctlUser(ctx, "disable", "--now", serviceUnitName); err != nil {
 		return err
 	}
 	if err := os.Remove(unitPath); err != nil {
 		return fmt.Errorf("daemon: remove unit: %w", err)
 	}
-	_ = systemctlUser("daemon-reload")
+	_ = systemctlUser(ctx, "daemon-reload")
 	fmt.Printf("  Stopped and removed %s\n", unitPath)
 	return nil
 }
