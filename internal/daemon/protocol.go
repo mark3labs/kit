@@ -103,10 +103,7 @@ func DecodeResize(payload []byte) (cols, rows int, err error) {
 // WriteDataFrames splits b into chunkSize DATA frames tagged with session.
 func WriteDataFrames(w io.Writer, session uint32, b []byte) error {
 	for len(b) > 0 {
-		n := chunkSize
-		if n > len(b) {
-			n = len(b)
-		}
+		n := min(chunkSize, len(b))
 		if err := WriteFrame(w, FrameData, session, b[:n]); err != nil {
 			return err
 		}

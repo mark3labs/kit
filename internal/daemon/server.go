@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,16 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	}
 	seedHex := fmt.Sprintf("%x", seed)
 
+	// Single instance per user: the lock is held for the daemon's lifetime
+	// and released automatically on crash, so there is no stale-lock state.
+	lock, err := acquireDaemonLock()
+	if err != nil {
+		return err
+	}
+	defer lock.release()
+	defer clearState()
+	rt := newDaemonRuntime(lock, code)
+
 	printBanner(code)
 
 	// If the tunnel process dies unexpectedly (crash, kill), restart it
@@ -57,12 +68,16 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tun.WaitStatus(ctx, "READY", 30*time.Second); err != nil {
+		ready, err := tun.WaitStatus(ctx, "READY", 30*time.Second)
+		if err != nil {
 			tun.Close()
 			return fmt.Errorf("daemon: tunnel failed to start: %w", err)
 		}
+		if nodeID, ok := strings.CutPrefix(ready, "READY node_id="); ok {
+			rt.setEndpoint(nodeID)
+		}
 
-		err = runSessions(ctx, tun)
+		err = runSessions(ctx, tun, rt)
 
 		tun.Close()
 		if ctx.Err() != nil {
@@ -87,6 +102,7 @@ type remoteSession struct {
 // guarded by mu.
 type sessionTable struct {
 	tunnel   *Tunnel
+	rt       *daemonRuntime
 	mu       sync.Mutex
 	sessions map[uint32]*remoteSession
 	writeMu  sync.Mutex // tunnel stdin is shared by all session pumps
@@ -100,8 +116,8 @@ func (t *sessionTable) writeTo(frame Frame) error {
 	return WriteFrame(t.tunnel.Stdin(), frame.Type, frame.Session, frame.Payload)
 }
 
-func runSessions(ctx context.Context, tun *Tunnel) error {
-	table := &sessionTable{tunnel: tun, sessions: make(map[uint32]*remoteSession)}
+func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
+	table := &sessionTable{tunnel: tun, rt: rt, sessions: make(map[uint32]*remoteSession)}
 	defer table.teardownAll()
 
 	// Child exits are noticed by the per-session PTY reader; when a client
@@ -151,7 +167,9 @@ func (table *sessionTable) openSession(id uint32) {
 
 	table.mu.Lock()
 	table.sessions[id] = s
+	active := len(table.sessions)
 	table.mu.Unlock()
+	table.rt.setSessions(active)
 	fmt.Printf("  Session %d started.\n", id)
 
 	// PTY -> remote: raw child output as DATA frames tagged with the id.
@@ -189,10 +207,12 @@ func (t *sessionTable) closeSession(id uint32) {
 	t.mu.Lock()
 	s, ok := t.sessions[id]
 	delete(t.sessions, id)
+	active := len(t.sessions)
 	t.mu.Unlock()
 	if !ok {
 		return
 	}
+	t.rt.setSessions(active)
 
 	_ = t.writeTo(Frame{Type: FrameBye, Session: id})
 
