@@ -401,12 +401,21 @@ async fn serve(seed_hex: &str) {
         });
     }
 
+    accept_loop(endpoint, key, registry, active, backoff).await;
+}
+
+/// The serve accept loop: reserves a session slot per incoming connection
+/// (atomically, so concurrent peers cannot all pass the cap check) and
+/// hands each to `handle_connection`.
+async fn accept_loop(
+    endpoint: Endpoint,
+    key: Arc<[u8; 32]>,
+    registry: Registry,
+    active: Arc<AtomicUsize>,
+    backoff: BackoffState,
+) {
     let mut next_id: u32 = 1;
     while let Some(incoming) = endpoint.accept().await {
-        // Reserve a session slot atomically in the accept loop: checking
-        // without reserving would let any number of concurrently
-        // authenticating peers pass the cap check before any of them
-        // counts as active.
         let slot = active.fetch_add(1, Ordering::Relaxed) + 1;
         if slot > MAX_SESSIONS {
             active.fetch_sub(1, Ordering::Relaxed);
@@ -779,4 +788,109 @@ fn main() {
             )),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: peers that complete the QUIC handshake but stall
+    /// before authenticating hold session slots only for the pre-auth
+    /// timeout — and until then, the session cap must keep rejecting new
+    /// peers instead of letting the slot count grow unbounded.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stalled_pre_auth_peers_are_capped_and_expire() {
+        let secret = SecretKey::generate();
+        let key = Arc::new(auth_key(b"test-code-0001"));
+        let endpoint = Endpoint::builder(presets::N0)
+            .secret_key(secret.clone())
+            .alpns(vec![ALPN.to_vec()])
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("server bind");
+        endpoint.online().await;
+        let server_id = endpoint.id();
+
+        let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let backoff: BackoffState = Arc::new(Mutex::new(Backoff::default()));
+        let accept_task = tokio::spawn(accept_loop(
+            endpoint,
+            key.clone(),
+            registry.clone(),
+            active.clone(),
+            backoff.clone(),
+        ));
+
+        // One client endpoint opens MAX_SESSIONS connections that connect
+        // and send CLIENT_HELLO, then stall before authenticating.
+        let client = Endpoint::builder(presets::N0)
+            .alpns(vec![ALPN.to_vec()])
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("client bind");
+        for _ in 0..MAX_SESSIONS {
+            let conn = client.connect(server_id, ALPN).await.expect("connect");
+            let (mut send, _recv) = conn.open_bi().await.expect("open bi");
+            let mut hello = Vec::with_capacity(2 + NONCE_LEN);
+            hello.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
+            hello.extend_from_slice(&random_nonce());
+            write_frame(&mut send, FRAME_CLIENT_HELLO, 0, &hello)
+                .await
+                .expect("client hello");
+            // Hold the streams open until long after the pre-auth timeout.
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(120)).await;
+                drop(send);
+                drop(_recv);
+            });
+        }
+
+        // Wait until every slot is reserved by a stalled peer.
+        for _ in 0..100 {
+            if active.load(Ordering::Relaxed) >= MAX_SESSIONS {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert_eq!(
+            active.load(Ordering::Relaxed),
+            MAX_SESSIONS,
+            "stalled peers should hold exactly the cap"
+        );
+
+        // The next peer must be refused, not admitted past the cap.
+        let conn = client.connect(server_id, ALPN).await.expect("connect 9th");
+        let (mut send, mut recv) = conn.open_bi().await.expect("open bi 9th");
+        let mut hello = Vec::with_capacity(2 + NONCE_LEN);
+        hello.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
+        hello.extend_from_slice(&random_nonce());
+        write_frame(&mut send, FRAME_CLIENT_HELLO, 0, &hello)
+            .await
+            .expect("client hello 9th");
+        // reject_session_full closes the connection right after writing
+        // DENIED, so the client may legitimately see either the frame or
+        // the connection drop — both mean "refused".
+        let verdict = tokio::time::timeout(Duration::from_secs(10), async {
+            match read_frame(&mut recv).await {
+                Ok(f) => f.t,
+                Err(_) => FRAME_DENIED,
+            }
+        })
+        .await
+        .expect("verdict in time");
+        assert_eq!(verdict, FRAME_DENIED, "expected refusal for peer 9");
+
+        // After the pre-auth timeout the stalled slots expire and the
+        // cap opens again.
+        tokio::time::sleep(Duration::from_secs(HANDSHAKE_TIMEOUT + 2)).await;
+        assert!(
+            active.load(Ordering::Relaxed) < MAX_SESSIONS,
+            "slots must expire after the pre-auth timeout"
+        );
+
+        accept_task.abort();
+    }
 }

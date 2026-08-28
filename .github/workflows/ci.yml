@@ -30,3 +30,19 @@ jobs:
           go-version: "1.26"
 
       - run: go test -race ./...
+
+  rust-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contrib/kit-tunnel
+
+      - name: Test kit-tunnel
+        run: cargo test --release --manifest-path contrib/kit-tunnel/Cargo.toml
