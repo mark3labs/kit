@@ -38,10 +38,12 @@ tasks:
           echo "warn: cargo not found — skipping kit-tunnel build; 'kit daemon' and '--remote' need it"
           exit 0
         fi
-        cargo build --release --manifest-path contrib/kit-tunnel/Cargo.toml
-        mkdir -p {{.OUTPUT_DIR}} internal/daemon/embedded
-        cp contrib/kit-tunnel/target/release/kit-tunnel {{.OUTPUT_DIR}}/kit-tunnel
-        cp contrib/kit-tunnel/target/release/kit-tunnel "internal/daemon/embedded/kit-tunnel-$(go env GOOS)-$(go env GOARCH)"
+        ./scripts/stage-tunnel.sh "$(go env GOOS)" "$(go env GOARCH)" "internal/daemon/embedded/kit-tunnel-$(go env GOOS)-$(go env GOARCH)"
+        mkdir -p {{.OUTPUT_DIR}}
+        cp contrib/kit-tunnel/target/release/kit-tunnel{{.exe}} {{.OUTPUT_DIR}}/kit-tunnel{{.exe}}
+    vars:
+      exe:
+        sh: 'if [ "$(go env GOOS)" = "windows" ]; then echo .exe; fi'
     sources:
       - contrib/kit-tunnel/src/**/*.rs
       - contrib/kit-tunnel/Cargo.toml
