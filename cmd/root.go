@@ -14,6 +14,7 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
@@ -96,6 +97,11 @@ var (
 	// Prompt templates
 	promptTemplatePaths []string
 	noPromptTemplates   bool
+
+	// Remote sessions (--remote) and the daemon's directory picker
+	// (--pick-dir, hidden — spawned by `kit daemon`).
+	remoteCodeFlag string
+	pickDirFlag    bool
 
 	// Preference restoration flags — set in RunE after cobra parses, used
 	// in runNormalMode to decide whether to apply saved preferences.
@@ -324,6 +330,11 @@ func init() {
 		StringVar(&skillsDir, "skills-dir", "", "scan this directory directly for skills (overrides auto-discovery)")
 	rootCmd.PersistentFlags().
 		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
+	rootCmd.Flags().
+		StringVar(&remoteCodeFlag, "remote", "", "connect to a kit daemon using a pairing code (e.g. kit --remote A1B2C3D4)")
+	rootCmd.Flags().
+		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
+	_ = rootCmd.Flags().MarkHidden("pick-dir")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -454,6 +465,33 @@ func processPositionalArgs(args []string) {
 }
 
 func runKit(ctx context.Context) error {
+	// Remote mode: attach this terminal to a kit daemon session. It must
+	// run before any config/agent setup — the client side performs no LLM
+	// or local-session work itself.
+	if remoteCodeFlag != "" {
+		if positionalPrompt != "" {
+			return fmt.Errorf("prompt arguments cannot be combined with --remote")
+		}
+		return daemon.RunRemote(ctx, remoteCodeFlag)
+	}
+
+	// Directory picker: runs before kit.New() so that config, skills,
+	// extensions, and context discovery all resolve against the chosen
+	// directory. Spawned by `kit daemon` inside a PTY; also useful locally.
+	if pickDirFlag {
+		home, _ := os.UserHomeDir()
+		chosen, err := ui.RunDirPicker(home)
+		if err != nil {
+			return err
+		}
+		if chosen == "" {
+			return nil // cancelled
+		}
+		if err := os.Chdir(chosen); err != nil {
+			return fmt.Errorf("change to %s: %w", chosen, err)
+		}
+	}
+
 	return runNormalMode(ctx)
 }
 
