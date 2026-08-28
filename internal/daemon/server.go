@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,208 +19,208 @@ type ServeOptions struct {
 	Code string
 }
 
-// Serve runs the daemon accept loop until ctx is cancelled: generate a
-// pairing code, wait for a verified remote connection, host one session in
-// a PTY, then rotate the code and wait again.
-//
-// Each pairing attempt gets a fresh tunnel process. Because the endpoint
-// identity is derived from the code, a wrong guess costs the attacker a
-// full endpoint rebind on our side — an implicit rate limit on top of the
-// code's entropy.
+// Serve runs the daemon until ctx is cancelled: derive the endpoint from a
+// pairing code, then host remote sessions over it. The code stays valid for
+// the daemon's lifetime; each verified client gets its own session (its own
+// `kit --pick-dir` child in its own PTY) and sessions end independently.
 func Serve(ctx context.Context, opts ServeOptions) error {
 	if _, err := FindTunnelBinary(); err != nil {
 		return err // fail fast with a clear message instead of per attempt
 	}
 
+	code := opts.Code
+	if code == "" {
+		var err error
+		code, err = GenerateCode()
+		if err != nil {
+			return err
+		}
+	} else if _, err := NormalizeCode(code); err != nil {
+		return err
+	}
+	seed, err := SeedFromCode(code)
+	if err != nil {
+		return err
+	}
+	seedHex := fmt.Sprintf("%x", seed)
+
+	printBanner(code)
+
+	// If the tunnel process dies unexpectedly (crash, kill), restart it
+	// with the same seed: the endpoint id is derived from the code, so the
+	// same code finds us again. Live sessions do not survive the restart.
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		code := opts.Code
-		if code == "" {
-			var err error
-			code, err = GenerateCode()
-			if err != nil {
-				return err
-			}
-		} else if _, err := NormalizeCode(code); err != nil {
-			return err
-		}
-
-		tun, err := waitForPairing(ctx, code)
+		tun, err := StartTunnel(ctx, "serve", seedHex)
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
 			return err
 		}
-		if tun != nil {
-			runSession(ctx, tun)
-			fmt.Println()
+		if _, err := tun.WaitStatus(ctx, "READY", 30*time.Second); err != nil {
+			tun.Close()
+			return fmt.Errorf("daemon: tunnel failed to start: %w", err)
+		}
+
+		err = runSessions(ctx, tun)
+
+		tun.Close()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return fmt.Errorf("daemon: tunnel ended: %w", err)
+		}
+		fmt.Println("  Listener restarted — same pairing code, waiting…")
+	}
+}
+
+// remoteSession is one connected client and its kit child process.
+type remoteSession struct {
+	id   uint32
+	cmd  *exec.Cmd
+	ptmx *os.File
+}
+
+// sessionTable tracks live sessions. The tunnel's stdout frames are read by
+// a single goroutine, so map access is confined to it plus teardown paths
+// guarded by mu.
+type sessionTable struct {
+	tunnel   *Tunnel
+	mu       sync.Mutex
+	sessions map[uint32]*remoteSession
+	writeMu  sync.Mutex // tunnel stdin is shared by all session pumps
+}
+
+// writeTo sends one frame to the tunnel stdin. Errors are the caller's to
+// ignore or handle; a closed tunnel means everything is going away anyway.
+func (t *sessionTable) writeTo(frame Frame) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	return WriteFrame(t.tunnel.Stdin(), frame.Type, frame.Session, frame.Payload)
+}
+
+func runSessions(ctx context.Context, tun *Tunnel) error {
+	table := &sessionTable{tunnel: tun, sessions: make(map[uint32]*remoteSession)}
+	defer table.teardownAll()
+
+	// Child exits are noticed by the per-session PTY reader; when a client
+	// detaches (BYE) or the tunnel drops the session (SESSION_CLOSED), the
+	// reader loop tears that one session down.
+	for {
+		frame, err := ReadFrame(tun.Stdout())
+		if err != nil {
+			return nil // tunnel stream/process ended
+		}
+		switch frame.Type {
+		case FrameSessionOpen:
+			table.openSession(frame.Session)
+		case FrameSessionClosed, FrameBye:
+			table.closeSession(frame.Session)
+		case FrameData:
+			if s := table.get(frame.Session); s != nil {
+				if _, err := s.ptmx.Write(frame.Payload); err != nil {
+					table.closeSession(frame.Session)
+				}
+			}
+		case FrameResize:
+			if s := table.get(frame.Session); s != nil {
+				if cols, rows, derr := DecodeResize(frame.Payload); derr == nil {
+					_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 	}
 }
 
-// waitForPairing prints the banner, starts a tunnel in serve mode, and
-// blocks until the handshake verdict. It returns the tunnel still holding
-// the verified connection (ownership transfers to the caller), or nil when
-// the attempt was denied (the loop rotates the code).
-func waitForPairing(ctx context.Context, code string) (*Tunnel, error) {
-	seed, err := SeedFromCode(code)
-	if err != nil {
-		return nil, err
-	}
-	printBanner(code)
-
-	tun, err := StartTunnel(ctx, "serve", fmt.Sprintf("%x", seed))
-	if err != nil {
-		return nil, err
-	}
-
-	status, err := tun.WaitStatus(ctx, "READY", 30*time.Second)
-	if err != nil {
-		tun.Close()
-		return nil, fmt.Errorf("daemon: tunnel failed to start: %w", err)
-	}
-	if nodeID, ok := strings.CutPrefix(status, "READY node_id="); ok {
-		fmt.Printf("  Endpoint %s\n", nodeID)
-	}
-	fmt.Println("  Waiting for a connection… (Ctrl+C to stop)")
-
-	// The tunnel emits PAIRING as soon as a peer dials, then either
-	// VERIFIED or DENIED. No deadline: the operator decides how long the
-	// code stays live; SIGINT (ctx) is the exit path.
-	_, _ = tun.WaitAnyStatus(ctx, 0, "PAIRING")
-	verdict, err := tun.WaitAnyStatus(ctx, 0, "VERIFIED", "DENIED")
-	if err != nil {
-		tun.Close()
-		return nil, fmt.Errorf("daemon: tunnel ended during pairing: %w", err)
-	}
-	if strings.HasPrefix(verdict, "DENIED") {
-		tun.Close()
-		fmt.Printf("  Pairing attempt denied (%s) — rotating code.\n",
-			strings.TrimPrefix(verdict, "DENIED "))
-		return nil, nil
-	}
-
-	fmt.Println("  Connected — session started.")
-	return tun, nil
-}
-
-// runSession hosts one remote session over an already-verified tunnel:
-// spawn `kit --pick-dir` in a PTY, relay frames between the tunnel and the
-// PTY, and clean up on any exit path (child quits, client detaches,
-// network drops, SIGINT).
-func runSession(ctx context.Context, tun *Tunnel) {
-	defer tun.Close()
-
-	// Catch the client's initial RESIZE, which arrives right after the
-	// handshake, so the child starts with the peer's real window size.
-	pendingResize := drainInitialResize(tun)
-
+// openSession spawns a fresh `kit --pick-dir` child for a newly verified
+// client. A failure to spawn is reported to that client as a BYE; the
+// daemon and other sessions continue.
+func (table *sessionTable) openSession(id uint32) {
+	s := &remoteSession{id: id}
 	child, ptmx, err := spawnPickDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "daemon: spawn session: %v\n", err)
+		fmt.Fprintf(os.Stderr, "daemon: session %d: spawn: %v\n", id, err)
+		_ = table.writeTo(Frame{Type: FrameBye, Session: id})
 		return
 	}
-	if pendingResize != nil {
-		_ = pty.Setsize(ptmx, pendingResize)
-	}
-	defer func() { _ = ptmx.Close() }()
+	s.cmd, s.ptmx = child, ptmx
 
-	done := make(chan struct{})
-	var once sync.Once
-	var writeMu sync.Mutex // tunnel stdin is written by the pty pump and resizes
-	finish := func() { once.Do(func() { close(done) }) }
+	table.mu.Lock()
+	table.sessions[id] = s
+	table.mu.Unlock()
+	fmt.Printf("  Session %d started.\n", id)
 
-	// Remote -> PTY: DATA frames feed the child; RESIZE applies winsize;
-	// BYE (client detached) ends the session.
-	go func() {
-		defer finish()
-		for {
-			t, payload, err := ReadFrame(tun.Stdout())
-			if err != nil {
-				return
-			}
-			switch t {
-			case FrameData:
-				if _, err := ptmx.Write(payload); err != nil {
-					return
-				}
-			case FrameResize:
-				cols, rows, derr := DecodeResize(payload)
-				if derr != nil {
-					continue
-				}
-				_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
-			case FrameBye:
-				return
-			}
-		}
-	}()
-
-	// PTY -> remote: raw child output as DATA frames.
-	go func() {
-		defer finish()
+	// PTY -> remote: raw child output as DATA frames tagged with the id.
+	go func(s *remoteSession) {
 		buf := make([]byte, chunkSize)
 		for {
-			n, err := ptmx.Read(buf)
+			n, err := s.ptmx.Read(buf)
 			if n > 0 {
-				writeMu.Lock()
-				werr := WriteDataFrames(tun.Stdin(), buf[:n])
-				writeMu.Unlock()
-				if werr != nil {
-					return
-				}
+				// Write errors mean the tunnel is gone; the restart loop
+				// takes over from here.
+				_ = table.writeTo(Frame{Type: FrameData, Session: s.id, Payload: buf[:n]})
 			}
 			if err != nil {
 				return // EIO when the child exits, or PTY closed
 			}
 		}
-	}()
+	}(s)
 
-	select {
-	case <-done:
-	case <-tun.Exited(): // tunnel died (peer gone, network timeout)
-	case <-ctx.Done():
-	}
-
-	// Tear down: tell the remote we are done, stop the child.
-	_ = WriteFrame(tun.Stdin(), FrameBye, nil)
-	_ = ptmx.Close()
-	_ = child.Process.Kill()
-	_, _ = child.Process.Wait()
-
-	fmt.Println("  Session ended.")
+	// Child lifecycle: when the child quits (user exited the remote TUI),
+	// end exactly this session — other clients are unaffected.
+	go func(s *remoteSession) {
+		_, _ = s.cmd.Process.Wait()
+		table.closeSession(s.id)
+	}(s)
 }
 
-// drainInitialResize reads frames for a short window after the handshake
-// and returns the first RESIZE seen. DATA frames in this window are
-// dropped — the client sends nothing but its size until the picker renders.
-func drainInitialResize(tun *Tunnel) *pty.Winsize {
-	var result *pty.Winsize
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			t, payload, err := ReadFrame(tun.Stdout())
-			if err != nil {
-				return
-			}
-			if t == FrameResize {
-				cols, rows, derr := DecodeResize(payload)
-				if derr == nil {
-					result = &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
-				}
-				return
-			}
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(500 * time.Millisecond):
+// applyResize was removed: the child exists before the session is
+// registered and stdout frames are processed in order, so a RESIZE always
+// finds a live PTY. Resizes that arrive during the handshake are buffered
+// by the pipe and applied right after registration.
+
+// closeSession tears down one session: tell the client we are done, stop
+// the child, and free the table slot. Idempotent.
+func (t *sessionTable) closeSession(id uint32) {
+	t.mu.Lock()
+	s, ok := t.sessions[id]
+	delete(t.sessions, id)
+	t.mu.Unlock()
+	if !ok {
+		return
 	}
-	return result
+
+	_ = t.writeTo(Frame{Type: FrameBye, Session: id})
+
+	if s.ptmx != nil {
+		_ = s.ptmx.Close()
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	fmt.Printf("  Session %d ended.\n", id)
+}
+
+func (t *sessionTable) teardownAll() {
+	t.mu.Lock()
+	ids := make([]uint32, 0, len(t.sessions))
+	for id := range t.sessions {
+		ids = append(ids, id)
+	}
+	t.mu.Unlock()
+	for _, id := range ids {
+		t.closeSession(id)
+	}
+}
+
+func (t *sessionTable) get(id uint32) *remoteSession {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sessions[id]
 }
 
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
@@ -264,5 +263,6 @@ func printBanner(code string) {
 	fmt.Println()
 	fmt.Printf("  Pairing code: %s\n", FormatCode(code))
 	fmt.Println("  Enter this code on the remote machine with: kit --remote " + code)
+	fmt.Println("  The code stays valid while the daemon runs; multiple sessions allowed.")
 	fmt.Println()
 }

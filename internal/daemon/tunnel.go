@@ -29,10 +29,14 @@ type Tunnel struct {
 	closed   bool
 }
 
-// FindTunnelBinary locates the kit-tunnel sidecar: KIT_TUNNEL_BIN first,
-// then next to the kit executable, then a repo checkout build (dev
-// convenience for `go run ./cmd/kit daemon` from the repo root), then on
-// PATH.
+// FindTunnelBinary locates the kit-tunnel sidecar, in order:
+//
+//  1. KIT_TUNNEL_BIN (explicit override)
+//  2. next to the kit executable (task-managed output/ layout)
+//  3. a repo checkout build (dev convenience for `go run ./cmd/kit daemon`)
+//  4. the embedded copy staged into the kit build by `task build`
+//     (extracted to the user cache dir on first use)
+//  5. PATH
 func FindTunnelBinary() (string, error) {
 	if p := os.Getenv("KIT_TUNNEL_BIN"); p != "" {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
@@ -51,6 +55,9 @@ func FindTunnelBinary() (string, error) {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, nil
 		}
+	}
+	if p, err := extractEmbeddedTunnel(); err == nil {
+		return p, nil
 	}
 	if p, err := exec.LookPath("kit-tunnel"); err == nil {
 		return p, nil

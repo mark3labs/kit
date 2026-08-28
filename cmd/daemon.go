@@ -17,13 +17,15 @@ var daemonCmd = &cobra.Command{
 	Short: "Run Kit as a remote daemon, waiting for a pairing connection",
 	Long: `Run Kit as a remote daemon.
 
-Generates a short-lived pairing code and waits for a remote peer to
-connect with "kit --remote CODE". On a verified connection the remote
-peer picks a working directory (starting in this user's home directory)
-and the session runs entirely on this machine, rendered inside the peer's
-terminal.
+Generates a pairing code and waits for remote peers to connect with
+"kit --remote CODE". Each verified peer picks a working directory
+(starting in this user's home directory) and gets its own session:
+the session runs entirely on this machine, rendered inside the peer's
+terminal. Multiple clients can hold sessions at the same time, and
+exiting a session only disconnects that client.
 
-After each session the pairing code rotates; press Ctrl+C to stop.`,
+The pairing code stays valid while the daemon runs; press Ctrl+C to
+stop.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()

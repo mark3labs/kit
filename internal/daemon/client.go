@@ -79,13 +79,13 @@ func RunRemote(ctx context.Context, rawCode string) error {
 			if n > 0 {
 				if n == 1 && buf[0] == detachKey {
 					writeMu.Lock()
-					_ = WriteFrame(tun.Stdin(), FrameBye, nil)
+					_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
 					writeMu.Unlock()
 					detached.Store(true)
 					return
 				}
 				writeMu.Lock()
-				werr := WriteDataFrames(tun.Stdin(), buf[:n])
+				werr := WriteDataFrames(tun.Stdin(), 0, buf[:n])
 				writeMu.Unlock()
 				if werr != nil {
 					return
@@ -101,13 +101,13 @@ func RunRemote(ctx context.Context, rawCode string) error {
 	go func() {
 		defer finish()
 		for {
-			t, payload, err := ReadFrame(tun.Stdout())
+			frame, err := ReadFrame(tun.Stdout())
 			if err != nil {
 				return
 			}
-			switch t {
+			switch frame.Type {
 			case FrameData:
-				if _, werr := os.Stdout.Write(payload); werr != nil {
+				if _, werr := os.Stdout.Write(frame.Payload); werr != nil {
 					return
 				}
 			case FrameBye:
@@ -120,11 +120,11 @@ func RunRemote(ctx context.Context, rawCode string) error {
 	stopResize := watchResize(stdoutFD, func(cols, rows int) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		_ = WriteFrame(tun.Stdin(), FrameResize, EncodeResize(cols, rows))
+		_ = WriteFrame(tun.Stdin(), FrameResize, 0, EncodeResize(cols, rows))
 	})
 	defer stopResize()
 	if cols, rows, err := term.GetSize(stdoutFD); err == nil {
-		_ = WriteFrame(tun.Stdin(), FrameResize, EncodeResize(cols, rows))
+		_ = WriteFrame(tun.Stdin(), FrameResize, 0, EncodeResize(cols, rows))
 	}
 
 	select {
@@ -132,7 +132,7 @@ func RunRemote(ctx context.Context, rawCode string) error {
 	case <-ctx.Done():
 	}
 
-	_ = WriteFrame(tun.Stdin(), FrameBye, nil)
+	_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
 	tun.Close()
 	_ = term.Restore(stdinFD, oldState)
 	if detached.Load() {

@@ -2,54 +2,82 @@
 //!
 //! The sidecar owns everything iroh: endpoint binding, discovery, dialing,
 //! and the pairing handshake. It exposes a byte-pump interface on its own
-//! stdio so the Go side (kit daemon / kit --remote) needs no iroh code:
+//! stdio so the Go side (kit daemon / kit --remote) needs no iroh code.
 //!
-//!   kit-tunnel serve --seed-hex <64 hex>   (daemon side; accepts one pairing)
-//!   kit-tunnel dial  --seed-hex <64 hex>   (client side; dials the daemon)
+//!   kit-tunnel serve --seed-hex <64 hex>   (daemon side; long-lived)
+//!   kit-tunnel dial  --seed-hex <64 hex>   (client side; one connection)
 //!
-//! Wire protocol on the iroh bi-directional stream, and on the sidecar's
-//! own stdin/stdout, is the same frame format:
+//! `serve` accepts multiple connections over ONE endpoint. Each verified
+//! connection becomes a session with its own id; frames on stdio are
+//! multiplexed with that id so the Go daemon can run one PTY child per
+//! session. `dial` speaks for a single client connection; the daemon-side
+//! session id is assigned via a SESSION_ASSIGN frame right after the
+//! handshake and normalized away on the client's stdio (always 0 there).
 //!
-//!   byte 0      frame type
-//!   bytes 1..3  payload length (u16, big endian)
-//!   bytes 3..   payload
+//! Frame format on the iroh bi-directional stream and on stdio:
 //!
-//! Handshake frames (0x10..0x13) are consumed inside the tunnel and never
-//! forwarded. After a verified handshake the tunnel relays DATA, RESIZE and
-//! BYE frames verbatim in both directions; PING/PONG are reserved for a
-//! future keepalive and are currently forwarded like any other frame.
+//!   byte 0       frame type
+//!   bytes 1..5   session id (u32, big endian; 0 on the client's stdio)
+//!   bytes 5..7   payload length (u16, big endian)
+//!   bytes 7..    payload
+//!
+//! Handshake and session-assignment frames (0x10..0x18) are consumed inside
+//! the tunnel and never forwarded. After the handshake the tunnel relays
+//! DATA, RESIZE and BYE frames verbatim in both directions; PING/PONG are
+//! reserved for a future keepalive.
+//!
+//! Handshake flow (the client speaks first: in QUIC an open_bi stream
+//! carries no bytes until the initiator writes, so a server-first hello on
+//! a client-opened stream would never reach accept_bi):
+//!
+//!   client -> CLIENT_HELLO {ver, c_nonce}   (also materializes the stream)
+//!   server -> SERVER_HELLO {ver, s_nonce}
+//!   client -> CLIENT_AUTH  {HMAC(key, "kit-client" | s_nonce | c_nonce)}
+//!   server -> SERVER_OK {HMAC(key, "kit-server" | c_nonce | s_nonce)} | DENIED
+//!   server -> SESSION_ASSIGN {id}   (multi-session: this connection's id)
 //!
 //! Human-facing status goes to stderr as lines of the form:
 //!
 //!   STATUS READY node_id=<id>
-//!   STATUS PAIRING
-//!   STATUS VERIFIED
+//!   STATUS PAIRING [id=<n>]
+//!   STATUS VERIFIED [id=<n>]
 //!   STATUS DENIED reason=<text>
+//!   STATUS SESSION_OPEN id=<n>
+//!   STATUS SESSION_CLOSED id=<n>
 //!   STATUS CLOSED
 //!   STATUS ERROR msg=<text>
 //!
 //! The pairing seed is 32 bytes of HKDF-SHA256 output derived from the
-//! 8-character pairing code (see kit's internal/daemon/pairing.go). The
-//! server endpoint identity is derived from the seed: anyone who can
-//! compute the endpoint id is holding the code. The HMAC handshake below
-//! additionally protects the live endpoint from peers that learn its id
-//! without the code (e.g. by observing DNS/relay traffic).
+//! pairing code (see kit's internal/daemon/pairing.go). The server endpoint
+//! identity is derived from the seed: anyone who can compute the endpoint id
+//! is holding the code. The HMAC handshake additionally protects the live
+//! endpoint from peers that learn its id without the code (e.g. by
+//! observing DNS/relay traffic). Failed handshakes back off exponentially
+//! (up to 8s) since the code no longer rotates per attempt.
 
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use iroh::endpoint::{
-    presets, IdleTimeout, QuicTransportConfig, ReadExactError, RecvStream, SendStream,
+    presets, IdleTimeout, Incoming, QuicTransportConfig, ReadExactError, RecvStream, SendStream,
 };
 use iroh::{Endpoint, SecretKey};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use tokio::sync::mpsc;
 
 const ALPN: &[u8] = b"kit/remote/1";
-const PROTOCOL_VERSION: u16 = 1;
+const PROTOCOL_VERSION: u16 = 2;
 
 const MAX_PAYLOAD: usize = 65535;
+/// Cap on concurrent sessions over one endpoint; extra peers are denied.
+const MAX_SESSIONS: usize = 8;
+const HANDSHAKE_TIMEOUT: u64 = 30;
 
 // Frame types (shared with internal/daemon/protocol.go).
 const FRAME_DATA: u8 = 0x01;
@@ -57,11 +85,15 @@ const FRAME_RESIZE: u8 = 0x02;
 const FRAME_BYE: u8 = 0x03;
 const FRAME_PING: u8 = 0x04;
 const FRAME_PONG: u8 = 0x05;
+// Handshake + session control (in-tunnel only; never forwarded).
 const FRAME_SERVER_HELLO: u8 = 0x10;
 const FRAME_CLIENT_HELLO: u8 = 0x11;
 const FRAME_SERVER_OK: u8 = 0x12;
 const FRAME_DENIED: u8 = 0x13;
 const FRAME_CLIENT_AUTH: u8 = 0x14;
+const FRAME_SESSION_OPEN: u8 = 0x16; // serve tunnel -> Go daemon
+const FRAME_SESSION_CLOSED: u8 = 0x17; // serve tunnel -> Go daemon
+const FRAME_SESSION_ASSIGN: u8 = 0x18; // server -> client, in-tunnel
 
 // HKDF domain separation (must match pairing.go).
 const HKDF_SALT: &[u8] = b"kit-remote-v1";
@@ -72,18 +104,6 @@ const TAG_LEN: usize = 32;
 
 fn status(line: &str) {
     eprintln!("STATUS {line}");
-}
-
-/// Transport tuning: a keep-alive plus a hard idle timeout so a silently
-/// vanished peer (killed process, dropped network, sleeping laptop) is
-/// detected in seconds instead of hanging the other side forever.
-fn transport_config() -> QuicTransportConfig {
-    QuicTransportConfig::builder()
-        .keep_alive_interval(std::time::Duration::from_secs(5))
-        .max_idle_timeout(Some(
-            IdleTimeout::try_from(std::time::Duration::from_secs(20)).expect("valid timeout"),
-        ))
-        .build()
 }
 
 fn fail(msg: &str) -> ! {
@@ -115,62 +135,132 @@ fn random_nonce() -> [u8; NONCE_LEN] {
     rand::random()
 }
 
+fn secret_from_seed(seed: &[u8]) -> SecretKey {
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(seed);
+    SecretKey::from_bytes(&bytes)
+}
+
+fn parse_seed(hex_seed: &str) -> Vec<u8> {
+    hex::decode(hex_seed.trim()).unwrap_or_else(|e| fail(&format!("bad seed hex: {e}")))
+}
+
+/// Transport tuning: a keep-alive plus a hard idle timeout so a silently
+/// vanished peer (killed process, dropped network, sleeping laptop) is
+/// detected in seconds instead of hanging the other side forever.
+fn transport_config() -> QuicTransportConfig {
+    QuicTransportConfig::builder()
+        .keep_alive_interval(Duration::from_secs(5))
+        .max_idle_timeout(Some(
+            IdleTimeout::try_from(Duration::from_secs(20)).expect("valid timeout"),
+        ))
+        .build()
+}
+
 // ---------------------------------------------------------------------------
-// Frame codec (sync, used for stdio; async wrappers below for iroh streams)
+// Frame codec
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Debug)]
 struct Frame {
     t: u8,
+    session: u32,
     payload: Vec<u8>,
 }
 
-fn write_frame_sync<W: Write>(w: &mut W, t: u8, payload: &[u8]) -> io::Result<()> {
-    if payload.len() > MAX_PAYLOAD {
+impl Frame {
+    fn new(t: u8, session: u32, payload: Vec<u8>) -> Self {
+        Frame {
+            t,
+            session,
+            payload,
+        }
+    }
+}
+
+const FRAME_HEADER_LEN: usize = 7; // type + session + len
+
+fn encode_frame_into(buf: &mut Vec<u8>, t: u8, session: u32, payload: &[u8]) {
+    buf.clear();
+    buf.push(t);
+    buf.extend_from_slice(&session.to_be_bytes());
+    buf.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    buf.extend_from_slice(payload);
+}
+
+fn write_frame_sync<W: Write>(w: &mut W, f: &Frame) -> io::Result<()> {
+    if f.payload.len() > MAX_PAYLOAD {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "frame too large",
         ));
     }
-    let len = (payload.len() as u16).to_be_bytes();
-    let mut hdr = [0u8; 3];
-    hdr[0] = t;
-    hdr[1] = len[0];
-    hdr[2] = len[1];
-    w.write_all(&hdr)?;
-    w.write_all(payload)?;
+    let mut buf = Vec::with_capacity(FRAME_HEADER_LEN + f.payload.len());
+    encode_frame_into(&mut buf, f.t, f.session, &f.payload);
+    w.write_all(&buf)?;
     w.flush()
 }
 
 fn read_frame_sync<R: Read>(r: &mut R) -> io::Result<Option<Frame>> {
-    let mut hdr = [0u8; 3];
+    let mut hdr = [0u8; FRAME_HEADER_LEN];
     match r.read_exact(&mut hdr) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(e) => return Err(e),
     }
-    let len = u16::from_be_bytes([hdr[1], hdr[2]]) as usize;
+    let len = u16::from_be_bytes([hdr[5], hdr[6]]) as usize;
     let mut payload = vec![0u8; len];
     r.read_exact(&mut payload)?;
-    Ok(Some(Frame { t: hdr[0], payload }))
+    Ok(Some(Frame {
+        t: hdr[0],
+        session: u32::from_be_bytes([hdr[1], hdr[2], hdr[3], hdr[4]]),
+        payload,
+    }))
+}
+
+async fn write_frame(
+    send: &mut SendStream,
+    t: u8,
+    session: u32,
+    payload: &[u8],
+) -> anyhow::Result<()> {
+    if payload.len() > MAX_PAYLOAD {
+        anyhow::bail!("frame too large");
+    }
+    let mut buf = Vec::with_capacity(FRAME_HEADER_LEN + payload.len());
+    encode_frame_into(&mut buf, t, session, payload);
+    send.write_all(&buf).await?;
+    Ok(())
+}
+
+async fn read_frame(recv: &mut RecvStream) -> anyhow::Result<Frame> {
+    let mut hdr = [0u8; FRAME_HEADER_LEN];
+    match recv.read_exact(&mut hdr).await {
+        Ok(()) => {}
+        Err(ReadExactError::FinishedEarly(_)) => anyhow::bail!("stream closed"),
+        Err(e) => anyhow::bail!("read header: {e}"),
+    }
+    let len = u16::from_be_bytes([hdr[5], hdr[6]]) as usize;
+    let mut payload = vec![0u8; len];
+    recv.read_exact(&mut payload)
+        .await
+        .map_err(|e| anyhow::anyhow!("read payload: {e}"))?;
+    Ok(Frame {
+        t: hdr[0],
+        session: u32::from_be_bytes([hdr[1], hdr[2], hdr[3], hdr[4]]),
+        payload,
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Handshake
-//
-// The client speaks first: in QUIC an open_bi stream carries no bytes until
-// the initiator writes, so a server-first hello on a client-opened stream
-// would never reach accept_bi. Flow:
-//
-//   client -> CLIENT_HELLO {ver, c_nonce}   (also materializes the stream)
-//   server -> SERVER_HELLO {ver, s_nonce}
-//   client -> CLIENT_AUTH  {HMAC(key, "kit-client" | s_nonce | c_nonce)}
-//   server -> SERVER_OK {HMAC(key, "kit-server" | c_nonce | s_nonce)} | DENIED
 // ---------------------------------------------------------------------------
 
 async fn server_handshake(
     send: &mut SendStream,
     recv: &mut RecvStream,
     key: &[u8; 32],
+    session: u32,
 ) -> anyhow::Result<()> {
     let hello = read_frame(recv).await?;
     if hello.t != FRAME_CLIENT_HELLO || hello.payload.len() < 2 + NONCE_LEN {
@@ -178,7 +268,7 @@ async fn server_handshake(
     }
     let c_ver = u16::from_be_bytes([hello.payload[0], hello.payload[1]]);
     if c_ver != PROTOCOL_VERSION {
-        write_frame(send, FRAME_DENIED, format!("version {c_ver}").as_bytes()).await?;
+        write_frame(send, FRAME_DENIED, 0, format!("version {c_ver}").as_bytes()).await?;
         anyhow::bail!("version mismatch: {c_ver}");
     }
     let c_nonce = hello.payload[2..2 + NONCE_LEN].to_vec();
@@ -187,21 +277,25 @@ async fn server_handshake(
     let mut reply = Vec::with_capacity(2 + NONCE_LEN);
     reply.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
     reply.extend_from_slice(&s_nonce);
-    write_frame(send, FRAME_SERVER_HELLO, &reply).await?;
+    write_frame(send, FRAME_SERVER_HELLO, 0, &reply).await?;
 
     let auth = read_frame(recv).await?;
     if auth.t != FRAME_CLIENT_AUTH || auth.payload.len() != TAG_LEN {
-        write_frame(send, FRAME_DENIED, b"bad auth frame").await?;
+        write_frame(send, FRAME_DENIED, 0, b"bad auth frame").await?;
         anyhow::bail!("malformed client auth");
     }
     let expect = hmac_tag(key, &[b"kit-client", &s_nonce, &c_nonce]);
     if auth.payload.as_slice().ct_eq(&expect).unwrap_u8() != 1 {
-        write_frame(send, FRAME_DENIED, b"bad tag").await?;
+        write_frame(send, FRAME_DENIED, 0, b"bad tag").await?;
         anyhow::bail!("pairing tag mismatch");
     }
 
     let s_tag = hmac_tag(key, &[b"kit-server", &c_nonce, &s_nonce]);
-    write_frame(send, FRAME_SERVER_OK, &s_tag).await?;
+    write_frame(send, FRAME_SERVER_OK, 0, &s_tag).await?;
+
+    // Tell the client which session id to use on this connection. It goes
+    // after the verdict so the client's handshake loop never sees it.
+    write_frame(send, FRAME_SESSION_ASSIGN, 0, &session.to_be_bytes()).await?;
     Ok(())
 }
 
@@ -214,7 +308,7 @@ async fn client_handshake(
     let mut hello = Vec::with_capacity(2 + NONCE_LEN);
     hello.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
     hello.extend_from_slice(&c_nonce);
-    write_frame(send, FRAME_CLIENT_HELLO, &hello).await?;
+    write_frame(send, FRAME_CLIENT_HELLO, 0, &hello).await?;
 
     let reply = read_frame(recv).await?;
     if reply.t != FRAME_SERVER_HELLO || reply.payload.len() < 2 + NONCE_LEN {
@@ -227,7 +321,7 @@ async fn client_handshake(
     let s_nonce = reply.payload[2..2 + NONCE_LEN].to_vec();
 
     let tag = hmac_tag(key, &[b"kit-client", &s_nonce, &c_nonce]);
-    write_frame(send, FRAME_CLIENT_AUTH, &tag).await?;
+    write_frame(send, FRAME_CLIENT_AUTH, 0, &tag).await?;
 
     let verdict = read_frame(recv).await?;
     match verdict.t {
@@ -250,102 +344,14 @@ async fn client_handshake(
 }
 
 // ---------------------------------------------------------------------------
-// Frame I/O on iroh streams
+// Serve mode: one endpoint, many sessions
 // ---------------------------------------------------------------------------
 
-async fn write_frame(send: &mut SendStream, t: u8, payload: &[u8]) -> anyhow::Result<()> {
-    if payload.len() > MAX_PAYLOAD {
-        anyhow::bail!("frame too large");
-    }
-    let mut buf = Vec::with_capacity(3 + payload.len());
-    buf.push(t);
-    buf.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-    buf.extend_from_slice(payload);
-    send.write_all(&buf).await?;
-    Ok(())
-}
-
-async fn read_frame(recv: &mut RecvStream) -> anyhow::Result<Frame> {
-    let mut hdr = [0u8; 3];
-    match recv.read_exact(&mut hdr).await {
-        Ok(()) => {}
-        Err(ReadExactError::FinishedEarly(_)) => anyhow::bail!("stream closed"),
-        Err(e) => anyhow::bail!("read header: {e}"),
-    }
-    let len = u16::from_be_bytes([hdr[1], hdr[2]]) as usize;
-    let mut payload = vec![0u8; len];
-    recv.read_exact(&mut payload)
-        .await
-        .map_err(|e| anyhow::anyhow!("read payload: {e}"))?;
-    Ok(Frame { t: hdr[0], payload })
-}
-
-// ---------------------------------------------------------------------------
-// Relay pumps
-// ---------------------------------------------------------------------------
-
-/// iroh stream -> stdout. Returns when the stream closes or a BYE arrives.
-async fn pump_remote_to_stdout(mut recv: RecvStream) {
-    loop {
-        let frame = match read_frame(&mut recv).await {
-            Ok(f) => f,
-            Err(_) => break,
-        };
-        if frame.t == FRAME_BYE {
-            break;
-        }
-        let mut out = io::stdout().lock();
-        if write_frame_sync(&mut out, frame.t, &frame.payload).is_err() {
-            break; // our own stdio died; daemon or client is gone
-        }
-    }
-    status("CLOSED");
-}
-
-/// stdin -> iroh stream. Returns when stdin hits EOF or a BYE is seen.
-/// Blocking reads run via block_in_place so the guard never spans an await.
-async fn pump_stdin_to_remote(mut send: SendStream) {
-    loop {
-        let frame = tokio::task::block_in_place(|| read_frame_sync(&mut io::stdin().lock()));
-        match frame {
-            Ok(Some(frame)) => {
-                let bye = frame.t == FRAME_BYE;
-                if let Err(e) = write_frame(&mut send, frame.t, &frame.payload).await {
-                    if !bye {
-                        eprintln!("STATUS ERROR msg=write to remote: {e}");
-                    }
-                    break;
-                }
-                if bye {
-                    break;
-                }
-            }
-            Ok(None) => {
-                // Local side closed its pipe: tell the remote and stop.
-                let _ = write_frame(&mut send, FRAME_BYE, &[]).await;
-                break;
-            }
-            Err(e) => {
-                eprintln!("STATUS ERROR msg=local stdin: {e}");
-                break;
-            }
-        }
-    }
-}
-
-async fn relay(send: iroh::endpoint::SendStream, recv: iroh::endpoint::RecvStream) {
-    let up = tokio::spawn(pump_stdin_to_remote(send));
-    pump_remote_to_stdout(recv).await;
-    up.abort();
-}
-
-// ---------------------------------------------------------------------------
-// Modes
-// ---------------------------------------------------------------------------
+type Registry = Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Frame>>>>;
 
 async fn serve(seed_hex: &str) {
     let seed = parse_seed(seed_hex);
-    let key = auth_key(&seed);
+    let key = Arc::new(auth_key(&seed));
     let secret = secret_from_seed(&seed);
 
     let endpoint = Endpoint::builder(presets::N0)
@@ -359,46 +365,195 @@ async fn serve(seed_hex: &str) {
 
     status(&format!("READY node_id={}", endpoint.id()));
 
-    // One connection per process: the Go daemon restarts the tunnel (and
-    // rotates the code) after each pairing attempt, which doubles as a
-    // rate limit against code guessing.
-    let incoming = match endpoint.accept().await {
-        Some(i) => i,
-        None => fail("accept stream ended"),
-    };
+    let registry: Registry = Arc::new(Mutex::new(HashMap::new()));
+    let active = Arc::new(AtomicUsize::new(0));
+    let failures = Arc::new(AtomicUsize::new(0));
+
+    // Router: frames arriving on stdin are dispatched to the session named
+    // in the frame header; unknown ids are dropped.
+    {
+        let registry = registry.clone();
+        tokio::spawn(async move {
+            loop {
+                let frame =
+                    tokio::task::block_in_place(|| read_frame_sync(&mut io::stdin().lock()));
+                match frame {
+                    Ok(Some(f)) => {
+                        let tx = registry.lock().unwrap().get(&f.session).cloned();
+                        if let Some(tx) = tx {
+                            let _ = tx.send(f);
+                        }
+                    }
+                    Ok(None) => {
+                        // Local side (the Go daemon) is gone: end everything.
+                        let all: Vec<_> = registry.lock().unwrap().values().cloned().collect();
+                        for tx in all {
+                            let _ = tx.send(Frame::new(FRAME_BYE, 0, Vec::new()));
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!("STATUS ERROR msg=local stdin: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    let mut next_id: u32 = 1;
+    while let Some(incoming) = endpoint.accept().await {
+        // Failed handshakes back off exponentially (cap 8s); reset on success.
+        let f = failures.load(Ordering::Relaxed) as u64;
+        if f > 0 {
+            tokio::time::sleep(Duration::from_millis((f * 500).min(8000))).await;
+        }
+        if active.load(Ordering::Relaxed) >= MAX_SESSIONS {
+            tokio::spawn(reject_session_full(incoming));
+            continue;
+        }
+        let id = next_id;
+        next_id = next_id.wrapping_add(1).max(1);
+        tokio::spawn(handle_connection(
+            incoming,
+            id,
+            key.clone(),
+            registry.clone(),
+            active.clone(),
+            failures.clone(),
+        ));
+    }
+}
+
+/// Politely refuse a peer when the session cap is reached.
+async fn reject_session_full(incoming: Incoming) {
+    if let Ok(accepting) = incoming.accept() {
+        if let Ok(conn) = accepting.await {
+            if let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                let _ = read_frame(&mut recv).await; // consume client hello
+                let _ = write_frame(&mut send, FRAME_DENIED, 0, b"too many sessions").await;
+                status("DENIED reason=too many sessions");
+            }
+        }
+    }
+}
+
+async fn handle_connection(
+    incoming: Incoming,
+    id: u32,
+    key: Arc<[u8; 32]>,
+    registry: Registry,
+    active: Arc<AtomicUsize>,
+    failures: Arc<AtomicUsize>,
+) {
     let conn = match incoming.accept() {
-        Ok(a) => match a.await {
-            Ok(c) => c,
-            Err(e) => fail(&format!("connect failed: {e}")),
+        Ok(accepting) => match accepting.await {
+            Ok(conn) => conn,
+            Err(e) => {
+                status(&format!("ERROR msg=connect failed: {e}"));
+                return;
+            }
         },
-        Err(e) => fail(&format!("incoming rejected: {e}")),
+        Err(e) => {
+            status(&format!("ERROR msg=incoming rejected: {e}"));
+            return;
+        }
     };
-    status("PAIRING");
+    status(&format!("PAIRING id={id}"));
 
     let (mut send, mut recv) = match conn.accept_bi().await {
         Ok(pair) => pair,
-        Err(e) => fail(&format!("open stream: {e}")),
+        Err(e) => {
+            status(&format!("ERROR msg=open stream: {e}"));
+            return;
+        }
     };
 
-    let outcome = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        server_handshake(&mut send, &mut recv, &key),
+    match tokio::time::timeout(
+        Duration::from_secs(HANDSHAKE_TIMEOUT),
+        server_handshake(&mut send, &mut recv, &key, id),
     )
-    .await;
-    match outcome {
+    .await
+    {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
             status(&format!("DENIED reason={e}"));
+            failures.fetch_add(1, Ordering::Relaxed);
             return;
         }
         Err(_) => {
             status("DENIED reason=handshake timeout");
+            failures.fetch_add(1, Ordering::Relaxed);
             return;
         }
     }
-    status("VERIFIED");
-    relay(send, recv).await;
+    failures.store(0, Ordering::Relaxed);
+
+    // Announce the session to the Go daemon, then register the routing
+    // channel. Order matters: SESSION_OPEN must reach stdout before any of
+    // this connection's relayed frames do.
+    if write_frame_sync(
+        &mut io::stdout().lock(),
+        &Frame::new(FRAME_SESSION_OPEN, id, Vec::new()),
+    )
+    .is_err()
+    {
+        return; // daemon is gone
+    }
+    status(&format!("SESSION_OPEN id={id}"));
+    active.fetch_add(1, Ordering::Relaxed);
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
+    registry.lock().unwrap().insert(id, tx);
+
+    // Connection -> stdout (tagged with our session id).
+    let mut out = tokio::spawn(async move {
+        loop {
+            let frame = match read_frame(&mut recv).await {
+                Ok(f) => f,
+                Err(_) => break,
+            };
+            if frame.t == FRAME_BYE {
+                break;
+            }
+            let out = Frame::new(frame.t, id, frame.payload);
+            if write_frame_sync(&mut io::stdout().lock(), &out).is_err() {
+                break; // daemon gone
+            }
+        }
+    });
+
+    // Routed stdin frames -> connection. A routed BYE ends this session.
+    let mut inp = tokio::spawn(async move {
+        while let Some(f) = rx.recv().await {
+            if f.t == FRAME_BYE {
+                let _ = write_frame(&mut send, FRAME_BYE, id, &[]).await;
+                break;
+            }
+            if write_frame(&mut send, f.t, id, &f.payload).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Whichever direction ends first ends the session.
+    tokio::select! {
+        _ = &mut out => { inp.abort(); }
+        _ = &mut inp => { out.abort(); }
+    }
+
+    registry.lock().unwrap().remove(&id);
+    active.fetch_sub(1, Ordering::Relaxed);
+    let _ = write_frame_sync(
+        &mut io::stdout().lock(),
+        &Frame::new(FRAME_SESSION_CLOSED, id, Vec::new()),
+    );
+    status(&format!("SESSION_CLOSED id={id}"));
 }
+
+// ---------------------------------------------------------------------------
+// Dial mode: one client connection
+// ---------------------------------------------------------------------------
 
 async fn dial(seed_hex: &str, timeout_secs: u64) {
     let seed = parse_seed(seed_hex);
@@ -416,7 +571,7 @@ async fn dial(seed_hex: &str, timeout_secs: u64) {
     endpoint.online().await;
 
     let conn = match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
+        Duration::from_secs(timeout_secs),
         endpoint.connect(server_id, ALPN),
     )
     .await
@@ -432,7 +587,7 @@ async fn dial(seed_hex: &str, timeout_secs: u64) {
     };
 
     let outcome = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
+        Duration::from_secs(timeout_secs),
         client_handshake(&mut send, &mut recv, &key),
     )
     .await;
@@ -447,23 +602,75 @@ async fn dial(seed_hex: &str, timeout_secs: u64) {
             return;
         }
     }
-    status("VERIFIED");
-    relay(send, recv).await;
+
+    // The server assigns our session id right after the handshake; client
+    // stdio always uses 0 and the tunnel rewrites both directions.
+    let assign = match read_frame(&mut recv).await {
+        Ok(f) => f,
+        Err(e) => fail(&format!("session assignment: {e}")),
+    };
+    if assign.t != FRAME_SESSION_ASSIGN || assign.payload.len() != 4 {
+        fail("malformed session assignment");
+    }
+    let session = u32::from_be_bytes([
+        assign.payload[0],
+        assign.payload[1],
+        assign.payload[2],
+        assign.payload[3],
+    ]);
+    status(&format!("VERIFIED id={session}"));
+
+    // Local stdin -> connection (rewritten to the assigned session id).
+    let up = tokio::spawn(async move {
+        loop {
+            let frame = tokio::task::block_in_place(|| read_frame_sync(&mut io::stdin().lock()));
+            match frame {
+                Ok(Some(f)) => {
+                    let bye = f.t == FRAME_BYE;
+                    if let Err(e) = write_frame(&mut send, f.t, session, &f.payload).await {
+                        if !bye {
+                            eprintln!("STATUS ERROR msg=write to remote: {e}");
+                        }
+                        break;
+                    }
+                    if bye {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    // Local side closed its pipe: tell the remote and stop.
+                    let _ = write_frame(&mut send, FRAME_BYE, session, &[]).await;
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("STATUS ERROR msg=local stdin: {e}");
+                    break;
+                }
+            }
+        }
+    });
+
+    // Connection -> local stdout (session id normalized to 0).
+    loop {
+        let frame = match read_frame(&mut recv).await {
+            Ok(f) => f,
+            Err(_) => break,
+        };
+        if frame.t == FRAME_BYE {
+            break;
+        }
+        let out = Frame::new(frame.t, 0, frame.payload);
+        if write_frame_sync(&mut io::stdout().lock(), &out).is_err() {
+            break;
+        }
+    }
+    up.abort();
+    status("CLOSED");
 }
 
 // ---------------------------------------------------------------------------
 // Args / entry
 // ---------------------------------------------------------------------------
-
-fn secret_from_seed(seed: &[u8]) -> SecretKey {
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(seed);
-    SecretKey::from_bytes(&bytes)
-}
-
-fn parse_seed(hex_seed: &str) -> Vec<u8> {
-    hex::decode(hex_seed.trim()).unwrap_or_else(|e| fail(&format!("bad seed hex: {e}")))
-}
 
 fn main() {
     // Tracing is opt-in via RUST_LOG; keep stderr clean for the Go side,
@@ -508,11 +715,4 @@ fn main() {
             )),
         }
     });
-}
-
-// Frame types used only in comments above; silence unused warnings where a
-// type is currently forwarded verbatim rather than interpreted.
-#[allow(dead_code)]
-fn _type_assertions(t: u8) -> bool {
-    matches!(t, FRAME_DATA | FRAME_RESIZE | FRAME_PING | FRAME_PONG)
 }
