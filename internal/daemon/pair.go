@@ -137,6 +137,7 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 			// before the tunnel teardown closes the connection.
 			_, _ = tun.WaitAnyStatus(pctx, 10*time.Second, "PAIRED", "PAIR_DENIED", "CLOSED")
 			time.Sleep(2 * time.Second)
+			fmt.Fprintf(os.Stderr, "pair window statuses: %s\n", tun.LastStatuses())
 			return nil
 		}
 	}

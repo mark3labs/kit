@@ -97,7 +97,7 @@ var (
 	promptTemplatePaths []string
 	noPromptTemplates   bool
 
-	// Remote sessions (--remote) and the daemon's directory picker
+	// The daemon's directory picker
 	// (--pick-dir, hidden — spawned by `kit daemon`).
 	pickDirFlag bool
 

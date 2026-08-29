@@ -1,7 +1,8 @@
 // Package daemon implements kit's remote-session transport: a daemon mode
-// (`kit daemon`) that accepts iroh connections and hosts kit sessions in a
-// PTY, and a client mode (`kit --remote CODE`) that attaches a local
-// terminal to that remote session.
+// (`kit daemon`) that hosts kit sessions for paired clients, and a client
+// mode (`kit remote --host <name>`) that attaches a local terminal to that
+// remote session. New clients pair via `kit daemon pair` + `kit remote
+// --pair <code>`.
 //
 // The design keeps all iroh logic inside the kit-tunnel sidecar (Rust, see
 // contrib/kit-tunnel). The Go side owns policy only: pairing codes, frame
@@ -31,12 +32,14 @@ const (
 
 // HKDF domain separation. These must match contrib/kit-tunnel/src/main.rs.
 var (
+	// hkdfSalt/hkdfInfo/hkdfAuthMsg must match
+	// contrib/kit-tunnel/src/main.rs (the Rust side is authoritative for
+	// the pairing-tag roles "kit-pair-client"/"kit-pair-server" — the Go
+	// side never recomputes them).
 	hkdfSalt       = []byte("kit-remote-v1")
 	hkdfInfo       = []byte("kit-remote tunnel seed")
-	hkdfAuthMsg    = []byte("kit-remote auth") // legacy v2, kept for tests
+	hkdfAuthMsg    = []byte("kit-remote auth")
 	signContext    = []byte("kit-remote-v3-auth")
-	pairTagClient  = []byte("kit-pair-client")
-	pairTagServer  = []byte("kit-pair-server")
 	pairWindowTime = 10 * time.Minute
 )
 

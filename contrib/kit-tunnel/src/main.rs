@@ -188,6 +188,17 @@ fn random_nonce() -> [u8; NONCE_LEN] {
     rand::random()
 }
 
+/// Write a DENIED verdict and finish the stream. Dropping the send side
+/// without finishing would reset the stream and silently discard the
+/// verdict — the client would only see a connection loss.
+async fn deny_and_finish(send: &mut SendStream, reason: &str) {
+    let _ = write_frame(send, FRAME_DENIED, 0, reason.as_bytes()).await;
+    let _ = send.finish();
+    // Hold the streams open while the peer drains the verdict: dropping
+    // them closes the connection and can overtake the in-flight data.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+}
+
 /// Short public identity of a key: first 16 hex chars of SHA-256 over the
 /// raw bytes. Mirrors Go's daemon.Fingerprint.
 fn fingerprint(b: &[u8]) -> String {
@@ -328,7 +339,7 @@ async fn server_handshake(
     }
     let c_ver = u16::from_be_bytes([hello.payload[0], hello.payload[1]]);
     if c_ver != PROTOCOL_VERSION {
-        write_frame(send, FRAME_DENIED, 0, format!("version {c_ver}").as_bytes()).await?;
+        deny_and_finish(send, &format!("version {c_ver}")).await;
         anyhow::bail!("version mismatch: {c_ver}");
     }
     let c_nonce = hello.payload[2..2 + NONCE_LEN].to_vec();
@@ -362,7 +373,7 @@ async fn server_handshake(
 
     let auth = read_frame(recv).await?;
     if auth.t != FRAME_CLIENT_AUTH || auth.payload.len() != SIGNATURE_LEN {
-        write_frame(send, FRAME_DENIED, 0, b"bad auth frame").await?;
+        deny_and_finish(send, "bad auth frame").await;
         anyhow::bail!("malformed client auth");
     }
     if !send_to_go(&Frame::new(
@@ -383,7 +394,7 @@ async fn server_handshake(
             } else {
                 "not authorized".into()
             };
-            write_frame(send, FRAME_DENIED, 0, reason.as_bytes()).await?;
+            deny_and_finish(send, &reason).await;
             anyhow::bail!("unauthorized client: {reason}");
         }
         Ok(None) | Err(_) => {
@@ -818,7 +829,7 @@ async fn dial_pair(flags: &Flags) {
             return;
         }
         Ok(Ok(f)) => fail(&format!("unexpected pairing frame {:#04x}", f.t)),
-        Ok(Err(e)) => fail(&format!("pairing: {e}")),
+        Ok(Err(e)) => fail(&format!("pairing: {e:#}")),
         Err(_) => fail("pairing timed out (was the request accepted on the host?)"),
     }
 }
@@ -1135,7 +1146,6 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
     // The peer knows the code. Ask the human.
     let fp = fingerprint(&client_pub);
     status(&format!("PAIR_REQUEST fp={fp}"));
-    eprintln!("DEBUG sidecar: pair request forwarded, waiting for decision");
     let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
     pending.lock().unwrap().insert(corr, tx);
     if !send_to_go(&Frame::new(
@@ -1147,12 +1157,7 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
     }
 
     // The Go side prompts for up to its own deadline; allow margin.
-    eprintln!("DEBUG sidecar: stdin router alive; waiting decision");
     let decision = tokio::time::timeout(Duration::from_secs(120), rx.recv()).await;
-    eprintln!(
-        "DEBUG sidecar: decision received: {:?}",
-        decision.as_ref().map(|o| o.as_ref().map(|f| f.payload.clone()))
-    );
     match decision {
         // Accept: c_nonce | 0x01 | host_endpoint_id(32)
         Ok(Some(f)) if f.payload.len() == 9 + ED25519_PUB_LEN && f.payload[8] == 0x01 => {
@@ -1170,6 +1175,11 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
             {
                 return;
             }
+            // Deliver the confirmation as finished data: dropping the send
+            // side unfinished would reset the stream and the client would
+            // lose the frame. Hold while the peer drains it.
+            let _ = send.finish();
+            tokio::time::sleep(Duration::from_secs(2)).await;
             status("PAIRED");
         }
         Ok(Some(f)) => {
@@ -1179,12 +1189,12 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
                 "rejected on the host".into()
             };
             backoff.lock().unwrap().record_failure();
-            let _ = write_frame(&mut send, FRAME_DENIED, 0, reason.as_bytes()).await;
+            deny_and_finish(&mut send, &reason).await;
             status(&format!("PAIR_DENIED reason={reason}"));
         }
         Ok(None) | Err(_) => {
             backoff.lock().unwrap().record_failure();
-            let _ = write_frame(&mut send, FRAME_DENIED, 0, b"pairing window closed").await;
+            deny_and_finish(&mut send, "pairing window closed").await;
             status("PAIR_DENIED reason=window closed");
         }
     }

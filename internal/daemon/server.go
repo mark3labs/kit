@@ -177,6 +177,7 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 // be verified when the client's AUTH_PAYLOAD arrives.
 func (t *sessionTable) handleAuthRequest(payload []byte) {
 	if len(payload) != 32+32+32 {
+		log.Warn("malformed auth request", "len", len(payload))
 		t.decideAuth(payload[:8], false, "malformed auth request")
 		return
 	}
@@ -186,17 +187,22 @@ func (t *sessionTable) handleAuthRequest(payload []byte) {
 		cNonce:    payload[0:32],
 		sNonce:    payload[32:64],
 	}
+	log.Info("auth request", "fp", Fingerprint(payload[64:96]))
 }
 
 // handleAuthPayload verifies the client's signature against the allowlist
-// and answers the sidecar's consultation.
+// and answers the sidecar's consultation. Payload: c_nonce(32) | sig(64);
+// the correlation key is the first 8 bytes of c_nonce.
 func (t *sessionTable) handleAuthPayload(payload []byte) {
-	if len(payload) != 8+64 {
+	if len(payload) != 32+64 {
+		log.Warn("malformed auth payload", "len", len(payload))
 		return
 	}
 	corr := [8]byte(payload[0:8])
+	sig := payload[32:]
 	challenge, ok := t.pendingAuths[corr]
 	if !ok {
+		log.Warn("auth payload without request", "corr", hex.EncodeToString(corr[:]))
 		t.decideAuth(corr[:], false, "unknown handshake")
 		return
 	}
@@ -209,6 +215,7 @@ func (t *sessionTable) handleAuthPayload(payload []byte) {
 		return
 	}
 	if !authorized {
+		log.Warn("client not paired", "fp", fp)
 		t.decideAuth(corr[:], false, "client not paired — run 'kit daemon pair' on the host")
 		return
 	}
@@ -219,11 +226,13 @@ func (t *sessionTable) handleAuthPayload(payload []byte) {
 	}
 	msg := append([]byte(signContext), challenge.cNonce...)
 	msg = append(msg, challenge.sNonce...)
-	if !ed25519.Verify(ed25519.PublicKey(pub), msg, payload[8:]) {
+	if !ed25519.Verify(ed25519.PublicKey(pub), msg, sig) {
+		log.Warn("bad client signature", "fp", fp)
 		t.decideAuth(corr[:], false, "bad signature")
 		return
 	}
 	_ = TouchClient(fp)
+	log.Info("client authorized", "fp", fp)
 	t.decideAuth(corr[:], true, "")
 }
 

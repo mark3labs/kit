@@ -11,13 +11,24 @@ local terminal just renders it. The transport is [iroh](https://iroh.computer):
 a direct, end-to-end encrypted QUIC connection that holes through NATs and
 falls back to relays.
 
-```bash
-# On the machine that does the work:
-kit daemon
-#   Pairing code: A1B2-C3D4
+Access is **pairing-based**. A client pairs with the host once — with a
+one-time code and an explicit accept/reject on the host's terminal — and
+from then on reconnects by name with its own signing key. No code is ever
+needed again, and the host can revoke any client at any time.
 
-# On the machine you are sitting at:
-kit --remote A1B2C3D4
+```bash
+# On the host: start the daemon
+kit daemon
+
+# On the host: open a pairing window (shows a one-time code)
+kit daemon pair
+
+# On the client: pair (the host terminal asks you to accept)
+kit remote --pair A1B2C3D4
+Save this host as [workstation]: zora
+
+# On the client: connect — no code needed, ever again
+kit remote --host zora
 ```
 
 On connection the remote peer picks a working directory (the picker starts in
@@ -34,30 +45,63 @@ rendering, and session persistence all run on the daemon host.
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `kit daemon` | Start the daemon and print the pairing code |
-| `kit daemon status` | Show code, endpoint, uptime and active sessions of a running daemon |
-| `kit daemon service install` | Install and start a systemd user service |
-| `kit daemon service remove` | Stop and uninstall the service |
-| `kit --remote CODE` | Attach this terminal to a daemon session |
+| Command | Side | Purpose |
+|---------|------|---------|
+| `kit daemon` | host | Host sessions for paired clients |
+| `kit daemon pair` | host | Open a 10-minute pairing window; confirm requests on this terminal |
+| `kit daemon pair --list` | host | List paired clients with fingerprints |
+| `kit daemon pair --revoke <fp>` | host | Revoke a paired client |
+| `kit daemon status` | host | Endpoint, paired clients, active sessions |
+| `kit remote --pair <code>` | client | Pair with a host and save it under a name |
+| `kit remote --host <name>` | client | Connect to a paired host |
+| `kit remote --list` | client | List saved hosts |
+| `kit remote --forget <name>` | client | Forget a saved host |
 
-Useful daemon flags: `--code ABCD2345` pins a specific pairing code
-(hidden, mainly for tests).
+`Ctrl-]` detaches the client from the session; `/quit` ends the session and
+closes only that client's connection — other sessions are unaffected.
 
-## Multiple sessions
+## How pairing works
 
-Each verified client gets its own session with its own working directory
-choice. Exiting a session (`/quit`) closes only that client's connection;
-detaching with `Ctrl-]` keeps the session running until it is reaped by
-its own timeout. One pairing code stays valid for the whole daemon run, so
-teammates (or your other machines) can attach while you are working.
+1. `kit daemon pair` generates a fresh one-time code and opens a bootstrap
+   endpoint for **10 minutes** (or until one client pairs).
+2. `kit remote --pair <code>` proves knowledge of the code and presents the
+   client's signing public key.
+3. The host terminal shows the request (`client fp=379d…8510`) and asks
+   **Accept? [y/N]** — the default is reject. Requests arriving while no
+   terminal can confirm (e.g. the service runs headless) are always denied.
+4. On accept, the client's public key joins the host's allowlist
+   (`~/.config/kit/daemon/authorized.json`), and the client stores the
+   host's endpoint id (`~/.config/kit/remote/hosts.json`). The code is
+   burned.
+
+The code itself never grants access: it only makes the pairing window
+reachable, and a human still has to approve. Pairing requests that fail the
+code check never reach the prompt.
+
+## How reconnection works
+
+`kit remote --host <name>` dials the stored endpoint id and signs the
+handshake with the client's private signing key; the host verifies the
+signature against its allowlist. iroh's QUIC handshake additionally
+authenticates the daemon against the stored endpoint id, so a malicious or
+poisoned endpoint cannot impersonate the host.
+
+## Security notes
+
+- The client's signing key lives in `~/.config/kit/remote/identity.key`
+  (0600). The host stores only public keys — there are no shared secrets.
+- Deleting the host's `~/.config/kit/daemon/identity.key` changes its
+  endpoint id; every client must pair again.
+- Revocation is immediate and one-sided: `kit daemon pair --revoke <fp>`
+  (prefix matching works; ambiguous prefixes are refused).
+- The daemon holds a per-user lock; a second instance refuses to start. See
+  `kit daemon status`.
 
 ## systemd
 
 ```bash
 kit daemon service install   # writes ~/.config/systemd/user/kit.service, enables + starts it
-kit daemon status            # shows the live pairing code
+kit daemon status            # endpoint, paired clients, active sessions
 systemctl --user status kit  # manage the service directly
 kit daemon service remove    # stop and uninstall
 ```
@@ -65,28 +109,19 @@ kit daemon service remove    # stop and uninstall
 `install` captures provider credentials from your current shell
 (`*_API_KEY`, `*_TOKEN`, `PROVIDER_*`, and similar) into
 `~/.config/kit/daemon.env`, which the unit loads via `EnvironmentFile`. Edit
-that file and run `systemctl --user restart kit` when keys change.
-
-## Security model
-
-- The pairing code is 8 characters from a 32-symbol alphabet (~40 bits of
-  entropy). It stays valid for the daemon's lifetime — treat it like a
-  password.
-- The daemon's endpoint identity is derived from the code: without it, a
-  peer cannot even find the endpoint. Connections are additionally
-  authenticated with a mutual HMAC handshake; failed attempts back off
-  exponentially.
-- Session slots are capped, and polite rejections of over-cap peers are
-  budgeted so connection floods cannot pin daemon resources.
-- Only one daemon may run per user (enforced with a `flock`); state lives in
-  `~/.cache/kit/daemon/`.
+that file and run `systemctl --user restart kit` when keys change. The
+service runs without a terminal, so pairing requests are denied while it is
+the only thing running — pair interactively with `kit daemon pair` (the
+allowlist is shared).
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---------|---------------|
 | `another instance is already running` | A daemon (or service) already holds the lock — see `kit daemon status` |
-| `no daemon is live for this pairing code` | The daemon restarted or stopped; get the current code from `kit daemon status` |
+| `no daemon is live for this pairing code` | The pairing window expired or a client already paired; open a new one with `kit daemon pair` |
+| `the pairing request was rejected on the host` | The request reached the host and was declined; ask the host user to rerun `kit daemon pair` |
+| `the host no longer knows this machine` | The client was revoked — pair again |
 | `could not reach the daemon` | Network or relay issue; check connectivity on both sides |
 | Session dies with `API key not provided` | The daemon environment is missing provider keys — for the systemd service, edit `~/.config/kit/daemon.env` and restart |
-| Detached by accident | Just reconnect with the same code; the daemon is still running and sessions persist on the daemon host |
+| Detached by accident | Just reconnect with `kit remote --host <name>`; the daemon keeps running |
