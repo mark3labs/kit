@@ -31,13 +31,14 @@
       "headings": [
         "Requirements",
         "Commands",
-        "Multiple sessions",
+        "How pairing works",
+        "How reconnection works",
+        "Security notes",
         "systemd",
-        "Security model",
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 620
+      "wordCount": 962
     },
     {
       "id": "advanced/subagents",
@@ -103,7 +104,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2175
+      "wordCount": 2306
     },
     {
       "id": "cli/flags",
@@ -117,12 +118,11 @@
         "Context",
         "Extensions",
         "Skills",
-        "Remote",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 948
+      "wordCount": 903
     },
     {
       "id": "configuration",

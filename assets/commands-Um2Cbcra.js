@@ -336,15 +336,30 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 <p>Run Kit as a daemon on one machine and attach to it from another over an
 end-to-end encrypted iroh connection. All work runs on the daemon host; see
 <a href="/advanced/remote-sessions">Remote sessions</a> for the full picture.</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Start daemon, print pairing code (Ctrl+C stops)</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> status</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # Code, endpoint, uptime, active sessions</span></span>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Host sessions for paired clients (Ctrl+C stops)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pair</span><span style="color:#6A737D;--shiki-dark:#6A737D">                   # One-time pairing: show code, confirm on this terminal</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pair</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --list</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # List paired clients (fingerprints)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pair</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --revoke</span><span style="color:#D73A49;--shiki-dark:#F97583"> &lt;</span><span style="color:#032F62;--shiki-dark:#9ECBFF">f</span><span style="color:#24292E;--shiki-dark:#E1E4E8">p</span><span style="color:#D73A49;--shiki-dark:#F97583">&gt;</span><span style="color:#6A737D;--shiki-dark:#6A737D">     # Revoke a client</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> status</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # Endpoint, paired clients, active sessions</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> service</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # Install + start the systemd user service</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> service</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remove</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Stop and uninstall the service</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --remote</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Attach to the daemon from another machine</span></span></code></pre>
-<p>On connection the remote peer picks a working directory and gets a private
-session; multiple clients can hold sessions at the same time and <code>/quit</code>
-closes only that client's connection. <code>Ctrl-]</code> detaches without ending the
-daemon. Only one daemon may run per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client (first time — the host terminal asks you to accept)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --pair</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # Pair and save the host under a name</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client (any time after)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> zora</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Attach to the paired host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --list</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # List paired hosts</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --forget</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> zora</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # Forget a saved host</span></span></code></pre>
+<p>Pairing is one-time and human-approved: the code only works while the
+<code>kit daemon pair</code> window is open, and the host must accept the request on
+its terminal. After pairing, the client authenticates with its own signing
+key — no code involved — and the host can revoke it at any time. Each
+client picks a working directory and gets a private session; multiple
+clients can hold sessions at the same time and <code>/quit</code> closes only that
+client's connection. <code>Ctrl-]</code> detaches without ending the daemon. Only one
+daemon may run per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
 # Commands
 
 ## Authentication
@@ -638,15 +653,30 @@ end-to-end encrypted iroh connection. All work runs on the daemon host; see
 [Remote sessions](/advanced/remote-sessions) for the full picture.
 
 \`\`\`bash
-kit daemon                        # Start daemon, print pairing code (Ctrl+C stops)
-kit daemon status                 # Code, endpoint, uptime, active sessions
+# On the host
+kit daemon                        # Host sessions for paired clients (Ctrl+C stops)
+kit daemon pair                   # One-time pairing: show code, confirm on this terminal
+kit daemon pair --list            # List paired clients (fingerprints)
+kit daemon pair --revoke <fp>     # Revoke a client
+kit daemon status                 # Endpoint, paired clients, active sessions
 kit daemon service install        # Install + start the systemd user service
 kit daemon service remove         # Stop and uninstall the service
-kit --remote A1B2C3D4             # Attach to the daemon from another machine
+
+# On the client (first time — the host terminal asks you to accept)
+kit remote --pair A1B2C3D4        # Pair and save the host under a name
+
+# On the client (any time after)
+kit remote --host zora            # Attach to the paired host
+kit remote --list                 # List paired hosts
+kit remote --forget zora          # Forget a saved host
 \`\`\`
 
-On connection the remote peer picks a working directory and gets a private
-session; multiple clients can hold sessions at the same time and \`/quit\`
-closes only that client's connection. \`Ctrl-]\` detaches without ending the
-daemon. Only one daemon may run per user.
+Pairing is one-time and human-approved: the code only works while the
+\`kit daemon pair\` window is open, and the host must accept the request on
+its terminal. After pairing, the client authenticates with its own signing
+key — no code involved — and the host can revoke it at any time. Each
+client picks a working directory and gets a private session; multiple
+clients can hold sessions at the same time and \`/quit\` closes only that
+client's connection. \`Ctrl-]\` detaches without ending the daemon. Only one
+daemon may run per user.
 `};export{e as default};
