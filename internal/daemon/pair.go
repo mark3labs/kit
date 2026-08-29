@@ -166,14 +166,25 @@ func (opts PairWindowOptions) prompt(ctx context.Context, fp string) bool {
 	}()
 	select {
 	case answer := <-line:
-		switch strings.ToLower(answer) {
-		case "y", "yes":
-			return true
-		default:
-			return false
-		}
+		return promptDecision(ctx, answer)
 	case <-ctx.Done():
 		fmt.Println("\n  (window expired) rejected.")
+		return false
+	}
+}
+
+// promptDecision resolves a typed answer against the window context. The
+// context check runs after the answer is received: Go's select may pick a
+// queued "yes" even when the deadline has already fired, and an answer
+// that lands at (or after) expiry is a rejection.
+func promptDecision(ctx context.Context, answer string) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	switch strings.ToLower(answer) {
+	case "y", "yes":
+		return true
+	default:
 		return false
 	}
 }
