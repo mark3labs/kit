@@ -2,7 +2,7 @@
   "version": 1,
   "generator": "tome",
   "site": "Kit",
-  "totalPages": 22,
+  "totalPages": 23,
   "searchEndpoint": "/pagefind/pagefind.js",
   "pages": [
     {
@@ -22,6 +22,22 @@
       ],
       "tags": [],
       "wordCount": 395
+    },
+    {
+      "id": "advanced/remote-sessions",
+      "url": "https://go-kit.dev/advanced/remote-sessions",
+      "title": "Remote Sessions",
+      "description": "Run Kit on one machine and drive it from another over an end-to-end encrypted iroh connection.",
+      "headings": [
+        "Requirements",
+        "Commands",
+        "Multiple sessions",
+        "systemd",
+        "Security model",
+        "Troubleshooting"
+      ],
+      "tags": [],
+      "wordCount": 620
     },
     {
       "id": "advanced/subagents",
@@ -83,10 +99,11 @@
         "Using templates",
         "Argument placeholders",
         "CLI flags",
-        "ACP server"
+        "ACP server",
+        "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2041
+      "wordCount": 2175
     },
     {
       "id": "cli/flags",
@@ -100,11 +117,12 @@
         "Context",
         "Extensions",
         "Skills",
+        "Remote",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 903
+      "wordCount": 948
     },
     {
       "id": "configuration",

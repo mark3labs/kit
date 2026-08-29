@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI flags.">
 <link rel="canonical" href="/cli/flags">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-B1vVVRFt.js"></script>
+<script type="module" src="/assets/index-Be6l_R2N.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -110,6 +110,12 @@ self-defeating.
 | `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/skill:` |
 | `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
 | `--no-agents` | — | `false` | Disable named agent discovery (built-ins and [definition files](/advanced/subagents#named-agents)) |
+
+## Remote
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--remote` | — | — | Attach this terminal to a daemon session using a pairing code (e.g. `kit --remote A1B2C3D4`). Mutually exclusive with prompts and `@file` attachments. See [Remote sessions](/advanced/remote-sessions). |
 
 ## Generation parameters
 

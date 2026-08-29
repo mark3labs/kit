@@ -331,7 +331,20 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 <h2 id="acp-server"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#acp-server"><span class="icon icon-link"></span></a>ACP server</h2>
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`}],raw:`
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>
+<h2 id="remote-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#remote-sessions"><span class="icon icon-link"></span></a>Remote sessions</h2>
+<p>Run Kit as a daemon on one machine and attach to it from another over an
+end-to-end encrypted iroh connection. All work runs on the daemon host; see
+<a href="/advanced/remote-sessions">Remote sessions</a> for the full picture.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Start daemon, print pairing code (Ctrl+C stops)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> status</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # Code, endpoint, uptime, active sessions</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> service</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # Install + start the systemd user service</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> service</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remove</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Stop and uninstall the service</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --remote</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span><span style="color:#6A737D;--shiki-dark:#6A737D">             # Attach to the daemon from another machine</span></span></code></pre>
+<p>On connection the remote peer picks a working directory and gets a private
+session; multiple clients can hold sessions at the same time and <code>/quit</code>
+closes only that client's connection. <code>Ctrl-]</code> detaches without ending the
+daemon. Only one daemon may run per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
 # Commands
 
 ## Authentication
@@ -617,4 +630,23 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 \`\`\`
+
+## Remote sessions
+
+Run Kit as a daemon on one machine and attach to it from another over an
+end-to-end encrypted iroh connection. All work runs on the daemon host; see
+[Remote sessions](/advanced/remote-sessions) for the full picture.
+
+\`\`\`bash
+kit daemon                        # Start daemon, print pairing code (Ctrl+C stops)
+kit daemon status                 # Code, endpoint, uptime, active sessions
+kit daemon service install        # Install + start the systemd user service
+kit daemon service remove         # Stop and uninstall the service
+kit --remote A1B2C3D4             # Attach to the daemon from another machine
+\`\`\`
+
+On connection the remote peer picks a working directory and gets a private
+session; multiple clients can hold sessions at the same time and \`/quit\`
+closes only that client's connection. \`Ctrl-]\` detaches without ending the
+daemon. Only one daemon may run per user.
 `};export{e as default};

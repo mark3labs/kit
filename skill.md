@@ -22,6 +22,7 @@ This is the documentation for **Kit**. It is a static documentation site with fu
 ### Pages
 
 - **[JSON Output](https://go-kit.dev/advanced/json-output)** — Machine-readable JSON output for scripting and automation.
+- **[Remote Sessions](https://go-kit.dev/advanced/remote-sessions)** — Run Kit on one machine and drive it from another over an end-to-end encrypted iroh connection.
 - **[Subagents](https://go-kit.dev/advanced/subagents)** — Multi-agent orchestration with Kit subagents.
 - **[Testing with tmux](https://go-kit.dev/advanced/testing)** — Test Kit's TUI non-interactively using tmux.
 - **[Commands](https://go-kit.dev/cli/commands)** — Complete reference for all Kit CLI subcommands.

@@ -284,3 +284,22 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 ```
+
+## Remote sessions
+
+Run Kit as a daemon on one machine and attach to it from another over an
+end-to-end encrypted iroh connection. All work runs on the daemon host; see
+[Remote sessions](/advanced/remote-sessions) for the full picture.
+
+```bash
+kit daemon                        # Start daemon, print pairing code (Ctrl+C stops)
+kit daemon status                 # Code, endpoint, uptime, active sessions
+kit daemon service install        # Install + start the systemd user service
+kit daemon service remove         # Stop and uninstall the service
+kit --remote A1B2C3D4             # Attach to the daemon from another machine
+```
+
+On connection the remote peer picks a working directory and gets a private
+session; multiple clients can hold sessions at the same time and `/quit`
+closes only that client's connection. `Ctrl-]` detaches without ending the
+daemon. Only one daemon may run per user.
