@@ -212,6 +212,7 @@ func RunHost(ctx context.Context, name string) error {
 	// Local keystrokes -> remote. A lone Ctrl-] detaches.
 	go func() {
 		defer finish()
+		scanner := &keyScanner{}
 		buf := make([]byte, 256)
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -223,28 +224,40 @@ func RunHost(ctx context.Context, name string) error {
 					detached.Store(true)
 					return
 				}
-				if n == 1 && buf[0] == pasteKey {
-					// Image paste: read the local clipboard and stream any
-					// image to the daemon. No image — forward the keystroke
-					// so the host keeps its normal Ctrl-V behavior.
-					if img, err := clipboard.ReadImage(); err == nil && len(img.Data) > 0 {
-						writeMu.Lock()
-						for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
-							if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
-								writeMu.Unlock()
+				for _, ev := range scanner.Feed(buf[:n]) {
+					if ev.Paste {
+						// Image paste: read the local clipboard and stream
+						// any image to the daemon. No image — forward the
+						// keystroke so the host keeps its normal Ctrl-V
+						// behavior.
+						img, imgErr := clipboard.ReadImage()
+						if imgErr == nil && len(img.Data) > 0 {
+							writeMu.Lock()
+							sent := true
+							for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
+								if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
+									sent = false
+									break
+								}
+							}
+							writeMu.Unlock()
+							if !sent {
 								return
 							}
+							fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
+							continue
 						}
-						writeMu.Unlock()
-						fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
-						continue
+						// No image: fall through and forward the original
+						// wire bytes below.
 					}
-				}
-				writeMu.Lock()
-				werr := WriteDataFrames(tun.Stdin(), 0, buf[:n])
-				writeMu.Unlock()
-				if werr != nil {
-					return
+					if len(ev.Data) > 0 {
+						writeMu.Lock()
+						werr := WriteDataFrames(tun.Stdin(), 0, ev.Data)
+						writeMu.Unlock()
+						if werr != nil {
+							return
+						}
+					}
 				}
 			}
 			if err != nil {
