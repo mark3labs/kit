@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+
+	"github.com/mark3labs/kit/internal/clipboard"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,13 @@ import (
 // detaches the local terminal from the remote session instead of
 // forwarding the keystroke.
 const detachKey = 0x1d
+
+// pasteKey is Ctrl-V. In a remote session the client intercepts a bare
+// Ctrl-V: it reads THIS machine's clipboard and streams any image to the
+// daemon as FrameClipboard chunks (the host TUI would otherwise read the
+// host's clipboard, which is the wrong one). When the clipboard holds no
+// image the keystroke is forwarded verbatim.
+const pasteKey = 0x16
 
 // terminalResetSeq restores terminal modes the remote TUI may have enabled
 // and we may not have seen disabled: alt screen off, cursor on, mouse and
@@ -213,6 +222,23 @@ func RunHost(ctx context.Context, name string) error {
 					writeMu.Unlock()
 					detached.Store(true)
 					return
+				}
+				if n == 1 && buf[0] == pasteKey {
+					// Image paste: read the local clipboard and stream any
+					// image to the daemon. No image — forward the keystroke
+					// so the host keeps its normal Ctrl-V behavior.
+					if img, err := clipboard.ReadImage(); err == nil && len(img.Data) > 0 {
+						writeMu.Lock()
+						for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
+							if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
+								writeMu.Unlock()
+								return
+							}
+						}
+						writeMu.Unlock()
+						fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
+						continue
+					}
 				}
 				writeMu.Lock()
 				werr := WriteDataFrames(tun.Stdin(), 0, buf[:n])

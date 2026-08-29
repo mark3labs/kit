@@ -117,8 +117,10 @@ type sessionTable struct {
 	rt           *daemonRuntime
 	mu           sync.Mutex
 	sessions     map[uint32]*remoteSession
-	pendingAuths map[[8]byte]authChallenge // confined to the frame loop
-	writeMu      sync.Mutex                // tunnel stdin is shared by all session pumps
+	pendingAuths map[[8]byte]authChallenge      // confined to the frame loop
+	clipboards   map[uint32]*ClipboardCollector // in-flight image transfers, frame loop only
+	sessionTemps map[uint32][]string            // temp files injected into each child
+	writeMu      sync.Mutex                     // tunnel stdin is shared by all session pumps
 }
 
 // writeTo sends one frame to the tunnel stdin. Errors are the caller's to
@@ -135,6 +137,8 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 		rt:           rt,
 		sessions:     make(map[uint32]*remoteSession),
 		pendingAuths: make(map[[8]byte]authChallenge),
+		clipboards:   make(map[uint32]*ClipboardCollector),
+		sessionTemps: make(map[uint32][]string),
 	}
 	defer table.teardownAll()
 
@@ -151,6 +155,8 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			table.handleAuthRequest(frame.Payload)
 		case FrameAuthPayload:
 			table.handleAuthPayload(frame.Payload)
+		case FrameClipboard:
+			table.handleClipboardChunk(frame.Session, frame.Payload)
 		case FrameSessionOpen:
 			table.openSession(frame.Session)
 		case FrameSessionClosed, FrameBye:
@@ -172,6 +178,64 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// handleClipboardChunk reassembles a client clipboard image transfer. On
+// the final chunk it writes the image to a tempfile and types
+// @"<tempfile>" into the session child's input: the standard @-attachment
+// pipeline then handles detection, preview and multimodal submission —
+// the operator just presses Enter.
+func (t *sessionTable) handleClipboardChunk(session uint32, payload []byte) {
+	coll := t.clipboards[session]
+	if coll == nil {
+		coll = NewClipboardCollector()
+		t.clipboards[session] = coll
+	}
+	done, mediaType, data, err := coll.Add(payload)
+	if err != nil {
+		log.Warn("clipboard transfer dropped", "session_id", session, "error", err)
+		delete(t.clipboards, session)
+		return
+	}
+	if !done {
+		return
+	}
+	delete(t.clipboards, session)
+
+	s := t.get(session)
+	if s == nil {
+		return
+	}
+	tmp, err := os.CreateTemp("", "kit-clip-*"+mediaExtension(mediaType))
+	if err != nil {
+		log.Error("daemon: clipboard tempfile failed", "session_id", session, "error", err)
+		return
+	}
+	path := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path)
+		log.Error("daemon: clipboard tempfile write failed", "session_id", session, "error", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(path)
+		log.Error("daemon: clipboard tempfile close failed", "session_id", session, "error", err)
+		return
+	}
+
+	t.mu.Lock()
+	t.sessionTemps[session] = append(t.sessionTemps[session], path)
+	t.mu.Unlock()
+
+	// Inject as a quoted @-reference (tokenizer supports @"path") followed
+	// by a space, so the operator can append text and hit Enter. Written as
+	// raw bytes into the child's PTY — printable characters only.
+	if _, err := fmt.Fprintf(s.ptmx, "@%q ", path); err != nil {
+		log.Error("daemon: clipboard inject failed", "session_id", session, "error", err)
+		return
+	}
+	log.Info("clipboard image attached", "session_id", session, "path", path, "bytes", len(data), "media_type", mediaType)
 }
 
 // handleAuthRequest stashes the handshake parameters so the signature can
@@ -307,17 +371,27 @@ func (table *sessionTable) openSession(id uint32) {
 // by the pipe and applied right after registration.
 
 // closeSession tears down one session: tell the client we are done, stop
-// the child, and free the table slot. Idempotent.
+// the child, free the table slot, and remove any clipboard tempfiles that
+// were injected but never consumed. Idempotent.
 func (t *sessionTable) closeSession(id uint32) {
 	t.mu.Lock()
 	s, ok := t.sessions[id]
 	delete(t.sessions, id)
+	temps := t.sessionTemps[id]
+	delete(t.sessionTemps, id)
+	delete(t.clipboards, id)
 	active := len(t.sessions)
 	t.mu.Unlock()
 	if !ok {
+		for _, p := range temps {
+			_ = os.Remove(p)
+		}
 		return
 	}
 	t.rt.setSessions(active)
+	for _, p := range temps {
+		_ = os.Remove(p)
+	}
 
 	_ = t.writeTo(Frame{Type: FrameBye, Session: id})
 

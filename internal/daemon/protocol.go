@@ -21,6 +21,12 @@ const (
 	FramePing   FrameType = 0x04
 	FramePong   FrameType = 0x05
 
+	// Client -> daemon clipboard image transfer (chunked; see
+	// internal/daemon/clipboard.go for the payload layout). Relayed by the
+	// sidecar verbatim like DATA/RESIZE; consumed by the daemon, never
+	// written to the session PTY.
+	FrameClipboard FrameType = 0x06
+
 	// Tunnel -> daemon session lifecycle (serve side only).
 	FrameSessionOpen   FrameType = 0x16
 	FrameSessionClosed FrameType = 0x17

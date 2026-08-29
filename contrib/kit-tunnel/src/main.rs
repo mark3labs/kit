@@ -443,7 +443,10 @@ fn send_to_go(f: &Frame) -> bool {
 }
 
 async fn serve(flags: &Flags) {
-    let secret_bytes = parse_seed(&flags.get("secret-hex"));
+    let secret_bytes = parse_seed(&secret_material(flags, "KIT_TUNNEL_SECRET"));
+    if secret_bytes.len() != 32 {
+        fail("daemon identity seed must be 32 bytes");
+    }
     let secret = secret_from_seed(&secret_bytes);
 
     let endpoint = Endpoint::builder(presets::N0)
@@ -1052,7 +1055,10 @@ async fn relay_client_session(mut send: SendStream, mut recv: RecvStream, sessio
 /// id. The Go side enforces the window timeout; every wait here is also
 /// bounded so a stalled peer cannot pin the task.
 async fn serve_pair(flags: &Flags) {
-    let seed = parse_seed(&flags.get("pair-seed-hex"));
+    let seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_PAIR_SEED"));
+    if seed.len() != 32 {
+        fail("pairing seed must be 32 bytes");
+    }
     let key = Arc::new(auth_key(&seed));
     let secret = secret_from_seed(&seed);
 
