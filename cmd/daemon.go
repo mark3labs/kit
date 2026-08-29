@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -12,34 +9,78 @@ import (
 	"github.com/mark3labs/kit/internal/daemon"
 )
 
-var daemonCode string
+var pairCode string
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Run Kit as a remote daemon, waiting for a pairing connection",
+	Short: "Run Kit as a remote daemon, hosting sessions for paired clients",
 	Long: `Run Kit as a remote daemon.
 
-Generates a pairing code and waits for remote peers to connect with
-"kit --remote CODE". Each verified peer picks a working directory
-(starting in this user's home directory) and gets its own session:
-the session runs entirely on this machine, rendered inside the peer's
-terminal. Multiple clients can hold sessions at the same time, and
-exiting a session only disconnects that client.
+Hosts remote sessions over an end-to-end encrypted iroh connection for
+clients paired with this machine. Each paired client picks a working
+directory (starting in this user's home directory) and gets its own
+session: the session runs entirely on this machine, rendered inside the
+peer's terminal. Multiple clients can hold sessions at the same time,
+and exiting a session only disconnects that client.
 
-The pairing code stays valid while the daemon runs; press Ctrl+C to
-stop. Only one daemon may run per user; use "kit daemon status" to
-inspect a running instance and "kit daemon service install" to manage
-it via systemd (user service).`,
+Pair a new client with 'kit daemon pair' — it shows a one-time code and
+asks you to accept or reject the client on this terminal. Only one
+daemon may run per user; use 'kit daemon status' to inspect a running
+instance and 'kit daemon service install' to manage it via systemd.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer stop()
-		return daemon.Serve(ctx, daemon.ServeOptions{Code: daemonCode})
+		return daemon.Serve(cmd.Context())
 	},
+}
+
+var daemonPairCmd = &cobra.Command{
+	Use:   "pair",
+	Short: "Pair a new client: show a one-time code and confirm on this terminal",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		if pairList {
+			return runPairList()
+		}
+		if pairRevoke != "" {
+			removed, err := daemon.RevokeClient(pairRevoke)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Revoked client %s (paired since %s)\n",
+				removed.FP, removed.AddedAt.Format("2006-01-02"))
+			return nil
+		}
+		return daemon.RunPairWindow(cmd.Context(), daemon.PairWindowOptions{Code: pairCode})
+	},
+}
+
+var (
+	pairList   bool
+	pairRevoke string
+)
+
+// runPairList prints the authorized clients table.
+func runPairList() error {
+	clients, err := daemon.ListAuthorized()
+	if err != nil {
+		return err
+	}
+	if len(clients) == 0 {
+		fmt.Println("No paired clients. Pair one with: kit daemon pair")
+		return nil
+	}
+	fmt.Printf("%-18s %-10s %s\n", "FINGERPRINT", "PAIRED", "LAST SEEN")
+	for _, c := range clients {
+		fmt.Printf("%-18s %-10s %s\n",
+			c.FP,
+			c.AddedAt.Format("2006-01-02"),
+			c.LastSeen.Format("2006-01-02 15:04"))
+	}
+	return nil
 }
 
 var daemonStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show the pairing code and state of a running daemon",
+	Short: "Show the state of a running daemon",
 	Args:  cobra.NoArgs,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		st := daemon.ReadStatus()
@@ -47,38 +88,26 @@ var daemonStatusCmd = &cobra.Command{
 			fmt.Println("kit daemon is not running.")
 			fmt.Println("Start one with: kit daemon  (or: kit daemon service install)")
 			if st.State != nil {
-				fmt.Printf("(stale state on disk from pid %d, started %s, code %s)\n",
-					st.State.PID, st.State.StartedAt.Format("2006-01-02 15:04"), st.State.Code)
+				fmt.Printf("(stale state on disk from pid %d, started %s)\n",
+					st.State.PID, st.State.StartedAt.Format("2006-01-02 15:04"))
 			}
 			return nil
 		}
 		s := st.State
 		if s == nil {
-			fmt.Printf("kit daemon is running (pid unknown — state file not written yet)\n")
+			fmt.Println("kit daemon is running (pid unknown — state file not written yet)")
 			return nil
 		}
 		uptime := time.Since(s.StartedAt).Round(time.Second)
 		fmt.Printf("kit daemon is running (pid %d, up %s)\n", s.PID, uptime)
-		fmt.Printf("  Pairing code:     %s\n", s.Code)
-		fmt.Printf("  Connect with:     kit --remote %s\n", normalizeForHint(s.Code))
 		if s.Endpoint != "" {
 			fmt.Printf("  Endpoint:         %s\n", s.Endpoint)
 		}
+		clients, _ := daemon.ListAuthorized()
+		fmt.Printf("  Paired clients:   %d\n", len(clients))
 		fmt.Printf("  Active sessions:  %d\n", s.SessionsActive)
 		return nil
 	},
-}
-
-// normalizeForHint strips the display dash so the connect hint is
-// copy-pasteable.
-func normalizeForHint(displayCode string) string {
-	out := make([]byte, 0, len(displayCode))
-	for i := 0; i < len(displayCode); i++ {
-		if displayCode[i] != '-' {
-			out = append(out, displayCode[i])
-		}
-	}
-	return string(out)
 }
 
 var daemonServiceCmd = &cobra.Command{
@@ -106,8 +135,12 @@ var daemonServiceRemoveCmd = &cobra.Command{
 }
 
 func init() {
-	daemonCmd.Flags().StringVar(&daemonCode, "code", "", "use a fixed pairing code instead of a random one (testing)")
-	_ = daemonCmd.Flags().MarkHidden("code")
+	daemonPairCmd.Flags().StringVar(&pairCode, "code", "", "use a fixed pairing code instead of a random one (testing)")
+	_ = daemonPairCmd.Flags().MarkHidden("code")
+	daemonPairCmd.Flags().BoolVar(&pairList, "list", false, "list paired clients")
+	daemonPairCmd.Flags().StringVar(&pairRevoke, "revoke", "", "revoke a paired client by fingerprint (or unique prefix)")
+
+	daemonCmd.AddCommand(daemonPairCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
 	daemonServiceCmd.AddCommand(daemonServiceInstallCmd)
 	daemonServiceCmd.AddCommand(daemonServiceRemoveCmd)

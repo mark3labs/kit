@@ -24,6 +24,23 @@ const (
 	// Tunnel -> daemon session lifecycle (serve side only).
 	FrameSessionOpen   FrameType = 0x16
 	FrameSessionClosed FrameType = 0x17
+
+	// Pairing-model control frames on the tunnel stdio (v3, protocol v3 in
+	// the sidecar). They never cross the iroh connection; they are the
+	// daemon<->sidecar consultation channel that keeps all policy in Go.
+	//
+	// Reconnect authentication (main endpoint):
+	//   AUTH_REQUEST  sidecar->daemon {c_nonce, s_nonce, client_pub}  (8+8+32)
+	//   AUTH_PAYLOAD  sidecar->daemon {signature}                     (64)
+	//   AUTH_DECISION daemon->sidecar {0|1}
+	// Pairing (bootstrap endpoint):
+	//   PAIR_REQUEST  sidecar->daemon {c_nonce, client_pub}           (8+32)
+	//   PAIR_DECISION daemon->sidecar {0|1, host_endpoint_id?}        (1 or 33)
+	FrameAuthRequest  FrameType = 0x30
+	FrameAuthPayload  FrameType = 0x31
+	FrameAuthDecision FrameType = 0x32
+	FramePairRequest  FrameType = 0x40
+	FramePairDecision FrameType = 0x41
 )
 
 const frameHeaderSize = 7 // type byte + u32 session + u16 big-endian length

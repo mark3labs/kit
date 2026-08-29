@@ -26,7 +26,6 @@ const (
 // daemonState is the snapshot `kit daemon status` reports.
 type daemonState struct {
 	PID            int       `json:"pid"`
-	Code           string    `json:"code"`
 	Endpoint       string    `json:"endpoint,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
 	SessionsActive int       `json:"sessions_active"`
@@ -88,12 +87,11 @@ type daemonRuntime struct {
 	state daemonState
 }
 
-func newDaemonRuntime(lock *daemonLock, code string) *daemonRuntime {
+func newDaemonRuntime(lock *daemonLock) *daemonRuntime {
 	return &daemonRuntime{
 		lock: lock,
 		state: daemonState{
 			PID:       os.Getpid(),
-			Code:      FormatCode(code),
 			StartedAt: time.Now(),
 		},
 	}

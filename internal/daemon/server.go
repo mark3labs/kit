@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,37 +16,22 @@ import (
 	"github.com/creack/pty"
 )
 
-// ServeOptions controls the daemon loop. Zero values are valid.
-type ServeOptions struct {
-	// Code forces a specific pairing code instead of a random one.
-	// Intended for tests.
-	Code string
-}
-
-// Serve runs the daemon until ctx is cancelled: derive the endpoint from a
-// pairing code, then host remote sessions over it. The code stays valid for
-// the daemon's lifetime; each verified client gets its own session (its own
-// `kit --pick-dir` child in its own PTY) and sessions end independently.
-func Serve(ctx context.Context, opts ServeOptions) error {
+// Serve runs the daemon until ctx is cancelled: bind the stable endpoint
+// derived from the daemon identity, then host remote sessions for paired
+// clients. Each client authenticates by signing the handshake with its
+// pairing key; the signature is checked against the allowlist written by
+// `kit daemon pair`. First-time clients pair through `kit daemon pair`,
+// which runs its own short-lived bootstrap endpoint.
+func Serve(ctx context.Context) error {
 	if _, err := FindTunnelBinary(); err != nil {
 		return err // fail fast with a clear message instead of per attempt
 	}
 
-	code := opts.Code
-	if code == "" {
-		var err error
-		code, err = GenerateCode()
-		if err != nil {
-			return err
-		}
-	} else if _, err := NormalizeCode(code); err != nil {
-		return err
-	}
-	seed, err := SeedFromCode(code)
+	seed, err := LoadDaemonIdentity()
 	if err != nil {
 		return err
 	}
-	seedHex := fmt.Sprintf("%x", seed)
+	secretHex := hex.EncodeToString(seed)
 
 	// Single instance per user: the lock is held for the daemon's lifetime
 	// and released automatically on crash, so there is no stale-lock state.
@@ -54,18 +41,24 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	}
 	defer lock.release()
 	defer clearState()
-	rt := newDaemonRuntime(lock, code)
+	rt := newDaemonRuntime(lock)
 
-	printBanner(code)
+	fmt.Println()
+	fmt.Println("  kit daemon")
+	fmt.Println()
 
 	// If the tunnel process dies unexpectedly (crash, kill), restart it
-	// with the same seed: the endpoint id is derived from the code, so the
-	// same code finds us again. Live sessions do not survive the restart.
+	// with the same identity: the endpoint id is stable, so paired clients
+	// find us again. Live sessions do not survive the restart.
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		tun, err := StartTunnel(ctx, "serve", seedHex)
+		tun, err := StartTunnel(ctx, TunnelOptions{
+			Mode: "serve",
+			Args: []string{"--timeout", "30"},
+			Env:  []string{"KIT_TUNNEL_SECRET=" + secretHex},
+		})
 		if err != nil {
 			return err
 		}
@@ -74,9 +67,11 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 			tun.Close()
 			return fmt.Errorf("daemon: tunnel failed to start: %w", err)
 		}
-		if nodeID, ok := strings.CutPrefix(ready, "READY node_id="); ok {
-			rt.setEndpoint(nodeID)
-		}
+		nodeID, _ := strings.CutPrefix(ready, "READY node_id=")
+		rt.setEndpoint(nodeID)
+		fmt.Printf("  Endpoint:     %s\n", shortEndpoint(nodeID))
+		fmt.Println("  Waiting for paired clients. Pair a new one with: kit daemon pair")
+		fmt.Println()
 
 		err = runSessions(ctx, tun, rt)
 
@@ -87,8 +82,16 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 		if err != nil {
 			return fmt.Errorf("daemon: tunnel ended: %w", err)
 		}
-		fmt.Println("  Listener restarted — same pairing code, waiting…")
+		fmt.Println("  Listener restarted — endpoint unchanged, waiting…")
 	}
+}
+
+// shortEndpoint renders the first bytes of an endpoint id for display.
+func shortEndpoint(id string) string {
+	if len(id) > 16 {
+		return id[:16] + "…"
+	}
+	return id
 }
 
 // remoteSession is one connected client and its kit child process.
@@ -98,15 +101,24 @@ type remoteSession struct {
 	ptmx *os.File
 }
 
+// authChallenge is an in-flight reconnect handshake awaiting the client's
+// signature. Keyed by the 8-byte correlation key (first bytes of c_nonce).
+type authChallenge struct {
+	clientPub []byte
+	cNonce    []byte
+	sNonce    []byte
+}
+
 // sessionTable tracks live sessions. The tunnel's stdout frames are read by
 // a single goroutine, so map access is confined to it plus teardown paths
 // guarded by mu.
 type sessionTable struct {
-	tunnel   *Tunnel
-	rt       *daemonRuntime
-	mu       sync.Mutex
-	sessions map[uint32]*remoteSession
-	writeMu  sync.Mutex // tunnel stdin is shared by all session pumps
+	tunnel       *Tunnel
+	rt           *daemonRuntime
+	mu           sync.Mutex
+	sessions     map[uint32]*remoteSession
+	pendingAuths map[[8]byte]authChallenge // confined to the frame loop
+	writeMu      sync.Mutex                // tunnel stdin is shared by all session pumps
 }
 
 // writeTo sends one frame to the tunnel stdin. Errors are the caller's to
@@ -118,7 +130,12 @@ func (t *sessionTable) writeTo(frame Frame) error {
 }
 
 func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
-	table := &sessionTable{tunnel: tun, rt: rt, sessions: make(map[uint32]*remoteSession)}
+	table := &sessionTable{
+		tunnel:       tun,
+		rt:           rt,
+		sessions:     make(map[uint32]*remoteSession),
+		pendingAuths: make(map[[8]byte]authChallenge),
+	}
 	defer table.teardownAll()
 
 	// Child exits are noticed by the per-session PTY reader; when a client
@@ -130,6 +147,10 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			return nil // tunnel stream/process ended
 		}
 		switch frame.Type {
+		case FrameAuthRequest:
+			table.handleAuthRequest(frame.Payload)
+		case FrameAuthPayload:
+			table.handleAuthPayload(frame.Payload)
 		case FrameSessionOpen:
 			table.openSession(frame.Session)
 		case FrameSessionClosed, FrameBye:
@@ -151,6 +172,89 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			return ctx.Err()
 		}
 	}
+}
+
+// handleAuthRequest stashes the handshake parameters so the signature can
+// be verified when the client's AUTH_PAYLOAD arrives.
+func (t *sessionTable) handleAuthRequest(payload []byte) {
+	if len(payload) < 8 {
+		log.Warn("short auth request frame", "len", len(payload))
+		return // nothing to correlate a denial with; drop
+	}
+	if len(payload) != 32+32+32 {
+		log.Warn("malformed auth request", "len", len(payload))
+		t.decideAuth(payload[:8], false, "malformed auth request")
+		return
+	}
+	corr := [8]byte(payload[0:8])
+	t.pendingAuths[corr] = authChallenge{
+		clientPub: payload[64:96],
+		cNonce:    payload[0:32],
+		sNonce:    payload[32:64],
+	}
+	log.Info("auth request", "fp", Fingerprint(payload[64:96]))
+}
+
+// handleAuthPayload verifies the client's signature against the allowlist
+// and answers the sidecar's consultation. Payload: c_nonce(32) | sig(64);
+// the correlation key is the first 8 bytes of c_nonce.
+func (t *sessionTable) handleAuthPayload(payload []byte) {
+	if len(payload) != 32+64 {
+		log.Warn("malformed auth payload", "len", len(payload))
+		return
+	}
+	corr := [8]byte(payload[0:8])
+	sig := payload[32:]
+	challenge, ok := t.pendingAuths[corr]
+	if !ok {
+		log.Warn("auth payload without request", "corr", hex.EncodeToString(corr[:]))
+		t.decideAuth(corr[:], false, "unknown handshake")
+		return
+	}
+	// Drop the stashed challenge on every path below: the sidecar gets an
+	// answer either way, and the map cannot grow under repeated
+	// request/payload floods.
+	delete(t.pendingAuths, corr)
+	fp := Fingerprint(challenge.clientPub)
+	entry, authorized, err := LookupClient(fp)
+	if err != nil {
+		t.decideAuth(corr[:], false, "allowlist error")
+		return
+	}
+	if !authorized {
+		log.Warn("client not paired", "fp", fp)
+		t.decideAuth(corr[:], false, "client not paired — run 'kit daemon pair' on the host")
+		return
+	}
+	pub, err := hex.DecodeString(entry.PubKey)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		t.decideAuth(corr[:], false, "corrupt allowlist entry")
+		return
+	}
+	msg := append([]byte(signContext), challenge.cNonce...)
+	msg = append(msg, challenge.sNonce...)
+	if !ed25519.Verify(ed25519.PublicKey(pub), msg, sig) {
+		log.Warn("bad client signature", "fp", fp)
+		t.decideAuth(corr[:], false, "bad signature")
+		return
+	}
+	_ = TouchClient(fp)
+	log.Info("client authorized", "fp", fp)
+	t.decideAuth(corr[:], true, "")
+}
+
+// decideAuth answers the sidecar's consultation. The payload mirrors what
+// the Rust side parses: correlation key (8), verdict byte, optional reason.
+func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
+	out := make([]byte, 0, 8+1+len(reason))
+	out = append(out, corr...)
+	if allow {
+		out = append(out, 1)
+	} else {
+		out = append(out, 0)
+	}
+	out = append(out, reason...)
+	_ = t.writeTo(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
 }
 
 // openSession spawns a fresh `kit --pick-dir` child for a newly verified
@@ -276,14 +380,4 @@ func homeDir() string {
 		return u.HomeDir
 	}
 	return "/"
-}
-
-func printBanner(code string) {
-	fmt.Println()
-	fmt.Println("  kit daemon")
-	fmt.Println()
-	fmt.Printf("  Pairing code: %s\n", FormatCode(code))
-	fmt.Println("  Enter this code on the remote machine with: kit --remote " + code)
-	fmt.Println("  The code stays valid while the daemon runs; multiple sessions allowed.")
-	fmt.Println()
 }

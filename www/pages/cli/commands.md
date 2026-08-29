@@ -296,14 +296,29 @@ end-to-end encrypted iroh connection. All work runs on the daemon host; see
 [Remote sessions](/advanced/remote-sessions) for the full picture.
 
 ```bash
-kit daemon                        # Start daemon, print pairing code (Ctrl+C stops)
-kit daemon status                 # Code, endpoint, uptime, active sessions
+# On the host
+kit daemon                        # Host sessions for paired clients (Ctrl+C stops)
+kit daemon pair                   # One-time pairing: show code, confirm on this terminal
+kit daemon pair --list            # List paired clients (fingerprints)
+kit daemon pair --revoke <fp>     # Revoke a client
+kit daemon status                 # Endpoint, paired clients, active sessions
 kit daemon service install        # Install + start the systemd user service
 kit daemon service remove         # Stop and uninstall the service
-kit --remote A1B2C3D4             # Attach to the daemon from another machine
+
+# On the client (first time — the host terminal asks you to accept)
+kit remote --pair A1B2C3D4        # Pair and save the host under a name
+
+# On the client (any time after)
+kit remote --host zora            # Attach to the paired host
+kit remote --list                 # List paired hosts
+kit remote --forget zora          # Forget a saved host
 ```
 
-On connection the remote peer picks a working directory and gets a private
-session; multiple clients can hold sessions at the same time and `/quit`
-closes only that client's connection. `Ctrl-]` detaches without ending the
-daemon. Only one daemon may run per user.
+Pairing is one-time and human-approved: the code only works while the
+`kit daemon pair` window is open, and the host must accept the request on
+its terminal. After pairing, the client authenticates with its own signing
+key — no code involved — and the host can revoke it at any time. Each
+client picks a working directory and gets a private session; multiple
+clients can hold sessions at the same time and `/quit` closes only that
+client's connection. `Ctrl-]` detaches without ending the daemon. Only one
+daemon may run per user.
