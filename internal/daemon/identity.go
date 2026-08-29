@@ -53,14 +53,19 @@ func identityPaths() (IdentityPaths, error) {
 }
 
 // loadOrCreateSeed returns the 32-byte seed stored at path, generating and
-// persisting a fresh one (0600) when the file does not exist yet.
+// persisting a fresh one (0600) only when the file does not exist. An
+// existing but invalid file is an error, never silently regenerated: for
+// the daemon seed that would rotate the endpoint id and orphan every
+// paired client.
 func loadOrCreateSeed(path string) ([]byte, error) {
-	if b, err := os.ReadFile(path); err == nil && len(b) >= 64 {
-		seed, derr := hex.DecodeString(string(b)[:64])
-		if derr == nil && len(seed) == 32 {
-			return seed, nil
+	if b, err := os.ReadFile(path); err == nil {
+		if len(b) >= 64 {
+			seed, derr := hex.DecodeString(string(b)[:64])
+			if derr == nil && len(seed) == 32 {
+				return seed, nil
+			}
 		}
-		return nil, fmt.Errorf("daemon: corrupt identity file %s", path)
+		return nil, fmt.Errorf("daemon: corrupt identity file %s — fix or remove it (removing the daemon identity rotates the endpoint id and un-pairs every client)", path)
 	}
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {

@@ -116,9 +116,14 @@ func writeHostBook(hosts []HostEntry) error {
 }
 
 // SaveHost adds (or replaces) a paired host entry under the given name.
+// The endpoint id must be 64 hex chars (an ed25519 public key) so a stored
+// entry can never crash the sidecar's dial path later.
 func SaveHost(name string, endpointID string) error {
 	if name == "" {
 		return fmt.Errorf("daemon: host name must not be empty")
+	}
+	if raw, err := hex.DecodeString(endpointID); err != nil || len(raw) != ed25519PubLen {
+		return fmt.Errorf("daemon: host endpoint id must be 64 hex chars")
 	}
 	hosts, err := readHostBook()
 	if err != nil {
@@ -231,6 +236,28 @@ func allowlistPath() (string, error) {
 	return filepath.Join(base, "kit", "daemon", "authorized.json"), nil
 }
 
+// withFileLock runs fn while holding an exclusive lock on a stable
+// <path>.lock file. Read-modify-write store updates run under it so
+// concurrent processes (daemon touches vs pair-command revokes) cannot
+// overwrite each other's changes. The lock file is never replaced, so the
+// lock itself is stable across the atomic renames of the store file.
+func withFileLock(path string, fn func() error) error {
+	lockPath := path + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return fmt.Errorf("daemon: store lock dir: %w", err)
+	}
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("daemon: store lock: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := lockFileExclusive(f); err != nil {
+		return fmt.Errorf("daemon: store lock busy: %w", err)
+	}
+	defer unlockFile(f)
+	return fn()
+}
+
 func readAllowlist() ([]ClientEntry, error) {
 	path, err := allowlistPath()
 	if err != nil {
@@ -289,18 +316,25 @@ func AuthorizeClient(pubKeyHex string) (string, error) {
 		return "", fmt.Errorf("daemon: bad client public key")
 	}
 	fp := Fingerprint(raw)
-	clients, err := readAllowlist()
+	path, err := allowlistPath()
 	if err != nil {
 		return "", err
 	}
-	for i := range clients {
-		if clients[i].FP == fp {
-			clients[i].LastSeen = time.Now()
-			return fp, writeAllowlist(clients)
+	err = withFileLock(path, func() error {
+		clients, err := readAllowlist()
+		if err != nil {
+			return err
 		}
-	}
-	clients = append(clients, ClientEntry{FP: fp, PubKey: pubKeyHex, AddedAt: time.Now(), LastSeen: time.Now()})
-	return fp, writeAllowlist(clients)
+		for i := range clients {
+			if clients[i].FP == fp {
+				clients[i].LastSeen = time.Now()
+				return writeAllowlist(clients)
+			}
+		}
+		clients = append(clients, ClientEntry{FP: fp, PubKey: pubKeyHex, AddedAt: time.Now(), LastSeen: time.Now()})
+		return writeAllowlist(clients)
+	})
+	return fp, err
 }
 
 // LookupClient verifies a fingerprint is authorized and returns its entry.
@@ -318,18 +352,26 @@ func LookupClient(fp string) (ClientEntry, bool, error) {
 }
 
 // TouchClient updates last_seen after a successful authenticated handshake.
+// Runs under the store lock so a concurrent revoke is never resurrected by
+// a stale read-modify-write.
 func TouchClient(fp string) error {
-	clients, err := readAllowlist()
+	path, err := allowlistPath()
 	if err != nil {
 		return err
 	}
-	for i := range clients {
-		if clients[i].FP == fp {
-			clients[i].LastSeen = time.Now()
-			return writeAllowlist(clients)
+	return withFileLock(path, func() error {
+		clients, err := readAllowlist()
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		for i := range clients {
+			if clients[i].FP == fp {
+				clients[i].LastSeen = time.Now()
+				return writeAllowlist(clients)
+			}
+		}
+		return nil
+	})
 }
 
 // ListAuthorized returns all paired clients, sorted by fingerprint.
@@ -345,6 +387,19 @@ func ListAuthorized() ([]ClientEntry, error) {
 // RevokeClient removes an authorized client by fingerprint (or by its
 // unique short prefix). Returns the removed entry.
 func RevokeClient(fpOrPrefix string) (ClientEntry, error) {
+	path, err := allowlistPath()
+	if err != nil {
+		return ClientEntry{}, err
+	}
+	var removed ClientEntry
+	err = withFileLock(path, func() error {
+		removed, err = revokeClientLocked(fpOrPrefix)
+		return err
+	})
+	return removed, err
+}
+
+func revokeClientLocked(fpOrPrefix string) (ClientEntry, error) {
 	clients, err := readAllowlist()
 	if err != nil {
 		return ClientEntry{}, err

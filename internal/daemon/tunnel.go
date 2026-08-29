@@ -66,10 +66,12 @@ func FindTunnelBinary() (string, error) {
 }
 
 // TunnelOptions describes one sidecar invocation. Args carry the mode's
-// flags verbatim (e.g. "--secret-hex", hex, "--timeout", "30").
+// public flags (e.g. "--timeout", "30"); Env carries key material — argv is
+// world-readable via ps, the child environment is not.
 type TunnelOptions struct {
-	Mode string   // serve | serve-pair | dial-pair | dial-host
-	Args []string // flags after the mode
+	Mode string
+	Args []string // public flags after the mode
+	Env  []string // KEY=VALUE pairs (secret seeds) added to the child env
 }
 
 // StartTunnel launches the sidecar with the given options. Status lines are
@@ -80,6 +82,9 @@ func StartTunnel(ctx context.Context, opts TunnelOptions) (*Tunnel, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, append([]string{opts.Mode}, opts.Args...)...)
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
+	}
 	cmd.Stderr = nil // replaced below with our own pipe
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

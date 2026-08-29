@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -184,7 +185,7 @@ func InitConfig() {
 	// Remote client flows never read local configuration: a broken local
 	// config must not block attaching to a daemon, and the client performs
 	// no local-session work that could consume it.
-	if len(os.Args) > 1 && os.Args[1] == "remote" {
+	if remoteSubcommandSelected(os.Args[1:]) {
 		return
 	}
 	if err := kit.InitConfigWithOptions(kit.ConfigInitOptions{
@@ -198,6 +199,39 @@ func InitConfig() {
 	// Rebuild the model registry now that viper has the config loaded,
 	// so customModels defined in the config file are picked up.
 	models.ReloadGlobalRegistry()
+}
+
+// remoteSubcommandSelected reports whether the invoked command line
+// selects the `kit remote` subcommand. Flag-aware: global flags (with or
+// without values) before the subcommand are skipped, so
+// `kit --config x remote --list` is recognized just like `kit remote`.
+func remoteSubcommandSelected(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "remote" {
+			return true
+		}
+		if strings.HasPrefix(arg, "-") {
+			// Flags that take a value consume the next token unless the
+			// value is attached with '='.
+			if !strings.Contains(arg, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				isBoolean := slices.Contains(globalBoolFlags, strings.TrimLeft(arg, "-"))
+				if !isBoolean {
+					i++
+				}
+			}
+		}
+	}
+	return false
+}
+
+// globalBoolFlags lists root persistent flags that do not take a value;
+// used by remoteSubcommandSelected to walk the argv correctly.
+var globalBoolFlags = []string{
+	"bare", "debug", "quiet", "json", "no-exit", "no-session",
+	"continue", "resume", "auto-compact", "compact", "stream",
+	"no-extensions", "no-prompt-templates", "no-skills", "no-agents",
+	"no-core-tools", "tls-skip-verify", "pick-dir", "version",
 }
 
 // adaptiveOrDefault converts a config.AdaptiveColor to a resolved color.Color,

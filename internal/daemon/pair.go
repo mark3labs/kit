@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -83,7 +84,8 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 
 	tun, err := StartTunnel(pctx, TunnelOptions{
 		Mode: "serve-pair",
-		Args: []string{"--pair-seed-hex", fmt.Sprintf("%x", seed), "--timeout", "30"},
+		Args: []string{"--timeout", "30"},
+		Env:  []string{"KIT_TUNNEL_PAIR_SEED=" + fmt.Sprintf("%x", seed)},
 	})
 	if err != nil {
 		return err
@@ -157,13 +159,9 @@ func (opts PairWindowOptions) prompt(fp string) bool {
 	fmt.Printf("  Accept? [y/N]: ")
 	line := make(chan string, 1)
 	go func() {
-		var buf [2]byte
-		n, _ := os.Stdin.Read(buf[:])
-		if n == 0 {
-			line <- ""
-			return
-		}
-		line <- strings.TrimSpace(string(buf[:n]))
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		line <- strings.TrimSpace(text)
 	}()
 	answer := <-line
 	switch strings.ToLower(answer) {

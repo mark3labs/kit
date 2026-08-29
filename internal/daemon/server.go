@@ -56,7 +56,8 @@ func Serve(ctx context.Context) error {
 		}
 		tun, err := StartTunnel(ctx, TunnelOptions{
 			Mode: "serve",
-			Args: []string{"--secret-hex", secretHex, "--timeout", "30"},
+			Args: []string{"--timeout", "30"},
+			Env:  []string{"KIT_TUNNEL_SECRET=" + secretHex},
 		})
 		if err != nil {
 			return err
@@ -176,6 +177,10 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 // handleAuthRequest stashes the handshake parameters so the signature can
 // be verified when the client's AUTH_PAYLOAD arrives.
 func (t *sessionTable) handleAuthRequest(payload []byte) {
+	if len(payload) < 8 {
+		log.Warn("short auth request frame", "len", len(payload))
+		return // nothing to correlate a denial with; drop
+	}
 	if len(payload) != 32+32+32 {
 		log.Warn("malformed auth request", "len", len(payload))
 		t.decideAuth(payload[:8], false, "malformed auth request")
@@ -206,8 +211,10 @@ func (t *sessionTable) handleAuthPayload(payload []byte) {
 		t.decideAuth(corr[:], false, "unknown handshake")
 		return
 	}
+	// Drop the stashed challenge on every path below: the sidecar gets an
+	// answer either way, and the map cannot grow under repeated
+	// request/payload floods.
 	delete(t.pendingAuths, corr)
-
 	fp := Fingerprint(challenge.clientPub)
 	entry, authorized, err := LookupClient(fp)
 	if err != nil {

@@ -28,12 +28,12 @@ const terminalResetSeq = "\x1b[?1049l\x1b[?25h" +
 	"\x1b[?2004l" +
 	"\x1b[<u\x1b[<u\x1b[<u"
 
-// PairOptions controls `kit remote --pair`. Zero values are valid.
+// PairOptions controls `kit remote --pair`. Code is required; all other
+// fields are optional.
 type PairOptions struct {
 	// Name pre-selects the saved host name (skips the interactive prompt).
 	Name string
-	// Code forces a specific pairing code instead of the one typed by the
-	// user. Intended for tests.
+	// Code is the one-time pairing code shown by 'kit daemon pair'.
 	Code string
 }
 
@@ -67,10 +67,10 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 	tun, err := StartTunnel(ctx, TunnelOptions{
 		Mode: "dial-pair",
 		Args: []string{
-			"--pair-seed-hex", fmt.Sprintf("%x", seed),
 			"--client-pub-hex", kp.PubHex,
 			"--timeout", "150", // covers the human decision on the host
 		},
+		Env: []string{"KIT_TUNNEL_PAIR_SEED=" + fmt.Sprintf("%x", seed)},
 	})
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 
 	name := opts.Name
 	if name == "" {
-		name = promptHostName()
+		name = promptHostName(ctx)
 	}
 	if err := SaveHost(name, hostID); err != nil {
 		return err
@@ -111,21 +111,31 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 }
 
 // promptHostName asks for a friendly name on the terminal, defaulting to
-// the local hostname.
-func promptHostName() string {
+// the local hostname. Returns the default when ctx is cancelled while
+// waiting for input.
+func promptHostName(ctx context.Context) string {
 	host, _ := os.Hostname()
 	host = strings.SplitN(host, ".", 2)[0]
 	if !term.IsTerminal(os.Stdin.Fd()) {
 		return host
 	}
 	fmt.Fprintf(os.Stderr, "Save this host as [%s]: ", host)
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
-	name := strings.TrimSpace(line)
-	if name == "" {
+	line := make(chan string, 1)
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		line <- strings.TrimSpace(text)
+	}()
+	var answer string
+	select {
+	case answer = <-line:
+	case <-ctx.Done():
 		return host
 	}
-	return name
+	if answer == "" {
+		return host
+	}
+	return answer
 }
 
 // RunHost attaches the local terminal to a paired daemon by name:
@@ -147,9 +157,9 @@ func RunHost(ctx context.Context, name string) error {
 		Mode: "dial-host",
 		Args: []string{
 			"--endpoint-id", entry.EndpointID,
-			"--client-seed-hex", fmt.Sprintf("%x", clientSeed),
 			"--timeout", "35",
 		},
+		Env: []string{"KIT_TUNNEL_CLIENT_SEED=" + fmt.Sprintf("%x", clientSeed)},
 	})
 	if err != nil {
 		return err

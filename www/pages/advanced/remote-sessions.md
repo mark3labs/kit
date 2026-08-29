@@ -13,8 +13,10 @@ falls back to relays.
 
 Access is **pairing-based**. A client pairs with the host once — with a
 one-time code and an explicit accept/reject on the host's terminal — and
-from then on reconnects by name with its own signing key. No code is ever
-needed again, and the host can revoke any client at any time.
+from then on reconnects by name with its own signing key. For normal
+reconnects no code is needed, and the host can revoke any client at any
+time. (If the host's daemon identity file is deleted, its endpoint id
+rotates and every client pairs again.)
 
 ```bash
 # On the host: start the daemon

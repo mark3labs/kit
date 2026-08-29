@@ -216,6 +216,23 @@ fn parse_seed(hex_seed: &str) -> Vec<u8> {
     hex::decode(hex_seed.trim()).unwrap_or_else(|e| fail(&format!("bad seed hex: {e}")))
 }
 
+/// Key material never travels in argv (world-readable via ps); the Go side
+/// passes it in the child's environment and the mode flag selects the
+/// variable to read.
+fn secret_material(flags: &Flags, env_var: &str) -> String {
+    if let Some(flag) = ["secret-hex", "pair-seed-hex", "client-seed-hex"]
+        .iter()
+        .find_map(|f| {
+            let v = flags.get(f);
+            (!v.is_empty()).then_some(v)
+        })
+    {
+        // Direct hex flag (used by tests and manual runs).
+        return flag;
+    }
+    std::env::var(env_var).unwrap_or_else(|_| fail(&format!("missing key material: set {env_var}")))
+}
+
 /// Transport tuning: a keep-alive plus a hard idle timeout so a silently
 /// vanished peer (killed process, dropped network, sleeping laptop) is
 /// detected in seconds instead of hanging the other side forever.
@@ -398,7 +415,6 @@ async fn server_handshake(
             anyhow::bail!("unauthorized client: {reason}");
         }
         Ok(None) | Err(_) => {
-            pending.lock().unwrap().remove(&corr);
             anyhow::bail!("auth decision timeout");
         }
     }
@@ -583,6 +599,19 @@ impl Drop for SlotGuard<'_> {
     }
 }
 
+/// Removes the correlation entry from the pending map on every exit path,
+/// so peers that connect, say hello, and vanish cannot grow the map.
+struct PendingGuard<'a> {
+    pending: &'a Pending,
+    corr: &'a [u8; 8],
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        self.pending.lock().unwrap().remove(self.corr);
+    }
+}
+
 /// Politely refuse a peer when the session cap is reached. Fully bounded:
 /// every wait uses the handshake timeout (an over-cap peer that never opens
 /// a stream, or stalls at any point, is reaped instead of pinning a
@@ -746,7 +775,10 @@ async fn handle_connection(
 // ---------------------------------------------------------------------------
 
 async fn dial_pair(flags: &Flags) {
-    let seed = parse_seed(&flags.get("pair-seed-hex"));
+    let seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_PAIR_SEED"));
+    if seed.len() != 32 {
+        fail("pairing seed must be 32 bytes");
+    }
     let key = auth_key(&seed);
     // The bootstrap endpoint is derived from the one-time code: knowledge
     // of the code is what makes it findable, exactly like protocol v2 —
@@ -836,10 +868,16 @@ async fn dial_pair(flags: &Flags) {
 
 async fn dial_host(flags: &Flags) {
     let server_bytes = parse_seed(&flags.get("endpoint-id"));
-    let server_id = EndpointId::from_bytes(&server_bytes.try_into().expect("32 byte endpoint id"))
+    if server_bytes.len() != ED25519_PUB_LEN {
+        fail("endpoint-id must be 64 hex chars");
+    }
+    let server_id = EndpointId::from_bytes(&server_bytes.try_into().expect("checked above"))
         .unwrap_or_else(|e| fail(&format!("bad endpoint id: {e}")));
-    let signing_seed = parse_seed(&flags.get("client-seed-hex"));
-    let signing = SigningKey::from_bytes(&signing_seed.try_into().expect("32 byte seed"));
+    let signing_seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_CLIENT_SEED"));
+    if signing_seed.len() != 32 {
+        fail("client seed must be 32 bytes");
+    }
+    let signing = SigningKey::from_bytes(&signing_seed.try_into().expect("checked above"));
     let timeout_secs = flags.timeout();
 
     // Transport identity is ephemeral; the application-level identity is
@@ -1118,7 +1156,7 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
             return;
         }
     };
-    // ver(u16) | c_nonce(8) | client_pub(32) | tag(32)
+    // ver(u16) | c_nonce(32) | client_pub(32) | tag(32)
     if hello.t != FRAME_PAIR_CLIENT_HELLO
         || hello.payload.len() != 2 + NONCE_LEN + ED25519_PUB_LEN + TAG_LEN
     {
@@ -1148,6 +1186,10 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
     status(&format!("PAIR_REQUEST fp={fp}"));
     let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
     pending.lock().unwrap().insert(corr, tx);
+    let _guard = PendingGuard {
+        pending: &pending,
+        corr: &corr,
+    };
     if !send_to_go(&Frame::new(
         FRAME_PAIR_REQUEST,
         0,
