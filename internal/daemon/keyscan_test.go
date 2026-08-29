@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 // The wire bytes captured from a real kitty window with the protocol
@@ -116,18 +117,32 @@ func TestKeyScannerMixedBatch(t *testing.T) {
 	}
 }
 
-func TestKeyScannerLoneEscapeFlushedOnNextFeed(t *testing.T) {
+func TestKeyScannerLoneEscapeFlushedAfterIdle(t *testing.T) {
 	k := &keyScanner{}
 	if evs := k.Feed([]byte{0x1b}); len(evs) != 0 {
 		t.Fatalf("lone ESC should stay pending in the same chunk, got %+v", evs)
 	}
+	// An idle past escIdleFlush means a standalone Esc key press.
+	time.Sleep(escIdleFlush + 20*time.Millisecond)
 	evs := k.Feed([]byte{'x'})
 	joined := []byte{}
 	for _, ev := range evs {
 		joined = append(joined, ev.Data...)
 	}
 	if !bytes.Equal(joined, []byte{0x1b, 'x'}) {
-		t.Fatalf("lone ESC should flush with the following input, got %+v", evs)
+		t.Fatalf("idle ESC should flush with the following input, got %+v", evs)
+	}
+}
+
+func TestKeyScannerCSISplitRightAfterEscapeStillDetected(t *testing.T) {
+	k := &keyScanner{}
+	// The read boundary falls between ESC and the rest of the sequence.
+	if evs := k.Feed([]byte{0x1b}); len(evs) != 0 {
+		t.Fatalf("ESC chunk should emit nothing, got %+v", evs)
+	}
+	evs := k.Feed(kittyCtrlVPress[1:])
+	if len(evs) != 1 || !evs[0].Paste {
+		t.Fatalf("CSI split after ESC should still be a paste event, got %+v", evs)
 	}
 }
 

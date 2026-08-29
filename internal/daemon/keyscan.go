@@ -3,6 +3,7 @@ package daemon
 import (
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Kitty keyboard protocol scanning for the remote client.
@@ -41,6 +42,11 @@ const (
 	// maxCSILen bounds a partial CSI sequence: real sequences are far
 	// shorter; anything longer is treated as malformed passthrough.
 	maxCSILen = 64
+	// escIdleFlush is how long a pending lone Escape waits for its
+	// sequence continuation before it is flushed as an Esc key press. A
+	// CSI sequence split across reads arrives within microseconds; a
+	// standalone Esc key press is followed by human-scale silence.
+	escIdleFlush = 50 * time.Millisecond
 )
 
 // kittyEventKind classifies a decoded CSI-u event for the 'v' key.
@@ -65,8 +71,9 @@ type keyEvent struct {
 
 // keyScanner is an incremental CSI-u/legacy key scanner.
 type keyScanner struct {
-	buf   []byte // pending partial escape sequence
-	inCSI bool   // saw ESC [ — accumulating until a final byte
+	buf   []byte    // pending partial escape sequence
+	inCSI bool      // saw ESC [ — accumulating until a final byte
+	escAt time.Time // when the pending lone ESC was read (zero = none)
 }
 
 // Feed consumes one stdin chunk and returns the decoded events in wire
@@ -83,11 +90,15 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 		}
 	}
 
-	// A lone Escape from the previous chunk is a complete Esc key press:
-	// flush it before processing this chunk.
-	if len(k.buf) == 1 && k.buf[0] == 0x1b && !k.inCSI {
+	// A lone Escape pending from a previous chunk flushes as an Esc key
+	// press once it has been idle past escIdleFlush. A CSI sequence split
+	// right after ESC arrives within microseconds and keeps composing —
+	// flushing on chunk arrival alone would break that valid split.
+	if len(k.buf) == 1 && k.buf[0] == 0x1b && !k.inCSI && !k.escAt.IsZero() &&
+		time.Since(k.escAt) >= escIdleFlush {
 		events = append(events, keyEvent{Data: append([]byte(nil), k.buf...)})
 		k.buf = k.buf[:0]
+		k.escAt = time.Time{}
 	}
 
 	i := 0
@@ -100,10 +111,12 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 			if b == '[' {
 				k.buf = append(k.buf, b)
 				k.inCSI = true
+				k.escAt = time.Time{}
 			} else {
 				other = append(other, k.buf...)
 				other = append(other, b)
 				k.buf = k.buf[:0]
+				k.escAt = time.Time{}
 			}
 		case len(k.buf) > 0 && k.inCSI:
 			// Inside a CSI sequence: params/intermediates are 0x20-0x3f,
@@ -141,6 +154,7 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 		case b == 0x1b:
 			// Start of a potential escape sequence.
 			k.buf = append(k.buf[:0], b)
+			k.escAt = time.Now()
 		case b == pasteKey:
 			// Legacy encoding of Ctrl-V.
 			emitOther()
