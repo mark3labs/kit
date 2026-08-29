@@ -219,16 +219,12 @@ fn parse_seed(hex_seed: &str) -> Vec<u8> {
 /// Key material never travels in argv (world-readable via ps); the Go side
 /// passes it in the child's environment and the mode flag selects the
 /// variable to read.
-fn secret_material(flags: &Flags, env_var: &str) -> String {
-    if let Some(flag) = ["secret-hex", "pair-seed-hex", "client-seed-hex"]
-        .iter()
-        .find_map(|f| {
-            let v = flags.get(f);
-            (!v.is_empty()).then_some(v)
-        })
-    {
-        // Direct hex flag (used by tests and manual runs).
-        return flag;
+fn secret_material(flags: &Flags, flag_name: &str, env_var: &str) -> String {
+    // Only the calling mode's flag is honored: a stray sibling flag can
+    // never silently substitute the wrong key material.
+    let direct = flags.get(flag_name);
+    if !direct.is_empty() {
+        return direct;
     }
     std::env::var(env_var).unwrap_or_else(|_| fail(&format!("missing key material: set {env_var}")))
 }
@@ -443,7 +439,7 @@ fn send_to_go(f: &Frame) -> bool {
 }
 
 async fn serve(flags: &Flags) {
-    let secret_bytes = parse_seed(&secret_material(flags, "KIT_TUNNEL_SECRET"));
+    let secret_bytes = parse_seed(&secret_material(flags, "secret-hex", "KIT_TUNNEL_SECRET"));
     if secret_bytes.len() != 32 {
         fail("daemon identity seed must be 32 bytes");
     }
@@ -778,7 +774,11 @@ async fn handle_connection(
 // ---------------------------------------------------------------------------
 
 async fn dial_pair(flags: &Flags) {
-    let seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_PAIR_SEED"));
+    let seed = parse_seed(&secret_material(
+        flags,
+        "pair-seed-hex",
+        "KIT_TUNNEL_PAIR_SEED",
+    ));
     if seed.len() != 32 {
         fail("pairing seed must be 32 bytes");
     }
@@ -876,7 +876,11 @@ async fn dial_host(flags: &Flags) {
     }
     let server_id = EndpointId::from_bytes(&server_bytes.try_into().expect("checked above"))
         .unwrap_or_else(|e| fail(&format!("bad endpoint id: {e}")));
-    let signing_seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_CLIENT_SEED"));
+    let signing_seed = parse_seed(&secret_material(
+        flags,
+        "client-seed-hex",
+        "KIT_TUNNEL_CLIENT_SEED",
+    ));
     if signing_seed.len() != 32 {
         fail("client seed must be 32 bytes");
     }
@@ -1055,7 +1059,11 @@ async fn relay_client_session(mut send: SendStream, mut recv: RecvStream, sessio
 /// id. The Go side enforces the window timeout; every wait here is also
 /// bounded so a stalled peer cannot pin the task.
 async fn serve_pair(flags: &Flags) {
-    let seed = parse_seed(&secret_material(flags, "KIT_TUNNEL_PAIR_SEED"));
+    let seed = parse_seed(&secret_material(
+        flags,
+        "pair-seed-hex",
+        "KIT_TUNNEL_PAIR_SEED",
+    ));
     if seed.len() != 32 {
         fail("pairing seed must be 32 bytes");
     }

@@ -156,7 +156,7 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 		case FrameAuthPayload:
 			table.handleAuthPayload(frame.Payload)
 		case FrameClipboard:
-			table.handleClipboardChunk(frame.Session, frame.Payload)
+			table.handleClipboardChunk(ctx, frame.Session, frame.Payload)
 		case FrameSessionOpen:
 			table.openSession(frame.Session)
 		case FrameSessionClosed, FrameBye:
@@ -185,27 +185,41 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 // @"<tempfile>" into the session child's input: the standard @-attachment
 // pipeline then handles detection, preview and multimodal submission —
 // the operator just presses Enter.
-func (t *sessionTable) handleClipboardChunk(session uint32, payload []byte) {
-	coll := t.clipboards[session]
-	if coll == nil {
+//
+// Locking: closeSession may run on any goroutine (child exit), so every
+// clipboards/sessionTemps/sessions map access happens under t.mu. The
+// collector object itself is only ever touched by the frame loop.
+func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint32, payload []byte) {
+	if ctx.Err() != nil {
+		return
+	}
+	t.mu.Lock()
+	coll, ok := t.clipboards[session]
+	if !ok {
 		coll = NewClipboardCollector()
 		t.clipboards[session] = coll
 	}
+	_, live := t.sessions[session]
+	t.mu.Unlock()
+	if !live {
+		return // session already torn down; ignore stragglers
+	}
+
 	done, mediaType, data, err := coll.Add(payload)
 	if err != nil {
-		log.Warn("clipboard transfer dropped", "session_id", session, "error", err)
+		t.mu.Lock()
 		delete(t.clipboards, session)
+		t.mu.Unlock()
+		log.Warn("clipboard transfer dropped", "session_id", session, "error", err)
 		return
 	}
 	if !done {
 		return
 	}
+	t.mu.Lock()
 	delete(t.clipboards, session)
+	t.mu.Unlock()
 
-	s := t.get(session)
-	if s == nil {
-		return
-	}
 	tmp, err := os.CreateTemp("", "kit-clip-*"+mediaExtension(mediaType))
 	if err != nil {
 		log.Error("daemon: clipboard tempfile failed", "session_id", session, "error", err)
@@ -224,14 +238,28 @@ func (t *sessionTable) handleClipboardChunk(session uint32, payload []byte) {
 		return
 	}
 
+	// Register the tempfile and re-validate the session under the same
+	// lock: if teardown ran while the transfer completed, the file is
+	// removed again instead of leaking.
 	t.mu.Lock()
-	t.sessionTemps[session] = append(t.sessionTemps[session], path)
+	s, live := t.sessions[session]
+	if live {
+		t.sessionTemps[session] = append(t.sessionTemps[session], path)
+	}
+	var ptmx *os.File
+	if live && s != nil {
+		ptmx = s.ptmx
+	}
 	t.mu.Unlock()
+	if !live {
+		_ = os.Remove(path)
+		return
+	}
 
 	// Inject as a quoted @-reference (tokenizer supports @"path") followed
 	// by a space, so the operator can append text and hit Enter. Written as
 	// raw bytes into the child's PTY — printable characters only.
-	if _, err := fmt.Fprintf(s.ptmx, "@%q ", path); err != nil {
+	if _, err := fmt.Fprintf(ptmx, "@%q ", path); err != nil {
 		log.Error("daemon: clipboard inject failed", "session_id", session, "error", err)
 		return
 	}
