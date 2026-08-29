@@ -65,15 +65,21 @@ func FindTunnelBinary() (string, error) {
 	return "", errors.New("daemon: kit-tunnel sidecar not found; build it with 'task tunnel' or 'cargo build --release' in contrib/kit-tunnel, and place it next to the kit binary (or set KIT_TUNNEL_BIN)")
 }
 
-// StartTunnel launches the sidecar in serve or dial mode with the given
-// hex-encoded seed. Status lines are parsed from stderr; frames flow on
-// stdin/stdout.
-func StartTunnel(ctx context.Context, mode, seedHex string) (*Tunnel, error) {
+// TunnelOptions describes one sidecar invocation. Args carry the mode's
+// flags verbatim (e.g. "--secret-hex", hex, "--timeout", "30").
+type TunnelOptions struct {
+	Mode string   // serve | serve-pair | dial-pair | dial-host
+	Args []string // flags after the mode
+}
+
+// StartTunnel launches the sidecar with the given options. Status lines are
+// parsed from stderr; frames flow on stdin/stdout.
+func StartTunnel(ctx context.Context, opts TunnelOptions) (*Tunnel, error) {
 	bin, err := FindTunnelBinary()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, bin, mode, "--seed-hex", seedHex, "--timeout", "30")
+	cmd := exec.CommandContext(ctx, bin, append([]string{opts.Mode}, opts.Args...)...)
 	cmd.Stderr = nil // replaced below with our own pipe
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

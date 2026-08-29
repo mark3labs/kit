@@ -14,7 +14,6 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
-	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
@@ -100,8 +99,7 @@ var (
 
 	// Remote sessions (--remote) and the daemon's directory picker
 	// (--pick-dir, hidden — spawned by `kit daemon`).
-	remoteCodeFlag string
-	pickDirFlag    bool
+	pickDirFlag bool
 
 	// Preference restoration flags — set in RunE after cobra parses, used
 	// in runNormalMode to decide whether to apply saved preferences.
@@ -183,6 +181,12 @@ func GetRootCommand(v string) *cobra.Command {
 // InitConfig, injecting the CLI-specific configFile flag and debug mode.
 // This function is automatically called by cobra before command execution.
 func InitConfig() {
+	// Remote client flows never read local configuration: a broken local
+	// config must not block attaching to a daemon, and the client performs
+	// no local-session work that could consume it.
+	if len(os.Args) > 1 && os.Args[1] == "remote" {
+		return
+	}
 	if err := kit.InitConfigWithOptions(kit.ConfigInitOptions{
 		ConfigFile: configFile,
 		Debug:      debugMode,
@@ -334,8 +338,6 @@ func init() {
 	rootCmd.PersistentFlags().
 		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
 	rootCmd.Flags().
-		StringVar(&remoteCodeFlag, "remote", "", "connect to a kit daemon using a pairing code (e.g. kit --remote A1B2C3D4)")
-	rootCmd.Flags().
 		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
 	_ = rootCmd.Flags().MarkHidden("pick-dir")
 
@@ -467,48 +469,27 @@ func processPositionalArgs(args []string) {
 	}
 }
 
-// preInitDispatch handles the remote-session entry points before any
-// configuration is loaded. Cobra runs initializers in registration order,
-// ahead of RunE, so:
-//
-//   - `--remote` dispatches without touching local config: a broken
-//     ~/.config/kit or project config must not block attaching to a daemon,
-//     and a remote attachment must never load project settings.
-//   - `--pick-dir` changes the working directory before config discovery,
-//     so project-level configuration (.kit.* in the chosen directory) is
-//     honored instead of the directory kit happened to start in.
-//
-// The dispatcher exits the process directly; neither path returns into the
-// normal startup flow.
+// preInitDispatch handles the directory-picker entry point before any
+// configuration is loaded, so project-level configuration discovery
+// (.kit.* in the chosen directory) resolves against the chosen directory
+// instead of whatever directory kit happened to start in. The dispatcher
+// exits the process directly on cancellation or failure.
 func preInitDispatch() {
-	// Remote mode: attach this terminal to a kit daemon session. The client
-	// performs no local-session work itself.
-	if remoteCodeFlag != "" {
-		if args := rootCmd.Flags().Args(); len(args) > 0 {
-			fmt.Fprintln(os.Stderr, "prompt arguments cannot be combined with --remote")
-			os.Exit(1)
-		}
-		if err := daemon.RunRemote(context.Background(), remoteCodeFlag); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+	if !pickDirFlag {
+		return
 	}
-
-	if pickDirFlag {
-		home, _ := os.UserHomeDir()
-		chosen, err := ui.RunDirPicker(home)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		if chosen == "" {
-			os.Exit(0) // cancelled
-		}
-		if err := os.Chdir(chosen); err != nil {
-			fmt.Fprintf(os.Stderr, "change to %s: %v\n", chosen, err)
-			os.Exit(1)
-		}
+	home, _ := os.UserHomeDir()
+	chosen, err := ui.RunDirPicker(home)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if chosen == "" {
+		os.Exit(0) // cancelled
+	}
+	if err := os.Chdir(chosen); err != nil {
+		fmt.Fprintf(os.Stderr, "change to %s: %v\n", chosen, err)
+		os.Exit(1)
 	}
 }
 

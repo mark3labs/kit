@@ -15,6 +15,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CodeAlphabet excludes 0/O/1/I to keep codes readable and unambiguous when
@@ -30,9 +31,13 @@ const (
 
 // HKDF domain separation. These must match contrib/kit-tunnel/src/main.rs.
 var (
-	hkdfSalt    = []byte("kit-remote-v1")
-	hkdfInfo    = []byte("kit-remote tunnel seed")
-	hkdfAuthMsg = []byte("kit-remote auth")
+	hkdfSalt       = []byte("kit-remote-v1")
+	hkdfInfo       = []byte("kit-remote tunnel seed")
+	hkdfAuthMsg    = []byte("kit-remote auth") // legacy v2, kept for tests
+	signContext    = []byte("kit-remote-v3-auth")
+	pairTagClient  = []byte("kit-pair-client")
+	pairTagServer  = []byte("kit-pair-server")
+	pairWindowTime = 10 * time.Minute
 )
 
 // GenerateCode returns a fresh random pairing code of CodeLength characters.
