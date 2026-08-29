@@ -19,7 +19,18 @@ import (
 // keyScanner is an incremental parser over the client's stdin stream that
 // reports Ctrl-V presses in both encodings so the client can attach local
 // clipboard images. Everything else — including split sequences — is
-// forwarded byte-identical.
+// forwarded byte-identical, with two safety rules:
+//
+//   - A lone Escape (a complete key press on its own) is flushed as
+//     passthrough when the next read arrives; it would otherwise be stuck
+//     in the partial-sequence buffer forever, eating the user's Esc key.
+//   - A CSI sequence that exceeds maxCSILen without a final byte is
+//     malformed input (e.g. pasted binary): it is flushed as passthrough
+//     instead of buffering without bound.
+//
+// The scanner never decides suppression: paste and release events carry
+// their original wire bytes, and the client marks a release for suppression
+// only after an image interception actually succeeded.
 
 const (
 	// keyV is the kitty key code for 'v'.
@@ -27,6 +38,9 @@ const (
 	// kittyModCtrl is the ctrl bit in the kitty modifier encoding (the
 	// modifier value is 1 + shift|alt|ctrl).
 	kittyModCtrl = 4
+	// maxCSILen bounds a partial CSI sequence: real sequences are far
+	// shorter; anything longer is treated as malformed passthrough.
+	maxCSILen = 64
 )
 
 // kittyEventKind classifies a decoded CSI-u event for the 'v' key.
@@ -40,9 +54,10 @@ const (
 
 type keyEvent struct {
 	// Paste is true when the event is a Ctrl-V press (or repeat) in any
-	// supported encoding. The original wire bytes are in Data.
+	// supported encoding. Data holds the original wire bytes.
 	Paste bool
-	// Release is true for a Ctrl-V release event.
+	// Release is true for a Ctrl-V release event. Data holds the original
+	// wire bytes.
 	Release bool
 	// Data is the original wire bytes for passthrough.
 	Data []byte
@@ -50,25 +65,32 @@ type keyEvent struct {
 
 // keyScanner is an incremental CSI-u/legacy key scanner.
 type keyScanner struct {
-	buf        []byte // pending partial escape sequence
-	inCSI      bool   // saw ESC [ — accumulating until a final byte
-	swallowRel bool   // swallow the next ctrl+v release (press was consumed)
+	buf   []byte // pending partial escape sequence
+	inCSI bool   // saw ESC [ — accumulating until a final byte
 }
 
-// Feed consumes one stdin chunk and returns the decoded events. Events are
-// in wire order; a paste press sets the internal flag so the matching
-// release is swallowed instead of forwarded.
+// Feed consumes one stdin chunk and returns the decoded events in wire
+// order. A Ctrl-V press/repeat event is reported for both the kitty and
+// legacy encodings, carrying the original bytes; a lone Escape pending
+// from a previous chunk is flushed as passthrough when new input arrives.
 func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 	var events []keyEvent
-	var other []byte // accumulated passthrough bytes
-
-	i := 0
+	var other []byte
 	var emitOther = func() {
 		if len(other) > 0 {
 			events = append(events, keyEvent{Data: other})
 			other = nil
 		}
 	}
+
+	// A lone Escape from the previous chunk is a complete Esc key press:
+	// flush it before processing this chunk.
+	if len(k.buf) == 1 && k.buf[0] == 0x1b && !k.inCSI {
+		events = append(events, keyEvent{Data: append([]byte(nil), k.buf...)})
+		k.buf = k.buf[:0]
+	}
+
+	i := 0
 	for i < len(chunk) {
 		b := chunk[i]
 		switch {
@@ -86,6 +108,14 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 		case len(k.buf) > 0 && k.inCSI:
 			// Inside a CSI sequence: params/intermediates are 0x20-0x3f,
 			// the final byte is 0x40-0x7e.
+			if len(k.buf) > maxCSILen {
+				// Malformed oversized sequence — flush as passthrough and
+				// treat this byte in ground state.
+				other = append(other, k.buf...)
+				k.buf = k.buf[:0]
+				k.inCSI = false
+				continue
+			}
 			k.buf = append(k.buf, b)
 			if b >= 0x40 && b <= 0x7e {
 				// Final byte: decode the sequence, then consume it.
@@ -97,19 +127,16 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 				if handled {
 					emitOther()
 					if paste {
-						events = append(events, keyEvent{Paste: true})
+						events = append(events, keyEvent{Paste: true, Data: seq})
 						continue
 					}
 					if release {
-						if k.swallowRel {
-							k.swallowRel = false
-							continue
-						}
 						events = append(events, keyEvent{Release: true, Data: seq})
 						continue
 					}
 				}
 				other = append(other, seq...)
+				continue
 			}
 		case b == 0x1b:
 			// Start of a potential escape sequence.
@@ -117,8 +144,7 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 		case b == pasteKey:
 			// Legacy encoding of Ctrl-V.
 			emitOther()
-			k.swallowRel = false
-			events = append(events, keyEvent{Paste: true})
+			events = append(events, keyEvent{Paste: true, Data: []byte{pasteKey}})
 		default:
 			other = append(other, b)
 		}
@@ -174,7 +200,6 @@ func (k *keyScanner) decodeCSI(seq []byte) (paste, release, handled bool) {
 	}
 	switch event {
 	case kittyPress, kittyRepeat:
-		k.swallowRel = true
 		return true, false, true
 	case kittyRelease:
 		return false, true, true

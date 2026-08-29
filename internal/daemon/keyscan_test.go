@@ -17,17 +17,19 @@ var (
 func TestKeyScannerKittyCtrlVPress(t *testing.T) {
 	k := &keyScanner{}
 	evs := k.Feed(kittyCtrlVPress)
-	if len(evs) != 1 || !evs[0].Paste {
-		t.Fatalf("expected paste event, got %+v", evs)
+	if len(evs) != 1 || !evs[0].Paste || !bytes.Equal(evs[0].Data, kittyCtrlVPress) {
+		t.Fatalf("expected paste event with original bytes, got %+v", evs)
 	}
 }
 
-func TestKeyScannerKittyCtrlVReleaseSwallowedAfterPress(t *testing.T) {
+func TestKeyScannerKittyCtrlVReleaseCarriesData(t *testing.T) {
 	k := &keyScanner{}
 	_ = k.Feed(kittyCtrlVPress)
 	evs := k.Feed(kittyCtrlVRelease)
-	if len(evs) != 0 {
-		t.Fatalf("release after press should be swallowed, got %+v", evs)
+	// The scanner never decides suppression: the release is reported with
+	// its bytes and the CLIENT drops it after a successful interception.
+	if len(evs) != 1 || !evs[0].Release || !bytes.Equal(evs[0].Data, kittyCtrlVRelease) {
+		t.Fatalf("release should be reported with bytes, got %+v", evs)
 	}
 }
 
@@ -42,8 +44,8 @@ func TestKeyScannerKittyCtrlVReleaseForwardedWithoutPress(t *testing.T) {
 func TestKeyScannerLegacyCtrlV(t *testing.T) {
 	k := &keyScanner{}
 	evs := k.Feed([]byte{pasteKey})
-	if len(evs) != 1 || !evs[0].Paste {
-		t.Fatalf("legacy ctrl+v should be a paste event, got %+v", evs)
+	if len(evs) != 1 || !evs[0].Paste || !bytes.Equal(evs[0].Data, []byte{pasteKey}) {
+		t.Fatalf("legacy ctrl+v should be a paste event with bytes, got %+v", evs)
 	}
 }
 
@@ -111,5 +113,50 @@ func TestKeyScannerMixedBatch(t *testing.T) {
 	}
 	if !bytes.Equal(evs[2].Data, []byte("xy")) {
 		t.Fatalf("third event mismatch: %+v", evs[2])
+	}
+}
+
+func TestKeyScannerLoneEscapeFlushedOnNextFeed(t *testing.T) {
+	k := &keyScanner{}
+	if evs := k.Feed([]byte{0x1b}); len(evs) != 0 {
+		t.Fatalf("lone ESC should stay pending in the same chunk, got %+v", evs)
+	}
+	evs := k.Feed([]byte{'x'})
+	joined := []byte{}
+	for _, ev := range evs {
+		joined = append(joined, ev.Data...)
+	}
+	if !bytes.Equal(joined, []byte{0x1b, 'x'}) {
+		t.Fatalf("lone ESC should flush with the following input, got %+v", evs)
+	}
+}
+
+func TestKeyScannerOversizeCSIFlushed(t *testing.T) {
+	k := &keyScanner{}
+	// A CSI that exceeds maxCSILen without a final byte is malformed.
+	evs := k.Feed(append([]byte{0x1b, '['}, bytes.Repeat([]byte{0x31}, maxCSILen+10)...))
+	if len(evs) != 1 {
+		t.Fatalf("oversize CSI should flush as one data event, got %+v", evs)
+	}
+	// The scanner must recover and keep working.
+	evs = k.Feed(kittyCtrlVPress)
+	if len(evs) != 1 || !evs[0].Paste {
+		t.Fatalf("scanner should work after flushing, got %+v", evs)
+	}
+}
+
+func TestKeyScannerUnhandledCSIDoesNotDropFollowingBytes(t *testing.T) {
+	k := &keyScanner{}
+	chunk := append(append([]byte{}, []byte{0x1b, '[', 'A'}...), 'x')
+	evs := k.Feed(chunk)
+	joined := []byte{}
+	for _, ev := range evs {
+		joined = append(joined, ev.Data...)
+		if ev.Paste || ev.Release {
+			t.Fatalf("ctrl+a up-arrow must not be a paste/release: %+v", ev)
+		}
+	}
+	if !bytes.Equal(joined, chunk) {
+		t.Fatalf("bytes lost: sent %d, got %d", len(chunk), len(joined))
 	}
 }

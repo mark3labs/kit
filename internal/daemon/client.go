@@ -213,6 +213,7 @@ func RunHost(ctx context.Context, name string) error {
 	go func() {
 		defer finish()
 		scanner := &keyScanner{}
+		suppressRel := false // swallow the ctrl+v release after a successful image interception
 		buf := make([]byte, 256)
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -244,11 +245,15 @@ func RunHost(ctx context.Context, name string) error {
 							if !sent {
 								return
 							}
+							suppressRel = true // the matching release is ours
 							fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
-							continue
+							continue // swallow the press bytes
 						}
-						// No image: fall through and forward the original
-						// wire bytes below.
+						suppressRel = false // forwarding the press; forward its release too
+					}
+					if ev.Release && suppressRel {
+						suppressRel = false
+						continue
 					}
 					if len(ev.Data) > 0 {
 						writeMu.Lock()
