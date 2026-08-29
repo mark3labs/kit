@@ -1,0 +1,2 @@
+# Staged sidecar binaries are build artifacts, not source.
+kit-tunnel-*

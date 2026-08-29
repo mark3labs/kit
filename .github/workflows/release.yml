@@ -31,11 +31,37 @@ jobs:
         with:
           go-version: "1.26"
 
+      # The kit binary embeds the Rust kit-tunnel sidecar; goreleaser's
+      # per-target build hooks cross-compile it with cargo-zigbuild.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            x86_64-unknown-linux-gnu,
+            aarch64-unknown-linux-gnu,
+            x86_64-apple-darwin,
+            aarch64-apple-darwin,
+            x86_64-pc-windows-gnu
+
+      - name: Set up zig (cross toolchain)
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+          use-cache: false
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      # --parallelism 1 keeps target builds sequential: the per-target pre
+      # hook stages the sidecar into the shared go:embed directory, and
+      # parallel builds could embed a sibling's sidecar mid-staging.
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

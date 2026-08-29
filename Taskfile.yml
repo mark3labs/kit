@@ -17,16 +17,46 @@ tasks:
   # -----------------------------------------------------------------------
 
   build:
-    desc: Build the kit binary
+    desc: Build the kit binary and the kit-tunnel sidecar
+    deps:
+      - tunnel
     cmds:
       - go build {{.BUILD_FLAGS}} -ldflags "{{.LDFLAGS}}" ./cmd/kit
     sources:
       - "**/*.go"
       - go.mod
       - go.sum
+      - internal/daemon/embedded/kit-tunnel-*
     generates:
       - "{{.OUTPUT_DIR}}/{{.BINARY}}"
 
+  tunnel:
+    desc: Build the kit-tunnel sidecar (Rust; required for daemon/remote)
+    cmds:
+      - |
+        if ! command -v cargo >/dev/null 2>&1; then
+          echo "warn: cargo not found — skipping kit-tunnel build; 'kit daemon' and '--remote' need it"
+          exit 0
+        fi
+        ./scripts/stage-tunnel.sh "$(go env GOOS)" "$(go env GOARCH)" "internal/daemon/embedded/kit-tunnel-$(go env GOOS)-$(go env GOARCH)"
+        mkdir -p {{.OUTPUT_DIR}}
+        cp contrib/kit-tunnel/target/release/kit-tunnel{{.exe}} {{.OUTPUT_DIR}}/kit-tunnel{{.exe}}
+    vars:
+      exe:
+        sh: 'if [ "$(go env GOOS)" = "windows" ]; then echo .exe; fi'
+    sources:
+      - contrib/kit-tunnel/src/**/*.rs
+      - contrib/kit-tunnel/Cargo.toml
+      - contrib/kit-tunnel/Cargo.lock
+    generates:
+      - "{{.OUTPUT_DIR}}/kit-tunnel"
+      - "internal/daemon/embedded/kit-tunnel-*"
+
+  # NOTE: these Go builds do NOT stage per-target kit-tunnel sidecars, so
+  # the artifacts fall back to an external sidecar at runtime. For
+  # distributable binaries with the sidecar embedded, use goreleaser
+  # (which runs scripts/stage-tunnel.sh per target), or stage each target
+  # first: GOOS=x GOARCH=y ./scripts/stage-tunnel.sh x y out
   build-all:
     desc: Build for all platforms (linux, darwin, windows)
     cmds:

@@ -102,6 +102,12 @@ self-defeating.
 | `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
 | `--no-agents` | — | `false` | Disable named agent discovery (built-ins and [definition files](/advanced/subagents#named-agents)) |
 
+## Remote
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--remote` | — | — | Attach this terminal to a daemon session using a pairing code (e.g. `kit --remote A1B2C3D4`). Mutually exclusive with prompts and `@file` attachments. See [Remote sessions](/advanced/remote-sessions). |
+
 ## Generation parameters
 
 | Flag | Short | Default | Description |

@@ -14,6 +14,7 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
@@ -96,6 +97,11 @@ var (
 	// Prompt templates
 	promptTemplatePaths []string
 	noPromptTemplates   bool
+
+	// Remote sessions (--remote) and the daemon's directory picker
+	// (--pick-dir, hidden — spawned by `kit daemon`).
+	remoteCodeFlag string
+	pickDirFlag    bool
 
 	// Preference restoration flags — set in RunE after cobra parses, used
 	// in runNormalMode to decide whether to apply saved preferences.
@@ -252,6 +258,9 @@ func kitBanner() string {
 }
 
 func init() {
+	// Registered before InitConfig: remote attachment and directory
+	// selection must not depend on (or race) local configuration loading.
+	cobra.OnInitialize(preInitDispatch)
 	cobra.OnInitialize(InitConfig)
 
 	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
@@ -324,6 +333,11 @@ func init() {
 		StringVar(&skillsDir, "skills-dir", "", "scan this directory directly for skills (overrides auto-discovery)")
 	rootCmd.PersistentFlags().
 		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
+	rootCmd.Flags().
+		StringVar(&remoteCodeFlag, "remote", "", "connect to a kit daemon using a pairing code (e.g. kit --remote A1B2C3D4)")
+	rootCmd.Flags().
+		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
+	_ = rootCmd.Flags().MarkHidden("pick-dir")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -449,6 +463,51 @@ func processPositionalArgs(args []string) {
 			positionalPrompt = strings.TrimSpace(fileContent.String())
 		} else {
 			positionalPrompt = strings.TrimSpace(fileContent.String()) + "\n\n" + positionalPrompt
+		}
+	}
+}
+
+// preInitDispatch handles the remote-session entry points before any
+// configuration is loaded. Cobra runs initializers in registration order,
+// ahead of RunE, so:
+//
+//   - `--remote` dispatches without touching local config: a broken
+//     ~/.config/kit or project config must not block attaching to a daemon,
+//     and a remote attachment must never load project settings.
+//   - `--pick-dir` changes the working directory before config discovery,
+//     so project-level configuration (.kit.* in the chosen directory) is
+//     honored instead of the directory kit happened to start in.
+//
+// The dispatcher exits the process directly; neither path returns into the
+// normal startup flow.
+func preInitDispatch() {
+	// Remote mode: attach this terminal to a kit daemon session. The client
+	// performs no local-session work itself.
+	if remoteCodeFlag != "" {
+		if args := rootCmd.Flags().Args(); len(args) > 0 {
+			fmt.Fprintln(os.Stderr, "prompt arguments cannot be combined with --remote")
+			os.Exit(1)
+		}
+		if err := daemon.RunRemote(context.Background(), remoteCodeFlag); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if pickDirFlag {
+		home, _ := os.UserHomeDir()
+		chosen, err := ui.RunDirPicker(home)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if chosen == "" {
+			os.Exit(0) // cancelled
+		}
+		if err := os.Chdir(chosen); err != nil {
+			fmt.Fprintf(os.Stderr, "change to %s: %v\n", chosen, err)
+			os.Exit(1)
 		}
 	}
 }

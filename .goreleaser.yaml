@@ -18,6 +18,15 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
+    # Each build embeds the kit-tunnel sidecar compiled for its own target
+    # (go:embed reads internal/daemon/embedded/ at compile time). goreleaser
+    # runs target builds sequentially, and the post hook removes the staged
+    # file, so every binary carries exactly its own sidecar.
+    hooks:
+      pre:
+        - ./scripts/stage-tunnel.sh {{ .Os }} {{ .Arch }}
+      post:
+        - rm -f internal/daemon/embedded/kit-tunnel-{{ .Os }}-{{ .Arch }}
 
 archives:
   - formats: [tar.gz]

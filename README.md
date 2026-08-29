@@ -31,6 +31,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
+- **Remote Sessions**: `kit daemon` on one machine, `kit --remote CODE` from another — end-to-end encrypted iroh transport, per-client sessions, pairing-code security, and systemd service support
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
 ## Installation
