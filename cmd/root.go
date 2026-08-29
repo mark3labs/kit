@@ -225,13 +225,15 @@ func remoteSubcommandSelected(args []string) bool {
 	return false
 }
 
-// globalBoolFlags lists root persistent flags that do not take a value;
-// used by remoteSubcommandSelected to walk the argv correctly.
+// globalBoolFlags lists root persistent flags that do not take a value
+// (long and short forms); used by remoteSubcommandSelected to walk the
+// argv correctly. Shorthands with values (-m, -s, -e) must NOT appear here.
 var globalBoolFlags = []string{
 	"bare", "debug", "quiet", "json", "no-exit", "no-session",
 	"continue", "resume", "auto-compact", "compact", "stream",
 	"no-extensions", "no-prompt-templates", "no-skills", "no-agents",
 	"no-core-tools", "tls-skip-verify", "pick-dir", "version",
+	"c", "r", // -c (continue), -r (resume)
 }
 
 // adaptiveOrDefault converts a config.AdaptiveColor to a resolved color.Color,

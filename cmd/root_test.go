@@ -15,6 +15,9 @@ func TestRemoteSubcommandSelected(t *testing.T) {
 		{"no remote", []string{"--config", "/tmp/x"}, false},
 		{"other subcommand", []string{"daemon", "pair"}, false},
 		{"empty", nil, false},
+		{"short bool alias before remote", []string{"-c", "remote", "--list"}, true},
+		{"short resume alias", []string{"-r", "remote", "--pair", "ABCD2345"}, true},
+		{"short value flag consumes remote", []string{"-m", "remote"}, false},
 		{"remote as flag value", []string{"--model", "remote"}, false},
 	}
 	for _, tc := range cases {

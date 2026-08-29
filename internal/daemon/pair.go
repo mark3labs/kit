@@ -21,8 +21,8 @@ type PairWindowOptions struct {
 	Code string
 	// Prompt overrides the interactive accept/reject decision (tests).
 	// When nil, the decision is made on the terminal; a non-TTY stdin
-	// always denies.
-	Prompt func(fp string) bool
+	// always denies. Implementations should return false when ctx ends.
+	Prompt func(ctx context.Context, fp string) bool
 	// Window bounds the pairing window. Zero means the default (10 min).
 	Window time.Duration
 }
@@ -120,7 +120,7 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 			fp := Fingerprint(clientPub)
 
 			fmt.Printf("  Pairing request from client %s\n", fingerprintShort(fp))
-			allowed := opts.prompt(fp)
+			allowed := opts.prompt(pctx, fp)
 			if !allowed {
 				fmt.Println("  Rejected.")
 				writePairDecision(tun, corr, false, "", hostEndpointID)
@@ -147,10 +147,11 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 
 // prompt asks on the terminal. Non-interactive contexts always deny:
 // pairing is an inherently human decision, and an unattended daemon must
-// not approve anything.
-func (opts PairWindowOptions) prompt(fp string) bool {
+// not approve anything. Returns false when ctx ends (window expired)
+// while waiting for the operator.
+func (opts PairWindowOptions) prompt(ctx context.Context, fp string) bool {
 	if opts.Prompt != nil {
-		return opts.Prompt(fp)
+		return opts.Prompt(ctx, fp)
 	}
 	if !term.IsTerminal(os.Stdin.Fd()) {
 		log.Warn("daemon: pairing request denied — no terminal to confirm on; run 'kit daemon pair' interactively", "fp", fp)
@@ -163,11 +164,16 @@ func (opts PairWindowOptions) prompt(fp string) bool {
 		text, _ := reader.ReadString('\n')
 		line <- strings.TrimSpace(text)
 	}()
-	answer := <-line
-	switch strings.ToLower(answer) {
-	case "y", "yes":
-		return true
-	default:
+	select {
+	case answer := <-line:
+		switch strings.ToLower(answer) {
+		case "y", "yes":
+			return true
+		default:
+			return false
+		}
+	case <-ctx.Done():
+		fmt.Println("\n  (window expired) rejected.")
 		return false
 	}
 }
