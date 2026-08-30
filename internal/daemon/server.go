@@ -8,12 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/creack/pty"
+
+	"github.com/mark3labs/kit/internal/clipboard"
 )
 
 // Serve runs the daemon until ctx is cancelled: bind the stable endpoint
@@ -117,8 +121,10 @@ type sessionTable struct {
 	rt           *daemonRuntime
 	mu           sync.Mutex
 	sessions     map[uint32]*remoteSession
-	pendingAuths map[[8]byte]authChallenge // confined to the frame loop
-	writeMu      sync.Mutex                // tunnel stdin is shared by all session pumps
+	pendingAuths map[[8]byte]authChallenge      // confined to the frame loop
+	clipboards   map[uint32]*ClipboardCollector // in-flight image transfers, frame loop only
+	sessionTemps map[uint32][]string            // temp files injected into each child
+	writeMu      sync.Mutex                     // tunnel stdin is shared by all session pumps
 }
 
 // writeTo sends one frame to the tunnel stdin. Errors are the caller's to
@@ -135,6 +141,8 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 		rt:           rt,
 		sessions:     make(map[uint32]*remoteSession),
 		pendingAuths: make(map[[8]byte]authChallenge),
+		clipboards:   make(map[uint32]*ClipboardCollector),
+		sessionTemps: make(map[uint32][]string),
 	}
 	defer table.teardownAll()
 
@@ -151,6 +159,8 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			table.handleAuthRequest(frame.Payload)
 		case FrameAuthPayload:
 			table.handleAuthPayload(frame.Payload)
+		case FrameClipboard:
+			table.handleClipboardChunk(ctx, frame.Session, frame.Payload)
 		case FrameSessionOpen:
 			table.openSession(frame.Session)
 		case FrameSessionClosed, FrameBye:
@@ -174,7 +184,113 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 	}
 }
 
-// handleAuthRequest stashes the handshake parameters so the signature can
+// handleClipboardChunk consumes one client clipboard frame. Chunked image
+// data is reassembled and, on the final chunk, written to the session's
+// stable clipboard file followed by a synthetic 0x16 into the child's PTY:
+// the child's own Ctrl-V handler reads the file, fills pendingImages and
+// renders the same preview a local paste gets. A clear frame (the client
+// had no image) empties the file so a subsequent child Ctrl-V is a no-op.
+//
+// Locking: closeSession may run on any goroutine (child exit), so map
+// access happens under t.mu; the collector object is only touched by the
+// frame loop.
+func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint32, payload []byte) {
+	if ctx.Err() != nil {
+		return
+	}
+	if len(payload) < 1 {
+		return
+	}
+	clear := payload[0]&FrameClipboardFlagClear != 0
+
+	// Register the stable file for teardown while the session lives.
+	t.mu.Lock()
+	_, live := t.sessions[session]
+	if live {
+		path := remoteClipboardPath(session)
+		if !slices.Contains(t.sessionTemps[session], path) {
+			t.sessionTemps[session] = append(t.sessionTemps[session], path)
+		}
+	}
+	t.mu.Unlock()
+	if !live {
+		return
+	}
+
+	if clear {
+		// The client found no image: empty the file so the child's next
+		// Ctrl-V is a no-op. No keystroke is injected.
+		if err := os.WriteFile(remoteClipboardPath(session), nil, 0o600); err != nil {
+			log.Warn("clipboard clear failed", "session_id", session, "error", err)
+		}
+		t.mu.Lock()
+		delete(t.clipboards, session)
+		t.mu.Unlock()
+		return
+	}
+
+	t.mu.Lock()
+	coll, ok := t.clipboards[session]
+	if !ok {
+		coll = NewClipboardCollector()
+		t.clipboards[session] = coll
+	}
+	s, live := t.sessions[session]
+	var ptmx *os.File
+	if live && s != nil {
+		ptmx = s.ptmx
+	}
+	t.mu.Unlock()
+	if !live || ptmx == nil {
+		return
+	}
+
+	done, media, data, err := coll.Add(payload)
+	if err != nil {
+		t.mu.Lock()
+		delete(t.clipboards, session)
+		t.mu.Unlock()
+		log.Warn("clipboard transfer dropped", "session_id", session, "error", err)
+		return
+	}
+	if !done {
+		return
+	}
+	t.mu.Lock()
+	delete(t.clipboards, session)
+	t.mu.Unlock()
+
+	// Atomic rewrite: a concurrent child read sees the old or the new
+	// image, never a torn one.
+	tmp, err := os.CreateTemp("", "kit-clip-*")
+	if err != nil {
+		log.Error("daemon: clipboard write failed", "session_id", session, "error", err)
+		return
+	}
+	path := tmp.Name()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil {
+		_ = os.Remove(path)
+		log.Error("daemon: clipboard write failed", "session_id", session, "error", werr, "close", cerr)
+		return
+	}
+	if err := os.Rename(path, remoteClipboardPath(session)); err != nil {
+		_ = os.Remove(path)
+		log.Error("daemon: clipboard publish failed", "session_id", session, "error", err)
+		return
+	}
+
+	// Synthetic Ctrl-V: the child reads the file via KIT_REMOTE_CLIPBOARD
+	// and runs its normal pending-image preview flow.
+	if _, err := fmt.Fprintf(ptmx, "%c", pasteKey); err != nil {
+		log.Error("daemon: clipboard inject failed", "session_id", session, "error", err)
+		return
+	}
+	log.Info("clipboard image delivered", "session_id", session, "bytes", len(data), "media_type", media)
+}
+
+// handleAuthRequest stashes the handshake parameters so the signature can// handleAuthRequest stashes the handshake parameters so the signature can
 // be verified when the client's AUTH_PAYLOAD arrives.
 func (t *sessionTable) handleAuthRequest(payload []byte) {
 	if len(payload) < 8 {
@@ -262,7 +378,7 @@ func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 // daemon and other sessions continue.
 func (table *sessionTable) openSession(id uint32) {
 	s := &remoteSession{id: id}
-	child, ptmx, err := spawnPickDir()
+	child, ptmx, err := spawnPickDir(id)
 	if err != nil {
 		log.Error("daemon: session spawn failed", "session_id", id, "error", err)
 		_ = table.writeTo(Frame{Type: FrameBye, Session: id})
@@ -307,17 +423,27 @@ func (table *sessionTable) openSession(id uint32) {
 // by the pipe and applied right after registration.
 
 // closeSession tears down one session: tell the client we are done, stop
-// the child, and free the table slot. Idempotent.
+// the child, free the table slot, and remove any clipboard tempfiles that
+// were injected but never consumed. Idempotent.
 func (t *sessionTable) closeSession(id uint32) {
 	t.mu.Lock()
 	s, ok := t.sessions[id]
 	delete(t.sessions, id)
+	temps := t.sessionTemps[id]
+	delete(t.sessionTemps, id)
+	delete(t.clipboards, id)
 	active := len(t.sessions)
 	t.mu.Unlock()
 	if !ok {
+		for _, p := range temps {
+			_ = os.Remove(p)
+		}
 		return
 	}
 	t.rt.setSessions(active)
+	for _, p := range temps {
+		_ = os.Remove(p)
+	}
 
 	_ = t.writeTo(Frame{Type: FrameBye, Session: id})
 
@@ -348,10 +474,19 @@ func (t *sessionTable) get(id uint32) *remoteSession {
 	return t.sessions[id]
 }
 
+// remoteClipboardPath is the stable per-session file the daemon streams
+// client clipboard images into. The child reads it on every Ctrl-V (see
+// internal/clipboard.RemoteClipboardEnv), so a paste is a file rewrite
+// followed by a synthetic 0x16 keystroke — the child's own clipboard
+// pipeline then renders the preview exactly like a local paste.
+func remoteClipboardPath(session uint32) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-clip-%d", session))
+}
+
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
 // daemon user's home directory, so the remote peer picks the session's
 // working directory from the modal rendered inside the PTY.
-func spawnPickDir() (*exec.Cmd, *os.File, error) {
+func spawnPickDir(session uint32) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
@@ -363,6 +498,7 @@ func spawnPickDir() (*exec.Cmd, *os.File, error) {
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}
+	env = append(env, clipboard.RemoteClipboardEnv+"="+remoteClipboardPath(session))
 	cmd.Env = env
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})

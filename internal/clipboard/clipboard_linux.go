@@ -8,7 +8,9 @@ import (
 
 // ReadImage reads image data from the system clipboard on Linux.
 // It tries xclip first (X11), then falls back to wl-paste (Wayland).
-func ReadImage() (*ImageData, error) {
+// readSystemImage reads image data from the local system clipboard on
+// Linux. It tries xclip first (X11), then falls back to wl-paste (Wayland).
+func readSystemImage() (*ImageData, error) {
 	// Try xclip first (X11).
 	if path, err := exec.LookPath("xclip"); err == nil {
 		data, err := readWithXclip(path)

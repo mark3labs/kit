@@ -14,7 +14,33 @@ package clipboard
 
 import (
 	"fmt"
+	"os"
 )
+
+// RemoteClipboardEnv is the environment variable the daemon sets on
+// remote-session child processes: it names a file holding the CLIENT
+// machine's clipboard image. When set, ReadImage serves the image from
+// that file instead of the local system clipboard — a remote session's
+// Ctrl-V must attach the client's clipboard, not the daemon host's.
+const RemoteClipboardEnv = "KIT_REMOTE_CLIPBOARD"
+
+// ReadImage returns the image to attach for a Ctrl-V: when running as a
+// remote-session child (RemoteClipboardEnv set) it reads the client's
+// streamed clipboard image; otherwise it reads the local system clipboard.
+func ReadImage() (*ImageData, error) {
+	if p := os.Getenv(RemoteClipboardEnv); p != "" {
+		data, err := os.ReadFile(p)
+		if err != nil || len(data) == 0 {
+			return nil, fmt.Errorf("no image on the remote clipboard")
+		}
+		mediaType := DetectMediaType(data)
+		if mediaType == "" {
+			return nil, fmt.Errorf("unrecognized remote clipboard content")
+		}
+		return &ImageData{Data: data, MediaType: mediaType}, nil
+	}
+	return readSystemImage()
+}
 
 // ImageData holds the result of a clipboard image read.
 type ImageData struct {
