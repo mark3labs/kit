@@ -39,7 +39,7 @@ var (
 	hkdfSalt       = []byte("kit-remote-v1")
 	hkdfInfo       = []byte("kit-remote tunnel seed")
 	hkdfAuthMsg    = []byte("kit-remote auth")
-	signContext    = []byte("kit-remote-v3-auth")
+	signContext    = []byte("kit-remote-v1-auth")
 	pairWindowTime = 10 * time.Minute
 )
 

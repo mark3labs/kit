@@ -28,7 +28,7 @@
 //! DATA, RESIZE and BYE frames verbatim in both directions; PING/PONG are
 //! reserved for a future keepalive.
 //!
-//! Protocol v3 — pairing model. The daemon owns a STABLE ed25519 identity
+//! Protocol v1 — pairing model. The daemon owns a STABLE ed25519 identity
 //! (--secret-hex); its endpoint id is that public key, and clients store it
 //! after pairing, so iroh's QUIC handshake authenticates the host against
 //! the pinned id. Clients hold their own ed25519 signing key; the host
@@ -42,7 +42,7 @@
 //!   client -> CLIENT_HELLO {ver, c_nonce, client_pub}
 //!   server -> SERVER_HELLO {ver, s_nonce}
 //!   server -> daemon  AUTH_REQUEST {c_nonce, s_nonce, client_pub}
-//!   client -> CLIENT_AUTH  {ed25519_sig("kit-remote-v3-auth"|c_nonce|s_nonce)}
+//!   client -> CLIENT_AUTH  {ed25519_sig("kit-remote-v1-auth"|c_nonce|s_nonce)}
 //!   server -> daemon  AUTH_PAYLOAD {c_nonce, sig}
 //!   daemon  -> server AUTH_DECISION {c_nonce, 0|1[, reason]}
 //!   server -> SERVER_OK {} | DENIED {reason}
@@ -103,11 +103,11 @@ use subtle::ConstantTimeEq;
 use tokio::sync::{mpsc, Semaphore};
 
 const ALPN: &[u8] = b"kit/remote/1";
-const PROTOCOL_VERSION: u16 = 3;
+const PROTOCOL_VERSION: u16 = 1;
 
 /// Domain separator for reconnect handshake signatures. Both ends
 /// (Rust ed25519-dalek, Go crypto/ed25519) sign/verify this exact prefix.
-const SIGN_CONTEXT: &[u8] = b"kit-remote-v3-auth";
+const SIGN_CONTEXT: &[u8] = b"kit-remote-v1-auth";
 const SIGNATURE_LEN: usize = 64;
 const ED25519_PUB_LEN: usize = 32;
 const PAIR_TAG_ROLE_CLIENT: &[u8] = b"kit-pair-client";
@@ -136,13 +136,13 @@ const FRAME_PING: u8 = 0x04;
 #[allow(dead_code)]
 const FRAME_PONG: u8 = 0x05;
 // Pairing-model control frames on the sidecar's stdio: the daemon<->sidecar
-// consultation channel that keeps authentication policy in Go (v3).
+// consultation channel that keeps authentication policy in Go.
 const FRAME_AUTH_REQUEST: u8 = 0x30;
 const FRAME_AUTH_PAYLOAD: u8 = 0x31;
 const FRAME_AUTH_DECISION: u8 = 0x32;
 const FRAME_PAIR_REQUEST: u8 = 0x40;
 const FRAME_PAIR_DECISION: u8 = 0x41;
-// Client<->bootstrap-endpoint pairing handshake frames (iroh stream, v3).
+// Client<->bootstrap-endpoint pairing handshake frames (iroh stream, v1).
 const FRAME_PAIR_CLIENT_HELLO: u8 = 0x20;
 const FRAME_PAIR_SERVER_OK: u8 = 0x21;
 // Handshake + session control (in-tunnel only; never forwarded).
@@ -791,7 +791,7 @@ async fn dial_pair(flags: &Flags) {
     }
     let key = auth_key(&seed);
     // The bootstrap endpoint is derived from the one-time code: knowledge
-    // of the code is what makes it findable, exactly like protocol v2 —
+    // of the code is what makes it findable, exactly like the original design —
     // but this endpoint exists only for the pairing window.
     let server_id = secret_from_seed(&seed).public();
     let client_pub = parse_seed(&flags.get("client-pub-hex"));

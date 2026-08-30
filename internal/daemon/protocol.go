@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-// Frame types shared with contrib/kit-tunnel/src/main.rs (protocol v2).
+// Frame types shared with contrib/kit-tunnel/src/main.rs (protocol v1).
 // Data/resize/bye are relayed end-to-end by the tunnel, multiplexed by
 // session id; ping/pong are reserved for a future keepalive; the 0x1x
 // handshake/session frames never cross the tunnel boundary — the serve-side
@@ -43,7 +43,7 @@ const (
 	FrameSessionOpen   FrameType = 0x16
 	FrameSessionClosed FrameType = 0x17
 
-	// Pairing-model control frames on the tunnel stdio (v3, protocol v3 in
+	// Pairing-model control frames on the tunnel stdio (protocol v1 in
 	// the sidecar). They never cross the iroh connection; they are the
 	// daemon<->sidecar consultation channel that keeps all policy in Go.
 	//
