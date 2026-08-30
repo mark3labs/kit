@@ -210,62 +210,116 @@ func RunHost(ctx context.Context, name string) error {
 	finish := func() { once.Do(func() { close(done) }) }
 
 	// Local keystrokes -> remote. A lone Ctrl-] detaches.
+	// Stdin reader: os.Stdin.Read blocks, so it feeds a channel and the
+	// pump below can also react to the Esc idle-flush timer.
+	readCh := make(chan []byte, 4)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(readCh)
+		rbuf := make([]byte, 256)
+		for {
+			n, err := os.Stdin.Read(rbuf)
+			if n > 0 {
+				out := make([]byte, n)
+				copy(out, rbuf[:n])
+				readCh <- out
+			}
+			if err != nil {
+				readErr <- err
+				return
+			}
+		}
+	}()
+
 	go func() {
 		defer finish()
 		scanner := &keyScanner{}
 		suppressRel := false // swallow the ctrl+v release after a successful image interception
-		buf := make([]byte, 256)
+		var idleTimer *time.Timer
+		var idleC <-chan time.Time
+		armIdle := func() {
+			if scanner.PendingEscape() {
+				d := max(escIdleFlush-time.Since(scanner.escAt), 0)
+				if idleTimer == nil {
+					idleTimer = time.NewTimer(d)
+				} else {
+					idleTimer.Stop()
+					idleTimer.Reset(d)
+				}
+				idleC = idleTimer.C
+			} else if idleTimer != nil {
+				idleTimer.Stop()
+				idleC = nil
+			}
+		}
+		forward := func(data []byte) bool {
+			writeMu.Lock()
+			defer writeMu.Unlock()
+			return WriteDataFrames(tun.Stdin(), 0, data) == nil
+		}
+		handle := func(ev keyEvent) bool { // false = write error, give up
+			if ev.Paste {
+				// Image paste: read the local clipboard and stream any
+				// image to the daemon. No image — forward the keystroke
+				// so the host keeps its normal Ctrl-V behavior.
+				img, imgErr := clipboard.ReadImage()
+				if imgErr == nil && len(img.Data) > 0 {
+					writeMu.Lock()
+					sent := true
+					for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
+						if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
+							sent = false
+							break
+						}
+					}
+					writeMu.Unlock()
+					if !sent {
+						return false
+					}
+					suppressRel = true // the matching release is ours
+					fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
+					return true // swallow the press bytes
+				}
+				suppressRel = false // forwarding the press; forward its release too
+			}
+			if ev.Release && suppressRel {
+				suppressRel = false
+				return true
+			}
+			if len(ev.Data) > 0 {
+				return forward(ev.Data)
+			}
+			return true
+		}
+		armIdle()
 		for {
-			n, err := os.Stdin.Read(buf)
-			if n > 0 {
-				if n == 1 && buf[0] == detachKey {
+			select {
+			case chunk, ok := <-readCh:
+				if !ok {
+					return
+				}
+				if len(chunk) == 1 && chunk[0] == detachKey {
 					writeMu.Lock()
 					_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
 					writeMu.Unlock()
 					detached.Store(true)
 					return
 				}
-				for _, ev := range scanner.Feed(buf[:n]) {
-					if ev.Paste {
-						// Image paste: read the local clipboard and stream
-						// any image to the daemon. No image — forward the
-						// keystroke so the host keeps its normal Ctrl-V
-						// behavior.
-						img, imgErr := clipboard.ReadImage()
-						if imgErr == nil && len(img.Data) > 0 {
-							writeMu.Lock()
-							sent := true
-							for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
-								if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
-									sent = false
-									break
-								}
-							}
-							writeMu.Unlock()
-							if !sent {
-								return
-							}
-							suppressRel = true // the matching release is ours
-							fmt.Fprintln(os.Stderr, "Image sent from local clipboard.")
-							continue // swallow the press bytes
-						}
-						suppressRel = false // forwarding the press; forward its release too
-					}
-					if ev.Release && suppressRel {
-						suppressRel = false
-						continue
-					}
-					if len(ev.Data) > 0 {
-						writeMu.Lock()
-						werr := WriteDataFrames(tun.Stdin(), 0, ev.Data)
-						writeMu.Unlock()
-						if werr != nil {
-							return
-						}
+				for _, ev := range scanner.Feed(chunk) {
+					if !handle(ev) {
+						return
 					}
 				}
-			}
-			if err != nil {
+				armIdle()
+			case <-idleC:
+				idleC = nil
+				for _, ev := range scanner.FlushPendingEscape() {
+					if !handle(ev) {
+						return
+					}
+				}
+				armIdle()
+			case <-readErr:
 				return
 			}
 		}

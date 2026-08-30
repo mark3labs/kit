@@ -76,10 +76,30 @@ type keyScanner struct {
 	escAt time.Time // when the pending lone ESC was read (zero = none)
 }
 
+// PendingEscape reports whether a lone ESC byte is buffered waiting for
+// its idle-flush deadline. The client arms a timer on this so an Esc key
+// press reaches the session even when no further input ever arrives.
+func (k *keyScanner) PendingEscape() bool {
+	return len(k.buf) == 1 && k.buf[0] == 0x1b && !k.inCSI
+}
+
+// FlushPendingEscape emits a buffered lone Escape as passthrough data and
+// clears the pending state. No-op when nothing is pending.
+func (k *keyScanner) FlushPendingEscape() []keyEvent {
+	if !k.PendingEscape() {
+		return nil
+	}
+	data := append([]byte(nil), k.buf...)
+	k.buf = k.buf[:0]
+	k.escAt = time.Time{}
+	return []keyEvent{{Data: data}}
+}
+
 // Feed consumes one stdin chunk and returns the decoded events in wire
 // order. A Ctrl-V press/repeat event is reported for both the kitty and
 // legacy encodings, carrying the original bytes; a lone Escape pending
-// from a previous chunk is flushed as passthrough when new input arrives.
+// from a previous chunk is flushed as passthrough when new input arrives
+// after its idle deadline (the client also flushes it on a timer).
 func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 	var events []keyEvent
 	var other []byte
