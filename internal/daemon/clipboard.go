@@ -35,6 +35,10 @@ import (
 const (
 	// FrameClipboardFlagFinal marks the last chunk of a clipboard transfer.
 	FrameClipboardFlagFinal byte = 0x01
+	// FrameClipboardFlagClear marks a "clipboard has no image" signal: the
+	// client sends it when Ctrl-V found no local image. The daemon clears
+	// the session clipboard file so the child's Ctrl-V sees nothing.
+	FrameClipboardFlagClear byte = 0x02
 
 	// clipboardMaxImageSize caps reassembly so a hostile or buggy client
 	// cannot exhaust daemon memory. Far beyond any real screenshot.
@@ -142,20 +146,4 @@ func (c *ClipboardCollector) Add(payload []byte) (done bool, mediaType string, d
 		return true, c.media, c.buf, nil
 	}
 	return false, "", nil, nil
-}
-
-// mediaExtension maps an image media type to a tempfile extension.
-func mediaExtension(mediaType string) string {
-	switch mediaType {
-	case "image/png":
-		return ".png"
-	case "image/jpeg":
-		return ".jpg"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	default:
-		return ".bin"
-	}
 }

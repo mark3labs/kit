@@ -9,7 +9,7 @@ import (
 // ReadImage reads image data from the system clipboard on macOS.
 // It uses osascript to check if the clipboard contains an image via
 // NSPasteboard and writes it to stdout as PNG data.
-func ReadImage() (*ImageData, error) {
+func readSystemImage() (*ImageData, error) {
 	// Use osascript to write clipboard image to stdout via a pipe.
 	// The script checks if the clipboard has a «class PNGf» item.
 	script := `use framework "AppKit"

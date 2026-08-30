@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -93,18 +94,32 @@ func TestClipboardCollectorEmptyImage(t *testing.T) {
 	}
 }
 
-func TestMediaExtension(t *testing.T) {
-	cases := map[string]string{
-		"image/png":  ".png",
-		"image/jpeg": ".jpg",
-		"image/gif":  ".gif",
-		"image/webp": ".webp",
-		"weird/type": ".bin",
+func TestClipboardClearFlagDetection(t *testing.T) {
+	// A clear frame carries only the flags byte and is intercepted by the
+	// daemon BEFORE the collector sees it (it is not chunk data).
+	p := []byte{FrameClipboardFlagFinal | FrameClipboardFlagClear}
+	if p[0]&FrameClipboardFlagClear == 0 {
+		t.Fatal("clear flag must be settable together with final")
 	}
-	for media, want := range cases {
-		if got := mediaExtension(media); got != want {
-			t.Fatalf("mediaExtension(%q) = %q, want %q", media, got, want)
-		}
+	if p[0]&FrameClipboardFlagFinal == 0 {
+		t.Fatal("final flag must be preserved")
+	}
+	// Normal chunks must not trip the clear flag.
+	if EncodeClipboardChunks("image/png", []byte("data"))[0][0]&FrameClipboardFlagClear != 0 {
+		t.Fatal("image chunks must not carry the clear flag")
+	}
+}
+
+func TestRemoteClipboardPathStablePerSession(t *testing.T) {
+	a, b := remoteClipboardPath(3), remoteClipboardPath(3)
+	if a != b {
+		t.Fatal("path must be stable for a session")
+	}
+	if a == remoteClipboardPath(4) {
+		t.Fatal("paths must differ per session")
+	}
+	if !strings.HasSuffix(a, "kit-remote-clip-3") {
+		t.Fatalf("unexpected path: %s", a)
 	}
 }
 
