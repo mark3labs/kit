@@ -123,10 +123,17 @@ const REJECT_BUDGET: usize = 32;
 const HANDSHAKE_TIMEOUT: u64 = 30;
 
 // Frame types (shared with internal/daemon/protocol.go).
+// DATA/RESIZE/PING/PONG are relayed opaquely — the sidecar never matches
+// them by name — but they are kept here to document the shared wire
+// contract with the Go side.
+#[allow(dead_code)]
 const FRAME_DATA: u8 = 0x01;
+#[allow(dead_code)]
 const FRAME_RESIZE: u8 = 0x02;
 const FRAME_BYE: u8 = 0x03;
+#[allow(dead_code)]
 const FRAME_PING: u8 = 0x04;
+#[allow(dead_code)]
 const FRAME_PONG: u8 = 0x05;
 // Pairing-model control frames on the sidecar's stdio: the daemon<->sidecar
 // consultation channel that keeps authentication policy in Go (v3).
@@ -620,7 +627,7 @@ async fn reject_session_full(incoming: Incoming, _permit: tokio::sync::OwnedSema
     let opened = tokio::time::timeout(Duration::from_secs(HANDSHAKE_TIMEOUT), async move {
         let accepting = incoming.accept().map_err(|e| anyhow::anyhow!("{e}"))?;
         let conn = accepting.await?;
-        let (mut send, _recv) = conn.accept_bi().await?;
+        let (send, _recv) = conn.accept_bi().await?;
         anyhow::Ok((send, conn))
     })
     .await;
