@@ -277,6 +277,7 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 </ul>
 <p>Set <code>KIT_IMAGE_PROTOCOL=kitty</code> to force the graphics protocol, or <code>KIT_IMAGE_PROTOCOL=halfblock</code> to force half blocks, when the probe gets it wrong.</p>
 <p>You can also attach image files by referencing them with <code>@path/to/image.png</code> — binary files are auto-detected by MIME type. See <a href="/quick-start">Quick Start</a> for the <code>@</code> attachment syntax.</p>
+<p><strong>In a remote session</strong> (<code>kit remote --host &lt;name&gt;</code>), <code>Ctrl+V</code> attaches an image from the <strong>local machine's</strong> clipboard: it is streamed to the host over the tunnel and attached to the session with the same thumbnail preview. The clipboard tools only need to exist on the machine you are typing on. See <a href="/advanced/remote-sessions">Remote sessions</a>.</p>
 <h2 id="prompt-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#prompt-templates"><span class="icon icon-link"></span></a>Prompt templates</h2>
 <h3 id="creating-templates"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#creating-templates"><span class="icon icon-link"></span></a>Creating templates</h3>
 <p>Templates use YAML frontmatter for metadata and support argument placeholders:</p>
@@ -590,6 +591,8 @@ Detection is a live query rather than a guess from \`$TERM\`, because a multiple
 Set \`KIT_IMAGE_PROTOCOL=kitty\` to force the graphics protocol, or \`KIT_IMAGE_PROTOCOL=halfblock\` to force half blocks, when the probe gets it wrong.
 
 You can also attach image files by referencing them with \`@path/to/image.png\` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the \`@\` attachment syntax.
+
+**In a remote session** (\`kit remote --host <name>\`), \`Ctrl+V\` attaches an image from the **local machine's** clipboard: it is streamed to the host over the tunnel and attached to the session with the same thumbnail preview. The clipboard tools only need to exist on the machine you are typing on. See [Remote sessions](/advanced/remote-sessions).
 
 ## Prompt templates
 

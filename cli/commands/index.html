@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BxUl7KP9.js"></script>
+<script type="module" src="/assets/index-Dur4MEiK.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -242,6 +242,8 @@ Detection is a live query rather than a guess from `$TERM`, because a multiplexe
 Set `KIT_IMAGE_PROTOCOL=kitty` to force the graphics protocol, or `KIT_IMAGE_PROTOCOL=halfblock` to force half blocks, when the probe gets it wrong.
 
 You can also attach image files by referencing them with `@path/to/image.png` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the `@` attachment syntax.
+
+**In a remote session** (`kit remote --host <name>`), `Ctrl+V` attaches an image from the **local machine's** clipboard: it is streamed to the host over the tunnel and attached to the session with the same thumbnail preview. The clipboard tools only need to exist on the machine you are typing on. See [Remote sessions](/advanced/remote-sessions).
 
 ## Prompt templates
 

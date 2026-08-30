@@ -33,12 +33,13 @@
         "Commands",
         "How pairing works",
         "How reconnection works",
+        "Clipboard images",
         "Security notes",
         "systemd",
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 962
+      "wordCount": 1131
     },
     {
       "id": "advanced/subagents",
@@ -104,7 +105,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2306
+      "wordCount": 2359
     },
     {
       "id": "cli/flags",

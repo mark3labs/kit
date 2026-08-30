@@ -115,6 +115,26 @@ handshake with the client's private signing key; the host verifies the
 signature against its allowlist. iroh's QUIC handshake additionally
 authenticates the daemon against the stored endpoint id, so a malicious or
 poisoned endpoint cannot impersonate the host.</p>
+<h2 id="clipboard-images"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#clipboard-images"><span class="icon icon-link"></span></a>Clipboard images</h2>
+<p><code>Ctrl-V</code> in a remote session attaches an image from the <strong>client
+machine's</strong> clipboard: the client reads its own clipboard (via xclip /
+wl-paste / osascript), streams the image over the tunnel, and the daemon
+hands it to the session as a pending attachment — the same inline
+thumbnail preview and <code>[N image(s) attached]</code> indicator a local paste
+gets. Add your text and submit; <code>Ctrl-U</code> clears it.</p>
+<ul>
+<li>The clipboard tools must be installed on the <strong>client</strong> machine; the
+daemon host needs none.</li>
+<li><code>Ctrl-V</code> with no image on the clipboard is forwarded to the session
+unchanged, so host-side <code>Ctrl-V</code> behavior (e.g. quoted-insert in an
+embedded shell) is preserved.</li>
+<li>The preview's rendering quality follows the same terminal detection as
+local sessions — the daemon probes the real terminal through the
+connection, so a kitty client gets true graphics and anything else gets
+the half-block thumbnail. <code>KIT_IMAGE_PROTOCOL</code> works here too.</li>
+<li>Works in kitty (which reports <code>Ctrl-V</code> through the kitty keyboard
+protocol) and in legacy terminals alike.</li>
+</ul>
 <h2 id="security-notes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#security-notes"><span class="icon icon-link"></span></a>Security notes</h2>
 <ul>
 <li>The client's signing key lives in <code>~/.config/kit/remote/identity.key</code>
@@ -176,7 +196,7 @@ allowlist is shared).</p>
 <td>Just reconnect with <code>kit remote --host &lt;name&gt;</code>; the daemon keeps running</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
+</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
 # Remote Sessions
 
 Kit can run as a daemon on one machine and be driven from another. All work —
@@ -261,6 +281,27 @@ handshake with the client's private signing key; the host verifies the
 signature against its allowlist. iroh's QUIC handshake additionally
 authenticates the daemon against the stored endpoint id, so a malicious or
 poisoned endpoint cannot impersonate the host.
+
+## Clipboard images
+
+\`Ctrl-V\` in a remote session attaches an image from the **client
+machine's** clipboard: the client reads its own clipboard (via xclip /
+wl-paste / osascript), streams the image over the tunnel, and the daemon
+hands it to the session as a pending attachment — the same inline
+thumbnail preview and \`[N image(s) attached]\` indicator a local paste
+gets. Add your text and submit; \`Ctrl-U\` clears it.
+
+- The clipboard tools must be installed on the **client** machine; the
+  daemon host needs none.
+- \`Ctrl-V\` with no image on the clipboard is forwarded to the session
+  unchanged, so host-side \`Ctrl-V\` behavior (e.g. quoted-insert in an
+  embedded shell) is preserved.
+- The preview's rendering quality follows the same terminal detection as
+  local sessions — the daemon probes the real terminal through the
+  connection, so a kitty client gets true graphics and anything else gets
+  the half-block thumbnail. \`KIT_IMAGE_PROTOCOL\` works here too.
+- Works in kitty (which reports \`Ctrl-V\` through the kitty keyboard
+  protocol) and in legacy terminals alike.
 
 ## Security notes
 

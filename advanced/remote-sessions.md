@@ -84,6 +84,27 @@ signature against its allowlist. iroh's QUIC handshake additionally
 authenticates the daemon against the stored endpoint id, so a malicious or
 poisoned endpoint cannot impersonate the host.
 
+## Clipboard images
+
+`Ctrl-V` in a remote session attaches an image from the **client
+machine's** clipboard: the client reads its own clipboard (via xclip /
+wl-paste / osascript), streams the image over the tunnel, and the daemon
+hands it to the session as a pending attachment — the same inline
+thumbnail preview and `[N image(s) attached]` indicator a local paste
+gets. Add your text and submit; `Ctrl-U` clears it.
+
+- The clipboard tools must be installed on the **client** machine; the
+  daemon host needs none.
+- `Ctrl-V` with no image on the clipboard is forwarded to the session
+  unchanged, so host-side `Ctrl-V` behavior (e.g. quoted-insert in an
+  embedded shell) is preserved.
+- The preview's rendering quality follows the same terminal detection as
+  local sessions — the daemon probes the real terminal through the
+  connection, so a kitty client gets true graphics and anything else gets
+  the half-block thumbnail. `KIT_IMAGE_PROTOCOL` works here too.
+- Works in kitty (which reports `Ctrl-V` through the kitty keyboard
+  protocol) and in legacy terminals alike.
+
 ## Security notes
 
 - The client's signing key lives in `~/.config/kit/remote/identity.key`
