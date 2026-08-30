@@ -27,15 +27,17 @@ kit daemon pair
 
 # On the client: pair (the host terminal asks you to accept)
 kit remote --pair A1B2C3D4
-Save this host as [workstation]: zora
+Save this host as [workstation]: homelab
 
 # On the client: connect — no code needed, ever again
-kit remote --host zora
+kit remote --host homelab
 ```
 
-On connection the remote peer picks a working directory (the picker starts in
-the daemon user's home directory), and the session TUI starts there. The
-session behaves exactly like a local one: extensions, widgets, tool
+On connection the daemon reports its **live sessions**; when any exist, an
+in-client picker lets you attach to one (the session's screen repaints
+exactly where it left off) or start a new one — a fresh child shows the
+working-directory picker (starting in the daemon user's home directory).
+The session behaves exactly like a local one: extensions, widgets, tool
 rendering, and session persistence all run on the daemon host.
 
 ## Requirements
@@ -59,8 +61,17 @@ rendering, and session persistence all run on the daemon host.
 | `kit remote --list` | client | List saved hosts |
 | `kit remote --forget <name>` | client | Forget a saved host |
 
-`Ctrl-]` detaches the client from the session; `/quit` ends the session and
-closes only that client's connection — other sessions are unaffected.
+`Ctrl+X d` **detaches**: your terminal returns to the local shell and the
+session keeps running on the host — type `/quit` inside the session to end
+it for good. Detached sessions are listed on the next connect, so you can
+pick up exactly where you left off.
+
+Several clients can also **attach to the same session** (tmux-style shared
+view): every attached terminal mirrors the same screen, keystrokes from any
+client go into the shared session, and the PTY is resized to the smallest
+attached window. Pairing is the authorization — any paired client may list
+and attach to any session. Attach rights end where pairing ends: revoking a
+client cuts off all of its sessions.
 
 ## How pairing works
 

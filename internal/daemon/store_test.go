@@ -79,20 +79,20 @@ func TestFingerprintMatchesSHA256Prefix(t *testing.T) {
 
 func TestHostBookRoundTrip(t *testing.T) {
 	isolateConfig(t)
-	if err := SaveHost("zora", "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb"); err != nil {
+	if err := SaveHost("beta", "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveHost("bifrost", "1122334455667788aabbccddeeff0011223344556677889900aabbccddeeff11"); err != nil {
+	if err := SaveHost("alpha", "1122334455667788aabbccddeeff0011223344556677889900aabbccddeeff11"); err != nil {
 		t.Fatal(err)
 	}
 	hosts, err := ListHosts()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hosts) != 2 || hosts[0].Name != "bifrost" || hosts[1].Name != "zora" {
+	if len(hosts) != 2 || hosts[0].Name != "alpha" || hosts[1].Name != "beta" {
 		t.Fatalf("unexpected host book: %+v", hosts)
 	}
-	got, err := GetHost("zora")
+	got, err := GetHost("beta")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,20 +106,20 @@ func TestHostBookRoundTrip(t *testing.T) {
 	// Saving the same name replaces the entry, keeping added_at.
 	first := got.AddedAt
 	time.Sleep(2 * time.Millisecond)
-	if err := SaveHost("zora", "1111ccdd00112233445566778899aabbccddeeff00112233445566778899aabb"); err != nil {
+	if err := SaveHost("beta", "1111ccdd00112233445566778899aabbccddeeff00112233445566778899aabb"); err != nil {
 		t.Fatal(err)
 	}
-	again, _ := GetHost("zora")
+	again, _ := GetHost("beta")
 	if again.EndpointID[:4] != "1111" {
 		t.Fatal("entry was not replaced")
 	}
 	if !again.AddedAt.Equal(first) {
 		t.Fatal("added_at should be preserved on replace")
 	}
-	if err := ForgetHost("zora"); err != nil {
+	if err := ForgetHost("beta"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := GetHost("zora"); err == nil {
+	if _, err := GetHost("beta"); err == nil {
 		t.Fatal("expected unknown-host error after forget")
 	}
 	if err := ForgetHost("nope"); err == nil {
@@ -139,7 +139,7 @@ func TestHostBookCorruptFileFails(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := GetHost("zora"); err == nil {
+	if _, err := GetHost("beta"); err == nil {
 		t.Fatal("expected error on corrupt host book")
 	}
 }

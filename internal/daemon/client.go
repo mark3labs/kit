@@ -146,7 +146,7 @@ func promptHostName(ctx context.Context) string {
 }
 
 // RunHost attaches the local terminal to a paired daemon by name:
-// `kit remote --host zora`. Authentication is by client signing key; no
+// `kit remote --host homelab`. Authentication is by client signing key; no
 // pairing code is involved. The remote daemon shows its directory picker
 // inside this terminal, then the session TUI takes over.
 func RunHost(ctx context.Context, name string) error {

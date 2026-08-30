@@ -8,7 +8,7 @@ func TestRemoteSubcommandSelected(t *testing.T) {
 		args []string
 		want bool
 	}{
-		{"plain", []string{"remote", "--host", "zora"}, true},
+		{"plain", []string{"remote", "--host", "homelab"}, true},
 		{"global flag with value before remote", []string{"--config", "/tmp/broken.yml", "remote", "--list"}, true},
 		{"attached value", []string{"--config=/tmp/x", "remote", "--pair", "ABCD2345"}, true},
 		{"bool flag before remote", []string{"--debug", "remote", "--list"}, true},

@@ -28,7 +28,7 @@ First-time use pairs this machine with the host:
 
 After pairing, reconnect by the name you saved — no code needed:
 
-  kit remote --host zora
+  kit remote --host homelab
 
 The session runs entirely on the host; this terminal just renders it.
 Ctrl-] detaches; /quit ends the session.`,

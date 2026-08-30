@@ -36,8 +36,14 @@ kit remote --host NAME ─► kit-tunnel dial-host ──iroh──► kit-tunne
   of over-cap peers are budgeted (32), so connection floods cannot pin
   resources.
 - After the handshake both sides relay `DATA`/`RESIZE`/`BYE`/`CLIPBOARD`
-  frames verbatim, multiplexed by session id on the serve side. Handshake,
-  session-assignment, auth-consultation and pairing frames never leave the
+  and the session-lifecycle frames (`SESSION_DETACH`, `SESSION_LIST`,
+  `SESSION_LIST_REPLY`, `SESSION_ATTACH`, `SESSION_ATTACH_ACK`) verbatim,
+  multiplexed by session id on the serve side. Sessions are logical on the
+  Go side: they outlive client connections, so clients can detach and
+  reattach, and several clients can share one session. `SESSION_OPEN`
+  announces a new client connection to the daemon (registration only —
+  spawning happens when the client attaches). Handshake, session-
+  assignment, auth-consultation and pairing frames never leave the
   tunnel.
 
 Failed handshakes and failed pairings back off exponentially (500ms per
