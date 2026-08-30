@@ -18,13 +18,15 @@ rotates and every client pairs again.)</p>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client: pair (the host terminal asks you to accept)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --pair</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">Save</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> this</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> as</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [workstation]: zora</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">Save</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> this</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> as</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [workstation]: homelab</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client: connect — no code needed, ever again</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> zora</span></span></code></pre>
-<p>On connection the remote peer picks a working directory (the picker starts in
-the daemon user's home directory), and the session TUI starts there. The
-session behaves exactly like a local one: extensions, widgets, tool
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span></span></code></pre>
+<p>On connection the daemon reports its <strong>live sessions</strong>; when any exist, an
+in-client picker lets you attach to one (the session's screen repaints
+exactly where it left off) or start a new one — a fresh child shows the
+working-directory picker (starting in the daemon user's home directory).
+The session behaves exactly like a local one: extensions, widgets, tool
 rendering, and session persistence all run on the daemon host.</p>
 <h2 id="requirements"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#requirements"><span class="icon icon-link"></span></a>Requirements</h2>
 <ul>
@@ -90,8 +92,16 @@ be punched, the n0 relay fleet.</li>
 </tr>
 </tbody>
 </table>
-<p><code>Ctrl-]</code> detaches the client from the session; <code>/quit</code> ends the session and
-closes only that client's connection — other sessions are unaffected.</p>
+<p><code>Ctrl+X d</code> <strong>detaches</strong>: your terminal returns to the local shell and the
+session keeps running on the host — type <code>/quit</code> inside the session to end
+it for good. Detached sessions are listed on the next connect, so you can
+pick up exactly where you left off.</p>
+<p>Several clients can also <strong>attach to the same session</strong> (tmux-style shared
+view): every attached terminal mirrors the same screen, keystrokes from any
+client go into the shared session, and the PTY is resized to the smallest
+attached window. Pairing is the authorization — any paired client may list
+and attach to any session. Attach rights end where pairing ends: revoking a
+client cuts off all of its sessions.</p>
 <h2 id="how-pairing-works"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#how-pairing-works"><span class="icon icon-link"></span></a>How pairing works</h2>
 <ol>
 <li><code>kit daemon pair</code> generates a fresh one-time code and opens a bootstrap
@@ -221,15 +231,17 @@ kit daemon pair
 
 # On the client: pair (the host terminal asks you to accept)
 kit remote --pair A1B2C3D4
-Save this host as [workstation]: zora
+Save this host as [workstation]: homelab
 
 # On the client: connect — no code needed, ever again
-kit remote --host zora
+kit remote --host homelab
 \`\`\`
 
-On connection the remote peer picks a working directory (the picker starts in
-the daemon user's home directory), and the session TUI starts there. The
-session behaves exactly like a local one: extensions, widgets, tool
+On connection the daemon reports its **live sessions**; when any exist, an
+in-client picker lets you attach to one (the session's screen repaints
+exactly where it left off) or start a new one — a fresh child shows the
+working-directory picker (starting in the daemon user's home directory).
+The session behaves exactly like a local one: extensions, widgets, tool
 rendering, and session persistence all run on the daemon host.
 
 ## Requirements
@@ -253,8 +265,17 @@ rendering, and session persistence all run on the daemon host.
 | \`kit remote --list\` | client | List saved hosts |
 | \`kit remote --forget <name>\` | client | Forget a saved host |
 
-\`Ctrl-]\` detaches the client from the session; \`/quit\` ends the session and
-closes only that client's connection — other sessions are unaffected.
+\`Ctrl+X d\` **detaches**: your terminal returns to the local shell and the
+session keeps running on the host — type \`/quit\` inside the session to end
+it for good. Detached sessions are listed on the next connect, so you can
+pick up exactly where you left off.
+
+Several clients can also **attach to the same session** (tmux-style shared
+view): every attached terminal mirrors the same screen, keystrokes from any
+client go into the shared session, and the PTY is resized to the smallest
+attached window. Pairing is the authorization — any paired client may list
+and attach to any session. Attach rights end where pairing ends: revoking a
+client cuts off all of its sessions.
 
 ## How pairing works
 

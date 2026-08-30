@@ -350,17 +350,19 @@ end-to-end encrypted iroh connection. All work runs on the daemon host; see
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --pair</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # Pair and save the host under a name</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client (any time after)</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> zora</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Attach to the paired host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Attach to the paired host</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --list</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # List paired hosts</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --forget</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> zora</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # Forget a saved host</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --forget</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # Forget a saved host</span></span></code></pre>
 <p>Pairing is one-time and human-approved: the code only works while the
 <code>kit daemon pair</code> window is open, and the host must accept the request on
 its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and <code>/quit</code> closes only that
-client's connection. <code>Ctrl-]</code> detaches without ending the daemon. Only one
-daemon may run per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
+client's connection. <code>Ctrl+X d</code> detaches — the session keeps running on the
+host and can be reattached later (or shared by several clients at once, with
+every attached terminal mirroring the same screen). Only one daemon may run
+per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
 # Commands
 
 ## Authentication
@@ -669,9 +671,9 @@ kit daemon service remove         # Stop and uninstall the service
 kit remote --pair A1B2C3D4        # Pair and save the host under a name
 
 # On the client (any time after)
-kit remote --host zora            # Attach to the paired host
+kit remote --host homelab            # Attach to the paired host
 kit remote --list                 # List paired hosts
-kit remote --forget zora          # Forget a saved host
+kit remote --forget homelab          # Forget a saved host
 \`\`\`
 
 Pairing is one-time and human-approved: the code only works while the
@@ -680,6 +682,8 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and \`/quit\` closes only that
-client's connection. \`Ctrl-]\` detaches without ending the daemon. Only one
-daemon may run per user.
+client's connection. \`Ctrl+X d\` detaches — the session keeps running on the
+host and can be reattached later (or shared by several clients at once, with
+every attached terminal mirroring the same screen). Only one daemon may run
+per user.
 `};export{e as default};

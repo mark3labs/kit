@@ -307,9 +307,9 @@ kit daemon service remove         # Stop and uninstall the service
 kit remote --pair A1B2C3D4        # Pair and save the host under a name
 
 # On the client (any time after)
-kit remote --host zora            # Attach to the paired host
+kit remote --host homelab            # Attach to the paired host
 kit remote --list                 # List paired hosts
-kit remote --forget zora          # Forget a saved host
+kit remote --forget homelab          # Forget a saved host
 ```
 
 Pairing is one-time and human-approved: the code only works while the
@@ -318,5 +318,7 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and `/quit` closes only that
-client's connection. `Ctrl-]` detaches without ending the daemon. Only one
-daemon may run per user.
+client's connection. `Ctrl+X d` detaches — the session keeps running on the
+host and can be reattached later (or shared by several clients at once, with
+every attached terminal mirroring the same screen). Only one daemon may run
+per user.
