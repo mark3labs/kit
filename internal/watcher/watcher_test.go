@@ -124,7 +124,7 @@ func TestContentWatcher_Debounces(t *testing.T) {
 		Extensions: []string{".md"},
 		OnReload:   func() { reloadCount.Add(1) },
 		Label:      "test",
-		Debounce:   100 * time.Millisecond,
+		Debounce:   200 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,15 +134,19 @@ func TestContentWatcher_Debounces(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Rapid-fire writes — should debounce into 1 reload.
+	// Rapid-fire writes — should debounce into 1 reload. The write
+	// cadence (10ms) must stay well under the debounce window (200ms):
+	// on a loaded CI runner, event delivery can lag by tens of
+	// milliseconds, and a gap wider than the debounce would legitimately
+	// split the reload.
 	for i := range 5 {
 		if err := os.WriteFile(filepath.Join(dir, "test.md"), []byte("v"+string(rune('0'+i))), 0644); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	if got := reloadCount.Load(); got != 1 {
 		t.Errorf("expected 1 debounced reload, got %d", got)
