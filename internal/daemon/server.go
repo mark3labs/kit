@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,11 +53,16 @@ func Serve(ctx context.Context) error {
 	fmt.Println("  kit daemon")
 	fmt.Println()
 
+	// The session table outlives tunnel restarts: logical sessions keep
+	// running (detached) while clients come and go.
+	table := newSessionTable(rt)
+
 	// If the tunnel process dies unexpectedly (crash, kill), restart it
 	// with the same identity: the endpoint id is stable, so paired clients
 	// find us again. Live sessions do not survive the restart.
 	for {
 		if ctx.Err() != nil {
+			table.killAll()
 			return ctx.Err()
 		}
 		tun, err := StartTunnel(ctx, TunnelOptions{
@@ -64,26 +71,35 @@ func Serve(ctx context.Context) error {
 			Env:  []string{"KIT_TUNNEL_SECRET=" + secretHex},
 		})
 		if err != nil {
+			table.killAll()
 			return err
 		}
 		ready, err := tun.WaitStatus(ctx, "READY", 30*time.Second)
 		if err != nil {
 			tun.Close()
+			table.killAll()
 			return fmt.Errorf("daemon: tunnel failed to start: %w", err)
 		}
 		nodeID, _ := strings.CutPrefix(ready, "READY node_id=")
 		rt.setEndpoint(nodeID)
+		rt.setTunnel(tun)
 		fmt.Printf("  Endpoint:     %s\n", shortEndpoint(nodeID))
 		fmt.Println("  Waiting for paired clients. Pair a new one with: kit daemon pair")
 		fmt.Println()
 
-		err = runSessions(ctx, tun, rt)
+		err = runSessions(ctx, tun, rt, table)
 
 		tun.Close()
+		rt.setTunnel(nil)
+		// Client connections died with the tunnel; their sessions keep
+		// running detached and can be reattached after the restart.
+		table.unbindAll()
 		if ctx.Err() != nil {
+			table.killAll()
 			return ctx.Err()
 		}
 		if err != nil {
+			table.killAll()
 			return fmt.Errorf("daemon: tunnel ended: %w", err)
 		}
 		fmt.Println("  Listener restarted — endpoint unchanged, waiting…")
@@ -99,10 +115,88 @@ func shortEndpoint(id string) string {
 }
 
 // remoteSession is one connected client and its kit child process.
+// remoteSession is a LOGICAL session: one PTY child that can outlive its
+// client connections. Clients (identified by their wire session id — the
+// per-connection id the sidecar assigns) attach to it; a session with zero
+// attached clients is detached but keeps running until the child exits or
+// the daemon shuts down.
 type remoteSession struct {
-	id   uint32
-	cmd  *exec.Cmd
-	ptmx *os.File
+	id      uint64 // logical id, daemon-assigned monotonic
+	cmd     *exec.Cmd
+	ptmx    *os.File
+	started time.Time
+
+	mu      sync.Mutex
+	clients map[uint32]winSize // attached wire ids -> last known size (0,0 = unknown)
+}
+
+type winSize struct{ cols, rows int }
+
+// attachClient records a client and returns the resulting minimum size
+// (zeros ignored) plus whether it differs from the previous minimum.
+func (s *remoteSession) attachClient(wire uint32, ws winSize) (winSize, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := minSizeLocked(s.clients)
+	s.clients[wire] = ws
+	next := minSizeLocked(s.clients)
+	return next, next != prev
+}
+
+// detachClient removes a client and returns the new minimum size (if any
+// clients remain) plus the number of remaining clients.
+func (s *remoteSession) detachClient(wire uint32) (winSize, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.clients, wire)
+	return minSizeLocked(s.clients), len(s.clients)
+}
+
+// resizeClient records a client's size and returns the new minimum.
+func (s *remoteSession) resizeClient(wire uint32, ws winSize) winSize {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clients[wire] = ws
+	return minSizeLocked(s.clients)
+}
+
+// clientIDs snapshots the attached wire ids.
+func (s *remoteSession) clientIDs() []uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]uint32, 0, len(s.clients))
+	for id := range s.clients {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// minSizeLocked computes the minimum nonzero size across clients. All-zero
+// (no client has reported yet) yields the zero size and the caller leaves
+// the PTY at its default.
+func minSizeLocked(clients map[uint32]winSize) winSize {
+	var out winSize
+	first := true
+	for _, ws := range clients {
+		if ws.cols == 0 || ws.rows == 0 {
+			continue
+		}
+		if first {
+			out = ws
+			first = false
+			continue
+		}
+		if ws.cols < out.cols {
+			out.cols = ws.cols
+		}
+		if ws.rows < out.rows {
+			out.rows = ws.rows
+		}
+	}
+	if first {
+		return winSize{}
+	}
+	return out
 }
 
 // authChallenge is an in-flight reconnect handshake awaiting the client's
@@ -113,42 +207,67 @@ type authChallenge struct {
 	sNonce    []byte
 }
 
-// sessionTable tracks live sessions. The tunnel's stdout frames are read by
-// a single goroutine, so map access is confined to it plus teardown paths
-// guarded by mu.
+// sessionTable owns the daemon's LOGICAL sessions. The tunnel's stdout
+// frames are read by a single goroutine (runSessions), so most map access
+// is confined to it; teardown paths run on other goroutines and take mu.
+// The table is created once per daemon process and outlives tunnel
+// restarts — only wire-id bindings are per tunnel.
 type sessionTable struct {
-	tunnel       *Tunnel
-	rt           *daemonRuntime
+	rt *daemonRuntime
+
 	mu           sync.Mutex
-	sessions     map[uint32]*remoteSession
+	nextID       uint64
+	sessions     map[uint64]*remoteSession      // logical id -> session
+	wireMap      map[uint32]uint64              // wire id (current tunnel) -> logical id
 	pendingAuths map[[8]byte]authChallenge      // confined to the frame loop
-	clipboards   map[uint32]*ClipboardCollector // in-flight image transfers, frame loop only
-	sessionTemps map[uint32][]string            // temp files injected into each child
-	writeMu      sync.Mutex                     // tunnel stdin is shared by all session pumps
+	clipboards   map[uint64]*ClipboardCollector // in-flight image transfers, frame loop only
+	sessionTemps map[uint64][]string            // per-session clipboard files
+	writeMu      sync.Mutex                     // tunnel stdin is written by pumps and resizes
 }
 
-// writeTo sends one frame to the tunnel stdin. Errors are the caller's to
-// ignore or handle; a closed tunnel means everything is going away anyway.
+func newSessionTable(rt *daemonRuntime) *sessionTable {
+	return &sessionTable{
+		rt:           rt,
+		sessions:     make(map[uint64]*remoteSession),
+		wireMap:      make(map[uint32]uint64),
+		pendingAuths: make(map[[8]byte]authChallenge),
+		clipboards:   make(map[uint64]*ClipboardCollector),
+		sessionTemps: make(map[uint64][]string),
+	}
+}
+
+// writeTo sends one frame to the current tunnel stdin. Errors are the
+// caller's to ignore; a missing or closed tunnel means everything is going
+// away anyway.
 func (t *sessionTable) writeTo(frame Frame) error {
+	tun := t.rt.tunnel()
+	if tun == nil {
+		return fmt.Errorf("daemon: tunnel is down")
+	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	return WriteFrame(t.tunnel.Stdin(), frame.Type, frame.Session, frame.Payload)
+	return WriteFrame(tun.Stdin(), frame.Type, frame.Session, frame.Payload)
 }
 
-func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
-	table := &sessionTable{
-		tunnel:       tun,
-		rt:           rt,
-		sessions:     make(map[uint32]*remoteSession),
-		pendingAuths: make(map[[8]byte]authChallenge),
-		clipboards:   make(map[uint32]*ClipboardCollector),
-		sessionTemps: make(map[uint32][]string),
+// logicalFor resolves a wire session id to its logical session.
+func (t *sessionTable) logicalFor(wire uint32) *remoteSession {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if id, ok := t.wireMap[wire]; ok {
+		return t.sessions[id]
 	}
-	defer table.teardownAll()
+	return nil
+}
 
-	// Child exits are noticed by the per-session PTY reader; when a client
-	// detaches (BYE) or the tunnel drops the session (SESSION_CLOSED), the
-	// reader loop tears that one session down.
+// runSessions reads frames from the CURRENT tunnel and drives the shared
+// session table. The table outlives this call: when the tunnel ends, every
+// wire binding is dropped (attached clients are gone; their sessions stay
+// running detached) and Serve restarts the tunnel with the same table.
+func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime, table *sessionTable) error {
+	table.rebindTunnel()
+
+	// Child exits are noticed by the per-session PTY reader; a client
+	// detach (DETACH/BYE/SESSION_CLOSED) only unbinds its wire id.
 	for {
 		frame, err := ReadFrame(tun.Stdout())
 		if err != nil {
@@ -159,29 +278,109 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 			table.handleAuthRequest(frame.Payload)
 		case FrameAuthPayload:
 			table.handleAuthPayload(frame.Payload)
-		case FrameClipboard:
-			table.handleClipboardChunk(ctx, frame.Session, frame.Payload)
 		case FrameSessionOpen:
-			table.openSession(frame.Session)
-		case FrameSessionClosed, FrameBye:
-			table.closeSession(frame.Session)
+			// The sidecar announces every new client connection with this
+			// frame. Registration only: a session is spawned when the
+			// client explicitly attaches (to logical id 0 = new session).
+		case FrameSessionDetach, FrameSessionClosed, FrameBye:
+			table.detachWire(frame.Session)
+		case FrameSessionList:
+			table.sendSessionList(frame.Session)
+		case FrameSessionAttach:
+			table.attachSession(frame.Session, frame.Payload)
 		case FrameData:
-			if s := table.get(frame.Session); s != nil {
-				if _, err := s.ptmx.Write(frame.Payload); err != nil {
-					table.closeSession(frame.Session)
+			if sess := table.logicalFor(frame.Session); sess != nil {
+				if _, err := sess.ptmx.Write(frame.Payload); err != nil {
+					table.retireSession(sess.id)
 				}
 			}
 		case FrameResize:
-			if s := table.get(frame.Session); s != nil {
+			if sess := table.logicalFor(frame.Session); sess != nil {
 				if cols, rows, derr := DecodeResize(frame.Payload); derr == nil {
-					_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+					sess.applyResize(frame.Session, cols, rows)
 				}
+			}
+		case FrameClipboard:
+			if sess := table.logicalFor(frame.Session); sess != nil {
+				table.handleClipboardChunk(ctx, sess.id, frame.Payload)
 			}
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 	}
+}
+
+// rebindTunnel clears the wire-id bindings of a dead tunnel. Client
+// connections died with it; their logical sessions stay running detached.
+func (t *sessionTable) rebindTunnel() {
+	t.mu.Lock()
+	t.wireMap = make(map[uint32]uint64)
+	t.mu.Unlock()
+}
+
+// detachWire unbinds one wire session id from its logical session. The
+// logical session keeps running; with no clients left it is detached.
+func (t *sessionTable) detachWire(wire uint32) {
+	t.mu.Lock()
+	logical, ok := t.wireMap[wire]
+	if ok {
+		delete(t.wireMap, wire)
+	}
+	t.mu.Unlock()
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	sess := t.sessions[logical]
+	t.mu.Unlock()
+	if sess == nil {
+		return
+	}
+	if _, remaining := sess.detachClient(wire); remaining == 0 {
+		log.Info("session detached", "session_id", logical)
+	} else {
+		log.Info("client left shared session", "session_id", logical, "remaining", remaining)
+	}
+}
+
+// unbindAll drops every wire binding (the tunnel ended). Logical sessions
+// keep running detached.
+func (t *sessionTable) unbindAll() {
+	t.mu.Lock()
+	wires := make([]uint32, 0, len(t.wireMap))
+	for wire := range t.wireMap {
+		wires = append(wires, wire)
+	}
+	t.mu.Unlock()
+	for _, wire := range wires {
+		t.detachWire(wire)
+	}
+}
+
+// killAll tears down every logical session, killing children. Used on
+// daemon shutdown.
+func (t *sessionTable) killAll() {
+	t.mu.Lock()
+	ids := make([]uint64, 0, len(t.sessions))
+	for id := range t.sessions {
+		ids = append(ids, id)
+	}
+	t.mu.Unlock()
+	for _, id := range ids {
+		t.retireSession(id)
+	}
+}
+
+// applyResize records one client's size and applies the minimum across all
+// attached clients to the PTY — the shared-view equivalent of tmux picking
+// the smallest window.
+func (s *remoteSession) applyResize(wire uint32, cols, rows int) {
+	next := s.resizeClient(wire, winSize{cols, rows})
+	if next.cols == 0 || next.rows == 0 {
+		return // nobody has reported a real size yet
+	}
+	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(next.cols), Rows: uint16(next.rows)})
 }
 
 // handleClipboardChunk consumes one client clipboard frame. Chunked image
@@ -194,7 +393,7 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime) error {
 // Locking: closeSession may run on any goroutine (child exit), so map
 // access happens under t.mu; the collector object is only touched by the
 // frame loop.
-func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint32, payload []byte) {
+func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64, payload []byte) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -373,35 +572,139 @@ func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 	_ = t.writeTo(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
 }
 
-// openSession spawns a fresh `kit --pick-dir` child for a newly verified
-// client. A failure to spawn is reported to that client as a BYE; the
-// daemon and other sessions continue.
-func (table *sessionTable) openSession(id uint32) {
-	s := &remoteSession{id: id}
-	child, ptmx, err := spawnPickDir(id)
+// sessionInfo is one row of the client-facing session list.
+type sessionInfo struct {
+	ID      uint64 `json:"id"`
+	Clients int    `json:"clients"`
+	Started string `json:"started"`
+	Cwd     string `json:"cwd,omitempty"`
+}
+
+// sendSessionList replies to a client's list request with the live
+// sessions. Attach rights are pairing rights: every paired client may
+// attach to any session.
+func (t *sessionTable) sendSessionList(wire uint32) {
+	t.mu.Lock()
+	ids := make([]uint64, 0, len(t.sessions))
+	for id := range t.sessions {
+		ids = append(ids, id)
+	}
+	t.mu.Unlock()
+
+	infos := make([]sessionInfo, 0, len(ids))
+	for _, id := range ids {
+		t.mu.Lock()
+		sess := t.sessions[id]
+		t.mu.Unlock()
+		if sess == nil {
+			continue
+		}
+		info := sessionInfo{
+			ID:      id,
+			Clients: len(sess.clientIDs()),
+			Started: sess.started.Format(time.RFC3339),
+		}
+		if sess.cmd != nil && sess.cmd.Process != nil {
+			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", sess.cmd.Process.Pid)); err == nil {
+				info.Cwd = cwd
+			}
+		}
+		infos = append(infos, info)
+	}
+	payload, err := json.Marshal(infos)
 	if err != nil {
-		log.Error("daemon: session spawn failed", "session_id", id, "error", err)
-		_ = table.writeTo(Frame{Type: FrameBye, Session: id})
 		return
 	}
-	s.cmd, s.ptmx = child, ptmx
+	_ = t.writeTo(Frame{Type: FrameSessionListReply, Session: wire, Payload: payload})
+}
 
-	table.mu.Lock()
-	table.sessions[id] = s
-	active := len(table.sessions)
-	table.mu.Unlock()
-	table.rt.setSessions(active)
-	log.Info("session started", "session_id", id)
+// attachSession binds a client's wire id to a logical session and answers
+// with an ack the client waits for. Logical id 0 means "spawn a new
+// session"; the ack carries the assigned (or attached) logical id.
+func (t *sessionTable) attachSession(wire uint32, payload []byte) {
+	requested := uint64(0)
+	if len(payload) >= 8 {
+		requested = binary.BigEndian.Uint64(payload[:8])
+	}
 
-	// PTY -> remote: raw child output as DATA frames tagged with the id.
-	go func(s *remoteSession) {
+	ok := byte(0)
+	var logical uint64
+	if requested == 0 {
+		// New session: spawn a fresh child and bind.
+		t.mu.Lock()
+		t.nextID++
+		logical = t.nextID
+		s := &remoteSession{
+			id:      logical,
+			started: time.Now(),
+			clients: make(map[uint32]winSize),
+		}
+		t.sessions[logical] = s
+		t.wireMap[wire] = logical
+		s.attachClient(wire, winSize{})
+		t.mu.Unlock()
+
+		child, ptmx, err := spawnPickDir(logical)
+		if err != nil {
+			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
+			t.retireSession(logical)
+			ok = 0
+		} else {
+			s.cmd, s.ptmx = child, ptmx
+			t.mu.Lock()
+			active := len(t.sessions)
+			t.mu.Unlock()
+			t.rt.setSessions(active)
+			log.Info("session started", "session_id", logical, "wire", wire)
+			t.watchSession(s)
+			ok = 1
+		}
+	} else {
+		t.mu.Lock()
+		sess := t.sessions[requested]
+		if sess != nil {
+			// A wire id drives at most one session: drop any previous
+			// binding first (that session keeps running detached).
+			if prev, had := t.wireMap[wire]; had && prev != requested {
+				if ps := t.sessions[prev]; ps != nil {
+					ps.detachClient(wire)
+				}
+			}
+			t.wireMap[wire] = requested
+			sess.attachClient(wire, winSize{})
+			ok = 1
+			logical = requested
+		}
+		t.mu.Unlock()
+		if ok == 1 {
+			log.Info("client attached", "session_id", logical, "wire", wire)
+		}
+	}
+
+	ack := make([]byte, 9)
+	binary.BigEndian.PutUint64(ack[:8], logical)
+	ack[8] = ok
+	_ = t.writeTo(Frame{Type: FrameSessionAttachAck, Session: wire, Payload: ack})
+	if ok == 0 {
+		log.Warn("attach failed", "wire", wire, "requested", requested)
+	}
+}
+
+// watchSession starts the per-session PTY fan-out reader and the child
+// lifecycle watcher.
+func (t *sessionTable) watchSession(s *remoteSession) {
+	// PTY -> clients: raw child output as DATA frames fanned out to every
+	// attached client (shared view).
+	go func(sess *remoteSession) {
 		buf := make([]byte, chunkSize)
 		for {
-			n, err := s.ptmx.Read(buf)
+			n, err := sess.ptmx.Read(buf)
 			if n > 0 {
-				// Write errors mean the tunnel is gone; the restart loop
-				// takes over from here.
-				_ = table.writeTo(Frame{Type: FrameData, Session: s.id, Payload: buf[:n]})
+				for _, wire := range sess.clientIDs() {
+					// Write errors mean the tunnel is gone; the restart
+					// loop takes over from here.
+					_ = t.writeTo(Frame{Type: FrameData, Session: wire, Payload: buf[:n]})
+				}
 			}
 			if err != nil {
 				return // EIO when the child exits, or PTY closed
@@ -410,30 +713,37 @@ func (table *sessionTable) openSession(id uint32) {
 	}(s)
 
 	// Child lifecycle: when the child quits (user exited the remote TUI),
-	// end exactly this session — other clients are unaffected.
-	go func(s *remoteSession) {
-		_, _ = s.cmd.Process.Wait()
-		table.closeSession(s.id)
+	// retire exactly this session — other sessions are unaffected.
+	go func(sess *remoteSession) {
+		_, _ = sess.cmd.Process.Wait()
+		t.retireSession(sess.id)
 	}(s)
 }
 
-// applyResize was removed: the child exists before the session is
-// registered and stdout frames are processed in order, so a RESIZE always
-// finds a live PTY. Resizes that arrive during the handshake are buffered
-// by the pipe and applied right after registration.
-
-// closeSession tears down one session: tell the client we are done, stop
-// the child, free the table slot, and remove any clipboard tempfiles that
-// were injected but never consumed. Idempotent.
-func (t *sessionTable) closeSession(id uint32) {
+// retireSession tears down one logical session: tell every attached client
+// we are done, stop the child, free the table slot, and remove its
+// clipboard files. Idempotent.
+func (t *sessionTable) retireSession(id uint64) {
 	t.mu.Lock()
 	s, ok := t.sessions[id]
 	delete(t.sessions, id)
 	temps := t.sessionTemps[id]
 	delete(t.sessionTemps, id)
 	delete(t.clipboards, id)
+	wires := make([]uint32, 0)
+	for wire, logical := range t.wireMap {
+		if logical == id {
+			wires = append(wires, wire)
+		}
+	}
+	for _, wire := range wires {
+		delete(t.wireMap, wire)
+	}
 	active := len(t.sessions)
 	t.mu.Unlock()
+	for _, wire := range wires {
+		_ = t.writeTo(Frame{Type: FrameBye, Session: wire})
+	}
 	if !ok {
 		for _, p := range temps {
 			_ = os.Remove(p)
@@ -445,8 +755,6 @@ func (t *sessionTable) closeSession(id uint32) {
 		_ = os.Remove(p)
 	}
 
-	_ = t.writeTo(Frame{Type: FrameBye, Session: id})
-
 	if s.ptmx != nil {
 		_ = s.ptmx.Close()
 	}
@@ -456,37 +764,19 @@ func (t *sessionTable) closeSession(id uint32) {
 	log.Info("session ended", "session_id", id)
 }
 
-func (t *sessionTable) teardownAll() {
-	t.mu.Lock()
-	ids := make([]uint32, 0, len(t.sessions))
-	for id := range t.sessions {
-		ids = append(ids, id)
-	}
-	t.mu.Unlock()
-	for _, id := range ids {
-		t.closeSession(id)
-	}
-}
-
-func (t *sessionTable) get(id uint32) *remoteSession {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.sessions[id]
-}
-
 // remoteClipboardPath is the stable per-session file the daemon streams
 // client clipboard images into. The child reads it on every Ctrl-V (see
 // internal/clipboard.RemoteClipboardEnv), so a paste is a file rewrite
 // followed by a synthetic 0x16 keystroke — the child's own clipboard
 // pipeline then renders the preview exactly like a local paste.
-func remoteClipboardPath(session uint32) string {
+func remoteClipboardPath(session uint64) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-clip-%d", session))
 }
 
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
 // daemon user's home directory, so the remote peer picks the session's
 // working directory from the modal rendered inside the PTY.
-func spawnPickDir(session uint32) (*exec.Cmd, *os.File, error) {
+func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)

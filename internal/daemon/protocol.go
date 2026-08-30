@@ -27,6 +27,18 @@ const (
 	// written to the session PTY.
 	FrameClipboard FrameType = 0x06
 
+	// Session lifecycle (additive, relayed verbatim by the sidecar like
+	// CLIPBOARD). Sessions are LOGICAL: they outlive client connections,
+	// so a client can detach (Ctrl+X d) and later reattach, and several
+	// clients can attach to the same session (shared tmux-style view).
+	// Wire session ids are per sidecar connection; the daemon maps them to
+	// logical sessions.
+	FrameSessionDetach    FrameType = 0x07 // client -> daemon: unbind me, keep the session
+	FrameSessionList      FrameType = 0x08 // client -> daemon: list live sessions (payload empty)
+	FrameSessionListReply FrameType = 0x09 // daemon -> client: JSON [{id,clients,started,cwd}]
+	FrameSessionAttach    FrameType = 0x0a // client -> daemon: {logical id u64 BE}
+	FrameSessionAttachAck FrameType = 0x0b // daemon -> client: {logical id u64 BE, ok 0|1}
+
 	// Tunnel -> daemon session lifecycle (serve side only).
 	FrameSessionOpen   FrameType = 0x16
 	FrameSessionClosed FrameType = 0x17

@@ -85,6 +85,23 @@ type daemonRuntime struct {
 
 	mu    sync.Mutex
 	state daemonState
+	tun   *Tunnel // the live sidecar; logical sessions write through it
+}
+
+// setTunnel records the current sidecar tunnel. Called by Serve whenever
+// the tunnel (re)starts; logical sessions survive these restarts and their
+// output goes through whatever tunnel is current.
+func (rt *daemonRuntime) setTunnel(t *Tunnel) {
+	rt.mu.Lock()
+	rt.tun = t
+	rt.mu.Unlock()
+}
+
+// tunnel returns the current sidecar tunnel, or nil while it is down.
+func (rt *daemonRuntime) tunnel() *Tunnel {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.tun
 }
 
 func newDaemonRuntime(lock *daemonLock) *daemonRuntime {

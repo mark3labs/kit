@@ -234,6 +234,8 @@ Set `KIT_IMAGE_PROTOCOL=kitty` to force the graphics protocol, or `KIT_IMAGE_PRO
 
 You can also attach image files by referencing them with `@path/to/image.png` — binary files are auto-detected by MIME type. See [Quick Start](/quick-start) for the `@` attachment syntax.
 
+**In a remote session** (`kit remote --host <name>`), `Ctrl+V` attaches an image from the **local machine's** clipboard: it is streamed to the host over the tunnel and attached to the session with the same thumbnail preview. The clipboard tools only need to exist on the machine you are typing on. See [Remote sessions](/advanced/remote-sessions).
+
 ## Prompt templates
 
 ### Creating templates

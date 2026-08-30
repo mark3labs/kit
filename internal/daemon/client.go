@@ -3,10 +3,13 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/mark3labs/kit/internal/clipboard"
+	"github.com/mark3labs/kit/internal/ui"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,11 +17,6 @@ import (
 
 	"github.com/charmbracelet/x/term"
 )
-
-// detachKey is Ctrl-] (the classic telnet escape). Pressed alone, it
-// detaches the local terminal from the remote session instead of
-// forwarding the keystroke.
-const detachKey = 0x1d
 
 // pasteKey is Ctrl-V. In a remote session the client intercepts a bare
 // Ctrl-V: it reads THIS machine's clipboard and streams any image to the
@@ -194,6 +192,61 @@ func RunHost(ctx context.Context, name string) error {
 	if !term.IsTerminal(stdinFD) || !term.IsTerminal(stdoutFD) {
 		return fmt.Errorf("remote mode needs an interactive terminal")
 	}
+
+	// Session choice happens before anything takes over the terminal: the
+	// daemon reports its live sessions and, when any exist, the user picks
+	// attach vs new. Pairing is the authorization — any paired client may
+	// attach to any session.
+	ctrlCh := make(chan Frame, 8)
+	endedCh := make(chan struct{})
+	var endedOnce sync.Once
+	sessionEnded := func() { endedOnce.Do(func() { close(endedCh) }) }
+
+	done := make(chan struct{})
+	var once sync.Once
+	var writeMu sync.Mutex // tunnel stdin is written by pumps and resizes
+	var detached atomic.Bool
+	var attached atomic.Bool
+	finish := func() { once.Do(func() { close(done) }) }
+
+	// Remote output -> local terminal. Until a session is attached,
+	// control frames feed the choice flow and DATA is dropped.
+	go func() {
+		defer finish()
+		for {
+			frame, err := ReadFrame(tun.Stdout())
+			if err != nil {
+				return
+			}
+			switch frame.Type {
+			case FrameData:
+				if attached.Load() {
+					if _, werr := os.Stdout.Write(frame.Payload); werr != nil {
+						return
+					}
+				}
+			case FrameSessionListReply, FrameSessionAttachAck:
+				select {
+				case ctrlCh <- frame:
+				default:
+				}
+			case FrameBye, FrameSessionClosed:
+				sessionEnded()
+				return
+			}
+		}
+	}()
+
+	chosen, err := chooseSession(tun, ctrlCh, endedCh)
+	if err != nil {
+		return err
+	}
+	select {
+	case <-endedCh:
+		return fmt.Errorf("remote session ended")
+	default:
+	}
+
 	oldState, err := term.MakeRaw(stdinFD)
 	if err != nil {
 		return fmt.Errorf("daemon: raw mode: %w", err)
@@ -203,13 +256,29 @@ func RunHost(ctx context.Context, name string) error {
 		_ = term.Restore(stdinFD, oldState)
 	}()
 
-	done := make(chan struct{})
-	var once sync.Once
-	var writeMu sync.Mutex // tunnel stdin is written by pumps and resizes
-	var detached atomic.Bool
-	finish := func() { once.Do(func() { close(done) }) }
+	// Bind this connection: attach to the chosen session, or logical 0 for
+	// a fresh one (the daemon spawns the child; its directory picker
+	// renders inside this terminal).
+	payload := make([]byte, 8)
+	binary.BigEndian.PutUint64(payload, chosen)
+	if err := WriteFrame(tun.Stdin(), FrameSessionAttach, 0, payload); err != nil {
+		return err
+	}
+	select {
+	case f := <-ctrlCh:
+		if f.Type != FrameSessionAttachAck || len(f.Payload) < 9 || f.Payload[8] != 1 {
+			return fmt.Errorf("the host refused the attach")
+		}
+		if f.Type == FrameSessionAttachAck {
+			fmt.Fprintf(os.Stderr, "DEBUG: ack assigned=%d ok=%d\n", binary.BigEndian.Uint64(f.Payload[:8]), f.Payload[8])
+		}
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("daemon did not answer the attach")
+	case <-endedCh:
+		return fmt.Errorf("remote session ended")
+	}
+	attached.Store(true)
 
-	// Local keystrokes -> remote. A lone Ctrl-] detaches.
 	// Stdin reader: os.Stdin.Read blocks, so it feeds a channel and the
 	// pump below can also react to the Esc idle-flush timer.
 	readCh := make(chan []byte, 4)
@@ -235,6 +304,7 @@ func RunHost(ctx context.Context, name string) error {
 		defer finish()
 		scanner := &keyScanner{}
 		suppressRel := false // swallow the ctrl+v release after a successful image interception
+		var leaderBuf []byte // pending Ctrl-X chord prefix (nil = none)
 		var idleTimer *time.Timer
 		var idleC <-chan time.Time
 		armIdle := func() {
@@ -266,8 +336,8 @@ func RunHost(ctx context.Context, name string) error {
 				if imgErr == nil && len(img.Data) > 0 {
 					writeMu.Lock()
 					sent := true
-					for _, payload := range EncodeClipboardChunks(img.MediaType, img.Data) {
-						if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, payload); werr != nil {
+					for _, p := range EncodeClipboardChunks(img.MediaType, img.Data) {
+						if werr := WriteFrame(tun.Stdin(), FrameClipboard, 0, p); werr != nil {
 							sent = false
 							break
 						}
@@ -298,14 +368,38 @@ func RunHost(ctx context.Context, name string) error {
 				if !ok {
 					return
 				}
-				if len(chunk) == 1 && chunk[0] == detachKey {
-					writeMu.Lock()
-					_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
-					writeMu.Unlock()
-					detached.Store(true)
-					return
-				}
 				for _, ev := range scanner.Feed(chunk) {
+					// Detach chord: Ctrl-X then d. Anything else after a
+					// pending Ctrl-X is forwarded together, so the host
+					// TUI's own Ctrl-X chords (e.g. Ctrl-X e) keep working.
+					if leaderBuf != nil {
+						if ev.Leader {
+							leaderBuf = append(leaderBuf, ev.Data...)
+							continue
+						}
+						if len(ev.Data) == 1 && ev.Data[0] == 'd' && !ev.Release {
+							writeMu.Lock()
+							werr := WriteFrame(tun.Stdin(), FrameSessionDetach, 0, nil)
+							writeMu.Unlock()
+							if werr != nil {
+								return
+							}
+							detached.Store(true)
+							finish()
+							return
+						}
+						if !forward(leaderBuf) {
+							return
+						}
+						leaderBuf = nil
+					}
+					if ev.Leader {
+						leaderBuf = append([]byte(nil), ev.Data...)
+						continue
+					}
+					if ev.Release && leaderBuf != nil {
+						continue // release of a swallowed chord prefix
+					}
 					if !handle(ev) {
 						return
 					}
@@ -325,26 +419,9 @@ func RunHost(ctx context.Context, name string) error {
 		}
 	}()
 
-	// Remote output -> local terminal.
-	go func() {
-		defer finish()
-		for {
-			frame, err := ReadFrame(tun.Stdout())
-			if err != nil {
-				return
-			}
-			switch frame.Type {
-			case FrameData:
-				if _, werr := os.Stdout.Write(frame.Payload); werr != nil {
-					return
-				}
-			case FrameBye:
-				return
-			}
-		}
-	}()
-
-	// Window size: send the current size now, then on every SIGWINCH.
+	// Window size: send the current size now, then on every SIGWINCH. On
+	// attach the daemon applies the minimum across all attached clients;
+	// the nudge below forces the child to repaint fully.
 	stopResize := watchResize(stdoutFD, func(cols, rows int) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
@@ -354,20 +431,81 @@ func RunHost(ctx context.Context, name string) error {
 	if cols, rows, err := term.GetSize(stdoutFD); err == nil {
 		_ = WriteFrame(tun.Stdin(), FrameResize, 0, EncodeResize(cols, rows))
 	}
+	if chosen != 0 {
+		if cols, rows, err := term.GetSize(stdoutFD); err == nil && cols > 2 && rows > 2 {
+			time.Sleep(50 * time.Millisecond)
+			writeMu.Lock()
+			_ = WriteFrame(tun.Stdin(), FrameResize, 0, EncodeResize(cols, rows-1))
+			writeMu.Unlock()
+			time.Sleep(50 * time.Millisecond)
+			writeMu.Lock()
+			_ = WriteFrame(tun.Stdin(), FrameResize, 0, EncodeResize(cols, rows))
+			writeMu.Unlock()
+		}
+	}
 
 	select {
 	case <-done:
+	case <-endedCh:
 	case <-ctx.Done():
 	}
 
-	_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
+	if !detached.Load() {
+		_ = WriteFrame(tun.Stdin(), FrameBye, 0, nil)
+	}
 	tun.Close()
 	_, _ = os.Stdout.WriteString(terminalResetSeq)
 	_ = term.Restore(stdinFD, oldState)
 	if detached.Load() {
-		fmt.Fprintln(os.Stderr, "\nDetached from remote session.")
+		fmt.Fprintln(os.Stderr, "\nDetached — the session keeps running. Reattach with: kit remote --host "+name)
 	} else {
 		fmt.Fprintln(os.Stderr, "\nRemote session ended.")
 	}
 	return nil
+}
+
+// chooseSession lists the host's live sessions and, when any exist, asks
+// which one to attach to. Returns the logical session id to attach to, or
+// 0 for a new session. Sends nothing but the list request; the caller
+// performs the attach after its pumps are running.
+func chooseSession(tun *Tunnel, ctrlCh chan Frame, endedCh chan struct{}) (uint64, error) {
+	if err := WriteFrame(tun.Stdin(), FrameSessionList, 0, nil); err != nil {
+		return 0, err
+	}
+	var reply *Frame
+	select {
+	case f := <-ctrlCh:
+		if f.Type == FrameSessionListReply {
+			reply = &f
+		}
+	case <-time.After(10 * time.Second):
+		return 0, fmt.Errorf("daemon did not answer the session list")
+	case <-endedCh:
+		return 0, fmt.Errorf("remote session ended")
+	}
+	if reply == nil {
+		return 0, nil
+	}
+	var sessions []sessionInfo
+	if err := json.Unmarshal(reply.Payload, &sessions); err != nil {
+		return 0, fmt.Errorf("daemon: bad session list: %w", err)
+	}
+	if len(sessions) == 0 {
+		return 0, nil // nothing live: straight to a new session
+	}
+
+	entries := make([]ui.SessionEntry, len(sessions))
+	for i, ses := range sessions {
+		started, _ := time.Parse(time.RFC3339, ses.Started)
+		entries[i] = ui.SessionEntry{ID: ses.ID, Clients: ses.Clients, Started: started, Cwd: ses.Cwd}
+	}
+	choice, err := ui.RunSessionPicker(entries)
+	if err != nil {
+		return 0, err
+	}
+	if choice < 0 {
+		return 0, nil // new session
+	}
+	fmt.Fprintf(os.Stderr, "DEBUG: choice=%d sessions=%+v\n", choice, sessions)
+	return sessions[choice].ID, nil
 }

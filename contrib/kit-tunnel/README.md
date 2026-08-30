@@ -2,53 +2,81 @@
 
 Transport sidecar for kit remote sessions. Owns everything iroh so the Go
 side of kit needs no iroh code: endpoint binding, DNS/relay discovery, the
-pairing handshake, and frame relay between the network and its own stdio.
+pairing and reconnect handshakes, and frame relay between the network and
+its own stdio.
 
 ## Role in the system
 
 ```text
-kit --remote CODE ──iroh──► kit-tunnel dial   ⇄ stdio ⇄ kit (client)
-kit daemon        ──spawns──► kit-tunnel serve ⇄ stdio ⇄ kit daemon ⇄ PTY ⇄ kit --pick-dir (per session)
+# pairing (one-time, human-approved on the host)
+kit remote --pair CODE ──iroh──► kit-tunnel dial-pair    ⇄ stdio ⇄ kit remote (client)
+                                 ◄── bootstrap endpoint ── kit-tunnel serve-pair ⇄ kit daemon pair (host)
+
+# sessions (after pairing)
+kit remote --host NAME ─► kit-tunnel dial-host ──iroh──► kit-tunnel serve ⇄ stdio ⇄ kit daemon ⇄ PTY ⇄ kit --pick-dir (per session)
 ```
 
-- `serve` binds an endpoint whose keypair is derived from the pairing code's
-  seed, so the code itself is what makes the endpoint findable. It accepts
-  MULTIPLE connections over that one endpoint (protocol v2): each verified
-  peer gets a session id, announced to the Go daemon with `SESSION_OPEN`
-  and retired with `SESSION_CLOSED`. One PTY child per session lives on the
-  Go side; the code stays valid for the daemon's lifetime.
-- Failed handshakes back off exponentially (500ms per consecutive failure,
-  capped at 8s) — the old rotate-per-attempt rate limit is gone with the
-  persistent endpoint. Concurrent sessions are capped (currently 8); extra
-  peers are denied with "too many sessions".
-- `dial` derives the daemon's endpoint id from the same seed, connects,
-  verifies the mutual HMAC handshake, receives its session id
-  (`SESSION_ASSIGN`), then pumps frames.
-- After the handshake both sides relay `DATA`/`RESIZE`/`BYE` frames,
-  multiplexed by session id on the serve side; the handshake and
-  session-assignment frames never leave the tunnel.
+- The daemon owns a **stable ed25519 identity** (`--secret-hex`); its
+  public half is the iroh endpoint id that clients store at pairing time,
+  and the QUIC handshake authenticates the daemon against it. Client
+  reconnects authenticate by ed25519 signature over the handshake
+  transcript; the signature is checked by the Go daemon against its
+  allowlist via the `AUTH_REQUEST`/`AUTH_DECISION` stdio consultation —
+  authentication policy never lives in the sidecar.
+- `serve-pair` runs the **pairing window**: a bootstrap endpoint derived
+  from a one-time code (HKDF-SHA256 over the code, salt
+  `"kit-remote-v1"`, info `"kit-remote tunnel seed"`). The caller proves
+  code knowledge with an HMAC tag, the Go daemon prompts the human, and an
+  accepted pairing hands the client the daemon's stable endpoint id. The
+  code is burned after one pairing.
+- `serve` hosts sessions on the stable endpoint: each authenticated peer
+  gets a session id, announced to the Go daemon with `SESSION_OPEN` and
+  retired with `SESSION_CLOSED`. One PTY child per session lives on the Go
+  side. Concurrent sessions are capped (currently 8) and polite rejections
+  of over-cap peers are budgeted (32), so connection floods cannot pin
+  resources.
+- After the handshake both sides relay `DATA`/`RESIZE`/`BYE`/`CLIPBOARD`
+  frames verbatim, multiplexed by session id on the serve side. Handshake,
+  session-assignment, auth-consultation and pairing frames never leave the
+  tunnel.
 
-The QUIC transport is tuned with a 5s keep-alive and a 20s idle timeout so a
-silently vanished peer is detected in seconds.
+Failed handshakes and failed pairings back off exponentially (500ms per
+consecutive failure, capped at 8s).
+
+The QUIC transport is tuned with a 5s keep-alive and a 20s idle timeout so
+a silently vanished peer is detected in seconds.
 
 ## Interface
 
 ```
-kit-tunnel serve --seed-hex <32-byte hex> [--timeout secs]
-kit-tunnel dial  --seed-hex <32-byte hex> [--timeout secs]
+kit-tunnel serve      --secret-hex <64 hex> [--timeout secs]
+                      (env: KIT_TUNNEL_SECRET)
+kit-tunnel serve-pair --pair-seed-hex <64 hex> [--timeout secs]
+                      (env: KIT_TUNNEL_PAIR_SEED)
+kit-tunnel dial-pair  --pair-seed-hex <64 hex> --client-pub-hex <64 hex> [--timeout secs]
+                      (env: KIT_TUNNEL_PAIR_SEED)
+kit-tunnel dial-host  --endpoint-id <64 hex> --client-seed-hex <64 hex> [--timeout secs]
+                      (env: KIT_TUNNEL_CLIENT_SEED)
 ```
 
+- Key material travels in the child's **environment**, never in argv
+  (argv is world-readable via ps); the direct hex flags exist for manual
+  runs and tests, and each mode honors only its own flag.
 - stdin/stdout carry the framed relay bytes (7-byte header: type u8,
-  session id u32 big-endian, payload length u16 big-endian; session 0 on the
-  client's stdio — see kit's `internal/daemon/protocol.go`).
+  session id u32 big-endian, payload length u16 big-endian; session 0 on
+  the client's stdio — see kit's `internal/daemon/protocol.go`).
 - stderr carries `STATUS ...` lifecycle lines: `READY node_id=...`,
-  `PAIRING`, `VERIFIED`, `DENIED reason=...`, `CLOSED`, `ERROR msg=...`.
-- Set `RUST_LOG=debug` to add iroh traces to stderr.
+  `READY_PAIR node_id=...`, `PAIR_REQUEST fp=...`, `PAIRED
+  host_endpoint_id=...`, `PAIR_DENIED reason=...`, `PAIRING id=...`,
+  `VERIFIED id=...`, `DENIED reason=...`, `SESSION_OPEN id=...`,
+  `SESSION_CLOSED id=...`, `CLOSED`, `ERROR msg=...`.
+- Set `RUST_LOG=debug` to add iroh traces to stdout (stderr stays reserved
+  for `STATUS` lines).
 
-The seed is `HKDF-SHA256(code, salt="kit-remote-v1", info="kit-remote tunnel seed")`,
-derived in kit's `internal/daemon/pairing.go`; the auth key used for the
-handshake is expanded from the seed with info `"kit-remote auth"`. Both
-sides must agree on these domain separation strings.
+Signature and tag domain strings (`kit-remote-v3-auth`,
+`kit-pair-client`, `kit-pair-server`) and the HKDF parameters above are
+shared with kit's `internal/daemon/pairing.go`; both sides must agree on
+them exactly.
 
 ## Build
 
@@ -57,5 +85,7 @@ cargo build --release
 cp target/release/kit-tunnel <dir containing the kit binary>
 ```
 
-kit locates the sidecar via `KIT_TUNNEL_BIN`, then next to its own binary,
-then on `PATH`.
+kit locates the sidecar in this order: `KIT_TUNNEL_BIN`, next to the kit
+executable, a repository build
+(`contrib/kit-tunnel/target/release/kit-tunnel`), the embedded copy staged
+into the kit build and extracted to the user cache dir, then `PATH`.

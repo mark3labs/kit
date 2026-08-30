@@ -36,6 +36,10 @@ import (
 const (
 	// keyV is the kitty key code for 'v'.
 	keyV = 118
+	// leaderKey is the legacy byte for Ctrl-X.
+	leaderKey = 0x18
+	// keyX is the kitty key code for 'x' (the client-side detach leader).
+	keyX = 120
 	// kittyModCtrl is the ctrl bit in the kitty modifier encoding (the
 	// modifier value is 1 + shift|alt|ctrl).
 	kittyModCtrl = 4
@@ -65,6 +69,9 @@ type keyEvent struct {
 	// Release is true for a Ctrl-V release event. Data holds the original
 	// wire bytes.
 	Release bool
+	// Leader is true for a Ctrl-X press (or repeat) — the client-side
+	// detach chord prefix. Data holds the original wire bytes.
+	Leader bool
 	// Data is the original wire bytes for passthrough.
 	Data []byte
 }
@@ -156,6 +163,11 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 				k.buf = k.buf[:0]
 				k.inCSI = false
 				i++
+				if lp, lr, lh := k.decodeLeader(seq); lh {
+					emitOther()
+					events = append(events, keyEvent{Leader: lp, Release: lr, Data: seq})
+					continue
+				}
 				paste, release, handled := k.decodeCSI(seq)
 				if handled {
 					emitOther()
@@ -179,6 +191,10 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 			// Legacy encoding of Ctrl-V.
 			emitOther()
 			events = append(events, keyEvent{Paste: true, Data: []byte{pasteKey}})
+		case b == leaderKey:
+			// Legacy encoding of Ctrl-X.
+			emitOther()
+			events = append(events, keyEvent{Leader: true, Data: []byte{leaderKey}})
 		default:
 			other = append(other, b)
 		}
@@ -239,4 +255,37 @@ func (k *keyScanner) decodeCSI(seq []byte) (paste, release, handled bool) {
 		return false, true, true
 	}
 	return false, false, false
+}
+
+// decodeLeader reports a Ctrl-X press/repeat/release (the detach chord
+// prefix) in kitty encoding.
+func (k *keyScanner) decodeLeader(seq []byte) (press, release, handled bool) {
+	if len(seq) < 3 || seq[0] != 0x1b || seq[1] != '[' || seq[len(seq)-1] != 'u' {
+		return false, false, false
+	}
+	params := strings.Split(string(seq[2:len(seq)-1]), ";")
+	key, _, _ := strings.Cut(params[0], ":")
+	if key != strconv.Itoa(keyX) {
+		return false, false, false
+	}
+	mod := 1
+	event := kittyPress
+	if len(params) > 1 {
+		modPart, evPart, hasEv := strings.Cut(params[1], ":")
+		if m, err := strconv.Atoi(modPart); err == nil {
+			mod = m
+		}
+		if hasEv {
+			if e, err := strconv.Atoi(evPart); err == nil && e == 3 {
+				event = kittyRelease
+			}
+		}
+	}
+	if (mod-1)&kittyModCtrl == 0 {
+		return false, false, false
+	}
+	if event == kittyRelease {
+		return false, true, true
+	}
+	return true, false, true
 }
