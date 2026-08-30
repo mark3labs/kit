@@ -66,9 +66,13 @@ func (m *sessionPickerModel) View() tea.View {
 		if i == m.cursor {
 			cursor = "▸ "
 		}
-		b.WriteString(cursor + m.rowLabel(e) + "\n")
+		b.WriteString(cursor)
+		b.WriteString(m.rowLabel(e))
+		b.WriteString("\n")
 	}
-	b.WriteString("  " + cursorMark() + " start a new session\n\n")
+	b.WriteString("  ")
+	b.WriteString(cursorMark())
+	b.WriteString(" start a new session\n\n")
 	b.WriteString("  ↑↓ navigate · ↵ select · esc cancel")
 	return tea.NewView(b.String())
 }
