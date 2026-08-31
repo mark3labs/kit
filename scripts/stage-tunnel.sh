@@ -35,6 +35,8 @@ case "$GOOS/$GOARCH" in
     darwin/amd64) TRIPLE="x86_64-apple-darwin" ;;
     darwin/arm64) TRIPLE="aarch64-apple-darwin" ;;
     windows/amd64) TRIPLE="x86_64-pc-windows-gnu" ;;
+    # gnullvm is the only aarch64 Windows target zig can link.
+    windows/arm64) TRIPLE="aarch64-pc-windows-gnullvm" ;;
     *)
         echo "stage-tunnel: no Rust target mapped for $GOOS/$GOARCH" >&2
         exit 1

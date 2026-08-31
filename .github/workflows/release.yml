@@ -41,7 +41,8 @@ jobs:
             aarch64-unknown-linux-gnu,
             x86_64-apple-darwin,
             aarch64-apple-darwin,
-            x86_64-pc-windows-gnu
+            x86_64-pc-windows-gnu,
+            aarch64-pc-windows-gnullvm
 
       - name: Set up zig (cross toolchain)
         uses: mlugg/setup-zig@v1
