@@ -86,7 +86,7 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 
 	st, err := tun.WaitAnyStatus(ctx, 160*time.Second, "PAIRED", "DENIED")
 	if err != nil {
-		return fmt.Errorf("pairing failed: %w (last: %s)", err, tun.LastStatuses())
+		return pairFailure(err, tun.LastStatuses())
 	}
 	if strings.HasPrefix(st, "DENIED") {
 		reason := strings.TrimSpace(strings.TrimPrefix(st, "DENIED reason="))
@@ -115,6 +115,24 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 	fmt.Fprintf(os.Stderr, "Paired with host %q (fp %s).\n", name, fingerprintShort(Fingerprint(mustHexDecode(hostID))))
 	fmt.Fprintf(os.Stderr, "Connect with: kit remote --host %s\n", name)
 	return nil
+}
+
+// pairFailure turns a sidecar failure into advice. The sidecar reports the
+// transport truth ("connect to daemon: timed out"), which says nothing to
+// the person at the keyboard: the usual cause is a pairing window that is
+// no longer serving the code, so point at the fix instead of the symptom.
+func pairFailure(err error, statuses string) error {
+	switch {
+	case strings.Contains(statuses, "no daemon is live for this pairing code"),
+		strings.Contains(statuses, "No addressing information available"):
+		return fmt.Errorf("no host is listening for that pairing code — check the code, or run 'kit daemon pair' on the host for a fresh one")
+	case strings.Contains(statuses, "connect to daemon"),
+		strings.Contains(statuses, "timed out"):
+		return fmt.Errorf("could not reach the host's pairing window — it may have closed (run 'kit daemon pair' again on the host), or the network is blocking the connection")
+	case strings.Contains(statuses, "endpoint bind"):
+		return fmt.Errorf("could not open a local network endpoint: %s", statuses)
+	}
+	return fmt.Errorf("pairing failed: %w (last: %s)", err, statuses)
 }
 
 // promptHostName asks for a friendly name on the terminal, defaulting to

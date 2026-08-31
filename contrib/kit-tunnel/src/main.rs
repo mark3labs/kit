@@ -142,6 +142,10 @@ const FRAME_AUTH_PAYLOAD: u8 = 0x31;
 const FRAME_AUTH_DECISION: u8 = 0x32;
 const FRAME_PAIR_REQUEST: u8 = 0x40;
 const FRAME_PAIR_DECISION: u8 = 0x41;
+/// serve-pair -> Go: the client behind a pending PAIR_REQUEST is gone, so
+/// the question on the host's terminal is stale. Payload: the 8-byte
+/// correlation key.
+const FRAME_PAIR_CANCEL: u8 = 0x42;
 // Client<->bootstrap-endpoint pairing handshake frames (iroh stream, v1).
 const FRAME_PAIR_CLIENT_HELLO: u8 = 0x20;
 const FRAME_PAIR_SERVER_OK: u8 = 0x21;
@@ -169,6 +173,19 @@ fn status(line: &str) {
 fn fail(msg: &str) -> ! {
     status(&format!("ERROR msg={msg}"));
     std::process::exit(1);
+}
+
+/// The sidecar exists only to serve the Go process on the other end of its
+/// stdio. Once that pipe closes the parent is gone, and every resource we
+/// still hold turns into a trap: the bound endpoint keeps its discovery
+/// record published, so peers go on resolving and dialing an address where
+/// nothing can answer. A pairing request that lands there is swallowed —
+/// the human is never prompted — and once the accept path is finished the
+/// peer only sees "connect to daemon: timed out". Leave instead of
+/// lingering as a deaf endpoint.
+fn parent_gone(reason: &str) -> ! {
+    status(&format!("PARENT_GONE reason={reason}"));
+    std::process::exit(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -500,11 +517,15 @@ async fn serve(flags: &Flags) {
                         for tx in all {
                             let _ = tx.send(Frame::new(FRAME_BYE, 0, Vec::new()));
                         }
-                        break;
+                        // Let those BYEs reach their peers, then leave. Staying
+                        // up would keep this endpoint published with no daemon
+                        // behind it.
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        parent_gone("local pipe closed");
                     }
                     Err(e) => {
                         eprintln!("STATUS ERROR msg=local stdin: {e}");
-                        break;
+                        parent_gone("local pipe error");
                     }
                 }
             }
@@ -1059,6 +1080,18 @@ async fn relay_client_session(mut send: SendStream, mut recv: RecvStream, sessio
 // Pairing window: one bootstrap endpoint, at most one pairing
 // ---------------------------------------------------------------------------
 
+/// Cap on pairing handshakes served at once. The window is a human-scale
+/// event, so this only needs to stop a burst from spawning without bound.
+const MAX_PAIR_ATTEMPTS: usize = 4;
+
+/// Outcome of one pairing attempt. Only a completed pairing closes the
+/// window; everything else leaves it open for the next attempt.
+#[derive(PartialEq, Eq)]
+enum PairOutcome {
+    Paired,
+    Failed,
+}
+
 /// The host side of the pairing window. Binds the bootstrap endpoint
 /// derived from the one-time code, verifies the caller knows the code
 /// (so a wrong guess never reaches the human), asks Go to prompt the
@@ -1106,28 +1139,70 @@ async fn serve_pair(flags: &Flags) {
                             continue;
                         }
                     }
-                    Ok(None) => break, // Go closed the window
+                    Ok(None) => parent_gone("local pipe closed"), // Go closed the window
                     Err(e) => {
                         eprintln!("STATUS ERROR msg=local stdin: {e}");
-                        break;
+                        parent_gone("local pipe error");
                     }
                 }
             }
         });
     }
 
-    let Some(incoming) = endpoint.accept().await else {
-        return;
-    };
-    handle_pair_connection(incoming, key, pending).await;
-    // Linger briefly so the confirmation frame is delivered and read
-    // before the process exit tears the QUIC connection down.
+    // Attempts are served CONCURRENTLY. Handling them one at a time would
+    // let a single abandoned attempt (client killed, laptop closed, flaky
+    // link) hold the endpoint for the whole decision timeout: the accept
+    // loop would not run, so every later attempt would get no answer at
+    // all and report "connect to daemon: timed out" while the host sat on
+    // a question nobody was waiting for.
+    //
+    // The window closes on the first SUCCESSFUL pairing; a rejection or a
+    // failed handshake leaves it open. The backoff is shared, so repeated
+    // wrong codes throttle each other instead of getting a fresh budget
+    // per connection.
+    let backoff: BackoffState = Arc::new(Mutex::new(Backoff::default()));
+    let slots = Arc::new(Semaphore::new(MAX_PAIR_ATTEMPTS));
+    let (done_tx, mut done_rx) = mpsc::channel::<()>(1);
+    loop {
+        let incoming = tokio::select! {
+            _ = done_rx.recv() => break, // a pairing completed
+            incoming = endpoint.accept() => match incoming {
+                Some(incoming) => incoming,
+                None => break,
+            },
+        };
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            status("DENIED reason=too many pairing attempts");
+            continue;
+        };
+        let key = key.clone();
+        let pending = pending.clone();
+        let backoff = backoff.clone();
+        let done_tx = done_tx.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            if handle_pair_connection(incoming, key, pending, backoff).await == PairOutcome::Paired
+            {
+                let _ = done_tx.send(()).await;
+            } else {
+                // Tell the Go side the code is still live, so it keeps the
+                // window (and its prompt loop) running for the next try.
+                status("PAIR_WAITING");
+            }
+        });
+    }
+    // Linger briefly so the confirmation frame is delivered and read before
+    // the process exit tears the QUIC connection down.
     tokio::time::sleep(Duration::from_millis(1500)).await;
     status("CLOSED");
 }
 
-async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending: Pending) {
-    let backoff: BackoffState = Arc::new(Mutex::new(Backoff::default()));
+async fn handle_pair_connection(
+    incoming: Incoming,
+    key: Arc<[u8; 32]>,
+    pending: Pending,
+    backoff: BackoffState,
+) -> PairOutcome {
     let delay = { backoff.lock().unwrap().delay() };
     if delay > Duration::ZERO {
         tokio::time::sleep(delay).await;
@@ -1138,12 +1213,12 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
             Ok(conn) => conn,
             Err(e) => {
                 status(&format!("ERROR msg=connect failed: {e}"));
-                return;
+                return PairOutcome::Failed;
             }
         },
         Err(e) => {
             status(&format!("ERROR msg=incoming rejected: {e}"));
-            return;
+            return PairOutcome::Failed;
         }
     };
 
@@ -1153,11 +1228,11 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
         Ok(Ok(pair)) => pair,
         Ok(Err(e)) => {
             status(&format!("ERROR msg=open stream: {e}"));
-            return;
+            return PairOutcome::Failed;
         }
         Err(_) => {
             status("DENIED reason=stream open timeout");
-            return;
+            return PairOutcome::Failed;
         }
     };
 
@@ -1170,11 +1245,11 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
         Ok(Ok(f)) => f,
         Ok(Err(e)) => {
             status(&format!("DENIED reason=read hello: {e}"));
-            return;
+            return PairOutcome::Failed;
         }
         Err(_) => {
             status("DENIED reason=pairing timeout");
-            return;
+            return PairOutcome::Failed;
         }
     };
     // ver(u16) | c_nonce(32) | client_pub(32) | tag(32)
@@ -1183,13 +1258,13 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
     {
         backoff.lock().unwrap().record_failure();
         status("DENIED reason=malformed pair hello");
-        return;
+        return PairOutcome::Failed;
     }
     let c_ver = u16::from_be_bytes([hello.payload[0], hello.payload[1]]);
     if c_ver != PROTOCOL_VERSION {
         backoff.lock().unwrap().record_failure();
         status(&format!("DENIED reason=version {c_ver}"));
-        return;
+        return PairOutcome::Failed;
     }
     let c_nonce = hello.payload[2..2 + NONCE_LEN].to_vec();
     let corr: [u8; 8] = c_nonce[0..8].try_into().expect("nonce is 32 bytes");
@@ -1199,7 +1274,7 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
     if tag.ct_eq(&expect).unwrap_u8() != 1 {
         backoff.lock().unwrap().record_failure();
         status("DENIED reason=bad pairing tag");
-        return;
+        return PairOutcome::Failed;
     }
 
     // The peer knows the code. Ask the human.
@@ -1216,11 +1291,22 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
         0,
         [c_nonce.as_slice(), client_pub.as_slice()].concat(),
     )) {
-        return;
+        return PairOutcome::Failed;
     }
 
-    // The Go side prompts for up to its own deadline; allow margin.
-    let decision = tokio::time::timeout(Duration::from_secs(120), rx.recv()).await;
+    // The Go side prompts for up to its own deadline; allow margin. A
+    // client that disappears while the human is being asked must not leave
+    // a stale question on the host's terminal: the Go loop would block on
+    // it and ignore everyone else, so withdraw it explicitly.
+    let decision = tokio::select! {
+        d = tokio::time::timeout(Duration::from_secs(120), rx.recv()) => d,
+        _ = conn.closed() => {
+            send_to_go(&Frame::new(FRAME_PAIR_CANCEL, 0, corr.to_vec()));
+            backoff.lock().unwrap().record_failure();
+            status("PAIR_ABANDONED reason=client disconnected");
+            return PairOutcome::Failed;
+        }
+    };
     match decision {
         // Accept: c_nonce | 0x01 | host_endpoint_id(32)
         Ok(Some(f)) if f.payload.len() == 9 + ED25519_PUB_LEN && f.payload[8] == 0x01 => {
@@ -1236,7 +1322,7 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
                 .await
                 .is_err()
             {
-                return;
+                return PairOutcome::Failed;
             }
             // Deliver the confirmation as finished data: dropping the send
             // side unfinished would reset the stream and the client would
@@ -1244,6 +1330,7 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
             let _ = send.finish();
             tokio::time::sleep(Duration::from_secs(2)).await;
             status("PAIRED");
+            PairOutcome::Paired
         }
         Ok(Some(f)) => {
             let reason = if f.payload.len() > 9 {
@@ -1254,11 +1341,13 @@ async fn handle_pair_connection(incoming: Incoming, key: Arc<[u8; 32]>, pending:
             backoff.lock().unwrap().record_failure();
             deny_and_finish(&mut send, &reason).await;
             status(&format!("PAIR_DENIED reason={reason}"));
+            PairOutcome::Failed
         }
         Ok(None) | Err(_) => {
             backoff.lock().unwrap().record_failure();
             deny_and_finish(&mut send, "pairing window closed").await;
             status("PAIR_DENIED reason=window closed");
+            PairOutcome::Failed
         }
     }
 }
@@ -1299,10 +1388,14 @@ fn parse_flags(args: &[String]) -> Flags {
 }
 
 fn main() {
-    // Tracing is opt-in via RUST_LOG; keep stderr clean for the Go side,
-    // which only parses "STATUS ..." lines and buffers the rest.
+    // Tracing is opt-in via RUST_LOG. It MUST go to stderr: stdout is the
+    // binary frame channel to the Go side, and a single log line written
+    // there desynchronises the frame parser (the Go side then never sees
+    // the pairing request and the host never prompts).
     if std::env::var_os("RUST_LOG").is_some() {
-        let _ = tracing_subscriber::fmt::try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .try_init();
     }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1321,6 +1414,12 @@ fn main() {
         "dial-host" => rt.block_on(dial_host(&flags)),
         other => fail(&format!("unknown mode {other}")),
     }
+    // Exit without dropping the runtime. A mode may still hold a blocking
+    // read on the Go pipe in the blocking pool; the runtime's drop waits
+    // for it, and that read only ends when the parent exits — a deadlock
+    // that would leave a finished sidecar alive and its endpoint bound but
+    // deaf. Every frame writer flushes on write, so nothing is buffered.
+    std::process::exit(0);
 }
 
 #[cfg(test)]

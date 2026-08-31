@@ -28,7 +28,9 @@ kit remote --host NAME ─► kit-tunnel dial-host ──iroh──► kit-tunne
   `"kit-remote-v1"`, info `"kit-remote tunnel seed"`). The caller proves
   code knowledge with an HMAC tag, the Go daemon prompts the human, and an
   accepted pairing hands the client the daemon's stable endpoint id. The
-  code is burned after one pairing.
+  window serves attempts concurrently (a rejection, an abandoned client or
+  a failed handshake leaves it open, under a shared guess backoff) and
+  closes on the first successful pairing, which burns the code.
 - `serve` hosts sessions on the stable endpoint: each authenticated peer
   gets a session id, announced to the Go daemon with `SESSION_OPEN` and
   retired with `SESSION_CLOSED`. One PTY child per session lives on the Go

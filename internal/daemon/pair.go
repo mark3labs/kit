@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -92,84 +93,164 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 	}
 	defer tun.Close()
 
-	for {
-		select {
-		case <-pctx.Done():
-			fmt.Println("  Pairing window closed.")
-			return nil
-		default:
+	// Frames are read by a dedicated goroutine so the window keeps listening
+	// while the operator is being asked a question. Reading inline would
+	// block the sidecar's whole consultation channel behind one prompt.
+	frames := make(chan Frame, 16)
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			frame, err := ReadFrame(tun.Stdout())
+			if err != nil {
+				readErr <- err
+				close(frames)
+				return
+			}
+			frames <- frame
 		}
-		frame, err := ReadFrame(tun.Stdout())
-		if err != nil {
-			// Tunnel ended: window expired (Go ctx killed it) or crash.
-			if pctx.Err() != nil {
+	}()
+
+	// One long-lived reader owns the terminal. A per-prompt reader would
+	// leak a goroutine holding os.Stdin for every abandoned question, and
+	// those would then race for the operator's next keystroke.
+	answers := opts.answerLines(pctx)
+
+	var next *Frame // a request that superseded the one being asked about
+	for {
+		var frame Frame
+		if next != nil {
+			frame, next = *next, nil
+		} else {
+			select {
+			case <-pctx.Done():
 				fmt.Println("  Pairing window closed.")
 				return nil
+			case err := <-readErr:
+				// Tunnel ended: window expired (Go ctx killed it) or crash.
+				if pctx.Err() != nil {
+					fmt.Println("  Pairing window closed.")
+					return nil
+				}
+				return fmt.Errorf("daemon: pairing tunnel ended (%s): %w", tun.LastStatuses(), err)
+			case f, ok := <-frames:
+				if !ok {
+					continue // readErr carries the reason
+				}
+				frame = f
 			}
-			return fmt.Errorf("daemon: pairing tunnel ended: %w", err)
 		}
-		switch frame.Type {
-		case FramePairRequest:
-			// Payload: c_nonce(32) | client_pub(32). The correlation key
-			// echoed in the decision is the first 8 bytes of c_nonce.
-			if len(frame.Payload) != 32+32 {
-				continue
-			}
-			clientPub := frame.Payload[32:]
-			corr := frame.Payload[0:8]
-			fp := Fingerprint(clientPub)
 
-			fmt.Printf("  Pairing request from client %s\n", fingerprintShort(fp))
-			allowed := opts.prompt(pctx, fp)
-			if !allowed {
-				fmt.Println("  Rejected.")
-				writePairDecision(tun, corr, false, "", hostEndpointID)
-				continue
-			}
-			if _, err := AuthorizeClient(hex.EncodeToString(clientPub)); err != nil {
-				log.Error("daemon: authorize failed", "error", err)
-				writePairDecision(tun, corr, false, "host error", hostEndpointID)
-				continue
-			}
-			writePairDecision(tun, corr, true, "", hostEndpointID)
-			fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
-			fmt.Println()
-			// One successful pairing burns the code; end the window. A
-			// short grace lets the client drain the confirmation frame
-			// before the tunnel teardown closes the connection.
-			_, _ = tun.WaitAnyStatus(pctx, 10*time.Second, "PAIRED", "PAIR_DENIED", "CLOSED")
-			time.Sleep(2 * time.Second)
-			fmt.Fprintf(os.Stderr, "pair window statuses: %s\n", tun.LastStatuses())
-			return nil
+		// Payload: c_nonce(32) | client_pub(32). The correlation key
+		// echoed in the decision is the first 8 bytes of c_nonce.
+		if frame.Type != FramePairRequest || len(frame.Payload) != 32+32 {
+			continue
 		}
+		clientPub := frame.Payload[32:]
+		corr := frame.Payload[0:8]
+		fp := Fingerprint(clientPub)
+
+		fmt.Printf("  Pairing request from client %s\n", fingerprintShort(fp))
+		allowed, superseded := opts.askOperator(pctx, fp, corr, frames, answers)
+		next = superseded
+		if !allowed {
+			writePairDecision(tun, corr, false, "", hostEndpointID)
+			continue
+		}
+		if _, err := AuthorizeClient(hex.EncodeToString(clientPub)); err != nil {
+			log.Error("daemon: authorize failed", "error", err)
+			writePairDecision(tun, corr, false, "host error", hostEndpointID)
+			continue
+		}
+		writePairDecision(tun, corr, true, "", hostEndpointID)
+		fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
+		fmt.Println()
+		// One successful pairing burns the code; end the window. A
+		// short grace lets the client drain the confirmation frame
+		// before the tunnel teardown closes the connection.
+		_, _ = tun.WaitAnyStatus(pctx, 10*time.Second, "PAIRED", "PAIR_DENIED", "CLOSED")
+		time.Sleep(2 * time.Second)
+		log.Debug("daemon: pair window statuses", "statuses", tun.LastStatuses())
+		return nil
 	}
 }
 
-// prompt asks on the terminal. Non-interactive contexts always deny:
-// pairing is an inherently human decision, and an unattended daemon must
-// not approve anything. Returns false when ctx ends (window expired)
-// while waiting for the operator.
-func (opts PairWindowOptions) prompt(ctx context.Context, fp string) bool {
-	if opts.Prompt != nil {
-		return opts.Prompt(ctx, fp)
+// answerLines returns a channel of trimmed terminal lines, or nil when the
+// decision is not made on this terminal (test override, or no TTY).
+func (opts PairWindowOptions) answerLines(ctx context.Context) <-chan string {
+	if opts.Prompt != nil || !term.IsTerminal(os.Stdin.Fd()) {
+		return nil
 	}
-	if !term.IsTerminal(os.Stdin.Fd()) {
-		log.Warn("daemon: pairing request denied — no terminal to confirm on; run 'kit daemon pair' interactively", "fp", fp)
-		return false
-	}
-	fmt.Printf("  Accept? [y/N]: ")
-	line := make(chan string, 1)
+	ch := make(chan string, 4)
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
-		text, _ := reader.ReadString('\n')
-		line <- strings.TrimSpace(text)
+		for {
+			text, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			select {
+			case ch <- strings.TrimSpace(text):
+			case <-ctx.Done():
+				return
+			}
+		}
 	}()
-	select {
-	case answer := <-line:
-		return promptDecision(ctx, answer)
-	case <-ctx.Done():
-		fmt.Println("\n  (window expired) rejected.")
-		return false
+	return ch
+}
+
+// askOperator asks the accept/reject question on the terminal while staying
+// responsive to the sidecar. A question is abandoned when the client behind
+// it disconnects (PAIR_CANCEL) or when a newer request arrives — otherwise
+// one walked-away client would hold the window for its whole decision
+// timeout and nobody else could pair. The second return value is a request
+// that superseded this one and must be handled next.
+//
+// Non-interactive contexts always deny: pairing is an inherently human
+// decision, and an unattended daemon must not approve anything. A denial is
+// also the answer when the window expires while the operator is thinking.
+func (opts PairWindowOptions) askOperator(
+	ctx context.Context,
+	fp string,
+	corr []byte,
+	frames <-chan Frame,
+	answers <-chan string,
+) (bool, *Frame) {
+	if opts.Prompt != nil {
+		return opts.Prompt(ctx, fp), nil
+	}
+	if answers == nil {
+		log.Warn("daemon: pairing request denied — no terminal to confirm on; run 'kit daemon pair' interactively", "fp", fp)
+		return false, nil
+	}
+	fmt.Printf("  Accept? [y/N]: ")
+	for {
+		select {
+		case answer := <-answers:
+			allowed := promptDecision(ctx, answer)
+			if !allowed {
+				fmt.Println("  Rejected. The code stays valid — the window is still open for another attempt.")
+			}
+			return allowed, nil
+		case frame, ok := <-frames:
+			if !ok {
+				return false, nil
+			}
+			switch frame.Type {
+			case FramePairCancel:
+				if len(frame.Payload) >= 8 && bytes.Equal(frame.Payload[:8], corr) {
+					fmt.Println()
+					fmt.Println("  The client disconnected; question withdrawn. The code stays valid.")
+					return false, nil
+				}
+			case FramePairRequest:
+				fmt.Println()
+				fmt.Println("  Superseded by a newer pairing request.")
+				return false, &frame
+			}
+		case <-ctx.Done():
+			fmt.Println("\n  (window expired) rejected.")
+			return false, nil
+		}
 	}
 }
 

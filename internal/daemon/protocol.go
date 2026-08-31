@@ -54,11 +54,16 @@ const (
 	// Pairing (bootstrap endpoint):
 	//   PAIR_REQUEST  sidecar->daemon {c_nonce, client_pub}           (8+32)
 	//   PAIR_DECISION daemon->sidecar {0|1, host_endpoint_id?}        (1 or 33)
+	//   PAIR_CANCEL   sidecar->daemon {corr}                          (8)
 	FrameAuthRequest  FrameType = 0x30
 	FrameAuthPayload  FrameType = 0x31
 	FrameAuthDecision FrameType = 0x32
 	FramePairRequest  FrameType = 0x40
 	FramePairDecision FrameType = 0x41
+	// FramePairCancel withdraws a pending pairing question: the client
+	// behind it disconnected, so the prompt on the host's terminal is
+	// stale and must not block the window.
+	FramePairCancel FrameType = 0x42
 )
 
 const frameHeaderSize = 7 // type byte + u32 session + u16 big-endian length
