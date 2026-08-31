@@ -54,6 +54,23 @@ jobs:
         with:
           tool: cargo-zigbuild
 
+      # zig alone cannot link Apple frameworks (CoreFoundation,
+      # SystemConfiguration) that the iroh dependencies of kit-tunnel need.
+      # cargo-zigbuild reads SDKROOT and points the linker at the SDK, so the
+      # darwin cross builds need a macOS SDK staged on the runner.
+      - name: Set up macOS SDK (darwin cross builds)
+        env:
+          SDK_VERSION: "14.5"
+          SDK_SHA256: 6e146275d19f027faa2e8354da5e0267513abf013b8f16ad65a231653a2b1c5d
+        run: |
+          set -euo pipefail
+          url="https://github.com/joseluisq/macosx-sdks/releases/download/${SDK_VERSION}/MacOSX${SDK_VERSION}.sdk.tar.xz"
+          curl -fsSL "$url" -o /tmp/macos-sdk.tar.xz
+          echo "${SDK_SHA256}  /tmp/macos-sdk.tar.xz" | sha256sum -c -
+          sudo mkdir -p /opt
+          sudo tar -xJf /tmp/macos-sdk.tar.xz -C /opt
+          echo "SDKROOT=/opt/MacOSX${SDK_VERSION}.sdk" >> "$GITHUB_ENV"
+
       # --parallelism 1 keeps target builds sequential: the per-target pre
       # hook stages the sidecar into the shared go:embed directory, and
       # parallel builds could embed a sibling's sidecar mid-staging.

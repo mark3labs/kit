@@ -57,6 +57,16 @@ else
         exit 1
     fi
     rustup target add "$TRIPLE" >/dev/null 2>&1 || true
+    # zig cannot link Apple frameworks by itself; cargo-zigbuild picks them up
+    # from a macOS SDK given by SDKROOT. Fail early with a clear message
+    # instead of a linker error deep in the dependency graph.
+    if [ "${TRIPLE##*-}" = "darwin" ] && [ "$(uname -s)" != "Darwin" ] && [ -z "${SDKROOT:-}" ]; then
+        echo "stage-tunnel: cross-building $TRIPLE needs a macOS SDK." >&2
+        echo "  export SDKROOT=/path/to/MacOSX<version>.sdk" >&2
+        echo "  SDKs: https://github.com/joseluisq/macosx-sdks/releases" >&2
+        echo "  (CI stages one in .github/workflows/release.yml)" >&2
+        exit 1
+    fi
     cargo zigbuild --release --target "$TRIPLE"
     ARTIFACT="target/$TRIPLE/release/kit-tunnel"
 fi
