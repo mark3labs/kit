@@ -44,4 +44,4 @@ func StartLocalDaemon(context.Context) error { return ErrNoLocalDaemon }
 func RunLocal(context.Context, AttachOptions) error { return ErrNoLocalDaemon }
 
 // ListLocalSessions is unsupported on Windows.
-func ListLocalSessions() ([]SessionEntry, error) { return nil, ErrNoLocalDaemon }
+func ListLocalSessions(context.Context) ([]SessionEntry, error) { return nil, ErrNoLocalDaemon }

@@ -259,13 +259,17 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 // attaching, for the multi-host picker. The whole exchange is bounded by
 // timeout: an unreachable host must not stall a picker that has other
 // hosts to show.
-func ListHostSessions(name string, timeout time.Duration) ([]SessionEntry, error) {
+//
+// ctx cancels the query early. The picker queries every paired host at
+// once, and each query is a sidecar process, so a caller that gives up
+// must be able to take them down without waiting out the timeout.
+func ListHostSessions(ctx context.Context, name string, timeout time.Duration) ([]SessionEntry, error) {
 	entry, err := GetHost(name)
 	if err != nil {
 		return nil, err
 	}
 	deadline := time.Now().Add(timeout)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
 	tun, err := dialHostQuiet(ctx, name, entry, true)

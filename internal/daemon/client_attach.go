@@ -57,7 +57,11 @@ type SessionChoice struct {
 // input is the terminal input the picker must read from. The client keeps
 // a single reader on os.Stdin for its whole life, so a picker that opened
 // its own would race it for keystrokes.
-type SessionPicker func(entries []SessionEntry, input *os.File) (SessionChoice, error)
+//
+// ctx cancels the picker. It is the one blocking call in an attached
+// client that the user cannot always end from the keyboard, so it has to
+// honour the same cancellation as the session loop around it.
+type SessionPicker func(ctx context.Context, entries []SessionEntry, input *os.File) (SessionChoice, error)
 
 // AttachOptions configures a client attach loop.
 type AttachOptions struct {
@@ -83,7 +87,8 @@ type AttachOptions struct {
 	// Hub, when set, handles a cross-host switch request.
 	Hub SessionPicker
 	// HubEntries supplies sessions from other hosts for the hub picker.
-	HubEntries func() []SessionEntry
+	// The context bounds the queries it makes.
+	HubEntries func(ctx context.Context) []SessionEntry
 }
 
 // attachOutcome reports why a single attached session stopped.
@@ -466,7 +471,7 @@ func (c *clientConn) attach(id uint64) (uint64, error) {
 
 // chooseSession runs the picker when sessions exist, and short-circuits to
 // a new session when none do.
-func chooseSession(conn *clientConn, opts AttachOptions) (SessionChoice, error) {
+func chooseSession(ctx context.Context, conn *clientConn, opts AttachOptions) (SessionChoice, error) {
 	// A choice that did not come from a picker is on this daemon by
 	// definition, so it carries this client's host. Leaving it empty would
 	// make hostSwitch read every --host attach as a switch to the local
@@ -493,9 +498,9 @@ func chooseSession(conn *clientConn, opts AttachOptions) (SessionChoice, error) 
 		entries[i].Host = opts.Host
 	}
 	if opts.HubEntries != nil {
-		entries = append(entries, opts.HubEntries()...)
+		entries = append(entries, opts.HubEntries(ctx)...)
 	}
-	return runPicker(conn, opts.Pick, entries)
+	return runPicker(ctx, conn, opts.Pick, entries)
 }
 
 // runPicker runs one picker with input diverted from the session pump.
@@ -503,7 +508,7 @@ func chooseSession(conn *clientConn, opts AttachOptions) (SessionChoice, error) 
 // The terminal is put in raw mode here rather than left to the picker: the
 // picker reads a pty slave, so its own termios setup would apply to that
 // pty instead of the user's terminal.
-func runPicker(conn *clientConn, pick SessionPicker, entries []SessionEntry) (SessionChoice, error) {
+func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entries []SessionEntry) (SessionChoice, error) {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -524,7 +529,7 @@ func runPicker(conn *clientConn, pick SessionPicker, entries []SessionEntry) (Se
 	// asking the picker not to leave. The session repaints right after
 	// (runAttached sends a redraw), so an empty alt screen is never seen.
 	defer func() { _, _ = os.Stdout.WriteString(altScreenEnter) }()
-	return pick(entries, tty.File())
+	return pick(ctx, entries, tty.File())
 }
 
 // RunClient drives a daemon connection for the whole client session: pick a
@@ -561,7 +566,7 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 	// parked on stdin would swallow their input, or deadlock them.
 	defer conn.stopStdin()
 
-	choice, err := chooseSession(conn, opts)
+	choice, err := chooseSession(ctx, conn, opts)
 	if err != nil {
 		return err
 	}
@@ -597,13 +602,20 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 		}
 		switch {
 		case out.wantSwitch:
-			next, cancelled, rerr := resolveSwitch(conn, opts, out)
+			next, cancelled, rerr := resolveSwitch(ctx, conn, opts, out)
 			if rerr != nil {
 				return rerr
 			}
 			if cancelled {
 				// The picker was dismissed: stay on the session we were
 				// on rather than dropping the user back to the shell.
+				//
+				// choice still holds whatever got us here, and for a
+				// client started with --new that is 0, meaning "spawn a
+				// session". Re-attaching it would answer a dismissed
+				// picker with a brand new session instead of the one the
+				// user was already working in.
+				choice = stayOnCurrent(conn, opts)
 				continue
 			}
 			// Release the current session before binding the next one.
@@ -626,6 +638,16 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 			return nil
 		}
 	}
+}
+
+// stayOnCurrent is the choice that leaves a client where it already is,
+// for a picker the user dismissed.
+//
+// It names the session explicitly rather than reusing the choice that
+// opened the picker: that one is 0 for a client started with --new, and 0
+// means "spawn a session" to the daemon.
+func stayOnCurrent(conn *clientConn, opts AttachOptions) SessionChoice {
+	return SessionChoice{ID: conn.current(), Host: opts.Host}
 }
 
 // ErrSwitchHost reports that the user chose a session on a different
@@ -661,7 +683,7 @@ func hostSwitch(opts AttachOptions, choice SessionChoice) *ErrSwitchHost {
 // The chord handlers cannot run a picker themselves — the terminal is still
 // in raw mode while they run — so they hand back a sentinel and the work
 // happens here, after runAttached has restored the terminal.
-func resolveSwitch(conn *clientConn, opts AttachOptions, out attachOutcome) (SessionChoice, bool, error) {
+func resolveSwitch(ctx context.Context, conn *clientConn, opts AttachOptions, out attachOutcome) (SessionChoice, bool, error) {
 	switch out.switchTo {
 	case pickSentinel:
 		entries, err := conn.listSessions()
@@ -674,14 +696,14 @@ func resolveSwitch(conn *clientConn, opts AttachOptions, out attachOutcome) (Ses
 		pick := opts.Pick
 		if out.switchHost == hubMarker {
 			if opts.HubEntries != nil {
-				entries = append(entries, opts.HubEntries()...)
+				entries = append(entries, opts.HubEntries(ctx)...)
 			}
 			pick = opts.Hub
 		}
 		if pick == nil {
 			return SessionChoice{}, true, nil
 		}
-		choice, err := runPicker(conn, pick, entries)
+		choice, err := runPicker(ctx, conn, pick, entries)
 		if err != nil {
 			return SessionChoice{}, false, err
 		}

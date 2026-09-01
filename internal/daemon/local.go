@@ -254,8 +254,8 @@ func RunLocal(ctx context.Context, opts AttachOptions) error {
 // ListLocalSessions reports the local daemon's live sessions without
 // attaching. Returns ErrNoLocalDaemon when nothing is running, so a caller
 // can distinguish "no daemon" from "a daemon with no sessions".
-func ListLocalSessions() ([]SessionEntry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func ListLocalSessions(ctx context.Context) ([]SessionEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	conn, err := DialLocal(ctx)
 	if err != nil {

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"io"
 	"net"
 	"os"
@@ -298,7 +299,7 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 	for _, host := range []string{"", "violet"} {
 		t.Run("host="+host, func(t *testing.T) {
 			forceNew := AttachOptions{Host: host, ForceNew: true, Pick: nil}
-			choice, err := chooseSession(nil, forceNew)
+			choice, err := chooseSession(t.Context(), nil, forceNew)
 			if err != nil {
 				t.Fatalf("chooseSession: %v", err)
 			}
@@ -307,7 +308,7 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 			}
 
 			direct := AttachOptions{Host: host, Target: 7, Pick: localPickerStub}
-			choice, err = chooseSession(nil, direct)
+			choice, err = chooseSession(t.Context(), nil, direct)
 			if err != nil {
 				t.Fatalf("chooseSession: %v", err)
 			}
@@ -322,7 +323,7 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 }
 
 // localPickerStub stands in for a picker that is never called.
-func localPickerStub(entries []SessionEntry, _ *os.File) (SessionChoice, error) {
+func localPickerStub(_ context.Context, entries []SessionEntry, _ *os.File) (SessionChoice, error) {
 	return SessionChoice{}, nil
 }
 
@@ -428,5 +429,44 @@ func TestStopStdinWithNobodyReading(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("stopStdin deadlocked on a reader parked mid-send")
+	}
+}
+
+// TestStayOnCurrentNeverSpawnsASession covers the choice made when a user
+// dismisses a session picker.
+//
+// The switch loop reuses the choice that opened the picker, and for a
+// client started with --new that choice is 0 — which the daemon reads as
+// "spawn a session". Pressing Ctrl-] s and then Esc therefore answered a
+// dismissed picker with a brand new session, abandoning the one the user
+// was working in and leaving an empty session behind on the daemon.
+func TestStayOnCurrentNeverSpawnsASession(t *testing.T) {
+	for _, host := range []string{"", "violet"} {
+		t.Run("host="+host, func(t *testing.T) {
+			conn := newClientConn(struct {
+				io.Reader
+				io.Writer
+			}{Reader: strings.NewReader(""), Writer: io.Discard})
+			opts := AttachOptions{Host: host}
+
+			// The client began with --new, so the choice that opened the
+			// picker is the "spawn one" sentinel.
+			opened := SessionChoice{ID: 0, Host: host}
+			conn.setCurrent(4) // ...and the daemon assigned session 4
+
+			stay := stayOnCurrent(conn, opts)
+
+			if stay.ID == opened.ID {
+				t.Fatal("a dismissed picker reattached the --new sentinel: this spawns a second session")
+			}
+			if stay.ID != 4 {
+				t.Fatalf("stay.ID = %d, want the current session 4", stay.ID)
+			}
+			// The choice must stay on this daemon, or the switch loop
+			// reads it as a cross-host hop.
+			if sw := hostSwitch(opts, stay); sw != nil {
+				t.Fatalf("staying put on host %q was read as a switch to %q", host, sw.Host)
+			}
+		})
 	}
 }

@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 // TestSessionPickerLeavesTheAltScreen pins the exit contract of the picker.
@@ -62,5 +66,49 @@ func TestSessionPickerGroupsByHost(t *testing.T) {
 	}
 	if len(headers) != 2 || headers[0] != "this machine" || headers[1] != "mev" {
 		t.Fatalf("headers = %v, want [this machine mev]", headers)
+	}
+}
+
+// TestSessionPickerHonoursCancellation checks that a cancelled context ends
+// the picker.
+//
+// The picker blocks in the Bubble Tea run loop reading a terminal. Inside
+// an attached client that terminal is in raw mode, so the caller cannot
+// interrupt it with a signal, and without a context the picker would hold
+// the client open for as long as the user left it on screen. The session
+// loop around it already honours cancellation, so the picker must too.
+func TestSessionPickerHonoursCancellation(t *testing.T) {
+	// A pty gives the picker a real terminal to open without a keystroke
+	// ever arriving, which is the state cancellation has to break out of.
+	ptmx, tty, err := pty.Open()
+	if err != nil {
+		t.Skipf("no pty available: %v", err)
+	}
+	// Only the master is closed here: Bubble Tea takes ownership of the
+	// input file and closes it during shutdown, so closing it from this
+	// goroutine too would race that shutdown. The real caller closes its
+	// pty after the picker has fully returned, which is ordered.
+	defer func() { _ = ptmx.Close() }()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	entries := []SessionEntry{{ID: 1, Started: time.Now()}}
+
+	done := make(chan error, 1)
+	go func() {
+		_, rerr := RunSessionPicker(ctx, entries, tty, "Live sessions")
+		done <- rerr
+	}()
+
+	// Let the program reach its run loop before pulling the context.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case rerr := <-done:
+		if !errors.Is(rerr, context.Canceled) {
+			t.Fatalf("picker error = %v, want context.Canceled", rerr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled context did not end the picker")
 	}
 }

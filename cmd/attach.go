@@ -28,7 +28,7 @@ var (
 // internal/daemon must not import internal/ui: the daemon runs headless as
 // a service, and the client is driven from here. This converter is the
 // same pattern cmd/root.go uses for the extension widget providers.
-func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title string) (daemon.SessionChoice, error) {
+func sessionPickerFor(ctx context.Context, entries []daemon.SessionEntry, input *os.File, title string) (daemon.SessionChoice, error) {
 	view := make([]ui.SessionEntry, len(entries))
 	for i, e := range entries {
 		view[i] = ui.SessionEntry{
@@ -40,7 +40,7 @@ func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title strin
 			Host:    e.Host,
 		}
 	}
-	pick, err := ui.RunSessionPicker(view, input, title)
+	pick, err := ui.RunSessionPicker(ctx, view, input, title)
 	if err != nil {
 		return daemon.SessionChoice{Cancel: true}, err
 	}
@@ -55,13 +55,13 @@ func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title strin
 }
 
 // localPicker is the single-daemon picker.
-func localPicker(entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
-	return sessionPickerFor(entries, input, "Live sessions")
+func localPicker(ctx context.Context, entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
+	return sessionPickerFor(ctx, entries, input, "Live sessions")
 }
 
 // hubPicker is the cross-host picker behind Ctrl-] w.
-func hubPicker(entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
-	return sessionPickerFor(entries, input, "Sessions across all paired hosts")
+func hubPicker(ctx context.Context, entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
+	return sessionPickerFor(ctx, entries, input, "Sessions across all paired hosts")
 }
 
 var attachCmd = &cobra.Command{
@@ -139,8 +139,8 @@ func runFollowingHostSwitches(ctx context.Context, host string, opts daemon.Atta
 		current := host
 		if len(hosts) > 0 {
 			opts.Hub = hubPicker
-			opts.HubEntries = func() []daemon.SessionEntry {
-				return otherDaemonSessions(hosts, current)
+			opts.HubEntries = func(ctx context.Context) []daemon.SessionEntry {
+				return otherDaemonSessions(ctx, hosts, current)
 			}
 		} else {
 			opts.Hub = nil
@@ -172,14 +172,14 @@ func runFollowingHostSwitches(ctx context.Context, host string, opts daemon.Atta
 // Local sessions carry an empty host, which is exactly what the client
 // reports for the local daemon, so choosing one is recognised as a switch
 // back to this machine.
-func otherDaemonSessions(hosts []daemon.HostEntry, current string) []daemon.SessionEntry {
+func otherDaemonSessions(ctx context.Context, hosts []daemon.HostEntry, current string) []daemon.SessionEntry {
 	var all []daemon.SessionEntry
 	if current != "" {
-		if local, err := daemon.ListLocalSessions(); err == nil {
+		if local, err := daemon.ListLocalSessions(ctx); err == nil {
 			all = append(all, local...)
 		}
 	}
-	entries, _ := remoteSessionEntries(hosts, current)
+	entries, _ := remoteSessionEntries(ctx, hosts, current)
 	return append(all, entries...)
 }
 
@@ -192,8 +192,8 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 		return err
 	}
 
-	entries, _ := daemon.ListLocalSessions() // a missing local daemon is fine
-	remote, skipped := remoteSessionEntries(hosts, "")
+	entries, _ := daemon.ListLocalSessions(ctx) // a missing local daemon is fine
+	remote, skipped := remoteSessionEntries(ctx, hosts, "")
 	entries = append(entries, remote...)
 	reportSkippedHosts(skipped)
 	if len(entries) == 0 {
@@ -202,7 +202,7 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 	}
 
 	// Runs before any client attaches, so this picker owns the screen.
-	choice, err := sessionPickerFor(entries, os.Stdin, "Sessions across all paired hosts")
+	choice, err := sessionPickerFor(ctx, entries, os.Stdin, "Sessions across all paired hosts")
 	if err != nil || choice.Cancel {
 		return err
 	}
@@ -215,8 +215,10 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 //
 // Hosts are queried in parallel: asking one at a time made a picker wait
 // out every sleeping laptop in the host book before it could draw, and the
-// wait grew with each host paired.
-func remoteSessionEntries(hosts []daemon.HostEntry, skip string) (entries []daemon.SessionEntry, skipped []string) {
+// wait grew with each host paired. ctx cancels the queries: each one is a
+// sidecar process, so a caller that gives up must not leave a fan-out of
+// them running until their timeouts expire.
+func remoteSessionEntries(ctx context.Context, hosts []daemon.HostEntry, skip string) (entries []daemon.SessionEntry, skipped []string) {
 	type result struct {
 		entries []daemon.SessionEntry
 		err     error
@@ -233,7 +235,7 @@ func remoteSessionEntries(hosts []daemon.HostEntry, skip string) (entries []daem
 		wg.Add(1)
 		go func(i int, name string) {
 			defer wg.Done()
-			found, err := daemon.ListHostSessions(name, hostQueryTimeout)
+			found, err := daemon.ListHostSessions(ctx, name, hostQueryTimeout)
 			for j := range found {
 				found[j].Host = name
 			}
@@ -276,14 +278,15 @@ var lsCmd = &cobra.Command{
 With --all, also queries every paired host. Hosts that do not answer are
 skipped.`,
 	Args: cobra.NoArgs,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		entries, err := daemon.ListLocalSessions()
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		ctx := cmd.Context()
+		entries, err := daemon.ListLocalSessions(ctx)
 		if err != nil && err != daemon.ErrNoLocalDaemon {
 			return err
 		}
 		if attachAll {
 			if hosts, herr := daemon.ListHosts(); herr == nil {
-				remote, skipped := remoteSessionEntries(hosts, "")
+				remote, skipped := remoteSessionEntries(ctx, hosts, "")
 				entries = append(entries, remote...)
 				reportSkippedHosts(skipped)
 			}
