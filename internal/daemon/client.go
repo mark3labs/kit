@@ -391,7 +391,13 @@ func RunHost(ctx context.Context, name string) error {
 					// pending Ctrl-X is forwarded together, so the host
 					// TUI's own Ctrl-X chords (e.g. Ctrl-X e) keep working.
 					if leaderBuf != nil {
-						if ev.Leader {
+						if ev.Leader || ev.LeaderRelease {
+							// The kitty keyboard protocol (the host enables
+							// CSI=3;1u — disambiguate + report event types)
+							// delivers the Ctrl-X RELEASE before the chord
+							// suffix. Buffer it with the prefix so the chord
+							// stays armed; if the suffix turns out not to be
+							// ours the whole run is forwarded byte-identical.
 							leaderBuf = append(leaderBuf, ev.Data...)
 							continue
 						}
@@ -415,9 +421,7 @@ func RunHost(ctx context.Context, name string) error {
 						leaderBuf = append([]byte(nil), ev.Data...)
 						continue
 					}
-					if ev.Release && leaderBuf != nil {
-						continue // release of a swallowed chord prefix
-					}
+
 					if !handle(ev) {
 						return
 					}

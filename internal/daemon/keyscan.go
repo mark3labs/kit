@@ -72,6 +72,13 @@ type keyEvent struct {
 	// Leader is true for a Ctrl-X press (or repeat) — the client-side
 	// detach chord prefix. Data holds the original wire bytes.
 	Leader bool
+	// LeaderRelease is true for a Ctrl-X release event. It is tracked
+	// separately from Release because the two carry different meaning to
+	// the client: a Ctrl-V release may need suppression after an image
+	// interception, while a Ctrl-X release lands BETWEEN the chord prefix
+	// and its suffix and must never disarm the pending chord. Data holds
+	// the original wire bytes.
+	LeaderRelease bool
 	// Data is the original wire bytes for passthrough.
 	Data []byte
 }
@@ -165,7 +172,7 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 				i++
 				if lp, lr, lh := k.decodeLeader(seq); lh {
 					emitOther()
-					events = append(events, keyEvent{Leader: lp, Release: lr, Data: seq})
+					events = append(events, keyEvent{Leader: lp, LeaderRelease: lr, Data: seq})
 					continue
 				}
 				paste, release, handled := k.decodeCSI(seq)
