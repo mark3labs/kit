@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/mark3labs/kit/internal/daemon"
 )
@@ -63,5 +66,26 @@ func TestRemoteSessionEntriesSkipsTheCurrentHost(t *testing.T) {
 
 	if len(skipped) != 1 || skipped[0] != "keep-me" {
 		t.Fatalf("skipped = %v, want only [keep-me]: the current host must not be queried", skipped)
+	}
+}
+
+// TestHubAttachReportsCancellation checks that a cancelled discovery is
+// reported as cancellation rather than as an empty world.
+//
+// Cancellation empties both listings: the local query fails and every host
+// query is recorded as skipped. Without a check that is indistinguishable
+// from "nothing is running anywhere", so the command printed exactly that
+// and exited zero — telling the user something untrue about their machines
+// while also marking every host unreachable.
+func TestHubAttachReportsCancellation(t *testing.T) {
+	cmd := &cobra.Command{}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	cmd.SetContext(ctx)
+
+	err := runHubAttach(cmd, daemon.AttachOptions{})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runHubAttach error = %v, want context.Canceled", err)
 	}
 }

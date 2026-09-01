@@ -351,7 +351,9 @@ func TestStopStdinReleasesTheTerminal(t *testing.T) {
 		io.Reader
 		io.Writer
 	}{Reader: strings.NewReader(""), Writer: io.Discard})
-	conn.readStdin(t.Context())
+	if rerr := conn.readStdin(t.Context()); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
 
 	if _, err := w.Write([]byte("a")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -412,7 +414,9 @@ func TestStopStdinWithNobodyReading(t *testing.T) {
 		io.Reader
 		io.Writer
 	}{Reader: strings.NewReader(""), Writer: io.Discard})
-	conn.readStdin(t.Context())
+	if rerr := conn.readStdin(t.Context()); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
 
 	// Overrun the channel with nobody receiving, so the reader is parked
 	// on a send when the client tears down.
@@ -495,7 +499,9 @@ func TestReadStdinReleasesTheTerminalOnCancel(t *testing.T) {
 	}{Reader: strings.NewReader(""), Writer: io.Discard})
 
 	ctx, cancel := context.WithCancel(t.Context())
-	conn.readStdin(ctx)
+	if rerr := conn.readStdin(ctx); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
 
 	// The reader is parked on the terminal with nothing to read, which is
 	// the state cancellation has to break.
@@ -506,5 +512,57 @@ func TestReadStdinReleasesTheTerminalOnCancel(t *testing.T) {
 	case <-conn.stdinDone:
 	case <-time.After(3 * time.Second):
 		t.Fatal("a cancelled context did not release the terminal")
+	}
+}
+
+// TestReadStdinRefusesAnUncancellableTerminal covers the setup failure
+// branch.
+//
+// The client's whole terminal-safety story rests on the reader being
+// stoppable: stopStdin cancels it so the next caller can have stdin back.
+// A fallback to reading os.Stdin directly would look like it worked and
+// then quietly strand the terminal, because stopStdin has nothing to
+// cancel and returns having released nothing. readStdin must refuse
+// instead, so the failure is visible rather than a hang later on.
+//
+// A regular file stands in for a terminal the cancel reader cannot take:
+// epoll rejects it, which is exactly the error path under test.
+func TestReadStdinRefusesAnUncancellableTerminal(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "not-a-terminal-*")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = realStdin }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	if rerr := conn.readStdin(t.Context()); rerr == nil {
+		t.Fatal("readStdin accepted a terminal it cannot cancel: the reader would strand stdin")
+	}
+	if conn.stdinReader != nil {
+		t.Fatal("a failed setup must not leave a reader behind")
+	}
+
+	// The failure must leave nothing running, and stopStdin must stay safe
+	// to call: the caller cannot know how far setup got.
+	done := make(chan struct{})
+	go func() { conn.stopStdin(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopStdin blocked after a failed readStdin")
+	}
+
+	select {
+	case <-conn.stdinCh:
+		t.Fatal("a failed readStdin still started a reader goroutine")
+	default:
 	}
 }

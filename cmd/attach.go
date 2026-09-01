@@ -193,7 +193,17 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 	}
 
 	entries, _ := daemon.ListLocalSessions(ctx) // a missing local daemon is fine
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
 	remote, skipped := remoteSessionEntries(ctx, hosts, "")
+	if cerr := ctx.Err(); cerr != nil {
+		// Cancellation empties both listings, and an empty listing is
+		// indistinguishable from "nothing is running anywhere". Reporting
+		// that would tell the user something untrue about their machines,
+		// and marking every host unreachable would compound it.
+		return cerr
+	}
 	entries = append(entries, remote...)
 	reportSkippedHosts(skipped)
 	if len(entries) == 0 {
@@ -290,6 +300,11 @@ skipped.`,
 				entries = append(entries, remote...)
 				reportSkippedHosts(skipped)
 			}
+		}
+		// Same reasoning as runHubAttach: a cancelled listing is empty,
+		// and printing "no live sessions" for it would be a false report.
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
 		}
 		if len(entries) == 0 {
 			fmt.Println("No live sessions. Start one with: kit attach")

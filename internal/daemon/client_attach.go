@@ -165,21 +165,25 @@ type clientConn struct {
 // readStdin starts the connection's single terminal reader. Chunks go to
 // the session pump, or to the picker while one is on screen.
 //
-// The reader is cancellable so the terminal can be handed back; see
-// clientConn.stdinReader. A stdin that will not take a cancel reader falls
-// back to reading the file directly: input still works, only the hand-back
-// is unavailable.
+// The reader must be cancellable, so a terminal that will not take a
+// cancel reader is a setup failure rather than something to work around.
+// Falling back to reading os.Stdin directly would start a goroutine that
+// nothing can stop, and stopStdin would return having released nothing —
+// the captured terminal this whole path exists to prevent, reintroduced
+// silently on the one path nobody exercises. RunClient has already
+// established that stdin is a terminal by the time we are called, so this
+// error means the terminal is genuinely unusable to us.
 //
 // ctx releases the terminal as soon as it is cancelled. The client also
 // stops the reader when it unwinds, but that can trail the cancellation by
 // as long as an in-flight daemon request takes to time out, and a caller
 // that cancelled is usually a caller that wants stdin back now.
-func (c *clientConn) readStdin(ctx context.Context) {
-	var src io.Reader = os.Stdin
-	if cr, err := cancelreader.NewReader(os.Stdin); err == nil {
-		c.stdinReader = cr
-		src = cr
+func (c *clientConn) readStdin(ctx context.Context) error {
+	src, err := cancelreader.NewReader(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("daemon: this terminal cannot be read cancellably: %w", err)
 	}
+	c.stdinReader = src
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -235,6 +239,7 @@ func (c *clientConn) readStdin(ctx context.Context) {
 			}
 		}
 	}()
+	return nil
 }
 
 // stopStdin ends the terminal reader and releases stdin.
@@ -242,13 +247,11 @@ func (c *clientConn) readStdin(ctx context.Context) {
 // Safe to call more than once and from any goroutine. The reader is
 // cancelled first and closed only once the goroutine has left it: closing
 // a cancel reader under an in-flight read is a data race on the file.
-// Without a cancel reader (an unusual stdin) there is nothing to stop, and
-// waiting would hang on a goroutine parked in an uninterruptible read.
 func (c *clientConn) stopStdin() {
 	c.stdinStopOnce.Do(func() {
 		close(c.stdinStop)
 		if c.stdinReader == nil {
-			return
+			return // readStdin never ran
 		}
 		c.stdinReader.Cancel()
 		select {
@@ -570,7 +573,9 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 
 	conn := newClientConn(rw)
 	go conn.readLoop()
-	conn.readStdin(ctx)
+	if err := conn.readStdin(ctx); err != nil {
+		return err
+	}
 	// Give the terminal back on the way out. Everything above this call
 	// may hand control to a caller that reads stdin itself — a cross-host
 	// switch starts a second client, and an error returned from here is
