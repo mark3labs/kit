@@ -27,10 +27,13 @@
       "id": "advanced/remote-sessions",
       "url": "https://go-kit.dev/advanced/remote-sessions",
       "title": "Remote Sessions",
-      "description": "Run Kit on one machine and drive it from another over an end-to-end encrypted iroh connection.",
+      "description": "Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.",
       "headings": [
         "Requirements",
         "Commands",
+        "Sessions on this machine",
+        "Sessions and daemon restarts",
+        "Session keys",
         "How pairing works",
         "How reconnection works",
         "Clipboard images",
@@ -39,7 +42,7 @@
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 1248
+      "wordCount": 1811
     },
     {
       "id": "advanced/subagents",
@@ -102,10 +105,11 @@
         "Argument placeholders",
         "CLI flags",
         "ACP server",
+        "Detachable sessions",
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2384
+      "wordCount": 2720
     },
     {
       "id": "cli/flags",
@@ -123,7 +127,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 903
+      "wordCount": 941
     },
     {
       "id": "configuration",
@@ -322,7 +326,7 @@
         "Quick links"
       ],
       "tags": [],
-      "wordCount": 365
+      "wordCount": 397
     },
     {
       "id": "installation",
@@ -504,7 +508,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 817
+      "wordCount": 889
     },
     {
       "id": "themes",

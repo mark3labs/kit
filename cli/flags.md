@@ -34,6 +34,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
+| `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. [Detachable sessions](/cli/commands#detachable-sessions) always start this way, including with `kit attach --new`, so the flag is only needed when running `kit` directly |
 | `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
 ## Context

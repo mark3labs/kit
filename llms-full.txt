@@ -119,9 +119,21 @@ for _, ev := range result.Stream {
 
 # Remote Sessions
 
-Kit can run as a daemon on one machine and be driven from another. All work —
-the agent, tools, extensions, sessions — happens on the daemon host; your
-local terminal just renders it. The transport is [iroh](https://iroh.computer):
+Kit can run as a daemon that hosts **detachable sessions**: a session keeps
+running when you close the terminal, and you can reattach to it later,
+switch between several like tmux, or share one with someone else. The
+daemon can be on this machine or on another.
+
+For sessions on this machine, no setup and no pairing is needed — skip to
+[Sessions on this machine](#sessions-on-this-machine):
+
+```bash
+kit attach
+```
+
+The rest of this page covers **remote** sessions. All work — the agent,
+tools, extensions, sessions — happens on the daemon host; your local
+terminal just renders it. The transport is [iroh](https://iroh.computer):
 a direct, end-to-end encrypted QUIC connection that holes through NATs and
 falls back to relays.
 
@@ -174,8 +186,67 @@ rendering, and session persistence all run on the daemon host.
 | `kit remote --host <name>` | client | Connect to a paired host |
 | `kit remote --list` | client | List saved hosts |
 | `kit remote --forget <name>` | client | Forget a saved host |
+| `kit attach` | either | Attach to a session on this machine (starts a daemon if needed) |
+| `kit attach --host <name>` | client | Attach on a paired host, with session switching |
+| `kit attach --all` | client | Pick a session across every paired host |
+| `kit ls` | either | List live sessions (`--all` includes paired hosts) |
 
-`Ctrl+X d` **detaches**: your terminal returns to the local shell and the
+## Sessions on this machine
+
+`kit attach` gives you the same detachable sessions without any pairing:
+it talks to a daemon on this machine over a Unix socket in
+`$XDG_RUNTIME_DIR/kit/`, and starts one if none is running. The socket is
+`0600` inside a `0700` directory and every connection's peer uid is
+checked, so only your own processes can reach it. No sidecar is needed —
+a machine with no `kit-tunnel` build still runs local sessions, it just
+cannot host remote ones.
+
+## Sessions and daemon restarts
+
+A session survives a **client** disconnect, but not a restart of the
+**daemon**. The session's terminal is owned by the daemon process, so
+stopping the daemon stops its sessions — reattaching to a session from a
+previous daemon is not possible, because the terminal it was rendering to
+no longer exists.
+
+Kit makes that boundary predictable rather than leaving it to chance:
+
+- On `SIGINT`/`SIGTERM` — including `systemctl --user stop kit` — the
+  daemon ends each session with `SIGTERM` first, so kit can save its
+  conversation before exiting. The generated unit sets `KillMode=mixed`
+  so systemd signals the daemon rather than every session at once.
+- On a hard crash (`SIGKILL`, a panic, the OOM killer) the kernel kills
+  each session child immediately, through the parent-death signal armed
+  when it was spawned.
+- On the next start, the daemon sweeps any session recorded by a previous
+  run that is somehow still alive, and clears its scratch files.
+
+A session is only ever signalled when the daemon can **prove** it owns
+it: the process is checked against a marker inherited from the daemon
+that spawned it. A process that cannot be identified is left alone, so
+one daemon can never disturb another's sessions, and a recycled pid can
+never be mistaken for a session.
+
+## Session keys
+
+Inside an attached session, `Ctrl+]` is the multiplexer prefix:
+
+| Chord | Action |
+|-------|--------|
+| `Ctrl+] d` | Detach; the session keeps running |
+| `Ctrl+] s` | Switch to another session |
+| `Ctrl+] c` | Start a new session |
+| `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
+| `Ctrl+] w` | Switch across paired hosts |
+| `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |
+
+The prefix is deliberately **not** `Ctrl+X`: that one belongs to the
+session itself (`Ctrl+X s` steers, `Ctrl+X e` opens `$EDITOR`, and so on),
+and every chord the client took would stop working over a connection. With
+a separate prefix the keymap is identical whether kit runs locally or
+through a session. `Ctrl+X d` still detaches, for compatibility.
+
+`Ctrl+] d` **detaches**: your terminal returns to the local shell and the
 session keeps running on the host — type `/quit` inside the session to end
 it for good. Detached sessions are listed on the next connect, so you can
 pick up exactly where you left off.
@@ -936,6 +1007,55 @@ kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 ```
 
+## Detachable sessions
+
+Run Kit inside a session that survives closing your terminal, and switch
+between several of them like tmux or zellij. Sessions are hosted by a
+background daemon; `kit attach` starts one automatically if none is
+running. See [Remote sessions](/advanced/remote-sessions) for the full
+picture.
+
+```bash
+kit attach                        # Pick a live session, or start one
+kit attach 3                      # Attach straight to session 3
+kit attach --new                  # Skip the picker, start a new session
+kit attach --host homelab         # Attach on a paired remote host
+kit attach --all                  # Pick a session across every paired host
+
+kit ls                            # List live sessions on this machine
+kit ls --all                      # Include sessions on every paired host
+```
+
+Every new session starts with the working-directory picker, whichever way
+you create it — `kit attach`, `kit attach --new`, or `Ctrl+] c`. `--new`
+skips the *session* picker, not the directory one. Once a directory is
+chosen the session behaves exactly like a local `kit`.
+
+You can also run the directory picker outside a session with
+[`kit --pick-dir`](/cli/flags); the daemon uses that same flag to start
+each session.
+
+Inside a session, `Ctrl+]` is the multiplexer prefix:
+
+| Chord | Action |
+|-------|--------|
+| `Ctrl+] d` | Detach; the session keeps running |
+| `Ctrl+] s` | Switch to another session |
+| `Ctrl+] c` | Start a new session |
+| `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
+| `Ctrl+] w` | Switch across paired hosts |
+| `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |
+
+The prefix is deliberately not `Ctrl+X`: that belongs to the session itself
+([steering](#mid-turn-steering), [external editor](#external-editor)), so
+the keymap is identical whether Kit runs locally or through a session.
+`Ctrl+X d` still detaches too, kept for compatibility with earlier
+releases.
+
+Sessions survive a client disconnect, but not a restart of the hosting
+daemon — see [Sessions and daemon
+restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
 ## Remote sessions
 
 Run Kit as a daemon on one machine and attach to it from another over an
@@ -956,9 +1076,10 @@ kit daemon service remove         # Stop and uninstall the service
 kit remote --pair A1B2C3D4        # Pair and save the host under a name
 
 # On the client (any time after)
-kit remote --host homelab            # Attach to the paired host
+kit remote --host homelab         # Attach to the paired host
+kit attach --host homelab         # Same, with session switching (Ctrl+] s)
 kit remote --list                 # List paired hosts
-kit remote --forget homelab          # Forget a saved host
+kit remote --forget homelab       # Forget a saved host
 ```
 
 Pairing is one-time and human-approved: the code only works while the
@@ -967,7 +1088,8 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and `/quit` closes only that
-client's connection. `Ctrl+X d` detaches — the session keeps running on the
+client's connection. `Ctrl+] d` detaches (`Ctrl+X d` still works, for
+compatibility) — the session keeps running on the
 host and can be reattached later (or shared by several clients at once, with
 every attached terminal mirroring the same screen). Only one daemon may run
 per user.
@@ -1011,6 +1133,7 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
+| `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. [Detachable sessions](/cli/commands#detachable-sessions) always start this way, including with `kit attach --new`, so the flag is only needed when running `kit` directly |
 | `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
 ## Context
@@ -3302,6 +3425,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Extension System** — Write custom tools, commands, widgets, and UI modifications in Go
 - **Interactive TUI** — Rich terminal interface powered by Bubble Tea with streaming, syntax highlighting, and custom rendering
 - **Session Management** — Tree-based conversation history with branching support
+- **Detachable Sessions** — `kit attach` runs Kit in a session that survives closing the terminal; switch between them like tmux, or attach to a paired machine's sessions over an encrypted connection
 - **Non-Interactive Mode** — Script-friendly positional args with JSON output
 - **GitHub Integration** — Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server** — Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
@@ -5372,6 +5496,13 @@ When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSess
 # Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.
+
+> **This page is about conversation sessions** — the JSONL transcript Kit
+> saves so you can resume a conversation with `--continue` or `--resume`.
+> Kit also has *detachable* sessions: a running `kit` process hosted by a
+> daemon that you attach to and detach from, like tmux. Those are covered
+> in [Remote sessions](/advanced/remote-sessions). The two are independent
+> — a detachable session saves its conversation exactly like a local one.
 
 ## Session storage
 

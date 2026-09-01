@@ -3,6 +3,13 @@
 
 Kit uses a tree-based session model that supports branching and forking conversations.
 
+> **This page is about conversation sessions** — the JSONL transcript Kit
+> saves so you can resume a conversation with `--continue` or `--resume`.
+> Kit also has *detachable* sessions: a running `kit` process hosted by a
+> daemon that you attach to and detach from, like tmux. Those are covered
+> in [Remote sessions](/advanced/remote-sessions). The two are independent
+> — a detachable session saves its conversation exactly like a local one.
+
 ## Session storage
 
 Sessions are stored as JSONL (JSON Lines) files:

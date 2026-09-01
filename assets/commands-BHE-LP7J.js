@@ -333,6 +333,70 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 <p>Run Kit as an <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> agent server. ACP-compatible clients communicate with Kit over JSON-RPC 2.0 on stdin/stdout.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Start as ACP agent</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span><span style="color:#6A737D;--shiki-dark:#6A737D">              # With debug logging to stderr</span></span></code></pre>
+<h2 id="detachable-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#detachable-sessions"><span class="icon icon-link"></span></a>Detachable sessions</h2>
+<p>Run Kit inside a session that survives closing your terminal, and switch
+between several of them like tmux or zellij. Sessions are hosted by a
+background daemon; <code>kit attach</code> starts one automatically if none is
+running. See <a href="/advanced/remote-sessions">Remote sessions</a> for the full
+picture.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Pick a live session, or start one</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 3</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Attach straight to session 3</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --new</span><span style="color:#6A737D;--shiki-dark:#6A737D">                  # Skip the picker, start a new session</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Attach on a paired remote host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">                  # Pick a session across every paired host</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ls</span><span style="color:#6A737D;--shiki-dark:#6A737D">                            # List live sessions on this machine</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ls</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Include sessions on every paired host</span></span></code></pre>
+<p>Every new session starts with the working-directory picker, whichever way
+you create it — <code>kit attach</code>, <code>kit attach --new</code>, or <code>Ctrl+] c</code>. <code>--new</code>
+skips the <em>session</em> picker, not the directory one. Once a directory is
+chosen the session behaves exactly like a local <code>kit</code>.</p>
+<p>You can also run the directory picker outside a session with
+<a href="/cli/flags"><code>kit --pick-dir</code></a>; the daemon uses that same flag to start
+each session.</p>
+<p>Inside a session, <code>Ctrl+]</code> is the multiplexer prefix:</p>
+<table>
+<thead>
+<tr>
+<th>Chord</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Ctrl+] d</code></td>
+<td>Detach; the session keeps running</td>
+</tr>
+<tr>
+<td><code>Ctrl+] s</code></td>
+<td>Switch to another session</td>
+</tr>
+<tr>
+<td><code>Ctrl+] c</code></td>
+<td>Start a new session</td>
+</tr>
+<tr>
+<td><code>Ctrl+] n</code> / <code>Ctrl+] p</code></td>
+<td>Next / previous session</td>
+</tr>
+<tr>
+<td><code>Ctrl+] w</code></td>
+<td>Switch across paired hosts</td>
+</tr>
+<tr>
+<td><code>Ctrl+] Ctrl+]</code></td>
+<td>Send a literal <code>Ctrl+]</code> to the session</td>
+</tr>
+</tbody>
+</table>
+<p>The prefix is deliberately not <code>Ctrl+X</code>: that belongs to the session itself
+(<a href="#mid-turn-steering">steering</a>, <a href="#external-editor">external editor</a>), so
+the keymap is identical whether Kit runs locally or through a session.
+<code>Ctrl+X d</code> still detaches too, kept for compatibility with earlier
+releases.</p>
+<p>Sessions survive a client disconnect, but not a restart of the hosting
+daemon — see <a href="/advanced/remote-sessions#sessions-and-daemon-restarts">Sessions and daemon
+restarts</a>.</p>
 <h2 id="remote-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#remote-sessions"><span class="icon icon-link"></span></a>Remote sessions</h2>
 <p>Run Kit as a daemon on one machine and attach to it from another over an
 end-to-end encrypted iroh connection. All work runs on the daemon host; see
@@ -350,19 +414,21 @@ end-to-end encrypted iroh connection. All work runs on the daemon host; see
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --pair</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> A1B2C3D4</span><span style="color:#6A737D;--shiki-dark:#6A737D">        # Pair and save the host under a name</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># On the client (any time after)</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">            # Attach to the paired host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Attach to the paired host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Same, with session switching (Ctrl+] s)</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --list</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # List paired hosts</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --forget</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # Forget a saved host</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> remote</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --forget</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">       # Forget a saved host</span></span></code></pre>
 <p>Pairing is one-time and human-approved: the code only works while the
 <code>kit daemon pair</code> window is open, and the host must accept the request on
 its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and <code>/quit</code> closes only that
-client's connection. <code>Ctrl+X d</code> detaches — the session keeps running on the
+client's connection. <code>Ctrl+] d</code> detaches (<code>Ctrl+X d</code> still works, for
+compatibility) — the session keeps running on the
 host and can be reattached later (or shared by several clients at once, with
 every attached terminal mirroring the same screen). Only one daemon may run
-per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
+per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{depth:2,text:`Model database`,id:`model-database`},{depth:2,text:`Extension management`,id:`extension-management`},{depth:3,text:`Installing extensions from git`,id:`installing-extensions-from-git`},{depth:2,text:`Skills`,id:`skills`},{depth:3,text:`Skills CLI flags`,id:`skills-cli-flags`},{depth:3,text:`Skill frontmatter`,id:`skill-frontmatter`},{depth:3,text:`Project trust prompt`,id:`project-trust-prompt`},{depth:2,text:`GitHub integration`,id:`github-integration`},{depth:2,text:`Interactive slash commands`,id:`interactive-slash-commands`},{depth:3,text:`Prompt history`,id:`prompt-history`},{depth:3,text:`Cancelling operations`,id:`cancelling-operations`},{depth:3,text:`External editor`,id:`external-editor`},{depth:3,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:3,text:`Image attachments`,id:`image-attachments`},{depth:2,text:`Prompt templates`,id:`prompt-templates`},{depth:3,text:`Creating templates`,id:`creating-templates`},{depth:3,text:`Using templates`,id:`using-templates`},{depth:3,text:`Argument placeholders`,id:`argument-placeholders`},{depth:3,text:`CLI flags`,id:`cli-flags`},{depth:2,text:`ACP server`,id:`acp-server`},{depth:2,text:`Detachable sessions`,id:`detachable-sessions`},{depth:2,text:`Remote sessions`,id:`remote-sessions`}],raw:`
 # Commands
 
 ## Authentication
@@ -651,6 +717,55 @@ kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 \`\`\`
 
+## Detachable sessions
+
+Run Kit inside a session that survives closing your terminal, and switch
+between several of them like tmux or zellij. Sessions are hosted by a
+background daemon; \`kit attach\` starts one automatically if none is
+running. See [Remote sessions](/advanced/remote-sessions) for the full
+picture.
+
+\`\`\`bash
+kit attach                        # Pick a live session, or start one
+kit attach 3                      # Attach straight to session 3
+kit attach --new                  # Skip the picker, start a new session
+kit attach --host homelab         # Attach on a paired remote host
+kit attach --all                  # Pick a session across every paired host
+
+kit ls                            # List live sessions on this machine
+kit ls --all                      # Include sessions on every paired host
+\`\`\`
+
+Every new session starts with the working-directory picker, whichever way
+you create it — \`kit attach\`, \`kit attach --new\`, or \`Ctrl+] c\`. \`--new\`
+skips the *session* picker, not the directory one. Once a directory is
+chosen the session behaves exactly like a local \`kit\`.
+
+You can also run the directory picker outside a session with
+[\`kit --pick-dir\`](/cli/flags); the daemon uses that same flag to start
+each session.
+
+Inside a session, \`Ctrl+]\` is the multiplexer prefix:
+
+| Chord | Action |
+|-------|--------|
+| \`Ctrl+] d\` | Detach; the session keeps running |
+| \`Ctrl+] s\` | Switch to another session |
+| \`Ctrl+] c\` | Start a new session |
+| \`Ctrl+] n\` / \`Ctrl+] p\` | Next / previous session |
+| \`Ctrl+] w\` | Switch across paired hosts |
+| \`Ctrl+] Ctrl+]\` | Send a literal \`Ctrl+]\` to the session |
+
+The prefix is deliberately not \`Ctrl+X\`: that belongs to the session itself
+([steering](#mid-turn-steering), [external editor](#external-editor)), so
+the keymap is identical whether Kit runs locally or through a session.
+\`Ctrl+X d\` still detaches too, kept for compatibility with earlier
+releases.
+
+Sessions survive a client disconnect, but not a restart of the hosting
+daemon — see [Sessions and daemon
+restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
 ## Remote sessions
 
 Run Kit as a daemon on one machine and attach to it from another over an
@@ -671,9 +786,10 @@ kit daemon service remove         # Stop and uninstall the service
 kit remote --pair A1B2C3D4        # Pair and save the host under a name
 
 # On the client (any time after)
-kit remote --host homelab            # Attach to the paired host
+kit remote --host homelab         # Attach to the paired host
+kit attach --host homelab         # Same, with session switching (Ctrl+] s)
 kit remote --list                 # List paired hosts
-kit remote --forget homelab          # Forget a saved host
+kit remote --forget homelab       # Forget a saved host
 \`\`\`
 
 Pairing is one-time and human-approved: the code only works while the
@@ -682,7 +798,8 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and \`/quit\` closes only that
-client's connection. \`Ctrl+X d\` detaches — the session keeps running on the
+client's connection. \`Ctrl+] d\` detaches (\`Ctrl+X d\` still works, for
+compatibility) — the session keeps running on the
 host and can be reattached later (or shared by several clients at once, with
 every attached terminal mirroring the same screen). Only one daemon may run
 per user.

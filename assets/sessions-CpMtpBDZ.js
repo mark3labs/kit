@@ -1,5 +1,13 @@
 var e={frontmatter:{title:`Session Management`,description:`How Kit persists and manages conversation sessions.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="session-management"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-management"><span class="icon icon-link"></span></a>Session Management</h1>
 <p>Kit uses a tree-based session model that supports branching and forking conversations.</p>
+<blockquote>
+<p><strong>This page is about conversation sessions</strong> — the JSONL transcript Kit
+saves so you can resume a conversation with <code>--continue</code> or <code>--resume</code>.
+Kit also has <em>detachable</em> sessions: a running <code>kit</code> process hosted by a
+daemon that you attach to and detach from, like tmux. Those are covered
+in <a href="/advanced/remote-sessions">Remote sessions</a>. The two are independent
+— a detachable session saves its conversation exactly like a local one.</p>
+</blockquote>
 <h2 id="session-storage"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-storage"><span class="icon icon-link"></span></a>Session storage</h2>
 <p>Sessions are stored as JSONL (JSON Lines) files:</p>
 <pre><code>~/.kit/sessions/&lt;cwd-path&gt;/&lt;timestamp&gt;_&lt;id&gt;.jsonl
@@ -112,6 +120,13 @@ var e={frontmatter:{title:`Session Management`,description:`How Kit persists and
 # Session Management
 
 Kit uses a tree-based session model that supports branching and forking conversations.
+
+> **This page is about conversation sessions** — the JSONL transcript Kit
+> saves so you can resume a conversation with \`--continue\` or \`--resume\`.
+> Kit also has *detachable* sessions: a running \`kit\` process hosted by a
+> daemon that you attach to and detach from, like tmux. Those are covered
+> in [Remote sessions](/advanced/remote-sessions). The two are independent
+> — a detachable session saves its conversation exactly like a local one.
 
 ## Session storage
 
