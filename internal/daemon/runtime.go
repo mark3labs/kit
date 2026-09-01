@@ -85,7 +85,15 @@ type daemonRuntime struct {
 
 	mu    sync.Mutex
 	state daemonState
-	tun   *Tunnel // the live sidecar; logical sessions write through it
+	tun   *Tunnel    // the live sidecar; nil while it is down
+	sink  *frameSink // the live sidecar's frame sink; nil while it is down
+}
+
+// setSink records the frame sink of the current sidecar tunnel.
+func (rt *daemonRuntime) setSink(s *frameSink) {
+	rt.mu.Lock()
+	rt.sink = s
+	rt.mu.Unlock()
 }
 
 // setTunnel records the current sidecar tunnel. Called by Serve whenever
