@@ -129,12 +129,16 @@ func serveLocalConn(ctx context.Context, conn net.Conn, table *sessionTable) {
 }
 
 // DialLocal connects to the local daemon's control socket.
-func DialLocal() (net.Conn, error) {
+//
+// The context bounds the dial: a socket that exists but is not being
+// accepted on would otherwise block past the caller's deadline.
+func DialLocal(ctx context.Context) (net.Conn, error) {
 	path, err := LocalSocketPath()
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.Dial("unix", path)
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
 		// A missing socket and a socket nobody is listening on are the
 		// same situation to a caller: no daemon to talk to.
@@ -203,7 +207,7 @@ func StartLocalDaemon(ctx context.Context) error {
 func waitForLocalDaemon(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		conn, err := DialLocal()
+		conn, err := DialLocal(ctx)
 		if err == nil {
 			_ = conn.Close()
 			return nil
@@ -222,13 +226,13 @@ func waitForLocalDaemon(ctx context.Context, timeout time.Duration) error {
 // RunLocal attaches the terminal to the local daemon, starting one when
 // none is running.
 func RunLocal(ctx context.Context, opts AttachOptions) error {
-	conn, err := DialLocal()
+	conn, err := DialLocal(ctx)
 	if errors.Is(err, ErrNoLocalDaemon) {
 		fmt.Fprintln(os.Stderr, "Starting the kit daemon…")
 		if serr := StartLocalDaemon(ctx); serr != nil {
 			return serr
 		}
-		conn, err = DialLocal()
+		conn, err = DialLocal(ctx)
 	}
 	if err != nil {
 		return err
@@ -251,7 +255,9 @@ func RunLocal(ctx context.Context, opts AttachOptions) error {
 // attaching. Returns ErrNoLocalDaemon when nothing is running, so a caller
 // can distinguish "no daemon" from "a daemon with no sessions".
 func ListLocalSessions() ([]SessionEntry, error) {
-	conn, err := DialLocal()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := DialLocal(ctx)
 	if err != nil {
 		return nil, err
 	}

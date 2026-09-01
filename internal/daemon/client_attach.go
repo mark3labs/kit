@@ -667,6 +667,12 @@ func runAttached(ctx context.Context, conn *clientConn, opts AttachOptions) (att
 	case <-conn.closedCh:
 		setOutcome(attachOutcome{ended: true})
 	case <-ctx.Done():
+		// Say goodbye so the session detaches cleanly, then report the
+		// cancellation. Falling through would return an empty outcome,
+		// which RunClient reads as an ordinary exit and reports as
+		// success.
+		_ = conn.write(FrameBye, nil)
+		return attachOutcome{}, ctx.Err()
 	}
 
 	outMu.Lock()

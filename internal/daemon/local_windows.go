@@ -34,7 +34,7 @@ const sessionCwdEnv = "KIT_SESSION_CWD_FILE"
 func ReportSessionCwd(string) {}
 
 // DialLocal always fails on Windows.
-func DialLocal() (net.Conn, error) { return nil, ErrNoLocalDaemon }
+func DialLocal(context.Context) (net.Conn, error) { return nil, ErrNoLocalDaemon }
 
 // StartLocalDaemon is unsupported on Windows.
 func StartLocalDaemon(context.Context) error { return ErrNoLocalDaemon }
