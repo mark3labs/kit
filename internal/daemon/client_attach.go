@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/muesli/cancelreader"
 	"golang.org/x/term"
 
 	"github.com/mark3labs/kit/internal/clipboard"
@@ -121,16 +122,28 @@ type clientConn struct {
 
 	// stdinCh carries terminal input for the connection's whole life.
 	//
-	// The reader behind it must NOT be per-attach: os.Stdin.Read blocks
-	// and cannot be cancelled, so a reader started for each attached
-	// session would still be parked in Read after a session switch. Two
-	// readers on one fd split the keystrokes between them at random, and
-	// the ones delivered to a finished session's pump are simply dropped
-	// — chords stop working after the first switch, more so with each
-	// one. One reader per connection, shared by every session, is the
-	// only arrangement that keeps input whole.
+	// The reader behind it must NOT be per-attach: a reader started for
+	// each attached session would still be parked in Read after a session
+	// switch. Two readers on one fd split the keystrokes between them at
+	// random, and the ones delivered to a finished session's pump are
+	// simply dropped — chords stop working after the first switch, more so
+	// with each one. One reader per connection, shared by every session,
+	// is the only arrangement that keeps input whole.
 	stdinCh  chan []byte
 	stdinErr chan error
+
+	// stdinReader is the cancellable reader behind stdinCh.
+	//
+	// os.Stdin.Read cannot be interrupted, and a goroutine parked in it
+	// holds the file's read lock for as long as it stays parked. That lock
+	// outlives this client: a connection that ends in an error hands
+	// control back to a caller that may need the terminal itself — the
+	// error renderer queries the terminal's background colour, and a
+	// cross-host switch starts a second client with its own reader — and
+	// that caller then blocks behind our reader forever. Reading through a
+	// cancel reader lets stopStdin give the terminal back.
+	stdinReader   cancelreader.CancelReader
+	stdinStopOnce sync.Once
 
 	// divert, when non-nil, sends terminal input to a running picker
 	// instead of the session pump.
@@ -140,12 +153,22 @@ type clientConn struct {
 
 // readStdin starts the connection's single terminal reader. Chunks go to
 // the session pump, or to the picker while one is on screen.
+//
+// The reader is cancellable so the terminal can be handed back; see
+// clientConn.stdinReader. A stdin that will not take a cancel reader falls
+// back to reading the file directly: input still works, only the hand-back
+// is unavailable.
 func (c *clientConn) readStdin() {
+	var src io.Reader = os.Stdin
+	if cr, err := cancelreader.NewReader(os.Stdin); err == nil {
+		c.stdinReader = cr
+		src = cr
+	}
 	go func() {
 		defer close(c.stdinCh)
 		buf := make([]byte, 256)
 		for {
-			n, err := os.Stdin.Read(buf)
+			n, err := src.Read(buf)
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
@@ -164,11 +187,27 @@ func (c *clientConn) readStdin() {
 				}
 			}
 			if err != nil {
-				c.stdinErr <- err
+				select {
+				case c.stdinErr <- err:
+				default: // nobody left to tell
+				}
 				return
 			}
 		}
 	}()
+}
+
+// stopStdin ends the terminal reader and releases stdin.
+//
+// Safe to call more than once and from any goroutine.
+func (c *clientConn) stopStdin() {
+	c.stdinStopOnce.Do(func() {
+		if c.stdinReader == nil {
+			return
+		}
+		c.stdinReader.Cancel()
+		_ = c.stdinReader.Close()
+	})
 }
 
 // pickerTTY diverts terminal input to a picker for as long as it is open.
@@ -375,7 +414,14 @@ func (c *clientConn) attach(id uint64) (uint64, error) {
 		return 0, err
 	}
 	if len(ack.Payload) < 9 || ack.Payload[8] != 1 {
-		return 0, fmt.Errorf("the daemon refused the attach")
+		// The daemon refuses an attach for exactly two reasons, and they
+		// need different advice: a session id that is not live any more
+		// (mistyped, or ended since it was listed), or a new session it
+		// could not start.
+		if id == 0 {
+			return 0, fmt.Errorf("the daemon could not start a session")
+		}
+		return 0, fmt.Errorf("no live session %d on this daemon — list the live ones with 'kit ls'", id)
 	}
 	return binary.BigEndian.Uint64(ack.Payload[:8]), nil
 }
@@ -432,6 +478,14 @@ func runPicker(conn *clientConn, pick SessionPicker, entries []SessionEntry) (Se
 		return SessionChoice{Cancel: true}, err
 	}
 	defer tty.Close()
+	// The picker owns the alternate screen while it runs and leaves it on
+	// exit, which would drop the client's own alt screen with it: Bubble
+	// Tea always restores the screen state it entered, so a picker that
+	// stayed in the alt screen for its last frame still emits the exit
+	// sequence when the program shuts down. Re-enter it here instead of
+	// asking the picker not to leave. The session repaints right after
+	// (runAttached sends a redraw), so an empty alt screen is never seen.
+	defer func() { _, _ = os.Stdout.WriteString(altScreenEnter) }()
 	return pick(entries, tty.File())
 }
 
@@ -462,6 +516,12 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 	conn := newClientConn(rw)
 	go conn.readLoop()
 	conn.readStdin()
+	// Give the terminal back on the way out. Everything above this call
+	// may hand control to a caller that reads stdin itself — a cross-host
+	// switch starts a second client, and an error returned from here is
+	// rendered by a printer that queries the terminal — and a reader still
+	// parked on stdin would swallow their input, or deadlock them.
+	defer conn.stopStdin()
 
 	choice, err := chooseSession(conn, opts)
 	if err != nil {
@@ -518,7 +578,8 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 			choice = next
 			continue
 		case out.detached:
-			parting = fmt.Sprintf("Detached — the session keeps running on the daemon. Reattach with: %s", opts.Reattach)
+			parting = fmt.Sprintf("Detached — the session keeps running on the daemon. Reattach with: %s %d",
+				opts.Reattach, conn.current())
 			return nil
 		case out.ended:
 			parting = "Session ended."

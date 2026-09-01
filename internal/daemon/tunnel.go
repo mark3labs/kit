@@ -82,6 +82,12 @@ func StartTunnel(ctx context.Context, opts TunnelOptions) (*Tunnel, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, bin, append([]string{opts.Mode}, opts.Args...)...)
+	// Tie the sidecar's life to ours. Close() ends it in the normal case,
+	// but a daemon that is killed outright never runs Close, and an
+	// orphaned sidecar keeps serving the daemon's iroh endpoint: the next
+	// daemon then publishes the same node id from a second process and
+	// remote clients reach a sidecar with nothing behind it.
+	cmd.SysProcAttr = applyChildDeathSignal(cmd.SysProcAttr)
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), opts.Env...)
 	}

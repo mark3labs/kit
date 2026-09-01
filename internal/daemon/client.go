@@ -195,7 +195,9 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 	// switch.
 	opts.Host = name
 	if opts.Reattach == "" {
-		opts.Reattach = "kit remote --host " + name
+		// The hint is completed with the session id, and only 'kit attach'
+		// takes one: 'kit remote --host X 1' is not a valid command line.
+		opts.Reattach = "kit attach --host " + name
 	}
 	return RunClient(ctx, tunnelStream{tun}, opts)
 }
@@ -245,7 +247,7 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 		case strings.Contains(last, "No addressing information available"):
 			return nil, fmt.Errorf("could not resolve the daemon's endpoint (is 'kit daemon' running on the host?)")
 		case strings.Contains(last, "timed out"):
-			return nil, fmt.Errorf("could not reach the daemon (network or relay issue)")
+			return nil, fmt.Errorf("%s did not answer — check that 'kit daemon' is running there, or that the network allows the connection", name)
 		}
 		return nil, fmt.Errorf("daemon: %w", err)
 	}

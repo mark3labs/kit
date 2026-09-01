@@ -4,6 +4,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -323,4 +324,66 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 // localPickerStub stands in for a picker that is never called.
 func localPickerStub(entries []SessionEntry, _ *os.File) (SessionChoice, error) {
 	return SessionChoice{}, nil
+}
+
+// TestStopStdinReleasesTheTerminal covers the hand-back that makes an
+// attach client survivable.
+//
+// A goroutine parked in os.Stdin.Read holds the file's read lock, and that
+// lock outlives the client: whoever runs next — the error renderer, which
+// queries the terminal, or the second client started by a cross-host
+// switch — blocks behind it, or has its keystrokes stolen by it. The
+// symptoms were a hang with a blank screen after any failed attach, and a
+// completely deaf terminal after Ctrl-] w.
+func TestStopStdinReleasesTheTerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+	conn.readStdin()
+
+	if _, err := w.Write([]byte("a")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	select {
+	case chunk := <-conn.stdinCh:
+		if string(chunk) != "a" {
+			t.Fatalf("read %q, want %q", chunk, "a")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the terminal reader delivered nothing")
+	}
+
+	conn.stopStdin()
+
+	// The reader is gone, so a later reader on the same terminal gets the
+	// next keystroke — and, crucially, gets it at all.
+	if _, err := w.Write([]byte("b")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 1)
+		if n, rerr := os.Stdin.Read(buf); rerr == nil && n == 1 {
+			got <- string(buf[:n])
+		}
+	}()
+	select {
+	case s := <-got:
+		if s != "b" {
+			t.Fatalf("second reader saw %q, want %q", s, "b")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stdin was never handed back: the cancelled reader still owns it")
+	}
 }
