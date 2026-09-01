@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -33,8 +32,8 @@ func fakeSessionChild(t *testing.T, owner string) *exec.Cmd {
 	})
 	// Give the shell time to exec.
 	time.Sleep(300 * time.Millisecond)
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
-		t.Skipf("the helper process did not stay running: %v", err)
+	if !processExists(cmd.Process.Pid) {
+		t.Skip("the helper process did not stay running")
 	}
 	return cmd
 }
@@ -241,8 +240,8 @@ func TestIsSessionChildRejectsAnotherDaemonsSession(t *testing.T) {
 	// runtime directory.
 	cmd := fakeSessionChild(t, "/other/daemon/home")
 
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
-		t.Fatalf("the helper process is not running, so this proves nothing: %v", err)
+	if !processExists(cmd.Process.Pid) {
+		t.Fatal("the helper process is not running, so this proves nothing")
 	}
 	if isSessionChild(cmd.Process.Pid, "/our/daemon/home") {
 		t.Fatal("a sweep would kill a live session belonging to another daemon")
@@ -277,7 +276,7 @@ func TestSweepOrphanSessionsSkipsTheCurrentRun(t *testing.T) {
 
 	sweepOrphanSessions(run)
 
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
+	if !processExists(cmd.Process.Pid) {
 		t.Fatal("the sweep killed a process belonging to the current run")
 	}
 }
@@ -291,8 +290,8 @@ func TestSweepSparesAnUnprovenProcess(t *testing.T) {
 
 	cmd := fakeSessionChild(t, "/some/other/home")
 
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
-		t.Fatalf("the helper process is not running, so this proves nothing: %v", err)
+	if !processExists(cmd.Process.Pid) {
+		t.Fatal("the helper process is not running, so this proves nothing")
 	}
 	if err := writeSessionRecords([]sessionRecord{
 		{ID: 1, PID: cmd.Process.Pid, Started: time.Now(), Run: "a-dead-run"},
@@ -302,7 +301,7 @@ func TestSweepSparesAnUnprovenProcess(t *testing.T) {
 
 	sweepOrphanSessions("this-run")
 
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
+	if !processExists(cmd.Process.Pid) {
 		t.Fatal("the sweep killed a process it could not prove it owned")
 	}
 }

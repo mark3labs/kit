@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -133,8 +132,7 @@ func isSessionChild(pid int, owner string) bool {
 	if pid <= 0 || pid == os.Getpid() {
 		return false
 	}
-	// Signal 0 tests for existence and permission without delivering.
-	if err := syscall.Kill(pid, 0); err != nil {
+	if !processExists(pid) {
 		return false
 	}
 	cmdline, err := processCmdline(pid)
@@ -198,17 +196,17 @@ func sweepOrphanSessions(run string) {
 // terminal; SIGKILL only if it is still there after the grace period. A
 // session killed mid-write would otherwise leave a truncated JSONL.
 func terminateProcess(pid int) {
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := signalTerm(pid); err != nil {
 		return
 	}
 	deadline := time.Now().Add(childGrace)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); err != nil {
+		if !processExists(pid) {
 			return // exited on its own terms
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = signalKill(pid)
 }
 
 // childGrace is how long a session child gets to exit after SIGTERM before
