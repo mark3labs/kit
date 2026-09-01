@@ -36,9 +36,17 @@ import (
 const (
 	// keyV is the kitty key code for 'v'.
 	keyV = 118
-	// leaderKey is the legacy byte for Ctrl-X.
-	leaderKey = 0x18
-	// keyX is the kitty key code for 'x' (the client-side detach leader).
+	// leaderKey is the legacy byte for Ctrl-]: the multiplexer leader.
+	// A dedicated leader keeps the client's command namespace disjoint
+	// from the host TUI's own Ctrl-X chords (steer, thinking, move,
+	// editor), so remote and local keymaps stay identical.
+	leaderKey = 0x1d
+	// legacyLeaderKey is the byte for Ctrl-X, the original detach chord
+	// prefix. Kept as a deprecated alias for Ctrl-] d only.
+	legacyLeaderKey = 0x18
+	// keyBracket is the kitty key code for ']'.
+	keyBracket = 93
+	// keyX is the kitty key code for 'x'.
 	keyX = 120
 	// kittyModCtrl is the ctrl bit in the kitty modifier encoding (the
 	// modifier value is 1 + shift|alt|ctrl).
@@ -51,6 +59,18 @@ const (
 	// CSI sequence split across reads arrives within microseconds; a
 	// standalone Esc key press is followed by human-scale silence.
 	escIdleFlush = 50 * time.Millisecond
+)
+
+// leaderKind distinguishes the two chord prefixes the client recognises.
+type leaderKind uint8
+
+const (
+	leaderNone leaderKind = iota
+	// leaderPrimary is Ctrl-]: the client owns every suffix after it.
+	leaderPrimary
+	// leaderLegacy is Ctrl-X: only 'd' is claimed, for compatibility with
+	// the original detach chord. Every other suffix belongs to the host.
+	leaderLegacy
 )
 
 // kittyEventKind classifies a decoded CSI-u event for the 'v' key.
@@ -69,16 +89,18 @@ type keyEvent struct {
 	// Release is true for a Ctrl-V release event. Data holds the original
 	// wire bytes.
 	Release bool
-	// Leader is true for a Ctrl-X press (or repeat) — the client-side
-	// detach chord prefix. Data holds the original wire bytes.
+	// Leader is true for a leader press (or repeat) — the chord prefix.
+	// Kind reports which leader it was. Data holds the original wire bytes.
 	Leader bool
-	// LeaderRelease is true for a Ctrl-X release event. It is tracked
+	// LeaderRelease is true for a leader release event. It is tracked
 	// separately from Release because the two carry different meaning to
 	// the client: a Ctrl-V release may need suppression after an image
-	// interception, while a Ctrl-X release lands BETWEEN the chord prefix
+	// interception, while a leader release lands BETWEEN the chord prefix
 	// and its suffix and must never disarm the pending chord. Data holds
 	// the original wire bytes.
 	LeaderRelease bool
+	// Kind reports which leader a Leader or LeaderRelease event carries.
+	Kind leaderKind
 	// Data is the original wire bytes for passthrough.
 	Data []byte
 }
@@ -170,9 +192,9 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 				k.buf = k.buf[:0]
 				k.inCSI = false
 				i++
-				if lp, lr, lh := k.decodeLeader(seq); lh {
+				if lp, lr, kind := k.decodeLeader(seq); kind != leaderNone {
 					emitOther()
-					events = append(events, keyEvent{Leader: lp, LeaderRelease: lr, Data: seq})
+					events = append(events, keyEvent{Leader: lp, LeaderRelease: lr, Kind: kind, Data: seq})
 					continue
 				}
 				paste, release, handled := k.decodeCSI(seq)
@@ -199,9 +221,13 @@ func (k *keyScanner) Feed(chunk []byte) []keyEvent {
 			emitOther()
 			events = append(events, keyEvent{Paste: true, Data: []byte{pasteKey}})
 		case b == leaderKey:
+			// Legacy encoding of Ctrl-].
+			emitOther()
+			events = append(events, keyEvent{Leader: true, Kind: leaderPrimary, Data: []byte{leaderKey}})
+		case b == legacyLeaderKey:
 			// Legacy encoding of Ctrl-X.
 			emitOther()
-			events = append(events, keyEvent{Leader: true, Data: []byte{leaderKey}})
+			events = append(events, keyEvent{Leader: true, Kind: leaderLegacy, Data: []byte{legacyLeaderKey}})
 		default:
 			other = append(other, b)
 		}
@@ -264,16 +290,21 @@ func (k *keyScanner) decodeCSI(seq []byte) (paste, release, handled bool) {
 	return false, false, false
 }
 
-// decodeLeader reports a Ctrl-X press/repeat/release (the detach chord
-// prefix) in kitty encoding.
-func (k *keyScanner) decodeLeader(seq []byte) (press, release, handled bool) {
+// decodeLeader reports a leader press/repeat/release in kitty encoding and
+// which leader it was. leaderNone means the sequence is not a leader.
+func (k *keyScanner) decodeLeader(seq []byte) (press, release bool, kind leaderKind) {
 	if len(seq) < 3 || seq[0] != 0x1b || seq[1] != '[' || seq[len(seq)-1] != 'u' {
-		return false, false, false
+		return false, false, leaderNone
 	}
 	params := strings.Split(string(seq[2:len(seq)-1]), ";")
 	key, _, _ := strings.Cut(params[0], ":")
-	if key != strconv.Itoa(keyX) {
-		return false, false, false
+	switch key {
+	case strconv.Itoa(keyBracket):
+		kind = leaderPrimary
+	case strconv.Itoa(keyX):
+		kind = leaderLegacy
+	default:
+		return false, false, leaderNone
 	}
 	mod := 1
 	event := kittyPress
@@ -289,10 +320,10 @@ func (k *keyScanner) decodeLeader(seq []byte) (press, release, handled bool) {
 		}
 	}
 	if (mod-1)&kittyModCtrl == 0 {
-		return false, false, false
+		return false, false, leaderNone
 	}
 	if event == kittyRelease {
-		return false, true, true
+		return false, true, kind
 	}
-	return true, false, true
+	return true, false, kind
 }

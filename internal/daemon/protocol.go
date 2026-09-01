@@ -35,9 +35,20 @@ const (
 	// logical sessions.
 	FrameSessionDetach    FrameType = 0x07 // client -> daemon: unbind me, keep the session
 	FrameSessionList      FrameType = 0x08 // client -> daemon: list live sessions (payload empty)
-	FrameSessionListReply FrameType = 0x09 // daemon -> client: JSON [{id,clients,started,cwd}]
+	FrameSessionListReply FrameType = 0x09 // daemon -> client: JSON [{id,clients,started,cwd,name}]
 	FrameSessionAttach    FrameType = 0x0a // client -> daemon: {logical id u64 BE}
 	FrameSessionAttachAck FrameType = 0x0b // daemon -> client: {logical id u64 BE, ok 0|1}
+	// FrameSessionRedraw asks the daemon to make the session's child
+	// repaint. A client that has just attached inherits a screen the child
+	// already drew, so without this the terminal stays blank until the
+	// next keystroke. The daemon nudges the PTY size, which is what makes
+	// a full-screen TUI redraw; doing it daemon-side keeps the two size
+	// changes off the network, where the round trip made the old
+	// client-side version of this trick unreliable.
+	FrameSessionRedraw FrameType = 0x0c // client -> daemon: repaint (payload empty)
+	// FrameSessionRename sets a session's display name so a list of many
+	// sessions stays readable.
+	FrameSessionRename FrameType = 0x0d // client -> daemon: {id u64 BE, name UTF-8}
 
 	// Tunnel -> daemon session lifecycle (serve side only).
 	FrameSessionOpen   FrameType = 0x16

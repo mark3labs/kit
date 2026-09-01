@@ -89,6 +89,14 @@ type daemonRuntime struct {
 	sink  *frameSink // the live sidecar's frame sink; nil while it is down
 }
 
+// currentSink returns the live sidecar's frame sink. A nil sink is safe to
+// write to: frameSink.write reports the connection as closed.
+func (rt *daemonRuntime) currentSink() *frameSink {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.sink
+}
+
 // setSink records the frame sink of the current sidecar tunnel.
 func (rt *daemonRuntime) setSink(s *frameSink) {
 	rt.mu.Lock()

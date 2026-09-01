@@ -30,15 +30,14 @@ import (
 // `kit daemon pair`. First-time clients pair through `kit daemon pair`,
 // which runs its own short-lived bootstrap endpoint.
 func Serve(ctx context.Context) error {
+	// A missing sidecar is no longer fatal: local sessions need only the
+	// Unix socket, so the daemon still does useful work on a machine with
+	// no sidecar built. Remote pairing is what becomes unavailable.
+	haveTunnel := true
 	if _, err := FindTunnelBinary(); err != nil {
-		return err // fail fast with a clear message instead of per attempt
+		haveTunnel = false
+		log.Warn("daemon: remote sessions are disabled", "error", err)
 	}
-
-	seed, err := LoadDaemonIdentity()
-	if err != nil {
-		return err
-	}
-	secretHex := hex.EncodeToString(seed)
 
 	// Single instance per user: the lock is held for the daemon's lifetime
 	// and released automatically on crash, so there is no stale-lock state.
@@ -58,9 +57,44 @@ func Serve(ctx context.Context) error {
 	// running (detached) while clients come and go.
 	table := newSessionTable(rt)
 
+	// The local socket is bound before the tunnel and closed only on
+	// shutdown, so local clients are unaffected by sidecar restarts. The
+	// lock above guarantees no other daemon owns this socket.
+	sockPath, err := LocalSocketPath()
+	if err != nil {
+		return err
+	}
+	ln, err := listenLocal(sockPath)
+	if err != nil {
+		if !haveTunnel {
+			return fmt.Errorf("%w (and no sidecar for remote sessions)", err)
+		}
+		log.Warn("daemon: local sessions are disabled", "error", err)
+	} else {
+		defer ln.Close()
+		defer os.Remove(sockPath)
+		go serveLocal(ctx, ln, table)
+		fmt.Printf("  Local socket: %s\n", sockPath)
+	}
+
+	if !haveTunnel {
+		fmt.Println("  Remote sessions: unavailable (kit-tunnel sidecar not found)")
+		fmt.Println("  Attach locally with: kit attach")
+		fmt.Println()
+		<-ctx.Done()
+		table.killAll()
+		return ctx.Err()
+	}
+
+	seed, err := LoadDaemonIdentity()
+	if err != nil {
+		return err
+	}
+	secretHex := hex.EncodeToString(seed)
+
 	// If the tunnel process dies unexpectedly (crash, kill), restart it
 	// with the same identity: the endpoint id is stable, so paired clients
-	// find us again. Live sessions do not survive the restart.
+	// find us again. Live sessions survive the restart, detached.
 	for {
 		if ctx.Err() != nil {
 			table.killAll()
@@ -128,7 +162,45 @@ type remoteSession struct {
 	started time.Time
 
 	mu      sync.Mutex
+	name    string             // user-set display name, empty until renamed
 	clients map[uint32]winSize // attached wire ids -> last known size (0,0 = unknown)
+}
+
+// setName records a user-supplied display name.
+func (s *remoteSession) setName(name string) {
+	s.mu.Lock()
+	s.name = name
+	s.mu.Unlock()
+}
+
+// displayName returns the session's name, or "" when it has none.
+func (s *remoteSession) displayName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.name
+}
+
+// nudgeRedraw makes the child repaint by changing the PTY size and putting
+// it back. A full-screen TUI redraws on SIGWINCH, which is the only
+// portable way to force a repaint of a child we do not emulate.
+//
+// Both size changes happen here rather than at the client, so the gap
+// between them is a local sleep instead of two network round trips. The
+// child needs to observe two distinct sizes: setting the same size twice
+// is not a change and produces no repaint.
+func (s *remoteSession) nudgeRedraw() {
+	s.mu.Lock()
+	size := minSizeLocked(s.clients)
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil || size.cols < 2 || size.rows < 2 {
+		return
+	}
+	go func() {
+		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows - 1)})
+		time.Sleep(40 * time.Millisecond)
+		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows)})
+	}()
 }
 
 type winSize struct{ cols, rows int }
@@ -311,6 +383,12 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 			t.sendSessionList(frame.Session)
 		case FrameSessionAttach:
 			t.attachSession(frame.Session, frame.Payload)
+		case FrameSessionRedraw:
+			if sess := t.logicalFor(frame.Session); sess != nil {
+				sess.nudgeRedraw()
+			}
+		case FrameSessionRename:
+			t.renameSession(frame.Payload)
 		case FrameData:
 			if sess := t.logicalFor(frame.Session); sess != nil {
 				if _, err := sess.ptmx.Write(frame.Payload); err != nil {
@@ -576,6 +654,11 @@ func (t *sessionTable) handleAuthPayload(payload []byte) {
 
 // decideAuth answers the sidecar's consultation. The payload mirrors what
 // the Rust side parses: correlation key (8), verdict byte, optional reason.
+//
+// This frame is addressed to the sidecar itself, not to a client, so it
+// goes straight to the tunnel sink. Routing it through writeTo would look
+// up wire id 0, which no connection ever owns, and the daemon would
+// silently stop answering handshakes.
 func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 	out := make([]byte, 0, 8+1+len(reason))
 	out = append(out, corr...)
@@ -585,7 +668,7 @@ func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 		out = append(out, 0)
 	}
 	out = append(out, reason...)
-	_ = t.writeTo(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
+	_ = t.rt.currentSink().write(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
 }
 
 // sessionInfo is one row of the client-facing session list.
@@ -594,6 +677,25 @@ type sessionInfo struct {
 	Clients int    `json:"clients"`
 	Started string `json:"started"`
 	Cwd     string `json:"cwd,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+// renameSession applies a client's rename request: {id u64 BE, name}.
+func (t *sessionTable) renameSession(payload []byte) {
+	if len(payload) < 8 {
+		return
+	}
+	id := binary.BigEndian.Uint64(payload[:8])
+	name := strings.TrimSpace(string(payload[8:]))
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	t.mu.Lock()
+	sess := t.sessions[id]
+	t.mu.Unlock()
+	if sess != nil {
+		sess.setName(name)
+	}
 }
 
 // sendSessionList replies to a client's list request with the live
@@ -619,14 +721,24 @@ func (t *sessionTable) sendSessionList(wire uint32) {
 			ID:      id,
 			Clients: len(sess.clientIDs()),
 			Started: sess.started.Format(time.RFC3339),
-		}
-		if sess.cmd != nil && sess.cmd.Process != nil {
-			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", sess.cmd.Process.Pid)); err == nil {
-				info.Cwd = cwd
-			}
+			Name:    sess.displayName(),
+			Cwd:     sessionCwd(sess),
 		}
 		infos = append(infos, info)
 	}
+	// A stable order keeps the picker's rows from jumping between
+	// refreshes, and gives the next/previous chords a meaningful sense of
+	// direction. Map iteration alone would randomise both.
+	slices.SortFunc(infos, func(a, b sessionInfo) int {
+		switch {
+		case a.ID < b.ID:
+			return -1
+		case a.ID > b.ID:
+			return 1
+		default:
+			return 0
+		}
+	})
 	payload, err := json.Marshal(infos)
 	if err != nil {
 		return
@@ -789,6 +901,27 @@ func remoteClipboardPath(session uint64) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-clip-%d", session))
 }
 
+// sessionCwdPath is the stable per-session file a session's child writes
+// its working directory into, once the directory picker has resolved it.
+//
+// Reading /proc/<pid>/cwd would be simpler but only works on Linux, and it
+// reports the child's cwd rather than the directory the user picked. The
+// file follows the same convention as the clipboard file above.
+func sessionCwdPath(session uint64) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-cwd-%d", session))
+}
+
+// sessionCwd reports a session's working directory for the session list.
+// It is empty until the child has chosen one, which is the honest answer
+// while the directory picker is still on screen.
+func sessionCwd(s *remoteSession) string {
+	data, err := os.ReadFile(sessionCwdPath(s.id))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
 // daemon user's home directory, so the remote peer picks the session's
 // working directory from the modal rendered inside the PTY.
@@ -805,6 +938,7 @@ func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 		env = append(env, "TERM=xterm-256color")
 	}
 	env = append(env, clipboard.RemoteClipboardEnv+"="+remoteClipboardPath(session))
+	env = append(env, sessionCwdEnv+"="+sessionCwdPath(session))
 	cmd.Env = env
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})

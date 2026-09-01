@@ -31,7 +31,10 @@ After pairing, reconnect by the name you saved — no code needed:
   kit remote --host homelab
 
 The session runs entirely on the host; this terminal just renders it.
-Ctrl-] detaches; /quit ends the session.`,
+Ctrl-] d detaches; /quit ends the session.
+
+'kit attach --host <name>' is the same thing with session switching:
+Ctrl-] s picks another session, Ctrl-] w lists every paired host.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		ctx := cmd.Context()
 		switch {
@@ -61,7 +64,9 @@ Ctrl-] detaches; /quit ends the session.`,
 			}
 			return daemon.RunPair(ctx, daemon.PairOptions{Code: code, Name: remoteHost})
 		case remoteHost != "":
-			return daemon.RunHost(ctx, remoteHost)
+			return daemon.RunHost(ctx, remoteHost, daemon.AttachOptions{
+				Pick: localPicker,
+			})
 		default:
 			return cmd.Help()
 		}
