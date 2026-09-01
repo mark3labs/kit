@@ -3,6 +3,9 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,4 +91,67 @@ func TestHubAttachReportsCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runHubAttach error = %v, want context.Canceled", err)
 	}
+}
+
+// TestAppendRemoteSessionsReportsCancellationBeforeNamingHosts pins the
+// ordering of the cancellation check in the `--all` listing.
+//
+// This is the mid-flight case: the local sessions were listed fine and the
+// user gave up during the host fan-out. Cancellation fails every host
+// query at once, so all of them end up on the skipped list — and naming
+// them tells the user their machines are unreachable, which is a false
+// report about their infrastructure, printed on the way to returning the
+// cancellation anyway.
+func TestAppendRemoteSessionsReportsCancellationBeforeNamingHosts(t *testing.T) {
+	if hosts, err := daemon.ListHosts(); err != nil || len(hosts) == 0 {
+		t.Skip("no paired hosts on this machine: nothing could be named unreachable")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	local := []daemon.SessionEntry{{ID: 1}} // already listed before the cancel
+	cancel()
+
+	var entries []daemon.SessionEntry
+	var err error
+	stderr := captureStderr(t, func() {
+		entries, err = appendRemoteSessions(ctx, local)
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if strings.Contains(stderr, "Skipped unreachable host") {
+		t.Fatalf("a cancelled listing named hosts as unreachable: %q", stderr)
+	}
+	if len(entries) != len(local) {
+		t.Fatalf("entries = %d, want the %d already listed locally", len(entries), len(local))
+	}
+}
+
+// captureStderr runs fn with os.Stderr redirected and returns what it
+// wrote. Reads happen on a goroutine so a write larger than the pipe
+// buffer cannot deadlock fn.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	real := os.Stderr
+	os.Stderr = w
+
+	out := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		out <- b.String()
+	}()
+
+	fn()
+
+	os.Stderr = real
+	_ = w.Close()
+	got := <-out
+	_ = r.Close()
+	return got
 }

@@ -155,6 +155,12 @@ type clientConn struct {
 	stdinStop     chan struct{}
 	stdinDone     chan struct{}
 	stdinStopOnce sync.Once
+	// stdinStopped is closed once stopStdin has finished, and
+	// stdinReleased records whether the terminal actually came back.
+	// Concurrent callers wait on the first so none of them reports a
+	// hand-off that has not happened yet.
+	stdinStopped  chan struct{}
+	stdinReleased atomic.Bool
 
 	// divert, when non-nil, sends terminal input to a running picker
 	// instead of the session pump.
@@ -244,26 +250,40 @@ func (c *clientConn) readStdin(ctx context.Context) error {
 
 // stopStdin ends the terminal reader and releases stdin.
 //
-// Safe to call more than once and from any goroutine. The reader is
-// cancelled first and closed only once the goroutine has left it: closing
-// a cancel reader under an in-flight read is a data race on the file.
-func (c *clientConn) stopStdin() {
+// Safe to call more than once and from any goroutine; every caller gets
+// the same answer. The reader is cancelled first and closed only once the
+// goroutine has left it: closing a cancel reader under an in-flight read
+// is a data race on the file.
+//
+// Reports whether the terminal was actually released. Cancel is not
+// guaranteed to work — the fallback reader always refuses, and the
+// Windows one gives up if a read is wedged — and a caller that hands the
+// terminal to another client on a false promise gets the stolen-keystroke
+// bug this whole path exists to prevent. Callers that pass stdin on must
+// check it; callers that are exiting the process need not.
+func (c *clientConn) stopStdin() bool {
 	c.stdinStopOnce.Do(func() {
 		close(c.stdinStop)
 		if c.stdinReader == nil {
-			return // readStdin never ran
+			c.stdinReleased.Store(true) // readStdin never ran: nothing holds stdin
+			close(c.stdinStopped)
+			return
 		}
 		c.stdinReader.Cancel()
 		select {
 		case <-c.stdinDone:
 			_ = c.stdinReader.Close()
+			c.stdinReleased.Store(true)
 		case <-time.After(2 * time.Second):
 			// The reader did not acknowledge the cancel. Leaving its fd
 			// open costs one descriptor for the rest of the process;
 			// closing it under a live read would corrupt an unrelated
 			// file the descriptor is later reused for.
 		}
+		close(c.stdinStopped)
 	})
+	<-c.stdinStopped // a concurrent caller must not answer before the result is known
+	return c.stdinReleased.Load()
 }
 
 // pickerTTY diverts terminal input to a picker for as long as it is open.
@@ -347,15 +367,16 @@ func (c *clientConn) divertPicker() *pickerTTY {
 
 func newClientConn(rw io.ReadWriter) *clientConn {
 	return &clientConn{
-		rw:        rw,
-		sink:      newFrameSink(rw),
-		ctrlCh:    make(chan Frame, 16),
-		endedCh:   make(chan struct{}),
-		closedCh:  make(chan struct{}),
-		stdinCh:   make(chan []byte, 8),
-		stdinErr:  make(chan error, 1),
-		stdinStop: make(chan struct{}),
-		stdinDone: make(chan struct{}),
+		rw:           rw,
+		sink:         newFrameSink(rw),
+		ctrlCh:       make(chan Frame, 16),
+		endedCh:      make(chan struct{}),
+		closedCh:     make(chan struct{}),
+		stdinCh:      make(chan []byte, 8),
+		stdinErr:     make(chan error, 1),
+		stdinStop:    make(chan struct{}),
+		stdinDone:    make(chan struct{}),
+		stdinStopped: make(chan struct{}),
 	}
 }
 
@@ -552,7 +573,7 @@ func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entrie
 // the user detaches, the session ends, or the connection drops.
 //
 // The caller owns rw and closes it.
-func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error {
+func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return fmt.Errorf("attaching to a session needs an interactive terminal")
 	}
@@ -581,7 +602,20 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 	// switch starts a second client, and an error returned from here is
 	// rendered by a printer that queries the terminal — and a reader still
 	// parked on stdin would swallow their input, or deadlock them.
-	defer conn.stopStdin()
+	//
+	// A hand-off that cannot be made is reported rather than hidden: the
+	// next client would look alive while every keystroke went to this one.
+	defer func() {
+		if conn.stopStdin() {
+			return
+		}
+		if err == nil || errors.Is(err, errSessionEnded) {
+			// Nothing is going to run after us that needs the terminal,
+			// and the process is on its way out; saying so would be noise.
+			return
+		}
+		err = fmt.Errorf("%w (this terminal did not release its input; start a new one to continue)", err)
+	}()
 
 	choice, err := chooseSession(ctx, conn, opts)
 	if err != nil {

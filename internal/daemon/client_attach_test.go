@@ -367,7 +367,9 @@ func TestStopStdinReleasesTheTerminal(t *testing.T) {
 		t.Fatal("the terminal reader delivered nothing")
 	}
 
-	conn.stopStdin()
+	if !conn.stopStdin() {
+		t.Fatal("stopStdin reported the terminal was not released")
+	}
 
 	// The reader is gone, so a later reader on the same terminal gets the
 	// next keystroke — and, crucially, gets it at all.
@@ -566,3 +568,52 @@ func TestReadStdinRefusesAnUncancellableTerminal(t *testing.T) {
 	default:
 	}
 }
+
+// TestStopStdinReportsAnUnreleasedTerminal covers the case where the
+// reader cannot be cancelled.
+//
+// Cancel is not guaranteed: cancelreader's fallback reader always refuses,
+// and the Windows one gives up when a read is wedged. stopStdin used to
+// return nothing, so the client handed the terminal on regardless — and a
+// cross-host switch would then start a second client whose keystrokes all
+// went to the first one's reader, which is the exact bug this path exists
+// to prevent, in its hardest-to-diagnose form.
+func TestStopStdinReportsAnUnreleasedTerminal(t *testing.T) {
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	// A reader that refuses to cancel and never finishes, which is what a
+	// wedged terminal looks like from here.
+	conn.stdinReader = stubbornReader{}
+
+	start := time.Now()
+	if conn.stopStdin() {
+		t.Fatal("stopStdin claimed a terminal it never got back")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Fatalf("stopStdin gave up after %s: it must wait for the reader before deciding", elapsed)
+	}
+
+	// Every caller must get the same answer, and none may hang: the
+	// result is decided once and shared.
+	second := make(chan bool, 1)
+	go func() { second <- conn.stopStdin() }()
+	select {
+	case got := <-second:
+		if got {
+			t.Fatal("a second caller was told the terminal was released")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second stopStdin call blocked")
+	}
+}
+
+// stubbornReader is a CancelReader that cannot be cancelled, standing in
+// for a terminal whose read is wedged.
+type stubbornReader struct{}
+
+func (stubbornReader) Read([]byte) (int, error) { select {} }
+func (stubbornReader) Cancel() bool             { return false }
+func (stubbornReader) Close() error             { return nil }

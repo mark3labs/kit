@@ -280,6 +280,26 @@ func reportSkippedHosts(skipped []string) {
 	fmt.Fprintf(os.Stderr, "Skipped unreachable host(s): %s\n", strings.Join(skipped, ", "))
 }
 
+// appendRemoteSessions adds every paired host's sessions to entries.
+//
+// Cancellation is reported before the skipped hosts are named: it fails
+// every host query at once, and telling the user their machines are
+// unreachable when the listing was simply abandoned is a false report
+// about their infrastructure. A missing host book is not an error — there
+// is simply nothing to add.
+func appendRemoteSessions(ctx context.Context, entries []daemon.SessionEntry) ([]daemon.SessionEntry, error) {
+	hosts, err := daemon.ListHosts()
+	if err != nil {
+		return entries, nil
+	}
+	remote, skipped := remoteSessionEntries(ctx, hosts, "")
+	if cerr := ctx.Err(); cerr != nil {
+		return entries, cerr
+	}
+	reportSkippedHosts(skipped)
+	return append(entries, remote...), nil
+}
+
 var lsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List live kit sessions",
@@ -295,14 +315,13 @@ skipped.`,
 			return err
 		}
 		if attachAll {
-			if hosts, herr := daemon.ListHosts(); herr == nil {
-				remote, skipped := remoteSessionEntries(ctx, hosts, "")
-				entries = append(entries, remote...)
-				reportSkippedHosts(skipped)
+			entries, err = appendRemoteSessions(ctx, entries)
+			if err != nil {
+				return err
 			}
 		}
-		// Same reasoning as runHubAttach: a cancelled listing is empty,
-		// and printing "no live sessions" for it would be a false report.
+		// A cancelled listing is also an empty one, and printing "no live
+		// sessions" for it would be a false report.
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
