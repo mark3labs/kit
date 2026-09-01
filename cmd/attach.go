@@ -27,7 +27,7 @@ var (
 // internal/daemon must not import internal/ui: the daemon runs headless as
 // a service, and the client is driven from here. This converter is the
 // same pattern cmd/root.go uses for the extension widget providers.
-func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title string) (daemon.SessionChoice, error) {
+func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title string, keepAlt bool) (daemon.SessionChoice, error) {
 	view := make([]ui.SessionEntry, len(entries))
 	for i, e := range entries {
 		view[i] = ui.SessionEntry{
@@ -39,7 +39,7 @@ func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title strin
 			Host:    e.Host,
 		}
 	}
-	pick, err := ui.RunSessionPicker(view, input, title)
+	pick, err := ui.RunSessionPicker(view, input, title, keepAlt)
 	if err != nil {
 		return daemon.SessionChoice{Cancel: true}, err
 	}
@@ -55,12 +55,14 @@ func sessionPickerFor(entries []daemon.SessionEntry, input *os.File, title strin
 
 // localPicker is the single-daemon picker.
 func localPicker(entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
-	return sessionPickerFor(entries, input, "Live sessions")
+	// Called from inside an attached client, which owns the alt screen.
+	return sessionPickerFor(entries, input, "Live sessions", true)
 }
 
 // hubPicker is the cross-host picker behind Ctrl-] w.
 func hubPicker(entries []daemon.SessionEntry, input *os.File) (daemon.SessionChoice, error) {
-	return sessionPickerFor(entries, input, "Sessions across all paired hosts")
+	// Called from inside an attached client, which owns the alt screen.
+	return sessionPickerFor(entries, input, "Sessions across all paired hosts", true)
 }
 
 var attachCmd = &cobra.Command{
@@ -171,7 +173,8 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 		return nil
 	}
 
-	choice, err := hubPicker(entries, os.Stdin)
+	// Runs before any client attaches, so this picker owns the screen.
+	choice, err := sessionPickerFor(entries, os.Stdin, "Sessions across all paired hosts", false)
 	if err != nil || choice.Cancel {
 		return err
 	}

@@ -135,7 +135,7 @@ type clientConn struct {
 	// divert, when non-nil, sends terminal input to a running picker
 	// instead of the session pump.
 	divertMu sync.Mutex
-	divert   chan []byte
+	divert   *pickerTTY
 }
 
 // readStdin starts the connection's single terminal reader. Chunks go to
@@ -149,8 +149,16 @@ func (c *clientConn) readStdin() {
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				if ch := c.divertTarget(); ch != nil {
-					ch <- chunk
+				// The picker can close between divertTarget and the
+				// send, and its channel is buffered, so a blind send can
+				// park here forever with no receiver — which would kill
+				// keyboard input for the rest of the process. Abandon the
+				// keystroke if the picker is gone.
+				if pt := c.divertPicker(); pt != nil {
+					select {
+					case pt.ch <- chunk:
+					case <-pt.done:
+					}
 				} else {
 					c.stdinCh <- chunk
 				}
@@ -213,7 +221,7 @@ func (c *clientConn) pickerInput() (*pickerTTY, error) {
 		}
 	}()
 	c.divertMu.Lock()
-	c.divert = p.ch
+	c.divert = p
 	c.divertMu.Unlock()
 	return p, nil
 }
@@ -224,7 +232,7 @@ func (p *pickerTTY) File() *os.File { return p.slave }
 // Close restores input to the session pump and releases the pty.
 func (p *pickerTTY) Close() {
 	p.conn.divertMu.Lock()
-	if p.conn.divert == p.ch {
+	if p.conn.divert == p {
 		p.conn.divert = nil
 	}
 	p.conn.divertMu.Unlock()
@@ -233,8 +241,10 @@ func (p *pickerTTY) Close() {
 	_ = p.master.Close()
 }
 
-// divertTarget returns the active picker's input channel, or nil.
-func (c *clientConn) divertTarget() chan []byte {
+// divertPicker returns the active picker, or nil when none is running.
+// The reader needs the picker itself, not just its channel, so it can
+// observe the done signal while trying to send.
+func (c *clientConn) divertPicker() *pickerTTY {
 	c.divertMu.Lock()
 	defer c.divertMu.Unlock()
 	return c.divert
@@ -437,9 +447,16 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 
 	// The alt screen is entered once for the whole attachment and left on
 	// the way out, so the user's shell scrollback comes back untouched.
+	// The parting message is deferred with it: printed inside the alt
+	// screen it would be drawn over the session's last frame and then
+	// scrubbed away with it.
+	var parting string
 	_, _ = os.Stdout.WriteString(altScreenEnter)
 	defer func() {
 		_, _ = os.Stdout.WriteString(terminalResetSeq + altScreenLeave)
+		if parting != "" {
+			fmt.Fprintln(os.Stderr, parting)
+		}
 	}()
 
 	conn := newClientConn(rw)
@@ -501,10 +518,10 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 			choice = next
 			continue
 		case out.detached:
-			fmt.Fprintf(os.Stderr, "\nDetached — the session keeps running on the daemon. Reattach with: %s\n", opts.Reattach)
+			parting = fmt.Sprintf("Detached — the session keeps running on the daemon. Reattach with: %s", opts.Reattach)
 			return nil
 		case out.ended:
-			fmt.Fprintln(os.Stderr, "\nSession ended.")
+			parting = "Session ended."
 			return nil
 		default:
 			return nil

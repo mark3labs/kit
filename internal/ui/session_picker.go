@@ -49,8 +49,11 @@ type sessionPickerModel struct {
 	quitting  bool
 	cancelled bool
 	title     string
-	width     int
-	height    int
+	// keepAlt leaves the alternate screen on for the final render, for a
+	// caller that entered it itself and is still using it.
+	keepAlt bool
+	width   int
+	height  int
 }
 
 func (m *sessionPickerModel) Init() tea.Cmd { return nil }
@@ -95,9 +98,13 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *sessionPickerModel) View() tea.View {
 	if m.cancelled || m.quitting {
 		// Leave alt screen on the final render so the terminal returns to
-		// the normal buffer cleanly (see dirPickerModel.View).
+		// the normal buffer cleanly (see dirPickerModel.View) — unless the
+		// caller owns it. The attach client enters the alternate screen
+		// for the whole attachment and keeps rendering the session there
+		// after the picker exits, so emitting the mode-1049 exit sequence
+		// here would drop the caller's screen too.
 		v := tea.NewView("")
-		v.AltScreen = false
+		v.AltScreen = m.keepAlt
 		v.MouseMode = tea.MouseModeNone
 		return v
 	}
@@ -199,12 +206,16 @@ func buildRows(entries []SessionEntry) []pickerRow {
 
 // RunSessionPicker shows the live sessions and lets the user attach to one
 // or start a new session.
-func RunSessionPicker(entries []SessionEntry, input *os.File, title string) (SessionPick, error) {
+//
+// keepAltScreen tells the picker that the caller already owns the
+// alternate screen and will keep using it, so the picker must not leave it
+// on exit.
+func RunSessionPicker(entries []SessionEntry, input *os.File, title string, keepAltScreen bool) (SessionPick, error) {
 	if title == "" {
 		title = "Live sessions"
 	}
 	rows := buildRows(entries)
-	m := &sessionPickerModel{rows: rows, title: title}
+	m := &sessionPickerModel{rows: rows, title: title, keepAlt: keepAltScreen}
 	// Start on the first selectable row, which is a header when grouped.
 	for i, r := range rows {
 		if r.selectable {
