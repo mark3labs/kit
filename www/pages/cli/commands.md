@@ -291,6 +291,46 @@ kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 ```
 
+## Detachable sessions
+
+Run Kit inside a session that survives closing your terminal, and switch
+between several of them like tmux or zellij. Sessions are hosted by a
+background daemon; `kit attach` starts one automatically if none is
+running. See [Remote sessions](/advanced/remote-sessions) for the full
+picture.
+
+```bash
+kit attach                        # Pick a live session, or start one
+kit attach 3                      # Attach straight to session 3
+kit attach --new                  # Skip the picker, start a new session
+kit attach --host homelab         # Attach on a paired remote host
+kit attach --all                  # Pick a session across every paired host
+
+kit ls                            # List live sessions on this machine
+kit ls --all                      # Include sessions on every paired host
+```
+
+A new session opens the working-directory picker; the session then behaves
+exactly like a local `kit`. Inside a session, `Ctrl+]` is the multiplexer
+prefix:
+
+| Chord | Action |
+|-------|--------|
+| `Ctrl+] d` | Detach; the session keeps running |
+| `Ctrl+] s` | Switch to another session |
+| `Ctrl+] c` | Start a new session |
+| `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
+| `Ctrl+] w` | Switch across paired hosts |
+| `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |
+
+The prefix is deliberately not `Ctrl+X`: that belongs to the session itself
+([steering](#mid-turn-steering), [external editor](#external-editor)), so
+the keymap is identical whether Kit runs locally or through a session.
+
+Sessions survive a client disconnect, but not a restart of the hosting
+daemon — see [Sessions and daemon
+restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
 ## Remote sessions
 
 Run Kit as a daemon on one machine and attach to it from another over an
@@ -311,9 +351,10 @@ kit daemon service remove         # Stop and uninstall the service
 kit remote --pair A1B2C3D4        # Pair and save the host under a name
 
 # On the client (any time after)
-kit remote --host homelab            # Attach to the paired host
+kit remote --host homelab         # Attach to the paired host
+kit attach --host homelab         # Same, with session switching (Ctrl+] s)
 kit remote --list                 # List paired hosts
-kit remote --forget homelab          # Forget a saved host
+kit remote --forget homelab       # Forget a saved host
 ```
 
 Pairing is one-time and human-approved: the code only works while the

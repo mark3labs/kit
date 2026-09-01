@@ -288,6 +288,25 @@ kit github install --no-secret # Skip the offer to set the provider secret via t
 # ACP server
 kit acp                      # Start as ACP agent (stdio JSON-RPC)
 kit acp --debug              # With debug logging to stderr
+
+# Detachable sessions (survive closing the terminal; Ctrl+] is the prefix)
+kit attach                   # Pick a live session, or start one
+kit attach 3                 # Attach straight to session 3
+kit attach --new             # Skip the picker, start a new session
+kit ls                       # List live sessions
+kit ls --all                 # Include sessions on every paired host
+
+# Remote sessions (host)
+kit daemon                   # Host sessions for local and paired clients
+kit daemon pair              # One-time pairing: show code, confirm here
+kit daemon status            # Endpoint, paired clients, active sessions
+kit daemon service install   # Install + start the systemd user service
+
+# Remote sessions (client)
+kit remote --pair A1B2C3D4   # Pair with a host and save it under a name
+kit remote --host homelab    # Attach to the paired host
+kit attach --host homelab    # Same, with session switching
+kit attach --all             # Pick a session across every paired host
 ```
 
 ## Themes

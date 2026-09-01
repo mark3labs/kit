@@ -1,13 +1,25 @@
 ---
 title: Remote Sessions
-description: Run Kit on one machine and drive it from another over an end-to-end encrypted iroh connection.
+description: Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.
 ---
 
 # Remote Sessions
 
-Kit can run as a daemon on one machine and be driven from another. All work —
-the agent, tools, extensions, sessions — happens on the daemon host; your
-local terminal just renders it. The transport is [iroh](https://iroh.computer):
+Kit can run as a daemon that hosts **detachable sessions**: a session keeps
+running when you close the terminal, and you can reattach to it later,
+switch between several like tmux, or share one with someone else. The
+daemon can be on this machine or on another.
+
+For sessions on this machine, no setup and no pairing is needed — skip to
+[Sessions on this machine](#sessions-on-this-machine):
+
+```bash
+kit attach
+```
+
+The rest of this page covers **remote** sessions. All work — the agent,
+tools, extensions, sessions — happens on the daemon host; your local
+terminal just renders it. The transport is [iroh](https://iroh.computer):
 a direct, end-to-end encrypted QUIC connection that holes through NATs and
 falls back to relays.
 
