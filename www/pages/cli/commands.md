@@ -322,7 +322,7 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and `/quit` closes only that
-client's connection. `Ctrl+X d` detaches — the session keeps running on the
+client's connection. `Ctrl+] d` detaches — the session keeps running on the
 host and can be reattached later (or shared by several clients at once, with
 every attached terminal mirroring the same screen). Only one daemon may run
 per user.

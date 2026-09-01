@@ -60,8 +60,41 @@ rendering, and session persistence all run on the daemon host.
 | `kit remote --host <name>` | client | Connect to a paired host |
 | `kit remote --list` | client | List saved hosts |
 | `kit remote --forget <name>` | client | Forget a saved host |
+| `kit attach` | either | Attach to a session on this machine (starts a daemon if needed) |
+| `kit attach --host <name>` | client | Attach on a paired host, with session switching |
+| `kit attach --all` | client | Pick a session across every paired host |
+| `kit ls` | either | List live sessions (`--all` includes paired hosts) |
 
-`Ctrl+X d` **detaches**: your terminal returns to the local shell and the
+## Sessions on this machine
+
+`kit attach` gives you the same detachable sessions without any pairing:
+it talks to a daemon on this machine over a Unix socket in
+`$XDG_RUNTIME_DIR/kit/`, and starts one if none is running. The socket is
+`0600` inside a `0700` directory and every connection's peer uid is
+checked, so only your own processes can reach it. No sidecar is needed —
+a machine with no `kit-tunnel` build still runs local sessions, it just
+cannot host remote ones.
+
+## Session keys
+
+Inside an attached session, `Ctrl+]` is the multiplexer prefix:
+
+| Chord | Action |
+|-------|--------|
+| `Ctrl+] d` | Detach; the session keeps running |
+| `Ctrl+] s` | Switch to another session |
+| `Ctrl+] c` | Start a new session |
+| `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
+| `Ctrl+] w` | Switch across paired hosts |
+| `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |
+
+The prefix is deliberately **not** `Ctrl+X`: that one belongs to the
+session itself (`Ctrl+X s` steers, `Ctrl+X e` opens `$EDITOR`, and so on),
+and every chord the client took would stop working over a connection. With
+a separate prefix the keymap is identical whether kit runs locally or
+through a session. `Ctrl+X d` still detaches, for compatibility.
+
+`Ctrl+] d` **detaches**: your terminal returns to the local shell and the
 session keeps running on the host — type `/quit` inside the session to end
 it for good. Detached sessions are listed on the next connect, so you can
 pick up exactly where you left off.

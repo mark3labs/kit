@@ -31,7 +31,8 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
-- **Remote Sessions**: `kit daemon` on one machine; pair a client once with `kit daemon pair` + `kit remote --pair <code>` (accept/reject on the host), then connect any time with `kit remote --host <name>` — sessions can be detached (`Ctrl+X d`) and reattached from the in-client session list, or shared by several clients at once (tmux-style mirrored view) — end-to-end encrypted iroh transport, revocable public-key credentials, clipboard image paste from the client machine, systemd service support
+- **Sessions**: `kit attach` runs a detachable session on a local daemon (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle), `kit ls` lists them
+- **Remote Sessions**: `kit daemon` on one machine; pair a client once with `kit daemon pair` + `kit remote --pair <code>` (accept/reject on the host), then connect any time with `kit remote --host <name>` — sessions can be detached (`Ctrl+] d`) and reattached from the in-client session list, or shared by several clients at once (tmux-style mirrored view) — end-to-end encrypted iroh transport, revocable public-key credentials, clipboard image paste from the client machine, systemd service support
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
 ## Installation
@@ -657,7 +658,7 @@ During an interactive session, use these slash commands:
 | `Ctrl+U` | Clear all pending image attachments |
 | `Ctrl+X e` | Open `$VISUAL`/`$EDITOR` to compose or edit your prompt |
 | `Ctrl+X s` | Steer — inject a system-level instruction mid-turn |
-| `Ctrl+X d` | In `kit remote`: detach — the session keeps running on the host |
+| `Ctrl+]` | Session prefix in `kit attach`/`kit remote`: `d` detach · `s` switch · `c` new · `n`/`p` cycle · `w` across hosts |
 | `ESC ESC` | Cancel the current operation (tool call or streaming) |
 | `↑` / `↓` | Navigate prompt history |
 
