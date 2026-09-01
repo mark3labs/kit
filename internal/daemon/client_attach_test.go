@@ -387,3 +387,46 @@ func TestStopStdinReleasesTheTerminal(t *testing.T) {
 		t.Fatal("stdin was never handed back: the cancelled reader still owns it")
 	}
 }
+
+// TestStopStdinWithNobodyReading covers the shutdown path taken after the
+// session pump has already gone.
+//
+// The reader forwards keystrokes into a buffered channel. Once the pump
+// stops, nothing drains it, so a reader that cannot abandon a send parks
+// there for good — and stopStdin, which waits for the reader to leave
+// before closing it, would wait forever. Anything typed between the last
+// frame and the client's exit lands in exactly that window.
+func TestStopStdinWithNobodyReading(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+	conn.readStdin()
+
+	// Overrun the channel with nobody receiving, so the reader is parked
+	// on a send when the client tears down.
+	for range cap(conn.stdinCh) * 3 {
+		if _, werr := w.Write([]byte("x")); werr != nil {
+			t.Fatalf("write: %v", werr)
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() { conn.stopStdin(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stopStdin deadlocked on a reader parked mid-send")
+	}
+}

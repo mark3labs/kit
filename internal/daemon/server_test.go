@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/binary"
 	"io"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 // fakeSessionChild starts a long-running process that looks exactly like a
@@ -340,4 +343,104 @@ func TestTerminateProcessEndsAChild(t *testing.T) {
 		_ = cmd.Process.Kill()
 		t.Fatal("terminateProcess did not end the child")
 	}
+}
+
+// TestSharedSessionRegrowsWhenTheSmallestClientLeaves covers the PTY size
+// of a shared session when a client goes away.
+//
+// The PTY is held at the smallest attached client's window, so a session
+// watched by a 110x32 terminal and a 70x20 one runs at 70x20. When the
+// small client leaves, the PTY must grow back: the new minimum was
+// computed and then thrown away, so the session stayed squeezed into a
+// window that was no longer watching it and the remaining terminal drew
+// into a corner of itself, with no way out but resizing it by hand.
+//
+// The size is read back from a real pty, because that is where the bug
+// was: the client bookkeeping was correct all along.
+func TestSharedSessionRegrowsWhenTheSmallestClientLeaves(t *testing.T) {
+	big := winSize{110, 32}
+	small := winSize{70, 20}
+
+	// ptySession is a session backed by a real pty, so Setsize is
+	// observable. The size starts at the shared minimum, as if both
+	// clients had already reported.
+	ptySession := func(t *testing.T, table *sessionTable, id uint64, wires map[uint32]winSize) *remoteSession {
+		t.Helper()
+		ptmx, tty, err := pty.Open()
+		if err != nil {
+			t.Skipf("no pty available: %v", err)
+		}
+		t.Cleanup(func() { _ = tty.Close(); _ = ptmx.Close() })
+
+		sess := table.fakeSession(id)
+		sess.ptmx = ptmx
+		table.mu.Lock()
+		for wire := range wires {
+			table.wireMap[wire] = id
+		}
+		table.mu.Unlock()
+		for wire, ws := range wires {
+			sess.attachClient(wire, ws)
+		}
+		sess.applySize(sess.minSize())
+		return sess
+	}
+
+	sizeOf := func(t *testing.T, sess *remoteSession) winSize {
+		t.Helper()
+		ws, err := pty.GetsizeFull(sess.ptmx)
+		if err != nil {
+			t.Fatalf("pty size: %v", err)
+		}
+		return winSize{int(ws.Cols), int(ws.Rows)}
+	}
+
+	const bigWire, smallWire uint32 = 1, 2
+
+	t.Run("detach", func(t *testing.T) {
+		table := newTestTable(t)
+		sess := ptySession(t, table, 1, map[uint32]winSize{bigWire: big, smallWire: small})
+		if got := sizeOf(t, sess); got != small {
+			t.Fatalf("shared size = %+v, want the smaller client's %+v", got, small)
+		}
+
+		table.detachWire(smallWire)
+
+		if got := sizeOf(t, sess); got != big {
+			t.Fatalf("pty after the small client left = %+v, want %+v", got, big)
+		}
+	})
+
+	t.Run("switch away", func(t *testing.T) {
+		table := newTestTable(t)
+		left := ptySession(t, table, 1, map[uint32]winSize{bigWire: big, smallWire: small})
+		table.fakeSession(2)
+
+		// The small client moves to session 2; session 1 keeps the big one.
+		table.attachSession(smallWire, encodeSessionID(2))
+
+		if got := sizeOf(t, left); got != big {
+			t.Fatalf("pty after the small client switched away = %+v, want %+v", got, big)
+		}
+	})
+
+	t.Run("last client leaves", func(t *testing.T) {
+		table := newTestTable(t)
+		sess := ptySession(t, table, 1, map[uint32]winSize{smallWire: small})
+
+		table.detachWire(smallWire)
+
+		// Nobody is watching, so there is no size to apply: the pty keeps
+		// its last one until the next client reports its window.
+		if got := sizeOf(t, sess); got != small {
+			t.Fatalf("pty with no clients = %+v, want it left at %+v", got, small)
+		}
+	})
+}
+
+// encodeSessionID builds an attach payload for the given logical id.
+func encodeSessionID(id uint64) []byte {
+	p := make([]byte, 8)
+	binary.BigEndian.PutUint64(p, id)
+	return p
 }

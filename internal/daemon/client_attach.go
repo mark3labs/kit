@@ -142,7 +142,13 @@ type clientConn struct {
 	// cross-host switch starts a second client with its own reader — and
 	// that caller then blocks behind our reader forever. Reading through a
 	// cancel reader lets stopStdin give the terminal back.
-	stdinReader   cancelreader.CancelReader
+	stdinReader cancelreader.CancelReader
+	// stdinStop asks the reader to stop; stdinDone reports that it has.
+	// Closing a cancel reader while a read is in flight is a data race on
+	// the file, so the two are separate: stopStdin cancels, waits for the
+	// goroutine to leave, and only then closes.
+	stdinStop     chan struct{}
+	stdinDone     chan struct{}
 	stdinStopOnce sync.Once
 
 	// divert, when non-nil, sends terminal input to a running picker
@@ -165,6 +171,10 @@ func (c *clientConn) readStdin() {
 		src = cr
 	}
 	go func() {
+		// stdinDone is registered first so it closes last: a waiter woken
+		// by it must find the goroutine completely finished with the
+		// reader, not merely past the channel close.
+		defer close(c.stdinDone)
 		defer close(c.stdinCh)
 		buf := make([]byte, 256)
 		for {
@@ -176,14 +186,22 @@ func (c *clientConn) readStdin() {
 				// send, and its channel is buffered, so a blind send can
 				// park here forever with no receiver — which would kill
 				// keyboard input for the rest of the process. Abandon the
-				// keystroke if the picker is gone.
+				// keystroke if the picker is gone, or if we are stopping:
+				// a send that cannot be abandoned would outlive the
+				// client and deadlock stopStdin.
 				if pt := c.divertPicker(); pt != nil {
 					select {
 					case pt.ch <- chunk:
 					case <-pt.done:
+					case <-c.stdinStop:
+						return
 					}
 				} else {
-					c.stdinCh <- chunk
+					select {
+					case c.stdinCh <- chunk:
+					case <-c.stdinStop:
+						return
+					}
 				}
 			}
 			if err != nil {
@@ -193,20 +211,38 @@ func (c *clientConn) readStdin() {
 				}
 				return
 			}
+			select {
+			case <-c.stdinStop:
+				return
+			default:
+			}
 		}
 	}()
 }
 
 // stopStdin ends the terminal reader and releases stdin.
 //
-// Safe to call more than once and from any goroutine.
+// Safe to call more than once and from any goroutine. The reader is
+// cancelled first and closed only once the goroutine has left it: closing
+// a cancel reader under an in-flight read is a data race on the file.
+// Without a cancel reader (an unusual stdin) there is nothing to stop, and
+// waiting would hang on a goroutine parked in an uninterruptible read.
 func (c *clientConn) stopStdin() {
 	c.stdinStopOnce.Do(func() {
+		close(c.stdinStop)
 		if c.stdinReader == nil {
 			return
 		}
 		c.stdinReader.Cancel()
-		_ = c.stdinReader.Close()
+		select {
+		case <-c.stdinDone:
+			_ = c.stdinReader.Close()
+		case <-time.After(2 * time.Second):
+			// The reader did not acknowledge the cancel. Leaving its fd
+			// open costs one descriptor for the rest of the process;
+			// closing it under a live read would corrupt an unrelated
+			// file the descriptor is later reused for.
+		}
 	})
 }
 
@@ -291,13 +327,15 @@ func (c *clientConn) divertPicker() *pickerTTY {
 
 func newClientConn(rw io.ReadWriter) *clientConn {
 	return &clientConn{
-		rw:       rw,
-		sink:     newFrameSink(rw),
-		ctrlCh:   make(chan Frame, 16),
-		endedCh:  make(chan struct{}),
-		closedCh: make(chan struct{}),
-		stdinCh:  make(chan []byte, 8),
-		stdinErr: make(chan error, 1),
+		rw:        rw,
+		sink:      newFrameSink(rw),
+		ctrlCh:    make(chan Frame, 16),
+		endedCh:   make(chan struct{}),
+		closedCh:  make(chan struct{}),
+		stdinCh:   make(chan []byte, 8),
+		stdinErr:  make(chan error, 1),
+		stdinStop: make(chan struct{}),
+		stdinDone: make(chan struct{}),
 	}
 }
 
