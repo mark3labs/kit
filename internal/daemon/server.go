@@ -253,6 +253,14 @@ func (s *remoteSession) resizeClient(wire uint32, ws winSize) winSize {
 	return minSizeLocked(s.clients)
 }
 
+// minSize reports the size the PTY is held at: the smallest attached
+// client's window, or the zero size when none has reported one.
+func (s *remoteSession) minSize() winSize {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return minSizeLocked(s.clients)
+}
+
 // clientIDs snapshots the attached wire ids.
 func (s *remoteSession) clientIDs() []uint32 {
 	s.mu.Lock()
@@ -479,9 +487,15 @@ func (t *sessionTable) detachWire(wire uint32) {
 	if sess == nil {
 		return
 	}
-	if _, remaining := sess.detachClient(wire); remaining == 0 {
+	if next, remaining := sess.detachClient(wire); remaining == 0 {
 		log.Info("session detached", "session_id", logical)
 	} else {
+		// The PTY is held at the smallest attached client's size, so a
+		// client leaving can widen it. Without this the session stays
+		// squeezed into a window that is no longer watching it, and the
+		// clients still attached keep drawing into a corner of their
+		// terminals until they happen to resize one.
+		sess.applySize(next)
 		log.Info("client left shared session", "session_id", logical, "remaining", remaining)
 	}
 }
@@ -506,15 +520,22 @@ func (t *sessionTable) killAll() {
 	}
 }
 
+// applySize sets the session's PTY to ws, if it names a real size.
+//
+// The zero size means no attached client has reported one yet, and the
+// PTY is left at its default rather than resized to nothing.
+func (s *remoteSession) applySize(ws winSize) {
+	if ws.cols == 0 || ws.rows == 0 || s.ptmx == nil {
+		return
+	}
+	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
+}
+
 // applyResize records one client's size and applies the minimum across all
 // attached clients to the PTY — the shared-view equivalent of tmux picking
 // the smallest window.
 func (s *remoteSession) applyResize(wire uint32, cols, rows int) {
-	next := s.resizeClient(wire, winSize{cols, rows})
-	if next.cols == 0 || next.rows == 0 {
-		return // nobody has reported a real size yet
-	}
-	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(next.cols), Rows: uint16(next.rows)})
+	s.applySize(s.resizeClient(wire, winSize{cols, rows}))
 }
 
 // handleClipboardChunk consumes one client clipboard frame. Chunked image
@@ -835,10 +856,14 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		sess := t.sessions[requested]
 		if sess != nil {
 			// A wire id drives at most one session: drop any previous
-			// binding first (that session keeps running detached).
+			// binding first (that session keeps running detached, and
+			// regains the room this client was taking from it).
 			if prev, had := t.wireMap[wire]; had && prev != requested {
 				if ps := t.sessions[prev]; ps != nil {
-					ps.detachClient(wire)
+					left, remaining := ps.detachClient(wire)
+					if remaining > 0 {
+						ps.applySize(left)
+					}
 				}
 			}
 			t.wireMap[wire] = requested

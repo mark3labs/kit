@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -49,11 +50,8 @@ type sessionPickerModel struct {
 	quitting  bool
 	cancelled bool
 	title     string
-	// keepAlt leaves the alternate screen on for the final render, for a
-	// caller that entered it itself and is still using it.
-	keepAlt bool
-	width   int
-	height  int
+	width     int
+	height    int
 }
 
 func (m *sessionPickerModel) Init() tea.Cmd { return nil }
@@ -97,14 +95,16 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *sessionPickerModel) View() tea.View {
 	if m.cancelled || m.quitting {
-		// Leave alt screen on the final render so the terminal returns to
-		// the normal buffer cleanly (see dirPickerModel.View) — unless the
-		// caller owns it. The attach client enters the alternate screen
-		// for the whole attachment and keeps rendering the session there
-		// after the picker exits, so emitting the mode-1049 exit sequence
-		// here would drop the caller's screen too.
+		// Leave the alternate screen on the final render so the terminal
+		// returns to the normal buffer cleanly (see dirPickerModel.View).
+		//
+		// A caller that owns the alt screen itself does not get to keep it
+		// either way: Bubble Tea restores whatever screen state it entered
+		// when the program shuts down, so holding the alt screen for this
+		// last frame only moves the exit sequence later. The attach client
+		// re-enters the alt screen after the picker returns.
 		v := tea.NewView("")
-		v.AltScreen = m.keepAlt
+		v.AltScreen = false
 		v.MouseMode = tea.MouseModeNone
 		return v
 	}
@@ -207,15 +207,20 @@ func buildRows(entries []SessionEntry) []pickerRow {
 // RunSessionPicker shows the live sessions and lets the user attach to one
 // or start a new session.
 //
-// keepAltScreen tells the picker that the caller already owns the
-// alternate screen and will keep using it, so the picker must not leave it
-// on exit.
-func RunSessionPicker(entries []SessionEntry, input *os.File, title string, keepAltScreen bool) (SessionPick, error) {
+// ctx cancels the picker: it blocks in the Bubble Tea run loop, which the
+// caller cannot interrupt any other way. Cancellation ends it as if the
+// user had pressed Esc, so the terminal is restored on the way out.
+//
+// The picker owns the alternate screen while it runs and leaves it when it
+// exits. A caller that was in the alt screen itself must re-enter it
+// afterwards; Bubble Tea restores the screen state on shutdown, so the
+// picker cannot hand it over.
+func RunSessionPicker(ctx context.Context, entries []SessionEntry, input *os.File, title string) (SessionPick, error) {
 	if title == "" {
 		title = "Live sessions"
 	}
 	rows := buildRows(entries)
-	m := &sessionPickerModel{rows: rows, title: title, keepAlt: keepAltScreen}
+	m := &sessionPickerModel{rows: rows, title: title}
 	// Start on the first selectable row, which is a header when grouped.
 	for i, r := range rows {
 		if r.selectable {
@@ -232,9 +237,38 @@ func RunSessionPicker(entries []SessionEntry, input *os.File, title string, keep
 		opts = append(opts, tea.WithInput(input))
 	}
 	prog := tea.NewProgram(m, opts...)
+
+	// Cancellation quits the program the same way Esc does, rather than
+	// through tea.WithContext. WithContext kills the program: it skips the
+	// final render, so the alt screen and the terminal modes are left as
+	// the picker had them — the very state this picker is careful to
+	// restore. (It also races its own input reader on that path.) Quit
+	// runs the ordinary shutdown, so the caller gets its terminal back.
+	stopWatch := make(chan struct{})
+	defer close(stopWatch)
+	go func() {
+		select {
+		case <-ctx.Done():
+			prog.Quit()
+		case <-stopWatch:
+		}
+	}()
+
 	final, err := prog.Run()
 	if err != nil {
+		// A cancelled context is the caller shutting the client down, not
+		// a picker failure: report it as the cancellation it is so the
+		// caller does not print a picker error on its way out.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return SessionPick{Cancelled: true}, ctxErr
+		}
 		return SessionPick{Cancelled: true}, fmt.Errorf("session picker: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// Quit on cancellation ends the program cleanly, so Run returns no
+		// error. Report the cancellation rather than the empty choice it
+		// would otherwise look like.
+		return SessionPick{Cancelled: true}, ctxErr
 	}
 	sp, ok := final.(*sessionPickerModel)
 	if !ok {

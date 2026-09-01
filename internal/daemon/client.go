@@ -195,7 +195,9 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 	// switch.
 	opts.Host = name
 	if opts.Reattach == "" {
-		opts.Reattach = "kit remote --host " + name
+		// The hint is completed with the session id, and only 'kit attach'
+		// takes one: 'kit remote --host X 1' is not a valid command line.
+		opts.Reattach = "kit attach --host " + name
 	}
 	return RunClient(ctx, tunnelStream{tun}, opts)
 }
@@ -245,7 +247,7 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 		case strings.Contains(last, "No addressing information available"):
 			return nil, fmt.Errorf("could not resolve the daemon's endpoint (is 'kit daemon' running on the host?)")
 		case strings.Contains(last, "timed out"):
-			return nil, fmt.Errorf("could not reach the daemon (network or relay issue)")
+			return nil, fmt.Errorf("%s did not answer — check that 'kit daemon' is running there, or that the network allows the connection", name)
 		}
 		return nil, fmt.Errorf("daemon: %w", err)
 	}
@@ -257,13 +259,17 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 // attaching, for the multi-host picker. The whole exchange is bounded by
 // timeout: an unreachable host must not stall a picker that has other
 // hosts to show.
-func ListHostSessions(name string, timeout time.Duration) ([]SessionEntry, error) {
+//
+// ctx cancels the query early. The picker queries every paired host at
+// once, and each query is a sidecar process, so a caller that gives up
+// must be able to take them down without waiting out the timeout.
+func ListHostSessions(ctx context.Context, name string, timeout time.Duration) ([]SessionEntry, error) {
 	entry, err := GetHost(name)
 	if err != nil {
 		return nil, err
 	}
 	deadline := time.Now().Add(timeout)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
 	tun, err := dialHostQuiet(ctx, name, entry, true)

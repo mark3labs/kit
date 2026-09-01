@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"context"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -297,7 +299,7 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 	for _, host := range []string{"", "violet"} {
 		t.Run("host="+host, func(t *testing.T) {
 			forceNew := AttachOptions{Host: host, ForceNew: true, Pick: nil}
-			choice, err := chooseSession(nil, forceNew)
+			choice, err := chooseSession(t.Context(), nil, forceNew)
 			if err != nil {
 				t.Fatalf("chooseSession: %v", err)
 			}
@@ -306,7 +308,7 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 			}
 
 			direct := AttachOptions{Host: host, Target: 7, Pick: localPickerStub}
-			choice, err = chooseSession(nil, direct)
+			choice, err = chooseSession(t.Context(), nil, direct)
 			if err != nil {
 				t.Fatalf("chooseSession: %v", err)
 			}
@@ -321,6 +323,297 @@ func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
 }
 
 // localPickerStub stands in for a picker that is never called.
-func localPickerStub(entries []SessionEntry, _ *os.File) (SessionChoice, error) {
+func localPickerStub(_ context.Context, entries []SessionEntry, _ *os.File) (SessionChoice, error) {
 	return SessionChoice{}, nil
 }
+
+// TestStopStdinReleasesTheTerminal covers the hand-back that makes an
+// attach client survivable.
+//
+// A goroutine parked in os.Stdin.Read holds the file's read lock, and that
+// lock outlives the client: whoever runs next — the error renderer, which
+// queries the terminal, or the second client started by a cross-host
+// switch — blocks behind it, or has its keystrokes stolen by it. The
+// symptoms were a hang with a blank screen after any failed attach, and a
+// completely deaf terminal after Ctrl-] w.
+func TestStopStdinReleasesTheTerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+	if rerr := conn.readStdin(t.Context()); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
+
+	if _, err := w.Write([]byte("a")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	select {
+	case chunk := <-conn.stdinCh:
+		if string(chunk) != "a" {
+			t.Fatalf("read %q, want %q", chunk, "a")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the terminal reader delivered nothing")
+	}
+
+	if !conn.stopStdin() {
+		t.Fatal("stopStdin reported the terminal was not released")
+	}
+
+	// The reader is gone, so a later reader on the same terminal gets the
+	// next keystroke — and, crucially, gets it at all.
+	if _, err := w.Write([]byte("b")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 1)
+		if n, rerr := os.Stdin.Read(buf); rerr == nil && n == 1 {
+			got <- string(buf[:n])
+		}
+	}()
+	select {
+	case s := <-got:
+		if s != "b" {
+			t.Fatalf("second reader saw %q, want %q", s, "b")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stdin was never handed back: the cancelled reader still owns it")
+	}
+}
+
+// TestStopStdinWithNobodyReading covers the shutdown path taken after the
+// session pump has already gone.
+//
+// The reader forwards keystrokes into a buffered channel. Once the pump
+// stops, nothing drains it, so a reader that cannot abandon a send parks
+// there for good — and stopStdin, which waits for the reader to leave
+// before closing it, would wait forever. Anything typed between the last
+// frame and the client's exit lands in exactly that window.
+func TestStopStdinWithNobodyReading(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+	if rerr := conn.readStdin(t.Context()); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
+
+	// Overrun the channel with nobody receiving, so the reader is parked
+	// on a send when the client tears down.
+	for range cap(conn.stdinCh) * 3 {
+		if _, werr := w.Write([]byte("x")); werr != nil {
+			t.Fatalf("write: %v", werr)
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() { conn.stopStdin(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stopStdin deadlocked on a reader parked mid-send")
+	}
+}
+
+// TestStayOnCurrentNeverSpawnsASession covers the choice made when a user
+// dismisses a session picker.
+//
+// The switch loop reuses the choice that opened the picker, and for a
+// client started with --new that choice is 0 — which the daemon reads as
+// "spawn a session". Pressing Ctrl-] s and then Esc therefore answered a
+// dismissed picker with a brand new session, abandoning the one the user
+// was working in and leaving an empty session behind on the daemon.
+func TestStayOnCurrentNeverSpawnsASession(t *testing.T) {
+	for _, host := range []string{"", "violet"} {
+		t.Run("host="+host, func(t *testing.T) {
+			conn := newClientConn(struct {
+				io.Reader
+				io.Writer
+			}{Reader: strings.NewReader(""), Writer: io.Discard})
+			opts := AttachOptions{Host: host}
+
+			// The client began with --new, so the choice that opened the
+			// picker is the "spawn one" sentinel.
+			opened := SessionChoice{ID: 0, Host: host}
+			conn.setCurrent(4) // ...and the daemon assigned session 4
+
+			stay := stayOnCurrent(conn, opts)
+
+			if stay.ID == opened.ID {
+				t.Fatal("a dismissed picker reattached the --new sentinel: this spawns a second session")
+			}
+			if stay.ID != 4 {
+				t.Fatalf("stay.ID = %d, want the current session 4", stay.ID)
+			}
+			// The choice must stay on this daemon, or the switch loop
+			// reads it as a cross-host hop.
+			if sw := hostSwitch(opts, stay); sw != nil {
+				t.Fatalf("staying put on host %q was read as a switch to %q", host, sw.Host)
+			}
+		})
+	}
+}
+
+// TestReadStdinReleasesTheTerminalOnCancel checks that cancelling the
+// client's context hands the terminal back on its own.
+//
+// The client also stops the reader when it unwinds, but that can trail the
+// cancellation: an in-flight attach or session list waits out a fixed
+// timeout, not the context, so the terminal would stay captured for
+// seconds after the caller gave up on it.
+func TestReadStdinReleasesTheTerminalOnCancel(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	if rerr := conn.readStdin(ctx); rerr != nil {
+		t.Fatalf("readStdin: %v", rerr)
+	}
+
+	// The reader is parked on the terminal with nothing to read, which is
+	// the state cancellation has to break.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-conn.stdinDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a cancelled context did not release the terminal")
+	}
+}
+
+// TestReadStdinRefusesAnUncancellableTerminal covers the setup failure
+// branch.
+//
+// The client's whole terminal-safety story rests on the reader being
+// stoppable: stopStdin cancels it so the next caller can have stdin back.
+// A fallback to reading os.Stdin directly would look like it worked and
+// then quietly strand the terminal, because stopStdin has nothing to
+// cancel and returns having released nothing. readStdin must refuse
+// instead, so the failure is visible rather than a hang later on.
+//
+// A regular file stands in for a terminal the cancel reader cannot take:
+// epoll rejects it, which is exactly the error path under test.
+func TestReadStdinRefusesAnUncancellableTerminal(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "not-a-terminal-*")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = realStdin }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	if rerr := conn.readStdin(t.Context()); rerr == nil {
+		t.Fatal("readStdin accepted a terminal it cannot cancel: the reader would strand stdin")
+	}
+	if conn.stdinReader != nil {
+		t.Fatal("a failed setup must not leave a reader behind")
+	}
+
+	// The failure must leave nothing running, and stopStdin must stay safe
+	// to call: the caller cannot know how far setup got.
+	done := make(chan struct{})
+	go func() { conn.stopStdin(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopStdin blocked after a failed readStdin")
+	}
+
+	select {
+	case <-conn.stdinCh:
+		t.Fatal("a failed readStdin still started a reader goroutine")
+	default:
+	}
+}
+
+// TestStopStdinReportsAnUnreleasedTerminal covers the case where the
+// reader cannot be cancelled.
+//
+// Cancel is not guaranteed: cancelreader's fallback reader always refuses,
+// and the Windows one gives up when a read is wedged. stopStdin used to
+// return nothing, so the client handed the terminal on regardless — and a
+// cross-host switch would then start a second client whose keystrokes all
+// went to the first one's reader, which is the exact bug this path exists
+// to prevent, in its hardest-to-diagnose form.
+func TestStopStdinReportsAnUnreleasedTerminal(t *testing.T) {
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	// A reader that refuses to cancel and never finishes, which is what a
+	// wedged terminal looks like from here.
+	conn.stdinReader = stubbornReader{}
+
+	start := time.Now()
+	if conn.stopStdin() {
+		t.Fatal("stopStdin claimed a terminal it never got back")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Fatalf("stopStdin gave up after %s: it must wait for the reader before deciding", elapsed)
+	}
+
+	// Every caller must get the same answer, and none may hang: the
+	// result is decided once and shared.
+	second := make(chan bool, 1)
+	go func() { second <- conn.stopStdin() }()
+	select {
+	case got := <-second:
+		if got {
+			t.Fatal("a second caller was told the terminal was released")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second stopStdin call blocked")
+	}
+}
+
+// stubbornReader is a CancelReader that cannot be cancelled, standing in
+// for a terminal whose read is wedged.
+type stubbornReader struct{}
+
+func (stubbornReader) Read([]byte) (int, error) { select {} }
+func (stubbornReader) Cancel() bool             { return false }
+func (stubbornReader) Close() error             { return nil }
