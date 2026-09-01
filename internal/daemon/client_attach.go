@@ -373,18 +373,30 @@ func (c *clientConn) attach(id uint64) (uint64, error) {
 // chooseSession runs the picker when sessions exist, and short-circuits to
 // a new session when none do.
 func chooseSession(conn *clientConn, opts AttachOptions) (SessionChoice, error) {
+	// A choice that did not come from a picker is on this daemon by
+	// definition, so it carries this client's host. Leaving it empty would
+	// make hostSwitch read every --host attach as a switch to the local
+	// daemon.
+	here := func(id uint64) SessionChoice {
+		return SessionChoice{ID: id, Host: opts.Host}
+	}
 	if opts.ForceNew || opts.Pick == nil {
-		return SessionChoice{ID: 0}, nil
+		return here(0), nil
 	}
 	if opts.Target != 0 {
-		return SessionChoice{ID: opts.Target}, nil
+		return here(opts.Target), nil
 	}
 	entries, err := conn.listSessions()
 	if err != nil {
 		return SessionChoice{}, err
 	}
 	if len(entries) == 0 {
-		return SessionChoice{ID: 0}, nil // nothing live: straight to a new session
+		return here(0), nil // nothing live: straight to a new session
+	}
+	// This daemon's own sessions are reported with an empty host; tag them
+	// so they are distinguishable from another daemon's rows.
+	for i := range entries {
+		entries[i].Host = opts.Host
 	}
 	if opts.HubEntries != nil {
 		entries = append(entries, opts.HubEntries()...)
@@ -540,6 +552,9 @@ func resolveSwitch(conn *clientConn, opts AttachOptions, out attachOutcome) (Ses
 		if err != nil {
 			return SessionChoice{}, false, err
 		}
+		for i := range entries {
+			entries[i].Host = opts.Host
+		}
 		pick := opts.Pick
 		if out.switchHost == hubMarker {
 			if opts.HubEntries != nil {
@@ -565,10 +580,11 @@ func resolveSwitch(conn *clientConn, opts AttachOptions, out attachOutcome) (Ses
 			return SessionChoice{}, true, nil // nothing to cycle to
 		}
 		next := neighbourSession(entries, conn.current(), out.switchTo == cycleNext)
-		return SessionChoice{ID: next}, false, nil
+		return SessionChoice{ID: next, Host: opts.Host}, false, nil
 
 	default:
-		return SessionChoice{ID: out.switchTo, Host: out.switchHost}, false, nil
+		// Ctrl-] c and a direct id are always on this daemon.
+		return SessionChoice{ID: out.switchTo, Host: opts.Host}, false, nil
 	}
 }
 

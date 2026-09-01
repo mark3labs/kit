@@ -3,6 +3,7 @@ package daemon
 import (
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -283,4 +284,43 @@ func TestHostSwitchRefusesAForeignHostSession(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChooseSessionTagsChoicesWithTheCurrentHost guards the inverse of
+// TestHostSwitchRefusesAForeignHostSession: a choice made on the daemon we
+// are already connected to must NOT be treated as a cross-host switch.
+//
+// chooseSession returns bare ids for --new and for a direct target. If
+// those carry no host, hostSwitch reads them as a switch to the local
+// daemon and `kit attach --host NAME` silently bounces home.
+func TestChooseSessionTagsChoicesWithTheCurrentHost(t *testing.T) {
+	for _, host := range []string{"", "violet"} {
+		t.Run("host="+host, func(t *testing.T) {
+			forceNew := AttachOptions{Host: host, ForceNew: true, Pick: nil}
+			choice, err := chooseSession(nil, forceNew)
+			if err != nil {
+				t.Fatalf("chooseSession: %v", err)
+			}
+			if sw := hostSwitch(forceNew, choice); sw != nil {
+				t.Fatalf("--new on host %q was treated as a switch to %q", host, sw.Host)
+			}
+
+			direct := AttachOptions{Host: host, Target: 7, Pick: localPickerStub}
+			choice, err = chooseSession(nil, direct)
+			if err != nil {
+				t.Fatalf("chooseSession: %v", err)
+			}
+			if choice.ID != 7 {
+				t.Fatalf("target id = %d, want 7", choice.ID)
+			}
+			if sw := hostSwitch(direct, choice); sw != nil {
+				t.Fatalf("a direct id on host %q was treated as a switch to %q", host, sw.Host)
+			}
+		})
+	}
+}
+
+// localPickerStub stands in for a picker that is never called.
+func localPickerStub(entries []SessionEntry, _ *os.File) (SessionChoice, error) {
+	return SessionChoice{}, nil
 }
