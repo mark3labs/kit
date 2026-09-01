@@ -190,6 +190,10 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 	if opts.Name == "" {
 		opts.Name = name
 	}
+	// Sessions on this daemon are tagged with the saved host name by the
+	// hub picker, so a choice carrying a different host is a cross-host
+	// switch.
+	opts.Host = name
 	if opts.Reattach == "" {
 		opts.Reattach = "kit remote --host " + name
 	}
@@ -205,12 +209,21 @@ func (s tunnelStream) Write(p []byte) (int, error) { return s.t.Stdin().Write(p)
 
 // dialHost brings up a verified sidecar connection to a paired host.
 func dialHost(ctx context.Context, name string, entry HostEntry) (*Tunnel, error) {
+	return dialHostQuiet(ctx, name, entry, false)
+}
+
+// dialHostQuiet is dialHost with control over the progress message. The
+// hub picker queries every paired host while it owns the alt screen, so a
+// per-host "Connecting…" line would be drawn straight into the picker.
+func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool) (*Tunnel, error) {
 	clientSeed, err := LoadClientIdentity()
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Fprintln(os.Stderr, "Connecting to daemon…")
+	if !quiet {
+		fmt.Fprintln(os.Stderr, "Connecting to daemon…")
+	}
 	tun, err := StartTunnel(ctx, TunnelOptions{
 		Mode: "dial-host",
 		Args: []string{
@@ -249,10 +262,11 @@ func ListHostSessions(name string, timeout time.Duration) ([]SessionEntry, error
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
-	tun, err := dialHost(ctx, name, entry)
+	tun, err := dialHostQuiet(ctx, name, entry, true)
 	if err != nil {
 		return nil, err
 	}
@@ -260,5 +274,8 @@ func ListHostSessions(name string, timeout time.Duration) ([]SessionEntry, error
 
 	conn := newClientConn(tunnelStream{tun})
 	go conn.readLoop()
-	return conn.listSessions()
+	// Bound the reply by what is left of the caller's timeout: the picker
+	// queries hosts one at a time, so a host that stops replying must not
+	// stretch the wait past the deadline the caller asked for.
+	return conn.listSessionsWithin(time.Until(deadline))
 }

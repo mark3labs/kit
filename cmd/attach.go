@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -118,11 +120,39 @@ Inside a session, Ctrl-] is the multiplexer prefix:
 		if attachAll {
 			return runHubAttach(cmd, opts)
 		}
-		if attachHost != "" {
-			return daemon.RunHost(ctx, attachHost, opts)
-		}
-		return daemon.RunLocal(ctx, opts)
+		return runFollowingHostSwitches(ctx, attachHost, opts)
 	},
+}
+
+// maxHostSwitches bounds one invocation's cross-host hops, so a session
+// list that keeps pointing elsewhere cannot spin forever.
+const maxHostSwitches = 16
+
+// runFollowingHostSwitches attaches to a daemon and follows any cross-host
+// switch the user makes from inside a session.
+//
+// A client speaks to exactly one daemon, so Ctrl-] w cannot be served on
+// the current connection: it returns ErrSwitchHost and we dial the chosen
+// host here. Session ids are per-daemon, so the id only means anything
+// once we are talking to the daemon that issued it.
+func runFollowingHostSwitches(ctx context.Context, host string, opts daemon.AttachOptions) error {
+	for range maxHostSwitches {
+		var err error
+		if host == "" {
+			err = daemon.RunLocal(ctx, opts)
+		} else {
+			err = daemon.RunHost(ctx, host, opts)
+		}
+
+		var switchTo *daemon.ErrSwitchHost
+		if !errors.As(err, &switchTo) {
+			return err
+		}
+		host = switchTo.Host
+		opts.Target = switchTo.Session
+		opts.ForceNew = false
+	}
+	return fmt.Errorf("too many host switches in one session (limit %d)", maxHostSwitches)
 }
 
 // runHubAttach opens the cross-host picker before connecting anywhere, so
@@ -146,10 +176,7 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 		return err
 	}
 	opts.Target = choice.ID
-	if choice.Host == "" {
-		return daemon.RunLocal(ctx, opts)
-	}
-	return daemon.RunHost(ctx, choice.Host, opts)
+	return runFollowingHostSwitches(ctx, choice.Host, opts)
 }
 
 // remoteSessionEntries collects sessions from every paired host, tagged

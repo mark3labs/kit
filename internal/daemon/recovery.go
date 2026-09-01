@@ -246,9 +246,18 @@ func (t *sessionTable) syncSessionRegistry() {
 //
 // The files are named per daemon run, so a new daemon cannot inherit an
 // old session's clipboard image through a reused logical id — but the old
-// files would still accumulate in the temp directory after a crash.
+// files would still accumulate after a crash.
+//
+// The sweep is confined to this daemon's runtime directory. Sweeping a
+// shared directory would delete the live clipboard and cwd files of a
+// concurrently running daemon, whose sessions would then report no working
+// directory and silently drop image pastes.
 func sweepStaleTempFiles(run string) {
-	entries, err := os.ReadDir(os.TempDir())
+	dir, err := daemonRuntimeDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
@@ -260,7 +269,7 @@ func sweepStaleTempFiles(run string) {
 		if strings.Contains(name, run) {
 			continue // belongs to this run
 		}
-		_ = os.Remove(filepath.Join(os.TempDir(), name))
+		_ = os.Remove(filepath.Join(dir, name))
 	}
 }
 

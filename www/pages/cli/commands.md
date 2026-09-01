@@ -310,9 +310,16 @@ kit ls                            # List live sessions on this machine
 kit ls --all                      # Include sessions on every paired host
 ```
 
-A new session opens the working-directory picker; the session then behaves
-exactly like a local `kit`. Inside a session, `Ctrl+]` is the multiplexer
-prefix:
+Every new session starts with the working-directory picker, whichever way
+you create it — `kit attach`, `kit attach --new`, or `Ctrl+] c`. `--new`
+skips the *session* picker, not the directory one. Once a directory is
+chosen the session behaves exactly like a local `kit`.
+
+You can also run the directory picker outside a session with
+[`kit --pick-dir`](/cli/flags); the daemon uses that same flag to start
+each session.
+
+Inside a session, `Ctrl+]` is the multiplexer prefix:
 
 | Chord | Action |
 |-------|--------|
@@ -326,6 +333,8 @@ prefix:
 The prefix is deliberately not `Ctrl+X`: that belongs to the session itself
 ([steering](#mid-turn-steering), [external editor](#external-editor)), so
 the keymap is identical whether Kit runs locally or through a session.
+`Ctrl+X d` still detaches too, kept for compatibility with earlier
+releases.
 
 Sessions survive a client disconnect, but not a restart of the hosting
 daemon — see [Sessions and daemon
@@ -363,7 +372,8 @@ its terminal. After pairing, the client authenticates with its own signing
 key — no code involved — and the host can revoke it at any time. Each
 client picks a working directory and gets a private session; multiple
 clients can hold sessions at the same time and `/quit` closes only that
-client's connection. `Ctrl+] d` detaches — the session keeps running on the
+client's connection. `Ctrl+] d` detaches (`Ctrl+X d` still works, for
+compatibility) — the session keeps running on the
 host and can be reattached later (or shared by several clients at once, with
 every attached terminal mirroring the same screen). Only one daemon may run
 per user.

@@ -2,17 +2,33 @@
 
 package daemon
 
-import "os"
+import (
+	"os"
 
-// processExists reports whether a pid is live. Windows has no signal 0, so
-// this opens a handle instead.
+	"golang.org/x/sys/windows"
+)
+
+// processExists reports whether a pid is live.
+//
+// os.Process.Signal is no help here: on Windows it supports only os.Kill
+// and returns EWINDOWS for anything else, so there is no signal-0
+// equivalent. Ask the OS for the process's exit code instead — a live
+// process reports STILL_ACTIVE.
+// stillActive is the exit code Windows reports for a running process
+// (STILL_ACTIVE / STATUS_PENDING).
+const stillActive = 259
+
 func processExists(pid int) bool {
-	p, err := os.FindProcess(pid)
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	// Signal 0 is implemented as a liveness probe on Windows too.
-	return p.Signal(os.Signal(nil)) == nil
+	defer func() { _ = windows.CloseHandle(h) }()
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	return code == stillActive
 }
 
 // signalTerm asks a process to exit. Windows has no SIGTERM, so this is

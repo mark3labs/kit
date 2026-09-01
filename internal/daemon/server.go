@@ -398,7 +398,14 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 			// frame for that id. Registering the connection here is what
 			// lets replies find their way back out. No session is
 			// spawned: that waits for an explicit attach.
-			t.conns.addRemote(frame.Session, sink)
+			//
+			// Only the sidecar may send it. A single-client transport is
+			// already registered, and honouring the frame there would
+			// re-register it as sidecar-backed, so the next tunnel
+			// restart would drop a connection that is still open.
+			if fixedWire == 0 {
+				t.conns.addRemote(frame.Session, sink)
+			}
 		case FrameSessionDetach:
 			// Detach unbinds the session but KEEPS the connection: the
 			// client is still there and usually attaches to another
@@ -720,8 +727,10 @@ func (t *sessionTable) renameSession(payload []byte) {
 	}
 	id := binary.BigEndian.Uint64(payload[:8])
 	name := strings.TrimSpace(string(payload[8:]))
-	if len(name) > 64 {
-		name = name[:64]
+	// Truncate on rune boundaries: the frame documents the name as UTF-8,
+	// and slicing bytes can cut a multi-byte rune in half.
+	if r := []rune(name); len(r) > 64 {
+		name = string(r[:64])
 	}
 	t.mu.Lock()
 	sess := t.sessions[id]
@@ -923,7 +932,12 @@ func (t *sessionTable) retireSession(id uint64) {
 	if s.cmd != nil && s.cmd.Process != nil {
 		// SIGTERM first: the child flushes its conversation store and
 		// restores the terminal. SIGKILL only if it ignores that.
-		terminateProcess(s.cmd.Process.Pid)
+		//
+		// Off the frame loop: retireSession runs inline there when a PTY
+		// write fails, and one stream carries every sidecar-relayed
+		// client, so waiting out the grace period here would stall all of
+		// them for seconds.
+		go terminateProcess(s.cmd.Process.Pid)
 	}
 	t.syncSessionRegistry()
 	log.Info("session ended", "session_id", id)
@@ -935,7 +949,7 @@ func (t *sessionTable) retireSession(id uint64) {
 // followed by a synthetic 0x16 keystroke — the child's own clipboard
 // pipeline then renders the preview exactly like a local paste.
 func (t *sessionTable) remoteClipboardPath(session uint64) string {
-	return filepath.Join(os.TempDir(),
+	return filepath.Join(t.scratchDir(),
 		fmt.Sprintf("%sclip-%s-%d", tempFilePrefix, t.run, session))
 }
 
@@ -946,8 +960,23 @@ func (t *sessionTable) remoteClipboardPath(session uint64) string {
 // reports the child's cwd rather than the directory the user picked. The
 // file follows the same convention as the clipboard file above.
 func (t *sessionTable) sessionCwdPath(session uint64) string {
-	return filepath.Join(os.TempDir(),
+	return filepath.Join(t.scratchDir(),
 		fmt.Sprintf("%scwd-%s-%d", tempFilePrefix, t.run, session))
+}
+
+// scratchDir is where per-session files live.
+//
+// The daemon's own runtime directory, not the shared temp directory: two
+// daemons with different runtime directories run at the same time, and a
+// start-up sweep of a shared directory would delete the live clipboard and
+// cwd files of the other daemon's sessions. Falling back to the temp
+// directory keeps the paths working if the runtime dir is unavailable;
+// the run nonce still keeps one daemon's files apart from another's.
+func (t *sessionTable) scratchDir() string {
+	if dir, err := daemonRuntimeDir(); err == nil {
+		return dir
+	}
+	return os.TempDir()
 }
 
 // sessionCwd reports a session's working directory for the session list.

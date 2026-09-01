@@ -221,3 +221,66 @@ func (b *lockedBuffer) Read(p []byte) (int, error) {
 	b.off += n
 	return n, nil
 }
+
+// TestHostSwitchRefusesAForeignHostSession is the regression test for a
+// cross-host choice being attached to the wrong daemon.
+//
+// Every daemon numbers its sessions from 1, so sending a remote session's
+// id over this connection would silently bind whichever local session
+// happens to share that number. RunClient must hand the choice back to
+// the caller instead of attaching it here.
+func TestHostSwitchRefusesAForeignHostSession(t *testing.T) {
+	cases := []struct {
+		name      string
+		connected string // the host this client is attached to
+		choice    SessionChoice
+		wantHost  string // "" means no switch expected
+	}{
+		{
+			name:      "remote session chosen from the local daemon",
+			connected: "",
+			choice:    SessionChoice{ID: 2, Host: "violet"},
+			wantHost:  "violet",
+		},
+		{
+			name:      "local session chosen from a remote daemon",
+			connected: "violet",
+			choice:    SessionChoice{ID: 2, Host: ""},
+			wantHost:  "",
+		},
+		{
+			name:      "another host chosen from a remote daemon",
+			connected: "violet",
+			choice:    SessionChoice{ID: 1, Host: "homelab"},
+			wantHost:  "homelab",
+		},
+		{
+			name:      "session on the daemon we are already talking to",
+			connected: "violet",
+			choice:    SessionChoice{ID: 3, Host: "violet"},
+		},
+		{
+			name:      "local session on the local daemon",
+			connected: "",
+			choice:    SessionChoice{ID: 3, Host: ""},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sw := hostSwitch(AttachOptions{Host: tc.connected}, tc.choice)
+			if tc.wantHost == "" && tc.choice.Host == tc.connected {
+				if sw != nil {
+					t.Fatalf("a same-host choice must attach here, got a switch to %q", sw.Host)
+				}
+				return
+			}
+			if sw == nil {
+				t.Fatal("a cross-host choice was attached to the current daemon by bare id")
+			}
+			if sw.Host != tc.wantHost || sw.Session != tc.choice.ID {
+				t.Fatalf("switch = %+v, want host %q session %d", sw, tc.wantHost, tc.choice.ID)
+			}
+		})
+	}
+}

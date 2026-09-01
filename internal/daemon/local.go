@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -138,7 +138,11 @@ func DialLocal() (net.Conn, error) {
 	if err != nil {
 		// A missing socket and a socket nobody is listening on are the
 		// same situation to a caller: no daemon to talk to.
-		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "connection refused") {
+		// Match by value: net.Dial wraps ECONNREFUSED in *net.OpError, so
+		// errors.Is identifies it exactly. A substring match on the
+		// message breaks if the wrapping text changes, and RunLocal would
+		// then fail instead of starting a daemon.
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 			return nil, ErrNoLocalDaemon
 		}
 		return nil, fmt.Errorf("daemon: connect to local daemon: %w", err)
@@ -234,6 +238,9 @@ func RunLocal(ctx context.Context, opts AttachOptions) error {
 	if opts.Name == "" {
 		opts.Name = "local"
 	}
+	// The picker reports local sessions with an empty host, so this
+	// client's identity is the empty string, not the display name.
+	opts.Host = ""
 	if opts.Reattach == "" {
 		opts.Reattach = "kit attach"
 	}

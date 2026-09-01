@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,12 +40,30 @@ func fakeSessionChild(t *testing.T, owner string) *exec.Cmd {
 	return cmd
 }
 
-// newTestTable builds a session table whose registry and temp files live
-// under t.TempDir(), so tests never touch a real daemon's state.
-func newTestTable(t *testing.T) *sessionTable {
+// isolateRuntimeDir points the daemon's runtime directory at a temp dir so
+// a test never touches real daemon state.
+//
+// daemonRuntimeDir builds on os.UserCacheDir, which only honours
+// XDG_CACHE_HOME on unix-like systems; macOS and Windows return a fixed
+// location. Skip there rather than write to the user's real cache.
+func isolateRuntimeDir(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", dir)
+	got, err := daemonRuntimeDir()
+	if err != nil {
+		t.Fatalf("resolve runtime dir: %v", err)
+	}
+	if !strings.HasPrefix(got, dir) {
+		t.Skipf("runtime dir %s is not redirected by XDG_CACHE_HOME on this platform", got)
+	}
+}
+
+// newTestTable builds a session table whose registry and scratch files
+// live under t.TempDir(), so tests never touch a real daemon's state.
+func newTestTable(t *testing.T) *sessionTable {
+	t.Helper()
+	isolateRuntimeDir(t)
 	return newSessionTable(newDaemonRuntime(nil))
 }
 
@@ -95,7 +115,7 @@ func TestUnbindAllKeepsLocalClients(t *testing.T) {
 	table.fakeSession(1)
 	table.fakeSession(2)
 
-	sink := newFrameSink(os.NewFile(0, os.DevNull))
+	sink := newFrameSink(io.Discard)
 	remote := table.conns.addRemote(3, sink)
 	local := table.conns.addLocal(sink)
 
@@ -181,8 +201,7 @@ func TestSessionRegistryRoundTrip(t *testing.T) {
 }
 
 func TestReadSessionRecordsToleratesCorruption(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
+	isolateRuntimeDir(t)
 	path, err := sessionsFilePath()
 	if err != nil {
 		t.Fatal(err)
@@ -255,8 +274,7 @@ func TestIsSessionChildRejectsAnotherDaemonsSession(t *testing.T) {
 // TestSweepOrphanSessionsSkipsTheCurrentRun makes sure a sweep never
 // touches the sessions of the daemon doing the sweeping.
 func TestSweepOrphanSessionsSkipsTheCurrentRun(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
+	isolateRuntimeDir(t)
 
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {
@@ -285,8 +303,7 @@ func TestSweepOrphanSessionsSkipsTheCurrentRun(t *testing.T) {
 // registry naming a pid the daemon cannot prove it owns. The sweep must
 // leave it alone rather than signal it.
 func TestSweepSparesAnUnprovenProcess(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
+	isolateRuntimeDir(t)
 
 	cmd := fakeSessionChild(t, "/some/other/home")
 

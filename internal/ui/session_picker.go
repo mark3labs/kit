@@ -229,7 +229,11 @@ func RunSessionPicker(entries []SessionEntry, input *os.File, title string) (Ses
 	if !ok {
 		return SessionPick{Cancelled: true}, fmt.Errorf("session picker: unexpected state")
 	}
-	if sp.cancelled {
+	// Only an explicit enter is a selection. A program that ends any other
+	// way — an input stream at EOF, say — leaves both flags false, and
+	// treating that as a choice would attach a session the user never
+	// picked.
+	if sp.cancelled || !sp.quitting {
 		return SessionPick{Cancelled: true}, nil
 	}
 	row := sp.rows[sp.cursor]

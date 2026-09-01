@@ -62,6 +62,12 @@ type SessionPicker func(entries []SessionEntry, input *os.File) (SessionChoice, 
 type AttachOptions struct {
 	// Name identifies the daemon in user-facing messages.
 	Name string
+	// Host is the saved host name this client is connected to, matching
+	// the Host the picker reports for this daemon's own sessions. Empty
+	// means the local daemon. It is how a cross-host choice is told apart
+	// from one on this daemon, so it must be the picker's value, not a
+	// display string.
+	Host string
 	// Reattach is the command that reattaches to this daemon, quoted in
 	// the message printed after a detach.
 	Reattach string
@@ -313,10 +319,18 @@ func (c *clientConn) awaitCtrl(want FrameType, timeout time.Duration) (Frame, er
 
 // listSessions asks the daemon for its live sessions.
 func (c *clientConn) listSessions() ([]SessionEntry, error) {
+	return c.listSessionsWithin(10 * time.Second)
+}
+
+// listSessionsWithin is listSessions bounded by an explicit timeout.
+func (c *clientConn) listSessionsWithin(timeout time.Duration) ([]SessionEntry, error) {
+	if timeout <= 0 {
+		return nil, fmt.Errorf("daemon: no time left to list sessions")
+	}
 	if err := c.write(FrameSessionList, nil); err != nil {
 		return nil, err
 	}
-	reply, err := c.awaitCtrl(FrameSessionListReply, 10*time.Second)
+	reply, err := c.awaitCtrl(FrameSessionListReply, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -427,6 +441,9 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 	if choice.Cancel {
 		return nil
 	}
+	if sw := hostSwitch(opts, choice); sw != nil {
+		return sw
+	}
 
 	for {
 		select {
@@ -435,6 +452,10 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 		case <-conn.closedCh:
 			return errStreamClosed
 		default:
+		}
+
+		if sw := hostSwitch(opts, choice); sw != nil {
+			return sw
 		}
 
 		if assigned, err := conn.attach(choice.ID); err != nil {
@@ -477,6 +498,35 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 			return nil
 		}
 	}
+}
+
+// ErrSwitchHost reports that the user chose a session on a different
+// daemon. The client speaks to exactly one daemon, so honouring the choice
+// means the caller dials the new host and starts a fresh client; a
+// SessionChoice.Host that this connection cannot reach must never be
+// attached by ID alone, because every daemon numbers its sessions from 1
+// and the ID would silently resolve to a different session here.
+type ErrSwitchHost struct {
+	// Host is the saved name of the daemon to connect to.
+	Host string
+	// Session is the logical session to attach to on that daemon.
+	Session uint64
+}
+
+func (e *ErrSwitchHost) Error() string {
+	return fmt.Sprintf("switch to session %d on host %q", e.Session, e.Host)
+}
+
+// hostSwitch reports a choice that belongs to another daemon.
+//
+// A session on another daemon cannot be attached over this connection:
+// session ids are per-daemon and every daemon counts from 1, so sending
+// the id here would silently bind a different session.
+func hostSwitch(opts AttachOptions, choice SessionChoice) *ErrSwitchHost {
+	if choice.Host == opts.Host {
+		return nil
+	}
+	return &ErrSwitchHost{Host: choice.Host, Session: choice.ID}
 }
 
 // resolveSwitch turns a switch outcome into the next session to attach to.
