@@ -35,3 +35,13 @@ func ReportSessionCwd(string) {}
 
 // DialLocal always fails on Windows.
 func DialLocal() (net.Conn, error) { return nil, ErrNoLocalDaemon }
+
+// StartLocalDaemon is unsupported on Windows.
+func StartLocalDaemon(context.Context) error { return ErrNoLocalDaemon }
+
+// RunLocal is unsupported on Windows: there is no local socket transport
+// yet. Remote sessions over the sidecar are unaffected.
+func RunLocal(context.Context, AttachOptions) error { return ErrNoLocalDaemon }
+
+// ListLocalSessions is unsupported on Windows.
+func ListLocalSessions() ([]SessionEntry, error) { return nil, ErrNoLocalDaemon }
