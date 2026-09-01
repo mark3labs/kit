@@ -141,7 +141,10 @@ conversation before exiting. The generated unit sets <code>KillMode=mixed</code>
 so systemd signals the daemon rather than every session at once.</li>
 <li>On a hard crash (<code>SIGKILL</code>, a panic, the OOM killer) the kernel kills
 each session child immediately, through the parent-death signal armed
-when it was spawned.</li>
+when it was spawned. The <code>kit-tunnel</code> sidecar carries the same signal,
+so a crashed daemon can never leave a process serving its iroh endpoint
+behind — the next daemon would otherwise share its node id with a
+ghost.</li>
 <li>On the next start, the daemon sweeps any session recorded by a previous
 run that is somehow still alive, and clears its scratch files.</li>
 </ul>
@@ -193,8 +196,16 @@ a separate prefix the keymap is identical whether kit runs locally or
 through a session. <code>Ctrl+X d</code> still detaches, for compatibility.</p>
 <p><code>Ctrl+] d</code> <strong>detaches</strong>: your terminal returns to the local shell and the
 session keeps running on the host — type <code>/quit</code> inside the session to end
-it for good. Detached sessions are listed on the next connect, so you can
-pick up exactly where you left off.</p>
+it for good. The parting message names the session (<code>kit attach 3</code>, or
+<code>kit attach --host mev 3</code>), so reattaching is a copy away. Detached
+sessions are listed on the next connect, so you can pick up exactly where
+you left off.</p>
+<p><code>Ctrl+] w</code> lists every <strong>other</strong> daemon: the paired hosts when you are on
+this machine, and the paired hosts plus this machine when you are on a
+remote one. There is always a way back home. Hosts are queried in
+parallel, so one sleeping laptop no longer holds up the list; hosts that
+do not answer within eight seconds are dropped from it, and <code>kit ls --all</code>
+names them.</p>
 <p>Several clients can also <strong>attach to the same session</strong> (tmux-style shared
 view): every attached terminal mirrors the same screen, keystrokes from any
 client go into the shared session, and the PTY is resized to the smallest
@@ -406,7 +417,10 @@ Kit makes that boundary predictable rather than leaving it to chance:
   so systemd signals the daemon rather than every session at once.
 - On a hard crash (\`SIGKILL\`, a panic, the OOM killer) the kernel kills
   each session child immediately, through the parent-death signal armed
-  when it was spawned.
+  when it was spawned. The \`kit-tunnel\` sidecar carries the same signal,
+  so a crashed daemon can never leave a process serving its iroh endpoint
+  behind — the next daemon would otherwise share its node id with a
+  ghost.
 - On the next start, the daemon sweeps any session recorded by a previous
   run that is somehow still alive, and clears its scratch files.
 
@@ -437,8 +451,17 @@ through a session. \`Ctrl+X d\` still detaches, for compatibility.
 
 \`Ctrl+] d\` **detaches**: your terminal returns to the local shell and the
 session keeps running on the host — type \`/quit\` inside the session to end
-it for good. Detached sessions are listed on the next connect, so you can
-pick up exactly where you left off.
+it for good. The parting message names the session (\`kit attach 3\`, or
+\`kit attach --host mev 3\`), so reattaching is a copy away. Detached
+sessions are listed on the next connect, so you can pick up exactly where
+you left off.
+
+\`Ctrl+] w\` lists every **other** daemon: the paired hosts when you are on
+this machine, and the paired hosts plus this machine when you are on a
+remote one. There is always a way back home. Hosts are queried in
+parallel, so one sleeping laptop no longer holds up the list; hosts that
+do not answer within eight seconds are dropped from it, and \`kit ls --all\`
+names them.
 
 Several clients can also **attach to the same session** (tmux-style shared
 view): every attached terminal mirrors the same screen, keystrokes from any
