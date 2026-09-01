@@ -75,6 +75,32 @@ checked, so only your own processes can reach it. No sidecar is needed —
 a machine with no `kit-tunnel` build still runs local sessions, it just
 cannot host remote ones.
 
+## Sessions and daemon restarts
+
+A session survives a **client** disconnect, but not a restart of the
+**daemon**. The session's terminal is owned by the daemon process, so
+stopping the daemon stops its sessions — reattaching to a session from a
+previous daemon is not possible, because the terminal it was rendering to
+no longer exists.
+
+Kit makes that boundary predictable rather than leaving it to chance:
+
+- On `SIGINT`/`SIGTERM` — including `systemctl --user stop kit` — the
+  daemon ends each session with `SIGTERM` first, so kit can save its
+  conversation before exiting. The generated unit sets `KillMode=mixed`
+  so systemd signals the daemon rather than every session at once.
+- On a hard crash (`SIGKILL`, a panic, the OOM killer) the kernel kills
+  each session child immediately, through the parent-death signal armed
+  when it was spawned.
+- On the next start, the daemon sweeps any session recorded by a previous
+  run that is somehow still alive, and clears its scratch files.
+
+A session is only ever signalled when the daemon can **prove** it owns
+it: the process is checked against a marker inherited from the daemon
+that spawned it. A process that cannot be identified is left alone, so
+one daemon can never disturb another's sessions, and a recycled pid can
+never be mistaken for a session.
+
 ## Session keys
 
 Inside an attached session, `Ctrl+]` is the multiplexer prefix:

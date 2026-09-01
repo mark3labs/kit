@@ -57,6 +57,14 @@ func Serve(ctx context.Context) error {
 	// running (detached) while clients come and go.
 	table := newSessionTable(rt)
 
+	// Anything still running from a previous daemon run is unreachable:
+	// its PTY master died with the process that owned it. Kill it now,
+	// while the single-instance lock guarantees no live daemon owns those
+	// pids, and clear the scratch files it left behind.
+	sweepOrphanSessions(table.run)
+	sweepStaleTempFiles(table.run)
+	defer removeSessionRegistry()
+
 	// The local socket is bound before the tunnel and closed only on
 	// shutdown, so local clients are unaffected by sidecar restarts. The
 	// lock above guarantees no other daemon owns this socket.
@@ -71,8 +79,8 @@ func Serve(ctx context.Context) error {
 		}
 		log.Warn("daemon: local sessions are disabled", "error", err)
 	} else {
-		defer ln.Close()
-		defer os.Remove(sockPath)
+		defer func() { _ = ln.Close() }()
+		defer func() { _ = os.Remove(sockPath) }()
 		go serveLocal(ctx, ln, table)
 		fmt.Printf("  Local socket: %s\n", sockPath)
 	}
@@ -82,8 +90,7 @@ func Serve(ctx context.Context) error {
 		fmt.Println("  Attach locally with: kit attach")
 		fmt.Println()
 		<-ctx.Done()
-		table.killAll()
-		return ctx.Err()
+		return shutdown(table)
 	}
 
 	seed, err := LoadDaemonIdentity()
@@ -97,8 +104,7 @@ func Serve(ctx context.Context) error {
 	// find us again. Live sessions survive the restart, detached.
 	for {
 		if ctx.Err() != nil {
-			table.killAll()
-			return ctx.Err()
+			return shutdown(table)
 		}
 		tun, err := StartTunnel(ctx, TunnelOptions{
 			Mode: "serve",
@@ -130,8 +136,7 @@ func Serve(ctx context.Context) error {
 		// running detached and can be reattached after the restart.
 		table.unbindAll()
 		if ctx.Err() != nil {
-			table.killAll()
-			return ctx.Err()
+			return shutdown(table)
 		}
 		if err != nil {
 			table.killAll()
@@ -139,6 +144,21 @@ func Serve(ctx context.Context) error {
 		}
 		fmt.Println("  Listener restarted — endpoint unchanged, waiting…")
 	}
+}
+
+// shutdown ends every session and reports a clean exit.
+//
+// A cancelled context is how a SIGINT/SIGTERM stop arrives, which is
+// success, not failure: returning ctx.Err() here would exit non-zero and
+// have systemd log "status=1/FAILURE" for an ordinary `systemctl stop`.
+func shutdown(table *sessionTable) error {
+	n := table.sessionCount()
+	if n > 0 {
+		log.Info("daemon: stopping sessions", "count", n)
+	}
+	table.killAll()
+	removeSessionRegistry()
+	return nil
 }
 
 // shortEndpoint renders the first bytes of an endpoint id for display.
@@ -288,6 +308,10 @@ type authChallenge struct {
 type sessionTable struct {
 	rt    *daemonRuntime
 	conns *connSet
+	// run identifies this daemon run. It tags registry records and
+	// per-session temp files so a later run can tell its own state from a
+	// crashed predecessor's.
+	run string
 
 	mu           sync.Mutex
 	nextID       uint64
@@ -301,6 +325,7 @@ type sessionTable struct {
 func newSessionTable(rt *daemonRuntime) *sessionTable {
 	return &sessionTable{
 		rt:           rt,
+		run:          newRunNonce(),
 		conns:        newConnSet(),
 		sessions:     make(map[uint64]*remoteSession),
 		wireMap:      make(map[uint32]uint64),
@@ -508,7 +533,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 	t.mu.Lock()
 	_, live := t.sessions[session]
 	if live {
-		path := remoteClipboardPath(session)
+		path := t.remoteClipboardPath(session)
 		if !slices.Contains(t.sessionTemps[session], path) {
 			t.sessionTemps[session] = append(t.sessionTemps[session], path)
 		}
@@ -521,7 +546,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 	if clear {
 		// The client found no image: empty the file so the child's next
 		// Ctrl-V is a no-op. No keystroke is injected.
-		if err := os.WriteFile(remoteClipboardPath(session), nil, 0o600); err != nil {
+		if err := os.WriteFile(t.remoteClipboardPath(session), nil, 0o600); err != nil {
 			log.Warn("clipboard clear failed", "session_id", session, "error", err)
 		}
 		t.mu.Lock()
@@ -576,7 +601,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 		log.Error("daemon: clipboard write failed", "session_id", session, "error", werr, "close", cerr)
 		return
 	}
-	if err := os.Rename(path, remoteClipboardPath(session)); err != nil {
+	if err := os.Rename(path, t.remoteClipboardPath(session)); err != nil {
 		_ = os.Remove(path)
 		log.Error("daemon: clipboard publish failed", "session_id", session, "error", err)
 		return
@@ -730,7 +755,7 @@ func (t *sessionTable) sendSessionList(wire uint32) {
 			Clients: len(sess.clientIDs()),
 			Started: sess.started.Format(time.RFC3339),
 			Name:    sess.displayName(),
-			Cwd:     sessionCwd(sess),
+			Cwd:     t.sessionCwd(sess),
 		}
 		infos = append(infos, info)
 	}
@@ -780,7 +805,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		s.attachClient(wire, winSize{})
 		t.mu.Unlock()
 
-		child, ptmx, err := spawnPickDir(logical)
+		child, ptmx, err := t.spawnPickDir(logical)
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
 			t.retireSession(logical)
@@ -791,6 +816,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 			active := len(t.sessions)
 			t.mu.Unlock()
 			t.rt.setSessions(active)
+			t.syncSessionRegistry()
 			log.Info("session started", "session_id", logical, "wire", wire)
 			t.watchSession(s)
 			ok = 1
@@ -895,8 +921,11 @@ func (t *sessionTable) retireSession(id uint64) {
 		_ = s.ptmx.Close()
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+		// SIGTERM first: the child flushes its conversation store and
+		// restores the terminal. SIGKILL only if it ignores that.
+		terminateProcess(s.cmd.Process.Pid)
 	}
+	t.syncSessionRegistry()
 	log.Info("session ended", "session_id", id)
 }
 
@@ -905,8 +934,9 @@ func (t *sessionTable) retireSession(id uint64) {
 // internal/clipboard.RemoteClipboardEnv), so a paste is a file rewrite
 // followed by a synthetic 0x16 keystroke — the child's own clipboard
 // pipeline then renders the preview exactly like a local paste.
-func remoteClipboardPath(session uint64) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-clip-%d", session))
+func (t *sessionTable) remoteClipboardPath(session uint64) string {
+	return filepath.Join(os.TempDir(),
+		fmt.Sprintf("%sclip-%s-%d", tempFilePrefix, t.run, session))
 }
 
 // sessionCwdPath is the stable per-session file a session's child writes
@@ -915,15 +945,16 @@ func remoteClipboardPath(session uint64) string {
 // Reading /proc/<pid>/cwd would be simpler but only works on Linux, and it
 // reports the child's cwd rather than the directory the user picked. The
 // file follows the same convention as the clipboard file above.
-func sessionCwdPath(session uint64) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-cwd-%d", session))
+func (t *sessionTable) sessionCwdPath(session uint64) string {
+	return filepath.Join(os.TempDir(),
+		fmt.Sprintf("%scwd-%s-%d", tempFilePrefix, t.run, session))
 }
 
 // sessionCwd reports a session's working directory for the session list.
 // It is empty until the child has chosen one, which is the honest answer
 // while the directory picker is still on screen.
-func sessionCwd(s *remoteSession) string {
-	data, err := os.ReadFile(sessionCwdPath(s.id))
+func (t *sessionTable) sessionCwd(s *remoteSession) string {
+	data, err := os.ReadFile(t.sessionCwdPath(s.id))
 	if err != nil {
 		return ""
 	}
@@ -933,7 +964,7 @@ func sessionCwd(s *remoteSession) string {
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
 // daemon user's home directory, so the remote peer picks the session's
 // working directory from the modal rendered inside the PTY.
-func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
+func (t *sessionTable) spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
@@ -945,9 +976,18 @@ func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}
-	env = append(env, clipboard.RemoteClipboardEnv+"="+remoteClipboardPath(session))
-	env = append(env, sessionCwdEnv+"="+sessionCwdPath(session))
+	// Mark the child with this daemon's runtime directory so a later
+	// sweep can prove the process is ours before signalling it.
+	if home, herr := daemonRuntimeDir(); herr == nil {
+		env = append(env, sessionOwnerEnv+"="+home)
+	}
+	env = append(env, clipboard.RemoteClipboardEnv+"="+t.remoteClipboardPath(session))
+	env = append(env, sessionCwdEnv+"="+t.sessionCwdPath(session))
 	cmd.Env = env
+
+	// Ask the kernel to kill this child if the daemon dies, so a crash
+	// cannot leave an unreachable session running (see recovery.go).
+	cmd.SysProcAttr = applyChildDeathSignal(cmd.SysProcAttr)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
 	if err != nil {
@@ -964,4 +1004,11 @@ func homeDir() string {
 		return u.HomeDir
 	}
 	return "/"
+}
+
+// sessionCount reports how many logical sessions are live.
+func (t *sessionTable) sessionCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.sessions)
 }

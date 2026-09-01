@@ -157,6 +157,13 @@ ExecStart=%s daemon
 EnvironmentFile=-%s
 Restart=on-failure
 RestartSec=5
+# The daemon owns its sessions' terminals and shuts them down itself on
+# SIGTERM. KillMode=mixed sends the signal to the daemon only, so it gets
+# to end each session cleanly; the default (control-group) would signal
+# every child at once and cut sessions off mid-turn. TimeoutStopSec is the
+# backstop if the daemon fails to finish.
+KillMode=mixed
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target

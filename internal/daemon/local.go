@@ -109,7 +109,7 @@ func serveLocal(ctx context.Context, ln net.Listener, table *sessionTable) {
 
 // serveLocalConn drives one local client connection for its lifetime.
 func serveLocalConn(ctx context.Context, conn net.Conn, table *sessionTable) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	sink := newFrameSink(conn)
 	wire := table.conns.addLocal(sink)
@@ -229,7 +229,7 @@ func RunLocal(ctx context.Context, opts AttachOptions) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if opts.Name == "" {
 		opts.Name = "local"
@@ -248,7 +248,7 @@ func ListLocalSessions() ([]SessionEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := newClientConn(conn)
 	go client.readLoop()

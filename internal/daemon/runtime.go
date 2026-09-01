@@ -113,13 +113,6 @@ func (rt *daemonRuntime) setTunnel(t *Tunnel) {
 	rt.mu.Unlock()
 }
 
-// tunnel returns the current sidecar tunnel, or nil while it is down.
-func (rt *daemonRuntime) tunnel() *Tunnel {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return rt.tun
-}
-
 func newDaemonRuntime(lock *daemonLock) *daemonRuntime {
 	return &daemonRuntime{
 		lock: lock,
@@ -234,5 +227,14 @@ func ReadStatus() Status {
 		return Status{Running: true, State: readStateFile(dir)}
 	}
 	unlockFile(f)
-	return Status{Running: false, State: readStateFile(dir)}
+
+	// No daemon is running, so anything the state file says about live
+	// sessions is left over from a run that has ended. Report it as zero
+	// rather than passing stale counts to the caller: `kit daemon status`
+	// would otherwise claim active sessions for a dead daemon.
+	st := readStateFile(dir)
+	if st != nil {
+		st.SessionsActive = 0
+	}
+	return Status{Running: false, State: st}
 }

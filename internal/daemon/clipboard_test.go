@@ -111,15 +111,24 @@ func TestClipboardClearFlagDetection(t *testing.T) {
 }
 
 func TestRemoteClipboardPathStablePerSession(t *testing.T) {
-	a, b := remoteClipboardPath(3), remoteClipboardPath(3)
+	table := newSessionTable(newDaemonRuntime(nil))
+	a, b := table.remoteClipboardPath(3), table.remoteClipboardPath(3)
 	if a != b {
 		t.Fatal("path must be stable for a session")
 	}
-	if a == remoteClipboardPath(4) {
+	if a == table.remoteClipboardPath(4) {
 		t.Fatal("paths must differ per session")
 	}
-	if !strings.HasSuffix(a, "kit-remote-clip-3") {
+	if !strings.HasSuffix(a, "-3") || !strings.Contains(a, tempFilePrefix) {
 		t.Fatalf("unexpected path: %s", a)
+	}
+
+	// A second daemon run must not reuse the first run's files: logical
+	// ids restart at 1, so a shared path would let a new session inherit a
+	// dead session's clipboard image.
+	other := newSessionTable(newDaemonRuntime(nil))
+	if other.remoteClipboardPath(3) == a {
+		t.Fatal("two daemon runs share a clipboard path; a stale image could leak into a new session")
 	}
 }
 

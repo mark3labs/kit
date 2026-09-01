@@ -468,7 +468,7 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 			choice = next
 			continue
 		case out.detached:
-			fmt.Fprintf(os.Stderr, "\nDetached — the session keeps running. Reattach with: %s\n", opts.Reattach)
+			fmt.Fprintf(os.Stderr, "\nDetached — the session keeps running on the daemon. Reattach with: %s\n", opts.Reattach)
 			return nil
 		case out.ended:
 			fmt.Fprintln(os.Stderr, "\nSession ended.")

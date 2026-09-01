@@ -102,10 +102,14 @@ func (m *sessionPickerModel) View() tea.View {
 		return v
 	}
 	var b strings.Builder
-	b.WriteString("  " + m.title + "\n\n")
+	b.WriteString("  ")
+	b.WriteString(m.title)
+	b.WriteString("\n\n")
 	for i, row := range m.rows {
 		if !row.selectable {
-			b.WriteString("  " + row.header + "\n")
+			b.WriteString("  ")
+			b.WriteString(row.header)
+			b.WriteString("\n")
 			continue
 		}
 		cursor := "  "

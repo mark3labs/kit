@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"io"
 	"net"
 	"testing"
@@ -134,15 +133,14 @@ func TestNeighbourSessionWraps(t *testing.T) {
 // because a switch is a detach followed by another attach.
 func TestLocalSocketRoundTrip(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	defer clientConn.Close()
+	defer func() { _ = serverConn.Close() }()
+	defer func() { _ = clientConn.Close() }()
 
 	table := newSessionTable(newDaemonRuntime(nil))
 	sink := newFrameSink(serverConn)
 	wire := table.conns.addLocal(sink)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = table.runFrameSource(ctx, serverConn, sink, wire.id) }()
 
 	client := newClientConn(clientConn)
