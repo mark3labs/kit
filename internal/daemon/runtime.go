@@ -85,7 +85,23 @@ type daemonRuntime struct {
 
 	mu    sync.Mutex
 	state daemonState
-	tun   *Tunnel // the live sidecar; logical sessions write through it
+	tun   *Tunnel    // the live sidecar; nil while it is down
+	sink  *frameSink // the live sidecar's frame sink; nil while it is down
+}
+
+// currentSink returns the live sidecar's frame sink. A nil sink is safe to
+// write to: frameSink.write reports the connection as closed.
+func (rt *daemonRuntime) currentSink() *frameSink {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.sink
+}
+
+// setSink records the frame sink of the current sidecar tunnel.
+func (rt *daemonRuntime) setSink(s *frameSink) {
+	rt.mu.Lock()
+	rt.sink = s
+	rt.mu.Unlock()
 }
 
 // setTunnel records the current sidecar tunnel. Called by Serve whenever
@@ -95,13 +111,6 @@ func (rt *daemonRuntime) setTunnel(t *Tunnel) {
 	rt.mu.Lock()
 	rt.tun = t
 	rt.mu.Unlock()
-}
-
-// tunnel returns the current sidecar tunnel, or nil while it is down.
-func (rt *daemonRuntime) tunnel() *Tunnel {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return rt.tun
 }
 
 func newDaemonRuntime(lock *daemonLock) *daemonRuntime {
@@ -218,5 +227,14 @@ func ReadStatus() Status {
 		return Status{Running: true, State: readStateFile(dir)}
 	}
 	unlockFile(f)
-	return Status{Running: false, State: readStateFile(dir)}
+
+	// No daemon is running, so anything the state file says about live
+	// sessions is left over from a run that has ended. Report it as zero
+	// rather than passing stale counts to the caller: `kit daemon status`
+	// would otherwise claim active sessions for a dead daemon.
+	st := readStateFile(dir)
+	if st != nil {
+		st.SessionsActive = 0
+	}
+	return Status{Running: false, State: st}
 }

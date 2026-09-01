@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,19 +18,34 @@ var daemonCmd = &cobra.Command{
 	Short: "Run Kit as a remote daemon, hosting sessions for paired clients",
 	Long: `Run Kit as a remote daemon.
 
-Hosts remote sessions over an end-to-end encrypted iroh connection for
-clients paired with this machine. Each paired client picks a working
-directory (starting in this user's home directory) and gets its own
+Hosts sessions for clients on this machine and for paired remote
+clients. Local clients connect over a Unix socket with 'kit attach';
+remote clients pair once and then connect over an end-to-end encrypted
+iroh connection. Each client picks a working directory and gets its own
 session: the session runs entirely on this machine, rendered inside the
 peer's terminal. Multiple clients can hold sessions at the same time,
 and exiting a session only disconnects that client.
+
+Sessions survive a client disconnect, but NOT a restart of this daemon:
+a session's terminal is owned by this process, so stopping the daemon
+stops its sessions. They are shut down cleanly on SIGINT/SIGTERM, and
+any that survive a hard crash are cleaned up on the next start.
 
 Pair a new client with 'kit daemon pair' — it shows a one-time code and
 asks you to accept or reject the client on this terminal. Only one
 daemon may run per user; use 'kit daemon status' to inspect a running
 instance and 'kit daemon service install' to manage it via systemd.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return daemon.Serve(cmd.Context())
+		// Stop on SIGINT/SIGTERM so the daemon tears its sessions down
+		// itself. Without this, `systemctl stop` kills the process
+		// outright and the children are left to systemd's cgroup kill,
+		// which reaches them mid-turn with no chance to save anything.
+		//
+		// The notifier is installed here rather than globally so the
+		// interactive TUI keeps its own Ctrl-C handling.
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return daemon.Serve(ctx)
 	},
 }
 

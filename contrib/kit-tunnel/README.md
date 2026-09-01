@@ -5,6 +5,12 @@ side of kit needs no iroh code: endpoint binding, DNS/relay discovery, the
 pairing and reconnect handshakes, and frame relay between the network and
 its own stdio.
 
+The sidecar is only needed for **remote** sessions. `kit daemon` runs
+without it and still hosts local sessions over its Unix socket, logging a
+warning instead of failing — so a machine with no Rust toolchain can still
+run detachable sessions with `kit attach`. `kit daemon pair` and
+`kit remote` do require it, and report the same missing-binary error.
+
 ## Role in the system
 
 ```text

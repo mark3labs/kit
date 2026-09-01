@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -29,15 +30,14 @@ import (
 // `kit daemon pair`. First-time clients pair through `kit daemon pair`,
 // which runs its own short-lived bootstrap endpoint.
 func Serve(ctx context.Context) error {
+	// A missing sidecar is no longer fatal: local sessions need only the
+	// Unix socket, so the daemon still does useful work on a machine with
+	// no sidecar built. Remote pairing is what becomes unavailable.
+	haveTunnel := true
 	if _, err := FindTunnelBinary(); err != nil {
-		return err // fail fast with a clear message instead of per attempt
+		haveTunnel = false
+		log.Warn("daemon: remote sessions are disabled", "error", err)
 	}
-
-	seed, err := LoadDaemonIdentity()
-	if err != nil {
-		return err
-	}
-	secretHex := hex.EncodeToString(seed)
 
 	// Single instance per user: the lock is held for the daemon's lifetime
 	// and released automatically on crash, so there is no stale-lock state.
@@ -57,13 +57,54 @@ func Serve(ctx context.Context) error {
 	// running (detached) while clients come and go.
 	table := newSessionTable(rt)
 
+	// Anything still running from a previous daemon run is unreachable:
+	// its PTY master died with the process that owned it. Kill it now,
+	// while the single-instance lock guarantees no live daemon owns those
+	// pids, and clear the scratch files it left behind.
+	sweepOrphanSessions(table.run)
+	sweepStaleTempFiles(table.run)
+	defer removeSessionRegistry()
+
+	// The local socket is bound before the tunnel and closed only on
+	// shutdown, so local clients are unaffected by sidecar restarts. The
+	// lock above guarantees no other daemon owns this socket.
+	sockPath, err := LocalSocketPath()
+	if err != nil {
+		return err
+	}
+	ln, err := listenLocal(sockPath)
+	if err != nil {
+		if !haveTunnel {
+			return fmt.Errorf("%w (and no sidecar for remote sessions)", err)
+		}
+		log.Warn("daemon: local sessions are disabled", "error", err)
+	} else {
+		defer func() { _ = ln.Close() }()
+		defer func() { _ = os.Remove(sockPath) }()
+		go serveLocal(ctx, ln, table)
+		fmt.Printf("  Local socket: %s\n", sockPath)
+	}
+
+	if !haveTunnel {
+		fmt.Println("  Remote sessions: unavailable (kit-tunnel sidecar not found)")
+		fmt.Println("  Attach locally with: kit attach")
+		fmt.Println()
+		<-ctx.Done()
+		return shutdown(table)
+	}
+
+	seed, err := LoadDaemonIdentity()
+	if err != nil {
+		return err
+	}
+	secretHex := hex.EncodeToString(seed)
+
 	// If the tunnel process dies unexpectedly (crash, kill), restart it
 	// with the same identity: the endpoint id is stable, so paired clients
-	// find us again. Live sessions do not survive the restart.
+	// find us again. Live sessions survive the restart, detached.
 	for {
 		if ctx.Err() != nil {
-			table.killAll()
-			return ctx.Err()
+			return shutdown(table)
 		}
 		tun, err := StartTunnel(ctx, TunnelOptions{
 			Mode: "serve",
@@ -95,8 +136,7 @@ func Serve(ctx context.Context) error {
 		// running detached and can be reattached after the restart.
 		table.unbindAll()
 		if ctx.Err() != nil {
-			table.killAll()
-			return ctx.Err()
+			return shutdown(table)
 		}
 		if err != nil {
 			table.killAll()
@@ -104,6 +144,21 @@ func Serve(ctx context.Context) error {
 		}
 		fmt.Println("  Listener restarted — endpoint unchanged, waiting…")
 	}
+}
+
+// shutdown ends every session and reports a clean exit.
+//
+// A cancelled context is how a SIGINT/SIGTERM stop arrives, which is
+// success, not failure: returning ctx.Err() here would exit non-zero and
+// have systemd log "status=1/FAILURE" for an ordinary `systemctl stop`.
+func shutdown(table *sessionTable) error {
+	n := table.sessionCount()
+	if n > 0 {
+		log.Info("daemon: stopping sessions", "count", n)
+	}
+	table.killAll()
+	removeSessionRegistry()
+	return nil
 }
 
 // shortEndpoint renders the first bytes of an endpoint id for display.
@@ -127,7 +182,45 @@ type remoteSession struct {
 	started time.Time
 
 	mu      sync.Mutex
+	name    string             // user-set display name, empty until renamed
 	clients map[uint32]winSize // attached wire ids -> last known size (0,0 = unknown)
+}
+
+// setName records a user-supplied display name.
+func (s *remoteSession) setName(name string) {
+	s.mu.Lock()
+	s.name = name
+	s.mu.Unlock()
+}
+
+// displayName returns the session's name, or "" when it has none.
+func (s *remoteSession) displayName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.name
+}
+
+// nudgeRedraw makes the child repaint by changing the PTY size and putting
+// it back. A full-screen TUI redraws on SIGWINCH, which is the only
+// portable way to force a repaint of a child we do not emulate.
+//
+// Both size changes happen here rather than at the client, so the gap
+// between them is a local sleep instead of two network round trips. The
+// child needs to observe two distinct sizes: setting the same size twice
+// is not a change and produces no repaint.
+func (s *remoteSession) nudgeRedraw() {
+	s.mu.Lock()
+	size := minSizeLocked(s.clients)
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil || size.cols < 2 || size.rows < 2 {
+		return
+	}
+	go func() {
+		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows - 1)})
+		time.Sleep(40 * time.Millisecond)
+		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows)})
+	}()
 }
 
 type winSize struct{ cols, rows int }
@@ -213,21 +306,27 @@ type authChallenge struct {
 // The table is created once per daemon process and outlives tunnel
 // restarts — only wire-id bindings are per tunnel.
 type sessionTable struct {
-	rt *daemonRuntime
+	rt    *daemonRuntime
+	conns *connSet
+	// run identifies this daemon run. It tags registry records and
+	// per-session temp files so a later run can tell its own state from a
+	// crashed predecessor's.
+	run string
 
 	mu           sync.Mutex
 	nextID       uint64
 	sessions     map[uint64]*remoteSession      // logical id -> session
-	wireMap      map[uint32]uint64              // wire id (current tunnel) -> logical id
+	wireMap      map[uint32]uint64              // wire id -> logical id
 	pendingAuths map[[8]byte]authChallenge      // confined to the frame loop
 	clipboards   map[uint64]*ClipboardCollector // in-flight image transfers, frame loop only
 	sessionTemps map[uint64][]string            // per-session clipboard files
-	writeMu      sync.Mutex                     // tunnel stdin is written by pumps and resizes
 }
 
 func newSessionTable(rt *daemonRuntime) *sessionTable {
 	return &sessionTable{
 		rt:           rt,
+		run:          newRunNonce(),
+		conns:        newConnSet(),
 		sessions:     make(map[uint64]*remoteSession),
 		wireMap:      make(map[uint32]uint64),
 		pendingAuths: make(map[[8]byte]authChallenge),
@@ -236,17 +335,16 @@ func newSessionTable(rt *daemonRuntime) *sessionTable {
 	}
 }
 
-// writeTo sends one frame to the current tunnel stdin. Errors are the
-// caller's to ignore; a missing or closed tunnel means everything is going
-// away anyway.
+// writeTo sends one frame to the connection that owns frame.Session. A
+// missing connection means the client has gone (detach, network loss, or a
+// dead sidecar); the frame is dropped and the caller carries on, because
+// the session behind it keeps running regardless.
 func (t *sessionTable) writeTo(frame Frame) error {
-	tun := t.rt.tunnel()
-	if tun == nil {
-		return fmt.Errorf("daemon: tunnel is down")
+	conn := t.conns.get(frame.Session)
+	if conn == nil {
+		return errSinkClosed
 	}
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	return WriteFrame(tun.Stdin(), frame.Type, frame.Session, frame.Payload)
+	return conn.sink.write(frame)
 }
 
 // logicalFor resolves a wire session id to its logical session.
@@ -261,48 +359,91 @@ func (t *sessionTable) logicalFor(wire uint32) *remoteSession {
 
 // runSessions reads frames from the CURRENT tunnel and drives the shared
 // session table. The table outlives this call: when the tunnel ends, every
-// wire binding is dropped (attached clients are gone; their sessions stay
-// running detached) and Serve restarts the tunnel with the same table.
+// sidecar-backed connection is dropped (those clients are gone; their
+// sessions stay running detached) and Serve restarts the tunnel.
 func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime, table *sessionTable) error {
 	table.rebindTunnel()
+	sink := newFrameSink(tun.Stdin())
+	rt.setSink(sink)
+	defer sink.close()
+	return table.runFrameSource(ctx, tun.Stdout(), sink, 0)
+}
 
-	// Child exits are noticed by the per-session PTY reader; a client
-	// detach (DETACH/BYE/SESSION_CLOSED) only unbinds its wire id.
+// runFrameSource reads frames from one transport until the stream ends.
+//
+// fixedWire selects the addressing mode. Zero means the peer stamps the
+// wire id itself, which is what the sidecar does when it relays several
+// remote clients over one stream. Nonzero means a single-client transport
+// (the local Unix socket): the client has no id allocator of its own and
+// sends every frame with session 0, so the daemon stamps its assigned id
+// on arrival. Replies carry the id back out, and single-client peers
+// ignore it.
+func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *frameSink, fixedWire uint32) error {
 	for {
-		frame, err := ReadFrame(tun.Stdout())
+		frame, err := ReadFrame(r)
 		if err != nil {
-			return nil // tunnel stream/process ended
+			return nil // stream ended
+		}
+		if fixedWire != 0 {
+			frame.Session = fixedWire
 		}
 		switch frame.Type {
 		case FrameAuthRequest:
-			table.handleAuthRequest(frame.Payload)
+			t.handleAuthRequest(frame.Payload)
 		case FrameAuthPayload:
-			table.handleAuthPayload(frame.Payload)
+			t.handleAuthPayload(frame.Payload)
 		case FrameSessionOpen:
-			// The sidecar announces every new client connection with this
-			// frame. Registration only: a session is spawned when the
-			// client explicitly attaches (to logical id 0 = new session).
-		case FrameSessionDetach, FrameSessionClosed, FrameBye:
-			table.detachWire(frame.Session)
+			// The sidecar announces every new client connection with
+			// this frame, and guarantees it reaches us before any other
+			// frame for that id. Registering the connection here is what
+			// lets replies find their way back out. No session is
+			// spawned: that waits for an explicit attach.
+			//
+			// Only the sidecar may send it. A single-client transport is
+			// already registered, and honouring the frame there would
+			// re-register it as sidecar-backed, so the next tunnel
+			// restart would drop a connection that is still open.
+			if fixedWire == 0 {
+				t.conns.addRemote(frame.Session, sink)
+			}
+		case FrameSessionDetach:
+			// Detach unbinds the session but KEEPS the connection: the
+			// client is still there and usually attaches to another
+			// session next (a switch is detach followed by attach).
+			// Dropping the connection here would leave the following
+			// attach with nowhere to send its ack.
+			t.detachWire(frame.Session)
+		case FrameSessionClosed, FrameBye:
+			// The client itself is gone.
+			t.detachWire(frame.Session)
+			if fixedWire == 0 {
+				t.conns.remove(frame.Session)
+			}
 		case FrameSessionList:
-			table.sendSessionList(frame.Session)
+			t.sendSessionList(frame.Session)
 		case FrameSessionAttach:
-			table.attachSession(frame.Session, frame.Payload)
+			t.attachSession(frame.Session, frame.Payload)
+		case FrameSessionRedraw:
+			if sess := t.logicalFor(frame.Session); sess != nil {
+				sess.nudgeRedraw()
+			}
+		case FrameSessionRename:
+			t.renameSession(frame.Payload)
 		case FrameData:
-			if sess := table.logicalFor(frame.Session); sess != nil {
+			if sess := t.logicalFor(frame.Session); sess != nil {
 				if _, err := sess.ptmx.Write(frame.Payload); err != nil {
-					table.retireSession(sess.id)
+					t.retireSession(sess.id)
 				}
 			}
 		case FrameResize:
-			if sess := table.logicalFor(frame.Session); sess != nil {
+			if sess := t.logicalFor(frame.Session); sess != nil {
 				if cols, rows, derr := DecodeResize(frame.Payload); derr == nil {
 					sess.applyResize(frame.Session, cols, rows)
 				}
 			}
 		case FrameClipboard:
-			if sess := table.logicalFor(frame.Session); sess != nil {
-				table.handleClipboardChunk(ctx, sess.id, frame.Payload)
+			if sess := t.logicalFor(frame.Session); sess != nil {
+				t.handleClipboardChunk(ctx, sess.id, frame.Payload)
 			}
 		}
 		if ctx.Err() != nil {
@@ -311,12 +452,13 @@ func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime, table *ses
 	}
 }
 
-// rebindTunnel clears the wire-id bindings of a dead tunnel. Client
-// connections died with it; their logical sessions stay running detached.
+// rebindTunnel clears the bindings of a dead tunnel. Sidecar-backed client
+// connections died with it; their logical sessions stay running detached,
+// and local socket clients are untouched.
 func (t *sessionTable) rebindTunnel() {
-	t.mu.Lock()
-	t.wireMap = make(map[uint32]uint64)
-	t.mu.Unlock()
+	for _, wire := range t.conns.removeRemotes() {
+		t.detachWire(wire)
+	}
 }
 
 // detachWire unbinds one wire session id from its logical session. The
@@ -344,18 +486,10 @@ func (t *sessionTable) detachWire(wire uint32) {
 	}
 }
 
-// unbindAll drops every wire binding (the tunnel ended). Logical sessions
-// keep running detached.
+// unbindAll drops every sidecar-backed connection (the tunnel ended).
+// Logical sessions keep running detached, and local clients stay live.
 func (t *sessionTable) unbindAll() {
-	t.mu.Lock()
-	wires := make([]uint32, 0, len(t.wireMap))
-	for wire := range t.wireMap {
-		wires = append(wires, wire)
-	}
-	t.mu.Unlock()
-	for _, wire := range wires {
-		t.detachWire(wire)
-	}
+	t.rebindTunnel()
 }
 
 // killAll tears down every logical session, killing children. Used on
@@ -406,7 +540,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 	t.mu.Lock()
 	_, live := t.sessions[session]
 	if live {
-		path := remoteClipboardPath(session)
+		path := t.remoteClipboardPath(session)
 		if !slices.Contains(t.sessionTemps[session], path) {
 			t.sessionTemps[session] = append(t.sessionTemps[session], path)
 		}
@@ -419,7 +553,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 	if clear {
 		// The client found no image: empty the file so the child's next
 		// Ctrl-V is a no-op. No keystroke is injected.
-		if err := os.WriteFile(remoteClipboardPath(session), nil, 0o600); err != nil {
+		if err := os.WriteFile(t.remoteClipboardPath(session), nil, 0o600); err != nil {
 			log.Warn("clipboard clear failed", "session_id", session, "error", err)
 		}
 		t.mu.Lock()
@@ -474,7 +608,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 		log.Error("daemon: clipboard write failed", "session_id", session, "error", werr, "close", cerr)
 		return
 	}
-	if err := os.Rename(path, remoteClipboardPath(session)); err != nil {
+	if err := os.Rename(path, t.remoteClipboardPath(session)); err != nil {
 		_ = os.Remove(path)
 		log.Error("daemon: clipboard publish failed", "session_id", session, "error", err)
 		return
@@ -560,6 +694,11 @@ func (t *sessionTable) handleAuthPayload(payload []byte) {
 
 // decideAuth answers the sidecar's consultation. The payload mirrors what
 // the Rust side parses: correlation key (8), verdict byte, optional reason.
+//
+// This frame is addressed to the sidecar itself, not to a client, so it
+// goes straight to the tunnel sink. Routing it through writeTo would look
+// up wire id 0, which no connection ever owns, and the daemon would
+// silently stop answering handshakes.
 func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 	out := make([]byte, 0, 8+1+len(reason))
 	out = append(out, corr...)
@@ -569,7 +708,7 @@ func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
 		out = append(out, 0)
 	}
 	out = append(out, reason...)
-	_ = t.writeTo(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
+	_ = t.rt.currentSink().write(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
 }
 
 // sessionInfo is one row of the client-facing session list.
@@ -578,6 +717,27 @@ type sessionInfo struct {
 	Clients int    `json:"clients"`
 	Started string `json:"started"`
 	Cwd     string `json:"cwd,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+// renameSession applies a client's rename request: {id u64 BE, name}.
+func (t *sessionTable) renameSession(payload []byte) {
+	if len(payload) < 8 {
+		return
+	}
+	id := binary.BigEndian.Uint64(payload[:8])
+	name := strings.TrimSpace(string(payload[8:]))
+	// Truncate on rune boundaries: the frame documents the name as UTF-8,
+	// and slicing bytes can cut a multi-byte rune in half.
+	if r := []rune(name); len(r) > 64 {
+		name = string(r[:64])
+	}
+	t.mu.Lock()
+	sess := t.sessions[id]
+	t.mu.Unlock()
+	if sess != nil {
+		sess.setName(name)
+	}
 }
 
 // sendSessionList replies to a client's list request with the live
@@ -603,14 +763,24 @@ func (t *sessionTable) sendSessionList(wire uint32) {
 			ID:      id,
 			Clients: len(sess.clientIDs()),
 			Started: sess.started.Format(time.RFC3339),
-		}
-		if sess.cmd != nil && sess.cmd.Process != nil {
-			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", sess.cmd.Process.Pid)); err == nil {
-				info.Cwd = cwd
-			}
+			Name:    sess.displayName(),
+			Cwd:     t.sessionCwd(sess),
 		}
 		infos = append(infos, info)
 	}
+	// A stable order keeps the picker's rows from jumping between
+	// refreshes, and gives the next/previous chords a meaningful sense of
+	// direction. Map iteration alone would randomise both.
+	slices.SortFunc(infos, func(a, b sessionInfo) int {
+		switch {
+		case a.ID < b.ID:
+			return -1
+		case a.ID > b.ID:
+			return 1
+		default:
+			return 0
+		}
+	})
 	payload, err := json.Marshal(infos)
 	if err != nil {
 		return
@@ -644,7 +814,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		s.attachClient(wire, winSize{})
 		t.mu.Unlock()
 
-		child, ptmx, err := spawnPickDir(logical)
+		child, ptmx, err := t.spawnPickDir(logical)
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
 			t.retireSession(logical)
@@ -655,6 +825,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 			active := len(t.sessions)
 			t.mu.Unlock()
 			t.rt.setSessions(active)
+			t.syncSessionRegistry()
 			log.Info("session started", "session_id", logical, "wire", wire)
 			t.watchSession(s)
 			ok = 1
@@ -759,8 +930,16 @@ func (t *sessionTable) retireSession(id uint64) {
 		_ = s.ptmx.Close()
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+		// SIGTERM first: the child flushes its conversation store and
+		// restores the terminal. SIGKILL only if it ignores that.
+		//
+		// Off the frame loop: retireSession runs inline there when a PTY
+		// write fails, and one stream carries every sidecar-relayed
+		// client, so waiting out the grace period here would stall all of
+		// them for seconds.
+		go terminateProcess(s.cmd.Process.Pid)
 	}
+	t.syncSessionRegistry()
 	log.Info("session ended", "session_id", id)
 }
 
@@ -769,14 +948,52 @@ func (t *sessionTable) retireSession(id uint64) {
 // internal/clipboard.RemoteClipboardEnv), so a paste is a file rewrite
 // followed by a synthetic 0x16 keystroke — the child's own clipboard
 // pipeline then renders the preview exactly like a local paste.
-func remoteClipboardPath(session uint64) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("kit-remote-clip-%d", session))
+func (t *sessionTable) remoteClipboardPath(session uint64) string {
+	return filepath.Join(t.scratchDir(),
+		fmt.Sprintf("%sclip-%s-%d", tempFilePrefix, t.run, session))
+}
+
+// sessionCwdPath is the stable per-session file a session's child writes
+// its working directory into, once the directory picker has resolved it.
+//
+// Reading /proc/<pid>/cwd would be simpler but only works on Linux, and it
+// reports the child's cwd rather than the directory the user picked. The
+// file follows the same convention as the clipboard file above.
+func (t *sessionTable) sessionCwdPath(session uint64) string {
+	return filepath.Join(t.scratchDir(),
+		fmt.Sprintf("%scwd-%s-%d", tempFilePrefix, t.run, session))
+}
+
+// scratchDir is where per-session files live.
+//
+// The daemon's own runtime directory, not the shared temp directory: two
+// daemons with different runtime directories run at the same time, and a
+// start-up sweep of a shared directory would delete the live clipboard and
+// cwd files of the other daemon's sessions. Falling back to the temp
+// directory keeps the paths working if the runtime dir is unavailable;
+// the run nonce still keeps one daemon's files apart from another's.
+func (t *sessionTable) scratchDir() string {
+	if dir, err := daemonRuntimeDir(); err == nil {
+		return dir
+	}
+	return os.TempDir()
+}
+
+// sessionCwd reports a session's working directory for the session list.
+// It is empty until the child has chosen one, which is the honest answer
+// while the directory picker is still on screen.
+func (t *sessionTable) sessionCwd(s *remoteSession) string {
+	data, err := os.ReadFile(t.sessionCwdPath(s.id))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
 // daemon user's home directory, so the remote peer picks the session's
 // working directory from the modal rendered inside the PTY.
-func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
+func (t *sessionTable) spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
@@ -788,8 +1005,18 @@ func spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}
-	env = append(env, clipboard.RemoteClipboardEnv+"="+remoteClipboardPath(session))
+	// Mark the child with this daemon's runtime directory so a later
+	// sweep can prove the process is ours before signalling it.
+	if home, herr := daemonRuntimeDir(); herr == nil {
+		env = append(env, sessionOwnerEnv+"="+home)
+	}
+	env = append(env, clipboard.RemoteClipboardEnv+"="+t.remoteClipboardPath(session))
+	env = append(env, sessionCwdEnv+"="+t.sessionCwdPath(session))
 	cmd.Env = env
+
+	// Ask the kernel to kill this child if the daemon dies, so a crash
+	// cannot leave an unreachable session running (see recovery.go).
+	cmd.SysProcAttr = applyChildDeathSignal(cmd.SysProcAttr)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
 	if err != nil {
@@ -806,4 +1033,11 @@ func homeDir() string {
 		return u.HomeDir
 	}
 	return "/"
+}
+
+// sessionCount reports how many logical sessions are live.
+func (t *sessionTable) sessionCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.sessions)
 }

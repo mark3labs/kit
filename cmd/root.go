@@ -15,6 +15,7 @@ import (
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
+	"github.com/mark3labs/kit/internal/daemon"
 	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/prompts"
@@ -375,7 +376,6 @@ func init() {
 		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
 	rootCmd.Flags().
 		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
-	_ = rootCmd.Flags().MarkHidden("pick-dir")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -527,6 +527,10 @@ func preInitDispatch() {
 		fmt.Fprintf(os.Stderr, "change to %s: %v\n", chosen, err)
 		os.Exit(1)
 	}
+	// Tell the hosting daemon (if any) which directory this session
+	// settled on, so it appears in the session list. A no-op when kit was
+	// not spawned by a daemon.
+	daemon.ReportSessionCwd(chosen)
 }
 
 func runKit(ctx context.Context) error {
