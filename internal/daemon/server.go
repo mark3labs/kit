@@ -374,7 +374,15 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 			// lets replies find their way back out. No session is
 			// spawned: that waits for an explicit attach.
 			t.conns.addRemote(frame.Session, sink)
-		case FrameSessionDetach, FrameSessionClosed, FrameBye:
+		case FrameSessionDetach:
+			// Detach unbinds the session but KEEPS the connection: the
+			// client is still there and usually attaches to another
+			// session next (a switch is detach followed by attach).
+			// Dropping the connection here would leave the following
+			// attach with nowhere to send its ack.
+			t.detachWire(frame.Session)
+		case FrameSessionClosed, FrameBye:
+			// The client itself is gone.
 			t.detachWire(frame.Session)
 			if fixedWire == 0 {
 				t.conns.remove(frame.Session)

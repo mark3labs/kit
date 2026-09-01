@@ -24,10 +24,22 @@ const pasteKey = 0x16
 // bracketed paste off, kitty keyboard protocol popped. Emitted by the
 // client on teardown because the remote side may die mid-frame (SIGKILL,
 // network loss) without ever sending its own restore sequences.
-const terminalResetSeq = "\x1b[?1049l\x1b[?25h" +
+const terminalResetSeq = "\x1b[?25h" +
 	"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" +
 	"\x1b[?2004l" +
 	"\x1b[<u\x1b[<u\x1b[<u"
+
+// altScreenEnter and altScreenLeave bracket a client's whole attachment.
+//
+// The client owns the alternate screen for the same reason tmux and ssh
+// do: a session renders inline, so without it the session's output stays
+// in the normal buffer after a detach and the returning shell prompt
+// draws straight over it. Holding the alt screen across session switches
+// also stops the terminal flashing between two sessions.
+const (
+	altScreenEnter = "\x1b[?1049h"
+	altScreenLeave = "\x1b[?1049l"
+)
 
 // PairOptions controls `kit remote --pair`. Code is required; all other
 // fields are optional.

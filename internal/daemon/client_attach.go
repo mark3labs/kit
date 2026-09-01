@@ -409,6 +409,13 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 		return fmt.Errorf("attaching to a session needs an interactive terminal")
 	}
 
+	// The alt screen is entered once for the whole attachment and left on
+	// the way out, so the user's shell scrollback comes back untouched.
+	_, _ = os.Stdout.WriteString(altScreenEnter)
+	defer func() {
+		_, _ = os.Stdout.WriteString(terminalResetSeq + altScreenLeave)
+	}()
+
 	conn := newClientConn(rw)
 	go conn.readLoop()
 	conn.readStdin()
