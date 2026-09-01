@@ -169,12 +169,24 @@ type clientConn struct {
 // clientConn.stdinReader. A stdin that will not take a cancel reader falls
 // back to reading the file directly: input still works, only the hand-back
 // is unavailable.
-func (c *clientConn) readStdin() {
+//
+// ctx releases the terminal as soon as it is cancelled. The client also
+// stops the reader when it unwinds, but that can trail the cancellation by
+// as long as an in-flight daemon request takes to time out, and a caller
+// that cancelled is usually a caller that wants stdin back now.
+func (c *clientConn) readStdin(ctx context.Context) {
 	var src io.Reader = os.Stdin
 	if cr, err := cancelreader.NewReader(os.Stdin); err == nil {
 		c.stdinReader = cr
 		src = cr
 	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			c.stopStdin()
+		case <-c.stdinStop: // stopped by the client instead
+		}
+	}()
 	go func() {
 		// stdinDone is registered first so it closes last: a waiter woken
 		// by it must find the goroutine completely finished with the
@@ -558,7 +570,7 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) error 
 
 	conn := newClientConn(rw)
 	go conn.readLoop()
-	conn.readStdin()
+	conn.readStdin(ctx)
 	// Give the terminal back on the way out. Everything above this call
 	// may hand control to a caller that reads stdin itself — a cross-host
 	// switch starts a second client, and an error returned from here is

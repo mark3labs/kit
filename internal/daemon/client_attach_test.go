@@ -351,7 +351,7 @@ func TestStopStdinReleasesTheTerminal(t *testing.T) {
 		io.Reader
 		io.Writer
 	}{Reader: strings.NewReader(""), Writer: io.Discard})
-	conn.readStdin()
+	conn.readStdin(t.Context())
 
 	if _, err := w.Write([]byte("a")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -412,7 +412,7 @@ func TestStopStdinWithNobodyReading(t *testing.T) {
 		io.Reader
 		io.Writer
 	}{Reader: strings.NewReader(""), Writer: io.Discard})
-	conn.readStdin()
+	conn.readStdin(t.Context())
 
 	// Overrun the channel with nobody receiving, so the reader is parked
 	// on a send when the client tears down.
@@ -468,5 +468,43 @@ func TestStayOnCurrentNeverSpawnsASession(t *testing.T) {
 				t.Fatalf("staying put on host %q was read as a switch to %q", host, sw.Host)
 			}
 		})
+	}
+}
+
+// TestReadStdinReleasesTheTerminalOnCancel checks that cancelling the
+// client's context hands the terminal back on its own.
+//
+// The client also stops the reader when it unwinds, but that can trail the
+// cancellation: an in-flight attach or session list waits out a fixed
+// timeout, not the context, so the terminal would stay captured for
+// seconds after the caller gave up on it.
+func TestReadStdinReleasesTheTerminalOnCancel(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	realStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = realStdin; _ = r.Close() }()
+
+	conn := newClientConn(struct {
+		io.Reader
+		io.Writer
+	}{Reader: strings.NewReader(""), Writer: io.Discard})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	conn.readStdin(ctx)
+
+	// The reader is parked on the terminal with nothing to read, which is
+	// the state cancellation has to break.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-conn.stdinDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a cancelled context did not release the terminal")
 	}
 }
