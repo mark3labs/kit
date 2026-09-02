@@ -84,6 +84,15 @@ your last bare conversation from anywhere on the filesystem.
 configuration, so allowing a project config to enable it would be
 self-defeating.
 
+## Tools
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--shell` | — | `bash` | Shell the shell tool and the interactive `!` commands run through: the shell plus its own leading arguments, e.g. `/bin/dash` or `"busybox ash"` |
+| `--no-core-tools` | — | `false` | Disable all built-in core tools |
+| `--include-core-tools` | — | — | Comma-separated list of core tools to include (mutually exclusive with `--exclude-core-tools`) |
+| `--exclude-core-tools` | — | — | Comma-separated list of core tools to exclude (mutually exclusive with `--include-core-tools`) |
+
 ## Extensions
 
 | Flag | Short | Default | Description |

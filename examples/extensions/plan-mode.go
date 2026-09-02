@@ -12,7 +12,7 @@ import (
 // tools. Toggle with /plan (or start in plan mode via KIT_OPT_PLAN=true).
 
 // In plan mode the agent can only use read, grep, find, and ls — it cannot
-// write files, run bash, or make edits. This is useful for exploring a
+// write files, run shell commands, or make edits. This is useful for exploring a
 // codebase, reviewing architecture, or generating plans before executing.
 //
 // The status bar shows the current mode and the system prompt is augmented

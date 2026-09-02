@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/spf13/viper"
 )
 
@@ -793,11 +794,50 @@ func (r *Runner) GetUIVisibility() *UIVisibility {
 // no extension registered a renderer for it. If multiple extensions register
 // renderers for the same tool, the last one (by load order) wins. Thread-safe
 // (extensions are immutable after loading).
+// hasCustomTool reports whether a loaded extension registered a tool of its
+// own under this name. The earlier-name compatibility stands down when one
+// does, because the name then belongs to that tool rather than to the core
+// shell tool. Extensions are immutable after loading, so no lock is needed.
+func (r *Runner) hasCustomTool(name string) bool {
+	for _, ext := range r.extensions {
+		for _, tool := range ext.Tools {
+			if tool.Name == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
-	// Walk extensions in reverse so last-registered wins.
+	// A renderer that names the tool as written wins, so a custom tool that
+	// really is named "bash" keeps its own renderer whatever the load order.
+	if renderer := r.findToolRenderer(func(name string) bool {
+		return name == toolName
+	}); renderer != nil {
+		return renderer
+	}
+	// Failing that, the shell tool answers to the name it had before its
+	// shell became configurable: an extension written before the rename
+	// keeps rendering live calls, and a session recorded before it replays
+	// with its renderer. This applies to the core tool only, so an extension
+	// that registers a tool of its own under the earlier name keeps its
+	// renderer to itself.
+	if r.hasCustomTool(core.LegacyShellToolName) {
+		return nil
+	}
+	normalized := core.NormalizeCoreToolName(toolName)
+	return r.findToolRenderer(func(name string) bool {
+		return core.NormalizeCoreToolName(name) == normalized
+	})
+}
+
+// findToolRenderer returns the first renderer whose tool name satisfies match,
+// walking extensions in reverse so the last registered one wins.
+func (r *Runner) findToolRenderer(match func(string) bool) *ToolRenderConfig {
 	for _, ext := range slices.Backward(r.extensions) {
 		for _, renderer := range slices.Backward(ext.ToolRenderers) {
-			if renderer.ToolName == toolName {
+			if match(renderer.ToolName) {
 				return &renderer
 			}
 		}
@@ -1096,8 +1136,16 @@ func (r *Runner) SetActiveTools(names []string) {
 		return
 	}
 	active := make(map[string]bool, len(names))
+	// A list written for an earlier KIT keeps enabling the shell tool. The
+	// alias applies to the core tool only: when an extension registers a
+	// tool of its own under the earlier name, that name selects that tool
+	// and nothing else, so a restriction never admits more than it names.
+	aliasCoreTool := !r.hasCustomTool(core.LegacyShellToolName)
 	for _, n := range names {
 		active[n] = true
+		if aliasCoreTool {
+			active[core.NormalizeCoreToolName(n)] = true
+		}
 	}
 	r.disabledTools = active // non-nil = only these tools are allowed
 }

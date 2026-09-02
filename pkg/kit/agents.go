@@ -177,10 +177,16 @@ func applyAgentDefinition(cfg *SubagentConfig, def *AgentDefinition) {
 // preserving order. Allowlisted names with no matching tool are ignored.
 // The result is never nil so an empty allowlist match still counts as an
 // explicit (empty) tool set rather than "use defaults".
+//
+// Each entry admits the tool-name mapping's result in addition to the entry
+// as written: an agent definition that says "bash" still selects the shell
+// tool, and a custom tool that really is named "bash" still matches its own
+// entry.
 func filterToolsByName(tools []Tool, names []string) []Tool {
-	allowed := make(map[string]struct{}, len(names))
+	allowed := make(map[string]struct{}, len(names)*2)
 	for _, n := range names {
 		allowed[n] = struct{}{}
+		allowed[core.NormalizeCoreToolName(n)] = struct{}{}
 	}
 	filtered := make([]Tool, 0, len(names))
 	for _, t := range tools {

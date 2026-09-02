@@ -711,3 +711,116 @@ func TestRunner_ReentrantEmitCustomEvent(t *testing.T) {
 		t.Errorf("expected [session_start, custom:hello], got %v", order)
 	}
 }
+
+func TestGetToolRenderer_AcceptsEitherShellToolName(t *testing.T) {
+	// A renderer registered under the shell tool's earlier name is found for
+	// a live call, which reports the registered name.
+	r := NewRunner([]LoadedExtension{{
+		ToolRenderers: []ToolRenderConfig{{ToolName: "bash", DisplayName: "Terminal"}},
+	}})
+	if got := r.GetToolRenderer("shell"); got == nil || got.DisplayName != "Terminal" {
+		t.Fatalf("renderer registered under the earlier name was not found for the registered name: %#v", got)
+	}
+	// A renderer registered under the current name is found when a session
+	// recorded before the rename replays with the earlier name.
+	r = NewRunner([]LoadedExtension{{
+		ToolRenderers: []ToolRenderConfig{{ToolName: "shell", DisplayName: "Terminal"}},
+	}})
+	if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Terminal" {
+		t.Fatalf("renderer registered under the current name was not found for the earlier name: %#v", got)
+	}
+}
+
+func TestSetActiveTools_AcceptsTheEarlierName(t *testing.T) {
+	r := NewRunner(nil)
+
+	r.SetActiveTools([]string{"bash", "read"})
+	if r.IsToolDisabled("shell") {
+		t.Error("the earlier name must keep the shell tool enabled")
+	}
+	if r.IsToolDisabled("bash") {
+		t.Error("a custom tool named bash must stay enabled")
+	}
+	if r.IsToolDisabled("read") {
+		t.Error("read was named and must stay enabled")
+	}
+	if !r.IsToolDisabled("write") {
+		t.Error("an unnamed tool must be disabled")
+	}
+
+	r.SetActiveTools([]string{"shell"})
+	if r.IsToolDisabled("shell") {
+		t.Error("the current name must enable the shell tool")
+	}
+
+	r.SetActiveTools(nil)
+	if r.IsToolDisabled("write") {
+		t.Error("an empty list must re-enable all tools")
+	}
+}
+
+func TestGetToolRenderer_ExactMatchBeatsTheEarlierName(t *testing.T) {
+	// A custom tool really named "bash" and the core shell tool must each
+	// keep their own renderer, whichever extension loads first.
+	shellRenderer := ToolRenderConfig{ToolName: "shell", DisplayName: "Shell"}
+	bashRenderer := ToolRenderConfig{ToolName: "bash", DisplayName: "Custom bash"}
+
+	for _, order := range [][]ToolRenderConfig{
+		{shellRenderer, bashRenderer},
+		{bashRenderer, shellRenderer},
+	} {
+		r := NewRunner([]LoadedExtension{{ToolRenderers: order}})
+		if got := r.GetToolRenderer("shell"); got == nil || got.DisplayName != "Shell" {
+			t.Errorf("order %v: renderer for shell = %+v, want the shell renderer", order, got)
+		}
+		if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Custom bash" {
+			t.Errorf("order %v: renderer for bash = %+v, want the custom renderer", order, got)
+		}
+	}
+
+	// Without a renderer of its own, the earlier name still reaches the
+	// shell tool's renderer, so sessions recorded before the rename replay.
+	r := NewRunner([]LoadedExtension{{ToolRenderers: []ToolRenderConfig{shellRenderer}}})
+	if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Shell" {
+		t.Errorf("fallback renderer = %+v, want the shell renderer", got)
+	}
+}
+
+func TestLegacyShellNameIsScopedToTheCoreTool(t *testing.T) {
+	customBash := LoadedExtension{
+		Tools:         []ToolDef{{Name: "bash"}},
+		ToolRenderers: []ToolRenderConfig{{ToolName: "bash", DisplayName: "Custom bash"}},
+	}
+
+	// A restriction that names the earlier name selects that extension's own
+	// tool and nothing else: it must not admit the core shell tool as well.
+	r := NewRunner([]LoadedExtension{customBash})
+	r.SetActiveTools([]string{"bash"})
+	if r.IsToolDisabled("bash") {
+		t.Error("the custom tool was named and must stay enabled")
+	}
+	if !r.IsToolDisabled("shell") {
+		t.Error("naming a custom tool must not enable the core shell tool")
+	}
+
+	// The renderer of that tool stays its own, and the core shell tool falls
+	// back to the default rendering rather than borrowing it.
+	if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Custom bash" {
+		t.Errorf("renderer for the custom tool = %+v, want its own", got)
+	}
+	if got := r.GetToolRenderer("shell"); got != nil {
+		t.Errorf("renderer for the core shell tool = %+v, want none", got)
+	}
+
+	// Without such a tool, the earlier name keeps reaching the core tool.
+	r = NewRunner([]LoadedExtension{{
+		ToolRenderers: []ToolRenderConfig{{ToolName: "bash", DisplayName: "Legacy"}},
+	}})
+	r.SetActiveTools([]string{"bash"})
+	if r.IsToolDisabled("shell") {
+		t.Error("without a custom tool of that name, the earlier name must enable the shell tool")
+	}
+	if got := r.GetToolRenderer("shell"); got == nil || got.DisplayName != "Legacy" {
+		t.Errorf("renderer for the core shell tool = %+v, want the legacy one", got)
+	}
+}

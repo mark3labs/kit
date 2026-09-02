@@ -391,7 +391,7 @@ func newFileOps() *fileOps {
 }
 
 // extractFileOps scans messages for tool calls and extracts file paths.
-// It recognises the built-in Kit tools: read, write, edit, bash, grep, find, ls.
+// It recognises the built-in Kit tools: read, write, edit, shell, grep, find, ls.
 func extractFileOps(messages []fantasy.Message) *fileOps {
 	ops := newFileOps()
 	for _, msg := range messages {

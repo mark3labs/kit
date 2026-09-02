@@ -127,9 +127,9 @@ func Init(api ext.API) {
 		return nil // don't block
 	})
 
-	// Block dangerous bash commands.
+	// Block dangerous shell commands.
 	api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
-		if tc.ToolName == "bash" && strings.Contains(tc.Input, "rm -rf /") {
+		if tc.ToolName == "shell" && strings.Contains(tc.Input, "rm -rf /") {
 			return &ext.ToolCallResult{Block: true, Reason: "Blocked: dangerous command"}
 		}
 		return nil

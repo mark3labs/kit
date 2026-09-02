@@ -109,7 +109,7 @@ type Event interface {
 // These constants re-export the canonical classification used by extension
 // events, so SDK events and extension events always agree.
 const (
-	ToolKindExecute  = extensions.ToolKindExecute  // Shell execution (bash)
+	ToolKindExecute  = extensions.ToolKindExecute  // Shell execution
 	ToolKindEdit     = extensions.ToolKindEdit     // File modification (edit, write)
 	ToolKindRead     = extensions.ToolKindRead     // File reading (read, ls)
 	ToolKindSearch   = extensions.ToolKindSearch   // Content/file search (grep, find)
@@ -219,7 +219,7 @@ type ReasoningCompleteEvent struct{}
 // EventType implements Event.
 func (e ReasoningCompleteEvent) EventType() EventType { return EventReasoningComplete }
 
-// ToolOutputEvent fires when a tool produces streaming output chunks (e.g., bash output).
+// ToolOutputEvent fires when a tool produces streaming output chunks (e.g., shell output).
 type ToolOutputEvent struct {
 	ToolCallID string
 	ToolName   string
@@ -620,7 +620,7 @@ func (m *Kit) OnToolResult(handler func(ToolResultEvent)) func() {
 }
 
 // OnToolOutput registers a handler that fires only for ToolOutputEvent
-// (streaming tool output chunks, e.g., from bash). Returns an unsubscribe function.
+// (streaming tool output chunks, e.g., from the shell tool). Returns an unsubscribe function.
 func (m *Kit) OnToolOutput(handler func(ToolOutputEvent)) func() {
 	return subscribeTyped(m, handler)
 }

@@ -64,15 +64,20 @@ type AgentConfig struct {
 	// consumed when core tools are built from CoreToolList.
 	NamedAgents []core.NamedAgentSpec
 
-	// BashTimeout sets the default per-call timeout (in seconds) for the bash
+	// ShellTimeout sets the default per-call timeout (in seconds) for the shell
 	// tool. Zero uses the built-in default (120s). Only consumed when core
 	// tools are built from CoreToolList.
-	BashTimeout int
+	ShellTimeout int
 
-	// BashMaxTimeout caps the maximum timeout (in seconds) a bash tool call
+	// ShellMaxTimeout caps the maximum timeout (in seconds) a shell tool call
 	// may request. Zero uses the built-in default (600s). Only consumed when
 	// core tools are built from CoreToolList.
-	BashMaxTimeout int
+	ShellMaxTimeout int
+
+	// Shell is the argument vector prefix the shell tool runs a command
+	// string through. Empty uses the built-in default ["bash"]. Only
+	// consumed when core tools are built from CoreToolList.
+	Shell []string
 
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). The callback receives the server
@@ -126,14 +131,14 @@ type ToolCallDeltaHandler func(toolCallID, delta string)
 type ToolCallEndHandler func(toolCallID string)
 
 // ToolOutputHandler is a function type for handling streaming tool output chunks.
-// Used by tools like bash to stream output as it arrives rather than waiting
+// Used by tools like the shell tool to stream output as it arrives rather than waiting
 // for the command to complete. The isStderr flag indicates if the chunk
 // contains stderr output.
 // Note: This is an alias for core.ToolOutputCallback to avoid import cycles.
 type ToolOutputHandler = core.ToolOutputCallback
 
 // PasswordPromptHandler is a function type for password prompts.
-// Used by the bash tool when sudo requires a password. The handler receives
+// Used by the shell tool when sudo requires a password. The handler receives
 // a prompt message and returns the password and whether it was cancelled.
 // Note: This is an alias for core.PasswordPromptCallback.
 type PasswordPromptHandler = core.PasswordPromptCallback
@@ -233,7 +238,7 @@ type GenerateCallbacks struct {
 }
 
 // Agent represents an AI agent with core tool integration using the LLM library.
-// Core tools (bash, read, write, edit, grep, find, ls) are registered as direct
+// Core tools (shell, read, write, edit, grep, find, ls) are registered as direct
 // AgentTool implementations — no MCP layer, no serialization overhead.
 // Additional tools from external MCP servers can be loaded alongside core tools.
 //
@@ -309,7 +314,7 @@ type GenerateWithLoopResult struct {
 }
 
 // NewAgent creates a new Agent with core tools and optional MCP tool integration.
-// Core tools (bash, read, write, edit, grep, find, ls) are always registered.
+// Core tools (shell, read, write, edit, grep, find, ls) are always registered.
 // If MCP servers are configured, their tools are loaded in the background —
 // the agent returns immediately and is usable with core tools only. The first
 // LLM call (GenerateWithLoop) automatically waits for MCP tools to finish
@@ -337,11 +342,14 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		if len(agentConfig.NamedAgents) > 0 {
 			toolOpts = append(toolOpts, core.WithNamedAgents(agentConfig.NamedAgents...))
 		}
-		if agentConfig.BashTimeout > 0 {
-			toolOpts = append(toolOpts, core.WithBashTimeout(time.Duration(agentConfig.BashTimeout)*time.Second))
+		if agentConfig.ShellTimeout > 0 {
+			toolOpts = append(toolOpts, core.WithShellTimeout(time.Duration(agentConfig.ShellTimeout)*time.Second))
 		}
-		if agentConfig.BashMaxTimeout > 0 {
-			toolOpts = append(toolOpts, core.WithBashMaxTimeout(time.Duration(agentConfig.BashMaxTimeout)*time.Second))
+		if agentConfig.ShellMaxTimeout > 0 {
+			toolOpts = append(toolOpts, core.WithShellMaxTimeout(time.Duration(agentConfig.ShellMaxTimeout)*time.Second))
+		}
+		if len(agentConfig.Shell) > 0 {
+			toolOpts = append(toolOpts, core.WithShell(agentConfig.Shell))
 		}
 		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}
@@ -617,12 +625,12 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 	// servers are configured or tools have already been integrated.
 	a.ensureMCPTools()
 
-	// Inject tool output handler into context for use by core tools (e.g., bash).
+	// Inject tool output handler into context for use by core tools (e.g. the shell tool).
 	if cb.OnToolOutput != nil {
 		ctx = core.ContextWithToolOutputCallback(ctx, cb.OnToolOutput)
 	}
 
-	// Inject password prompt handler into context for use by bash tool.
+	// Inject password prompt handler into context for use by the shell tool.
 	if cb.OnPasswordPrompt != nil {
 		ctx = core.ContextWithPasswordPrompt(ctx, cb.OnPasswordPrompt)
 	}
