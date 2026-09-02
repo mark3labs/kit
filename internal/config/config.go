@@ -297,13 +297,26 @@ type Config struct {
 	// Custom model definitions (under custom/ provider)
 	CustomModels map[string]CustomModelConfig `json:"customModels,omitempty" yaml:"customModels,omitempty"`
 
-	// Bash tool timeouts (in seconds). BashTimeout sets the default per-call
-	// timeout applied when the model does not specify one (built-in default
-	// 120s). BashMaxTimeout caps the maximum timeout a bash tool call may
-	// request via its timeout argument (built-in default 600s). Zero values
-	// preserve the built-in defaults.
-	BashTimeout    int `json:"bash-timeout,omitempty" yaml:"bash-timeout,omitempty"`
-	BashMaxTimeout int `json:"bash-max-timeout,omitempty" yaml:"bash-max-timeout,omitempty"`
+	// Shell tool timeouts (in seconds). ShellTimeout sets the default
+	// per-call timeout applied when the model does not specify one (built-in
+	// default 120s). ShellMaxTimeout caps the maximum timeout a shell tool
+	// call may request via its timeout argument (built-in default 600s). Zero
+	// values preserve the built-in defaults.
+	//
+	// BashTimeout and BashMaxTimeout are the keys these settings had before
+	// the tool's shell became configurable. They are still read, so existing
+	// configuration keeps working; the shell-named key wins when both are
+	// present.
+	ShellTimeout    int `json:"shell-timeout,omitempty" yaml:"shell-timeout,omitempty"`
+	ShellMaxTimeout int `json:"shell-max-timeout,omitempty" yaml:"shell-max-timeout,omitempty"`
+	BashTimeout     int `json:"bash-timeout,omitempty" yaml:"bash-timeout,omitempty"`
+	BashMaxTimeout  int `json:"bash-max-timeout,omitempty" yaml:"bash-max-timeout,omitempty"`
+
+	// Shell is the shell the shell tool runs a command string through, plus
+	// its own leading arguments, e.g. ["bash"] or ["busybox", "ash"]. Empty
+	// uses the built-in default ["bash"]. Set this on images that do not
+	// ship bash.
+	Shell []string `json:"shell,omitempty" yaml:"shell,omitempty"`
 
 	// Per-model generation parameter overrides. Keys are "provider/model" strings
 	// (e.g. "anthropic/claude-sonnet-4-5-20250929", "openai/gpt-4o"). These
@@ -534,6 +547,15 @@ mcpServers:
 # exclude-core-tools:                      # list of core tool name to exclude
                                            # include-/exclude-core-tools are mutually exclusive
                                            # no-core-tools has precedence
+
+# Shell tool
+# shell: "bash"                            # shell the shell tool runs commands through
+                                           # plus its own leading arguments: "busybox ash"
+                                           # set this on images without bash
+# shell-timeout: 120                       # default per-call timeout in seconds
+# shell-max-timeout: 600                   # ceiling a single call may request
+                                           # bash-timeout and bash-max-timeout
+                                           # are the earlier names and still work
 
 # API Configuration (can also use environment variables)
 # provider-api-key: "your-api-key"         # API key for OpenAI, Anthropic, or Google

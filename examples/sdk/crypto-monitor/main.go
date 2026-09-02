@@ -13,7 +13,7 @@ import (
 
 const systemPrompt = `You are a cryptocurrency price monitor. Your job is to:
 
-1. Fetch the current prices of Bitcoin and Ethereum using bash with curl
+1. Fetch the current prices of Bitcoin and Ethereum using the shell tool with curl
 2. Send a desktop notification with the results using notify-send
 
 To fetch prices, use this CoinGecko API endpoint (no API key needed):
@@ -43,7 +43,7 @@ func main() {
 
 	host, err := kit.New(ctx, &kit.Options{
 		SystemPrompt: systemPrompt,
-		Tools:        []kit.Tool{kit.NewBashTool()},
+		Tools:        []kit.Tool{kit.NewShellTool()},
 		NoSession:    true,
 		Quiet:        true,
 	})

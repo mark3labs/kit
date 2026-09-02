@@ -11,7 +11,7 @@ import (
 	"charm.land/fantasy"
 )
 
-// runStreaming drives executeBashStreaming directly for a shell command and
+// runStreaming drives executeShellStreaming directly for a shell command and
 // returns the tool response plus every chunk pushed to the output callback.
 //
 // It fails the test rather than blocking forever if the call does not return,
@@ -30,26 +30,42 @@ func runStreaming(t *testing.T, command string) (fantasy.ToolResponse, []string)
 		ctx := context.Background()
 		cmd := exec.CommandContext(ctx, "bash", "-c", command)
 
-		// executeBashStreaming drains stdout and stderr in two separate
+		// executeShellStreaming drains stdout and stderr in two separate
 		// goroutines, so the callback is invoked concurrently. The production
 		// code guards its own chunk slices with a mutex; the callback we pass
 		// must do the same or the append races.
 		var mu sync.Mutex
 		var chunks []string
-		cb := func(_, _, chunk string, _ bool) {
+		var names []string
+		cb := func(_, toolName, chunk string, _ bool) {
 			mu.Lock()
 			chunks = append(chunks, chunk)
+			names = append(names, toolName)
 			mu.Unlock()
 		}
 
-		resp, err := executeBashStreaming(ctx, bashCall(command, 0), cmd, cb, "")
+		resp, err := executeShellStreaming(ctx, shellCall(command, 0), cmd, cb, "")
 
-		// executeBashStreaming has joined both stream goroutines by the time it
+		// executeShellStreaming has joined both stream goroutines by the time it
 		// returns, so no further callback can fire. Take the lock anyway to
 		// publish the final slice under the same mutex that guarded the writes.
 		mu.Lock()
 		snapshot := append([]string(nil), chunks...)
+		gotNames := append([]string(nil), names...)
 		mu.Unlock()
+
+		// Streamed output is attributed to the name the tool advertises. Every
+		// chunk is checked, and the check fails when no chunk arrived, so it
+		// cannot pass by producing nothing.
+		if len(gotNames) == 0 {
+			t.Errorf("no chunk was attributed to any tool name")
+		}
+		for _, n := range gotNames {
+			if n != ShellToolName {
+				t.Errorf("streamed output attributed to %q, want %q", n, ShellToolName)
+				break
+			}
+		}
 
 		done <- result{resp, snapshot, err}
 	}()
@@ -57,11 +73,11 @@ func runStreaming(t *testing.T, command string) (fantasy.ToolResponse, []string)
 	select {
 	case r := <-done:
 		if r.err != nil {
-			t.Fatalf("executeBashStreaming: %v", r.err)
+			t.Fatalf("executeShellStreaming: %v", r.err)
 		}
 		return r.resp, r.chunks
 	case <-time.After(30 * time.Second):
-		t.Fatal("executeBashStreaming did not return within 30s (deadlocked on an undrained pipe?)")
+		t.Fatal("executeShellStreaming did not return within 30s (deadlocked on an undrained pipe?)")
 		return fantasy.ToolResponse{}, nil
 	}
 }
@@ -75,7 +91,7 @@ func runStreaming(t *testing.T, command string) (fantasy.ToolResponse, []string)
 //
 // A single line over the limit is not exotic — minified JSON, a packed bundle
 // or `cat` of a binary all produce one.
-func TestBashStreaming_ReportsOversizedLine(t *testing.T) {
+func TestShellStreaming_ReportsOversizedLine(t *testing.T) {
 	// One line of 2 MB, comfortably over the 1 MB scanner limit.
 	resp, chunks := runStreaming(t, `head -c 2000000 /dev/zero | tr '\0' 'a'`)
 
@@ -98,7 +114,7 @@ func TestBashStreaming_ReportsOversizedLine(t *testing.T) {
 
 // TestBashStreaming_NormalOutputUnaffected is the control: ordinary output
 // must stream through unchanged, with no truncation notice.
-func TestBashStreaming_NormalOutputUnaffected(t *testing.T) {
+func TestShellStreaming_NormalOutputUnaffected(t *testing.T) {
 	resp, chunks := runStreaming(t, "printf 'alpha\\nbeta\\ngamma\\n'")
 
 	if strings.Contains(resp.Content, "output truncated") {
@@ -119,10 +135,10 @@ func TestBashStreaming_NormalOutputUnaffected(t *testing.T) {
 // fix does not over-report.
 //
 // The response content is still shorter than the 500 KB produced, because
-// buildBashResponse applies its own deliberate display truncation
+// buildShellResponse applies its own deliberate display truncation
 // (defaultMaxLineLen caps a line at 2000 characters). That is a separate,
 // intended mechanism; what matters here is that the scanner did not error.
-func TestBashStreaming_LongButUnderLimit(t *testing.T) {
+func TestShellStreaming_LongButUnderLimit(t *testing.T) {
 	resp, chunks := runStreaming(t, `head -c 500000 /dev/zero | tr '\0' 'b'`)
 
 	if strings.Contains(resp.Content, "output truncated") {
@@ -151,7 +167,7 @@ func TestBashStreaming_LongButUnderLimit(t *testing.T) {
 // and it is scheduling-dependent, so this runs many iterations. On the
 // unfixed code it reported a spurious "output truncated" notice on the first
 // iteration under -cpu=1,2,4.
-func TestBashStreaming_NoTruncationOnFastExit(t *testing.T) {
+func TestShellStreaming_NoTruncationOnFastExit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping repeated-iteration race check in short mode")
 	}
@@ -183,7 +199,7 @@ func TestBashStreaming_NoTruncationOnFastExit(t *testing.T) {
 // already completed and nothing it wrote was lost. Reporting it would put a
 // bogus "[output truncated: file already closed]" line on the output of every
 // `cmd &` invocation.
-func TestBashStreaming_BackgroundProcessNoSpuriousNotice(t *testing.T) {
+func TestShellStreaming_BackgroundProcessNoSpuriousNotice(t *testing.T) {
 	// The background process only has to outlive pipeDrainGrace. It is kept
 	// short so the test does not leave a long-lived orphan on the runner: the
 	// foreground shell exits immediately, so nothing reaps this process.

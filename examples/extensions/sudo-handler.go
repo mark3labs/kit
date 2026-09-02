@@ -2,11 +2,11 @@
 
 // sudo-handler.go - Extension to handle sudo password prompts securely
 //
-// This extension intercepts bash commands containing "sudo" and:
+// This extension intercepts shell-tool commands containing "sudo" and:
 // 1. Checks if sudo credentials are already cached (via sudo -n)
 // 2. If not cached, prompts the user for their password (with masking)
 // 3. Temporarily sets SUDO_PASSWORD environment variable for execution
-// 4. The bash tool automatically uses sudo -S -p '' to pipe the password
+// 4. The shell tool automatically uses sudo -S -p '' to pipe the password
 //
 // Usage: kit -e examples/extensions/sudo-handler.go
 //
@@ -39,7 +39,7 @@ var (
 // Init sets up the sudo handler extension
 func Init(api ext.API) {
 	api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
-		if tc.ToolName != "bash" {
+		if tc.ToolName != "shell" && tc.ToolName != "bash" {
 			return nil
 		}
 
@@ -94,7 +94,7 @@ func Init(api ext.API) {
 		hasCachedPassword = true
 		mu.Unlock()
 
-		// Set environment variable for the bash tool to use
+		// Set environment variable for the shell tool to use
 		os.Setenv("SUDO_PASSWORD", result.Value)
 
 		// Show confirmation (without revealing password)

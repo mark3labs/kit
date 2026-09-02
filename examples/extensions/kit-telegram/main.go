@@ -969,7 +969,7 @@ func summarizeToolAction(toolName string, inputJSON string) string {
 		return "writing " + getStr("path", "file")
 	case "edit":
 		return "editing " + getStr("path", "file")
-	case "bash":
+	case "shell", "bash":
 		return "running " + truncate(getStr("command", "command"), 80)
 	case "find":
 		return "finding " + getStr("pattern", getStr("path", "files"))
@@ -1008,7 +1008,7 @@ func summarizeToolResult(toolName string, inputJSON string, isError bool) string
 		return "edited " + getStr("path", "file")
 	case "read":
 		return "read " + getStr("path", "file")
-	case "bash":
+	case "shell", "bash":
 		return "completed " + truncate(getStr("command", "command"), 80)
 	default:
 		return "completed " + toolName

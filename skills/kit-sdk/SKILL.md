@@ -105,7 +105,7 @@ host, err := kit.New(ctx, &kit.Options{
     SessionManager: myCustomSession,  // custom SessionManager implementation (advanced)
 
     // Tools
-    Tools:            []kit.Tool{kit.NewBashTool()}, // REPLACES entire default tool set
+    Tools:            []kit.Tool{kit.NewShellTool()}, // REPLACES entire default tool set
     ExtraTools:       []kit.Tool{myTool},            // ADDS alongside core/MCP/extension tools
     DisableCoreTools: true,                        // Use no core tools (0 tools, for chat-only)
     CoreToolList      []string,                    // List of core tools to include, if empty (default) include all
@@ -617,7 +617,7 @@ tool := kit.NewTool("my_tool", "...",
 kit.NewReadTool(opts...)  // file reading
 kit.NewWriteTool(opts...) // file writing
 kit.NewEditTool(opts...)  // surgical text editing
-kit.NewBashTool(opts...)  // bash command execution
+kit.NewShellTool(opts...) // shell command execution (bash by default)
 kit.NewGrepTool(opts...) // content search (uses ripgrep when available)
 kit.NewFindTool(opts...) // file search (uses fd when available)
 kit.NewLsTool(opts...)   // directory listing
@@ -641,9 +641,9 @@ kit.WithWorkDir("/path/to/dir") // override working directory for file-based too
 ### Using tools in Options
 
 ```go
-// Restricted: agent can ONLY run bash
+// Restricted: agent can ONLY run shell commands
 host, _ := kit.New(ctx, &kit.Options{
-    Tools: []kit.Tool{kit.NewBashTool()},
+    Tools: []kit.Tool{kit.NewShellTool()},
 })
 
 // Extended: all defaults PLUS a custom tool
@@ -1294,7 +1294,7 @@ Daemon that performs repeated independent tasks:
 ```go
 host, _ := kit.New(ctx, &kit.Options{
     SystemPrompt: taskPrompt,
-    Tools:        []kit.Tool{kit.NewBashTool()},
+    Tools:        []kit.Tool{kit.NewShellTool()},
     NoSession:    true,
     Quiet:        true,
 })

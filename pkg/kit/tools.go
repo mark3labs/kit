@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -26,13 +28,33 @@ type ToolOption = core.ToolOption
 // If empty, os.Getwd() is used at execution time.
 var WithWorkDir = core.WithWorkDir
 
-// WithBashTimeout sets the default per-call timeout for the bash tool.
+// WithShellTimeout sets the default per-call timeout for the shell tool.
 // A non-positive duration leaves the built-in default (120s) in place.
-var WithBashTimeout = core.WithBashTimeout
+var WithShellTimeout = core.WithShellTimeout
 
-// WithBashMaxTimeout sets the maximum timeout a bash tool call may request.
+// WithShellMaxTimeout sets the maximum timeout a shell tool call may request.
 // A non-positive duration leaves the built-in default (600s) in place.
-var WithBashMaxTimeout = core.WithBashMaxTimeout
+var WithShellMaxTimeout = core.WithShellMaxTimeout
+
+// WithShell sets the shell the shell tool runs command strings through: the
+// shell plus its own leading arguments, e.g. []string{"bash"} or
+// []string{"busybox", "ash"}. Empty leaves the built-in default ["bash"] in
+// place. For images that do not ship bash.
+var WithShell = core.WithShell
+
+// WithBashTimeout is the name WithShellTimeout had before the tool's shell
+// became configurable.
+//
+// Deprecated: use [WithShellTimeout]. The two are interchangeable; when both
+// are given, the later one in the option list wins.
+var WithBashTimeout = core.WithShellTimeout
+
+// WithBashMaxTimeout is the name WithShellMaxTimeout had before the tool's
+// shell became configurable.
+//
+// Deprecated: use [WithShellMaxTimeout]. The two are interchangeable; when
+// both are given, the later one in the option list wins.
+var WithBashMaxTimeout = core.WithShellMaxTimeout
 
 // --- Core Tool Validation ---
 // processes a list of tool names, if disableCoreTools is true, return an
@@ -44,6 +66,10 @@ func handleCoreToolList(coreTools []string, disableCoreTools bool) []string {
 	if disableCoreTools {
 		return result
 	}
+	// A caller may name the shell tool by its earlier name, in an SDK
+	// CoreToolList or in configuration. Map it onto the registry key here, so
+	// that every path into this function accepts both names.
+	coreTools = normalizeCoreToolNames(coreTools)
 	allTools := ListAllCoreToolNames()
 	if len(coreTools) > 0 {
 		for _, tool := range allTools {
@@ -368,8 +394,15 @@ func NewWriteTool(opts ...ToolOption) Tool { return core.NewWriteTool(opts...) }
 // NewEditTool creates a surgical text-editing tool.
 func NewEditTool(opts ...ToolOption) Tool { return core.NewEditTool(opts...) }
 
-// NewBashTool creates a bash command execution tool.
-func NewBashTool(opts ...ToolOption) Tool { return core.NewBashTool(opts...) }
+// NewShellTool creates the shell command execution tool. It runs one command
+// string through the configured shell, which defaults to bash.
+func NewShellTool(opts ...ToolOption) Tool { return core.NewShellTool(opts...) }
+
+// NewBashTool is the name NewShellTool had before the tool's shell became
+// configurable.
+//
+// Deprecated: use [NewShellTool]. Both return the same tool.
+func NewBashTool(opts ...ToolOption) Tool { return core.NewShellTool(opts...) }
 
 // NewGrepTool creates a content search tool (uses ripgrep when available).
 func NewGrepTool(opts ...ToolOption) Tool { return core.NewGrepTool(opts...) }
@@ -387,7 +420,7 @@ func ListAllCoreToolNames() []string { return core.ListAllCoreToolNames() }
 func AllTools(opts ...ToolOption) []Tool { return core.AllTools(opts...) }
 
 // CodingTools returns the default set of core tools for a coding agent:
-// bash, read, write, edit.
+// shell, read, write, edit.
 func CodingTools(opts ...ToolOption) []Tool { return core.CodingTools(opts...) }
 
 // ReadOnlyTools returns tools for read-only exploration:
@@ -407,6 +440,13 @@ func FilterCoreToolNames(includeTools, excludeTools []string) ([]string, error) 
 	if len(includeTools) > 0 && len(excludeTools) > 0 {
 		return nil, fmt.Errorf("cannot use both include-core-tools and exclude-core-tools options")
 	}
+
+	// The shell tool answers to its earlier name as well, so map both lists
+	// onto registry keys before matching. Without this, a configuration that
+	// names the tool the way it was named before this change would produce a
+	// warning about an invalid tool and no tool.
+	includeTools = normalizeCoreToolNames(includeTools)
+	excludeTools = normalizeCoreToolNames(excludeTools)
 
 	var coreToolList []string
 	if len(includeTools) > 0 || len(excludeTools) > 0 {
@@ -443,4 +483,68 @@ func FilterCoreToolNames(includeTools, excludeTools []string) ([]string, error) 
 // exclude lists directly and does not expose the configuration library.
 func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
 	return FilterCoreToolNames(v.GetStringSlice("include-core-tools"), v.GetStringSlice("exclude-core-tools"))
+}
+
+// normalizeCoreToolNames maps user-supplied core tool names onto registry keys
+// and removes duplicates, so that naming the shell tool both ways selects it
+// once rather than registering it twice.
+func normalizeCoreToolNames(names []string) []string {
+	if len(names) == 0 {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		n = core.NormalizeCoreToolName(n)
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// firstNonZero returns the first non-zero value.
+func firstNonZero(vals ...int) int {
+	for _, v := range vals {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// resolveShellTimeouts resolves the two shell-tool timeouts across their two
+// spellings and their sources. Precedence follows the source, not the
+// spelling: SDK option, then environment, then the configuration store, and
+// within one source the shell-named spelling wins. The environment is read
+// directly because the flattened store cannot report which source supplied a
+// value; KIT_BASH_TIMEOUT would otherwise lose to a shell-timeout entry in a
+// configuration file, against the documented source order.
+func resolveShellTimeouts(opts *Options, v *viper.Viper) (timeout, maxTimeout int) {
+	timeout = firstNonZero(
+		opts.ShellTimeout,
+		opts.BashTimeout,
+		envInt("KIT_SHELL_TIMEOUT"),
+		envInt("KIT_BASH_TIMEOUT"),
+		v.GetInt("shell-timeout"),
+		v.GetInt("bash-timeout"),
+	)
+	maxTimeout = firstNonZero(
+		opts.ShellMaxTimeout,
+		opts.BashMaxTimeout,
+		envInt("KIT_SHELL_MAX_TIMEOUT"),
+		envInt("KIT_BASH_MAX_TIMEOUT"),
+		v.GetInt("shell-max-timeout"),
+		v.GetInt("bash-max-timeout"),
+	)
+	return timeout, maxTimeout
+}
+
+// envInt reads an integer environment variable, zero when unset or not an
+// integer.
+func envInt(name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil {
+		return 0
+	}
+	return n
 }
