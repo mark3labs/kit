@@ -31,7 +31,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
-- **Sessions**: `kit attach` runs a detachable session on a local daemon (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle), `kit ls` lists them
+- **Sessions**: `kit attach` runs a detachable session on a local daemon (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle) and its picker lists sessions on this machine *and* every paired host; `kit ls` lists them
 - **Remote Sessions**: `kit daemon` on one machine; pair a client once with `kit daemon pair` + `kit remote --pair <code>` (accept/reject on the host), then connect any time with `kit remote --host <name>` — sessions can be detached (`Ctrl+] d`) and reattached from the in-client session list, or shared by several clients at once (tmux-style mirrored view) — end-to-end encrypted iroh transport, revocable public-key credentials, clipboard image paste from the client machine, systemd service support
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
@@ -290,7 +290,7 @@ kit acp                      # Start as ACP agent (stdio JSON-RPC)
 kit acp --debug              # With debug logging to stderr
 
 # Detachable sessions (survive closing the terminal; Ctrl+] is the prefix)
-kit attach                   # Pick a live session, or start one
+kit attach                   # Pick a live session (local or paired host), or start one
 kit attach 3                 # Attach straight to session 3
 kit attach --new             # Skip the picker, start a new session
 kit ls                       # List live sessions
@@ -306,7 +306,7 @@ kit daemon service install   # Install + start the systemd user service
 kit remote --pair A1B2C3D4   # Pair with a host and save it under a name
 kit remote --host homelab    # Attach to the paired host
 kit attach --host homelab    # Same, with session switching
-kit attach --all             # Pick a session across every paired host
+kit attach --all             # Pick across paired hosts without starting a local daemon
 ```
 
 ## Themes

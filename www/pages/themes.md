@@ -350,3 +350,11 @@ At startup, Kit determines which theme to apply:
 The preferences file is updated automatically whenever you use `/theme` or `ctx.SetTheme()`. It is separate from `.kit.yml` so it never clobbers your config comments or formatting.
 
 Theme changes via `/theme` or `ctx.SetTheme()` take effect immediately on all UI elements, including previously rendered messages.
+
+### Light and dark palettes
+
+Every built-in theme defines a light and a dark palette, and Kit picks between them by querying the terminal's background color at startup.
+
+Inside a [detachable session](/advanced/remote-sessions) that query cannot work: the session talks to a pseudo-terminal, which answers nothing. The attaching client therefore resolves the background on its own machine and passes it in through `KIT_REMOTE_BACKGROUND`, which the session prefers over probing. Color depth arrives the same way, as a forwarded `TERM` and `COLORTERM`. See [Terminal and colors](/advanced/remote-sessions#terminal-and-colors).
+
+A session keeps the values of the client that started it, so reattaching from a terminal with the opposite background does not repaint the palette — start a new session for that.
