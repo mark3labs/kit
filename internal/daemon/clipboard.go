@@ -3,6 +3,8 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 // Clipboard image transfer over the session wire.
@@ -104,6 +106,37 @@ func EncodeClipboardChunks(mediaType string, data []byte) [][]byte {
 		chunks = append(chunks, p)
 	}
 	return chunks
+}
+
+// publishClipboardImage writes data to dest atomically: a child reading
+// the file while a paste lands sees the old image or the new one, never a
+// torn one.
+//
+// The staging file is created BESIDE dest rather than in the system temp
+// directory. dest lives in the daemon's runtime directory, which is
+// normally on a different filesystem from /tmp, and os.Rename across
+// filesystems fails with EXDEV — which silently dropped every remote
+// paste. Its name carries the session-scratch prefix and the run nonce, so
+// a staging file left behind by a crash is collected by the same sweep as
+// the published one.
+func publishClipboardImage(dest, run string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(dest),
+		fmt.Sprintf("%sclip-%s-stage-*", tempFilePrefix, run))
+	if err != nil {
+		return fmt.Errorf("stage clipboard image: %w", err)
+	}
+	path := tmp.Name()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("write clipboard image: %w", errors.Join(werr, cerr))
+	}
+	if err := os.Rename(path, dest); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("publish clipboard image: %w", err)
+	}
+	return nil
 }
 
 // ClipboardCollector reassembles a chunked clipboard transfer.

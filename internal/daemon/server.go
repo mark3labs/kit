@@ -622,23 +622,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 	delete(t.clipboards, session)
 	t.mu.Unlock()
 
-	// Atomic rewrite: a concurrent child read sees the old or the new
-	// image, never a torn one.
-	tmp, err := os.CreateTemp("", "kit-clip-*")
-	if err != nil {
-		log.Error("daemon: clipboard write failed", "session_id", session, "error", err)
-		return
-	}
-	path := tmp.Name()
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	if werr != nil || cerr != nil {
-		_ = os.Remove(path)
-		log.Error("daemon: clipboard write failed", "session_id", session, "error", werr, "close", cerr)
-		return
-	}
-	if err := os.Rename(path, t.remoteClipboardPath(session)); err != nil {
-		_ = os.Remove(path)
+	if err := publishClipboardImage(t.remoteClipboardPath(session), t.run, data); err != nil {
 		log.Error("daemon: clipboard publish failed", "session_id", session, "error", err)
 		return
 	}

@@ -3,6 +3,9 @@ package daemon
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -129,6 +132,29 @@ func TestRemoteClipboardPathStablePerSession(t *testing.T) {
 	other := newSessionTable(newDaemonRuntime(nil))
 	if other.remoteClipboardPath(3) == a {
 		t.Fatal("two daemon runs share a clipboard path; a stale image could leak into a new session")
+	}
+}
+
+// A staging file left behind by a crash is collected by the next daemon
+// run's sweep, so a dropped paste cannot leave an image on disk forever.
+func TestPublishClipboardImageStagingIsSweepable(t *testing.T) {
+	isolateRuntimeDir(t)
+	dir, err := daemonRuntimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The name a crashed publish would leave behind, built the same way
+	// the helper builds it.
+	leaked := filepath.Join(dir, fmt.Sprintf("%sclip-run-old-stage-123", tempFilePrefix))
+	if err := os.WriteFile(leaked, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sweepStaleTempFiles("run-new")
+
+	if _, err := os.Stat(leaked); !os.IsNotExist(err) {
+		t.Fatalf("a crashed run's staging file survived the sweep: %v", err)
 	}
 }
 
