@@ -339,14 +339,19 @@ between several of them like tmux or zellij. Sessions are hosted by a
 background daemon; <code>kit attach</code> starts one automatically if none is
 running. See <a href="/advanced/remote-sessions">Remote sessions</a> for the full
 picture.</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Pick a live session, or start one</span></span>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#6A737D;--shiki-dark:#6A737D">                        # Pick a live session (local or paired host), or start one</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> 3</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Attach straight to session 3</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --new</span><span style="color:#6A737D;--shiki-dark:#6A737D">                  # Skip the picker, start a new session</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --host</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> homelab</span><span style="color:#6A737D;--shiki-dark:#6A737D">         # Attach on a paired remote host</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">                  # Pick a session across every paired host</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">                  # Pick across paired hosts without starting a local daemon</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ls</span><span style="color:#6A737D;--shiki-dark:#6A737D">                            # List live sessions on this machine</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ls</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --all</span><span style="color:#6A737D;--shiki-dark:#6A737D">                      # Include sessions on every paired host</span></span></code></pre>
+<p>The <code>kit attach</code> picker lists this machine's sessions <strong>and</strong> those on
+every paired host, grouped by host name, so it is the one command that
+shows everything you can attach to. Querying those hosts costs up to eight
+seconds when one is asleep (in parallel, so eight seconds total); <code>--new</code>
+and <code>kit attach &lt;id&gt;</code> skip it, because neither opens a picker.</p>
 <p>Every new session starts with the working-directory picker, whichever way
 you create it — <code>kit attach</code>, <code>kit attach --new</code>, or <code>Ctrl+] c</code>. <code>--new</code>
 skips the <em>session</em> picker, not the directory one. Once a directory is
@@ -397,6 +402,11 @@ releases.</p>
 <p>Sessions survive a client disconnect, but not a restart of the hosting
 daemon — see <a href="/advanced/remote-sessions#sessions-and-daemon-restarts">Sessions and daemon
 restarts</a>.</p>
+<p>A session renders into your terminal but is spawned by the daemon, so the
+client forwards its <code>TERM</code>, <code>COLORTERM</code> and background color when it
+attaches — otherwise a session would inherit the daemon's environment and
+render a truecolor theme in the wrong palette. See <a href="/advanced/remote-sessions#terminal-and-colors">Terminal and
+colors</a>.</p>
 <h2 id="remote-sessions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#remote-sessions"><span class="icon icon-link"></span></a>Remote sessions</h2>
 <p>Run Kit as a daemon on one machine and attach to it from another over an
 end-to-end encrypted iroh connection. All work runs on the daemon host; see
@@ -726,15 +736,21 @@ running. See [Remote sessions](/advanced/remote-sessions) for the full
 picture.
 
 \`\`\`bash
-kit attach                        # Pick a live session, or start one
+kit attach                        # Pick a live session (local or paired host), or start one
 kit attach 3                      # Attach straight to session 3
 kit attach --new                  # Skip the picker, start a new session
 kit attach --host homelab         # Attach on a paired remote host
-kit attach --all                  # Pick a session across every paired host
+kit attach --all                  # Pick across paired hosts without starting a local daemon
 
 kit ls                            # List live sessions on this machine
 kit ls --all                      # Include sessions on every paired host
 \`\`\`
+
+The \`kit attach\` picker lists this machine's sessions **and** those on
+every paired host, grouped by host name, so it is the one command that
+shows everything you can attach to. Querying those hosts costs up to eight
+seconds when one is asleep (in parallel, so eight seconds total); \`--new\`
+and \`kit attach <id>\` skip it, because neither opens a picker.
 
 Every new session starts with the working-directory picker, whichever way
 you create it — \`kit attach\`, \`kit attach --new\`, or \`Ctrl+] c\`. \`--new\`
@@ -765,6 +781,12 @@ releases.
 Sessions survive a client disconnect, but not a restart of the hosting
 daemon — see [Sessions and daemon
 restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
+A session renders into your terminal but is spawned by the daemon, so the
+client forwards its \`TERM\`, \`COLORTERM\` and background color when it
+attaches — otherwise a session would inherit the daemon's environment and
+render a truecolor theme in the wrong palette. See [Terminal and
+colors](/advanced/remote-sessions#terminal-and-colors).
 
 ## Remote sessions
 

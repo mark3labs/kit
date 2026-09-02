@@ -186,9 +186,9 @@ rendering, and session persistence all run on the daemon host.
 | `kit remote --host <name>` | client | Connect to a paired host |
 | `kit remote --list` | client | List saved hosts |
 | `kit remote --forget <name>` | client | Forget a saved host |
-| `kit attach` | either | Attach to a session on this machine (starts a daemon if needed) |
+| `kit attach` | either | Pick a session on this machine **or any paired host** (starts a local daemon if needed) |
 | `kit attach --host <name>` | client | Attach on a paired host, with session switching |
-| `kit attach --all` | client | Pick a session across every paired host |
+| `kit attach --all` | client | Pick across every paired host **without** starting a local daemon first |
 | `kit ls` | either | List live sessions (`--all` includes paired hosts) |
 
 ## Sessions on this machine
@@ -200,6 +200,28 @@ it talks to a daemon on this machine over a Unix socket in
 checked, so only your own processes can reach it. No sidecar is needed —
 a machine with no `kit-tunnel` build still runs local sessions, it just
 cannot host remote ones.
+
+The picker it opens is **not** limited to this machine: it lists the local
+daemon's sessions followed by those on every paired host, each group under
+its host name. Plain `kit attach` is therefore the one command that shows
+everything you can attach to, wherever it is running — you only need
+`--host` to go straight to a particular machine.
+
+That means `kit attach` queries your paired hosts before it can draw, so a
+host that is asleep costs the picker up to eight seconds (the same
+per-host timeout as `Ctrl+] w`, and hosts are queried in parallel, so it
+is eight seconds total rather than eight per host). `kit attach --new` and
+`kit attach <id>` skip the query, because neither one opens a picker.
+
+When nothing is live anywhere — no local sessions and no reachable remote
+ones — `kit attach` skips the picker entirely and starts a new session,
+which opens the working-directory picker.
+
+`kit attach --all` lists the same sessions, with one difference: it draws
+the picker *before* connecting anywhere, so choosing a remote session does
+not start a local daemon you were not going to use. Plain `kit attach`
+dials the local daemon first — starting one if none is running — because
+that is where it looks for sessions before asking anyone else.
 
 ## Sessions and daemon restarts
 
@@ -316,6 +338,54 @@ gets. Add your text and submit; `Ctrl-U` clears it.
   the half-block thumbnail. `KIT_IMAGE_PROTOCOL` works here too.
 - Works in kitty (which reports `Ctrl-V` through the kitty keyboard
   protocol) and in legacy terminals alike.
+
+## Terminal and colors
+
+A session renders into **your** terminal, but the daemon that spawns it
+cannot see that terminal: between the two sits a pseudo-terminal, which
+reports no color depth and answers no background-color query. So the
+client describes its own terminal when it attaches, and the daemon starts
+the session against that description — much as `ssh` forwards `TERM`.
+
+Three things are forwarded:
+
+| Value | Source on the client | Seen by the session as |
+|-------|----------------------|------------------------|
+| `TERM` | the client's environment | `TERM` |
+| `COLORTERM` | the client's environment | `COLORTERM` |
+| Terminal background color | an OSC query the client runs before it hands over the terminal | `KIT_REMOTE_BACKGROUND` |
+
+The background color is what decides whether a theme renders its light or
+its dark palette, so it is resolved on the client: the session's own query
+would have to cross the pseudo-terminal — and, for a remote session, the
+network — before it could draw its first frame. A terminal that does not
+answer is forwarded as `unknown`, which reads as dark and stops the
+session asking a question already known to go unanswered.
+
+This applies to **local sessions too**, not just remote ones: a daemon
+outlives the terminal that started it, and one started by systemd never
+had a terminal at all. Without the forward, a session inherits the
+daemon's environment and a 24-bit theme degrades to 256 colors. That
+degradation is not an even dimming — every color snaps to the nearest cell
+of a coarse cube, so the near-black surfaces a dark theme is built from
+land on saturated corners and the session appears in colors the theme
+never defines.
+
+A few details worth knowing:
+
+- If your terminal sets `TERM` but no `COLORTERM`, the daemon's own
+  `COLORTERM` is dropped rather than inherited — claiming a color depth
+  your terminal never advertised is the same misreport in the other
+  direction.
+- If neither side names a `TERM`, the session falls back to
+  `xterm-256color`.
+- Each session keeps the description of the client that **started** it.
+  In a [shared session](#session-keys), or after reattaching from a
+  different terminal, the palette stays the one the session was created
+  with; start a new session to pick up a new terminal's capabilities.
+- Everything on the [Themes](/themes) page works normally inside a
+  session — `/theme`, config files, and the persisted preference are all
+  read on the daemon host.
 
 ## Security notes
 
@@ -1028,15 +1098,21 @@ running. See [Remote sessions](/advanced/remote-sessions) for the full
 picture.
 
 ```bash
-kit attach                        # Pick a live session, or start one
+kit attach                        # Pick a live session (local or paired host), or start one
 kit attach 3                      # Attach straight to session 3
 kit attach --new                  # Skip the picker, start a new session
 kit attach --host homelab         # Attach on a paired remote host
-kit attach --all                  # Pick a session across every paired host
+kit attach --all                  # Pick across paired hosts without starting a local daemon
 
 kit ls                            # List live sessions on this machine
 kit ls --all                      # Include sessions on every paired host
 ```
+
+The `kit attach` picker lists this machine's sessions **and** those on
+every paired host, grouped by host name, so it is the one command that
+shows everything you can attach to. Querying those hosts costs up to eight
+seconds when one is asleep (in parallel, so eight seconds total); `--new`
+and `kit attach <id>` skip it, because neither opens a picker.
 
 Every new session starts with the working-directory picker, whichever way
 you create it — `kit attach`, `kit attach --new`, or `Ctrl+] c`. `--new`
@@ -1067,6 +1143,12 @@ releases.
 Sessions survive a client disconnect, but not a restart of the hosting
 daemon — see [Sessions and daemon
 restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
+A session renders into your terminal but is spawned by the daemon, so the
+client forwards its `TERM`, `COLORTERM` and background color when it
+attaches — otherwise a session would inherit the daemon's environment and
+render a truecolor theme in the wrong palette. See [Terminal and
+colors](/advanced/remote-sessions#terminal-and-colors).
 
 ## Remote sessions
 
@@ -5990,3 +6072,11 @@ At startup, Kit determines which theme to apply:
 The preferences file is updated automatically whenever you use `/theme` or `ctx.SetTheme()`. It is separate from `.kit.yml` so it never clobbers your config comments or formatting.
 
 Theme changes via `/theme` or `ctx.SetTheme()` take effect immediately on all UI elements, including previously rendered messages.
+
+### Light and dark palettes
+
+Every built-in theme defines a light and a dark palette, and Kit picks between them by querying the terminal's background color at startup.
+
+Inside a [detachable session](/advanced/remote-sessions) that query cannot work: the session talks to a pseudo-terminal, which answers nothing. The attaching client therefore resolves the background on its own machine and passes it in through `KIT_REMOTE_BACKGROUND`, which the session prefers over probing. Color depth arrives the same way, as a forwarded `TERM` and `COLORTERM`. See [Terminal and colors](/advanced/remote-sessions#terminal-and-colors).
+
+A session keeps the values of the client that started it, so reattaching from a terminal with the opposite background does not repaint the palette — start a new session for that.

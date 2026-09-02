@@ -37,12 +37,13 @@
         "How pairing works",
         "How reconnection works",
         "Clipboard images",
+        "Terminal and colors",
         "Security notes",
         "systemd",
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 1935
+      "wordCount": 2566
     },
     {
       "id": "advanced/subagents",
@@ -109,7 +110,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2720
+      "wordCount": 2834
     },
     {
       "id": "cli/flags",
@@ -530,10 +531,11 @@
         "Reading the active theme",
         "ThemeColorConfig fields",
         "Precedence order",
-        "Startup theme resolution"
+        "Startup theme resolution",
+        "Light and dark palettes"
       ],
       "tags": [],
-      "wordCount": 1368
+      "wordCount": 1484
     }
   ]
 }

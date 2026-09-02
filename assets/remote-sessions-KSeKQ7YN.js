@@ -100,7 +100,7 @@ be punched, the n0 relay fleet.</li>
 <tr>
 <td><code>kit attach</code></td>
 <td>either</td>
-<td>Attach to a session on this machine (starts a daemon if needed)</td>
+<td>Pick a session on this machine <strong>or any paired host</strong> (starts a local daemon if needed)</td>
 </tr>
 <tr>
 <td><code>kit attach --host &lt;name&gt;</code></td>
@@ -110,7 +110,7 @@ be punched, the n0 relay fleet.</li>
 <tr>
 <td><code>kit attach --all</code></td>
 <td>client</td>
-<td>Pick a session across every paired host</td>
+<td>Pick across every paired host <strong>without</strong> starting a local daemon first</td>
 </tr>
 <tr>
 <td><code>kit ls</code></td>
@@ -127,6 +127,24 @@ it talks to a daemon on this machine over a Unix socket in
 checked, so only your own processes can reach it. No sidecar is needed —
 a machine with no <code>kit-tunnel</code> build still runs local sessions, it just
 cannot host remote ones.</p>
+<p>The picker it opens is <strong>not</strong> limited to this machine: it lists the local
+daemon's sessions followed by those on every paired host, each group under
+its host name. Plain <code>kit attach</code> is therefore the one command that shows
+everything you can attach to, wherever it is running — you only need
+<code>--host</code> to go straight to a particular machine.</p>
+<p>That means <code>kit attach</code> queries your paired hosts before it can draw, so a
+host that is asleep costs the picker up to eight seconds (the same
+per-host timeout as <code>Ctrl+] w</code>, and hosts are queried in parallel, so it
+is eight seconds total rather than eight per host). <code>kit attach --new</code> and
+<code>kit attach &lt;id&gt;</code> skip the query, because neither one opens a picker.</p>
+<p>When nothing is live anywhere — no local sessions and no reachable remote
+ones — <code>kit attach</code> skips the picker entirely and starts a new session,
+which opens the working-directory picker.</p>
+<p><code>kit attach --all</code> lists the same sessions, with one difference: it draws
+the picker <em>before</em> connecting anywhere, so choosing a remote session does
+not start a local daemon you were not going to use. Plain <code>kit attach</code>
+dials the local daemon first — starting one if none is running — because
+that is where it looks for sessions before asking anyone else.</p>
 <h2 id="sessions-and-daemon-restarts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sessions-and-daemon-restarts"><span class="icon icon-link"></span></a>Sessions and daemon restarts</h2>
 <p>A session survives a <strong>client</strong> disconnect, but not a restart of the
 <strong>daemon</strong>. The session's terminal is owned by the daemon process, so
@@ -255,6 +273,69 @@ the half-block thumbnail. <code>KIT_IMAGE_PROTOCOL</code> works here too.</li>
 <li>Works in kitty (which reports <code>Ctrl-V</code> through the kitty keyboard
 protocol) and in legacy terminals alike.</li>
 </ul>
+<h2 id="terminal-and-colors"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#terminal-and-colors"><span class="icon icon-link"></span></a>Terminal and colors</h2>
+<p>A session renders into <strong>your</strong> terminal, but the daemon that spawns it
+cannot see that terminal: between the two sits a pseudo-terminal, which
+reports no color depth and answers no background-color query. So the
+client describes its own terminal when it attaches, and the daemon starts
+the session against that description — much as <code>ssh</code> forwards <code>TERM</code>.</p>
+<p>Three things are forwarded:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Source on the client</th>
+<th>Seen by the session as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TERM</code></td>
+<td>the client's environment</td>
+<td><code>TERM</code></td>
+</tr>
+<tr>
+<td><code>COLORTERM</code></td>
+<td>the client's environment</td>
+<td><code>COLORTERM</code></td>
+</tr>
+<tr>
+<td>Terminal background color</td>
+<td>an OSC query the client runs before it hands over the terminal</td>
+<td><code>KIT_REMOTE_BACKGROUND</code></td>
+</tr>
+</tbody>
+</table>
+<p>The background color is what decides whether a theme renders its light or
+its dark palette, so it is resolved on the client: the session's own query
+would have to cross the pseudo-terminal — and, for a remote session, the
+network — before it could draw its first frame. A terminal that does not
+answer is forwarded as <code>unknown</code>, which reads as dark and stops the
+session asking a question already known to go unanswered.</p>
+<p>This applies to <strong>local sessions too</strong>, not just remote ones: a daemon
+outlives the terminal that started it, and one started by systemd never
+had a terminal at all. Without the forward, a session inherits the
+daemon's environment and a 24-bit theme degrades to 256 colors. That
+degradation is not an even dimming — every color snaps to the nearest cell
+of a coarse cube, so the near-black surfaces a dark theme is built from
+land on saturated corners and the session appears in colors the theme
+never defines.</p>
+<p>A few details worth knowing:</p>
+<ul>
+<li>If your terminal sets <code>TERM</code> but no <code>COLORTERM</code>, the daemon's own
+<code>COLORTERM</code> is dropped rather than inherited — claiming a color depth
+your terminal never advertised is the same misreport in the other
+direction.</li>
+<li>If neither side names a <code>TERM</code>, the session falls back to
+<code>xterm-256color</code>.</li>
+<li>Each session keeps the description of the client that <strong>started</strong> it.
+In a <a href="#session-keys">shared session</a>, or after reattaching from a
+different terminal, the palette stays the one the session was created
+with; start a new session to pick up a new terminal's capabilities.</li>
+<li>Everything on the <a href="/themes">Themes</a> page works normally inside a
+session — <code>/theme</code>, config files, and the persisted preference are all
+read on the daemon host.</li>
+</ul>
 <h2 id="security-notes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#security-notes"><span class="icon icon-link"></span></a>Security notes</h2>
 <ul>
 <li>The client's signing key lives in <code>~/.config/kit/remote/identity.key</code>
@@ -316,7 +397,7 @@ allowlist is shared).</p>
 <td>Just reconnect with <code>kit remote --host &lt;name&gt;</code>; the daemon keeps running</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
+</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
 # Remote Sessions
 
 Kit can run as a daemon that hosts **detachable sessions**: a session keeps
@@ -386,9 +467,9 @@ rendering, and session persistence all run on the daemon host.
 | \`kit remote --host <name>\` | client | Connect to a paired host |
 | \`kit remote --list\` | client | List saved hosts |
 | \`kit remote --forget <name>\` | client | Forget a saved host |
-| \`kit attach\` | either | Attach to a session on this machine (starts a daemon if needed) |
+| \`kit attach\` | either | Pick a session on this machine **or any paired host** (starts a local daemon if needed) |
 | \`kit attach --host <name>\` | client | Attach on a paired host, with session switching |
-| \`kit attach --all\` | client | Pick a session across every paired host |
+| \`kit attach --all\` | client | Pick across every paired host **without** starting a local daemon first |
 | \`kit ls\` | either | List live sessions (\`--all\` includes paired hosts) |
 
 ## Sessions on this machine
@@ -400,6 +481,28 @@ it talks to a daemon on this machine over a Unix socket in
 checked, so only your own processes can reach it. No sidecar is needed —
 a machine with no \`kit-tunnel\` build still runs local sessions, it just
 cannot host remote ones.
+
+The picker it opens is **not** limited to this machine: it lists the local
+daemon's sessions followed by those on every paired host, each group under
+its host name. Plain \`kit attach\` is therefore the one command that shows
+everything you can attach to, wherever it is running — you only need
+\`--host\` to go straight to a particular machine.
+
+That means \`kit attach\` queries your paired hosts before it can draw, so a
+host that is asleep costs the picker up to eight seconds (the same
+per-host timeout as \`Ctrl+] w\`, and hosts are queried in parallel, so it
+is eight seconds total rather than eight per host). \`kit attach --new\` and
+\`kit attach <id>\` skip the query, because neither one opens a picker.
+
+When nothing is live anywhere — no local sessions and no reachable remote
+ones — \`kit attach\` skips the picker entirely and starts a new session,
+which opens the working-directory picker.
+
+\`kit attach --all\` lists the same sessions, with one difference: it draws
+the picker *before* connecting anywhere, so choosing a remote session does
+not start a local daemon you were not going to use. Plain \`kit attach\`
+dials the local daemon first — starting one if none is running — because
+that is where it looks for sessions before asking anyone else.
 
 ## Sessions and daemon restarts
 
@@ -516,6 +619,54 @@ gets. Add your text and submit; \`Ctrl-U\` clears it.
   the half-block thumbnail. \`KIT_IMAGE_PROTOCOL\` works here too.
 - Works in kitty (which reports \`Ctrl-V\` through the kitty keyboard
   protocol) and in legacy terminals alike.
+
+## Terminal and colors
+
+A session renders into **your** terminal, but the daemon that spawns it
+cannot see that terminal: between the two sits a pseudo-terminal, which
+reports no color depth and answers no background-color query. So the
+client describes its own terminal when it attaches, and the daemon starts
+the session against that description — much as \`ssh\` forwards \`TERM\`.
+
+Three things are forwarded:
+
+| Value | Source on the client | Seen by the session as |
+|-------|----------------------|------------------------|
+| \`TERM\` | the client's environment | \`TERM\` |
+| \`COLORTERM\` | the client's environment | \`COLORTERM\` |
+| Terminal background color | an OSC query the client runs before it hands over the terminal | \`KIT_REMOTE_BACKGROUND\` |
+
+The background color is what decides whether a theme renders its light or
+its dark palette, so it is resolved on the client: the session's own query
+would have to cross the pseudo-terminal — and, for a remote session, the
+network — before it could draw its first frame. A terminal that does not
+answer is forwarded as \`unknown\`, which reads as dark and stops the
+session asking a question already known to go unanswered.
+
+This applies to **local sessions too**, not just remote ones: a daemon
+outlives the terminal that started it, and one started by systemd never
+had a terminal at all. Without the forward, a session inherits the
+daemon's environment and a 24-bit theme degrades to 256 colors. That
+degradation is not an even dimming — every color snaps to the nearest cell
+of a coarse cube, so the near-black surfaces a dark theme is built from
+land on saturated corners and the session appears in colors the theme
+never defines.
+
+A few details worth knowing:
+
+- If your terminal sets \`TERM\` but no \`COLORTERM\`, the daemon's own
+  \`COLORTERM\` is dropped rather than inherited — claiming a color depth
+  your terminal never advertised is the same misreport in the other
+  direction.
+- If neither side names a \`TERM\`, the session falls back to
+  \`xterm-256color\`.
+- Each session keeps the description of the client that **started** it.
+  In a [shared session](#session-keys), or after reattaching from a
+  different terminal, the palette stays the one the session was created
+  with; start a new session to pick up a new terminal's capabilities.
+- Everything on the [Themes](/themes) page works normally inside a
+  session — \`/theme\`, config files, and the persisted preference are all
+  read on the daemon host.
 
 ## Security notes
 

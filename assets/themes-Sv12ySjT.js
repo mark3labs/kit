@@ -479,7 +479,11 @@ a single resolved <code>"#rrggbb"</code> string per slot plus <code>Name</code> 
 <li><strong>Default <code>kitt</code> theme</strong> — fallback</li>
 </ol>
 <p>The preferences file is updated automatically whenever you use <code>/theme</code> or <code>ctx.SetTheme()</code>. It is separate from <code>.kit.yml</code> so it never clobbers your config comments or formatting.</p>
-<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>`,headings:[{depth:2,text:`Quick start`,id:`quick-start`},{depth:2,text:`Built-in themes`,id:`built-in-themes`},{depth:2,text:`Custom theme files`,id:`custom-theme-files`},{depth:3,text:`Theme file format`,id:`theme-file-format`},{depth:3,text:`Partial themes`,id:`partial-themes`},{depth:3,text:`Distributing themes`,id:`distributing-themes`},{depth:2,text:`Config file theme`,id:`config-file-theme`},{depth:2,text:`Extension theme API`,id:`extension-theme-api`},{depth:3,text:`Registering a theme`,id:`registering-a-theme`},{depth:3,text:`Switching themes`,id:`switching-themes`},{depth:3,text:`Listing available themes`,id:`listing-available-themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:3,text:`ThemeColorConfig fields`,id:`themecolorconfig-fields`},{depth:2,text:`Precedence order`,id:`precedence-order`},{depth:3,text:`Startup theme resolution`,id:`startup-theme-resolution`}],raw:`
+<p>Theme changes via <code>/theme</code> or <code>ctx.SetTheme()</code> take effect immediately on all UI elements, including previously rendered messages.</p>
+<h3 id="light-and-dark-palettes"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#light-and-dark-palettes"><span class="icon icon-link"></span></a>Light and dark palettes</h3>
+<p>Every built-in theme defines a light and a dark palette, and Kit picks between them by querying the terminal's background color at startup.</p>
+<p>Inside a <a href="/advanced/remote-sessions">detachable session</a> that query cannot work: the session talks to a pseudo-terminal, which answers nothing. The attaching client therefore resolves the background on its own machine and passes it in through <code>KIT_REMOTE_BACKGROUND</code>, which the session prefers over probing. Color depth arrives the same way, as a forwarded <code>TERM</code> and <code>COLORTERM</code>. See <a href="/advanced/remote-sessions#terminal-and-colors">Terminal and colors</a>.</p>
+<p>A session keeps the values of the client that started it, so reattaching from a terminal with the opposite background does not repaint the palette — start a new session for that.</p>`,headings:[{depth:2,text:`Quick start`,id:`quick-start`},{depth:2,text:`Built-in themes`,id:`built-in-themes`},{depth:2,text:`Custom theme files`,id:`custom-theme-files`},{depth:3,text:`Theme file format`,id:`theme-file-format`},{depth:3,text:`Partial themes`,id:`partial-themes`},{depth:3,text:`Distributing themes`,id:`distributing-themes`},{depth:2,text:`Config file theme`,id:`config-file-theme`},{depth:2,text:`Extension theme API`,id:`extension-theme-api`},{depth:3,text:`Registering a theme`,id:`registering-a-theme`},{depth:3,text:`Switching themes`,id:`switching-themes`},{depth:3,text:`Listing available themes`,id:`listing-available-themes`},{depth:3,text:`Reading the active theme`,id:`reading-the-active-theme`},{depth:3,text:`ThemeColorConfig fields`,id:`themecolorconfig-fields`},{depth:2,text:`Precedence order`,id:`precedence-order`},{depth:3,text:`Startup theme resolution`,id:`startup-theme-resolution`},{depth:3,text:`Light and dark palettes`,id:`light-and-dark-palettes`}],raw:`
 # Themes
 
 Kit ships with 22 built-in color themes and supports custom themes via YAML/JSON files or the extension API. Themes control all UI colors: input borders, popups, system messages, markdown rendering, syntax highlighting, and diff displays.
@@ -827,4 +831,12 @@ At startup, Kit determines which theme to apply:
 The preferences file is updated automatically whenever you use \`/theme\` or \`ctx.SetTheme()\`. It is separate from \`.kit.yml\` so it never clobbers your config comments or formatting.
 
 Theme changes via \`/theme\` or \`ctx.SetTheme()\` take effect immediately on all UI elements, including previously rendered messages.
+
+### Light and dark palettes
+
+Every built-in theme defines a light and a dark palette, and Kit picks between them by querying the terminal's background color at startup.
+
+Inside a [detachable session](/advanced/remote-sessions) that query cannot work: the session talks to a pseudo-terminal, which answers nothing. The attaching client therefore resolves the background on its own machine and passes it in through \`KIT_REMOTE_BACKGROUND\`, which the session prefers over probing. Color depth arrives the same way, as a forwarded \`TERM\` and \`COLORTERM\`. See [Terminal and colors](/advanced/remote-sessions#terminal-and-colors).
+
+A session keeps the values of the client that started it, so reattaching from a terminal with the opposite background does not repaint the palette — start a new session for that.
 `};export{e as default};

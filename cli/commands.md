@@ -296,15 +296,21 @@ running. See [Remote sessions](/advanced/remote-sessions) for the full
 picture.
 
 ```bash
-kit attach                        # Pick a live session, or start one
+kit attach                        # Pick a live session (local or paired host), or start one
 kit attach 3                      # Attach straight to session 3
 kit attach --new                  # Skip the picker, start a new session
 kit attach --host homelab         # Attach on a paired remote host
-kit attach --all                  # Pick a session across every paired host
+kit attach --all                  # Pick across paired hosts without starting a local daemon
 
 kit ls                            # List live sessions on this machine
 kit ls --all                      # Include sessions on every paired host
 ```
+
+The `kit attach` picker lists this machine's sessions **and** those on
+every paired host, grouped by host name, so it is the one command that
+shows everything you can attach to. Querying those hosts costs up to eight
+seconds when one is asleep (in parallel, so eight seconds total); `--new`
+and `kit attach <id>` skip it, because neither opens a picker.
 
 Every new session starts with the working-directory picker, whichever way
 you create it — `kit attach`, `kit attach --new`, or `Ctrl+] c`. `--new`
@@ -335,6 +341,12 @@ releases.
 Sessions survive a client disconnect, but not a restart of the hosting
 daemon — see [Sessions and daemon
 restarts](/advanced/remote-sessions#sessions-and-daemon-restarts).
+
+A session renders into your terminal but is spawned by the daemon, so the
+client forwards its `TERM`, `COLORTERM` and background color when it
+attaches — otherwise a session would inherit the daemon's environment and
+render a truecolor theme in the wrong palette. See [Terminal and
+colors](/advanced/remote-sessions#terminal-and-colors).
 
 ## Remote sessions
 
