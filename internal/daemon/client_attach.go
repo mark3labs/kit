@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/creack/pty"
 	"github.com/muesli/cancelreader"
 	"golang.org/x/term"
@@ -507,6 +508,13 @@ func (c *clientConn) attach(id uint64) (uint64, error) {
 
 // chooseSession runs the picker when sessions exist, and short-circuits to
 // a new session when none do.
+//
+// "None" means none anywhere this invocation can reach — this daemon's own
+// sessions AND the other daemons the caller offered through HubEntries.
+// Testing the local list alone would hide every remote session behind the
+// presence of a local one: with nothing running on this machine the client
+// would go straight to a new session, and the sessions waiting on a paired
+// host would never be listed, or even asked for.
 func chooseSession(ctx context.Context, conn *clientConn, opts AttachOptions) (SessionChoice, error) {
 	// A choice that did not come from a picker is on this daemon by
 	// definition, so it carries this client's host. Leaving it empty would
@@ -525,18 +533,30 @@ func chooseSession(ctx context.Context, conn *clientConn, opts AttachOptions) (S
 	if err != nil {
 		return SessionChoice{}, err
 	}
+	entries = candidateSessions(ctx, entries, opts)
 	if len(entries) == 0 {
-		return here(0), nil // nothing live: straight to a new session
-	}
-	// This daemon's own sessions are reported with an empty host; tag them
-	// so they are distinguishable from another daemon's rows.
-	for i := range entries {
-		entries[i].Host = opts.Host
-	}
-	if opts.HubEntries != nil {
-		entries = append(entries, opts.HubEntries(ctx)...)
+		return here(0), nil // nothing live anywhere: straight to a new session
 	}
 	return runPicker(ctx, conn, opts.Pick, entries)
+}
+
+// candidateSessions assembles everything one invocation can attach to:
+// this daemon's own sessions followed by the other daemons' sessions the
+// caller supplied.
+//
+// The daemon reports its own sessions with an empty host, which is also
+// what a local-daemon client reports for itself, so they are tagged here
+// to stay distinguishable from another daemon's rows once the two lists
+// are merged. hostSwitch reads that tag to decide whether a choice can be
+// served on this connection at all.
+func candidateSessions(ctx context.Context, local []SessionEntry, opts AttachOptions) []SessionEntry {
+	for i := range local {
+		local[i].Host = opts.Host
+	}
+	if opts.HubEntries == nil {
+		return local
+	}
+	return append(local, opts.HubEntries(ctx)...)
 }
 
 // runPicker runs one picker with input diverted from the session pump.
@@ -592,10 +612,22 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 		}
 	}()
 
+	// Describe this terminal before anything else takes stdin: the probe
+	// is a synchronous OSC query, so it has to finish before the reader
+	// below owns the fd and before a picker draws. The daemon has no other
+	// way to learn any of it — the PTY it owns reports no colour depth and
+	// answers no background query.
+	localTerm := detectTerminalInfo()
+
 	conn := newClientConn(rw)
 	go conn.readLoop()
 	if err := conn.readStdin(ctx); err != nil {
 		return err
+	}
+	// Sent before any attach so a spawned child starts out describing this
+	// terminal. A daemon too old to know the frame ignores it.
+	if payload, terr := EncodeTerminalInfo(localTerm); terr == nil {
+		_ = conn.write(FrameTerminal, payload)
 	}
 	// Give the terminal back on the way out. Everything above this call
 	// may hand control to a caller that reads stdin itself — a cross-host
@@ -1058,3 +1090,27 @@ const (
 	cycleNext    = ^uint64(0) - 1
 	cyclePrev    = ^uint64(0) - 2
 )
+
+// detectTerminalInfo describes the terminal this client runs in, for the
+// daemon to hand to the session's child.
+//
+// TERM and COLORTERM are forwarded the way ssh forwards them. The
+// background colour is queried here, on the machine holding the terminal,
+// rather than left to the child: the child's own query would have to reach
+// this terminal through a PTY — and, for a remote session, a network round
+// trip — before it could draw its first frame, and the answer decides
+// whether a theme renders its light or its dark half, which is not a
+// question a theme can be rendered without.
+func detectTerminalInfo() TerminalInfo {
+	info := TerminalInfo{
+		Term:       os.Getenv("TERM"),
+		ColorTerm:  os.Getenv("COLORTERM"),
+		Background: BackgroundUnknown,
+	}
+	if bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout); err == nil {
+		if hex := HexColor(bg); hex != "" {
+			info.Background = hex
+		}
+	}
+	return info
+}

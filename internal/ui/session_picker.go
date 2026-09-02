@@ -171,8 +171,16 @@ func rowLabel(e SessionEntry) string {
 	return label
 }
 
-// buildRows lays out the entries, grouping by host when more than one host
-// is represented. The "start a new session" row is always last.
+// buildRows lays out the entries, grouping by host when the rows do not
+// all belong to this machine. The "start a new session" row is always
+// last.
+//
+// A header is what tells the user WHERE a session is. It can only be left
+// out when the answer is already known, and that is exactly one case:
+// every row is on this machine. A single remote host needs the header as
+// much as several do — an ungrouped list of somebody else's sessions reads
+// as a list of local ones, and attaching to the wrong machine is not a
+// mistake the user can see they are making.
 func buildRows(entries []SessionEntry) []pickerRow {
 	hosts := make([]string, 0, 4)
 	seen := map[string]bool{}
@@ -182,7 +190,7 @@ func buildRows(entries []SessionEntry) []pickerRow {
 			hosts = append(hosts, e.Host)
 		}
 	}
-	grouped := len(hosts) > 1
+	grouped := len(hosts) > 1 || (len(hosts) == 1 && hosts[0] != "")
 
 	rows := make([]pickerRow, 0, len(entries)+len(hosts)+1)
 	for _, host := range hosts {

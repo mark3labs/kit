@@ -77,6 +77,12 @@ type wireConn struct {
 	id    uint32
 	sink  *frameSink
 	local bool
+
+	// term describes the terminal this client renders in. The daemon owns
+	// a PTY, which reports none of it, so a session's child is spawned
+	// against what the client reported here. Guarded by connSet.mu, so it
+	// is read and written through the set rather than directly.
+	term TerminalInfo
 }
 
 // connSet tracks the live client connections by wire id.
@@ -110,6 +116,29 @@ func (c *connSet) addLocal(sink *frameSink) *wireConn {
 	c.conns[id] = conn
 	c.mu.Unlock()
 	return conn
+}
+
+// setTerminal records what a client said about its terminal. It arrives
+// before the attach, so a new session's child can be spawned already
+// describing the terminal it will be seen in. A frame for a connection
+// that has already gone is dropped.
+func (c *connSet) setTerminal(id uint32, info TerminalInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if conn, ok := c.conns[id]; ok {
+		conn.term = info
+	}
+}
+
+// terminalFor returns what a client reported about its terminal, or the
+// zero value when it reported nothing (or has since disconnected).
+func (c *connSet) terminalFor(id uint32) TerminalInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if conn, ok := c.conns[id]; ok {
+		return conn.term
+	}
+	return TerminalInfo{}
 }
 
 // remove drops one connection.

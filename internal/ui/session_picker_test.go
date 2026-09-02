@@ -112,3 +112,34 @@ func TestSessionPickerHonoursCancellation(t *testing.T) {
 		t.Fatal("a cancelled context did not end the picker")
 	}
 }
+
+// TestSessionPickerNamesASoleRemoteHost covers the plain `kit attach`
+// picker on a machine with nothing running locally: every row is on a
+// paired host, and without a header the list is indistinguishable from a
+// list of local sessions.
+func TestSessionPickerNamesASoleRemoteHost(t *testing.T) {
+	rows := buildRows([]SessionEntry{{ID: 1, Host: "homelab"}})
+
+	var headers []string
+	for _, r := range rows {
+		if !r.selectable {
+			headers = append(headers, r.header)
+		}
+	}
+	if len(headers) != 1 || headers[0] != "homelab" {
+		t.Fatalf("headers = %v, want the sole remote host named", headers)
+	}
+}
+
+// TestSessionPickerLeavesLocalOnlyListsUngrouped keeps the common case
+// quiet: sessions on this machine need no header, because there is nowhere
+// else they could be.
+func TestSessionPickerLeavesLocalOnlyListsUngrouped(t *testing.T) {
+	rows := buildRows([]SessionEntry{{ID: 1}, {ID: 2}})
+
+	for _, r := range rows {
+		if !r.selectable {
+			t.Fatalf("a local-only list grew a %q header", r.header)
+		}
+	}
+}

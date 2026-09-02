@@ -69,9 +69,9 @@ var attachCmd = &cobra.Command{
 	Short: "Attach to a kit session on this machine or a paired host",
 	Long: `Attach to a kit session.
 
-With no arguments, lists the live sessions on the local daemon and lets
-you pick one, or start a new one. A local daemon is started automatically
-if none is running.
+With no arguments, lists the live sessions — on this machine and on every
+paired host — and lets you pick one, or start a new one. A local daemon is
+started automatically if none is running.
 
   kit attach                 # pick a session (or start one)
   kit attach 3               # attach straight to session 3

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mark3labs/kit/internal/app"
 	"github.com/mark3labs/kit/internal/config"
@@ -292,6 +293,25 @@ func configToUiTheme(cfg config.Theme) ui.Theme {
 	}
 }
 
+// adoptSessionTerminalCapabilities takes the terminal background from the
+// environment the daemon prepared for a session's child.
+//
+// A session child's stdin and stdout are a PTY. A PTY answers no OSC
+// query, so probing it costs two timeouts and then reports the default,
+// and every adaptive colour in the UI is chosen from that default rather
+// than from the terminal the user is looking at. The client resolved the
+// real value before it handed its terminal over; this adopts it.
+//
+// Colour depth still comes from the environment, because the daemon has
+// already replaced TERM and COLORTERM there with the client's own.
+func adoptSessionTerminalCapabilities() {
+	bg := os.Getenv(daemon.RemoteBackgroundEnv)
+	if bg == "" {
+		return
+	}
+	ui.SetTerminalCapabilities(daemon.BackgroundIsDark(bg), colorprofile.Env(os.Environ()))
+}
+
 // kitBanner returns the KIT ASCII art title with KITT scanner lights.
 // Delegates to ui.KitBanner() which owns the logo rendering.
 func kitBanner() string {
@@ -305,6 +325,13 @@ func init() {
 	cobra.OnInitialize(InitConfig)
 
 	rootCmd.Long = kitBanner() + "\n\n" + rootCmd.Long
+
+	// Before any theme is resolved: inside a daemon session the terminal
+	// belongs to the client, not to this process, so its capabilities come
+	// from what the daemon was told rather than from a probe of the PTY on
+	// our own fds. Resolving a theme is what triggers that probe, so this
+	// has to come first.
+	adoptSessionTerminalCapabilities()
 
 	var theme config.Theme
 	err := config.FilepathOr("theme", &theme)

@@ -617,3 +617,129 @@ type stubbornReader struct{}
 func (stubbornReader) Read([]byte) (int, error) { select {} }
 func (stubbornReader) Cancel() bool             { return false }
 func (stubbornReader) Close() error             { return nil }
+
+// remoteEntry is a session on a paired host, as the hub reports one.
+func remoteEntry(id uint64, host string) SessionEntry {
+	return SessionEntry{ID: id, Host: host, Started: time.Now(), Cwd: "/srv/app"}
+}
+
+// TestCandidateSessionsOffersRemoteWithNoLocalSessions pins the fix for a
+// client that showed remote sessions only when a local one happened to
+// exist.
+//
+// The emptiness test that sends a client straight to a new session used to
+// run against the local daemon's list alone, before the paired hosts were
+// ever asked. With nothing running on this machine — the normal state —
+// every remote session was skipped and the user got the new-session
+// directory picker instead of the selector.
+func TestCandidateSessionsOffersRemoteWithNoLocalSessions(t *testing.T) {
+	opts := AttachOptions{
+		HubEntries: func(context.Context) []SessionEntry {
+			return []SessionEntry{remoteEntry(1, "homelab")}
+		},
+	}
+
+	got := candidateSessions(t.Context(), nil, opts)
+
+	if len(got) != 1 {
+		t.Fatalf("offered %d sessions, want the one waiting on the paired host", len(got))
+	}
+	if got[0].Host != "homelab" || got[0].ID != 1 {
+		t.Fatalf("offered %+v, want session 1 on homelab", got[0])
+	}
+}
+
+// TestCandidateSessionsMergesBothDaemons covers the case that did work:
+// local sessions present, remote ones appended after them.
+func TestCandidateSessionsMergesBothDaemons(t *testing.T) {
+	local := []SessionEntry{{ID: 4, Started: time.Now(), Cwd: "/home/me"}}
+	opts := AttachOptions{
+		HubEntries: func(context.Context) []SessionEntry {
+			return []SessionEntry{remoteEntry(1, "homelab"), remoteEntry(2, "laptop")}
+		},
+	}
+
+	got := candidateSessions(t.Context(), local, opts)
+
+	if len(got) != 3 {
+		t.Fatalf("offered %d sessions, want 1 local + 2 remote", len(got))
+	}
+	// The local daemon's rows come first and carry this client's host, so
+	// hostSwitch can tell them from another daemon's identically numbered
+	// sessions.
+	if got[0].ID != 4 || got[0].Host != "" {
+		t.Fatalf("first row %+v, want the local session tagged with this host", got[0])
+	}
+	for _, e := range got[1:] {
+		if e.Host == "" {
+			t.Fatalf("remote row %+v lost its host tag; it would attach locally by id", e)
+		}
+	}
+}
+
+// TestCandidateSessionsTagsLocalRowsWithTheClientHost covers a --host
+// client: its own daemon's sessions must carry that host, not the empty
+// string, or hostSwitch reads every one of them as a switch back to this
+// machine.
+func TestCandidateSessionsTagsLocalRowsWithTheClientHost(t *testing.T) {
+	local := []SessionEntry{{ID: 2}, {ID: 3}}
+
+	got := candidateSessions(t.Context(), local, AttachOptions{Host: "homelab"})
+
+	for _, e := range got {
+		if e.Host != "homelab" {
+			t.Fatalf("row %+v, want it tagged with the connected host", e)
+		}
+	}
+}
+
+// TestCandidateSessionsWithoutAHub is the machine with no paired hosts:
+// nothing to ask, and no fan-out attempted.
+func TestCandidateSessionsWithoutAHub(t *testing.T) {
+	got := candidateSessions(t.Context(), nil, AttachOptions{})
+	if len(got) != 0 {
+		t.Fatalf("offered %d sessions on an idle machine with no paired hosts", len(got))
+	}
+}
+
+// TestChooseSessionStartsNewWhenNothingIsLiveAnywhere pins the other half
+// of the fix: the short-circuit must still happen when the merged list is
+// genuinely empty, so an idle machine goes straight to a new session
+// instead of opening an empty picker.
+func TestChooseSessionStartsNewWhenNothingIsLiveAnywhere(t *testing.T) {
+	serverConn, clientPipe := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+	defer func() { _ = clientPipe.Close() }()
+
+	table := newSessionTable(newDaemonRuntime(nil))
+	sink := newFrameSink(serverConn)
+	wire := table.conns.addLocal(sink)
+	ctx := t.Context()
+	go func() { _ = table.runFrameSource(ctx, serverConn, sink, wire.id) }()
+
+	client := newClientConn(clientPipe)
+	go client.readLoop()
+
+	hubAsked := false
+	opts := AttachOptions{
+		Pick: func(context.Context, []SessionEntry, *os.File) (SessionChoice, error) {
+			t.Error("the picker was opened with no sessions to choose from")
+			return SessionChoice{Cancel: true}, nil
+		},
+		HubEntries: func(context.Context) []SessionEntry {
+			hubAsked = true
+			return nil // every paired host is idle or unreachable
+		},
+	}
+
+	choice, err := chooseSession(ctx, client, opts)
+	if err != nil {
+		t.Fatalf("chooseSession: %v", err)
+	}
+	if !hubAsked {
+		t.Error("the paired hosts were never asked; remote sessions cannot be offered")
+	}
+	if choice.Cancel || choice.ID != 0 {
+		t.Fatalf("choice = %+v, want a new session on this daemon", choice)
+	}
+}

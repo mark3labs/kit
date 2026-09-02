@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 )
@@ -49,6 +50,14 @@ const (
 	// FrameSessionRename sets a session's display name so a list of many
 	// sessions stays readable.
 	FrameSessionRename FrameType = 0x0d // client -> daemon: {id u64 BE, name UTF-8}
+	// FrameTerminal describes the CLIENT's terminal to the daemon (JSON,
+	// see TerminalInfo). A daemon owns a PTY, not a terminal, and a PTY
+	// reports no colour depth and answers no background-colour query, so
+	// without this a session's child describes the daemon's own
+	// environment — under a service manager, no terminal at all. Sent
+	// before SESSION_ATTACH so a new session's child is spawned already
+	// describing the terminal it will be seen in.
+	FrameTerminal FrameType = 0x0e // client -> daemon: JSON TerminalInfo
 
 	// Tunnel -> daemon session lifecycle (serve side only).
 	FrameSessionOpen   FrameType = 0x16
@@ -149,6 +158,45 @@ func DecodeResize(payload []byte) (cols, rows int, err error) {
 	}
 	return int(binary.BigEndian.Uint16(payload[0:2])),
 		int(binary.BigEndian.Uint16(payload[2:4])), nil
+}
+
+// TerminalInfo describes the client terminal a session is rendered in.
+// The daemon cannot observe any of it: it owns the PTY, and a PTY answers
+// no capability queries of its own.
+//
+// Term and ColorTerm are forwarded into the child's environment the way
+// ssh forwards TERM, so colour-depth detection sees the user's terminal.
+// Background is the terminal's own background colour, which decides
+// whether a theme renders its light or its dark palette; the client
+// resolves it locally because the OSC query that answers it must otherwise
+// cross a PTY and a network before the first frame is drawn.
+type TerminalInfo struct {
+	Term      string `json:"term,omitempty"`
+	ColorTerm string `json:"colorterm,omitempty"`
+	// Background is the terminal background as "#rrggbb", or
+	// BackgroundUnknown when the terminal was asked and did not answer.
+	// The two are distinct on purpose: "asked, no answer" tells the child
+	// not to spend its own startup asking again, where an empty value (a
+	// client too old to probe at all) leaves it free to try.
+	Background string `json:"background,omitempty"`
+}
+
+// BackgroundUnknown marks a terminal that was asked for its background
+// colour and did not answer.
+const BackgroundUnknown = "unknown"
+
+// EncodeTerminalInfo renders a TERMINAL payload.
+func EncodeTerminalInfo(info TerminalInfo) ([]byte, error) {
+	return json.Marshal(info)
+}
+
+// DecodeTerminalInfo parses a TERMINAL payload.
+func DecodeTerminalInfo(payload []byte) (TerminalInfo, error) {
+	var info TerminalInfo
+	if err := json.Unmarshal(payload, &info); err != nil {
+		return TerminalInfo{}, fmt.Errorf("daemon: bad terminal payload: %w", err)
+	}
+	return info, nil
 }
 
 // WriteDataFrames splits b into chunkSize DATA frames tagged with session.

@@ -427,6 +427,14 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 			if fixedWire == 0 {
 				t.conns.remove(frame.Session)
 			}
+		case FrameTerminal:
+			// Describes the client's terminal; recorded against the
+			// connection so an attach that spawns a child can hand it on.
+			if info, derr := DecodeTerminalInfo(frame.Payload); derr == nil {
+				t.conns.setTerminal(frame.Session, info)
+			} else {
+				log.Warn("bad terminal frame", "wire", frame.Session, "error", derr)
+			}
 		case FrameSessionList:
 			t.sendSessionList(frame.Session)
 		case FrameSessionAttach:
@@ -835,7 +843,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		s.attachClient(wire, winSize{})
 		t.mu.Unlock()
 
-		child, ptmx, err := t.spawnPickDir(logical)
+		child, ptmx, err := t.spawnPickDir(logical, t.conns.terminalFor(wire))
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
 			t.retireSession(logical)
@@ -1016,9 +1024,13 @@ func (t *sessionTable) sessionCwd(s *remoteSession) string {
 }
 
 // spawnPickDir starts a kit child with the hidden --pick-dir flag in the
-// daemon user's home directory, so the remote peer picks the session's
-// working directory from the modal rendered inside the PTY.
-func (t *sessionTable) spawnPickDir(session uint64) (*exec.Cmd, *os.File, error) {
+// daemon user's home directory, so the peer picks the session's working
+// directory from the modal rendered inside the PTY.
+//
+// info describes the terminal of the client that asked for the session, so
+// the child renders for that terminal rather than for the daemon's own
+// environment.
+func (t *sessionTable) spawnPickDir(session uint64, info TerminalInfo) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
@@ -1026,18 +1038,18 @@ func (t *sessionTable) spawnPickDir(session uint64) (*exec.Cmd, *os.File, error)
 
 	cmd := exec.Command(exe, "--pick-dir")
 	cmd.Dir = homeDir()
-	env := append(os.Environ(), "KIT_REMOTE_SESSION=1")
-	if os.Getenv("TERM") == "" {
-		env = append(env, "TERM=xterm-256color")
+	own := map[string]string{
+		clipboard.RemoteClipboardEnv: t.remoteClipboardPath(session),
+		sessionCwdEnv:                t.sessionCwdPath(session),
 	}
 	// Mark the child with this daemon's runtime directory so a later
 	// sweep can prove the process is ours before signalling it.
 	if home, herr := daemonRuntimeDir(); herr == nil {
-		env = append(env, sessionOwnerEnv+"="+home)
+		own[sessionOwnerEnv] = home
 	}
-	env = append(env, clipboard.RemoteClipboardEnv+"="+t.remoteClipboardPath(session))
-	env = append(env, sessionCwdEnv+"="+t.sessionCwdPath(session))
-	cmd.Env = env
+	// The child renders into the CLIENT's terminal, not the daemon's; see
+	// childEnv for why the PTY between them cannot answer for it.
+	cmd.Env = childEnv(os.Environ(), info, own)
 
 	// Ask the kernel to kill this child if the daemon dies, so a crash
 	// cannot leave an unreachable session running (see recovery.go).
