@@ -183,16 +183,14 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 		switch e := entry.(type) {
 		case *MessageEntry:
 			newEntry = &MessageEntry{
-				Entry: Entry{
-					Type:      EntryTypeMessage,
-					ID:        newID,
-					ParentID:  prevNewID, // Chain sequentially in new session
-					Timestamp: e.Timestamp,
-				},
-				Role:     e.Role,
-				Parts:    e.Parts,
-				Model:    e.Model,
-				Provider: e.Provider,
+				Type:      EntryTypeMessage,
+				ID:        newID,
+				ParentID:  prevNewID, // Chain sequentially in new session
+				Timestamp: e.Timestamp,
+				Role:      e.Role,
+				Parts:     e.Parts,
+				Model:     e.Model,
+				Provider:  e.Provider,
 			}
 			// Copy label if present.
 			if label, ok := tm.labels[oldID]; ok {
@@ -201,14 +199,12 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 
 		case *ModelChangeEntry:
 			newEntry = &ModelChangeEntry{
-				Entry: Entry{
-					Type:      EntryTypeModelChange,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
-				Provider: e.Provider,
-				ModelID:  e.ModelID,
+				Type:      EntryTypeModelChange,
+				ID:        newID,
+				ParentID:  prevNewID,
+				Timestamp: e.Timestamp,
+				Provider:  e.Provider,
+				ModelID:   e.ModelID,
 			}
 
 		case *LabelEntry:
@@ -218,38 +214,32 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newTargetID = mapped
 			}
 			newEntry = &LabelEntry{
-				Entry: Entry{
-					Type:      EntryTypeLabel,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
-				TargetID: newTargetID,
-				Label:    e.Label,
+				Type:      EntryTypeLabel,
+				ID:        newID,
+				ParentID:  prevNewID,
+				Timestamp: e.Timestamp,
+				TargetID:  newTargetID,
+				Label:     e.Label,
 			}
 
 		case *SessionInfoEntry:
 			newEntry = &SessionInfoEntry{
-				Entry: Entry{
-					Type:      EntryTypeSessionInfo,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
-				Name: e.Name,
+				Type:      EntryTypeSessionInfo,
+				ID:        newID,
+				ParentID:  prevNewID,
+				Timestamp: e.Timestamp,
+				Name:      e.Name,
 			}
 			newTm.sessionName = e.Name
 
 		case *ExtensionDataEntry:
 			newEntry = &ExtensionDataEntry{
-				Entry: Entry{
-					Type:      EntryTypeExtensionData,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
-				ExtType: e.ExtType,
-				Data:    e.Data,
+				Type:      EntryTypeExtensionData,
+				ID:        newID,
+				ParentID:  prevNewID,
+				Timestamp: e.Timestamp,
+				ExtType:   e.ExtType,
+				Data:      e.Data,
 			}
 
 		case *BranchSummaryEntry:
@@ -259,14 +249,12 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newFromID = mapped
 			}
 			newEntry = &BranchSummaryEntry{
-				Entry: Entry{
-					Type:      EntryTypeBranchSummary,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
-				FromID:  newFromID,
-				Summary: e.Summary,
+				Type:      EntryTypeBranchSummary,
+				ID:        newID,
+				ParentID:  prevNewID,
+				Timestamp: e.Timestamp,
+				FromID:    newFromID,
+				Summary:   e.Summary,
 			}
 
 		case *CompactionEntry:
@@ -276,12 +264,10 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newFirstKeptID = mapped
 			}
 			newEntry = &CompactionEntry{
-				Entry: Entry{
-					Type:      EntryTypeCompaction,
-					ID:        newID,
-					ParentID:  prevNewID,
-					Timestamp: e.Timestamp,
-				},
+				Type:             EntryTypeCompaction,
+				ID:               newID,
+				ParentID:         prevNewID,
+				Timestamp:        e.Timestamp,
 				Summary:          e.Summary,
 				FirstKeptEntryID: newFirstKeptID,
 				TokensBefore:     e.TokensBefore,

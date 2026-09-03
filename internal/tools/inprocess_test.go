@@ -130,7 +130,7 @@ func TestConnectionPoolInProcessToolExecution(t *testing.T) {
 
 	// Call the tool.
 	result, err := conn.client.CallTool(ctx, mcp.CallToolRequest{
-		Request: mcp.Request{Method: "tools/call"},
+		Method: "tools/call",
 		Params: mcp.CallToolParams{
 			Name:      "greet",
 			Arguments: map[string]any{"name": "World"},

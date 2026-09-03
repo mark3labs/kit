@@ -90,8 +90,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ---------------------------------------------------------------------------
 FROM base AS golang
 
-ARG GO_VERSION=1.26.4
-ARG GO_SHA256=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
+ARG GO_VERSION=1.27.0
+ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
 # amd64 only (checksums here are amd64; FROM pins the platform).
 ARG TARGETARCH=amd64
 

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -278,11 +279,13 @@ func TestListGetCancelMCPTasksOnLoadedServer(t *testing.T) {
 
 	ctx := context.Background()
 
-	// tasks/list — no in-flight tasks yet, so we just verify the call
-	// succeeds and returns an empty slice (or any slice; the exact length
-	// depends on server retention policy).
-	if _, err := mgr.ListServerTasks(ctx, "tasks"); err != nil {
-		t.Errorf("ListServerTasks: %v", err)
+	// tasks/list was removed in MCP protocol version 2026-07-28, so a modern
+	// server answers METHOD_NOT_FOUND. Either outcome is valid depending on
+	// the protocol era the server negotiates: a successful listing, or a
+	// clean ErrTasksListUnsupported. What must not happen is an opaque
+	// transport error or a panic.
+	if _, err := mgr.ListServerTasks(ctx, "tasks"); err != nil && !errors.Is(err, ErrTasksListUnsupported) {
+		t.Errorf("ListServerTasks: want nil or ErrTasksListUnsupported, got %v", err)
 	}
 
 	// Unknown server should error cleanly without panicking.

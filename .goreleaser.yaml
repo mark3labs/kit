@@ -47,7 +47,7 @@ release:
     bun add -g @mark3labs/kit
     # or: npm install -g @mark3labs/kit
 
-    # Go install (requires Go 1.26+)
+    # Go install (requires Go 1.27+)
     go install github.com/mark3labs/kit/cmd/kit@latest
 
     # Or download from assets below

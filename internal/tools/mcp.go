@@ -650,8 +650,8 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 	// behaviour.
 	if !useTask {
 		callRequest := mcp.CallToolRequest{
-			Request: mcp.Request{Method: "tools/call"},
-			Params:  callParams,
+			Method: "tools/call",
+			Params: callParams,
 		}
 		var result *mcp.CallToolResult
 		err := m.withOAuthRetry(ctx, mapping.serverName, mapping.originalName, func() error {
@@ -673,8 +673,8 @@ func (m *MCPToolManager) ExecuteTool(ctx context.Context, prefixedName, inputJSO
 		// Older client implementations — fall back to the synchronous shape.
 		callParams.Task = nil
 		callRequest := mcp.CallToolRequest{
-			Request: mcp.Request{Method: "tools/call"},
-			Params:  callParams,
+			Method: "tools/call",
+			Params: callParams,
 		}
 		result, callErr := conn.client.CallTool(ctx, callRequest)
 		if callErr != nil {
@@ -775,10 +775,23 @@ func (m *MCPToolManager) resolveTaskMode(name string, cfg config.MCPServerConfig
 	return ParseTaskMode(cfg.TasksMode)
 }
 
+// ErrTasksListUnsupported reports that a server will not answer tasks/list.
+//
+// MCP protocol version 2026-07-28 removed tasks/list, so a server that speaks
+// that version (or later) answers METHOD_NOT_FOUND. Older servers that simply
+// never advertised the tasks capability answer the same way. Callers that
+// treat task listing as optional should test for this with errors.Is and fall
+// back to tracking task IDs returned by ExecuteTool.
+var ErrTasksListUnsupported = errors.New("server does not support tasks/list")
+
 // ListServerTasks queries tasks/list on the named server and returns the
-// active and recent tasks the server is willing to disclose. Errors are
-// returned untouched (callers commonly ignore METHOD_NOT_FOUND when the
-// server didn't advertise tasks/list capability).
+// active and recent tasks the server is willing to disclose.
+//
+// Returns an error wrapping [ErrTasksListUnsupported] when the server answers
+// METHOD_NOT_FOUND. Because tasks/list was removed in protocol version
+// 2026-07-28, this is the expected outcome for current servers rather than a
+// malfunction. Other errors (transport failures, unknown server) are returned
+// as-is.
 func (m *MCPToolManager) ListServerTasks(ctx context.Context, serverName string) ([]MCPTaskInfo, error) {
 	c, err := m.taskClient(serverName)
 	if err != nil {
@@ -786,6 +799,9 @@ func (m *MCPToolManager) ListServerTasks(ctx context.Context, serverName string)
 	}
 	res, err := c.ListTasks(ctx, mcp.ListTasksRequest{})
 	if err != nil {
+		if errors.Is(err, mcp.ErrMethodNotFound) {
+			return nil, fmt.Errorf("tasks/list on %s: %w", serverName, ErrTasksListUnsupported)
+		}
 		return nil, fmt.Errorf("tasks/list on %s: %w", serverName, err)
 	}
 	out := make([]MCPTaskInfo, 0, len(res.Tasks))

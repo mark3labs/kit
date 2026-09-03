@@ -89,9 +89,7 @@ func TestConcurrentReloadAndEmit(t *testing.T) {
 
 	// Reloader: oscillate the extension count so a torn read pairs a long
 	// extensions slice with a short extMu slice.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i := 0; ; i++ {
 			select {
 			case <-stop:
@@ -100,19 +98,17 @@ func TestConcurrentReloadAndEmit(t *testing.T) {
 			}
 			r.Reload(mkExts(1 + i%8))
 		}
-	}()
+	})
 
 	// Emitters.
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 2000 {
 				_, _ = r.Emit(SessionStartEvent{SessionID: "s"})
 				r.EmitCustomEvent("evt", "data")
 				_ = r.HasHandlers(SessionStart)
 			}
-		}()
+		})
 	}
 
 	// Let the emitters finish, then stop the reloader.

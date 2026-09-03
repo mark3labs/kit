@@ -175,10 +175,27 @@ func (o mcpTaskOptions) toToolsConfig() tools.MCPTaskConfig {
 	return cfg
 }
 
-// ListMCPTasks queries tasks/list on the named MCP server and returns the
-// active and recent tasks the server is willing to disclose. Returns an
-// error when the server isn't loaded, doesn't expose tasks/list, or the
-// underlying transport fails.
+// ErrMCPTasksListUnsupported reports that an MCP server will not answer a
+// task-listing request.
+//
+// MCP protocol version 2026-07-28 removed the task-listing operation, so
+// servers speaking that version (or later) reject it, as do older servers that
+// never advertised the tasks capability. Treat task listing as optional and
+// test for this with errors.Is:
+//
+//	tasks, err := k.ListMCPTasks(ctx, "my-server")
+//	if errors.Is(err, kit.ErrMCPTasksListUnsupported) {
+//		// Track task IDs from ExecuteTool instead.
+//	}
+var ErrMCPTasksListUnsupported = tools.ErrTasksListUnsupported
+
+// ListMCPTasks lists the active and recent tasks the named MCP server is
+// willing to disclose.
+//
+// Returns an error wrapping [ErrMCPTasksListUnsupported] when the server does
+// not support task listing, which is the expected outcome for servers on
+// protocol version 2026-07-28 or later. Also returns an error when the server
+// isn't loaded or the underlying transport fails.
 func (m *Kit) ListMCPTasks(ctx context.Context, serverName string) ([]MCPTask, error) {
 	mgr, err := m.mcpToolManager()
 	if err != nil {
