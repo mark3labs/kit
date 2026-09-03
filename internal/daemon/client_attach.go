@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/mark3labs/kit/internal/clipboard"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
 // Client-side session driving, independent of how the frames get to the
@@ -1101,11 +1102,17 @@ const (
 // trip — before it could draw its first frame, and the answer decides
 // whether a theme renders its light or its dark half, which is not a
 // question a theme can be rendered without.
+//
+// The multiplexer is named for the same reason and cannot be discovered any
+// other way: TMUX and ZELLIJ describe this process's own pane, so the child
+// never sees them, and a child that cannot see the multiplexer draws
+// graphics the multiplexer throws away.
 func detectTerminalInfo() TerminalInfo {
 	info := TerminalInfo{
-		Term:       os.Getenv("TERM"),
-		ColorTerm:  os.Getenv("COLORTERM"),
-		Background: BackgroundUnknown,
+		Term:        os.Getenv("TERM"),
+		ColorTerm:   os.Getenv("COLORTERM"),
+		Background:  BackgroundUnknown,
+		Multiplexer: termgfx.LocalMultiplexer(),
 	}
 	if bg, err := lipgloss.BackgroundColor(os.Stdin, os.Stdout); err == nil {
 		if hex := HexColor(bg); hex != "" {

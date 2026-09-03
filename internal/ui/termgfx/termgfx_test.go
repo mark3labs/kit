@@ -448,3 +448,99 @@ func TestResolveIsIdempotent(t *testing.T) {
 		t.Fatal("second Resolve deadlocked")
 	}
 }
+
+// The multiplexer a process runs in has to be recognised from whichever
+// variable happens to name it. tmux's default TERM says "screen", so a name
+// check that only knew "tmux" would miss the most common setup of all.
+func TestLocalMultiplexer(t *testing.T) {
+	tests := []struct {
+		name                  string
+		tmux, zellij, termVar string
+		want                  string
+	}{
+		{"bare terminal", "", "", "xterm-256color", ""},
+		{"tmux pane", "/tmp/tmux-1000/default,123,0", "", "screen-256color", MultiplexerTmux},
+		{"tmux default term only", "", "", "screen-256color", MultiplexerScreen},
+		{"tmux term", "", "", "tmux-256color", MultiplexerTmux},
+		{"zellij pane", "", "0", "xterm-256color", MultiplexerZellij},
+		{"zellij wins over term", "", "0", "screen-256color", MultiplexerZellij},
+		{"no term at all", "", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TMUX", tc.tmux)
+			t.Setenv("ZELLIJ", tc.zellij)
+			t.Setenv("TERM", tc.termVar)
+			t.Setenv(RemoteMultiplexerEnv, "")
+			if got := LocalMultiplexer(); got != tc.want {
+				t.Errorf("LocalMultiplexer() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A daemon session child runs on the daemon host, where nothing describes the
+// client's multiplexer but the variable the daemon plants. That answer must
+// win over the child's own environment, which describes the machine the
+// daemon was started on rather than the terminal being drawn to.
+func TestRemoteMultiplexerOverridesTheLocalEnvironment(t *testing.T) {
+	// The daemon was started from inside tmux; the client is not.
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,123,0")
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("TERM", "screen-256color")
+	t.Setenv(RemoteMultiplexerEnv, "")
+	if !insideTmuxLike() {
+		t.Fatal("insideTmuxLike() = false with the daemon's own tmux variables; the test premise no longer holds")
+	}
+
+	// Once the client has spoken, only the client is believed. The client's
+	// TERM crosses the wire with the rest of its terminal description, and
+	// the daemon strips its own pane variables, so nothing is left to claim
+	// a multiplexer that is not there; see daemon.childEnv.
+	t.Setenv("TMUX", "")
+	t.Setenv("TERM", "xterm-256color")
+	if insideTmuxLike() {
+		t.Error("insideTmuxLike() = true for a client with no multiplexer")
+	}
+
+	// A client's answer also overrules a TERM that would say otherwise: the
+	// daemon host may still be describing itself.
+	t.Setenv("TERM", "screen-256color")
+	t.Setenv(RemoteMultiplexerEnv, MultiplexerZellij)
+	if insideTmuxLike() {
+		t.Error("insideTmuxLike() = true for a zellij client")
+	}
+	if !insideZellij() {
+		t.Error("insideZellij() = false for a zellij client")
+	}
+	if unicodePlaceholdersWork() {
+		t.Error("unicodePlaceholdersWork() = true for a zellij client, where the marks are stripped")
+	}
+
+	t.Setenv(RemoteMultiplexerEnv, MultiplexerTmux)
+	if !insideTmuxLike() {
+		t.Error("insideTmuxLike() = false for a tmux client")
+	}
+}
+
+// The graphics query is what makes a multiplexer look capable: tmux forwards
+// it to the terminal behind it and lets that terminal answer. A remote client
+// in tmux must therefore suppress the query exactly as a local one does,
+// otherwise the child draws graphics tmux discards and the user sees an empty
+// box where the image should be.
+func TestProbeSkipsTheGraphicsQueryForARemoteTmuxClient(t *testing.T) {
+	// A bare daemon host: nothing here says tmux.
+	t.Setenv("TMUX", "")
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	t.Setenv(RemoteMultiplexerEnv, "")
+	if insideTmuxLike() {
+		t.Fatal("insideTmuxLike() = true on a bare host; the test premise no longer holds")
+	}
+
+	t.Setenv(RemoteMultiplexerEnv, MultiplexerTmux)
+	if !insideTmuxLike() {
+		t.Error("insideTmuxLike() = false when the client reported tmux")
+	}
+}

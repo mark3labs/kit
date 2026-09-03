@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/kit/internal/clipboard"
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
 // envValue returns the value of key in an environment slice, and whether it
@@ -187,7 +188,12 @@ func TestBackgroundIsDark(t *testing.T) {
 }
 
 func TestTerminalInfoRoundTrip(t *testing.T) {
-	info := TerminalInfo{Term: "xterm-kitty", ColorTerm: "truecolor", Background: "#1e1e2e"}
+	info := TerminalInfo{
+		Term:        "xterm-kitty",
+		ColorTerm:   "truecolor",
+		Background:  "#1e1e2e",
+		Multiplexer: termgfx.MultiplexerTmux,
+	}
 	payload, err := EncodeTerminalInfo(info)
 	if err != nil {
 		t.Fatalf("EncodeTerminalInfo: %v", err)
@@ -233,5 +239,89 @@ func TestSetTerminalForAMissingConnection(t *testing.T) {
 	conns.setTerminal(999, TerminalInfo{Term: "xterm-kitty"})
 	if got := conns.terminalFor(999); got != (TerminalInfo{}) {
 		t.Fatalf("terminalFor = %+v, want the zero value", got)
+	}
+}
+
+// The multiplexer wrapped around the client's terminal is invisible to the
+// child: TMUX and ZELLIJ name the pane of the process that reads them, so
+// they never cross the wire. Without the client's answer the child probes a
+// terminal answering from behind tmux, believes it can draw graphics, and
+// emits escape sequences tmux throws away — the empty box a pasted image
+// turns into inside tmux.
+func TestChildEnvNamesTheClientMultiplexer(t *testing.T) {
+	base := []string{"TERM=dumb", "PATH=/usr/bin"}
+	info := TerminalInfo{
+		Term:        "screen-256color",
+		ColorTerm:   "truecolor",
+		Multiplexer: termgfx.MultiplexerTmux,
+	}
+
+	env := childEnv(base, info, clip("/run/kit/clip"))
+
+	got, ok := envValue(t, env, termgfx.RemoteMultiplexerEnv)
+	if !ok {
+		t.Fatalf("%s is unset; the child cannot see the client's tmux", termgfx.RemoteMultiplexerEnv)
+	}
+	if got != termgfx.MultiplexerTmux {
+		t.Errorf("%s = %q, want %q", termgfx.RemoteMultiplexerEnv, got, termgfx.MultiplexerTmux)
+	}
+}
+
+// A daemon started from inside tmux carries that pane's variables in its own
+// environment. They describe a terminal on the daemon host, not the one the
+// session is watched in, so a child that inherited them would refuse graphics
+// for every client — including one in a bare terminal that can draw them.
+func TestChildEnvDropsTheDaemonMultiplexer(t *testing.T) {
+	base := []string{
+		"TERM=screen-256color",
+		"TMUX=/tmp/tmux-1000/default,914,0",
+		"TMUX_PANE=%3",
+		"ZELLIJ=0",
+		"ZELLIJ_SESSION_NAME=daemonhost",
+		"STY=1234.pts-0.host",
+		"PATH=/usr/bin",
+	}
+	info := TerminalInfo{Term: "xterm-kitty", ColorTerm: "truecolor"}
+
+	env := childEnv(base, info, clip("/run/kit/clip"))
+
+	for _, key := range multiplexerEnv {
+		if v, ok := envValue(t, env, key); ok {
+			t.Errorf("%s = %q survived into the child; it describes the daemon's pane, not the client's", key, v)
+		}
+	}
+	if v, ok := envValue(t, env, termgfx.RemoteMultiplexerEnv); ok {
+		t.Errorf("%s = %q for a client that reported no multiplexer", termgfx.RemoteMultiplexerEnv, v)
+	}
+}
+
+// A stale multiplexer name in the daemon's own environment describes some
+// other client's session. Only the answer that arrived with this connection
+// may reach the child.
+func TestChildEnvReplacesAStaleRemoteMultiplexer(t *testing.T) {
+	base := []string{
+		"TERM=dumb",
+		termgfx.RemoteMultiplexerEnv + "=" + termgfx.MultiplexerZellij,
+	}
+	info := TerminalInfo{Term: "xterm-kitty", ColorTerm: "truecolor", Multiplexer: termgfx.MultiplexerTmux}
+
+	env := childEnv(base, info, clip("/run/kit/clip"))
+
+	got, _ := envValue(t, env, termgfx.RemoteMultiplexerEnv)
+	if got != termgfx.MultiplexerTmux {
+		t.Errorf("%s = %q, want %q", termgfx.RemoteMultiplexerEnv, got, termgfx.MultiplexerTmux)
+	}
+}
+
+// A client too old to describe its terminal cannot describe its multiplexer
+// either. Stripping the daemon's variables on its behalf would change the
+// behaviour it was built against, so the previous environment is kept whole.
+func TestChildEnvKeepsTheDaemonMultiplexerForAnOldClient(t *testing.T) {
+	base := []string{"TERM=screen-256color", "TMUX=/tmp/tmux-1000/default,914,0"}
+
+	env := childEnv(base, TerminalInfo{}, clip("/run/kit/clip"))
+
+	if v, ok := envValue(t, env, "TMUX"); !ok || v != "/tmp/tmux-1000/default,914,0" {
+		t.Errorf("TMUX = %q (present %v), want the daemon's own value kept", v, ok)
 	}
 }

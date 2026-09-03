@@ -179,6 +179,13 @@ type TerminalInfo struct {
 	// not to spend its own startup asking again, where an empty value (a
 	// client too old to probe at all) leaves it free to try.
 	Background string `json:"background,omitempty"`
+	// Multiplexer names the terminal multiplexer the client runs inside
+	// ("tmux", "screen", "zellij"), or is empty for a bare terminal. A
+	// multiplexer's pane variables describe a process's own pane and so
+	// never cross the wire; without this the child probes a terminal that
+	// answers from behind one and then draws graphics the multiplexer
+	// discards. See termgfx.RemoteMultiplexerEnv.
+	Multiplexer string `json:"multiplexer,omitempty"`
 }
 
 // BackgroundUnknown marks a terminal that was asked for its background

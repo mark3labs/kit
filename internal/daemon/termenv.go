@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"image/color"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/mark3labs/kit/internal/ui/termgfx"
 )
 
 // The environment a session's child renders against.
@@ -24,6 +27,13 @@ import (
 // (FrameTerminal) and the daemon plants it in the child's environment.
 // This applies to local sessions as much as remote ones: a daemon started
 // from one terminal, or by systemd, outlives the terminal that started it.
+//
+// The same reasoning covers the multiplexer the client sits in. A pane
+// variable such as TMUX describes the process that reads it, so the child
+// never inherits the client's; what it can inherit is the DAEMON's, which
+// names a pane on the wrong machine. Both halves are handled here: the
+// daemon's multiplexer variables are dropped and the client's is planted
+// under termgfx.RemoteMultiplexerEnv.
 
 const (
 	// RemoteSessionEnv marks a child as running inside a daemon session.
@@ -42,6 +52,20 @@ const (
 	// emulator in practical use provides.
 	fallbackTerm = "xterm-256color"
 )
+
+// multiplexerEnv are the variables that describe the pane a process runs
+// in. They belong to the machine that set them, so a child rendering to a
+// client's terminal must not inherit the daemon's copies: a daemon started
+// from inside tmux would otherwise make every session it serves believe it
+// is drawing into that tmux.
+var multiplexerEnv = []string{
+	"TMUX",
+	"TMUX_PANE",
+	"ZELLIJ",
+	"ZELLIJ_SESSION_NAME",
+	"ZELLIJ_PANE_ID",
+	"STY",
+}
 
 // childEnv builds the environment for a session's child: the daemon's own
 // environment, with the daemon's per-session variables and the client's
@@ -68,12 +92,21 @@ func childEnv(base []string, info TerminalInfo, own map[string]string) []string 
 	if bg := backgroundEnvValue(info.Background); bg != "" {
 		overrides[RemoteBackgroundEnv] = bg
 	}
+	if info.Multiplexer != "" {
+		overrides[termgfx.RemoteMultiplexerEnv] = info.Multiplexer
+	}
 
 	// A client that describes its terminal but reports no COLORTERM has
 	// none. Keeping the daemon's would claim a colour depth the user's
 	// terminal never promised — the same misreport in the other
 	// direction — so it is dropped along with the TERM it belonged to.
 	dropColorTerm := info.Term != "" && info.ColorTerm == ""
+
+	// A client that described its terminal at all has also described the
+	// multiplexer around it, empty answer included, so the daemon's own
+	// pane variables are stale from here on. A client too old to send a
+	// TerminalInfo keeps the previous behaviour.
+	dropMultiplexer := info.Term != ""
 
 	out := make([]string, 0, len(base)+len(overrides))
 	for _, kv := range base {
@@ -88,9 +121,17 @@ func childEnv(base []string, info TerminalInfo, own map[string]string) []string 
 		if k == "COLORTERM" && dropColorTerm {
 			continue
 		}
+		if dropMultiplexer && slices.Contains(multiplexerEnv, k) {
+			continue
+		}
 		// A background left over from the daemon's own environment
 		// describes a terminal that is not this client's.
 		if k == RemoteBackgroundEnv {
+			continue
+		}
+		// Likewise a multiplexer name: it came from whatever started the
+		// daemon, and only this client's answer describes this session.
+		if k == termgfx.RemoteMultiplexerEnv {
 			continue
 		}
 		out = append(out, kv)

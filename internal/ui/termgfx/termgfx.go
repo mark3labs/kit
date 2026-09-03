@@ -27,6 +27,11 @@
 //     has stopped reading and leaks into the input stream as visible garbage.
 //     The query is therefore not sent under a multiplexer at all.
 //
+// A daemon session splits the two halves across machines: the probe runs in
+// the child on the daemon host, while the terminal — and any multiplexer
+// wrapped around it — is on the client. The client names its multiplexer for
+// the child; see RemoteMultiplexerEnv.
+//
 // See internal/ui/imagepreview for the two renderers this chooses between.
 package termgfx
 
@@ -121,6 +126,36 @@ const defaultTimeout = 500 * time.Millisecond
 //	KIT_IMAGE_PROTOCOL=auto       probe the terminal (default)
 const EnvOverride = "KIT_IMAGE_PROTOCOL"
 
+// RemoteMultiplexerEnv names the multiplexer the CLIENT of a daemon session
+// runs inside, as one of the Multiplexer constants, or is unset when the
+// client owns a bare terminal.
+//
+// A daemon session's child renders on the daemon host while the terminal, and
+// any multiplexer around it, lives on the client machine. TMUX and ZELLIJ
+// describe a process's own pane, so they never cross the wire, and the child
+// therefore cannot see what will handle the escape sequences it writes. Left
+// to itself it probes a terminal that answers through tmux, believes the
+// answer, and draws Kitty graphics that tmux discards — leaving the empty
+// placeholder cells the image should have filled. The client names its
+// multiplexer instead and the daemon plants it here, so the child reaches the
+// decision the client would have reached locally.
+const RemoteMultiplexerEnv = "KIT_REMOTE_MULTIPLEXER"
+
+// The multiplexers detection knows by name. They are the values carried by
+// RemoteMultiplexerEnv and returned by LocalMultiplexer.
+const (
+	// MultiplexerTmux is tmux, which drops graphics escapes unless
+	// allow-passthrough is on and the sequence is wrapped for it.
+	MultiplexerTmux = "tmux"
+	// MultiplexerScreen is GNU screen, which drops them outright. tmux's
+	// own default TERM also names screen, so this covers a tmux that was
+	// not otherwise identified.
+	MultiplexerScreen = "screen"
+	// MultiplexerZellij is zellij, which forwards graphics but strips the
+	// combining marks Unicode placeholders are built from.
+	MultiplexerZellij = "zellij"
+)
+
 // caps holds the resolved capabilities. It is nil until Resolve or Set runs,
 // so the blocking, fd-touching probe is never an import-time side effect. This
 // mirrors the lazy-capability pattern in internal/ui/style.
@@ -155,8 +190,8 @@ func Resolve() {
 		"sixel", resolved.Sixel,
 		"cell", fmt.Sprintf("%dx%d", resolved.CellWidth, resolved.CellHeight),
 		"use_kitty", previewMode(resolved).String(),
-		"tmux", insideTmux(),
-		"zellij", insideZellij())
+		"multiplexer", multiplexer(),
+		"remote", os.Getenv(RemoteMultiplexerEnv) != "")
 }
 
 // Set overrides the detected capabilities. It exists for headless frontends,
@@ -355,9 +390,11 @@ func Probe(in, out *os.File, timeout time.Duration) (Capabilities, error) {
 	// Ask about graphics everywhere except tmux. tmux answers DA1 itself while
 	// forwarding the graphics query onward, so the terminal's reply arrives
 	// after the probe has stopped reading and is printed into the TUI as
-	// visible garbage. Zellij forwards both consistently and answers in order.
+	// visible garbage. Worse, believing that borrowed answer makes the renderer
+	// emit graphics tmux then throws away. Zellij forwards both consistently
+	// and answers in order.
 	var query string
-	if !insideTmux() {
+	if !insideTmuxLike() {
 		query = kittyQuery
 	}
 	// Ask for the cell size explicitly. This is a standard sequence, not a
@@ -540,12 +577,57 @@ func classify(seq []byte, pa *ansi.Parser, c *Capabilities) bool {
 	return false
 }
 
-// insideTmux reports whether the process is running in a tmux pane.
-func insideTmux() bool {
-	return os.Getenv("TMUX") != "" || strings.HasPrefix(os.Getenv("TERM"), "tmux")
+// LocalMultiplexer reports the multiplexer this process runs inside, named by
+// the Multiplexer constants, or "" when it talks to a terminal directly.
+//
+// It reads only this process's own environment, so a daemon session client
+// calls it to describe itself and the child reads RemoteMultiplexerEnv
+// instead; see multiplexer.
+func LocalMultiplexer() string {
+	if os.Getenv("ZELLIJ") != "" {
+		return MultiplexerZellij
+	}
+	if os.Getenv("TMUX") != "" {
+		return MultiplexerTmux
+	}
+	// TERM is the fallback, and the reason screen is named at all: tmux's
+	// default TERM is screen-256color, so a tmux whose TMUX variable did not
+	// reach this process still identifies itself here.
+	term := os.Getenv("TERM")
+	switch {
+	case strings.HasPrefix(term, "tmux"):
+		return MultiplexerTmux
+	case strings.HasPrefix(term, "screen"):
+		return MultiplexerScreen
+	}
+	return ""
 }
 
-// insideZellij reports whether the process is running in a zellij pane.
+// multiplexer reports the multiplexer standing between this process and the
+// terminal that will draw its output.
+//
+// The client's answer wins when there is one: a daemon session child inherits
+// the client's TERM but none of its pane variables, and the daemon's own
+// environment describes a terminal that is not the one being drawn to.
+func multiplexer() string {
+	if m := strings.ToLower(strings.TrimSpace(os.Getenv(RemoteMultiplexerEnv))); m != "" {
+		return m
+	}
+	return LocalMultiplexer()
+}
+
+// insideTmuxLike reports whether output passes through a multiplexer that
+// discards graphics escape sequences, which is what makes the graphics query
+// unsafe to ask and its answer unsafe to believe.
+func insideTmuxLike() bool {
+	switch multiplexer() {
+	case MultiplexerTmux, MultiplexerScreen:
+		return true
+	}
+	return false
+}
+
+// insideZellij reports whether output passes through a zellij pane.
 func insideZellij() bool {
-	return os.Getenv("ZELLIJ") != ""
+	return multiplexer() == MultiplexerZellij
 }
