@@ -469,8 +469,12 @@ func (r *Runner) GetContext() Context {
 // HasHandlers returns true if any loaded extension has at least one handler
 // registered for the given event type.
 func (r *Runner) HasHandlers(event EventType) bool {
-	for i := range r.extensions {
-		if len(r.extensions[i].Handlers[event]) > 0 {
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
+	for i := range exts {
+		if len(exts[i].Handlers[event]) > 0 {
 			return true
 		}
 	}
@@ -489,20 +493,27 @@ func (r *Runner) HasHandlers(event EventType) bool {
 //
 // Panics in handlers are recovered and logged; they do not crash the process.
 func (r *Runner) Emit(event Event) (Result, error) {
+	// Snapshot extensions and extMu together: Reload swaps both under the
+	// write lock, so capturing them in one critical section guarantees the
+	// index used for exts is valid for mus. Reading them separately (or not
+	// at all) could pair a new, longer extensions slice with the previous,
+	// shorter mutex slice and panic on mus[i].
 	r.mu.RLock()
 	ctx := r.ctx
+	exts := r.extensions
+	mus := r.extMu
 	r.mu.RUnlock()
 
 	var accumulated Result
 
-	for i := range r.extensions {
-		ext := &r.extensions[i]
+	for i := range exts {
+		ext := &exts[i]
 		handlers := ext.Handlers[event.Type()]
 		if len(handlers) == 0 {
 			continue
 		}
 
-		r.extMu[i].lock()
+		mus[i].lock()
 		for _, handler := range handlers {
 			result, err := safeCall(handler, event, ctx)
 			if err != nil {
@@ -515,7 +526,7 @@ func (r *Runner) Emit(event Event) (Result, error) {
 
 			// Check for blocking/short-circuit results.
 			if isBlocking(result) {
-				r.extMu[i].unlock()
+				mus[i].unlock()
 				return result, nil
 			}
 
@@ -523,25 +534,33 @@ func (r *Runner) Emit(event Event) (Result, error) {
 			// the caller is responsible for applying the modifications.
 			accumulated = result
 		}
-		r.extMu[i].unlock()
+		mus[i].unlock()
 	}
 	return accumulated, nil
 }
 
 // RegisteredTools returns all custom tools registered by loaded extensions.
 func (r *Runner) RegisteredTools() []ToolDef {
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
 	var tools []ToolDef
-	for i := range r.extensions {
-		tools = append(tools, r.extensions[i].Tools...)
+	for i := range exts {
+		tools = append(tools, exts[i].Tools...)
 	}
 	return tools
 }
 
 // RegisteredCommands returns all slash commands registered by loaded extensions.
 func (r *Runner) RegisteredCommands() []CommandDef {
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
 	var cmds []CommandDef
-	for i := range r.extensions {
-		cmds = append(cmds, r.extensions[i].Commands...)
+	for i := range exts {
+		cmds = append(cmds, exts[i].Commands...)
 	}
 	return cmds
 }
@@ -978,9 +997,21 @@ func (r *Runner) SaveStateToFile(path string) error {
 // The caller is responsible for emitting SessionShutdown before calling
 // Reload and SessionStart after.
 func (r *Runner) Reload(exts []LoadedExtension) {
+	// Build the new mutex slice before taking the lock; init() on a fresh
+	// reentrantMu cannot block.
+	mus := make([]reentrantMu, len(exts))
+	for i := range mus {
+		mus[i].init()
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// extensions and extMu are indexed in lockstep by Emit, so they must be
+	// swapped together. Replacing extensions alone left extMu too short
+	// whenever a reload added an extension, and the next Emit panicked with
+	// "index out of range" on r.extMu[i].
 	r.extensions = exts
+	r.extMu = mus
 	r.invalidateShortcutsLocked()
 	r.widgets = nil
 	r.statusEntries = nil
@@ -1015,8 +1046,12 @@ func (r *Runner) SubscribeCustomEvent(name string, handler func(string)) {
 // and logged. Thread-safe.
 func (r *Runner) EmitCustomEvent(name, data string) {
 	// Collect handlers: extension-registered (Init-time) + dynamic subs.
+	// extensions and extMu are snapshotted together for the same reason as
+	// in Emit — Reload may swap them concurrently.
 	r.mu.RLock()
 	dynamicHandlers := r.customEventSubs[name]
+	exts := r.extensions
+	mus := r.extMu
 	r.mu.RUnlock()
 
 	safeInvoke := func(h func(string)) {
@@ -1029,16 +1064,16 @@ func (r *Runner) EmitCustomEvent(name, data string) {
 	}
 
 	// Extension-registered handlers first (in load order).
-	for i := range r.extensions {
-		extHandlers := r.extensions[i].CustomEventHandlers[name]
+	for i := range exts {
+		extHandlers := exts[i].CustomEventHandlers[name]
 		if len(extHandlers) == 0 {
 			continue
 		}
-		r.extMu[i].lock()
+		mus[i].lock()
 		for _, h := range extHandlers {
 			safeInvoke(h)
 		}
-		r.extMu[i].unlock()
+		mus[i].unlock()
 	}
 	// Then dynamic subscriptions (not extension-scoped, no per-ext lock).
 	for _, h := range dynamicHandlers {
@@ -1118,8 +1153,11 @@ func (r *Runner) GetOption(name string) string {
 	}
 
 	// 4. Default from registered option defs.
-	for i := range r.extensions {
-		for _, opt := range r.extensions[i].Options {
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+	for i := range exts {
+		for _, opt := range exts[i].Options {
 			if opt.Name == name {
 				return opt.Default
 			}
@@ -1142,9 +1180,13 @@ func (r *Runner) SetOption(name, value string) {
 
 // RegisteredOptions returns all option definitions from all loaded extensions.
 func (r *Runner) RegisteredOptions() []OptionDef {
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
 	var opts []OptionDef
-	for i := range r.extensions {
-		opts = append(opts, r.extensions[i].Options...)
+	for i := range exts {
+		opts = append(opts, exts[i].Options...)
 	}
 	return opts
 }
