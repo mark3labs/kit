@@ -797,7 +797,9 @@ func (r *Runner) GetUIVisibility() *UIVisibility {
 // hasCustomTool reports whether a loaded extension registered a tool of its
 // own under this name. The earlier-name compatibility stands down when one
 // does, because the name then belongs to that tool rather than to the core
-// shell tool. Extensions are immutable after loading, so no lock is needed.
+// shell tool. It takes no lock of its own: SetActiveTools calls it while
+// holding r.mu, and the read of r.extensions follows the convention of the
+// other readers in this file.
 func (r *Runner) hasCustomTool(name string) bool {
 	for _, ext := range r.extensions {
 		for _, tool := range ext.Tools {
@@ -807,6 +809,13 @@ func (r *Runner) hasCustomTool(name string) bool {
 		}
 	}
 	return false
+}
+
+// shadowsShellToolName reports whether an extension registered a tool under
+// either name of the core shell tool. The names are then ambiguous, so the
+// earlier-name fallback stands down rather than guess.
+func (r *Runner) shadowsShellToolName() bool {
+	return r.hasCustomTool(core.LegacyShellToolName) || r.hasCustomTool(core.ShellToolName)
 }
 
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
@@ -821,9 +830,9 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 	// shell became configurable: an extension written before the rename
 	// keeps rendering live calls, and a session recorded before it replays
 	// with its renderer. This applies to the core tool only, so an extension
-	// that registers a tool of its own under the earlier name keeps its
-	// renderer to itself.
-	if r.hasCustomTool(core.LegacyShellToolName) {
+	// that registers a tool of its own under either name keeps its renderer
+	// to itself and leaves the core tool with the default rendering.
+	if r.shadowsShellToolName() {
 		return nil
 	}
 	normalized := core.NormalizeCoreToolName(toolName)
@@ -1140,7 +1149,7 @@ func (r *Runner) SetActiveTools(names []string) {
 	// alias applies to the core tool only: when an extension registers a
 	// tool of its own under the earlier name, that name selects that tool
 	// and nothing else, so a restriction never admits more than it names.
-	aliasCoreTool := !r.hasCustomTool(core.LegacyShellToolName)
+	aliasCoreTool := !r.shadowsShellToolName()
 	for _, n := range names {
 		active[n] = true
 		if aliasCoreTool {

@@ -824,3 +824,19 @@ func TestLegacyShellNameIsScopedToTheCoreTool(t *testing.T) {
 		t.Errorf("renderer for the core shell tool = %+v, want the legacy one", got)
 	}
 }
+
+func TestRenderer_CustomToolUnderTheCurrentNameGetsNoLegacyFallback(t *testing.T) {
+	// An extension registering a tool called "shell" shadows the core tool's
+	// own name. Both names are then ambiguous, so a renderer registered under
+	// the earlier name must not be handed to that tool.
+	r := NewRunner([]LoadedExtension{{
+		Tools:         []ToolDef{{Name: "shell"}},
+		ToolRenderers: []ToolRenderConfig{{ToolName: "bash", DisplayName: "Legacy"}},
+	}})
+	if got := r.GetToolRenderer("shell"); got != nil {
+		t.Errorf("renderer for a shadowing custom tool = %+v, want none", got)
+	}
+	if got := r.GetToolRenderer("bash"); got == nil || got.DisplayName != "Legacy" {
+		t.Errorf("renderer named as written = %+v, want the legacy one", got)
+	}
+}
