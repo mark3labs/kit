@@ -8,7 +8,7 @@ package extensions
 // This is the single source of truth for tool-kind classification; the
 // pkg/kit SDK re-exports these constants.
 const (
-	ToolKindExecute  = "execute" // Shell execution (bash)
+	ToolKindExecute  = "execute" // Shell execution (the shell tool)
 	ToolKindEdit     = "edit"    // File modification (edit, write)
 	ToolKindRead     = "read"    // File reading (read, ls)
 	ToolKindSearch   = "search"  // Content/file search (grep, find)
@@ -18,7 +18,8 @@ const (
 // coreToolKinds maps built-in tool names to their kind classification.
 // MCP and extension tools without an entry default to ToolKindExecute.
 var coreToolKinds = map[string]string{
-	"bash":     ToolKindExecute,
+	"shell":    ToolKindExecute,
+	"bash":     ToolKindExecute, // the shell tool's earlier name
 	"edit":     ToolKindEdit,
 	"write":    ToolKindEdit,
 	"read":     ToolKindRead,

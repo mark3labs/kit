@@ -46,7 +46,9 @@ func activityVerb(toolName, toolArgs string) string {
 	var verb, target string
 
 	switch strings.ToLower(toolName) {
-	case "bash":
+	// The shell tool answers to its earlier name as well, so that a session
+	// recorded before the rename still renders with a verb.
+	case "shell", "bash":
 		verb, target = "Running", shortenTarget(oneLine(argString(args, "command")))
 	case "read":
 		verb, target = "Reading", shortenActivityPath(argString(args, "path"))

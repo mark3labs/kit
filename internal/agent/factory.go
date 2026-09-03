@@ -57,12 +57,15 @@ type AgentCreationOptions struct {
 	// NamedAgents lists discovered named agent definitions to advertise in
 	// the subagent tool description.
 	NamedAgents []core.NamedAgentSpec
-	// BashTimeout sets the default per-call timeout (seconds) for the bash
+	// ShellTimeout sets the default per-call timeout (seconds) for the shell
 	// tool. Zero uses the built-in default (120s).
-	BashTimeout int
-	// BashMaxTimeout caps the maximum timeout (seconds) a bash tool call may
+	ShellTimeout int
+	// ShellMaxTimeout caps the maximum timeout (seconds) a shell tool call may
 	// request. Zero uses the built-in default (600s).
-	BashMaxTimeout int
+	ShellMaxTimeout int
+	// Shell is the argument vector prefix the shell tool runs a command
+	// string through. Empty uses the built-in default ["bash"].
+	Shell []string
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
@@ -88,8 +91,9 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		ToolWrapper:       opts.ToolWrapper,
 		ExtraTools:        opts.ExtraTools,
 		NamedAgents:       opts.NamedAgents,
-		BashTimeout:       opts.BashTimeout,
-		BashMaxTimeout:    opts.BashMaxTimeout,
+		ShellTimeout:      opts.ShellTimeout,
+		ShellMaxTimeout:   opts.ShellMaxTimeout,
+		Shell:             opts.Shell,
 		OnMCPServerLoaded: opts.OnMCPServerLoaded,
 		MCPTaskConfig:     opts.MCPTaskConfig,
 	}

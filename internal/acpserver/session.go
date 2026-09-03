@@ -43,8 +43,9 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 	// per-session SetModel / SetThinkingLevel calls cannot race or bleed across
 	// the sessionRegistry. We seed the relevant root-command flag values from
 	// the process-global store (which cobra populated from flags) so launching
-	// `kit acp -m <model> [--thinking-level ...] [--provider-url ...]` is still
-	// honored; .kit.yml and KIT_* env vars are loaded per session by kit.New.
+	// `kit acp -m <model> [--thinking-level ...] [--provider-url ...]
+	// [--shell ...]` is still honored; .kit.yml and KIT_* env vars are loaded
+	// per session by kit.New.
 	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
 		SessionDir:     cwd,
@@ -54,6 +55,7 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 		ThinkingLevel:  viper.GetString("thinking-level"),
 		ProviderURL:    viper.GetString("provider-url"),
 		ProviderAPIKey: viper.GetString("provider-api-key"),
+		Shell:          viper.GetStringSlice("shell"),
 	})
 	if err != nil {
 		// Provide actionable guidance for provider auth errors, which are

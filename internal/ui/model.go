@@ -402,6 +402,10 @@ type AppModelOptions struct {
 	// If empty, @file features are disabled.
 	Cwd string
 
+	// Shell is the shell the ! and !! commands run through: the shell plus
+	// its own leading arguments. Empty means the built-in default, bash.
+	Shell []string
+
 	// Width is the initial terminal width in columns.
 	Width int
 
@@ -957,7 +961,8 @@ type AppModel struct {
 	navNotice string
 
 	// cwd is the working directory for @file path resolution.
-	cwd string
+	cwd   string
+	shell []string // shell for the ! and !! commands; empty means bash
 
 	// gitBranch is the current git branch name, resolved once when cwd is
 	// set. Empty when the working directory is not a git repository. Shown
@@ -1140,6 +1145,7 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		getMCPToolCount: opts.GetMCPToolCount,
 		usageTracker:    opts.UsageTracker,
 		cwd:             opts.Cwd,
+		shell:           opts.Shell,
 		width:           width,
 		height:          height,
 	}
@@ -2589,8 +2595,10 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// rendered when the ToolResultEvent arrives.
 		m.flushStreamContent()
 
-		// For bash commands, extract and store the command for the streaming output header.
-		if msg.ToolName == "bash" {
+		// For shell commands, extract and store the command for the streaming
+		// output header. The earlier tool name is accepted too, so a replayed
+		// session keeps its header.
+		if msg.ToolName == core.ShellToolName || msg.ToolName == core.LegacyShellToolName {
 			var args struct {
 				Command string `json:"command"`
 			}
@@ -6749,29 +6757,41 @@ func (m *AppModel) executeShellCommand(msg uicore.ShellCommandMsg) tea.Cmd {
 	command := msg.Command
 	excludeFromContext := msg.ExcludeFromContext
 	cwd := m.cwd
+	shell := m.shell
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), shellCommandTimeout)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		// The same construction the shell tool uses, so ! and !! run through
+		// the configured shell rather than through a hardcoded bash.
+		cmdArgs, shellPath, err := core.ShellCommandArgs(shell, command)
+		if err != nil {
+			return uicore.ShellCommandResultMsg{
+				Command:            command,
+				Output:             fmt.Sprintf("invalid shell configuration: %v", err),
+				ExitCode:           -1,
+				Err:                err,
+				ExcludeFromContext: excludeFromContext,
+			}
+		}
+		cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 		if cwd != "" {
 			cmd.Dir = cwd
 		}
 
-		// Ensure SHELL is set to bash so child processes (e.g. tmux) use bash
-		// rather than the user's login shell (which may be nushell, fish, etc.).
-		bashPath, _ := exec.LookPath("bash")
-		if bashPath == "" {
-			bashPath = "/bin/bash"
+		// Point SHELL at the configured shell so child processes (e.g. tmux)
+		// use it rather than the user's login shell (which may be nushell,
+		// fish, etc.). A launcher vector leaves SHELL inherited.
+		if shellPath != "" {
+			cmd.Env = append(os.Environ(), "SHELL="+shellPath)
 		}
-		cmd.Env = append(os.Environ(), "SHELL="+bashPath)
 
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
-		err := cmd.Run()
+		err = cmd.Run()
 
 		exitCode := 0
 		if err != nil {

@@ -18,7 +18,7 @@ import (
 //
 //	kit -e examples/extensions/tool-renderer-demo.go
 //
-// Then ask the agent to read a file or run a bash command to see
+// Then ask the agent to read a file or run a shell command to see
 // the custom rendering in action.
 func Init(api ext.API) {
 	// Custom renderer for the "read" tool: custom display name,
@@ -64,10 +64,10 @@ func Init(api ext.API) {
 		// which already provides syntax-highlighted code blocks.
 	})
 
-	// Custom renderer for the "bash" tool: renamed to "Shell",
+	// Custom renderer for the "shell" tool: displayed as "Shell",
 	// dark background, custom header with $ prefix.
 	api.RegisterToolRenderer(ext.ToolRenderConfig{
-		ToolName:    "bash",
+		ToolName:    "shell",
 		DisplayName: "Shell",
 		Background:  "#1e1e2e", // Dark background
 		BorderColor: "#a6e3a1", // Catppuccin green

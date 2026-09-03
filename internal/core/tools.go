@@ -1,6 +1,6 @@
 // Package core provides the built-in core tools for KIT's coding agent.
 // These tools are direct fantasy.AgentTool implementations — no MCP layer,
-// no JSON-RPC, no serialization overhead. Core tool set: bash, read, write,
+// no JSON-RPC, no serialization overhead. Core tool set: shell, read, write,
 // edit, grep, find, ls.
 package core
 
@@ -24,13 +24,19 @@ type ToolConfig struct {
 	// NamedAgents lists discovered named agent definitions advertised in
 	// the subagent tool description. Only the subagent tool consumes this.
 	NamedAgents []NamedAgentSpec
-	// BashTimeout overrides the default per-call timeout for the bash tool.
-	// Zero uses the built-in default (120s). Only the bash tool consumes this.
-	BashTimeout time.Duration
-	// BashMaxTimeout overrides the ceiling a bash tool call may request via
+	// ShellTimeout overrides the default per-call timeout for the shell tool.
+	// Zero uses the built-in default (120s). Only the shell tool consumes this.
+	ShellTimeout time.Duration
+	// ShellMaxTimeout overrides the ceiling a shell tool call may request via
 	// its timeout argument. Zero uses the built-in default (600s). Only the
-	// bash tool consumes this.
-	BashMaxTimeout time.Duration
+	// shell tool consumes this.
+	ShellMaxTimeout time.Duration
+	// Shell is the shell the shell tool runs a command string through, plus
+	// its own leading arguments, e.g. ["bash"] or ["busybox", "ash"]. Nil or
+	// empty uses the built-in default ["bash"]. This exists so KIT can run
+	// on images that do not ship bash (Alpine, distroless and similar). Only
+	// the shell tool consumes this.
+	Shell []string
 }
 
 // WithWorkDir sets the working directory for file-based tools.
@@ -49,22 +55,34 @@ func WithNamedAgents(agents ...NamedAgentSpec) ToolOption {
 	}
 }
 
-// WithBashTimeout sets the default per-call timeout for the bash tool.
+// WithShellTimeout sets the default per-call timeout for the shell tool.
 // A non-positive duration leaves the built-in default (120s) in place.
-func WithBashTimeout(d time.Duration) ToolOption {
+func WithShellTimeout(d time.Duration) ToolOption {
 	return func(c *ToolConfig) {
 		if d > 0 {
-			c.BashTimeout = d
+			c.ShellTimeout = d
 		}
 	}
 }
 
-// WithBashMaxTimeout sets the maximum timeout a bash tool call may request.
+// WithShellMaxTimeout sets the maximum timeout a shell tool call may request.
 // A non-positive duration leaves the built-in default (600s) in place.
-func WithBashMaxTimeout(d time.Duration) ToolOption {
+func WithShellMaxTimeout(d time.Duration) ToolOption {
 	return func(c *ToolConfig) {
 		if d > 0 {
-			c.BashMaxTimeout = d
+			c.ShellMaxTimeout = d
+		}
+	}
+}
+
+// WithShell sets the shell the shell tool runs command strings through: the
+// shell plus its own leading arguments, e.g. ["bash"] or ["busybox", "ash"].
+// A nil or empty vector leaves the built-in default ["bash"] in place, so an
+// installation that sets nothing executes exactly what it did before.
+func WithShell(argv []string) ToolOption {
+	return func(c *ToolConfig) {
+		if len(argv) > 0 {
+			c.Shell = argv
 		}
 	}
 }
@@ -107,15 +125,39 @@ func parseArgs(input string, target any) error {
 
 type initTool func(...ToolOption) fantasy.AgentTool
 
+// The command-execution tool is a shell tool, and ShellToolName is its name:
+// in the registry, in the tool definition sent to the model, and in a session
+// transcript. It does not vary with the configured shell.
+//
+// LegacyShellToolName is the name the tool had before the shell became
+// configurable. It appears in existing user configuration and in existing
+// sessions, so it is accepted wherever a user names the tool; see
+// NormalizeCoreToolName.
+const (
+	ShellToolName       = "shell"
+	LegacyShellToolName = "bash"
+)
+
+// NormalizeCoreToolName maps a user-supplied core tool name onto its registry
+// key, so that the earlier name for the shell tool keeps selecting it. An
+// unrecognised name in include-core-tools or exclude-core-tools produces a
+// warning and no effect, which is what this avoids.
+func NormalizeCoreToolName(name string) string {
+	if name == LegacyShellToolName {
+		return ShellToolName
+	}
+	return name
+}
+
 var coreTools = map[string]initTool{
-	"bash":     NewBashTool,
-	"read":     NewReadTool,
-	"write":    NewWriteTool,
-	"edit":     NewEditTool,
-	"grep":     NewGrepTool,
-	"find":     NewFindTool,
-	"ls":       NewLsTool,
-	"subagent": NewSubagentTool,
+	ShellToolName: NewShellTool,
+	"read":        NewReadTool,
+	"write":       NewWriteTool,
+	"edit":        NewEditTool,
+	"grep":        NewGrepTool,
+	"find":        NewFindTool,
+	"ls":          NewLsTool,
+	"subagent":    NewSubagentTool,
 }
 
 // ListAllCoreToolNames always returns the full list of available core
@@ -125,10 +167,10 @@ func ListAllCoreToolNames() []string {
 }
 
 // CodingTools returns the default set of core tools for a coding agent:
-// bash, read, write, edit.
+// shell, read, write, edit.
 func CodingTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
-		NewBashTool(opts...),
+		NewShellTool(opts...),
 		NewReadTool(opts...),
 		NewWriteTool(opts...),
 		NewEditTool(opts...),
@@ -150,7 +192,7 @@ func ReadOnlyTools(opts ...ToolOption) []fantasy.AgentTool {
 // infinite recursion when a subagent is itself a Kit instance.
 func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	return []fantasy.AgentTool{
-		NewBashTool(opts...),
+		NewShellTool(opts...),
 		NewReadTool(opts...),
 		NewWriteTool(opts...),
 		NewEditTool(opts...),
@@ -160,10 +202,17 @@ func SubagentTools(opts ...ToolOption) []fantasy.AgentTool {
 	}
 }
 
+// ListedTools builds the named core tools. Names are normalized first, so a
+// list carrying the shell tool's earlier name still selects it, and a name
+// that matches no core tool is skipped rather than dereferenced.
 func ListedTools(toolList []string, opts ...ToolOption) []fantasy.AgentTool {
 	var result = []fantasy.AgentTool{}
 	for _, t := range toolList {
-		result = append(result, coreTools[t](opts...))
+		init, ok := coreTools[NormalizeCoreToolName(t)]
+		if !ok {
+			continue
+		}
+		result = append(result, init(opts...))
 	}
 	return result
 }

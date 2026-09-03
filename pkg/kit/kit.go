@@ -42,9 +42,13 @@ type ContextFile struct {
 // integration of MCP tools and LLM interactions into Go applications. It manages
 // agents, sessions, and model configurations.
 type Kit struct {
-	agent          *agent.Agent
-	session        SessionManager
-	modelString    string
+	agent       *agent.Agent
+	session     SessionManager
+	modelString string
+	// shell is the effective shell of this instance, resolved from the SDK
+	// option and the configuration store at construction. Subagents built
+	// without an explicit tool set inherit it.
+	shell          []string
 	events         *eventBus
 	autoCompact    bool
 	compactionOpts *CompactionOptions
@@ -1209,14 +1213,37 @@ type Options struct {
 	// will have no tools (useful for simple chat completions).
 	DisableCoreTools bool
 
-	// BashTimeout sets the default per-call timeout (in seconds) for the bash
-	// tool, applied when the model does not specify one. Zero falls back to
-	// the "bash-timeout" config value, then the built-in default (120s).
+	// ShellTimeout sets the default per-call timeout (in seconds) for the
+	// shell tool, applied when the model does not specify one. Zero falls back
+	// to BashTimeout, then the "shell-timeout" config value, then
+	// "bash-timeout", then the built-in default (120s).
+	ShellTimeout int
+
+	// ShellMaxTimeout caps the maximum timeout (in seconds) a shell tool call
+	// may request via its timeout argument. Zero falls back to BashMaxTimeout,
+	// then the "shell-max-timeout" config value, then "bash-max-timeout", then
+	// the built-in default (600s).
+	ShellMaxTimeout int
+
+	// Shell is the shell the shell tool runs a command string through, plus
+	// its own leading arguments, e.g. []string{"bash"} or
+	// []string{"busybox", "ash"}. Nil falls back to the "shell" config value,
+	// then the built-in default ["bash"]. Set this to run on images that do
+	// not ship bash.
+	Shell []string
+
+	// BashTimeout is the name ShellTimeout had before the tool's shell became
+	// configurable.
+	//
+	// Deprecated: use ShellTimeout. Both set the same value and ShellTimeout
+	// wins when both are set.
 	BashTimeout int
 
-	// BashMaxTimeout caps the maximum timeout (in seconds) a bash tool call
-	// may request via its timeout argument. Zero falls back to the
-	// "bash-max-timeout" config value, then the built-in default (600s).
+	// BashMaxTimeout is the name ShellMaxTimeout had before the tool's shell
+	// became configurable.
+	//
+	// Deprecated: use ShellMaxTimeout. Both set the same value and
+	// ShellMaxTimeout wins when both are set.
 	BashMaxTimeout int
 
 	// Session configuration
@@ -1526,8 +1553,9 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		toolList              []string
 		maxSteps              int
 		streaming             bool
-		bashTimeout           int
-		bashMaxTimeout        int
+		shellTimeout          int
+		shellMaxTimeout       int
+		shell                 []string
 		hasCustomSystemPrompt bool
 		systemPromptSource    string
 		capturedBasePrompt    string
@@ -1780,13 +1808,13 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		toolList = handleCoreToolList(toolList, opts.DisableCoreTools || v.GetBool("no-core-tools"))
 		maxSteps = v.GetInt("max-steps")
 		streaming = v.GetBool("stream")
-		bashTimeout = opts.BashTimeout
-		if bashTimeout == 0 {
-			bashTimeout = v.GetInt("bash-timeout")
-		}
-		bashMaxTimeout = opts.BashMaxTimeout
-		if bashMaxTimeout == 0 {
-			bashMaxTimeout = v.GetInt("bash-max-timeout")
+		// Each of the two timeouts has a shell-named form and the bash-named
+		// form it had before the tool's shell became configurable; see
+		// resolveShellTimeouts for the precedence.
+		shellTimeout, shellMaxTimeout = resolveShellTimeouts(opts, v)
+		shell = opts.Shell
+		if len(shell) == 0 {
+			shell = v.GetStringSlice("shell")
 		}
 
 		return nil
@@ -1871,8 +1899,9 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		CoreToolList:      toolList,
 		ExtraTools:        extraTools,
 		NamedAgents:       namedAgentSpecs(namedAgents),
-		BashTimeout:       bashTimeout,
-		BashMaxTimeout:    bashMaxTimeout,
+		ShellTimeout:      shellTimeout,
+		ShellMaxTimeout:   shellMaxTimeout,
+		Shell:             shell,
 		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
 		ProviderConfig:    providerConfig,
 		Debug:             debug,
@@ -1950,6 +1979,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		agent:                 agentResult.Agent,
 		session:               sessionManager,
 		modelString:           modelString,
+		shell:                 append([]string(nil), shell...),
 		events:                newEventBus(),
 		autoCompact:           opts.AutoCompact,
 		compactionOpts:        opts.CompactionOptions,
@@ -2312,7 +2342,8 @@ type SubagentConfig struct {
 
 	// Tools overrides the tool set available to the subagent.
 	// If nil and the subagent is created via the SDK (Kit.Subagent()), the
-	// static SubagentTools() set (all core tools except "subagent") is used.
+	// default set (all core tools except "subagent", built with the
+	// parent's effective shell) is used.
 	// When spawned internally by the agent loop, the parent's active tools
 	// minus "subagent" are used instead (see GetToolsForSubagent()).
 	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
@@ -2460,6 +2491,14 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 //
 // This is the recommended way to run subagents in the SDK — no subprocess,
 // no kit binary dependency, native Go types for results.
+// subagentDefaultTools is the tool set a subagent receives when its
+// configuration names none: every core tool except subagent, built with the
+// parent's effective shell, so that a child on an image without bash keeps
+// working.
+func (m *Kit) subagentDefaultTools() []Tool {
+	return SubagentTools(WithShell(m.shell))
+}
+
 func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult, error) {
 	if cfg.Prompt == "" {
 		return nil, fmt.Errorf("subagent prompt is required")
@@ -2548,10 +2587,11 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		systemPrompt = "You are a helpful coding assistant. Complete the task efficiently and thoroughly."
 	}
 
-	// Default tools: everything except subagent.
+	// Default tools: everything except subagent, built with the parent's
+	// effective shell.
 	tools := cfg.Tools
 	if tools == nil {
-		tools = SubagentTools()
+		tools = m.subagentDefaultTools()
 	}
 
 	// Decide whether the child should re-load MCP servers. When the caller
