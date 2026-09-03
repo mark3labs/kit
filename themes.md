@@ -13,7 +13,7 @@ Switch themes at runtime with the `/theme` command:
 /theme kitt
 ```
 
-Run `/theme` with no arguments to list all available themes.
+Run `/theme` with no arguments to open a modal picker with every available theme.
 
 **Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks. This persistence also applies to **model** and **thinking level** selections.
 

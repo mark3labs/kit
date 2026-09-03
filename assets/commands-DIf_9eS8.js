@@ -17,6 +17,12 @@ var e={frontmatter:{title:`Commands`,description:`Complete reference for all Kit
 <li>A file path — load from a local file</li>
 <li><code>embedded</code> — reset to the bundled database</li>
 </ul>
+<p>Kit records the schema version of the on-disk cache. When Kit's binary
+understands catalog fields the cache was written without — reasoning options,
+long-context pricing tiers, deprecation status — the older cache is ignored
+in favour of the embedded snapshot, so a stale cache never masks metadata the
+current binary can use. Run <code>kit update-models</code> once to rewrite the cache in
+the current schema.</p>
 <h2 id="extension-management"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-management"><span class="icon icon-link"></span></a>Extension management</h2>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> list</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # List discovered extensions</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> validate</span><span style="color:#6A737D;--shiki-dark:#6A737D">      # Validate extension files</span></span>
@@ -163,11 +169,11 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 </tr>
 <tr>
 <td><code>/theme [name]</code></td>
-<td>Switch color theme or list available themes</td>
+<td>Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme.</td>
 </tr>
 <tr>
 <td><code>/thinking [level]</code></td>
-<td>Set thinking level (off, none, minimal, low, medium, high)</td>
+<td>Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (<code>off</code>, <code>none</code>, <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>) switches directly, substituting with the nearest supported level when needed.</td>
 </tr>
 <tr>
 <td><code>/compact [focus]</code></td>
@@ -468,6 +474,13 @@ The \`update-models\` command accepts an optional source argument:
 - A file path — load from a local file
 - \`embedded\` — reset to the bundled database
 
+Kit records the schema version of the on-disk cache. When Kit's binary
+understands catalog fields the cache was written without — reasoning options,
+long-context pricing tiers, deprecation status — the older cache is ignored
+in favour of the embedded snapshot, so a stale cache never masks metadata the
+current binary can use. Run \`kit update-models\` once to rewrite the cache in
+the current schema.
+
 ## Extension management
 
 \`\`\`bash
@@ -600,8 +613,8 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/tools\` | List available MCP tools |
 | \`/servers\` | Show connected MCP servers |
 | \`/model [name]\` | Switch model or open model selector |
-| \`/theme [name]\` | Switch color theme or list available themes |
-| \`/thinking [level]\` | Set thinking level (off, none, minimal, low, medium, high) |
+| \`/theme [name]\` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
+| \`/thinking [level]\` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (\`off\`, \`none\`, \`minimal\`, \`low\`, \`medium\`, \`high\`) switches directly, substituting with the nearest supported level when needed. |
 | \`/compact [focus]\` | Summarize older messages to free context |
 | \`/clear\` | Clear conversation |
 | \`/clear-queue\` | Clear queued messages |

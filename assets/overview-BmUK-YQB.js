@@ -370,6 +370,68 @@ per-million-token costs from the registry:</p>
 custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
 unpriced model looks identical to a free one. Cache rates are similarly guarded
 by <code>HasCacheRead</code> / <code>HasCacheWrite</code>.</p>
+<h3 id="long-context-pricing-tiers"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#long-context-pricing-tiers"><span class="icon icon-link"></span></a>Long-context pricing tiers</h3>
+<p>Many long-context models bill roughly 2x the base rate once a request's prompt
+passes a threshold (commonly 200,000 tokens). The registry surfaces this on
+<code>ModelInfo.Cost.Tiers</code>, and <code>Cost.RatesFor(promptTokens)</code> returns the rates
+that apply to a given prompt size.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">info </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LookupModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"google"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"gemini-3.1-pro-preview"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> info </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    base </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> info.Cost.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RatesFor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">50_000</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)     </span><span style="color:#6A737D;--shiki-dark:#6A737D">// small prompt: base rate</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    long </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> info.Cost.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RatesFor</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#005CC5;--shiki-dark:#79B8FF">500_000</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)    </span><span style="color:#6A737D;--shiki-dark:#6A737D">// long prompt: tier rate</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"small: $</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.2f</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/1M in</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">long:  $</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%.2f</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/1M in</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, base.Input, long.Input)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p>Pass the whole prompt — including cached tokens — to <code>RatesFor</code>; the tier is
+selected on the context sent to the model, so leaving cache reads out would
+under-report the applicable rate. When several tiers match, the highest
+threshold wins. Models with flat pricing have an empty <code>Tiers</code> slice and
+<code>RatesFor</code> returns the base rates unchanged.</p>
+<p>Kit's built-in usage tracker applies this automatically for interactive
+sessions. Reach for <code>RatesFor</code> yourself when computing costs from raw usage
+counts outside the tracker.</p>
+<h3 id="reasoning-support-per-model"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#reasoning-support-per-model"><span class="icon icon-link"></span></a>Reasoning support per model</h3>
+<p>Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
+line accepts <code>"none"</code> but not <code>"minimal"</code>, the o-series accepts neither, and
+Anthropic's budget-based models accept every level. The catalog carries this
+per model, so consumers can query it rather than guessing from the model name.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// The full vocabulary Kit understands.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">levels </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// ["off", "none", "minimal", "low", "medium", "high"]</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Narrow to what a specific model accepts.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">supported </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SupportedThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"o3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// ["off", "low", "medium", "high"] — no "none" or "minimal"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Predicate form.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsThinkingLevelSupported</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"gpt-5.4"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"minimal"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// false</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Substitute an unsupported level with the nearest supported one of similar</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// cost. Returns the input unchanged when it is already supported, or "off"</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// when the model rejects every level.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">safe </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SuggestThinkingLevel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"openai"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"o3"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"minimal"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// "low"</span></span></code></pre>
+<p>On a live agent, <code>(*Kit).SupportedThinkingLevels()</code> uses the currently
+selected model:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">levels </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SupportedThinkingLevels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()</span></span></code></pre>
+<p>Unknown models and models with a token-budget or on/off reasoning control
+(rather than named levels) accept every level, so callers are never blocked on
+missing catalog data. <code>SetThinkingLevel</code> accepts any level, substituting a
+supported one when needed — check <code>SupportedThinkingLevels</code> first when the
+exact level matters.</p>
+<h3 id="deprecation-status"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#deprecation-status"><span class="icon icon-link"></span></a>Deprecation status</h3>
+<p><code>ModelInfo.Status</code> carries the catalog's lifecycle marker (<code>"deprecated"</code>,
+<code>"beta"</code>, or empty for GA). <code>info.IsDeprecated()</code> is the convenient predicate.
+Deprecated models usually still answer requests, so this is advisory rather
+than a block — useful for a model picker that wants to warn or hide retiring
+models.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, m </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAvailableModels</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    info </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LookupModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(m.Provider, m.ModelID)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> info </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> info.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsDeprecated</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Printf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"warning: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> is deprecated</span><span style="color:#005CC5;--shiki-dark:#79B8FF">\\n</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, m.Provider, m.ModelID)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
+<p><code>kit.SuggestModels</code> now sorts deprecated matches to the end and returns a
+stable order, so a five-item suggestion list is not spent on models the
+provider is retiring.</p>
 <h2 id="one-shot-completions"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#one-shot-completions"><span class="icon icon-link"></span></a>One-shot completions</h2>
 <p><code>ExecuteCompletion</code> runs a single LLM call outside the agent loop — useful for
 summaries, classifiers, or any side request that should not touch the session
@@ -744,7 +806,7 @@ as <code>SubagentConfig.SessionID</code> to resume the child session for follow-
 prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -1085,6 +1147,91 @@ Check \`Pricing.Known\` before using any rate. It is \`false\` for local models 
 custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
 unpriced model looks identical to a free one. Cache rates are similarly guarded
 by \`HasCacheRead\` / \`HasCacheWrite\`.
+
+### Long-context pricing tiers
+
+Many long-context models bill roughly 2x the base rate once a request's prompt
+passes a threshold (commonly 200,000 tokens). The registry surfaces this on
+\`ModelInfo.Cost.Tiers\`, and \`Cost.RatesFor(promptTokens)\` returns the rates
+that apply to a given prompt size.
+
+\`\`\`go
+info := kit.LookupModel("google", "gemini-3.1-pro-preview")
+if info != nil {
+    base := info.Cost.RatesFor(50_000)     // small prompt: base rate
+    long := info.Cost.RatesFor(500_000)    // long prompt: tier rate
+    fmt.Printf("small: $%.2f/1M in\\nlong:  $%.2f/1M in\\n", base.Input, long.Input)
+}
+\`\`\`
+
+Pass the whole prompt — including cached tokens — to \`RatesFor\`; the tier is
+selected on the context sent to the model, so leaving cache reads out would
+under-report the applicable rate. When several tiers match, the highest
+threshold wins. Models with flat pricing have an empty \`Tiers\` slice and
+\`RatesFor\` returns the base rates unchanged.
+
+Kit's built-in usage tracker applies this automatically for interactive
+sessions. Reach for \`RatesFor\` yourself when computing costs from raw usage
+counts outside the tracker.
+
+### Reasoning support per model
+
+Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
+line accepts \`"none"\` but not \`"minimal"\`, the o-series accepts neither, and
+Anthropic's budget-based models accept every level. The catalog carries this
+per model, so consumers can query it rather than guessing from the model name.
+
+\`\`\`go
+// The full vocabulary Kit understands.
+levels := kit.ThinkingLevels()
+// ["off", "none", "minimal", "low", "medium", "high"]
+
+// Narrow to what a specific model accepts.
+supported := kit.SupportedThinkingLevels("openai", "o3")
+// ["off", "low", "medium", "high"] — no "none" or "minimal"
+
+// Predicate form.
+ok := kit.IsThinkingLevelSupported("openai", "gpt-5.4", "minimal") // false
+
+// Substitute an unsupported level with the nearest supported one of similar
+// cost. Returns the input unchanged when it is already supported, or "off"
+// when the model rejects every level.
+safe := kit.SuggestThinkingLevel("openai", "o3", "minimal") // "low"
+\`\`\`
+
+On a live agent, \`(*Kit).SupportedThinkingLevels()\` uses the currently
+selected model:
+
+\`\`\`go
+levels := host.SupportedThinkingLevels()
+\`\`\`
+
+Unknown models and models with a token-budget or on/off reasoning control
+(rather than named levels) accept every level, so callers are never blocked on
+missing catalog data. \`SetThinkingLevel\` accepts any level, substituting a
+supported one when needed — check \`SupportedThinkingLevels\` first when the
+exact level matters.
+
+### Deprecation status
+
+\`ModelInfo.Status\` carries the catalog's lifecycle marker (\`"deprecated"\`,
+\`"beta"\`, or empty for GA). \`info.IsDeprecated()\` is the convenient predicate.
+Deprecated models usually still answer requests, so this is advisory rather
+than a block — useful for a model picker that wants to warn or hide retiring
+models.
+
+\`\`\`go
+for _, m := range host.GetAvailableModels() {
+    info := kit.LookupModel(m.Provider, m.ModelID)
+    if info != nil && info.IsDeprecated() {
+        fmt.Printf("warning: %s/%s is deprecated\\n", m.Provider, m.ModelID)
+    }
+}
+\`\`\`
+
+\`kit.SuggestModels\` now sorts deprecated matches to the end and returns a
+stable order, so a five-item suggestion list is not spent on models the
+provider is retiring.
 
 ## One-shot completions
 

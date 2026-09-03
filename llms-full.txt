@@ -842,6 +842,13 @@ The `update-models` command accepts an optional source argument:
 - A file path — load from a local file
 - `embedded` — reset to the bundled database
 
+Kit records the schema version of the on-disk cache. When Kit's binary
+understands catalog fields the cache was written without — reasoning options,
+long-context pricing tiers, deprecation status — the older cache is ignored
+in favour of the embedded snapshot, so a stale cache never masks metadata the
+current binary can use. Run `kit update-models` once to rewrite the cache in
+the current schema.
+
 ## Extension management
 
 ```bash
@@ -974,8 +981,8 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tools` | List available MCP tools |
 | `/servers` | Show connected MCP servers |
 | `/model [name]` | Switch model or open model selector |
-| `/theme [name]` | Switch color theme or list available themes |
-| `/thinking [level]` | Set thinking level (off, none, minimal, low, medium, high) |
+| `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
+| `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
 | `/compact [focus]` | Summarize older messages to free context |
 | `/clear` | Clear conversation |
 | `/clear-queue` | Clear queued messages |
@@ -1363,7 +1370,7 @@ stream: true
 | `compact` | bool | `false` | Enable compact output mode |
 | `system-prompt` | string | — | System prompt text or file path |
 | `max-steps` | int | `0` | Maximum agent steps (0 = unlimited) |
-| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high |
+| `thinking-level` | string | `off` | Extended thinking: off, none, minimal, low, medium, high. Levels a model does not accept are substituted with the nearest supported one at runtime. |
 | `provider-api-key` | string | — | API key for the provider |
 | `provider-url` | string | — | Base URL for provider API |
 | `provider-wire` | string | — | Wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google` (see [Provider overrides](#provider-overrides)) |
@@ -4321,7 +4328,7 @@ defaults for samplers).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
-| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. |
+| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. A level the active model does not accept is substituted with the nearest supported one; call [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) to check first when the exact level matters. |
 | `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
 | `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
 | `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |
@@ -5069,6 +5076,91 @@ custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
 unpriced model looks identical to a free one. Cache rates are similarly guarded
 by `HasCacheRead` / `HasCacheWrite`.
 
+### Long-context pricing tiers
+
+Many long-context models bill roughly 2x the base rate once a request's prompt
+passes a threshold (commonly 200,000 tokens). The registry surfaces this on
+`ModelInfo.Cost.Tiers`, and `Cost.RatesFor(promptTokens)` returns the rates
+that apply to a given prompt size.
+
+```go
+info := kit.LookupModel("google", "gemini-3.1-pro-preview")
+if info != nil {
+    base := info.Cost.RatesFor(50_000)     // small prompt: base rate
+    long := info.Cost.RatesFor(500_000)    // long prompt: tier rate
+    fmt.Printf("small: $%.2f/1M in\nlong:  $%.2f/1M in\n", base.Input, long.Input)
+}
+```
+
+Pass the whole prompt — including cached tokens — to `RatesFor`; the tier is
+selected on the context sent to the model, so leaving cache reads out would
+under-report the applicable rate. When several tiers match, the highest
+threshold wins. Models with flat pricing have an empty `Tiers` slice and
+`RatesFor` returns the base rates unchanged.
+
+Kit's built-in usage tracker applies this automatically for interactive
+sessions. Reach for `RatesFor` yourself when computing costs from raw usage
+counts outside the tracker.
+
+### Reasoning support per model
+
+Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
+line accepts `"none"` but not `"minimal"`, the o-series accepts neither, and
+Anthropic's budget-based models accept every level. The catalog carries this
+per model, so consumers can query it rather than guessing from the model name.
+
+```go
+// The full vocabulary Kit understands.
+levels := kit.ThinkingLevels()
+// ["off", "none", "minimal", "low", "medium", "high"]
+
+// Narrow to what a specific model accepts.
+supported := kit.SupportedThinkingLevels("openai", "o3")
+// ["off", "low", "medium", "high"] — no "none" or "minimal"
+
+// Predicate form.
+ok := kit.IsThinkingLevelSupported("openai", "gpt-5.4", "minimal") // false
+
+// Substitute an unsupported level with the nearest supported one of similar
+// cost. Returns the input unchanged when it is already supported, or "off"
+// when the model rejects every level.
+safe := kit.SuggestThinkingLevel("openai", "o3", "minimal") // "low"
+```
+
+On a live agent, `(*Kit).SupportedThinkingLevels()` uses the currently
+selected model:
+
+```go
+levels := host.SupportedThinkingLevels()
+```
+
+Unknown models and models with a token-budget or on/off reasoning control
+(rather than named levels) accept every level, so callers are never blocked on
+missing catalog data. `SetThinkingLevel` accepts any level, substituting a
+supported one when needed — check `SupportedThinkingLevels` first when the
+exact level matters.
+
+### Deprecation status
+
+`ModelInfo.Status` carries the catalog's lifecycle marker (`"deprecated"`,
+`"beta"`, or empty for GA). `info.IsDeprecated()` is the convenient predicate.
+Deprecated models usually still answer requests, so this is advisory rather
+than a block — useful for a model picker that wants to warn or hide retiring
+models.
+
+```go
+for _, m := range host.GetAvailableModels() {
+    info := kit.LookupModel(m.Provider, m.ModelID)
+    if info != nil && info.IsDeprecated() {
+        fmt.Printf("warning: %s/%s is deprecated\n", m.Provider, m.ModelID)
+    }
+}
+```
+
+`kit.SuggestModels` now sorts deprecated matches to the end and returns a
+stable order, so a five-item suggestion list is not spent on models the
+provider is retiring.
+
 ## One-shot completions
 
 `ExecuteCompletion` runs a single LLM call outside the agent loop — useful for
@@ -5753,7 +5845,7 @@ Switch themes at runtime with the `/theme` command:
 /theme kitt
 ```
 
-Run `/theme` with no arguments to list all available themes.
+Run `/theme` with no arguments to open a modal picker with every available theme.
 
 **Theme selections are automatically saved** to `~/.config/kit/preferences.yml` and restored on next launch. You don't need to add anything to your config file — just `/theme <name>` and it sticks. This persistence also applies to **model** and **thinking level** selections.
 

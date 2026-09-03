@@ -28,6 +28,13 @@ The `update-models` command accepts an optional source argument:
 - A file path — load from a local file
 - `embedded` — reset to the bundled database
 
+Kit records the schema version of the on-disk cache. When Kit's binary
+understands catalog fields the cache was written without — reasoning options,
+long-context pricing tiers, deprecation status — the older cache is ignored
+in favour of the embedded snapshot, so a stale cache never masks metadata the
+current binary can use. Run `kit update-models` once to rewrite the cache in
+the current schema.
+
 ## Extension management
 
 ```bash
@@ -160,8 +167,8 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tools` | List available MCP tools |
 | `/servers` | Show connected MCP servers |
 | `/model [name]` | Switch model or open model selector |
-| `/theme [name]` | Switch color theme or list available themes |
-| `/thinking [level]` | Set thinking level (off, none, minimal, low, medium, high) |
+| `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
+| `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
 | `/compact [focus]` | Summarize older messages to free context |
 | `/clear` | Clear conversation |
 | `/clear-queue` | Clear queued messages |

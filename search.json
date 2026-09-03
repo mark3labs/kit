@@ -110,7 +110,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 2834
+      "wordCount": 2937
     },
     {
       "id": "cli/flags",
@@ -153,7 +153,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1927
+      "wordCount": 1942
     },
     {
       "id": "development",
@@ -433,7 +433,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3343
+      "wordCount": 3368
     },
     {
       "id": "sdk/overview",
@@ -455,6 +455,9 @@
         "Generation &amp; provider overrides",
         "Event system",
         "Model management",
+        "Long-context pricing tiers",
+        "Reasoning support per model",
+        "Deprecation status",
         "One-shot completions",
         "Mid-turn steering",
         "Filtering core tools",
@@ -470,7 +473,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 3476
+      "wordCount": 3936
     },
     {
       "id": "sdk/sessions",
@@ -535,7 +538,7 @@
         "Light and dark palettes"
       ],
       "tags": [],
-      "wordCount": 1484
+      "wordCount": 1488
     }
   ]
 }

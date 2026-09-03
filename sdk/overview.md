@@ -340,6 +340,91 @@ custom OpenAI-compatible endpoints, whose rates are all zero — otherwise an
 unpriced model looks identical to a free one. Cache rates are similarly guarded
 by `HasCacheRead` / `HasCacheWrite`.
 
+### Long-context pricing tiers
+
+Many long-context models bill roughly 2x the base rate once a request's prompt
+passes a threshold (commonly 200,000 tokens). The registry surfaces this on
+`ModelInfo.Cost.Tiers`, and `Cost.RatesFor(promptTokens)` returns the rates
+that apply to a given prompt size.
+
+```go
+info := kit.LookupModel("google", "gemini-3.1-pro-preview")
+if info != nil {
+    base := info.Cost.RatesFor(50_000)     // small prompt: base rate
+    long := info.Cost.RatesFor(500_000)    // long prompt: tier rate
+    fmt.Printf("small: $%.2f/1M in\nlong:  $%.2f/1M in\n", base.Input, long.Input)
+}
+```
+
+Pass the whole prompt — including cached tokens — to `RatesFor`; the tier is
+selected on the context sent to the model, so leaving cache reads out would
+under-report the applicable rate. When several tiers match, the highest
+threshold wins. Models with flat pricing have an empty `Tiers` slice and
+`RatesFor` returns the base rates unchanged.
+
+Kit's built-in usage tracker applies this automatically for interactive
+sessions. Reach for `RatesFor` yourself when computing costs from raw usage
+counts outside the tracker.
+
+### Reasoning support per model
+
+Providers differ on which reasoning levels a model accepts: OpenAI's gpt-5.x
+line accepts `"none"` but not `"minimal"`, the o-series accepts neither, and
+Anthropic's budget-based models accept every level. The catalog carries this
+per model, so consumers can query it rather than guessing from the model name.
+
+```go
+// The full vocabulary Kit understands.
+levels := kit.ThinkingLevels()
+// ["off", "none", "minimal", "low", "medium", "high"]
+
+// Narrow to what a specific model accepts.
+supported := kit.SupportedThinkingLevels("openai", "o3")
+// ["off", "low", "medium", "high"] — no "none" or "minimal"
+
+// Predicate form.
+ok := kit.IsThinkingLevelSupported("openai", "gpt-5.4", "minimal") // false
+
+// Substitute an unsupported level with the nearest supported one of similar
+// cost. Returns the input unchanged when it is already supported, or "off"
+// when the model rejects every level.
+safe := kit.SuggestThinkingLevel("openai", "o3", "minimal") // "low"
+```
+
+On a live agent, `(*Kit).SupportedThinkingLevels()` uses the currently
+selected model:
+
+```go
+levels := host.SupportedThinkingLevels()
+```
+
+Unknown models and models with a token-budget or on/off reasoning control
+(rather than named levels) accept every level, so callers are never blocked on
+missing catalog data. `SetThinkingLevel` accepts any level, substituting a
+supported one when needed — check `SupportedThinkingLevels` first when the
+exact level matters.
+
+### Deprecation status
+
+`ModelInfo.Status` carries the catalog's lifecycle marker (`"deprecated"`,
+`"beta"`, or empty for GA). `info.IsDeprecated()` is the convenient predicate.
+Deprecated models usually still answer requests, so this is advisory rather
+than a block — useful for a model picker that wants to warn or hide retiring
+models.
+
+```go
+for _, m := range host.GetAvailableModels() {
+    info := kit.LookupModel(m.Provider, m.ModelID)
+    if info != nil && info.IsDeprecated() {
+        fmt.Printf("warning: %s/%s is deprecated\n", m.Provider, m.ModelID)
+    }
+}
+```
+
+`kit.SuggestModels` now sorts deprecated matches to the end and returns a
+stable order, so a five-item suggestion list is not spent on models the
+provider is retiring.
+
 ## One-shot completions
 
 `ExecuteCompletion` runs a single LLM call outside the agent loop — useful for
