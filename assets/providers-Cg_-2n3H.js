@@ -89,9 +89,7 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">    →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-6</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">     →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-haiku-4-5</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-7-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-7-sonnet-20250219</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-sonnet-20241022</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-haiku-20241022</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-opus-20240229</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-haiku-20241022</span></span></code></pre>
 <h3 id="openai-gpt"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#openai-gpt"><span class="icon icon-link"></span></a>OpenAI GPT</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o1-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o1</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o3-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o3</span></span>
@@ -101,13 +99,16 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-4-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-4o</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-4</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                     →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-4o</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-3.5-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">            →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-3.5-turbo</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-3.5</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-3.5-turbo</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">codex-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> codex-mini-latest</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gpt-3.5</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gpt-3.5-turbo</span></span></code></pre>
 <h3 id="google-gemini"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#google-gemini"><span class="icon icon-link"></span></a>Google Gemini</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-pro-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">         →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-flash-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">       →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-flash</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-flash</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-pro</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-pro</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-2-flash</span><span style="color:#032F62;--shiki-dark:#9ECBFF">            →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.0-flash</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">gemini-2-pro</span><span style="color:#032F62;--shiki-dark:#9ECBFF">              →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> gemini-2.5-pro</span></span></code></pre>
+<p>An alias applies only when the target model is available for the provider you
+name. <code>anthropic/claude-sonnet-latest</code> resolves, while a provider that does not
+carry the target model reports a normal unknown-model error.</p>
 <h2 id="specifying-a-model"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#specifying-a-model"><span class="icon icon-link"></span></a>Specifying a model</h2>
 <p>Via CLI flag:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --model</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openai/gpt-4o</span></span>
@@ -327,9 +328,7 @@ claude-4-opus-latest      → claude-opus-4-6
 claude-4-sonnet-latest    → claude-sonnet-4-6
 claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
-claude-3-5-sonnet-latest  → claude-3-5-sonnet-20241022
 claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
-claude-3-opus-latest      → claude-3-opus-20240229
 \`\`\`
 
 ### OpenAI GPT
@@ -344,17 +343,21 @@ gpt-4-latest              → gpt-4o
 gpt-4                     → gpt-4o
 gpt-3.5-latest            → gpt-3.5-turbo
 gpt-3.5                   → gpt-3.5-turbo
-codex-latest              → codex-mini-latest
 \`\`\`
 
 ### Google Gemini
 
 \`\`\`bash
 gemini-pro-latest         → gemini-2.5-pro
-gemini-flash-latest       → gemini-2.5-flash
 gemini-flash              → gemini-2.5-flash
 gemini-pro                → gemini-2.5-pro
+gemini-2-flash            → gemini-2.0-flash
+gemini-2-pro              → gemini-2.5-pro
 \`\`\`
+
+An alias applies only when the target model is available for the provider you
+name. \`anthropic/claude-sonnet-latest\` resolves, while a provider that does not
+carry the target model reports a normal unknown-model error.
 
 ## Specifying a model
 
