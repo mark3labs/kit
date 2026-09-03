@@ -879,6 +879,35 @@ ctx.SetEditor(ext.EditorConfig{
 
 This applies to ALL struct fields that take function values: `ToolDef.Execute`, `CommandDef.Execute`, `EditorConfig.HandleKey`, `EditorConfig.Render`, `ToolRenderConfig.RenderHeader`, `ToolRenderConfig.RenderBody`, etc.
 
+### No Comma-Separated Case Lists in a Tagless Switch
+
+In `switch { case a, b, c: }` Yaegi evaluates **only the first expression** and
+silently ignores the rest. There is no load error and no panic — the branch
+just fails to fire for inputs that should have matched. A switch with a tag
+(`switch n { case 1, 2, 3: }`) is unaffected.
+
+```go
+// WRONG - only `r >= 'a' && r <= 'z'` is ever checked, so digits and
+// uppercase letters silently fall through to default:
+switch {
+case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+    b.WriteRune(r)
+default:
+    b.WriteRune('-')
+}
+
+// CORRECT - join the conditions with || into a single case expression:
+switch {
+case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+    b.WriteRune(r)
+default:
+    b.WriteRune('-')
+}
+```
+
+An `if`/`else` chain also works. This idiom is common in character-class tests
+and rune-width tables, so check any such code you write.
+
 ### No Interfaces Across the Boundary
 
 All extension-facing API types are concrete structs, never interfaces. Yaegi crashes on interface wrapper generation.

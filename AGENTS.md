@@ -68,6 +68,17 @@ func OldName() { return NewName() }
   // RIGHT: declare myHandler above, or wrap:
   // HandleKey: func(k, t string) ext.EditorKeyAction { return myHandler(k, t) }
   ```
+- **Tagless-switch comma case lists are miscompiled**: in `switch { case a, b, c: }` Yaegi evaluates ONLY the first expression and silently ignores the rest — no error, no panic. Bit both `status-footer.go` (CJK counted as 1 column) and `popup-terminal.go` (digits stripped from session names). A switch WITH a tag (`switch n { case 1, 2, 3: }`) is fine.
+  ```go
+  // BROKEN: only `r >= 'a' && r <= 'z'` is ever evaluated
+  switch {
+  case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+
+  // RIGHT: join with || into ONE case expression
+  switch {
+  case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+  ```
+  Regression test: `pkg/extensions/test/tagless_switch_yaegi_test.go` (fails loudly if Yaegi ever fixes it).
 - **Symbol exports**: Every new type exposed to extensions must be added to `internal/extensions/symbols.go`
 
 ### BubbleTea Integration

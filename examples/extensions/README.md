@@ -48,6 +48,7 @@ kit install github.com/mark3labs/kit/examples/extensions --local
 | `custom-editor-demo.go` | Custom key handling | `SetEditor`, `EditorKeyAction` |
 | `pirate.go` | Transform user input | `OnInput`, `InputResult` |
 | `interactive-shell.go` | Custom command input | Slash commands with prompts |
+| `popup-terminal.go` | Persistent, toggleable shell hosted by tmux/abduco/dtach | `SuspendTUI`, `RegisterOption`, `RegisterShortcut`, `SetStatus` |
 | `inline-bash.go` | Execute bash inline | Input handling, `exec` |
 
 ### Session & Context
