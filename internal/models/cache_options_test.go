@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -189,4 +191,94 @@ func TestCachingPriorityOverThinking(t *testing.T) {
 	if opts3 == nil {
 		t.Errorf("OpenAI caching should work when thinking is OFF")
 	}
+}
+
+// TestCacheSchemaVersionGating covers the cache-invalidation contract.
+//
+// The cache re-serializes provider data through modelsDBProvider, so a cache
+// written by an older binary silently lacks any field that binary did not
+// model. Because cached data takes precedence over the embedded catalog, such
+// a cache would mask newer metadata (reasoning options, status, tiered
+// pricing) rather than merely being incomplete.
+func TestCacheSchemaVersionGating(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	providers := map[string]modelsDBProvider{
+		"testprov": {
+			ID:   "testprov",
+			Name: "Test",
+			Models: map[string]modelsDBModel{
+				"m1": {ID: "m1", Name: "M1", Status: StatusDeprecated},
+			},
+		},
+	}
+
+	if err := StoreCachedProviders(providers, `"etag-1"`); err != nil {
+		t.Fatalf("StoreCachedProviders: %v", err)
+	}
+
+	t.Run("current version round-trips", func(t *testing.T) {
+		got, etag := LoadCachedProviders()
+		if len(got) != 1 {
+			t.Fatalf("want 1 provider, got %d", len(got))
+		}
+		if etag != `"etag-1"` {
+			t.Errorf("etag = %q, want %q", etag, `"etag-1"`)
+		}
+		// Fields added alongside versioning must survive the round-trip,
+		// otherwise the cache is still lossy.
+		if s := got["testprov"].Models["m1"].Status; s != StatusDeprecated {
+			t.Errorf("status did not round-trip: %q", s)
+		}
+	})
+
+	t.Run("older schema is discarded", func(t *testing.T) {
+		path, err := cachePath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var env map[string]any
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatal(err)
+		}
+		// Simulate a cache written before versioning existed.
+		delete(env, "version")
+		stale, err := json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, stale, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, etag := LoadCachedProviders()
+		if got != nil {
+			t.Errorf("stale cache must be ignored, got %d providers", len(got))
+		}
+		// The ETag must be dropped too: keeping it would let the next update
+		// get a 304 and leave the stale cache in place forever.
+		if etag != "" {
+			t.Errorf("stale cache must not return an ETag, got %q", etag)
+		}
+	})
+
+	t.Run("future schema is discarded", func(t *testing.T) {
+		path, err := cachePath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		future := fmt.Sprintf(`{"version":%d,"etag":"x","providers":{"p":{"id":"p","models":{}}}}`,
+			cacheSchemaVersion+1)
+		if err := os.WriteFile(path, []byte(future), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := LoadCachedProviders(); got != nil {
+			t.Errorf("future-schema cache must be ignored, got %d providers", len(got))
+		}
+	})
 }

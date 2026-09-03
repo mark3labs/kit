@@ -101,14 +101,21 @@ func (ut *UsageTracker) UpdateUsage(inputTokens, outputTokens, cacheReadTokens, 
 	var inputCost, outputCost, cacheReadCost, cacheWriteCost, totalCost float64
 
 	if !ut.isOAuth {
-		inputCost = float64(inputTokens) * ut.modelInfo.Cost.Input / 1000000 // Cost is per million tokens
-		outputCost = float64(outputTokens) * ut.modelInfo.Cost.Output / 1000000
+		// Select the rate tier from the prompt size. Long-context models bill
+		// roughly 2x once a request passes a threshold (commonly 200k tokens),
+		// so the whole prompt counts here — cached tokens included, since they
+		// are part of the context the provider prices.
+		promptTokens := inputTokens + cacheReadTokens + cacheWriteTokens
+		rates := ut.modelInfo.Cost.RatesFor(promptTokens)
 
-		if ut.modelInfo.Cost.CacheRead != nil {
-			cacheReadCost = float64(cacheReadTokens) * (*ut.modelInfo.Cost.CacheRead) / 1000000
+		inputCost = float64(inputTokens) * rates.Input / 1000000 // Cost is per million tokens
+		outputCost = float64(outputTokens) * rates.Output / 1000000
+
+		if rates.CacheRead != nil {
+			cacheReadCost = float64(cacheReadTokens) * (*rates.CacheRead) / 1000000
 		}
-		if ut.modelInfo.Cost.CacheWrite != nil {
-			cacheWriteCost = float64(cacheWriteTokens) * (*ut.modelInfo.Cost.CacheWrite) / 1000000
+		if rates.CacheWrite != nil {
+			cacheWriteCost = float64(cacheWriteTokens) * (*rates.CacheWrite) / 1000000
 		}
 
 		totalCost = inputCost + outputCost + cacheReadCost + cacheWriteCost

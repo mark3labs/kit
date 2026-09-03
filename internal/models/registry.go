@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/kit/internal/auth"
@@ -33,6 +34,52 @@ type ModelInfo struct {
 	// when the user hasn't explicitly set the corresponding CLI flag or global
 	// config value. Nil pointer fields mean "no model-level default".
 	Params *GenerationParams
+
+	// Status is the model's lifecycle marker from the catalog: StatusDeprecated,
+	// StatusBeta, or empty for normal general availability.
+	Status string
+
+	// ReasoningLevels lists the reasoning effort levels the model accepts, as
+	// published by the catalog (e.g. "none", "low", "medium", "high", "max").
+	//
+	// Empty carries two distinct meanings, separated by ReasoningIsGraded:
+	// either the catalog published no reasoning metadata at all, or the model
+	// takes a reasoning budget that has no named levels (an on/off toggle or a
+	// raw token budget). Callers should consult SupportsReasoningLevel rather
+	// than testing this slice directly.
+	ReasoningLevels []string
+
+	// ReasoningIsGraded is true when the catalog says the model selects
+	// reasoning by named effort level, meaning ReasoningLevels is an
+	// exhaustive list. False means either no metadata, or a toggle/budget
+	// model that accepts any level Kit maps onto a token budget.
+	ReasoningIsGraded bool
+}
+
+// Model lifecycle markers published by the catalog.
+const (
+	// StatusDeprecated marks a model the provider has scheduled for removal.
+	// It usually still answers requests, so this is advisory, not a block.
+	StatusDeprecated = "deprecated"
+	// StatusBeta marks a model the provider considers pre-release.
+	StatusBeta = "beta"
+)
+
+// IsDeprecated reports whether the catalog marks this model as deprecated.
+func (m *ModelInfo) IsDeprecated() bool { return m.Status == StatusDeprecated }
+
+// SupportsReasoningLevel reports whether the model accepts the named reasoning
+// effort level.
+//
+// Returns true when the catalog published no usable reasoning metadata, so an
+// unknown model is never blocked on the strength of missing data. Callers that
+// need to distinguish "known good" from "unknown" should check
+// ReasoningIsGraded.
+func (m *ModelInfo) SupportsReasoningLevel(level string) bool {
+	if !m.ReasoningIsGraded {
+		return true
+	}
+	return slices.Contains(m.ReasoningLevels, level)
 }
 
 // SupportsCaching returns true if this model family supports prompt caching.
@@ -81,6 +128,13 @@ type Cost struct {
 	CacheRead  *float64
 	CacheWrite *float64
 
+	// Tiers holds long-context pricing, ordered by ascending threshold. Many
+	// long-context models bill roughly 2x the base rate once a request's
+	// prompt passes a threshold (commonly 200k tokens), so charging the base
+	// rate for every request under-reports the cost of large contexts. Empty
+	// when the model prices every request at the base rate.
+	Tiers []CostTier
+
 	// Published is true when the source catalog supplied a pricing block for
 	// the model. It distinguishes a model that is genuinely free (an explicit
 	// zero rate, as with openrouter's ":free" variants) from one whose price
@@ -92,6 +146,52 @@ type Cost struct {
 	Published bool
 }
 
+// CostTier is a set of rates that applies once a request's prompt exceeds
+// Threshold tokens.
+type CostTier struct {
+	Threshold  int
+	Input      float64
+	Output     float64
+	CacheRead  *float64
+	CacheWrite *float64
+}
+
+// RatesFor returns the rates that apply to a request whose prompt is
+// promptTokens long. The prompt is the right input for tier selection: it is
+// the whole context sent to the model, so callers must include cached tokens
+// as well as fresh ones.
+//
+// Returns the base rates when the model publishes no tiers or the prompt sits
+// below every threshold. When several tiers match, the highest one wins.
+func (c Cost) RatesFor(promptTokens int) Cost {
+	out := Cost{
+		Input:      c.Input,
+		Output:     c.Output,
+		CacheRead:  c.CacheRead,
+		CacheWrite: c.CacheWrite,
+		Published:  c.Published,
+	}
+	for _, t := range c.Tiers {
+		if promptTokens > t.Threshold {
+			out.Input = t.Input
+			out.Output = t.Output
+			// A tier that omits a cache rate keeps the base one rather than
+			// silently dropping to "uncharged".
+			if t.CacheRead != nil {
+				out.CacheRead = t.CacheRead
+			}
+			if t.CacheWrite != nil {
+				out.CacheWrite = t.CacheWrite
+			}
+		}
+	}
+	return out
+}
+
+// contextOver200KThreshold is the prompt size at which the catalog's
+// `context_over_200k` rate takes over from the base rate.
+const contextOver200KThreshold = 200_000
+
 // costFrom converts a catalog pricing block into a Cost. A nil block means the
 // catalog published no pricing for the model (~400 entries in the bundled
 // catalog, including paid models proxied by aggregators), which is recorded as
@@ -100,13 +200,43 @@ func costFrom(c *modelsDBCost) Cost {
 	if c == nil {
 		return Cost{}
 	}
-	return Cost{
+	out := Cost{
 		Input:      c.Input,
 		Output:     c.Output,
 		CacheRead:  c.CacheRead,
 		CacheWrite: c.CacheWrite,
 		Published:  true,
 	}
+
+	// `context_over_200k` is the common shorthand for a single 200k tier.
+	if r := c.ContextOver200K; r != nil {
+		out.Tiers = append(out.Tiers, CostTier{
+			Threshold:  contextOver200KThreshold,
+			Input:      r.Input,
+			Output:     r.Output,
+			CacheRead:  r.CacheRead,
+			CacheWrite: r.CacheWrite,
+		})
+	}
+
+	// `tiers` is the general form. Only context-sized tiers are understood;
+	// any other tier type is ignored rather than guessed at.
+	for _, t := range c.Tiers {
+		if t.Tier.Type != "context" || t.Tier.Size <= 0 {
+			continue
+		}
+		out.Tiers = append(out.Tiers, CostTier{
+			Threshold:  t.Tier.Size,
+			Input:      t.Input,
+			Output:     t.Output,
+			CacheRead:  t.CacheRead,
+			CacheWrite: t.CacheWrite,
+		})
+	}
+
+	// Ascending threshold order lets RatesFor apply the highest match last.
+	slices.SortFunc(out.Tiers, func(a, b CostTier) int { return a.Threshold - b.Threshold })
+	return out
 }
 
 // Limit represents the context and output limits for a model.
@@ -150,6 +280,32 @@ func NewModelsRegistry() *ModelsRegistry {
 	}
 }
 
+// reasoningFrom flattens the catalog's reasoning_options into the levels a
+// model accepts, and whether that list is exhaustive.
+//
+// graded is true only when the catalog publishes an "effort" option carrying
+// named values. A "toggle" or "budget_tokens" model takes a reasoning budget
+// with no named levels, so every level Kit offers maps onto it; that is
+// reported as not-graded with no levels, which SupportsReasoningLevel treats
+// as permissive.
+func reasoningFrom(opts []modelsDBReasoningOption) (levels []string, graded bool) {
+	for _, o := range opts {
+		switch o.Type {
+		case reasoningTypeEffort:
+			for _, v := range o.Values {
+				if v != "" && !slices.Contains(levels, v) {
+					levels = append(levels, v)
+				}
+			}
+		case reasoningTypeToggle, reasoningTypeBudgetTokens:
+			// No named levels to collect.
+		}
+	}
+	// An effort option with an empty value list says nothing useful, so it is
+	// not treated as an exhaustive list.
+	return levels, len(levels) > 0
+}
+
 // buildFromModelsDB converts models.dev provider data into our internal format.
 // It starts from the compile-time embedded database and merges on-disk cached
 // data from `kit update-models` on top. Cached provider metadata replaces
@@ -186,6 +342,7 @@ func buildFromModelsDB() map[string]ProviderInfo {
 			if dm.Provider != nil {
 				providerNPM = dm.Provider.NPM
 			}
+			reasoningLevels, reasoningGraded := reasoningFrom(dm.ReasoningOptions)
 			modelsMap[modelID] = ModelInfo{
 				ID:          dm.ID,
 				Name:        dm.Name,
@@ -198,7 +355,10 @@ func buildFromModelsDB() map[string]ProviderInfo {
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
 				},
-				ProviderNPM: providerNPM,
+				ProviderNPM:       providerNPM,
+				Status:            dm.Status,
+				ReasoningLevels:   reasoningLevels,
+				ReasoningIsGraded: reasoningGraded,
 			}
 		}
 
@@ -421,6 +581,23 @@ func (r *ModelsRegistry) SuggestModels(provider, invalidModel string) []string {
 			suggestions = append(suggestions, modelID)
 		}
 	}
+
+	// Order the matches before truncating. Models the catalog marks
+	// deprecated sort last, so a short list is not spent recommending models
+	// the provider is retiring. Ties break by name to keep the output stable:
+	// the scan above walks a map, so without this the five surfaced
+	// suggestions would vary between runs.
+	slices.SortFunc(suggestions, func(a, b string) int {
+		infoA, infoB := providerInfo.Models[a], providerInfo.Models[b]
+		depA, depB := infoA.IsDeprecated(), infoB.IsDeprecated()
+		if depA != depB {
+			if depA {
+				return 1
+			}
+			return -1
+		}
+		return strings.Compare(a, b)
+	})
 
 	if len(suggestions) > 5 {
 		suggestions = suggestions[:5]

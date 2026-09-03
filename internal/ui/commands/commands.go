@@ -2,14 +2,7 @@ package commands
 
 import (
 	"slices"
-	"strings"
-
-	"github.com/mark3labs/kit/internal/models"
 )
-
-// ListThemesFunc is set by the ui package to provide theme name completion.
-// This breaks the circular dependency between commands and ui packages.
-var ListThemesFunc func() []string
 
 // SlashCommand represents a user-invokable slash command with its metadata.
 // Commands can have multiple aliases and are organized by category for better
@@ -87,38 +80,16 @@ var SlashCommands = []SlashCommand{
 		Description: "Set thinking/reasoning level (off, none, minimal, low, medium, high)",
 		Category:    "System",
 		Aliases:     []string{"/think"},
-		Complete: func(prefix string) []string {
-			levels := models.ThinkingLevels()
-			var matches []string
-			for _, l := range levels {
-				s := string(l)
-				if prefix == "" || strings.HasPrefix(s, strings.ToLower(prefix)) {
-					matches = append(matches, s)
-				}
-			}
-			return matches
-		},
+		// No Complete function: /thinking opens a modal picker (like /model),
+		// so a space-triggered arg-completer popup would compete with it and
+		// offer levels the current model does not accept.
 	},
 	{
 		Name:        "/theme",
 		Description: "Switch color theme (e.g. /theme catppuccin)",
 		Category:    "System",
-		Complete: func(prefix string) []string {
-			if ListThemesFunc == nil {
-				return nil
-			}
-			names := ListThemesFunc()
-			if prefix == "" {
-				return names
-			}
-			var matches []string
-			for _, n := range names {
-				if strings.HasPrefix(n, strings.ToLower(prefix)) {
-					matches = append(matches, n)
-				}
-			}
-			return matches
-		},
+		// No Complete function: /theme opens a modal picker (like /model), so
+		// a space-triggered arg-completer popup would compete with it.
 	},
 	{
 		Name:        "/shortcuts",

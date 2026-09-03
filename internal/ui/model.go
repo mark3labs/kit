@@ -64,6 +64,12 @@ const (
 	// stateModelSelector means the /model selector overlay is active.
 	stateModelSelector
 
+	// stateThinkingLevelSelector means the /thinking selector overlay is active.
+	stateThinkingLevelSelector
+
+	// stateThemeSelector means the /theme selector overlay is active.
+	stateThemeSelector
+
 	// stateSessionSelector means the /resume session picker is active.
 	stateSessionSelector
 
@@ -890,6 +896,13 @@ type AppModel struct {
 	// modelSelector is the model selection overlay, active in stateModelSelector.
 	modelSelector *ModelSelectorComponent
 
+	// thinkingLevelSelector is the reasoning-effort picker, active in
+	// stateThinkingLevelSelector.
+	thinkingLevelSelector *ThinkingLevelSelectorComponent
+
+	// themeSelector is the color-theme picker, active in stateThemeSelector.
+	themeSelector *ThemeSelectorComponent
+
 	// sessionSelector is the session picker overlay, active in stateSessionSelector.
 	sessionSelector *SessionSelectorComponent
 
@@ -1157,8 +1170,6 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.extEvents = newExtEventDispatcher()
 	m.thinkingLevel = opts.ThinkingLevel
 
-	// Initialize the theme list function for command completion.
-	commands.ListThemesFunc = style.ListThemes
 	m.thinkingVisible = true // default to showing thinking blocks
 	m.isReasoningModel = opts.IsReasoningModel
 	m.setThinkingLevel = opts.SetThinkingLevel
@@ -1758,6 +1769,30 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	// ── Thinking-level selector events ──────────────────────────────────
+	case ThinkingLevelSelectedMsg:
+		m.thinkingLevelSelector = nil
+		m.state = stateInput
+		m.applyThinkingLevel(models.ParseThinkingLevel(msg.Level))
+		return m, tea.Batch(cmds...)
+
+	case ThinkingLevelSelectorCancelledMsg:
+		m.thinkingLevelSelector = nil
+		m.state = stateInput
+		return m, nil
+
+	// ── Theme selector events ───────────────────────────────────────────────
+	case ThemeSelectedMsg:
+		m.themeSelector = nil
+		m.state = stateInput
+		m.applyTheme(msg.Name)
+		return m, tea.Batch(cmds...)
+
+	case ThemeSelectorCancelledMsg:
+		m.themeSelector = nil
+		m.state = stateInput
+		return m, nil
+
 	// ── Session selector events ──────────────────────────────────────────────
 	case SessionSelectedMsg:
 		m.sessionSelector = nil
@@ -1993,6 +2028,22 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateModelSelector && m.modelSelector != nil {
 			updated, cmd := m.modelSelector.Update(msg)
 			m.modelSelector = updated.(*ModelSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Route to thinking-level selector when active.
+		if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
+			updated, cmd := m.thinkingLevelSelector.Update(msg)
+			m.thinkingLevelSelector = updated.(*ThinkingLevelSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Route to theme selector when active.
+		if m.state == stateThemeSelector && m.themeSelector != nil {
+			updated, cmd := m.themeSelector.Update(msg)
+			m.themeSelector = updated.(*ThemeSelectorComponent)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -3337,6 +3388,16 @@ func (m *AppModel) View() tea.View {
 	// Model selector.
 	if m.state == stateModelSelector && m.modelSelector != nil {
 		finalContent = compositeCentered(finalContent, m.modelSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Thinking-level selector.
+	if m.state == stateThinkingLevelSelector && m.thinkingLevelSelector != nil {
+		finalContent = compositeCentered(finalContent, m.thinkingLevelSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Theme selector.
+	if m.state == stateThemeSelector && m.themeSelector != nil {
+		finalContent = compositeCentered(finalContent, m.themeSelector.RenderOverlay(), m.width, m.height)
 	}
 
 	// Tree selector (/tree).
@@ -5450,10 +5511,10 @@ func (m *AppModel) switchModel(modelString string) {
 	// Some models (e.g., OpenAI gpt-5.4) don't support "minimal" and require "none".
 	if m.thinkingLevel != "" && m.thinkingLevel != "off" {
 		if parts := strings.SplitN(modelString, "/", 2); len(parts) == 2 {
-			modelName := parts[1]
+			providerName, modelName := parts[0], parts[1]
 			currentLevel := models.ParseThinkingLevel(m.thinkingLevel)
-			if !models.IsValidThinkingLevelForModel(currentLevel, modelName) {
-				fallback := models.SuggestThinkingLevelFallback(currentLevel, modelName)
+			if !models.IsValidThinkingLevelForModel(currentLevel, providerName, modelName) {
+				fallback := models.SuggestThinkingLevelFallback(currentLevel, providerName, modelName)
 				if fallback != models.ThinkingOff {
 					m.printSystemMessage(fmt.Sprintf(
 						"Note: Model %s doesn't support '%s' thinking level. Adjusted to '%s'.",
@@ -5546,42 +5607,29 @@ func (m *AppModel) notifyThinkingLevel(newLevel, previousLevel, source string) {
 // --------------------------------------------------------------------------
 
 // handleThemeCommand switches the active color theme. With no arguments it
-// lists available themes and highlights the active one. With a name argument
+// opens a modal picker (matching /model and /thinking). With a name argument
 // (e.g. "/theme catppuccin") it switches immediately.
 func (m *AppModel) handleThemeCommand(args string) tea.Cmd {
 	if args == "" {
-		// List available themes.
-		names := style.ListThemes()
-		active := style.ActiveThemeName()
-
-		var lines []string
-		lines = append(lines, "Available themes:")
-		for _, name := range names {
-			if name == active {
-				lines = append(lines, fmt.Sprintf("  * %s (active)", name))
-			} else {
-				lines = append(lines, fmt.Sprintf("    %s", name))
-			}
-		}
-		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("User themes:    %s", style.UserThemesDir()))
-		if pdir := style.ProjectThemesDir(); pdir != "" {
-			lines = append(lines, fmt.Sprintf("Project themes: %s", pdir))
-		} else {
-			lines = append(lines, "Project themes: .kit/themes/ (not found)")
-		}
-		m.printSystemMessage(strings.Join(lines, "\n"))
+		m.themeSelector = NewThemeSelector(style.ActiveThemeName(), m.width, m.height)
+		m.state = stateThemeSelector
 		return nil
 	}
 
-	if err := style.ApplyTheme(args); err != nil {
-		m.printSystemMessage(fmt.Sprintf("Theme error: %v", err))
-		return nil
-	}
-
-	m.refreshTheme()
-	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", args))
+	m.applyTheme(args)
 	return nil
+}
+
+// applyTheme commits a theme change and prints a confirmation. Shared by the
+// /theme <name> command path and the modal selector so both routes surface
+// the same message and repaint the same components.
+func (m *AppModel) applyTheme(name string) {
+	if err := style.ApplyTheme(name); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Theme error: %v", err))
+		return
+	}
+	m.refreshTheme()
+	m.printSystemMessage(fmt.Sprintf("Switched to theme: %s", name))
 }
 
 // refreshTheme repaints everything that holds theme-derived styling after the
@@ -5621,18 +5669,10 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	}
 
 	if args == "" {
-		// Show current level with descriptions.
-		var lines []string
-		levels := models.ThinkingLevels()
-		for _, l := range levels {
-			marker := "  "
-			if string(l) == m.thinkingLevel {
-				marker = "▸ "
-			}
-			lines = append(lines, fmt.Sprintf("%s%s — %s", marker, l, models.ThinkingLevelDescription(l)))
-		}
-		header := fmt.Sprintf("Current thinking level: %s\n\nAvailable levels:", m.thinkingLevel)
-		m.printSystemMessage(header + "\n" + strings.Join(lines, "\n"))
+		// Match /model behaviour: open a modal picker directly, no space required.
+		m.thinkingLevelSelector = NewThinkingLevelSelector(
+			m.providerName, m.modelName, m.thinkingLevel, m.width, m.height)
+		m.state = stateThinkingLevelSelector
 		return nil
 	}
 
@@ -5643,7 +5683,31 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 		return nil
 	}
 
+	// Levels the active model does not accept are substituted rather than
+	// sent, since the provider would reject the request outright.
+	if !models.IsValidThinkingLevelForModel(level, m.providerName, m.modelName) {
+		fallback := models.SuggestThinkingLevelFallback(level, m.providerName, m.modelName)
+		if fallback == models.ThinkingOff && level != models.ThinkingOff {
+			m.printSystemMessage(fmt.Sprintf(
+				"Model %s does not support the '%s' thinking level.", m.modelName, level))
+			return nil
+		}
+		m.printSystemMessage(fmt.Sprintf(
+			"Note: Model %s doesn't support '%s' thinking level. Using '%s' instead.",
+			m.modelName, level, fallback))
+		level = fallback
+	}
+
 	// Apply the change.
+	m.applyThinkingLevel(level)
+	return nil
+}
+
+// applyThinkingLevel commits a thinking-level change: it persists the value,
+// invokes the provider callback, emits the extension event, and prints a
+// confirmation. Shared by the /thinking <level> command path and the modal
+// selector so both routes surface the same message and fire the same events.
+func (m *AppModel) applyThinkingLevel(level models.ThinkingLevel) {
 	previousLevel := m.thinkingLevel
 	m.thinkingLevel = string(level)
 	if m.setThinkingLevel != nil {
@@ -5660,7 +5724,6 @@ func (m *AppModel) handleThinkingCommand(args string) tea.Cmd {
 	// Persist thinking level for next launch.
 	go func() { _ = prefs.SaveThinkingLevelPreference(string(level)) }()
 	m.printSystemMessage(fmt.Sprintf("Thinking level set to: %s — %s", level, models.ThinkingLevelDescription(level)))
-	return nil
 }
 
 // --------------------------------------------------------------------------

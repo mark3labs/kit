@@ -145,6 +145,36 @@ func TestModelAliasTargetsExist(t *testing.T) {
 	}
 }
 
+// TestModelAliasTargetsNotFullyDeprecated reports aliases whose target is
+// marked deprecated everywhere it is published. Such an alias still resolves,
+// so it is not broken, but it steers users onto a model its provider is
+// retiring — a "-latest" shorthand in particular should mean "the current
+// model". This is advisory: it logs rather than fails, because the catalog can
+// mark a model deprecated long before it stops answering.
+func TestModelAliasTargetsNotFullyDeprecated(t *testing.T) {
+	registry := GetGlobalRegistry()
+	providers := registry.GetSupportedProviders()
+
+	for alias, target := range modelAliases {
+		var live, deprecated []string
+		for _, provider := range providers {
+			info := registry.LookupModel(provider, target)
+			if info == nil {
+				continue
+			}
+			if info.IsDeprecated() {
+				deprecated = append(deprecated, provider)
+			} else {
+				live = append(live, provider)
+			}
+		}
+		if len(deprecated) > 0 && len(live) == 0 {
+			t.Logf("alias %q -> %q: deprecated at every provider that publishes it (%v); "+
+				"consider repointing the alias", alias, target, deprecated)
+		}
+	}
+}
+
 // TestModelAliasNoSelfMapping rejects identity entries. They are pure no-ops:
 // resolveModelAlias returns the input unchanged whether or not they exist.
 func TestModelAliasNoSelfMapping(t *testing.T) {

@@ -122,7 +122,7 @@ defaults for samplers).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `MaxTokens` | `int` | auto-resolved | Max output tokens per response. `0` = auto-resolve; non-zero suppresses automatic right-sizing (same semantics as `--max-tokens`). |
-| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. |
+| `ThinkingLevel` | `string` | auto-resolved | Reasoning effort: `"off"`, `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`. `""` falls through to config/env/per-model/`"off"`. A level the active model does not accept is substituted with the nearest supported one; call [`SupportedThinkingLevels`](/sdk/overview#reasoning-support-per-model) to check first when the exact level matters. |
 | `Temperature` | `*float32` | — | Sampling randomness. Pointer type so explicit `0.0` is distinguishable from "unset". |
 | `TopP` | `*float32` | — | Nucleus sampling cutoff. `nil` leaves provider/per-model default. |
 | `TopK` | `*int32` | — | Top-K sampling limit. `nil` leaves provider/per-model default. |

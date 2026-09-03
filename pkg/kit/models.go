@@ -81,3 +81,53 @@ func CheckProviderReady(provider string) error {
 func ResolveProviderBaseURL(providerID string) (string, error) {
 	return models.ResolveProviderBaseURL(providerID)
 }
+
+// ThinkingLevels returns every reasoning level Kit understands, from least to
+// most effort: "off", "none", "minimal", "low", "medium", "high".
+//
+// This is the full vocabulary, not the set any particular model accepts. Use
+// [SupportedThinkingLevels] to narrow it to a model.
+func ThinkingLevels() []string {
+	levels := models.ThinkingLevels()
+	out := make([]string, len(levels))
+	for i, l := range levels {
+		out[i] = string(l)
+	}
+	return out
+}
+
+// SupportedThinkingLevels returns the reasoning levels the given model
+// accepts, drawn from the model catalog's published reasoning metadata.
+//
+// Providers differ: OpenAI's gpt-5.x line accepts "none" but not "minimal",
+// the o-series accepts neither, and models with a token-budget or on/off
+// reasoning control accept every level. When the catalog publishes no usable
+// metadata — an unknown model, or one with no graded levels — every level is
+// returned, since there is no evidence any of them would be rejected.
+//
+// "off" is always present: it means "do not request reasoning".
+func SupportedThinkingLevels(provider, modelID string) []string {
+	levels := models.SupportedThinkingLevels(provider, modelID)
+	out := make([]string, len(levels))
+	for i, l := range levels {
+		out[i] = string(l)
+	}
+	return out
+}
+
+// IsThinkingLevelSupported reports whether a model accepts the named reasoning
+// level. Unknown levels and unknown models report true, so callers are never
+// blocked on missing catalog data.
+func IsThinkingLevelSupported(provider, modelID, level string) bool {
+	return models.IsValidThinkingLevelForModel(models.ParseThinkingLevel(level), provider, modelID)
+}
+
+// SuggestThinkingLevel returns the level to use in place of one the model does
+// not accept, choosing the nearest supported level of similar cost. Returns
+// the requested level unchanged when it is already supported, or "off" when
+// the model accepts no reasoning level at all.
+//
+//	level := kit.SuggestThinkingLevel("openai", "o3", "minimal") // -> "low"
+func SuggestThinkingLevel(provider, modelID, level string) string {
+	return string(models.SuggestThinkingLevelFallback(models.ParseThinkingLevel(level), provider, modelID))
+}

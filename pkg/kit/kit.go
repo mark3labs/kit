@@ -750,9 +750,9 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	if thinkingLevel != models.ThinkingOff {
 		parts := strings.SplitN(modelString, "/", 2)
 		if len(parts) == 2 {
-			modelName := parts[1]
-			if !models.IsValidThinkingLevelForModel(thinkingLevel, modelName) {
-				fallback := models.SuggestThinkingLevelFallback(thinkingLevel, modelName)
+			providerName, modelName := parts[0], parts[1]
+			if !models.IsValidThinkingLevelForModel(thinkingLevel, providerName, modelName) {
+				fallback := models.SuggestThinkingLevelFallback(thinkingLevel, providerName, modelName)
 				if fallback != models.ThinkingOff {
 					// Adjust the thinking level in the instance store so the change persists.
 					m.v.Set("thinking-level", string(fallback))
@@ -3557,12 +3557,28 @@ func (m *Kit) GetThinkingLevel() string {
 //
 // With message-level caching, both thinking and caching work together.
 // Caching reduces costs by 60-90% for repeated context.
+//
+// A level the active model does not accept is replaced with the nearest
+// supported one rather than rejected. Check [Kit.SupportedThinkingLevels]
+// first when the exact level matters.
 func (m *Kit) SetThinkingLevel(ctx context.Context, level string) error {
 	m.v.Set("thinking-level", level)
 	// Recreate agent with new thinking config by re-running SetModel
 	// with the same model string. SetModel rebuilds the provider and
 	// passes the updated viper config (including thinking-level).
 	return m.SetModel(ctx, m.modelString)
+}
+
+// SupportedThinkingLevels returns the reasoning levels the currently selected
+// model accepts. See [SupportedThinkingLevels] for how the list is derived.
+//
+// Returns the full vocabulary when no model is selected yet.
+func (m *Kit) SupportedThinkingLevels() []string {
+	provider, modelName, err := ParseModelString(m.modelString)
+	if err != nil {
+		return ThinkingLevels()
+	}
+	return SupportedThinkingLevels(provider, modelName)
 }
 
 // GetTools returns all tools available to the agent (core + MCP + extensions).

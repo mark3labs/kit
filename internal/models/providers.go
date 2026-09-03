@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -944,52 +945,133 @@ func thinkingLevelToReasoningEffort(level ThinkingLevel) *openai.ReasoningEffort
 	}
 }
 
-// IsValidThinkingLevelForModel checks if a thinking level is valid for the given
-// model. Some OpenAI models like gpt-5.4 don't support "minimal" and require
-// "none" instead.
-func IsValidThinkingLevelForModel(level ThinkingLevel, modelName string) bool {
+// catalogReasoningLevel maps a Kit ThinkingLevel onto the effort name used by
+// the models.dev catalog. ThinkingOff has no catalog equivalent: it means "do
+// not ask for reasoning at all" rather than an effort setting.
+func catalogReasoningLevel(level ThinkingLevel) (string, bool) {
+	switch level {
+	case ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh:
+		return string(level), true
+	default:
+		return "", false
+	}
+}
+
+// SupportedThinkingLevels returns the thinking levels the given model accepts,
+// in the order ThinkingLevels reports them.
+//
+// The list is derived from the catalog's reasoning metadata. When the catalog
+// has nothing usable for the model — an unknown model, or one that takes a
+// reasoning toggle or raw token budget rather than named levels — every level
+// is returned, since there is no evidence any of them is unsupported.
+//
+// ThinkingOff is always included: it means "don't ask for reasoning", which
+// every model honours.
+func SupportedThinkingLevels(provider, modelName string) []ThinkingLevel {
+	all := ThinkingLevels()
+	info := GetGlobalRegistry().LookupModel(provider, modelName)
+	if info == nil || !info.ReasoningIsGraded {
+		return all
+	}
+	out := make([]ThinkingLevel, 0, len(all))
+	for _, l := range all {
+		if IsValidThinkingLevelForModel(l, provider, modelName) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// IsValidThinkingLevelForModel reports whether a thinking level is valid for
+// the given provider/model.
+//
+// The answer comes from the model's published reasoning metadata: OpenAI's
+// gpt-5.x line accepts "none" but not "minimal", the o-series accepts neither,
+// and Anthropic's budget-based models accept any level. Models the catalog
+// says nothing about are permitted every level, so a model missing from the
+// catalog is never blocked on the strength of absent data.
+//
+// Pass an empty provider when it isn't known; the model is then looked up
+// across every provider and accepted if any of them grades it as supported.
+func IsValidThinkingLevelForModel(level ThinkingLevel, provider, modelName string) bool {
+	// "off" disables reasoning rather than selecting an effort, so it is
+	// always available.
 	if level == ThinkingOff {
 		return true
 	}
-
-	// Check if this is an OpenAI model that doesn't support "minimal"
-	// gpt-5.4 and newer gpt-5.x models use "none" instead of "minimal"
-	if level == ThinkingMinimal {
-		if strings.Contains(modelName, "gpt-5.4") ||
-			strings.Contains(modelName, "gpt-5-pro") ||
-			strings.Contains(modelName, "gpt-5-chat") {
-			return false
-		}
+	catalogLevel, ok := catalogReasoningLevel(level)
+	if !ok {
+		return true
 	}
 
-	// Check if this is an OpenAI model that doesn't support "none"
-	// Older gpt-5 models only support "minimal", not "none"
-	if level == ThinkingNone {
-		if strings.Contains(modelName, "gpt-5") &&
-			!strings.Contains(modelName, "gpt-5.4") &&
-			!strings.Contains(modelName, "gpt-5-pro") &&
-			!strings.Contains(modelName, "gpt-5-chat") {
-			// Older gpt-5 models might not support "none"
-			// They only added "none" support in newer versions
-			return false
+	if provider != "" {
+		info := GetGlobalRegistry().LookupModel(provider, modelName)
+		if info == nil {
+			return true
 		}
+		return info.SupportsReasoningLevel(catalogLevel)
 	}
 
-	// All other levels are generally valid for reasoning models
-	return true
+	// No provider given: accept the level when any provider publishing this
+	// model accepts it. Being permissive here keeps the fallback advisory —
+	// the alternative would reject a level the user's actual provider allows.
+	registry := GetGlobalRegistry()
+	found := false
+	for _, p := range registry.GetSupportedProviders() {
+		info := registry.LookupModel(p, modelName)
+		if info == nil {
+			continue
+		}
+		found = true
+		if info.SupportsReasoningLevel(catalogLevel) {
+			return true
+		}
+	}
+	return !found
 }
 
 // SuggestThinkingLevelFallback returns a recommended fallback level when the
-// requested level is not valid for the model. Returns ThinkingOff if no
-// suitable fallback exists.
-func SuggestThinkingLevelFallback(level ThinkingLevel, modelName string) ThinkingLevel {
-	if level == ThinkingMinimal && !IsValidThinkingLevelForModel(level, modelName) {
-		// For models that don't support "minimal", suggest "none" (~same token budget)
-		return ThinkingNone
+// requested level is not valid for the model.
+//
+// It prefers the nearest supported level of similar cost: "minimal" and
+// "none" substitute for each other, and otherwise the closest supported level
+// on the effort scale is chosen. Returns ThinkingOff when the model supports
+// no level at all.
+func SuggestThinkingLevelFallback(level ThinkingLevel, provider, modelName string) ThinkingLevel {
+	if IsValidThinkingLevelForModel(level, provider, modelName) {
+		return level
 	}
-	if level == ThinkingNone && !IsValidThinkingLevelForModel(level, modelName) {
-		// For models that don't support "none", suggest "minimal" (~same token budget)
-		return ThinkingMinimal
+
+	supported := SupportedThinkingLevels(provider, modelName)
+	isSupported := func(l ThinkingLevel) bool { return slices.Contains(supported, l) }
+
+	// "minimal" and "none" denote about the same (near-zero) budget, so they
+	// are each other's first choice.
+	switch level {
+	case ThinkingMinimal:
+		if isSupported(ThinkingNone) {
+			return ThinkingNone
+		}
+	case ThinkingNone:
+		if isSupported(ThinkingMinimal) {
+			return ThinkingMinimal
+		}
+	}
+
+	// Otherwise walk outward along the effort scale for the nearest supported
+	// level, preferring the lower one on a tie so a fallback never silently
+	// costs more than what was asked for.
+	scale := ThinkingLevels()
+	idx := slices.Index(scale, level)
+	if idx >= 0 {
+		for d := 1; d < len(scale); d++ {
+			if i := idx - d; i >= 0 && isSupported(scale[i]) && scale[i] != ThinkingOff {
+				return scale[i]
+			}
+			if i := idx + d; i < len(scale) && isSupported(scale[i]) {
+				return scale[i]
+			}
+		}
 	}
 	return ThinkingOff
 }

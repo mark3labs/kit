@@ -29,6 +29,36 @@ type modelsDBModel struct {
 	Cost        *modelsDBCost          `json:"cost"`
 	Limit       modelsDBLimit          `json:"limit"`
 	Provider    *modelsDBModelProvider `json:"provider,omitempty"` // Model-specific provider override
+
+	// Status is the lifecycle marker published by the catalog: "deprecated"
+	// or "beta". Absent for models in normal general availability.
+	Status string `json:"status,omitempty"`
+
+	// ReasoningOptions describes how the model accepts a reasoning budget.
+	// Absent when the catalog publishes no reasoning metadata, which is
+	// distinct from an empty list ("takes no reasoning options").
+	ReasoningOptions []modelsDBReasoningOption `json:"reasoning_options,omitempty"`
+}
+
+// Reasoning option types published by models.dev.
+const (
+	// reasoningTypeEffort takes a discrete effort level drawn from Values
+	// (e.g. "low", "medium", "high").
+	reasoningTypeEffort = "effort"
+	// reasoningTypeToggle is a plain on/off switch with no named levels.
+	reasoningTypeToggle = "toggle"
+	// reasoningTypeBudgetTokens takes a numeric token budget rather than a
+	// named level.
+	reasoningTypeBudgetTokens = "budget_tokens"
+)
+
+// modelsDBReasoningOption is one way a model accepts a reasoning budget. A
+// model may publish several (e.g. both an effort scale and a toggle).
+type modelsDBReasoningOption struct {
+	Type string `json:"type"`
+	// Values lists the accepted effort levels. Only meaningful for the
+	// "effort" type; nil for "toggle" and "budget_tokens".
+	Values []string `json:"values,omitempty"`
 }
 
 // modelsDBModelProvider represents a provider reference within a model.
@@ -42,6 +72,38 @@ type modelsDBCost struct {
 	Output     float64  `json:"output"`
 	CacheRead  *float64 `json:"cache_read,omitempty"`
 	CacheWrite *float64 `json:"cache_write,omitempty"`
+
+	// ContextOver200K replaces the base rate once a request's prompt exceeds
+	// 200k tokens. Published by Anthropic, Google and OpenAI long-context
+	// models, where the long-context rate is typically 2x the base rate.
+	ContextOver200K *modelsDBRates `json:"context_over_200k,omitempty"`
+
+	// Tiers is the general form of the same idea: each entry supplies rates
+	// that apply once the prompt passes that tier's own threshold.
+	Tiers []modelsDBCostTier `json:"tiers,omitempty"`
+}
+
+// modelsDBRates is a set of per-million-token rates.
+type modelsDBRates struct {
+	Input      float64  `json:"input"`
+	Output     float64  `json:"output"`
+	CacheRead  *float64 `json:"cache_read,omitempty"`
+	CacheWrite *float64 `json:"cache_write,omitempty"`
+}
+
+// modelsDBCostTier is a pricing tier that applies above a context threshold.
+type modelsDBCostTier struct {
+	Input      float64          `json:"input"`
+	Output     float64          `json:"output"`
+	CacheRead  *float64         `json:"cache_read,omitempty"`
+	CacheWrite *float64         `json:"cache_write,omitempty"`
+	Tier       modelsDBTierSpec `json:"tier"`
+}
+
+// modelsDBTierSpec is the threshold at which a pricing tier takes effect.
+type modelsDBTierSpec struct {
+	Type string `json:"type"`
+	Size int    `json:"size"`
 }
 
 // modelsDBLimit represents model context/output limits from models.dev.
