@@ -122,3 +122,53 @@ func TestProviderConfigTLSSkipVerify(t *testing.T) {
 		t.Error("expected TLSSkipVerify to be true")
 	}
 }
+
+// TestModelAliasTargetsExist guards against alias drift. Every alias target
+// must still be published by at least one provider in the embedded
+// models.dev catalog. An alias whose target has disappeared everywhere can
+// never resolve, so it should be pruned or repointed rather than left to
+// silently no-op.
+func TestModelAliasTargetsExist(t *testing.T) {
+	registry := GetGlobalRegistry()
+	providers := registry.GetSupportedProviders()
+
+	for alias, target := range modelAliases {
+		t.Run(alias, func(t *testing.T) {
+			for _, provider := range providers {
+				if registry.LookupModel(provider, target) != nil {
+					return
+				}
+			}
+			t.Errorf("alias %q -> %q: target is not published by any provider; "+
+				"prune the alias or repoint it at a current model", alias, target)
+		})
+	}
+}
+
+// TestModelAliasNoSelfMapping rejects identity entries. They are pure no-ops:
+// resolveModelAlias returns the input unchanged whether or not they exist.
+func TestModelAliasNoSelfMapping(t *testing.T) {
+	for alias, target := range modelAliases {
+		if alias == target {
+			t.Errorf("alias %q maps to itself; remove it", alias)
+		}
+	}
+}
+
+// TestResolveModelAliasFallsBackWhenTargetMissing pins the documented
+// behaviour: an alias that does not resolve for the requested provider must
+// return the original name so the caller can report "unknown model".
+func TestResolveModelAliasFallsBackWhenTargetMissing(t *testing.T) {
+	// claude-3-5-haiku-latest resolves on some aggregators but not on openai.
+	if got := resolveModelAlias("openai", "claude-3-5-haiku-latest"); got != "claude-3-5-haiku-latest" {
+		t.Errorf("resolveModelAlias(openai, claude-3-5-haiku-latest) = %q, want the input unchanged", got)
+	}
+	// A name that is not an alias at all passes through untouched.
+	if got := resolveModelAlias("anthropic", "some-unknown-model"); got != "some-unknown-model" {
+		t.Errorf("resolveModelAlias(anthropic, some-unknown-model) = %q, want the input unchanged", got)
+	}
+	// A live alias still resolves.
+	if got := resolveModelAlias("anthropic", "claude-sonnet-latest"); got != "claude-sonnet-4-6" {
+		t.Errorf("resolveModelAlias(anthropic, claude-sonnet-latest) = %q, want claude-sonnet-4-6", got)
+	}
+}

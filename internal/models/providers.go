@@ -52,52 +52,59 @@ const (
 	copilotGitHubAPIVersion    = "2026-01-09"
 )
 
-// resolveModelAlias resolves model aliases to their full names using the registry
+// modelAliases maps convenience shorthands to concrete model IDs.
+//
+// An alias only applies when its target exists for the provider being
+// resolved (see resolveModelAlias), so a target missing from one provider's
+// catalog is harmless for the others. Entries whose target is no longer
+// published by *any* provider in the models.dev catalog are pruned: they can
+// never resolve, and keeping them implies a shorthand that does not work.
+// TestModelAliasTargetsExist guards against this drift.
+var modelAliases = map[string]string{
+	// Anthropic aliases
+	"claude-opus-latest":     "claude-opus-4-6",
+	"claude-sonnet-latest":   "claude-sonnet-4-6",
+	"claude-haiku-latest":    "claude-haiku-4-5",
+	"claude-4-opus-latest":   "claude-opus-4-6",
+	"claude-4-sonnet-latest": "claude-sonnet-4-6",
+	"claude-4-haiku-latest":  "claude-haiku-4-5",
+	// Anthropic retired these, but aggregator providers still publish them,
+	// so the aliases remain useful when addressing those providers.
+	"claude-3-5-haiku-latest":  "claude-3-5-haiku-20241022",
+	"claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+
+	// OpenAI aliases
+	"gpt-5-latest":      "gpt-5.4",
+	"gpt-5-chat-latest": "gpt-5.4",
+	"gpt-4-latest":      "gpt-4o",
+	"gpt-4":             "gpt-4o",
+	"gpt-3.5":           "gpt-3.5-turbo",
+	"gpt-3.5-latest":    "gpt-3.5-turbo",
+	"o1-latest":         "o1",
+	"o3-latest":         "o3",
+	"o4-latest":         "o4-mini",
+
+	// Google Gemini aliases
+	"gemini-pro-latest": "gemini-2.5-pro",
+	"gemini-flash":      "gemini-2.5-flash",
+	"gemini-pro":        "gemini-2.5-pro",
+	"gemini-2-flash":    "gemini-2.0-flash",
+	"gemini-2-pro":      "gemini-2.5-pro",
+}
+
+// resolveModelAlias resolves model aliases to their full names using the
+// registry. The alias is honoured only when the target is available for the
+// given provider; otherwise the original name is returned untouched so the
+// caller can surface a normal "unknown model" error.
 func resolveModelAlias(provider, modelName string) string {
-	registry := GetGlobalRegistry()
-
-	aliasMap := map[string]string{
-		// Anthropic aliases
-		"claude-opus-latest":       "claude-opus-4-6",
-		"claude-sonnet-latest":     "claude-sonnet-4-6",
-		"claude-haiku-latest":      "claude-haiku-4-5",
-		"claude-4-opus-latest":     "claude-opus-4-6",
-		"claude-4-sonnet-latest":   "claude-sonnet-4-6",
-		"claude-4-haiku-latest":    "claude-haiku-4-5",
-		"claude-3-5-haiku-latest":  "claude-3-5-haiku-20241022",
-		"claude-3-5-sonnet-latest": "claude-3-5-sonnet-20241022",
-		"claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
-		"claude-3-opus-latest":     "claude-3-opus-20240229",
-
-		// OpenAI aliases
-		"gpt-5-latest":      "gpt-5.4",
-		"gpt-5-chat-latest": "gpt-5.4",
-		"gpt-4-latest":      "gpt-4o",
-		"gpt-4":             "gpt-4o",
-		"gpt-3.5":           "gpt-3.5-turbo",
-		"gpt-3.5-latest":    "gpt-3.5-turbo",
-		"o1-latest":         "o1",
-		"o3-latest":         "o3",
-		"o4-latest":         "o4-mini",
-		"codex-latest":      "codex-mini-latest",
-
-		// Google Gemini aliases
-		"gemini-pro-latest": "gemini-2.5-pro",
-		"gemini-flash":      "gemini-2.5-flash",
-		"gemini-pro":        "gemini-2.5-pro",
-		"gemini-2-flash":    "gemini-2.0-flash",
-		"gemini-2-pro":      "gemini-2.5-pro",
-		"gemini-1.5-flash":  "gemini-1.5-flash",
-		"gemini-1.5-pro":    "gemini-1.5-pro",
+	resolved, exists := modelAliases[modelName]
+	if !exists {
+		return modelName
 	}
-
-	if resolved, exists := aliasMap[modelName]; exists {
-		if registry.LookupModel(provider, resolved) != nil {
-			return resolved
-		}
+	if GetGlobalRegistry().LookupModel(provider, resolved) == nil {
+		return modelName
 	}
-
-	return modelName
+	return resolved
 }
 
 // ThinkingLevel controls extended thinking / reasoning budget for supported models.
