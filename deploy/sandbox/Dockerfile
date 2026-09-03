@@ -90,8 +90,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ---------------------------------------------------------------------------
 FROM base AS golang
 
-ARG GO_VERSION=1.27.0
-ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+ARG GO_VERSION=1.27.1
+ARG GO_SHA256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
 # amd64 only (checksums here are amd64; FROM pins the platform).
 ARG TARGETARCH=amd64
 
@@ -122,10 +122,10 @@ ENV GOTOOLCHAIN=auto
 # ---------------------------------------------------------------------------
 FROM golang AS gotools
 
-ARG GOPLS_VERSION=v0.22.0
-ARG GOLANGCI_LINT_VERSION=v2.12.2
-ARG DELVE_VERSION=v1.27.0
-ARG STATICCHECK_VERSION=2026.1
+ARG GOPLS_VERSION=v0.23.0
+ARG GOLANGCI_LINT_VERSION=v2.13.2
+ARG DELVE_VERSION=v1.27.1
+ARG STATICCHECK_VERSION=2026.2.1
 ARG GOIMPORTS_VERSION=latest
 
 ENV GOBIN=/out/bin
@@ -190,8 +190,8 @@ FROM kit-${KIT_SOURCE} AS kit
 
 # GitHub CLI (gh).
 FROM base AS fetch-gh
-ARG GH_VERSION=2.95.0
-ARG GH_SHA256=25d1e4729e8808c9ed3d613e96ebd3f3e44446f2d368c89d878a71a36ddb3d8c
+ARG GH_VERSION=2.99.0
+ARG GH_SHA256=ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832
 ARG TARGETARCH=amd64
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
       -o /tmp/gh.tgz \
@@ -201,8 +201,8 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
 
 # GitLab CLI (glab).
 FROM base AS fetch-glab
-ARG GLAB_VERSION=1.105.0
-ARG GLAB_SHA256=d8c92c640d7adf84c9dd01d1621fca45471fb61454f025c2fa3046dfc52d0d2f
+ARG GLAB_VERSION=1.116.0
+ARG GLAB_SHA256=173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea
 ARG TARGETARCH=amd64
 RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${TARGETARCH}.tar.gz" \
       -o /tmp/glab.tgz \
@@ -213,8 +213,8 @@ RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/do
 
 # Gitea CLI (tea) — single static binary.
 FROM base AS fetch-tea
-ARG TEA_VERSION=0.14.1
-ARG TEA_SHA256=3cf7c5d1c20808c9ba2efb9ac125cee10d969daf398e653ea2b33cde201ea317
+ARG TEA_VERSION=0.15.0
+ARG TEA_SHA256=d7e47fbe7809e4db6a6d830989b0e1776ed5943bb08dccbe0ed166e2594126e2
 ARG TARGETARCH=amd64
 RUN curl -fsSL "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-${TARGETARCH}" \
       -o /tmp/tea \
@@ -223,8 +223,8 @@ RUN curl -fsSL "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux
 
 # uv — Astral's fast Python package/installer manager (single static binary).
 FROM base AS fetch-uv
-ARG UV_VERSION=0.11.25
-ARG UV_SHA256=1db18b5e76fa645a7f3865773139bdec8e2d46adbdbb35e7410b34fa8015ccd2
+ARG UV_VERSION=0.12.9
+ARG UV_SHA256=ec7a99cd05e0cd7f80243f135ce1361c76835cb0ee60055d14d20eba8eba1460
 RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
       -o /tmp/uv.tgz \
     && echo "${UV_SHA256}  /tmp/uv.tgz" | sha256sum -c - \
@@ -235,8 +235,8 @@ RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/
 
 # bun — fast JavaScript runtime & package manager (single static binary).
 FROM base AS fetch-bun
-ARG BUN_VERSION=1.3.14
-ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
+ARG BUN_VERSION=1.4.0
+ARG BUN_SHA256=2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452
 RUN curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64.zip" \
       -o /tmp/bun.zip \
     && echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - \
@@ -271,8 +271,8 @@ RUN curl -fsSL "https://github.com/direnv/direnv/releases/download/v${DIRENV_VER
 # ---------------------------------------------------------------------------
 FROM base AS nix
 
-ARG NIX_VERSION=2.31.2
-ARG NIX_SHA256=d1f67c86eed016214864ba08bfb9529c307aea7e8fafb74853f96fcc3bfd8a60
+ARG NIX_VERSION=2.35.2
+ARG NIX_SHA256=0c3960a9792331a22081c3c7a5d8465db9b17c50b3acdf18587fa4c6f2cb1158
 
 RUN curl -fsSL "https://releases.nixos.org/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz" \
       -o /tmp/nix.tar.xz \
