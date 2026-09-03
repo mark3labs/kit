@@ -270,6 +270,11 @@ embedded shell) is preserved.</li>
 local sessions — the daemon probes the real terminal through the
 connection, so a kitty client gets true graphics and anything else gets
 the half-block thumbnail. <code>KIT_IMAGE_PROTOCOL</code> works here too.</li>
+<li>If the client runs inside <strong>tmux, screen or zellij</strong>, the session is told
+so and renders accordingly (see <a href="#terminal-and-colors">Terminal and colors</a>).
+Without that, a multiplexer answers the graphics probe on the terminal's
+behalf and then discards the graphics themselves, and the pasted image
+shows as an empty box.</li>
 <li>Works in kitty (which reports <code>Ctrl-V</code> through the kitty keyboard
 protocol) and in legacy terminals alike.</li>
 </ul>
@@ -279,7 +284,7 @@ cannot see that terminal: between the two sits a pseudo-terminal, which
 reports no color depth and answers no background-color query. So the
 client describes its own terminal when it attaches, and the daemon starts
 the session against that description — much as <code>ssh</code> forwards <code>TERM</code>.</p>
-<p>Three things are forwarded:</p>
+<p>Four things are forwarded:</p>
 <table>
 <thead>
 <tr>
@@ -304,6 +309,11 @@ the session against that description — much as <code>ssh</code> forwards <code
 <td>an OSC query the client runs before it hands over the terminal</td>
 <td><code>KIT_REMOTE_BACKGROUND</code></td>
 </tr>
+<tr>
+<td>Terminal multiplexer</td>
+<td><code>TMUX</code> / <code>ZELLIJ</code> / <code>TERM</code> on the client</td>
+<td><code>KIT_REMOTE_MULTIPLEXER</code></td>
+</tr>
 </tbody>
 </table>
 <p>The background color is what decides whether a theme renders its light or
@@ -322,6 +332,12 @@ land on saturated corners and the session appears in colors the theme
 never defines.</p>
 <p>A few details worth knowing:</p>
 <ul>
+<li>The multiplexer is forwarded for the same reason the background color
+is: <code>TMUX</code> and <code>ZELLIJ</code> name the pane of the process that reads them, so
+they never cross the wire, and a session that cannot see the
+multiplexer draws inline graphics the multiplexer throws away. The
+daemon's own multiplexer variables are dropped along with them — a
+daemon started from inside tmux describes a pane on the wrong machine.</li>
 <li>If your terminal sets <code>TERM</code> but no <code>COLORTERM</code>, the daemon's own
 <code>COLORTERM</code> is dropped rather than inherited — claiming a color depth
 your terminal never advertised is the same misreport in the other
@@ -617,6 +633,11 @@ gets. Add your text and submit; \`Ctrl-U\` clears it.
   local sessions — the daemon probes the real terminal through the
   connection, so a kitty client gets true graphics and anything else gets
   the half-block thumbnail. \`KIT_IMAGE_PROTOCOL\` works here too.
+- If the client runs inside **tmux, screen or zellij**, the session is told
+  so and renders accordingly (see [Terminal and colors](#terminal-and-colors)).
+  Without that, a multiplexer answers the graphics probe on the terminal's
+  behalf and then discards the graphics themselves, and the pasted image
+  shows as an empty box.
 - Works in kitty (which reports \`Ctrl-V\` through the kitty keyboard
   protocol) and in legacy terminals alike.
 
@@ -628,13 +649,14 @@ reports no color depth and answers no background-color query. So the
 client describes its own terminal when it attaches, and the daemon starts
 the session against that description — much as \`ssh\` forwards \`TERM\`.
 
-Three things are forwarded:
+Four things are forwarded:
 
 | Value | Source on the client | Seen by the session as |
 |-------|----------------------|------------------------|
 | \`TERM\` | the client's environment | \`TERM\` |
 | \`COLORTERM\` | the client's environment | \`COLORTERM\` |
 | Terminal background color | an OSC query the client runs before it hands over the terminal | \`KIT_REMOTE_BACKGROUND\` |
+| Terminal multiplexer | \`TMUX\` / \`ZELLIJ\` / \`TERM\` on the client | \`KIT_REMOTE_MULTIPLEXER\` |
 
 The background color is what decides whether a theme renders its light or
 its dark palette, so it is resolved on the client: the session's own query
@@ -654,6 +676,12 @@ never defines.
 
 A few details worth knowing:
 
+- The multiplexer is forwarded for the same reason the background color
+  is: \`TMUX\` and \`ZELLIJ\` name the pane of the process that reads them, so
+  they never cross the wire, and a session that cannot see the
+  multiplexer draws inline graphics the multiplexer throws away. The
+  daemon's own multiplexer variables are dropped along with them — a
+  daemon started from inside tmux describes a pane on the wrong machine.
 - If your terminal sets \`TERM\` but no \`COLORTERM\`, the daemon's own
   \`COLORTERM\` is dropped rather than inherited — claiming a color depth
   your terminal never advertised is the same misreport in the other
