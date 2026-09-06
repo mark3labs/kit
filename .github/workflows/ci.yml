@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [master]
 
+# Least privilege: every job here only checks out the repo and runs builds,
+# tests or linters. None of them write back, so the default token never needs
+# more than read access. Matches the explicit blocks in release.yml and
+# sandbox-image.yml.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
