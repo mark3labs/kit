@@ -209,13 +209,46 @@ func attachArgv(backend string, name string, shell string, cwd string) []string 
 	}
 }
 
+// childEnv strips $TMUX when launching tmux so an outer tmux does not refuse
+// to nest. Kit itself may be running inside tmux; the popup then becomes a
+// nested session, which works.
+//
+// Every tmux invocation must use this env, not just the one that creates the
+// session. tmux resolves its server socket from $TMUX when that variable is
+// set, so a probe that inherits $TMUX talks to the *outer* server while the
+// session itself was created on the default socket — the probe then never
+// finds it. Declared above its callers because Yaegi miscompiles forward
+// references to functions declared later in the file.
+func childEnv(backend string) []string {
+	env := os.Environ()
+	if backend != "tmux" {
+		return env
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMUX=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// tmuxCommand builds a tmux invocation that targets the same server the
+// popup session is created on, by stripping $TMUX from the environment.
+func tmuxCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("tmux", args...)
+	cmd.Env = childEnv("tmux")
+	return cmd
+}
+
 // sessionAlive reports whether a detached background session exists.
 func sessionAlive(backend string, name string) bool {
 	switch backend {
 	case "tmux":
 		// "=" forces an exact match; without it tmux does prefix matching
 		// and "kit-abc" would match "kit-abcdef".
-		return exec.Command("tmux", "has-session", "-t", "="+name).Run() == nil
+		return tmuxCommand("has-session", "-t", "="+name).Run() == nil
 	case "abduco":
 		out, err := exec.Command("abduco").CombinedOutput()
 		if err != nil {
@@ -243,7 +276,7 @@ func killSession(backend string, name string) error {
 		if !sessionAlive("tmux", name) {
 			return fmt.Errorf("no tmux session named %s", name)
 		}
-		out, err := exec.Command("tmux", "kill-session", "-t", "="+name).CombinedOutput()
+		out, err := tmuxCommand("kill-session", "-t", "="+name).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("tmux kill-session: %v: %s", err, strings.TrimSpace(string(out)))
 		}
@@ -264,24 +297,6 @@ func detachHint(backend string) string {
 	default:
 		return "type exit to return to Kit"
 	}
-}
-
-// childEnv strips $TMUX when launching tmux so an outer tmux does not refuse
-// to nest. Kit itself may be running inside tmux; the popup then becomes a
-// nested session, which works.
-func childEnv(backend string) []string {
-	env := os.Environ()
-	if backend != "tmux" {
-		return env
-	}
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "TMUX=") {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
 }
 
 func quoteArgv(argv []string) string {

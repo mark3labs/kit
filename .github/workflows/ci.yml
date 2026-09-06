@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [master]
 
+# Least privilege: every job here only checks out the repo and runs builds,
+# tests or linters. None of them write back, so the default token never needs
+# more than read access. Matches the explicit blocks in release.yml and
+# sandbox-image.yml.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -20,7 +27,11 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.10.1
+          # Must be built with Go >= the version targeted in go.mod (1.27),
+          # otherwise golangci-lint refuses to load the config with
+          # "the Go language version used to build golangci-lint is lower
+          # than the targeted Go version".
+          version: v2.13.1
 
   test:
     runs-on: ubuntu-latest

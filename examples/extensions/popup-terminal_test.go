@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -534,32 +535,35 @@ func TestPopupTerminal_TmuxExactNameMatch(t *testing.T) {
 // TestPopupTerminal_TmuxEnvIsUnnested verifies that $TMUX is stripped from
 // the child environment, which is what lets the popup work while Kit itself
 // runs inside tmux.
+//
+// $TMUX must point at a socket that does not exist. tmux resolves its server
+// socket from $TMUX, so this is what proves the extension's status probe and
+// kill path talk to the same server they created the session on rather than
+// to whatever $TMUX names. A hardcoded /tmp/tmux-1000/default made this test
+// pass on any machine where uid 1000 happened to be running tmux, and fail
+// everywhere else (notably CI, whose runner is not uid 1000).
 func TestPopupTerminal_TmuxEnvIsUnnested(t *testing.T) {
 	if !tmuxAvailable(t) {
 		t.Skip("tmux is not available (or -short)")
 	}
-	t.Setenv("TMUX", "/tmp/tmux-1000/default,1234,0")
+	t.Setenv("TMUX", filepath.Join(t.TempDir(), "outer-socket")+",1234,0")
 
 	const sessionID = "itest-nested"
 	const tmuxName = "kit-itest-nested"
-	_ = exec.Command("tmux", "kill-session", "-t", "="+tmuxName).Run()
-	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", "="+tmuxName).Run()
-	})
+	killNested := func() {
+		cmd := exec.Command("tmux", "kill-session", "-t", "="+tmuxName)
+		cmd.Env = tmuxCleanEnv()
+		_ = cmd.Run()
+	}
+	killNested()
+	t.Cleanup(killNested)
 
 	// Reproduce exactly what the extension does: the same argv and the same
 	// filtered environment, run detached so no tty is needed. If $TMUX
 	// leaked through, tmux would refuse with "sessions should be nested
 	// with care".
-	env := make([]string, 0)
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "TMUX=") {
-			continue
-		}
-		env = append(env, kv)
-	}
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", tmuxName, "sh", "-c", "sleep 300")
-	cmd.Env = env
+	cmd.Env = tmuxCleanEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("cannot start a tmux session in this environment: %v: %s", err, out)
 	}
@@ -572,4 +576,17 @@ func TestPopupTerminal_TmuxEnvIsUnnested(t *testing.T) {
 	if !strings.Contains(allPrints(h), "running (detached)") {
 		t.Errorf("session did not start with $TMUX stripped:\n%s", allPrints(h))
 	}
+}
+
+// tmuxCleanEnv returns the current environment with $TMUX removed, matching
+// what the extension passes to every tmux invocation.
+func tmuxCleanEnv() []string {
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TMUX=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
 }
