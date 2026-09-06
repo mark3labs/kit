@@ -49,7 +49,7 @@ Resolve GitHub issue #$1 by reading it, classifying it, and producing the approp
    - Test/lint results (pass/fail with key output)
    - Suggest the next step explicitly:
      - `/commit-push` to commit with a Conventional Commit subject (the message should reference `(#$1)` and include `Fixes #$1` so merge auto-closes)
-     - then `/create-pr $1` to open the pull request
+     - then `/create-pr` to open the pull request — it takes no issue number; it picks up the linked issue from the branch name and commit messages
 
 ## Guidelines
 
