@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,7 +75,7 @@ func serveReasoningSSE(t *testing.T, payload string) *httptest.Server {
 // at srv. It bypasses NewAgent (and therefore the model registry and network)
 // while keeping the real provider, the real fantasy agent, and Kit's own
 // callback and message-conversion code in the path.
-func newSSEAgent(t *testing.T, srv *httptest.Server) *Agent {
+func newSSEAgent(ctx context.Context, t *testing.T, srv *httptest.Server) *Agent {
 	t.Helper()
 	provider, err := openaicompat.New(
 		openaicompat.WithBaseURL(srv.URL),
@@ -84,7 +85,7 @@ func newSSEAgent(t *testing.T, srv *httptest.Server) *Agent {
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
-	model, err := provider.LanguageModel(t.Context(), "test-model")
+	model, err := provider.LanguageModel(ctx, "test-model")
 	if err != nil {
 		t.Fatalf("create model: %v", err)
 	}
@@ -111,13 +112,13 @@ type reasoningRun struct {
 	blockText string
 }
 
-func runReasoningStream(t *testing.T, payload string) reasoningRun {
+func runReasoningStream(ctx context.Context, t *testing.T, payload string) reasoningRun {
 	t.Helper()
-	a := newSSEAgent(t, serveReasoningSSE(t, payload))
+	a := newSSEAgent(ctx, t, serveReasoningSSE(t, payload))
 
 	var run reasoningRun
 	var deltas strings.Builder
-	result, err := a.GenerateWithCallbacks(t.Context(),
+	result, err := a.GenerateWithCallbacks(ctx,
 		[]fantasy.Message{fantasy.NewUserMessage("what is 17*23?")},
 		GenerateCallbacks{
 			OnReasoningStart:    func(string) { run.starts++ },
@@ -153,14 +154,14 @@ func runReasoningStream(t *testing.T, payload string) reasoningRun {
 // reasoning field on the answer chunk must not hold the reasoning block open.
 func TestReasoningClosesOnNullReasoningField(t *testing.T) {
 	t.Parallel()
-	assertReasoningComplete(t, runReasoningStream(t, glmFlashNullReasoningSSE))
+	assertReasoningComplete(t, runReasoningStream(t.Context(), t, glmFlashNullReasoningSSE))
 }
 
 // TestReasoningClosesOnOmittedReasoningField is the control case: providers
 // that drop the key entirely once the answer starts already worked.
 func TestReasoningClosesOnOmittedReasoningField(t *testing.T) {
 	t.Parallel()
-	assertReasoningComplete(t, runReasoningStream(t, glmOmittedReasoningSSE))
+	assertReasoningComplete(t, runReasoningStream(t.Context(), t, glmOmittedReasoningSSE))
 }
 
 func assertReasoningComplete(t *testing.T, run reasoningRun) {

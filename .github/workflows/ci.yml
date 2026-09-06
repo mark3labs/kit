@@ -20,7 +20,11 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.10.1
+          # Must be built with Go >= the version targeted in go.mod (1.27),
+          # otherwise golangci-lint refuses to load the config with
+          # "the Go language version used to build golangci-lint is lower
+          # than the targeted Go version".
+          version: v2.13.1
 
   test:
     runs-on: ubuntu-latest
