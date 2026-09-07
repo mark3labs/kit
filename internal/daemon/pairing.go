@@ -4,9 +4,11 @@
 // remote session. New clients pair via `kit daemon pair` + `kit remote
 // --pair <code>`.
 //
-// The design keeps all iroh logic inside the kit-tunnel sidecar (Rust, see
-// contrib/kit-tunnel). The Go side owns policy only: pairing codes, frame
-// relay, PTY and terminal management. See docs in the package files.
+// The transport is iroh, in-process (see iroh.go): endpoint binding, n0
+// relay and DNS discovery, and the QUIC streams all run inside the kit
+// binary. The wire protocol is v1 — the same protocol the retired Rust
+// kit-tunnel sidecar spoke — so kits from before and after the switch
+// interoperate. See docs in the package files.
 package daemon
 
 import (
@@ -22,7 +24,7 @@ import (
 // CodeAlphabet excludes 0/O/1/I to keep codes readable and unambiguous when
 // read aloud or copied. 8 characters from a 32-symbol alphabet is ~40 bits
 // of entropy. The code stays valid for the daemon's lifetime and allows
-// multiple sessions; guessing is throttled by the tunnel's handshake
+// multiple sessions; guessing is throttled by the transport's handshake
 // backoff (which also persists across failures), so treat the code like a
 // password for the duration of the daemon run.
 const (
@@ -30,12 +32,13 @@ const (
 	CodeLength   = 8
 )
 
-// HKDF domain separation. These must match contrib/kit-tunnel/src/main.rs.
+// HKDF domain separation. These values are part of the wire contract
+// (protocol v1) and must never change: they are what old and new kits
+// agree on.
 var (
-	// hkdfSalt/hkdfInfo/hkdfAuthMsg must match
-	// contrib/kit-tunnel/src/main.rs (the Rust side is authoritative for
-	// the pairing-tag roles "kit-pair-client"/"kit-pair-server" — the Go
-	// side never recomputes them).
+	// hkdfSalt/hkdfInfo/hkdfAuthMsg feed the code→seed and seed→pair-key
+	// derivations; the pairing-tag roles are pairRoleClient and
+	// pairRoleServer in iroh.go.
 	hkdfSalt       = []byte("kit-remote-v1")
 	hkdfInfo       = []byte("kit-remote tunnel seed")
 	hkdfAuthMsg    = []byte("kit-remote auth")
@@ -97,8 +100,9 @@ func SeedFromCode(rawCode string) ([]byte, error) {
 }
 
 // hkdfSha256 is a minimal RFC 5869 HKDF (extract + expand). Implemented
-// locally so the derivation inputs stay in one auditable place and the
-// semantics match the Rust `hkdf` crate used by kit-tunnel exactly.
+// locally so the derivation inputs stay in one auditable place; the
+// semantics are RFC-exact, matching every other implementation of the
+// protocol.
 func hkdfSha256(ikm, salt, info []byte, length int) ([]byte, error) {
 	if length > 255*sha256.Size {
 		return nil, fmt.Errorf("daemon: hkdf length too large")
@@ -125,17 +129,19 @@ func hkdfSha256(ikm, salt, info []byte, length int) ([]byte, error) {
 	return out[:length], nil
 }
 
-// pairingTag computes the client/server HMAC proof used by the tunnel
-// handshake. Exposed for tests; the tunnel performs the actual check.
-func pairingTag(seed []byte, role string, serverNonce, clientNonce []byte) ([]byte, error) {
+// pairingTag computes the client/server HMAC proof used by the pairing
+// handshake: HMAC-SHA256 over role || first || second with a key expanded
+// from the seed. The client tag passes (cNonce, nil); the server tag
+// passes (cNonce, sNonce).
+func pairingTag(seed []byte, role string, first, second []byte) ([]byte, error) {
 	key, err := hkdfSha256(seed, hkdfSalt, hkdfAuthMsg, 32)
 	if err != nil {
 		return nil, err
 	}
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(role))
-	mac.Write(serverNonce)
-	mac.Write(clientNonce)
+	mac.Write(first)
+	mac.Write(second)
 	return mac.Sum(nil), nil
 }
 

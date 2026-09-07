@@ -19,8 +19,8 @@ import (
 // normal @-attachment pipeline takes over (MIME detection, preview,
 // multimodal submission).
 //
-// The sidecar relays FrameClipboard verbatim like DATA/RESIZE — no sidecar
-// changes. Frames are tied to the session id like every other frame.
+// FrameClipboard travels end-to-end like DATA/RESIZE, tied to the session
+// id like every other frame.
 //
 // FrameClipboard payload layout (client -> daemon):
 //

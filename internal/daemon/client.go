@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -77,36 +78,12 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 	kp := NewClientKeyPair(clientSeed)
 
 	fmt.Fprintln(os.Stderr, "Pairing with host…")
-	tun, err := StartTunnel(ctx, TunnelOptions{
-		Mode: "dial-pair",
-		Args: []string{
-			"--client-pub-hex", kp.PubHex,
-			"--timeout", "150", // covers the human decision on the host
-		},
-		Env: []string{"KIT_TUNNEL_PAIR_SEED=" + fmt.Sprintf("%x", seed)},
-	})
+	// The long timeout covers the human decision on the host.
+	hostID, err := dialPairWindow(ctx, seed, kp.Pub, 150*time.Second)
 	if err != nil {
 		return err
 	}
-	defer tun.Close()
-
-	st, err := tun.WaitAnyStatus(ctx, 160*time.Second, "PAIRED", "DENIED")
-	if err != nil {
-		return pairFailure(err, tun.LastStatuses())
-	}
-	if strings.HasPrefix(st, "DENIED") {
-		reason := strings.TrimSpace(strings.TrimPrefix(st, "DENIED reason="))
-		switch {
-		case strings.Contains(reason, "rejected on the host"):
-			return fmt.Errorf("the pairing request was rejected on the host")
-		case strings.Contains(reason, "bad pairing tag"):
-			return fmt.Errorf("the host rejected the pairing code")
-		default:
-			return fmt.Errorf("pairing denied: %s", reason)
-		}
-	}
-	hostID, ok := strings.CutPrefix(st, "PAIRED host_endpoint_id=")
-	if !ok || len(hostID) != 64 {
+	if len(hostID) != 64 {
 		return fmt.Errorf("daemon: pairing completed without a host endpoint id")
 	}
 
@@ -121,24 +98,6 @@ func RunPair(ctx context.Context, opts PairOptions) error {
 	fmt.Fprintf(os.Stderr, "Paired with host %q (fp %s).\n", name, fingerprintShort(Fingerprint(mustHexDecode(hostID))))
 	fmt.Fprintf(os.Stderr, "Connect with: kit remote --host %s\n", name)
 	return nil
-}
-
-// pairFailure turns a sidecar failure into advice. The sidecar reports the
-// transport truth ("connect to daemon: timed out"), which says nothing to
-// the person at the keyboard: the usual cause is a pairing window that is
-// no longer serving the code, so point at the fix instead of the symptom.
-func pairFailure(err error, statuses string) error {
-	switch {
-	case strings.Contains(statuses, "no daemon is live for this pairing code"),
-		strings.Contains(statuses, "No addressing information available"):
-		return fmt.Errorf("no host is listening for that pairing code — check the code, or run 'kit daemon pair' on the host for a fresh one")
-	case strings.Contains(statuses, "connect to daemon"),
-		strings.Contains(statuses, "timed out"):
-		return fmt.Errorf("could not reach the host's pairing window — it may have closed (run 'kit daemon pair' again on the host), or the network is blocking the connection")
-	case strings.Contains(statuses, "endpoint bind"):
-		return fmt.Errorf("could not open a local network endpoint: %s", statuses)
-	}
-	return fmt.Errorf("pairing failed: %w (last: %s)", err, statuses)
 }
 
 // promptHostName asks for a friendly name on the terminal, defaulting to
@@ -173,19 +132,19 @@ func promptHostName(ctx context.Context) string {
 // `kit remote --host homelab`. Authentication is by client signing key; no
 // pairing code is involved.
 //
-// The sidecar stream is handed to RunClient, which owns everything above
-// the transport: session choice, raw mode, the input pumps and the chord
-// table. The local socket path (kit attach) uses the same code.
+// The verified frame stream is handed to RunClient, which owns everything
+// above the transport: session choice, raw mode, the input pumps and the
+// chord table. The local socket path (kit attach) uses the same code.
 func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 	entry, err := GetHost(name)
 	if err != nil {
 		return err
 	}
-	tun, err := dialHost(ctx, name, entry)
+	conn, err := dialHost(ctx, name, entry)
 	if err != nil {
 		return err
 	}
-	defer tun.Close()
+	defer conn.Close()
 
 	if opts.Name == "" {
 		opts.Name = name
@@ -199,25 +158,18 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 		// takes one: 'kit remote --host X 1' is not a valid command line.
 		opts.Reattach = "kit attach --host " + name
 	}
-	return RunClient(ctx, tunnelStream{tun}, opts)
+	return RunClient(ctx, conn, opts)
 }
 
-// tunnelStream adapts a sidecar Tunnel to the io.ReadWriter the client
-// speaks: frames out on the sidecar's stdin, frames in on its stdout.
-type tunnelStream struct{ t *Tunnel }
-
-func (s tunnelStream) Read(p []byte) (int, error)  { return s.t.Stdout().Read(p) }
-func (s tunnelStream) Write(p []byte) (int, error) { return s.t.Stdin().Write(p) }
-
-// dialHost brings up a verified sidecar connection to a paired host.
-func dialHost(ctx context.Context, name string, entry HostEntry) (*Tunnel, error) {
+// dialHost brings up a verified connection to a paired host.
+func dialHost(ctx context.Context, name string, entry HostEntry) (*remoteConn, error) {
 	return dialHostQuiet(ctx, name, entry, false)
 }
 
 // dialHostQuiet is dialHost with control over the progress message. The
 // hub picker queries every paired host while it owns the alt screen, so a
 // per-host "Connecting…" line would be drawn straight into the picker.
-func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool) (*Tunnel, error) {
+func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool) (*remoteConn, error) {
 	clientSeed, err := LoadClientIdentity()
 	if err != nil {
 		return nil, err
@@ -226,33 +178,21 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 	if !quiet {
 		fmt.Fprintln(os.Stderr, "Connecting to daemon…")
 	}
-	tun, err := StartTunnel(ctx, TunnelOptions{
-		Mode: "dial-host",
-		Args: []string{
-			"--endpoint-id", entry.EndpointID,
-			"--timeout", "35",
-		},
-		Env: []string{"KIT_TUNNEL_CLIENT_SEED=" + fmt.Sprintf("%x", clientSeed)},
-	})
+	conn, err := dialHostIroh(ctx, entry.EndpointID, clientSeed)
 	if err != nil {
-		return nil, err
-	}
-
-	if _, err := tun.WaitStatus(ctx, "VERIFIED", 40*time.Second); err != nil {
-		last := tun.LastStatuses()
-		tun.Close()
+		var denied *deniedError
 		switch {
-		case strings.Contains(last, "client not paired"):
+		case errors.As(err, &denied) && strings.Contains(denied.reason, "client not paired"):
 			return nil, fmt.Errorf("the host no longer knows this machine — pair again with 'kit remote --pair <code>'")
-		case strings.Contains(last, "No addressing information available"):
+		case errors.Is(err, errHostUnresolved):
 			return nil, fmt.Errorf("could not resolve the daemon's endpoint (is 'kit daemon' running on the host?)")
-		case strings.Contains(last, "timed out"):
+		case errors.Is(err, errHostTimeout):
 			return nil, fmt.Errorf("%s did not answer — check that 'kit daemon' is running there, or that the network allows the connection", name)
 		}
 		return nil, fmt.Errorf("daemon: %w", err)
 	}
 	_ = TouchHost(name)
-	return tun, nil
+	return conn, nil
 }
 
 // ListHostSessions queries one paired host's live sessions without
@@ -261,8 +201,8 @@ func dialHostQuiet(ctx context.Context, name string, entry HostEntry, quiet bool
 // hosts to show.
 //
 // ctx cancels the query early. The picker queries every paired host at
-// once, and each query is a sidecar process, so a caller that gives up
-// must be able to take them down without waiting out the timeout.
+// once, so a caller that gives up must be able to take the dials down
+// without waiting out the timeout.
 func ListHostSessions(ctx context.Context, name string, timeout time.Duration) ([]SessionEntry, error) {
 	entry, err := GetHost(name)
 	if err != nil {
@@ -272,16 +212,16 @@ func ListHostSessions(ctx context.Context, name string, timeout time.Duration) (
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
-	tun, err := dialHostQuiet(ctx, name, entry, true)
+	conn, err := dialHostQuiet(ctx, name, entry, true)
 	if err != nil {
 		return nil, err
 	}
-	defer tun.Close()
+	defer conn.Close()
 
-	conn := newClientConn(tunnelStream{tun})
-	go conn.readLoop()
+	cc := newClientConn(conn)
+	go cc.readLoop()
 	// Bound the reply by what is left of the caller's timeout: the picker
 	// queries hosts one at a time, so a host that stops replying must not
 	// stretch the wait past the deadline the caller asked for.
-	return conn.listSessionsWithin(time.Until(deadline))
+	return cc.listSessionsWithin(time.Until(deadline))
 }

@@ -85,32 +85,6 @@ type daemonRuntime struct {
 
 	mu    sync.Mutex
 	state daemonState
-	tun   *Tunnel    // the live sidecar; nil while it is down
-	sink  *frameSink // the live sidecar's frame sink; nil while it is down
-}
-
-// currentSink returns the live sidecar's frame sink. A nil sink is safe to
-// write to: frameSink.write reports the connection as closed.
-func (rt *daemonRuntime) currentSink() *frameSink {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return rt.sink
-}
-
-// setSink records the frame sink of the current sidecar tunnel.
-func (rt *daemonRuntime) setSink(s *frameSink) {
-	rt.mu.Lock()
-	rt.sink = s
-	rt.mu.Unlock()
-}
-
-// setTunnel records the current sidecar tunnel. Called by Serve whenever
-// the tunnel (re)starts; logical sessions survive these restarts and their
-// output goes through whatever tunnel is current.
-func (rt *daemonRuntime) setTunnel(t *Tunnel) {
-	rt.mu.Lock()
-	rt.tun = t
-	rt.mu.Unlock()
 }
 
 func newDaemonRuntime(lock *daemonLock) *daemonRuntime {

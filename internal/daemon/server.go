@@ -2,9 +2,7 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,15 +28,6 @@ import (
 // `kit daemon pair`. First-time clients pair through `kit daemon pair`,
 // which runs its own short-lived bootstrap endpoint.
 func Serve(ctx context.Context) error {
-	// A missing sidecar is no longer fatal: local sessions need only the
-	// Unix socket, so the daemon still does useful work on a machine with
-	// no sidecar built. Remote pairing is what becomes unavailable.
-	haveTunnel := true
-	if _, err := FindTunnelBinary(); err != nil {
-		haveTunnel = false
-		log.Warn("daemon: remote sessions are disabled", "error", err)
-	}
-
 	// Single instance per user: the lock is held for the daemon's lifetime
 	// and released automatically on crash, so there is no stale-lock state.
 	lock, err := acquireDaemonLock()
@@ -65,19 +54,15 @@ func Serve(ctx context.Context) error {
 	sweepStaleTempFiles(table.run)
 	defer removeSessionRegistry()
 
-	// The local socket is bound before the tunnel and closed only on
-	// shutdown, so local clients are unaffected by sidecar restarts. The
+	// The local socket is bound first and closed only on shutdown. The
 	// lock above guarantees no other daemon owns this socket.
 	sockPath, err := LocalSocketPath()
 	if err != nil {
 		return err
 	}
-	ln, err := listenLocal(sockPath)
-	if err != nil {
-		if !haveTunnel {
-			return fmt.Errorf("%w (and no sidecar for remote sessions)", err)
-		}
-		log.Warn("daemon: local sessions are disabled", "error", err)
+	ln, lnErr := listenLocal(sockPath)
+	if lnErr != nil {
+		log.Warn("daemon: local sessions are disabled", "error", lnErr)
 	} else {
 		defer func() { _ = ln.Close() }()
 		defer func() { _ = os.Remove(sockPath) }()
@@ -85,65 +70,52 @@ func Serve(ctx context.Context) error {
 		fmt.Printf("  Local socket: %s\n", sockPath)
 	}
 
-	if !haveTunnel {
-		fmt.Println("  Remote sessions: unavailable (kit-tunnel sidecar not found)")
+	// Remote sessions run on an in-process iroh endpoint. A failure to
+	// bind it is not fatal: local sessions still work, exactly as they did
+	// when the retired transport sidecar was missing.
+	listener, remoteErr := bindRemoteListener(ctx, table)
+	if remoteErr != nil {
+		if lnErr != nil {
+			table.killAll()
+			return fmt.Errorf("%w (and remote sessions failed too: %v)", lnErr, remoteErr)
+		}
+		log.Warn("daemon: remote sessions are disabled", "error", remoteErr)
+		fmt.Println("  Remote sessions: unavailable")
 		fmt.Println("  Attach locally with: kit attach")
 		fmt.Println()
-		<-ctx.Done()
-		return shutdown(table)
-	}
-
-	seed, err := LoadDaemonIdentity()
-	if err != nil {
-		return err
-	}
-	secretHex := hex.EncodeToString(seed)
-
-	// If the tunnel process dies unexpectedly (crash, kill), restart it
-	// with the same identity: the endpoint id is stable, so paired clients
-	// find us again. Live sessions survive the restart, detached.
-	for {
-		if ctx.Err() != nil {
-			return shutdown(table)
-		}
-		tun, err := StartTunnel(ctx, TunnelOptions{
-			Mode: "serve",
-			Args: []string{"--timeout", "30"},
-			Env:  []string{"KIT_TUNNEL_SECRET=" + secretHex},
-		})
-		if err != nil {
-			table.killAll()
-			return err
-		}
-		ready, err := tun.WaitStatus(ctx, "READY", 30*time.Second)
-		if err != nil {
-			tun.Close()
-			table.killAll()
-			return fmt.Errorf("daemon: tunnel failed to start: %w", err)
-		}
-		nodeID, _ := strings.CutPrefix(ready, "READY node_id=")
+	} else {
+		defer listener.close()
+		nodeID := listener.endpointID()
 		rt.setEndpoint(nodeID)
-		rt.setTunnel(tun)
 		fmt.Printf("  Endpoint:     %s\n", shortEndpoint(nodeID))
 		fmt.Println("  Waiting for paired clients. Pair a new one with: kit daemon pair")
 		fmt.Println()
-
-		err = runSessions(ctx, tun, rt, table)
-
-		tun.Close()
-		rt.setTunnel(nil)
-		// Client connections died with the tunnel; their sessions keep
-		// running detached and can be reattached after the restart.
-		table.unbindAll()
-		if ctx.Err() != nil {
-			return shutdown(table)
-		}
-		if err != nil {
-			table.killAll()
-			return fmt.Errorf("daemon: tunnel ended: %w", err)
-		}
-		fmt.Println("  Listener restarted — endpoint unchanged, waiting…")
+		go listener.run(ctx)
+		go func() {
+			// Reaching the home relay is what makes the endpoint
+			// discoverable; report how that went without blocking startup.
+			if err := listener.h.waitOnline(ctx, 0); err != nil {
+				if ctx.Err() == nil {
+					log.Warn("daemon: relay connection failed — remote clients cannot discover this endpoint", "error", err)
+				}
+				return
+			}
+			log.Debug("daemon: relay connected")
+		}()
 	}
+
+	<-ctx.Done()
+	return shutdown(table)
+}
+
+// bindRemoteListener loads the daemon identity and binds the stable
+// endpoint on it.
+func bindRemoteListener(ctx context.Context, table *sessionTable) (*remoteListener, error) {
+	seed, err := LoadDaemonIdentity()
+	if err != nil {
+		return nil, err
+	}
+	return listenRemote(ctx, seed, table)
 }
 
 // shutdown ends every session and reports a clean exit.
@@ -172,7 +144,7 @@ func shortEndpoint(id string) string {
 // remoteSession is one connected client and its kit child process.
 // remoteSession is a LOGICAL session: one PTY child that can outlive its
 // client connections. Clients (identified by their wire session id — the
-// per-connection id the sidecar assigns) attach to it; a session with zero
+// per-connection id the transport assigns) attach to it; a session with zero
 // attached clients is detached but keeps running until the child exits or
 // the daemon shuts down.
 type remoteSession struct {
@@ -300,19 +272,13 @@ func minSizeLocked(clients map[uint32]winSize) winSize {
 	return out
 }
 
-// authChallenge is an in-flight reconnect handshake awaiting the client's
-// signature. Keyed by the 8-byte correlation key (first bytes of c_nonce).
-type authChallenge struct {
-	clientPub []byte
-	cNonce    []byte
-	sNonce    []byte
-}
+// authorization note: remote handshakes verify signatures inline in
+// iroh_serve.go; nothing auth-related flows through the frame loop.
 
-// sessionTable owns the daemon's LOGICAL sessions. The tunnel's stdout
-// frames are read by a single goroutine (runSessions), so most map access
-// is confined to it; teardown paths run on other goroutines and take mu.
-// The table is created once per daemon process and outlives tunnel
-// restarts — only wire-id bindings are per tunnel.
+// sessionTable owns the daemon's LOGICAL sessions. Each transport
+// connection's frames are read by its own goroutine (runFrameSource), so
+// map access takes mu; teardown paths run on other goroutines and take mu
+// too. The table is created once per daemon process.
 type sessionTable struct {
 	rt    *daemonRuntime
 	conns *connSet
@@ -325,8 +291,7 @@ type sessionTable struct {
 	nextID       uint64
 	sessions     map[uint64]*remoteSession      // logical id -> session
 	wireMap      map[uint32]uint64              // wire id -> logical id
-	pendingAuths map[[8]byte]authChallenge      // confined to the frame loop
-	clipboards   map[uint64]*ClipboardCollector // in-flight image transfers, frame loop only
+	clipboards   map[uint64]*ClipboardCollector // in-flight image transfers
 	sessionTemps map[uint64][]string            // per-session clipboard files
 }
 
@@ -337,7 +302,6 @@ func newSessionTable(rt *daemonRuntime) *sessionTable {
 		conns:        newConnSet(),
 		sessions:     make(map[uint64]*remoteSession),
 		wireMap:      make(map[uint32]uint64),
-		pendingAuths: make(map[[8]byte]authChallenge),
 		clipboards:   make(map[uint64]*ClipboardCollector),
 		sessionTemps: make(map[uint64][]string),
 	}
@@ -345,7 +309,7 @@ func newSessionTable(rt *daemonRuntime) *sessionTable {
 
 // writeTo sends one frame to the connection that owns frame.Session. A
 // missing connection means the client has gone (detach, network loss, or a
-// dead sidecar); the frame is dropped and the caller carries on, because
+// dead transport); the frame is dropped and the caller carries on, because
 // the session behind it keeps running regardless.
 func (t *sessionTable) writeTo(frame Frame) error {
 	conn := t.conns.get(frame.Session)
@@ -365,55 +329,19 @@ func (t *sessionTable) logicalFor(wire uint32) *remoteSession {
 	return nil
 }
 
-// runSessions reads frames from the CURRENT tunnel and drives the shared
-// session table. The table outlives this call: when the tunnel ends, every
-// sidecar-backed connection is dropped (those clients are gone; their
-// sessions stay running detached) and Serve restarts the tunnel.
-func runSessions(ctx context.Context, tun *Tunnel, rt *daemonRuntime, table *sessionTable) error {
-	table.rebindTunnel()
-	sink := newFrameSink(tun.Stdin())
-	rt.setSink(sink)
-	defer sink.close()
-	return table.runFrameSource(ctx, tun.Stdout(), sink, 0)
-}
-
-// runFrameSource reads frames from one transport until the stream ends.
-//
-// fixedWire selects the addressing mode. Zero means the peer stamps the
-// wire id itself, which is what the sidecar does when it relays several
-// remote clients over one stream. Nonzero means a single-client transport
-// (the local Unix socket): the client has no id allocator of its own and
-// sends every frame with session 0, so the daemon stamps its assigned id
-// on arrival. Replies carry the id back out, and single-client peers
-// ignore it.
-func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *frameSink, fixedWire uint32) error {
+// runFrameSource reads frames from one client connection until the stream
+// ends. wire is the connection's assigned id: clients have no wire-id
+// allocator of their own and stamp every frame with session 0, so the
+// daemon stamps the assigned id on arrival. Replies carry the id back
+// out, and clients ignore it.
+func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uint32) error {
 	for {
 		frame, err := ReadFrame(r)
 		if err != nil {
 			return nil // stream ended
 		}
-		if fixedWire != 0 {
-			frame.Session = fixedWire
-		}
+		frame.Session = wire
 		switch frame.Type {
-		case FrameAuthRequest:
-			t.handleAuthRequest(frame.Payload)
-		case FrameAuthPayload:
-			t.handleAuthPayload(frame.Payload)
-		case FrameSessionOpen:
-			// The sidecar announces every new client connection with
-			// this frame, and guarantees it reaches us before any other
-			// frame for that id. Registering the connection here is what
-			// lets replies find their way back out. No session is
-			// spawned: that waits for an explicit attach.
-			//
-			// Only the sidecar may send it. A single-client transport is
-			// already registered, and honouring the frame there would
-			// re-register it as sidecar-backed, so the next tunnel
-			// restart would drop a connection that is still open.
-			if fixedWire == 0 {
-				t.conns.addRemote(frame.Session, sink)
-			}
 		case FrameSessionDetach:
 			// Detach unbinds the session but KEEPS the connection: the
 			// client is still there and usually attaches to another
@@ -422,11 +350,9 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 			// attach with nowhere to send its ack.
 			t.detachWire(frame.Session)
 		case FrameSessionClosed, FrameBye:
-			// The client itself is gone.
+			// The client says it is leaving. The connection teardown that
+			// follows unregisters it; here the session only detaches.
 			t.detachWire(frame.Session)
-			if fixedWire == 0 {
-				t.conns.remove(frame.Session)
-			}
 		case FrameTerminal:
 			// Describes the client's terminal; recorded against the
 			// connection so an attach that spawns a child can hand it on.
@@ -468,10 +394,9 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, sink *fr
 	}
 }
 
-// rebindTunnel clears the bindings of a dead tunnel. Sidecar-backed client
-// connections died with it; their logical sessions stay running detached,
-// and local socket clients are untouched.
-func (t *sessionTable) rebindTunnel() {
+// unbindAll drops every remote connection at once. Logical sessions keep
+// running detached, and local clients stay live.
+func (t *sessionTable) unbindAll() {
 	for _, wire := range t.conns.removeRemotes() {
 		t.detachWire(wire)
 	}
@@ -506,12 +431,6 @@ func (t *sessionTable) detachWire(wire uint32) {
 		sess.applySize(next)
 		log.Info("client left shared session", "session_id", logical, "remaining", remaining)
 	}
-}
-
-// unbindAll drops every sidecar-backed connection (the tunnel ended).
-// Logical sessions keep running detached, and local clients stay live.
-func (t *sessionTable) unbindAll() {
-	t.rebindTunnel()
 }
 
 // killAll tears down every logical session, killing children. Used on
@@ -634,94 +553,6 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 		return
 	}
 	log.Info("clipboard image delivered", "session_id", session, "bytes", len(data), "media_type", media)
-}
-
-// handleAuthRequest stashes the handshake parameters so the signature can// handleAuthRequest stashes the handshake parameters so the signature can
-// be verified when the client's AUTH_PAYLOAD arrives.
-func (t *sessionTable) handleAuthRequest(payload []byte) {
-	if len(payload) < 8 {
-		log.Warn("short auth request frame", "len", len(payload))
-		return // nothing to correlate a denial with; drop
-	}
-	if len(payload) != 32+32+32 {
-		log.Warn("malformed auth request", "len", len(payload))
-		t.decideAuth(payload[:8], false, "malformed auth request")
-		return
-	}
-	corr := [8]byte(payload[0:8])
-	t.pendingAuths[corr] = authChallenge{
-		clientPub: payload[64:96],
-		cNonce:    payload[0:32],
-		sNonce:    payload[32:64],
-	}
-	log.Info("auth request", "fp", Fingerprint(payload[64:96]))
-}
-
-// handleAuthPayload verifies the client's signature against the allowlist
-// and answers the sidecar's consultation. Payload: c_nonce(32) | sig(64);
-// the correlation key is the first 8 bytes of c_nonce.
-func (t *sessionTable) handleAuthPayload(payload []byte) {
-	if len(payload) != 32+64 {
-		log.Warn("malformed auth payload", "len", len(payload))
-		return
-	}
-	corr := [8]byte(payload[0:8])
-	sig := payload[32:]
-	challenge, ok := t.pendingAuths[corr]
-	if !ok {
-		log.Warn("auth payload without request", "corr", hex.EncodeToString(corr[:]))
-		t.decideAuth(corr[:], false, "unknown handshake")
-		return
-	}
-	// Drop the stashed challenge on every path below: the sidecar gets an
-	// answer either way, and the map cannot grow under repeated
-	// request/payload floods.
-	delete(t.pendingAuths, corr)
-	fp := Fingerprint(challenge.clientPub)
-	entry, authorized, err := LookupClient(fp)
-	if err != nil {
-		t.decideAuth(corr[:], false, "allowlist error")
-		return
-	}
-	if !authorized {
-		log.Warn("client not paired", "fp", fp)
-		t.decideAuth(corr[:], false, "client not paired — run 'kit daemon pair' on the host")
-		return
-	}
-	pub, err := hex.DecodeString(entry.PubKey)
-	if err != nil || len(pub) != ed25519.PublicKeySize {
-		t.decideAuth(corr[:], false, "corrupt allowlist entry")
-		return
-	}
-	msg := append([]byte(signContext), challenge.cNonce...)
-	msg = append(msg, challenge.sNonce...)
-	if !ed25519.Verify(ed25519.PublicKey(pub), msg, sig) {
-		log.Warn("bad client signature", "fp", fp)
-		t.decideAuth(corr[:], false, "bad signature")
-		return
-	}
-	_ = TouchClient(fp)
-	log.Info("client authorized", "fp", fp)
-	t.decideAuth(corr[:], true, "")
-}
-
-// decideAuth answers the sidecar's consultation. The payload mirrors what
-// the Rust side parses: correlation key (8), verdict byte, optional reason.
-//
-// This frame is addressed to the sidecar itself, not to a client, so it
-// goes straight to the tunnel sink. Routing it through writeTo would look
-// up wire id 0, which no connection ever owns, and the daemon would
-// silently stop answering handshakes.
-func (t *sessionTable) decideAuth(corr []byte, allow bool, reason string) {
-	out := make([]byte, 0, 8+1+len(reason))
-	out = append(out, corr...)
-	if allow {
-		out = append(out, 1)
-	} else {
-		out = append(out, 0)
-	}
-	out = append(out, reason...)
-	_ = t.rt.currentSink().write(Frame{Type: FrameAuthDecision, Session: 0, Payload: out})
 }
 
 // sessionInfo is one row of the client-facing session list.
@@ -951,9 +782,8 @@ func (t *sessionTable) retireSession(id uint64) {
 		// restores the terminal. SIGKILL only if it ignores that.
 		//
 		// Off the frame loop: retireSession runs inline there when a PTY
-		// write fails, and one stream carries every sidecar-relayed
-		// client, so waiting out the grace period here would stall all of
-		// them for seconds.
+		// write fails, so waiting out the grace period here would stall
+		// that client's whole frame loop for seconds.
 		go terminateProcess(s.cmd.Process.Pid)
 	}
 	t.syncSessionRegistry()

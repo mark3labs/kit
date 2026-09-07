@@ -17,8 +17,8 @@ func TestConnSetLocalIDsAreReserved(t *testing.T) {
 	if !local.local {
 		t.Fatal("local connection is not flagged local")
 	}
-	// The sidecar allocates from 1 upward; those must never reach the
-	// local range or two clients would share one id.
+	// The remote allocator counts from 1 upward; those must never reach
+	// the local range or two clients would share one id.
 	remote := cs.addRemote(1, sink)
 	if remote.id >= localWireBase {
 		t.Fatalf("remote wire id %d collided with the local range", remote.id)
@@ -37,13 +37,13 @@ func TestConnSetRemoveRemotesKeepsLocals(t *testing.T) {
 
 	dropped := cs.removeRemotes()
 	if len(dropped) != 2 {
-		t.Fatalf("expected 2 dropped sidecar connections, got %d", len(dropped))
+		t.Fatalf("expected 2 dropped remote connections, got %d", len(dropped))
 	}
 	if cs.get(1) != nil || cs.get(2) != nil {
-		t.Fatal("a sidecar connection survived the tunnel teardown")
+		t.Fatal("a remote connection survived the teardown")
 	}
 	if cs.get(local.id) == nil {
-		t.Fatal("the local connection was dropped with the sidecar")
+		t.Fatal("the local connection was dropped with the remotes")
 	}
 }
 

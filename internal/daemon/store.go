@@ -117,7 +117,7 @@ func writeHostBook(hosts []HostEntry) error {
 
 // SaveHost adds (or replaces) a paired host entry under the given name.
 // The endpoint id must be 64 hex chars (an ed25519 public key) so a stored
-// entry can never crash the sidecar's dial path later.
+// entry can never crash the dial path later.
 func SaveHost(name string, endpointID string) error {
 	if name == "" {
 		return fmt.Errorf("daemon: host name must not be empty")

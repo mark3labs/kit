@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -15,18 +14,19 @@ import (
 // wrong code) must leave the code usable and must not leave a stale
 // question blocking the window.
 //
-// Before the fix the sidecar served exactly one incoming connection AND
+// Before the fix the window served exactly one incoming connection AND
 // held it for the whole decision timeout: attempt two never reached the
 // host, the host never prompted again, and the client only saw
 // "connect to daemon: timed out".
 //
-// Needs the real sidecar and network access; set KIT_TUNNEL_BIN to run it.
+// Needs live network access to the n0 relay/DNS infrastructure; set
+// KIT_REMOTE_LIVE_TEST=1 to run it.
 func TestPairWindowSurvivesRejectedAttempt(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network test")
 	}
-	if os.Getenv("KIT_TUNNEL_BIN") == "" {
-		t.Skip("set KIT_TUNNEL_BIN to the kit-tunnel sidecar to run the pairing end-to-end test")
+	if os.Getenv("KIT_REMOTE_LIVE_TEST") == "" {
+		t.Skip("set KIT_REMOTE_LIVE_TEST=1 to run the pairing end-to-end test (live network)")
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
@@ -91,7 +91,7 @@ func TestPairWindowSurvivesRejectedAttempt(t *testing.T) {
 }
 
 // A pairing question whose client has gone away must not block the window.
-// The sidecar withdraws it with a PAIR_CANCEL frame, and a newer request
+// The transport withdraws it with a FramePairCancel, and a newer request
 // supersedes it; either way the operator gets asked about the live client
 // instead of being stuck on a dead one.
 func TestAskOperatorAbandonsDeadQuestions(t *testing.T) {
@@ -154,49 +154,4 @@ func TestAskOperatorAbandonsDeadQuestions(t *testing.T) {
 			t.Fatalf("got (%v, %v), want (false, nil)", allowed, next)
 		}
 	})
-}
-
-// The sidecar reports transport failures; the client must translate them
-// into something the user can act on.
-func TestPairFailureAdvice(t *testing.T) {
-	base := errors.New("tunnel exited")
-	cases := []struct {
-		name     string
-		statuses string
-		want     string
-	}{
-		{
-			name:     "connect timeout points at the window",
-			statuses: "STATUS ERROR msg=connect to daemon: timed out",
-			want:     "could not reach the host's pairing window",
-		},
-		{
-			name:     "unknown code",
-			statuses: "STATUS ERROR msg=no daemon is live for this pairing code (wrong code, expired window, or network issue)",
-			want:     "no host is listening for that pairing code",
-		},
-		{
-			name:     "no addressing info",
-			statuses: "STATUS ERROR msg=connect to daemon: No addressing information available",
-			want:     "no host is listening for that pairing code",
-		},
-		{
-			name:     "local bind failure",
-			statuses: "STATUS ERROR msg=endpoint bind: permission denied",
-			want:     "could not open a local network endpoint",
-		},
-		{
-			name:     "unrecognised failure keeps the detail",
-			statuses: "STATUS ERROR msg=something new",
-			want:     "pairing failed",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := pairFailure(base, tc.statuses)
-			if got == nil || !strings.Contains(got.Error(), tc.want) {
-				t.Fatalf("pairFailure(%q) = %v, want it to mention %q", tc.statuses, got, tc.want)
-			}
-		})
-	}
 }

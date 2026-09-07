@@ -10,7 +10,7 @@ import (
 
 // The local control socket is not implemented on Windows yet: it needs a
 // named pipe plus the matching peer-identity check, not a Unix socket.
-// Remote sessions over the sidecar are unaffected.
+// Remote sessions over iroh are unaffected.
 
 // ErrNoLocalDaemon is returned when nothing is listening on the local
 // socket. Callers use it to decide whether to auto-start a daemon.
@@ -40,7 +40,7 @@ func DialLocal(context.Context) (net.Conn, error) { return nil, ErrNoLocalDaemon
 func StartLocalDaemon(context.Context) error { return ErrNoLocalDaemon }
 
 // RunLocal is unsupported on Windows: there is no local socket transport
-// yet. Remote sessions over the sidecar are unaffected.
+// yet. Remote sessions over iroh are unaffected.
 func RunLocal(context.Context, AttachOptions) error { return ErrNoLocalDaemon }
 
 // ListLocalSessions is unsupported on Windows.

@@ -17,11 +17,11 @@ import (
 // TestRemoteSessionEntriesHonoursCancellation checks that a cancelled
 // context stops the fan-out of host queries.
 //
-// Every paired host is queried at once and each query starts a sidecar
-// process, so a caller that gives up — a picker torn down, the client
+// Every paired host is queried at once and each query holds a network
+// dial, so a caller that gives up — a picker torn down, the client
 // shutting down — must be able to end them. Without a context the
 // goroutines ran to their eight second timeout regardless, holding a
-// sidecar each for the whole of it.
+// dial each for the whole of it.
 //
 // The hosts here are not paired, so each query fails on the host lookup
 // before any process starts; what is under test is that the call returns
