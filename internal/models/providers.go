@@ -900,11 +900,11 @@ func clearConflictingAnthropicSamplingParams(config *ProviderConfig) {
 // to an OpenAI ReasoningEffort. For non-responses or non-reasoning models the
 // returned map is nil (no extra options needed).
 func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
-	if !isOpenAIResponsesModel(modelName) {
+	if !openai.IsResponsesModel(modelName) {
 		return nil
 	}
 
-	if isOpenAIResponsesReasoningModel(modelName) {
+	if openai.IsResponsesReasoningModel(modelName) {
 		reasoningSummary := "auto"
 		opts := &openai.ResponsesProviderOptions{
 			ReasoningSummary: &reasoningSummary,
@@ -924,44 +924,6 @@ func buildOpenAIProviderOptions(config *ProviderConfig, modelName string) fantas
 	}
 
 	return nil
-}
-
-// openaiModelGeneration returns the numeric generation of a gpt-N model ID
-// ("gpt-6-astra" -> 6, "gpt-5.3-codex" -> 5). It returns 0 when the ID does
-// not start with "gpt-<digits>".
-func openaiModelGeneration(modelID string) int {
-	id := strings.ToLower(modelID)
-	rest, ok := strings.CutPrefix(id, "gpt-")
-	if !ok {
-		return 0
-	}
-
-	n := 0
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			break
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n
-}
-
-// isOpenAIResponsesModel reports whether an OpenAI model must use the
-// Responses API. It extends fantasy's IsResponsesModel, whose hardcoded
-// matcher stops at the gpt-5 family, with newer generations (gpt-6 and
-// later, e.g. gpt-6-astra). Routing and provider-option construction must
-// both use this predicate: if they disagree, the chat-completions model
-// receives *openai.ResponsesProviderOptions and fantasy rejects the call
-// with "openai provider options should be *openai.ProviderOptions".
-func isOpenAIResponsesModel(modelID string) bool {
-	return openai.IsResponsesModel(modelID) || openaiModelGeneration(modelID) >= 6
-}
-
-// isOpenAIResponsesReasoningModel reports whether an OpenAI Responses API
-// model supports reasoning options. It extends fantasy's
-// IsResponsesReasoningModel with gpt-6 and later generations.
-func isOpenAIResponsesReasoningModel(modelID string) bool {
-	return openai.IsResponsesReasoningModel(modelID) || openaiModelGeneration(modelID) >= 6
 }
 
 // thinkingLevelToReasoningEffort maps a ThinkingLevel to an OpenAI ReasoningEffort.
@@ -1287,9 +1249,6 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	var opts []openai.Option
 	opts = append(opts, openai.WithAPIKey(apiKey))
 	opts = append(opts, openai.WithUseResponsesAPI())
-	// Fantasy's default IsResponsesModel matcher stops at the gpt-5 family;
-	// route newer generations (gpt-6*) to the Responses API too.
-	opts = append(opts, openai.WithResponsesAPIFunc(isOpenAIResponsesModel))
 
 	if config.ProviderURL != "" {
 		opts = append(opts, openai.WithBaseURL(config.ProviderURL))
@@ -1411,8 +1370,7 @@ func createOpenAICodexProvider(ctx context.Context, config *ProviderConfig, mode
 	opts = append(opts, openai.WithUseResponsesAPI())
 	// The Codex backend speaks only the Responses API, and
 	// buildCodexProviderOptions always attaches ResponsesProviderOptions.
-	// Force the Responses wire for every model so unknown model IDs (e.g.
-	// gpt-6-astra, which fantasy's default matcher does not recognize) do
+	// Force the Responses wire for every model so unknown model IDs do
 	// not fall back to the chat-completions model and reject the options.
 	opts = append(opts, openai.WithResponsesAPIFunc(func(string) bool { return true }))
 	opts = append(opts, openai.WithHTTPClient(httpClient))
@@ -1449,7 +1407,7 @@ func buildCodexProviderOptions(config *ProviderConfig, modelName string) fantasy
 		opts.Instructions = &config.SystemPrompt
 	}
 
-	if isOpenAIResponsesReasoningModel(modelName) {
+	if openai.IsResponsesReasoningModel(modelName) {
 		opts.ReasoningEffort = thinkingLevelToReasoningEffort(config.ThinkingLevel)
 	}
 

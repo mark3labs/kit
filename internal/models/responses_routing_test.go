@@ -6,43 +6,19 @@ import (
 	"charm.land/fantasy/providers/openai"
 )
 
-// TestOpenAIModelGeneration verifies the gpt-N generation parser used to
-// extend fantasy's hardcoded Responses-model matcher.
-func TestOpenAIModelGeneration(t *testing.T) {
-	cases := []struct {
-		id   string
-		want int
-	}{
-		{"gpt-6-astra", 6},
-		{"GPT-6-Astra", 6},
-		{"gpt-5.3-codex", 5},
-		{"gpt-4o", 4},
-		{"gpt-10-turbo", 10},
-		{"gpt-oss-120b", 0},
-		{"o3", 0},
-		{"chatgpt-4o-latest", 0},
-		{"grok-4.6", 0},
-		{"", 0},
-	}
-
-	for _, c := range cases {
-		if got := openaiModelGeneration(c.id); got != c.want {
-			t.Errorf("openaiModelGeneration(%q) = %d, want %d", c.id, got, c.want)
-		}
-	}
-}
-
 // TestResponsesRoutingOptionsConsistency is a regression test for the
 // "invalid argument: openai provider options should be
 // *openai.ProviderOptions" failure. It occurred because the routing
 // predicate and the options builder disagreed for model IDs that fantasy's
-// matcher does not know (e.g. gpt-6-astra): the model fell back to the
+// matcher did not know (e.g. gpt-6-astra): the model fell back to the
 // chat-completions wire while the options carried
 // *openai.ResponsesProviderOptions.
 //
-// The invariant: for every model that kit routes to the Responses API, the
-// options under the openai key must be *openai.ResponsesProviderOptions,
-// and for every model on the chat-completions wire the options must not be.
+// Fantasy now recognizes gpt-6 and later generations natively. This test
+// guards the invariant across fantasy upgrades: for every model that kit
+// routes to the Responses API, the options under the openai key must be
+// *openai.ResponsesProviderOptions, and for every model on the
+// chat-completions wire the options must not be.
 func TestResponsesRoutingOptionsConsistency(t *testing.T) {
 	config := &ProviderConfig{}
 
@@ -58,17 +34,18 @@ func TestResponsesRoutingOptionsConsistency(t *testing.T) {
 		opts := buildOpenAIProviderOptions(config, id)
 		_, hasResponsesOpts := opts[openai.Name].(*openai.ResponsesProviderOptions)
 
-		if hasResponsesOpts && !isOpenAIResponsesModel(id) {
+		if hasResponsesOpts && !openai.IsResponsesModel(id) {
 			t.Errorf("model %q: Responses options built for a chat-completions model", id)
 		}
 	}
 
 	// gpt-6 and later generations must route to the Responses API and get
-	// reasoning options, exactly like the gpt-5 family.
-	if !isOpenAIResponsesModel("gpt-6-astra") {
+	// reasoning options, exactly like the gpt-5 family. Fantasy's native
+	// matcher covers this since v0.43; a fantasy downgrade must fail here.
+	if !openai.IsResponsesModel("gpt-6-astra") {
 		t.Error("gpt-6-astra must route to the Responses API")
 	}
-	if !isOpenAIResponsesReasoningModel("gpt-6-astra") {
+	if !openai.IsResponsesReasoningModel("gpt-6-astra") {
 		t.Error("gpt-6-astra must be treated as a reasoning model")
 	}
 	if opts := buildOpenAIProviderOptions(config, "gpt-6-astra"); opts == nil {
