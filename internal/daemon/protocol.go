@@ -7,12 +7,11 @@ import (
 	"io"
 )
 
-// Frame types shared with contrib/kit-tunnel/src/main.rs (protocol v1).
-// Data/resize/bye are relayed end-to-end by the tunnel, multiplexed by
-// session id; ping/pong are reserved for a future keepalive; the 0x1x
-// handshake/session frames never cross the tunnel boundary — the serve-side
-// tunnel emits SESSION_OPEN/CLOSED on its stdout to introduce and retire
-// sessions to the Go daemon.
+// Frame types (protocol v1, shared by every kit build — including the
+// retired Rust kit-tunnel sidecar). Data/resize/bye travel end-to-end,
+// multiplexed by session id; ping/pong are reserved for a future
+// keepalive; the 0x1x handshake frames are consumed during the transport
+// handshake and never reach the session frame loop (see iroh.go).
 type FrameType byte
 
 const (
@@ -23,17 +22,16 @@ const (
 	FramePong   FrameType = 0x05
 
 	// Client -> daemon clipboard image transfer (chunked; see
-	// internal/daemon/clipboard.go for the payload layout). Relayed by the
-	// sidecar verbatim like DATA/RESIZE; consumed by the daemon, never
-	// written to the session PTY.
+	// internal/daemon/clipboard.go for the payload layout). Travels
+	// end-to-end like DATA/RESIZE; consumed by the daemon, never written
+	// to the session PTY.
 	FrameClipboard FrameType = 0x06
 
-	// Session lifecycle (additive, relayed verbatim by the sidecar like
-	// CLIPBOARD). Sessions are LOGICAL: they outlive client connections,
-	// so a client can detach (Ctrl+X d) and later reattach, and several
-	// clients can attach to the same session (shared tmux-style view).
-	// Wire session ids are per sidecar connection; the daemon maps them to
-	// logical sessions.
+	// Session lifecycle (travels end-to-end like CLIPBOARD). Sessions are
+	// LOGICAL: they outlive client connections, so a client can detach
+	// (Ctrl+X d) and later reattach, and several clients can attach to
+	// the same session (shared tmux-style view). Wire session ids are per
+	// connection; the daemon maps them to logical sessions.
 	FrameSessionDetach    FrameType = 0x07 // client -> daemon: unbind me, keep the session
 	FrameSessionList      FrameType = 0x08 // client -> daemon: list live sessions (payload empty)
 	FrameSessionListReply FrameType = 0x09 // daemon -> client: JSON [{id,clients,started,cwd,name}]
@@ -59,36 +57,29 @@ const (
 	// describing the terminal it will be seen in.
 	FrameTerminal FrameType = 0x0e // client -> daemon: JSON TerminalInfo
 
-	// Tunnel -> daemon session lifecycle (serve side only).
+	// Historical frame types (retired with the Rust kit-tunnel sidecar,
+	// which owned the transport in a subprocess). SESSION_OPEN/CLOSED
+	// introduced and retired wire connections on the sidecar's stdio; the
+	// 0x30/0x4x frames were the daemon<->sidecar consultation channel that
+	// kept authentication and pairing policy in Go. The transport now runs
+	// in-process (iroh.go), which makes them unnecessary — the values stay
+	// reserved so protocol v1 keeps one authoritative number space.
 	FrameSessionOpen   FrameType = 0x16
 	FrameSessionClosed FrameType = 0x17
-
-	// Pairing-model control frames on the tunnel stdio (protocol v1 in
-	// the sidecar). They never cross the iroh connection; they are the
-	// daemon<->sidecar consultation channel that keeps all policy in Go.
-	//
-	// Reconnect authentication (main endpoint):
-	//   AUTH_REQUEST  sidecar->daemon {c_nonce, s_nonce, client_pub}  (8+8+32)
-	//   AUTH_PAYLOAD  sidecar->daemon {signature}                     (64)
-	//   AUTH_DECISION daemon->sidecar {0|1}
-	// Pairing (bootstrap endpoint):
-	//   PAIR_REQUEST  sidecar->daemon {c_nonce, client_pub}           (8+32)
-	//   PAIR_DECISION daemon->sidecar {0|1, host_endpoint_id?}        (1 or 33)
-	//   PAIR_CANCEL   sidecar->daemon {corr}                          (8)
-	FrameAuthRequest  FrameType = 0x30
-	FrameAuthPayload  FrameType = 0x31
-	FrameAuthDecision FrameType = 0x32
+	FrameAuthRequest   FrameType = 0x30
+	FrameAuthPayload   FrameType = 0x31
+	FrameAuthDecision  FrameType = 0x32
+	// FramePairRequest and FramePairCancel are still used in-process: the
+	// pairing window surfaces attempts to the operator loop as these
+	// frames (see iroh_pair.go and pair.go).
 	FramePairRequest  FrameType = 0x40
 	FramePairDecision FrameType = 0x41
-	// FramePairCancel withdraws a pending pairing question: the client
-	// behind it disconnected, so the prompt on the host's terminal is
-	// stale and must not block the window.
-	FramePairCancel FrameType = 0x42
+	FramePairCancel   FrameType = 0x42
 )
 
 const frameHeaderSize = 7 // type byte + u32 session + u16 big-endian length
 
-// maxPayload matches the tunnel's limit: u16 length field.
+// maxPayload is the frame size limit: a u16 length field.
 const maxPayload = 65535
 
 // chunkSize is how much PTY/terminal data we pack into one DATA frame.
@@ -96,8 +87,8 @@ const maxPayload = 65535
 // overhead negligible for full-screen redraws.
 const chunkSize = 16 * 1024
 
-// Frame is one relayed message. Session 0 is used on the client side (the
-// dial tunnel rewrites ids in both directions) and in tests.
+// Frame is one relayed message. Session 0 is used by clients (the daemon
+// stamps the assigned wire id on arrival) and in tests.
 type Frame struct {
 	Type    FrameType
 	Session uint32

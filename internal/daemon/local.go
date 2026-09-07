@@ -17,7 +17,7 @@ import (
 )
 
 // Local transport: a Unix domain socket that lets clients on the same
-// machine drive the daemon without the sidecar, the network, or pairing.
+// machine drive the daemon without the network or pairing.
 //
 // Authorization is the peer's uid. A remote client proves itself with an
 // ed25519 signature checked against the pairing allowlist, but a local
@@ -91,7 +91,7 @@ func listenLocal(path string) (net.Listener, error) {
 
 // serveLocal accepts local clients until the listener closes. Each
 // connection gets its own wire id and frame sink, and is served by its own
-// goroutine, so one local client cannot stall another or the sidecar.
+// goroutine, so one local client cannot stall another or a remote one.
 func serveLocal(ctx context.Context, ln net.Listener, table *sessionTable) {
 	for {
 		conn, err := ln.Accept()
@@ -124,7 +124,7 @@ func serveLocalConn(ctx context.Context, conn net.Conn, table *sessionTable) {
 	log.Debug("local client connected", "wire", wire.id)
 	// The client has no wire-id allocator of its own, so it stamps every
 	// frame with session 0 and we substitute the id assigned above.
-	_ = table.runFrameSource(ctx, conn, sink, wire.id)
+	_ = table.runFrameSource(ctx, conn, wire.id)
 	log.Debug("local client disconnected", "wire", wire.id)
 }
 

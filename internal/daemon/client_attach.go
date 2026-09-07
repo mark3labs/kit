@@ -22,7 +22,7 @@ import (
 )
 
 // Client-side session driving, independent of how the frames get to the
-// daemon. RunHost feeds this a sidecar stream; RunLocal feeds it a Unix
+// daemon. RunHost feeds this an iroh stream; RunLocal feeds it a Unix
 // socket. Everything below the transport — raw mode, the input pumps, the
 // chord table, clipboard interception, resize handling — is shared.
 

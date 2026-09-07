@@ -38,10 +38,6 @@ type PairWindowOptions struct {
 // the allowlist to disk, and `kit daemon` (running or not) picks it up on
 // the next connection attempt.
 func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
-	if _, err := FindTunnelBinary(); err != nil {
-		return err
-	}
-
 	window := opts.Window
 	if window <= 0 {
 		window = pairWindowTime
@@ -83,32 +79,11 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 	fmt.Printf("  This window closes in %s or after one successful pairing.\n", window)
 	fmt.Println()
 
-	tun, err := StartTunnel(pctx, TunnelOptions{
-		Mode: "serve-pair",
-		Args: []string{"--timeout", "30"},
-		Env:  []string{"KIT_TUNNEL_PAIR_SEED=" + fmt.Sprintf("%x", seed)},
-	})
+	tun, err := openPairWindow(pctx, seed)
 	if err != nil {
 		return err
 	}
-	defer tun.Close()
-
-	// Frames are read by a dedicated goroutine so the window keeps listening
-	// while the operator is being asked a question. Reading inline would
-	// block the sidecar's whole consultation channel behind one prompt.
-	frames := make(chan Frame, 16)
-	readErr := make(chan error, 1)
-	go func() {
-		for {
-			frame, err := ReadFrame(tun.Stdout())
-			if err != nil {
-				readErr <- err
-				close(frames)
-				return
-			}
-			frames <- frame
-		}
-	}()
+	defer tun.close()
 
 	// One long-lived reader owns the terminal. A per-prompt reader would
 	// leak a goroutine holding os.Stdin for every abandoned question, and
@@ -125,17 +100,13 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 			case <-pctx.Done():
 				fmt.Println("  Pairing window closed.")
 				return nil
-			case err := <-readErr:
-				// Tunnel ended: window expired (Go ctx killed it) or crash.
+			case err := <-tun.failed:
 				if pctx.Err() != nil {
 					fmt.Println("  Pairing window closed.")
 					return nil
 				}
-				return fmt.Errorf("daemon: pairing tunnel ended (%s): %w", tun.LastStatuses(), err)
-			case f, ok := <-frames:
-				if !ok {
-					continue // readErr carries the reason
-				}
+				return fmt.Errorf("daemon: pairing window failed: %w", err)
+			case f := <-tun.frames:
 				frame = f
 			}
 		}
@@ -150,27 +121,66 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 		fp := Fingerprint(clientPub)
 
 		fmt.Printf("  Pairing request from client %s\n", fingerprintShort(fp))
-		allowed, superseded := opts.askOperator(pctx, fp, corr, frames, answers)
+		allowed, superseded := opts.askOperator(pctx, fp, corr, tun.frames, answers)
 		next = superseded
 		if !allowed {
-			writePairDecision(tun, corr, false, "", hostEndpointID)
+			tun.decide(corr, false, "", hostEndpointID)
 			continue
 		}
-		if _, err := AuthorizeClient(hex.EncodeToString(clientPub)); err != nil {
+		// The allowlist write comes first so the entry exists before the
+		// client can possibly dial — but it only sticks if the verdict
+		// reaches the client. Every undelivered path below rolls a NEWLY
+		// created entry back (an already-known client keeps its working
+		// pairing) and leaves the window open for another attempt.
+		_, createdEntry, err := AuthorizeClient(hex.EncodeToString(clientPub))
+		if err != nil {
 			log.Error("daemon: authorize failed", "error", err)
-			writePairDecision(tun, corr, false, "host error", hostEndpointID)
+			tun.decide(corr, false, "host error", hostEndpointID)
 			continue
 		}
-		writePairDecision(tun, corr, true, "", hostEndpointID)
-		fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
-		fmt.Println()
-		// One successful pairing burns the code; end the window. A
-		// short grace lets the client drain the confirmation frame
-		// before the tunnel teardown closes the connection.
-		_, _ = tun.WaitAnyStatus(pctx, 10*time.Second, "PAIRED", "PAIR_DENIED", "CLOSED")
-		time.Sleep(2 * time.Second)
-		log.Debug("daemon: pair window statuses", "statuses", tun.LastStatuses())
-		return nil
+		if !tun.decide(corr, true, "", hostEndpointID) {
+			// The attempt is gone: its decision window timed out or the
+			// client disconnected while the operator was thinking.
+			rollbackPairing(createdEntry, fp)
+			fmt.Println("  The client gave up before the answer arrived. The code stays valid — ask it to try again.")
+			continue
+		}
+		// One successful pairing burns the code; end the window. The
+		// transport holds the stream open while the client drains the
+		// confirmation and closes tun.paired only after that delivery, so
+		// success is only reported once it fires.
+		select {
+		case <-tun.paired:
+			fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
+			fmt.Println()
+			return nil
+		case <-time.After(15 * time.Second):
+			// The verdict was taken but the confirmation never went out
+			// (the write stalled or the connection died mid-delivery).
+			rollbackPairing(createdEntry, fp)
+			fmt.Println("  The pairing confirmation could not be delivered. The code stays valid — ask the client to try again.")
+			continue
+		case <-pctx.Done():
+			// The window expired mid-delivery. Keep the authorization: the
+			// human approved this key, and if the client did receive the
+			// confirmation, revoking it now would orphan a good pairing.
+			// If it did not, it simply pairs again with a fresh code.
+			fmt.Println("  Pairing window closed.")
+			return nil
+		}
+	}
+}
+
+// rollbackPairing removes an allowlist entry that this window created but
+// could not confirm to the client. Entries that existed before the attempt
+// are kept: the client behind them already holds a working pairing, and
+// AuthorizeClient only refreshed its LastSeen.
+func rollbackPairing(created bool, fp string) {
+	if !created {
+		return
+	}
+	if _, err := RevokeClient(fp); err != nil {
+		log.Warn("daemon: pairing rollback failed", "fp", fp, "error", err)
 	}
 }
 
@@ -199,8 +209,8 @@ func (opts PairWindowOptions) answerLines(ctx context.Context) <-chan string {
 }
 
 // askOperator asks the accept/reject question on the terminal while staying
-// responsive to the sidecar. A question is abandoned when the client behind
-// it disconnects (PAIR_CANCEL) or when a newer request arrives — otherwise
+// responsive to the transport. A question is abandoned when the client behind
+// it disconnects (FramePairCancel) or when a newer request arrives — otherwise
 // one walked-away client would hold the window for its whole decision
 // timeout and nobody else could pair. The second return value is a request
 // that superseded this one and must be handled next.
@@ -268,27 +278,4 @@ func promptDecision(ctx context.Context, answer string) bool {
 	default:
 		return false
 	}
-}
-
-// writeDecision answers the sidecar's pairing consultation. Payload:
-// correlation key (8) | verdict (1) | host endpoint id (32, accept only)
-// | optional reason (deny only).
-func writePairDecision(tun *Tunnel, corr []byte, allow bool, reason, hostEndpointID string) {
-	out := []byte{}
-	out = append(out, corr...)
-	if allow {
-		out = append(out, 1)
-		id, err := hex.DecodeString(hostEndpointID)
-		if err != nil || len(id) != ed25519PubLen {
-			out = out[:8]
-			out = append(out, 0)
-			out = append(out, "host identity error"...)
-		} else {
-			out = append(out, id...)
-		}
-	} else {
-		out = append(out, 0)
-		out = append(out, reason...)
-	}
-	_ = WriteFrame(tun.Stdin(), FramePairDecision, 0, out)
 }

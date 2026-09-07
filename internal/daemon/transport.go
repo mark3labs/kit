@@ -9,23 +9,15 @@ import (
 // Transport abstraction for the daemon's frame plumbing.
 //
 // The daemon multiplexes every client on a single 32-bit wire id (see
-// protocol.go). Historically that id space belonged to the Rust sidecar
-// alone and every reply was written straight to the sidecar's stdin. Two
-// transports now share the space:
+// protocol.go). Two transports share the space:
 //
-//   - the sidecar, which relays remote clients over iroh and stamps each
-//     connection with an id of its own (main.rs: next_id starts at 1 and
-//     increments), and
-//   - the local Unix socket, where the daemon itself assigns the id.
-//
-// Local ids carry the top bit (localWireBase) so the two allocators can
-// never collide. The sidecar would have to survive 2^31 connections in one
-// process to reach that range, and it clamps back to 1 on wrap rather than
-// passing through 0, so the reservation holds in practice.
+//   - the in-process iroh endpoint, which assigns each remote connection
+//     an id below localWireBase (iroh_serve.go), and
+//   - the local Unix socket, where ids carry the top bit (localWireBase)
+//     so the two allocators can never collide.
 //
 // A connection's frames are written through a frameSink, which serializes
-// writes to one stream. Every sidecar client shares a single sink (they all
-// multiplex over the sidecar's stdin); each local client owns its own.
+// writes to one stream. Every connection owns its own sink.
 
 // localWireBase is the first wire id handed to a local socket client. Ids
 // at or above it are local by construction.
@@ -96,9 +88,8 @@ func newConnSet() *connSet {
 	return &connSet{conns: make(map[uint32]*wireConn)}
 }
 
-// addRemote registers a sidecar-relayed connection under the id the
-// sidecar assigned. Re-registering an id replaces the old entry, which is
-// what a sidecar restart that reuses ids needs.
+// addRemote registers a remote (iroh) connection under the id its
+// handshake assigned. Re-registering an id replaces the old entry.
 func (c *connSet) addRemote(id uint32, sink *frameSink) *wireConn {
 	conn := &wireConn{id: id, sink: sink}
 	c.mu.Lock()
@@ -155,9 +146,7 @@ func (c *connSet) get(id uint32) *wireConn {
 	return c.conns[id]
 }
 
-// removeRemotes drops every sidecar-backed connection, leaving local ones
-// alone. Used when the sidecar dies: its clients died with it, but local
-// clients are still connected and their sessions are unaffected.
+// removeRemotes drops every remote connection, leaving local ones alone.
 func (c *connSet) removeRemotes() []uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()

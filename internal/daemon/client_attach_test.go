@@ -144,7 +144,7 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 	wire := table.conns.addLocal(sink)
 
 	ctx := t.Context()
-	go func() { _ = table.runFrameSource(ctx, serverConn, sink, wire.id) }()
+	go func() { _ = table.runFrameSource(ctx, serverConn, wire.id) }()
 
 	client := newClientConn(clientConn)
 	go client.readLoop()
@@ -178,30 +178,6 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 	// The connection still works after the detach.
 	if _, err := client.listSessions(); err != nil {
 		t.Fatalf("list after detach: %v", err)
-	}
-}
-
-// TestDecideAuthTargetsTheSidecar pins the routing of the pairing verdict.
-// It is addressed to the sidecar itself on wire id 0, which no client
-// connection ever owns, so routing it through writeTo would silently stop
-// the daemon answering handshakes.
-func TestDecideAuthTargetsTheSidecar(t *testing.T) {
-	rt := newDaemonRuntime(nil)
-	var buf lockedBuffer
-	rt.setSink(newFrameSink(&buf))
-
-	table := newSessionTable(rt)
-	table.decideAuth(make([]byte, 8), true, "")
-
-	frame, err := ReadFrame(&buf)
-	if err != nil {
-		t.Fatalf("the auth decision never reached the sidecar: %v", err)
-	}
-	if frame.Type != FrameAuthDecision {
-		t.Fatalf("frame type = %#x, want FrameAuthDecision", frame.Type)
-	}
-	if frame.Session != 0 {
-		t.Fatalf("auth decisions must go out on wire 0, got %d", frame.Session)
 	}
 }
 
@@ -715,7 +691,7 @@ func TestChooseSessionStartsNewWhenNothingIsLiveAnywhere(t *testing.T) {
 	sink := newFrameSink(serverConn)
 	wire := table.conns.addLocal(sink)
 	ctx := t.Context()
-	go func() { _ = table.runFrameSource(ctx, serverConn, sink, wire.id) }()
+	go func() { _ = table.runFrameSource(ctx, serverConn, wire.id) }()
 
 	client := newClientConn(clientPipe)
 	go client.readLoop()

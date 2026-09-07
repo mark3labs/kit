@@ -60,19 +60,20 @@ func TestSeedFromCodeIsDeterministicAndStrong(t *testing.T) {
 	}
 }
 
-// TestPairingTagMatchesHandshakeConstants verifies the auth-tag derivation
-// the tunnel performs: HMAC over role || server nonce || client nonce with
-// a key expanded from the seed.
+// TestPairingTagMatchesHandshakeConstants verifies the pairing-tag
+// derivation (protocol v1): HMAC-SHA256 over role || nonces with a key
+// expanded from the seed. The client tag covers the client nonce alone;
+// the server tag covers client nonce || server nonce.
 func TestPairingTagMatchesHandshakeConstants(t *testing.T) {
 	seed, _ := SeedFromCode("ZZZZZZZZ")
-	serverNonce := bytes.Repeat([]byte{0xAA}, 32)
-	clientNonce := bytes.Repeat([]byte{0xBB}, 32)
+	cNonce := bytes.Repeat([]byte{0xAA}, 32)
+	sNonce := bytes.Repeat([]byte{0xBB}, 32)
 
-	clientTag, err := pairingTag(seed, "kit-client", serverNonce, clientNonce)
+	clientTag, err := pairingTag(seed, pairRoleClient, cNonce, nil)
 	if err != nil {
 		t.Fatalf("client tag: %v", err)
 	}
-	serverTag, err := pairingTag(seed, "kit-server", clientNonce, serverNonce)
+	serverTag, err := pairingTag(seed, pairRoleServer, cNonce, sNonce)
 	if err != nil {
 		t.Fatalf("server tag: %v", err)
 	}
@@ -82,8 +83,8 @@ func TestPairingTagMatchesHandshakeConstants(t *testing.T) {
 	if constantTimeEqual(clientTag, serverTag) {
 		t.Fatal("client and server tags must differ")
 	}
-	wrong, _ := pairingTag(seed, "kit-client", clientNonce, serverNonce)
-	if constantTimeEqual(clientTag, wrong) {
+	wrong, _ := pairingTag(seed, pairRoleServer, sNonce, cNonce)
+	if constantTimeEqual(serverTag, wrong) {
 		t.Fatal("nonce order must matter")
 	}
 }

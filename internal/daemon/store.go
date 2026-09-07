@@ -117,7 +117,7 @@ func writeHostBook(hosts []HostEntry) error {
 
 // SaveHost adds (or replaces) a paired host entry under the given name.
 // The endpoint id must be 64 hex chars (an ed25519 public key) so a stored
-// entry can never crash the sidecar's dial path later.
+// entry can never crash the dial path later.
 func SaveHost(name string, endpointID string) error {
 	if name == "" {
 		return fmt.Errorf("daemon: host name must not be empty")
@@ -309,17 +309,21 @@ func writeAllowlist(clients []ClientEntry) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// AuthorizeClient stores a freshly paired client's public key.
-func AuthorizeClient(pubKeyHex string) (string, error) {
+// AuthorizeClient stores a freshly paired client's public key. The
+// returned flag reports whether a NEW allowlist entry was written: an
+// already-known client only gets its LastSeen refreshed, and a caller
+// that must roll a failed pairing back may only remove what it created.
+func AuthorizeClient(pubKeyHex string) (string, bool, error) {
 	raw, err := hex.DecodeString(pubKeyHex)
 	if err != nil || len(raw) != ed25519PubLen {
-		return "", fmt.Errorf("daemon: bad client public key")
+		return "", false, fmt.Errorf("daemon: bad client public key")
 	}
 	fp := Fingerprint(raw)
 	path, err := allowlistPath()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
+	created := false
 	err = withFileLock(path, func() error {
 		clients, err := readAllowlist()
 		if err != nil {
@@ -331,10 +335,11 @@ func AuthorizeClient(pubKeyHex string) (string, error) {
 				return writeAllowlist(clients)
 			}
 		}
+		created = true
 		clients = append(clients, ClientEntry{FP: fp, PubKey: pubKeyHex, AddedAt: time.Now(), LastSeen: time.Now()})
 		return writeAllowlist(clients)
 	})
-	return fp, err
+	return fp, created && err == nil, err
 }
 
 // LookupClient verifies a fingerprint is authorized and returns its entry.

@@ -225,9 +225,9 @@ func runHubAttach(cmd *cobra.Command, opts daemon.AttachOptions) error {
 //
 // Hosts are queried in parallel: asking one at a time made a picker wait
 // out every sleeping laptop in the host book before it could draw, and the
-// wait grew with each host paired. ctx cancels the queries: each one is a
-// sidecar process, so a caller that gives up must not leave a fan-out of
-// them running until their timeouts expire.
+// wait grew with each host paired. ctx cancels the queries: each one
+// holds a network dial, so a caller that gives up must not leave a
+// fan-out of them running until their timeouts expire.
 func remoteSessionEntries(ctx context.Context, hosts []daemon.HostEntry, skip string) (entries []daemon.SessionEntry, skipped []string) {
 	type result struct {
 		entries []daemon.SessionEntry

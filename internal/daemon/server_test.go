@@ -132,7 +132,7 @@ func TestUnbindAllKeepsLocalClients(t *testing.T) {
 	table.unbindAll()
 
 	if table.conns.get(remote.id) != nil {
-		t.Fatal("the sidecar connection should have been dropped")
+		t.Fatal("the remote connection should have been dropped")
 	}
 	if table.conns.get(local.id) == nil {
 		t.Fatal("a local client must survive a tunnel restart")
