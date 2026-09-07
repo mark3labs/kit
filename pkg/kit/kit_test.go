@@ -685,7 +685,7 @@ func TestGetToolsForSubagent(t *testing.T) {
 	if !hasTool("hello") {
 		t.Errorf("`GetToolsForSubagent()` is missing the `hello` tool")
 	}
-	if !hasTool("bash") {
-		t.Errorf("`GetToolsForSubagent()` is missing the `bash` tool")
+	if !hasTool("shell") {
+		t.Errorf("`GetToolsForSubagent()` is missing the `shell` tool")
 	}
 }
