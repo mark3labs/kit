@@ -18,7 +18,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 ## Features
 
 - **Multi-Provider LLM Support**: Anthropic, OpenAI, Google Gemini, Ollama, Azure OpenAI, AWS Bedrock, OpenRouter, and more
-- **Built-in Core Tools**: bash (with interactive sudo password prompt), read, write, edit, grep, find, ls, subagent - no MCP overhead
+- **Built-in Core Tools**: shell (configurable shell, bash by default, with interactive sudo password prompt), read, write, edit, grep, find, ls, subagent - no MCP overhead
 - **Named Agents**: Reusable subagent presets defined in markdown with per-agent tool allowlists, advertised to the LLM for delegation
 - **Smart @ Attachments**: Binary files auto-detected via MIME type, MCP resources via `@mcp:server:uri`
 - **MCP Integration**: Connect external MCP servers for expanded capabilities
@@ -111,7 +111,7 @@ kit acp
 kit acp --debug
 ```
 
-The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol. Sessions are persisted to Kit's normal JSONL session files, so they can be resumed later.
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol. Sessions are persisted to Kit's normal JSONL session files, so they can be resumed later.
 
 ## Configuration
 
@@ -135,7 +135,12 @@ thinking-level: off       # off, none, minimal, low, medium, high
 no-core-tools: false      # set to true to disable all built-in core tools
 exclude-core-tools:       # List of core tools to exclude, mutually exclusive to `include-core-tools`
 #include-core-tools:
-# - "bash"                # List of core tools to exclude, mutually exclusive to `exclude-core-tools`
+# - "shell"               # List of core tools to exclude, mutually exclusive to `exclude-core-tools`
+shell: "bash"             # shell the shell tool runs commands through, plus
+                          # its own leading arguments, e.g. "busybox ash". Set
+                          # this on images that do not ship bash
+shell-timeout: 120        # default per-call timeout in seconds
+shell-max-timeout: 600    # ceiling a single call may request
 
 # Skills — all keys are optional
 no-skills: false          # set to true to disable all skill loading
@@ -219,9 +224,10 @@ mcpServers:
 # Extensions and tools
 --extension, -e          Load additional extension file(s) (repeatable)
 --no-extensions          Disable all extensions
---no-core-tools          Disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)
+--no-core-tools          Disable all built-in core tools (shell, read, write, edit, grep, find, ls, subagent)
 --include-core-tools
 --exclude-core-tools     Mutually exclusive lists of core tool names to include or not to include in agent
+--shell                  Shell the shell tool runs commands through, e.g. "/bin/dash" or "busybox ash" (default "bash")
 
 --prompt-template        Load a specific prompt template by name
 --no-prompt-templates    Disable prompt template loading
@@ -1134,7 +1140,7 @@ internal/acpserver/  - ACP (Agent Client Protocol) server
 internal/clipboard/  - Cross-platform clipboard operations
 internal/compaction/ - Conversation compaction and summarization
 internal/config/     - Configuration management
-internal/core/       - Built-in tools (bash, read, write, edit, grep, find, ls)
+internal/core/       - Built-in tools (shell, read, write, edit, grep, find, ls)
 internal/extensions/ - Yaegi extension system
 internal/kitsetup/   - Initial setup wizard
 internal/message/    - Message content types and structured content blocks

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mark3labs/kit/internal/core"
 	"github.com/spf13/viper"
 )
 
@@ -789,15 +790,68 @@ func (r *Runner) GetUIVisibility() *UIVisibility {
 // Tool renderer management
 // ---------------------------------------------------------------------------
 
-// GetToolRenderer returns the custom renderer for the named tool, or nil if
-// no extension registered a renderer for it. If multiple extensions register
-// renderers for the same tool, the last one (by load order) wins. Thread-safe
-// (extensions are immutable after loading).
+// hasCustomToolIn reports whether one of these extensions registered a tool of
+// its own under this name. The earlier-name compatibility stands down when one
+// does, because the name then belongs to that tool rather than to the core
+// shell tool. It operates on a snapshot of r.extensions; the caller takes it
+// under r.mu, as Reload swaps the slice under the write lock.
+func hasCustomToolIn(exts []LoadedExtension, name string) bool {
+	for _, ext := range exts {
+		for _, tool := range ext.Tools {
+			if tool.Name == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// shadowsShellToolNameIn reports whether one of these extensions registered a
+// tool under either name of the core shell tool. The names are then ambiguous,
+// so the earlier-name fallback stands down rather than guess.
+func shadowsShellToolNameIn(exts []LoadedExtension) bool {
+	return hasCustomToolIn(exts, core.LegacyShellToolName) || hasCustomToolIn(exts, core.ShellToolName)
+}
+
+// GetToolRenderer returns the custom renderer for the named tool, or nil when
+// no extension registered one. If several extensions register renderers for
+// the same tool, the last one by load order wins.
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
-	// Walk extensions in reverse so last-registered wins.
-	for _, ext := range slices.Backward(r.extensions) {
+	// Snapshot under the read lock: Reload swaps r.extensions under the
+	// write lock, and this can run on the UI goroutine while the watcher
+	// reloads.
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
+	// A renderer that names the tool as written wins, so a custom tool that
+	// really is named "bash" keeps its own renderer whatever the load order.
+	if renderer := findToolRendererIn(exts, func(name string) bool {
+		return name == toolName
+	}); renderer != nil {
+		return renderer
+	}
+	// Failing that, the shell tool answers to the name it had before its
+	// shell became configurable: an extension written before the rename
+	// keeps rendering live calls, and a session recorded before it replays
+	// with its renderer. This applies to the core tool only, so an extension
+	// that registers a tool of its own under either name keeps its renderer
+	// to itself and leaves the core tool with the default rendering.
+	if shadowsShellToolNameIn(exts) {
+		return nil
+	}
+	normalized := core.NormalizeCoreToolName(toolName)
+	return findToolRendererIn(exts, func(name string) bool {
+		return core.NormalizeCoreToolName(name) == normalized
+	})
+}
+
+// findToolRendererIn returns the first renderer whose tool name satisfies
+// match, walking extensions in reverse so the last registered one wins.
+func findToolRendererIn(exts []LoadedExtension, match func(string) bool) *ToolRenderConfig {
+	for _, ext := range slices.Backward(exts) {
 		for _, renderer := range slices.Backward(ext.ToolRenderers) {
-			if renderer.ToolName == toolName {
+			if match(renderer.ToolName) {
 				return &renderer
 			}
 		}
@@ -1096,8 +1150,16 @@ func (r *Runner) SetActiveTools(names []string) {
 		return
 	}
 	active := make(map[string]bool, len(names))
+	// A list written for an earlier KIT keeps enabling the shell tool. The
+	// alias applies to the core tool only: when an extension registers a
+	// tool of its own under the earlier name, that name selects that tool
+	// and nothing else, so a restriction never admits more than it names.
+	aliasCoreTool := !shadowsShellToolNameIn(r.extensions)
 	for _, n := range names {
 		active[n] = true
+		if aliasCoreTool {
+			active[core.NormalizeCoreToolName(n)] = true
+		}
 	}
 	r.disabledTools = active // non-nil = only these tools are allowed
 }

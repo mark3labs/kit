@@ -81,6 +81,9 @@ var (
 	excludeCoreToolsFlag []string
 	extensionPaths       []string
 
+	// Shell tool
+	shellFlag string
+
 	// Skills control
 	noSkillsFlag  bool
 	skillsPaths   []string
@@ -166,6 +169,13 @@ var rootCmd = &cobra.Command{
 		}
 		if f := cmd.PersistentFlags().Lookup("thinking-level"); f != nil {
 			thinkingFlagChanged = f.Changed
+		}
+		// An empty --shell is a mistake rather than a request for the default:
+		// the user asked for a shell and named none. Refusing here keeps the
+		// failure at startup instead of on the first tool call.
+		if f := cmd.PersistentFlags().Lookup("shell"); f != nil && f.Changed &&
+			strings.TrimSpace(f.Value.String()) == "" {
+			return fmt.Errorf(`--shell needs a shell, e.g. --shell /bin/dash or --shell "busybox ash"`)
 		}
 		return runKit(context.Background())
 	},
@@ -382,11 +392,16 @@ func init() {
 	rootCmd.PersistentFlags().
 		BoolVar(&bareFlag, "bare", false, "no project context: skip AGENTS.md, skills, extensions, agents, prompt templates and project .kit.yml")
 	rootCmd.PersistentFlags().
-		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (bash, read, write, edit, grep, find, ls, subagent)")
+		BoolVar(&noCoreToolsFlag, "no-core-tools", false, "disable all built-in core tools (shell, read, write, edit, grep, find, ls, subagent)")
 	rootCmd.PersistentFlags().
 		StringSliceVar(&includeCoreToolsFlag, "include-core-tools", nil, "comma-separated list of core tools to include")
 	rootCmd.PersistentFlags().
 		StringSliceVar(&excludeCoreToolsFlag, "exclude-core-tools", nil, "comma-separated list of core tools to exclude")
+	// The shell tool runs one command string through this shell. The value is
+	// the shell plus its own leading arguments. Empty leaves the built-in
+	// default, which is bash.
+	rootCmd.PersistentFlags().
+		StringVar(&shellFlag, "shell", "", `shell the shell tool runs commands through, e.g. "/bin/dash" or "busybox ash" (default "bash")`)
 	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 
@@ -456,6 +471,7 @@ func init() {
 	_ = viper.BindPFlag("no-core-tools", rootCmd.PersistentFlags().Lookup("no-core-tools"))
 	_ = viper.BindPFlag("include-core-tools", rootCmd.PersistentFlags().Lookup("include-core-tools"))
 	_ = viper.BindPFlag("exclude-core-tools", rootCmd.PersistentFlags().Lookup("exclude-core-tools"))
+	_ = viper.BindPFlag("shell", rootCmd.PersistentFlags().Lookup("shell"))
 	_ = viper.BindPFlag("extension", rootCmd.PersistentFlags().Lookup("extension"))
 	_ = viper.BindPFlag("prompt-template", rootCmd.PersistentFlags().Lookup("prompt-template"))
 	_ = viper.BindPFlag("no-prompt-templates", rootCmd.PersistentFlags().Lookup("no-prompt-templates"))
@@ -1899,6 +1915,7 @@ func runInteractiveModeBubbleTea(_ context.Context, deps runModeDeps) error {
 		ProviderName:             deps.providerName,
 		LoadingMessage:           deps.loadingMessage,
 		Cwd:                      cwd,
+		Shell:                    viper.GetStringSlice("shell"),
 		Width:                    termWidth,
 		Height:                   termHeight,
 		ServerNames:              deps.serverNames,
