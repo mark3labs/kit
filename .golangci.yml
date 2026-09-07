@@ -3,6 +3,16 @@ version: "2"
 linters:
   enable:
     - modernize
+    # staticcheck and unused catch bugs and dead code that went undetected
+    # for months when only modernize was enabled (see issue #123). Both run
+    # through the golangci-lint binary pinned in .github/workflows/ci.yml,
+    # so they do not depend on whatever staticcheck build is on a
+    # developer's PATH.
+    - staticcheck
+    # unused (U1000) flags unexported symbols only. It does NOT flag
+    # exported symbols in internal/ packages — dead exported code there
+    # must be found by periodic manual review or a cross-reference sweep.
+    - unused
 
 formatters:
   enable:

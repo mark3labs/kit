@@ -33,6 +33,25 @@ jobs:
           # than the targeted Go version".
           version: v2.13.1
 
+  # Advisory only: staticcheck with ALL checks enabled (default excludes the
+  # stylistic ST* family). Findings here do not block merges; the blocking
+  # staticcheck/unused checks run through golangci-lint in the lint job.
+  # Pinned via go run so it never depends on a stale binary on PATH
+  # (see issue #123).
+  staticcheck-advisory:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 -checks=all ./...
+
   test:
     runs-on: ubuntu-latest
     steps:
