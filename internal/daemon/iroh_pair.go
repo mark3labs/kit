@@ -102,9 +102,14 @@ func (w *pairWindow) isPaired() bool {
 // decide answers a pending pairing attempt. corr is the 8-byte correlation
 // key (first bytes of the client nonce) echoed from the request frame. An
 // accept carries the daemon's stable endpoint id for the client to store.
-func (w *pairWindow) decide(corr []byte, allow bool, reason, hostEndpointID string) {
+//
+// The return value reports whether a LIVE attempt took the verdict. False
+// means the attempt is gone — its decision window timed out, or the client
+// disconnected — and the verdict went nowhere; the caller must not treat
+// the pairing as delivered.
+func (w *pairWindow) decide(corr []byte, allow bool, reason, hostEndpointID string) bool {
 	if len(corr) < 8 {
-		return
+		return false
 	}
 	v := pairVerdict{allow: allow, reason: reason}
 	if allow {
@@ -118,11 +123,14 @@ func (w *pairWindow) decide(corr []byte, allow bool, reason, hostEndpointID stri
 	w.mu.Lock()
 	ch := w.pending[[8]byte(corr[:8])]
 	w.mu.Unlock()
-	if ch != nil {
-		select {
-		case ch <- v:
-		default:
-		}
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- v:
+		return true
+	default:
+		return false
 	}
 }
 

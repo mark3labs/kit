@@ -148,11 +148,17 @@ func TestAllowlistAuthorizeLookupRevoke(t *testing.T) {
 	isolateConfig(t)
 	pub1 := "aabb" + "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"[4:]
 	pub2 := "ccdd" + "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"[4:]
-	fp1, err := AuthorizeClient(pub1)
+	fp1, created, err := AuthorizeClient(pub1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AuthorizeClient(pub2); err != nil {
+	if !created {
+		t.Fatal("first authorize must report a created entry")
+	}
+	if _, again, err := AuthorizeClient(pub1); err != nil || again {
+		t.Fatalf("re-authorize must refresh, not create: created=%v err=%v", again, err)
+	}
+	if _, _, err := AuthorizeClient(pub2); err != nil {
 		t.Fatal(err)
 	}
 	entry, ok, err := LookupClient(fp1)

@@ -216,7 +216,10 @@ func ListHostSessions(ctx context.Context, name string, timeout time.Duration) (
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	// Teardown is detached from the deadline-bound query path: Close says
+	// BYE (a short pause) and shuts the endpoint down, and neither must
+	// stretch a picker that is already done waiting.
+	defer func() { go conn.Close() }()
 
 	cc := newClientConn(conn)
 	go cc.readLoop()

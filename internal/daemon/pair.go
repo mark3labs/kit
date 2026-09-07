@@ -127,23 +127,60 @@ func RunPairWindow(ctx context.Context, opts PairWindowOptions) error {
 			tun.decide(corr, false, "", hostEndpointID)
 			continue
 		}
-		if _, err := AuthorizeClient(hex.EncodeToString(clientPub)); err != nil {
+		// The allowlist write comes first so the entry exists before the
+		// client can possibly dial — but it only sticks if the verdict
+		// reaches the client. Every undelivered path below rolls a NEWLY
+		// created entry back (an already-known client keeps its working
+		// pairing) and leaves the window open for another attempt.
+		_, createdEntry, err := AuthorizeClient(hex.EncodeToString(clientPub))
+		if err != nil {
 			log.Error("daemon: authorize failed", "error", err)
 			tun.decide(corr, false, "host error", hostEndpointID)
 			continue
 		}
-		tun.decide(corr, true, "", hostEndpointID)
-		fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
-		fmt.Println()
+		if !tun.decide(corr, true, "", hostEndpointID) {
+			// The attempt is gone: its decision window timed out or the
+			// client disconnected while the operator was thinking.
+			rollbackPairing(createdEntry, fp)
+			fmt.Println("  The client gave up before the answer arrived. The code stays valid — ask it to try again.")
+			continue
+		}
 		// One successful pairing burns the code; end the window. The
 		// transport holds the stream open while the client drains the
-		// confirmation, so wait for that delivery before tearing down.
+		// confirmation and closes tun.paired only after that delivery, so
+		// success is only reported once it fires.
 		select {
 		case <-tun.paired:
-		case <-time.After(10 * time.Second):
+			fmt.Println("  Client paired. It can now connect with: kit remote --host <name>")
+			fmt.Println()
+			return nil
+		case <-time.After(15 * time.Second):
+			// The verdict was taken but the confirmation never went out
+			// (the write stalled or the connection died mid-delivery).
+			rollbackPairing(createdEntry, fp)
+			fmt.Println("  The pairing confirmation could not be delivered. The code stays valid — ask the client to try again.")
+			continue
 		case <-pctx.Done():
+			// The window expired mid-delivery. Keep the authorization: the
+			// human approved this key, and if the client did receive the
+			// confirmation, revoking it now would orphan a good pairing.
+			// If it did not, it simply pairs again with a fresh code.
+			fmt.Println("  Pairing window closed.")
+			return nil
 		}
-		return nil
+	}
+}
+
+// rollbackPairing removes an allowlist entry that this window created but
+// could not confirm to the client. Entries that existed before the attempt
+// are kept: the client behind them already holds a working pairing, and
+// AuthorizeClient only refreshed its LastSeen.
+func rollbackPairing(created bool, fp string) {
+	if !created {
+		return
+	}
+	if _, err := RevokeClient(fp); err != nil {
+		log.Warn("daemon: pairing rollback failed", "fp", fp, "error", err)
 	}
 }
 

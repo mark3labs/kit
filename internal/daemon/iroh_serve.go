@@ -70,6 +70,13 @@ func (l *remoteListener) run(ctx context.Context) {
 	for {
 		conn, err := l.h.ep.Accept(ctx)
 		if err != nil {
+			// The endpoint swallows per-connection handshake failures
+			// itself, so an error here ends the loop. A cancelled ctx is
+			// the normal shutdown; anything else means remote sessions
+			// stopped and must not do so silently.
+			if ctx.Err() == nil {
+				log.Warn("daemon: remote accept loop stopped", "error", err)
+			}
 			return
 		}
 		l.mu.Lock()
