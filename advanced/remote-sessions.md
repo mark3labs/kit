@@ -50,8 +50,8 @@ rendering, and session persistence all run on the daemon host.
 
 ## Requirements
 
-- Both machines run a recent `kit` build (the transport sidecar is embedded
-  in release binaries; source builds need `task tunnel` once).
+- Both machines run a recent `kit` build. The iroh transport is part of
+  the single `kit` binary — no extra components.
 - Outbound internet access for iroh discovery and, when a direct path cannot
   be punched, the n0 relay fleet.
 
@@ -79,9 +79,7 @@ rendering, and session persistence all run on the daemon host.
 it talks to a daemon on this machine over a Unix socket in
 `$XDG_RUNTIME_DIR/kit/`, and starts one if none is running. The socket is
 `0600` inside a `0700` directory and every connection's peer uid is
-checked, so only your own processes can reach it. No sidecar is needed —
-a machine with no `kit-tunnel` build still runs local sessions, it just
-cannot host remote ones.
+checked, so only your own processes can reach it.
 
 The picker it opens is **not** limited to this machine: it lists the local
 daemon's sessions followed by those on every paired host, each group under
@@ -121,10 +119,9 @@ Kit makes that boundary predictable rather than leaving it to chance:
   so systemd signals the daemon rather than every session at once.
 - On a hard crash (`SIGKILL`, a panic, the OOM killer) the kernel kills
   each session child immediately, through the parent-death signal armed
-  when it was spawned. The `kit-tunnel` sidecar carries the same signal,
-  so a crashed daemon can never leave a process serving its iroh endpoint
-  behind — the next daemon would otherwise share its node id with a
-  ghost.
+  when it was spawned. The iroh endpoint dies with the daemon process
+  itself, so a crashed daemon can never leave anything serving its
+  endpoint behind.
 - On the next start, the daemon sweeps any session recorded by a previous
   run that is somehow still alive, and clears its scratch files.
 
