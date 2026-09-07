@@ -790,18 +790,13 @@ func (r *Runner) GetUIVisibility() *UIVisibility {
 // Tool renderer management
 // ---------------------------------------------------------------------------
 
-// GetToolRenderer returns the custom renderer for the named tool, or nil if
-// no extension registered a renderer for it. If multiple extensions register
-// renderers for the same tool, the last one (by load order) wins. Thread-safe
-// (extensions are immutable after loading).
-// hasCustomTool reports whether a loaded extension registered a tool of its
-// own under this name. The earlier-name compatibility stands down when one
+// hasCustomToolIn reports whether one of these extensions registered a tool of
+// its own under this name. The earlier-name compatibility stands down when one
 // does, because the name then belongs to that tool rather than to the core
-// shell tool. It takes no lock of its own: SetActiveTools calls it while
-// holding r.mu, and the read of r.extensions follows the convention of the
-// other readers in this file.
-func (r *Runner) hasCustomTool(name string) bool {
-	for _, ext := range r.extensions {
+// shell tool. It operates on a snapshot of r.extensions; the caller takes it
+// under r.mu, as Reload swaps the slice under the write lock.
+func hasCustomToolIn(exts []LoadedExtension, name string) bool {
+	for _, ext := range exts {
 		for _, tool := range ext.Tools {
 			if tool.Name == name {
 				return true
@@ -811,17 +806,27 @@ func (r *Runner) hasCustomTool(name string) bool {
 	return false
 }
 
-// shadowsShellToolName reports whether an extension registered a tool under
-// either name of the core shell tool. The names are then ambiguous, so the
-// earlier-name fallback stands down rather than guess.
-func (r *Runner) shadowsShellToolName() bool {
-	return r.hasCustomTool(core.LegacyShellToolName) || r.hasCustomTool(core.ShellToolName)
+// shadowsShellToolNameIn reports whether one of these extensions registered a
+// tool under either name of the core shell tool. The names are then ambiguous,
+// so the earlier-name fallback stands down rather than guess.
+func shadowsShellToolNameIn(exts []LoadedExtension) bool {
+	return hasCustomToolIn(exts, core.LegacyShellToolName) || hasCustomToolIn(exts, core.ShellToolName)
 }
 
+// GetToolRenderer returns the custom renderer for the named tool, or nil when
+// no extension registered one. If several extensions register renderers for
+// the same tool, the last one by load order wins.
 func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
+	// Snapshot under the read lock: Reload swaps r.extensions under the
+	// write lock, and this can run on the UI goroutine while the watcher
+	// reloads.
+	r.mu.RLock()
+	exts := r.extensions
+	r.mu.RUnlock()
+
 	// A renderer that names the tool as written wins, so a custom tool that
 	// really is named "bash" keeps its own renderer whatever the load order.
-	if renderer := r.findToolRenderer(func(name string) bool {
+	if renderer := findToolRendererIn(exts, func(name string) bool {
 		return name == toolName
 	}); renderer != nil {
 		return renderer
@@ -832,19 +837,19 @@ func (r *Runner) GetToolRenderer(toolName string) *ToolRenderConfig {
 	// with its renderer. This applies to the core tool only, so an extension
 	// that registers a tool of its own under either name keeps its renderer
 	// to itself and leaves the core tool with the default rendering.
-	if r.shadowsShellToolName() {
+	if shadowsShellToolNameIn(exts) {
 		return nil
 	}
 	normalized := core.NormalizeCoreToolName(toolName)
-	return r.findToolRenderer(func(name string) bool {
+	return findToolRendererIn(exts, func(name string) bool {
 		return core.NormalizeCoreToolName(name) == normalized
 	})
 }
 
-// findToolRenderer returns the first renderer whose tool name satisfies match,
-// walking extensions in reverse so the last registered one wins.
-func (r *Runner) findToolRenderer(match func(string) bool) *ToolRenderConfig {
-	for _, ext := range slices.Backward(r.extensions) {
+// findToolRendererIn returns the first renderer whose tool name satisfies
+// match, walking extensions in reverse so the last registered one wins.
+func findToolRendererIn(exts []LoadedExtension, match func(string) bool) *ToolRenderConfig {
+	for _, ext := range slices.Backward(exts) {
 		for _, renderer := range slices.Backward(ext.ToolRenderers) {
 			if match(renderer.ToolName) {
 				return &renderer
@@ -1149,7 +1154,7 @@ func (r *Runner) SetActiveTools(names []string) {
 	// alias applies to the core tool only: when an extension registers a
 	// tool of its own under the earlier name, that name selects that tool
 	// and nothing else, so a restriction never admits more than it names.
-	aliasCoreTool := !r.shadowsShellToolName()
+	aliasCoreTool := !shadowsShellToolNameIn(r.extensions)
 	for _, n := range names {
 		active[n] = true
 		if aliasCoreTool {
