@@ -124,10 +124,8 @@ func normalizeShell(shell []string) []string {
 // A PATH lookup failure is not an error. The unresolved name is returned and
 // the failure surfaces through the ordinary execution error path.
 func resolveShell(shell []string) (shellResolution, error) {
-	for _, a := range shell {
-		if a == "" {
-			return shellResolution{}, errEmptyShellElement
-		}
+	if slices.Contains(shell, "") {
+		return shellResolution{}, errEmptyShellElement
 	}
 	argv := normalizeShell(shell)
 
