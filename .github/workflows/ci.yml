@@ -40,7 +40,6 @@ jobs:
   # (see issue #123).
   staticcheck-advisory:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +49,10 @@ jobs:
         with:
           go-version: "1.27"
 
+      # Only the staticcheck step is advisory; checkout and Go setup
+      # failures must still fail the job.
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 -checks=all ./...
+        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest
