@@ -7,7 +7,7 @@
 <meta name="description" content="Configure Kit using config files, environment variables, and CLI flags.">
 <link rel="canonical" href="/configuration">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-dCT5NotU.js"></script>
+<script type="module" src="/assets/index-DWzYU0mM.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -135,6 +135,10 @@ mcpServers:
 | `tasksMode` | string | When to augment `tools/call` with MCP task metadata: `auto` (default — only when the server advertises task support), `never`, or `always`. See [MCP tasks](#mcp-tasks-long-running-tools). |
 
 A legacy format with `transport`, `args`, and `env` fields is also supported; `headers` works in both the current and legacy formats.
+
+For a one-off server without a config file, pass `--mcp 'name=command args...'`
+or `--mcp 'name=https://...'` on the command line. See
+[CLI flags](/cli/flags#one-off-mcp-servers).
 
 ### MCP tasks (long-running tools)
 

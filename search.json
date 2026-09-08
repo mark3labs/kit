@@ -123,13 +123,14 @@
         "Behavior",
         "Context",
         "Tools",
+        "One-off MCP servers",
         "Extensions",
         "Skills",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 1035
+      "wordCount": 1180
     },
     {
       "id": "configuration",
@@ -154,7 +155,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1942
+      "wordCount": 1964
     },
     {
       "id": "development",
