@@ -73,6 +73,7 @@ var (
 	includeCoreToolsFlag []string
 	excludeCoreToolsFlag []string
 	extensionPaths       []string
+	mcpFlags             []string
 
 	// Shell tool
 	shellFlag string
@@ -397,6 +398,9 @@ func init() {
 		StringVar(&shellFlag, "shell", "", `shell the shell tool runs commands through, e.g. "/bin/dash" or "busybox ash" (default "bash")`)
 	rootCmd.PersistentFlags().
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
+	// StringArray (not StringSlice) so a command line with commas stays one value.
+	rootCmd.PersistentFlags().
+		StringArrayVar(&mcpFlags, "mcp", nil, `add an MCP server for this run (repeatable): "name=command args..." for stdio or "name=https://..." for remote`)
 
 	// Skills flags
 	rootCmd.PersistentFlags().
@@ -991,6 +995,9 @@ func runNormalMode(ctx context.Context) error {
 	mcpConfig, err := config.LoadAndValidateConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load MCP config: %v", err)
+	}
+	if err := applyMCPFlags(mcpConfig, mcpFlags); err != nil {
+		return err
 	}
 
 	// appInstancePtr is used to break the circular dependency between

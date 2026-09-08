@@ -92,6 +92,26 @@ self-defeating.
 | `--no-core-tools` | — | `false` | Disable all built-in core tools |
 | `--include-core-tools` | — | — | Comma-separated list of core tools to include (mutually exclusive with `--exclude-core-tools`) |
 | `--exclude-core-tools` | — | — | Comma-separated list of core tools to exclude (mutually exclusive with `--include-core-tools`) |
+| `--mcp` | — | — | Add an MCP server for this run (repeatable). `name=command args...` starts a local stdio server; `name=https://...` connects to a remote server |
+
+### One-off MCP servers
+
+`--mcp` adds a server without a config file. Each value is `name=spec`. When
+`spec` starts with `http://` or `https://` Kit connects to a remote server;
+otherwise `spec` is a command line for a local stdio server. Quotes and
+backslashes group arguments the way a shell does, so an argument can contain
+spaces.
+
+```bash
+kit --mcp 'browser=lightpanda mcp' "open example.com and read the title"
+kit --mcp 'docs=https://mcp.example.com/mcp' "..."
+kit --mcp 'fs=npx -y @modelcontextprotocol/server-filesystem "/my dir"' \
+    --mcp 'browser=lightpanda mcp' "..."
+```
+
+A flag server with the same name as a `mcpServers` entry in `.kit.yml`
+replaces that entry for the run. For `environment`, `allowedTools`, `headers`
+and the other per-server fields, use the [config file](/configuration#mcp-server-configuration).
 
 ## Extensions
 
