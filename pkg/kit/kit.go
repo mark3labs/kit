@@ -779,6 +779,7 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		ThinkingLevel:  thinkingLevel,
 		DisableCaching: false, // Caching enabled by default, works with thinking
 		ConfigStore:    m.v,
+		SessionIDFunc:  m.GetSessionID,
 	}
 
 	// Only set generation parameter pointers when the user has explicitly
@@ -1011,6 +1012,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			ModelString:   req.Model,
 			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
 			ConfigStore:   m.v,
+			SessionIDFunc: m.GetSessionID,
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
@@ -2004,6 +2006,13 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		prepareStep:           prepareStep,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
+
+	// Late-bind the session ID supplier onto the provider config. The agent
+	// (and its HTTP transport) already hold this same ProviderConfig pointer,
+	// and the transport reads SessionIDFunc per request — so binding here,
+	// after the Kit instance exists, is picked up by every subsequent LLM
+	// call (e.g. the x-opencode-session header for opencode providers).
+	providerConfig.SessionIDFunc = k.GetSessionID
 
 	// Ensure the agent's extra-tool list reflects the current extension tools
 	// plus the runtime native tools captured above.

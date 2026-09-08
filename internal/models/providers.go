@@ -209,6 +209,15 @@ type ProviderConfig struct {
 	// must be closed when done. When nil, the raw reader is consumed directly
 	// with no progress UI.
 	ProgressReaderFunc func(io.Reader) io.ReadCloser
+
+	// SessionIDFunc, when set, returns the identifier of the active
+	// conversation session. It is called per HTTP request (not at provider
+	// creation), so a session that starts or changes after the provider is
+	// built is reflected immediately. Currently used to send the
+	// x-opencode-session header to the opencode / opencode-go providers,
+	// which use it for request routing and prompt caching. When nil, or when
+	// it returns "", a stable per-process fallback ID is sent instead.
+	SessionIDFunc func() string
 }
 
 // ProviderResult contains the result of provider creation.
@@ -587,14 +596,16 @@ func withDefaultHeaders(client *http.Client, headers map[string]string) *http.Cl
 }
 
 // autoRouteHTTPClient builds the HTTP client for an auto-routed provider,
-// combining TLS verification config with the provider's default headers.
+// combining TLS verification config with the provider's default headers and
+// provider-specific dynamic headers (e.g. the opencode session header).
 // Returns nil when no customization is needed (callers use the SDK default).
 func autoRouteHTTPClient(config *ProviderConfig, info *ProviderInfo) *http.Client {
 	var client *http.Client
 	if config.TLSSkipVerify {
 		client = createHTTPClientWithTLSConfig(true)
 	}
-	return withDefaultHeaders(client, info.Headers)
+	client = withDefaultHeaders(client, info.Headers)
+	return withOpencodeSessionHeader(client, config, info)
 }
 
 // createAutoRoutedOpenAICompatProvider creates an openaicompat provider using
@@ -749,6 +760,7 @@ func createAutoRoutedGoogleProvider(ctx context.Context, config *ProviderConfig,
 		httpClient = createHTTPClientWithTLSConfig(true)
 	}
 	httpClient = withDefaultHeaders(httpClient, info.Headers)
+	httpClient = withOpencodeSessionHeader(httpClient, config, info)
 	if httpClient != nil {
 		opts = append(opts, google.WithHTTPClient(httpClient))
 	}
