@@ -827,18 +827,29 @@ func (m *MCPToolManager) CancelServerTask(ctx context.Context, serverName, taskI
 	return taskFromMCP(serverName, res.Task), nil
 }
 
+// serverClient returns the MCP client for a named server. It centralises the
+// two guard conditions every per-server RPC (prompts, resources, tasks,
+// subscriptions) must check: the manager has a connection pool, and the pool
+// currently holds a connection for serverName.
+func (m *MCPToolManager) serverClient(serverName string) (client.MCPClient, error) {
+	if m.connectionPool == nil {
+		return nil, fmt.Errorf("no connection pool available")
+	}
+	mcpClient, ok := m.connectionPool.GetClients()[serverName]
+	if !ok {
+		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	}
+	return mcpClient, nil
+}
+
 // taskClient returns the *client.Client for a server. Tasks endpoints are
 // not part of the upstream MCPClient interface so callers must work with
 // the concrete client. Returns an error when the connection is missing
 // or backed by a non-standard client type.
 func (m *MCPToolManager) taskClient(serverName string) (*client.Client, error) {
-	if m.connectionPool == nil {
-		return nil, fmt.Errorf("no connection pool available")
-	}
-	clients := m.connectionPool.GetClients()
-	raw, ok := clients[serverName]
-	if !ok {
-		return nil, fmt.Errorf("MCP server %q not loaded", serverName)
+	raw, err := m.serverClient(serverName)
+	if err != nil {
+		return nil, err
 	}
 	c, ok := raw.(*client.Client)
 	if !ok {
@@ -867,14 +878,9 @@ func (m *MCPToolManager) GetPrompts() []MCPPrompt {
 // name on that server, and args are the template arguments to substitute.
 // This call is lazy — it contacts the MCP server on each invocation.
 func (m *MCPToolManager) GetPrompt(ctx context.Context, serverName, promptName string, args map[string]string) (*MCPPromptResult, error) {
-	if m.connectionPool == nil {
-		return nil, fmt.Errorf("no connection pool available")
-	}
-
-	clients := m.connectionPool.GetClients()
-	mcpClient, ok := clients[serverName]
-	if !ok {
-		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	mcpClient, err := m.serverClient(serverName)
+	if err != nil {
+		return nil, err
 	}
 
 	req := mcp.GetPromptRequest{}
@@ -1093,14 +1099,9 @@ func (m *MCPToolManager) GetResources() []MCPResource {
 // ReadResource reads a specific resource from an MCP server by URI.
 // Returns the resource content (text or binary blob).
 func (m *MCPToolManager) ReadResource(ctx context.Context, serverName, uri string) (*MCPResourceContent, error) {
-	if m.connectionPool == nil {
-		return nil, fmt.Errorf("no connection pool available")
-	}
-
-	clients := m.connectionPool.GetClients()
-	mcpClient, ok := clients[serverName]
-	if !ok {
-		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	mcpClient, err := m.serverClient(serverName)
+	if err != nil {
+		return nil, err
 	}
 
 	req := mcp.ReadResourceRequest{}
@@ -1167,14 +1168,9 @@ func (m *MCPToolManager) ReadResource(ctx context.Context, serverName, uri strin
 
 // SubscribeResource subscribes to change notifications for a resource.
 func (m *MCPToolManager) SubscribeResource(ctx context.Context, serverName, uri string) error {
-	if m.connectionPool == nil {
-		return fmt.Errorf("no connection pool available")
-	}
-
-	clients := m.connectionPool.GetClients()
-	mcpClient, ok := clients[serverName]
-	if !ok {
-		return fmt.Errorf("MCP server %q not found", serverName)
+	mcpClient, err := m.serverClient(serverName)
+	if err != nil {
+		return err
 	}
 
 	req := mcp.SubscribeRequest{}
@@ -1193,14 +1189,9 @@ func (m *MCPToolManager) SubscribeResource(ctx context.Context, serverName, uri 
 
 // UnsubscribeResource cancels change notifications for a resource.
 func (m *MCPToolManager) UnsubscribeResource(ctx context.Context, serverName, uri string) error {
-	if m.connectionPool == nil {
-		return fmt.Errorf("no connection pool available")
-	}
-
-	clients := m.connectionPool.GetClients()
-	mcpClient, ok := clients[serverName]
-	if !ok {
-		return fmt.Errorf("MCP server %q not found", serverName)
+	mcpClient, err := m.serverClient(serverName)
+	if err != nil {
+		return err
 	}
 
 	req := mcp.UnsubscribeRequest{}

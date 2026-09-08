@@ -40,16 +40,6 @@ func ExtensionToolsAsLLMTools(defs []ToolDef, runner *Runner) []fantasy.AgentToo
 	return tools
 }
 
-// parseToolArgsJSON attempts to parse JSON-encoded tool args into a map.
-// Returns nil on failure (non-fatal convenience parsing).
-func parseToolArgsJSON(input string) map[string]any {
-	var parsed map[string]any
-	if json.Unmarshal([]byte(input), &parsed) == nil {
-		return parsed
-	}
-	return nil
-}
-
 // ---------------------------------------------------------------------------
 // wrappedTool — intercepts tool calls through the extension runner
 // ---------------------------------------------------------------------------
@@ -81,7 +71,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			ToolCallID: call.ID,
 			ToolKind:   kind,
 			Input:      call.Input,
-			ParsedArgs: parseToolArgsJSON(call.Input),
+			ParsedArgs: ParseToolArgs(call.Input),
 			Source:     "llm",
 		})
 		if r, ok := result.(ToolCallResult); ok && r.Block {

@@ -102,7 +102,7 @@ func (m *Kit) GetSessionID() string {
 // a branch point. Subsequent Prompt() calls will extend from the new position.
 func (m *Kit) Branch(entryID string) error {
 	if m.session == nil {
-		return fmt.Errorf("no session available")
+		return ErrNoSession
 	}
 	return m.session.Branch(entryID)
 }
@@ -110,7 +110,7 @@ func (m *Kit) Branch(entryID string) error {
 // SetSessionName sets a user-defined display name for the active session.
 func (m *Kit) SetSessionName(name string) error {
 	if m.session == nil {
-		return fmt.Errorf("session naming requires a session")
+		return ErrNoSession
 	}
 	return m.session.SetSessionName(name)
 }
@@ -160,7 +160,7 @@ func (m *Kit) GetChildren(parentID string) []string {
 // Returns an error if the session is unavailable or the entry ID is not found.
 func (m *Kit) NavigateTo(entryID string) error {
 	if m.session == nil {
-		return fmt.Errorf("no session available")
+		return ErrNoSession
 	}
 	return m.session.Branch(entryID)
 }
@@ -170,7 +170,7 @@ func (m *Kit) NavigateTo(entryID string) error {
 // the session is unavailable, or the LLM call fails.
 func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 	if m.session == nil {
-		return "", fmt.Errorf("no session available")
+		return "", ErrNoSession
 	}
 
 	// Get the branch and find the range
@@ -226,7 +226,7 @@ func (m *Kit) SummarizeBranch(fromID, toID string) (string, error) {
 // compatibility.
 func (m *Kit) CollapseBranch(fromID, toID, summary string) error {
 	if m.session == nil {
-		return fmt.Errorf("no session available")
+		return ErrNoSession
 	}
 	_, err := m.session.AppendBranchSummary(fromID, summary)
 	return err

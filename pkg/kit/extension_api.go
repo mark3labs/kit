@@ -1,7 +1,6 @@
 package kit
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -427,7 +426,7 @@ func (e *extensionAPI) GetSessionMessages() []ExtensionSessionMessage {
 
 func (e *extensionAPI) AppendEntry(extType, data string) (string, error) {
 	if e.kit.session == nil {
-		return "", fmt.Errorf("no session available")
+		return "", ErrNoSession
 	}
 	return e.kit.session.AppendExtensionData(extType, data)
 }

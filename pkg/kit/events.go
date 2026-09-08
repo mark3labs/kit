@@ -1,7 +1,6 @@
 package kit
 
 import (
-	"encoding/json"
 	"sync"
 
 	"github.com/mark3labs/kit/internal/extensions"
@@ -120,16 +119,6 @@ const (
 // ToolKindExecute for unknown tools.
 func toolKindFor(toolName string) string {
 	return extensions.ToolKindFor(toolName)
-}
-
-// parseToolArgs attempts to parse a JSON-encoded tool args string into a map.
-// Returns nil on failure (non-fatal convenience parsing).
-func parseToolArgs(toolArgs string) map[string]any {
-	var parsed map[string]any
-	if json.Unmarshal([]byte(toolArgs), &parsed) == nil {
-		return parsed
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------

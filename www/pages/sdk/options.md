@@ -501,8 +501,6 @@ host, _ := kit.New(ctx, &kit.Options{CoreToolList: list})
 ```
 
 `DisableCoreTools: true` is the chat-only shortcut for an empty core set.
-`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer
-`FilterCoreToolNames`, which does not expose the configuration library.
 
 Create custom tools with `kit.NewTool` — no external dependencies needed:
 

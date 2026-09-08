@@ -476,15 +476,6 @@ func FilterCoreToolNames(includeTools, excludeTools []string) ([]string, error) 
 	return coreToolList, nil
 }
 
-// CoreToolFilterHelper reads the include-core-tools/exclude-core-tools keys
-// from a configuration store and resolves the effective core tool list.
-//
-// Deprecated: Use FilterCoreToolNames instead, which takes the include and
-// exclude lists directly and does not expose the configuration library.
-func CoreToolFilterHelper(v *viper.Viper) ([]string, error) {
-	return FilterCoreToolNames(v.GetStringSlice("include-core-tools"), v.GetStringSlice("exclude-core-tools"))
-}
-
 // normalizeCoreToolNames maps user-supplied core tool names onto registry keys
 // and removes duplicates, so that naming the shell tool both ways selects it
 // once rather than registering it twice.

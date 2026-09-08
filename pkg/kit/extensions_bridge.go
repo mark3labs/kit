@@ -22,6 +22,22 @@ import (
 // wrapper (internal/extensions/wrapper.go) which composes underneath the SDK
 // hook wrapper.
 func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
+	// Registration order is preserved from the original monolithic
+	// implementation: the turn aggregator subscribes first so it observes
+	// TurnStart/ToolResult/StepFinish before any forwarding subscriber runs.
+	turnAgg := m.bridgeTurnAggregator()
+	m.bridgeInterceptionHooks(runner)
+	m.bridgeMessageEvents(runner)
+	m.bridgeAgentEnd(runner, turnAgg)
+	m.bridgeSubagentEvents(runner)
+	m.bridgeContextHooks(runner)
+	m.bridgeStepEvents(runner)
+	m.bridgePrepareStepHook(runner)
+}
+
+// bridgeTurnAggregator installs the per-turn aggregator subscription and
+// returns the aggregator so bridgeAgentEnd can consume it.
+func (m *Kit) bridgeTurnAggregator() *turnAggregator {
 	// Per-turn aggregator: collects tool/LLM/usage signals between AgentStart
 	// and AgentEnd so the enriched AgentEndEvent can be populated without
 	// requiring extensions to maintain parallel bookkeeping.
@@ -45,9 +61,12 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			turnAgg.recordStep(ev.Usage)
 		}
 	})
+	return turnAgg
+}
 
-	// --- Interception hooks ---
-
+// bridgeInterceptionHooks wires extension Input and BeforeAgentStart handlers
+// into the SDK BeforeTurn hook chain.
+func (m *Kit) bridgeInterceptionHooks(runner *extensions.Runner) {
 	// Extension Input → BeforeTurn hook (high priority, runs first).
 	// An Input handler with Action="transform" replaces the prompt text.
 	if runner.HasHandlers(extensions.Input) {
@@ -76,8 +95,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			return nil
 		})
 	}
+}
 
-	// --- Observation event forwarding ---
+// bridgeMessageEvents forwards turn-start, message streaming, tool output and
+// tool-call-input streaming events to the extension runner (observation only).
+func (m *Kit) bridgeMessageEvents(runner *extensions.Runner) {
 	// Subscribe to SDK events and forward to extension runner so extensions
 	// see lifecycle events from the SDK's runTurn()/generate() path.
 
@@ -126,7 +148,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			ToolCallID: ev.ToolCallID,
 		}
 	})
+}
 
+// bridgeAgentEnd emits the enriched AgentEndEvent on TurnEnd, populated from
+// the per-turn aggregator.
+func (m *Kit) bridgeAgentEnd(runner *extensions.Runner, turnAgg *turnAggregator) {
 	if runner.HasHandlers(extensions.AgentEnd) {
 		m.Subscribe(func(e Event) {
 			if ev, ok := e.(TurnEndEvent); ok {
@@ -153,8 +179,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			}
 		})
 	}
+}
 
-	// --- Subagent lifecycle events ---
+// bridgeSubagentEvents forwards the SDK's per-subagent event stream to
+// extensions that register SubagentStart/Chunk/End handlers.
+func (m *Kit) bridgeSubagentEvents(runner *extensions.Runner) {
 	// When an extension registers OnSubagentStart/Chunk/End handlers, bridge
 	// the SDK's per-subagent event stream (SubscribeSubagent) into the
 	// extension runner.
@@ -278,8 +307,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			})
 		}
 	}
+}
 
-	// --- Context filtering hook ---
+// bridgeContextHooks wires the ContextPrepare and BeforeCompact extension
+// handlers into the matching SDK hook chains.
+func (m *Kit) bridgeContextHooks(runner *extensions.Runner) {
 	// Extension ContextPrepare → SDK ContextPrepare hook.
 	if runner.HasHandlers(extensions.ContextPrepare) {
 		m.OnContextPrepare(HookPriorityNormal, func(h ContextPrepareHook) *ContextPrepareResult {
@@ -293,7 +325,6 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 		})
 	}
 
-	// --- Compaction hook ---
 	// Extension BeforeCompact → SDK BeforeCompact hook.
 	if runner.HasHandlers(extensions.BeforeCompact) {
 		m.OnBeforeCompact(HookPriorityNormal, func(h BeforeCompactHook) *BeforeCompactResult {
@@ -320,9 +351,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			return nil
 		})
 	}
+}
 
-	// --- Step lifecycle observation events ---
-
+// bridgeStepEvents forwards step lifecycle, LLM usage, reasoning, warnings,
+// source, error and retry events to the extension runner.
+func (m *Kit) bridgeStepEvents(runner *extensions.Runner) {
 	bridgeObserve(m, runner, extensions.StepStart, func(ev StepStartEvent) extensions.Event {
 		return extensions.StepStartEvent{StepNumber: ev.StepNumber}
 	})
@@ -392,8 +425,11 @@ func (m *Kit) bridgeExtensions(runner *extensions.Runner) {
 			Error:   ev.Error.Error(),
 		}
 	})
+}
 
-	// --- PrepareStep hook ---
+// bridgePrepareStepHook wires the PrepareStep extension handler into the SDK
+// PrepareStep hook chain.
+func (m *Kit) bridgePrepareStepHook(runner *extensions.Runner) {
 	// Extension PrepareStep → SDK PrepareStep hook.
 	// Same pattern as ContextPrepare: convert LLMMessage ↔ ContextMessage.
 	if runner.HasHandlers(extensions.PrepareStep) {

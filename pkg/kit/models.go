@@ -47,6 +47,10 @@ func SuggestModels(provider, invalidModel string) []string {
 
 // RefreshModelRegistry reloads the global model database from the current
 // data sources (cache -> embedded). Call after updating the cache.
+//
+// Deprecated: This function has no callers and will be removed in a future
+// release. The registry is loaded once per process; the CLI's model-cache
+// update path reloads it internally.
 func RefreshModelRegistry() {
 	models.ReloadGlobalRegistry()
 }
@@ -54,6 +58,10 @@ func RefreshModelRegistry() {
 // CheckProviderReady validates that a provider is properly configured
 // by checking that it exists in the registry and has required environment
 // variables set.
+//
+// Deprecated: Use [GetProviderInfo] (nil means unknown provider) together
+// with [ValidateEnvironment] instead. This function has no callers and will
+// be removed in a future release.
 func CheckProviderReady(provider string) error {
 	info := models.GetGlobalRegistry().GetProviderInfo(provider)
 	if info == nil {

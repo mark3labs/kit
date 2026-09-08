@@ -399,6 +399,10 @@ func GetCurrentModelID(model string) string {
 }
 
 // JoinModel combines provider and model ID into a model string.
+//
+// Deprecated: This function has no callers and will be removed in a future
+// release. Replace it with the equivalent conditional: return modelID when
+// provider is empty, otherwise provider + "/" + modelID.
 func JoinModel(provider, modelID string) string {
 	if provider == "" {
 		return modelID
@@ -408,6 +412,10 @@ func JoinModel(provider, modelID string) string {
 
 // MatchModelGlob matches a model against a glob pattern.
 // Pattern can contain * (match any) and ? (match single).
+//
+// Deprecated: Use [EvaluateModelConditional] instead, which accepts the same
+// glob syntax as part of a model condition. This function has no callers and
+// will be removed in a future release.
 func MatchModelGlob(model, pattern string) bool {
 	return matchModelPattern(model, pattern)
 }
@@ -428,11 +436,17 @@ func ExtractModelFromPath(model string) string {
 }
 
 // IsBareModelID checks if a string is a bare model ID (no provider).
+//
+// Deprecated: Use GetCurrentProvider(model) == "" instead. This function has
+// no callers and will be removed in a future release.
 func IsBareModelID(model string) bool {
 	return !strings.Contains(model, "/")
 }
 
 // AddProviderToModel adds a provider prefix to a bare model ID.
+//
+// Deprecated: This function has no callers and will be removed in a future
+// release. Check [GetCurrentProvider] and concatenate directly.
 func AddProviderToModel(provider, model string) string {
 	if strings.Contains(model, "/") {
 		return model // Already has provider

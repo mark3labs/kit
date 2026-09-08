@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/mark3labs/kit/internal/extensions"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -38,7 +38,7 @@ const activityMaxTarget = 56
 // toolArgs is the raw JSON argument payload; malformed JSON degrades to the
 // bare tool name rather than erroring.
 func activityVerb(toolName, toolArgs string) string {
-	args := parseToolArgs(toolArgs)
+	args := extensions.ParseToolArgs(toolArgs)
 
 	// verb is the present-tense action; target is the thing being acted on.
 	// Keeping them separate lets a missing target degrade to a bare verb
@@ -84,20 +84,6 @@ func activityVerb(toolName, toolArgs string) string {
 		return toolDisplayName(toolName)
 	}
 	return verb + " " + target
-}
-
-// parseToolArgs decodes a raw JSON tool-argument payload. A nil map is
-// returned for empty or malformed input; callers treat that as "no arguments"
-// rather than as an error, because the activity row must never fail to render.
-func parseToolArgs(toolArgs string) map[string]any {
-	if strings.TrimSpace(toolArgs) == "" {
-		return nil
-	}
-	var args map[string]any
-	if err := json.Unmarshal([]byte(toolArgs), &args); err != nil {
-		return nil
-	}
-	return args
 }
 
 // argString returns the named argument as a string, or "" when absent or not

@@ -66,6 +66,10 @@ func LoadSkills(cwd string) ([]*Skill, error) {
 
 // FormatSkillsForPrompt formats skills for inclusion in a system prompt.
 // Each skill is rendered as a named section with its content.
+//
+// Deprecated: [New] composes loaded skills into the system prompt
+// automatically. This function has no callers and will be removed in a future
+// release.
 func FormatSkillsForPrompt(s []*Skill) string {
 	return skills.FormatForPrompt(s)
 }

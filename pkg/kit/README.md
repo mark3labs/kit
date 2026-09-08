@@ -442,8 +442,7 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 - `NewRawTool(name, desc, schema, fn)` - Create a schema-driven tool when the
   input shape isn't known at compile time (skill/MCP catalogs)
 - `FilterCoreToolNames(include, exclude)` - Resolve an effective core tool
-  name list from include/exclude filters (nil means "all core tools").
-  Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`
+  name list from include/exclude filters (nil means "all core tools")
 - `LoadSkillsFromFS(fsys, root)` - `fs.FS`-typed skill loader (embed.FS,
   fstest.MapFS, per-tenant virtual filesystems)
 - `ParseTemplate` / `RenderTemplate` / `ParseArguments` - Template and CLI
