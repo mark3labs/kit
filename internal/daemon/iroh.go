@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -102,6 +103,27 @@ type irohEndpoint struct {
 	pub  *iroh.PkarrPublisher // nil on dial-only endpoints
 }
 
+// quicBufferWarningEnv is read by the QUIC stack under go-iroh when it
+// binds its UDP socket: unless it is set, a kernel that refuses the 7 MiB
+// receive buffer it asks for (the Linux default rmem_max is 208 KiB) is
+// reported once on stderr through the standard logger. The larger buffer
+// only matters for bulk throughput; a remote session is keystrokes and
+// screen updates, and the socket works either way, so the line is noise
+// on 'kit remote --pair' and on every daemon start. A user who wants to
+// see it can set the variable to "false" themselves.
+const quicBufferWarningEnv = "QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING"
+
+var quietQUICBuffersOnce sync.Once
+
+// quietQUICBuffers silences the UDP buffer warning before the first bind.
+func quietQUICBuffers() {
+	quietQUICBuffersOnce.Do(func() {
+		if _, set := os.LookupEnv(quicBufferWarningEnv); !set {
+			_ = os.Setenv(quicBufferWarningEnv, "true")
+		}
+	})
+}
+
 // bindEndpoint binds an iroh endpoint with n0 production relays and DNS
 // discovery — the Go equivalent of the sidecar's presets::N0.
 //
@@ -111,6 +133,8 @@ type irohEndpoint struct {
 // address data on its own, so a watcher feeds every address change to the
 // publisher.
 func bindEndpoint(ctx context.Context, secret key.SecretKey, serving bool) (*irohEndpoint, error) {
+	quietQUICBuffers()
+
 	services := &iroh.AddressLookupServices{}
 	services.AddResolver(iroh.N0DNSAddressLookup(nil))
 

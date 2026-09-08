@@ -538,7 +538,7 @@ func chooseSession(ctx context.Context, conn *clientConn, opts AttachOptions) (S
 	if len(entries) == 0 {
 		return here(0), nil // nothing live anywhere: straight to a new session
 	}
-	return runPicker(ctx, conn, opts.Pick, entries)
+	return runPicker(ctx, conn, opts.Pick, entries, opts.Host)
 }
 
 // candidateSessions assembles everything one invocation can attach to:
@@ -565,7 +565,15 @@ func candidateSessions(ctx context.Context, local []SessionEntry, opts AttachOpt
 // The terminal is put in raw mode here rather than left to the picker: the
 // picker reads a pty slave, so its own termios setup would apply to that
 // pty instead of the user's terminal.
-func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entries []SessionEntry) (SessionChoice, error) {
+//
+// host is the daemon this client is connected to. A picker reports "start
+// a new session" as id 0 with no host, because the entry belongs to no
+// listed session; that new session is always started on this daemon, so
+// the choice is tagged with host here. Left untagged, hostSwitch would
+// read it as a switch to the host named "" — the local daemon — which
+// 'kit remote --host' cannot serve at all, and 'kit attach --host' would
+// serve by silently starting the session on the wrong machine.
+func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entries []SessionEntry, host string) (SessionChoice, error) {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -586,7 +594,11 @@ func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entrie
 	// asking the picker not to leave. The session repaints right after
 	// (runAttached sends a redraw), so an empty alt screen is never seen.
 	defer func() { _, _ = os.Stdout.WriteString(altScreenEnter) }()
-	return pick(ctx, entries, tty.File())
+	choice, err := pick(ctx, entries, tty.File())
+	if err == nil && !choice.Cancel && choice.ID == 0 && choice.Host == "" {
+		choice.Host = host
+	}
+	return choice, err
 }
 
 // RunClient drives a daemon connection for the whole client session: pick a
@@ -787,7 +799,7 @@ func resolveSwitch(ctx context.Context, conn *clientConn, opts AttachOptions, ou
 		if pick == nil {
 			return SessionChoice{}, true, nil
 		}
-		choice, err := runPicker(ctx, conn, pick, entries)
+		choice, err := runPicker(ctx, conn, pick, entries, opts.Host)
 		if err != nil {
 			return SessionChoice{}, false, err
 		}
