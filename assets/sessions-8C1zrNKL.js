@@ -65,6 +65,10 @@ which collapses a branch range into a single summary entry. Custom managers
 that don't track branch summaries can return <code>kit.ErrBranchSummaryNotSupported</code>
 from that method; <code>host.CollapseBranch</code> then surfaces the same sentinel so
 callers can detect it with <code>errors.Is</code>.</p>
+<p>When a Kit has no session manager at all, <code>host.Branch</code>, <code>host.NavigateTo</code>,
+<code>host.SummarizeBranch</code>, <code>host.CollapseBranch</code>, <code>host.SetSessionName</code> and the
+extension session API return <code>kit.ErrNoSession</code>, which is also detectable with
+<code>errors.Is</code>.</p>
 <p>When using a custom <code>SessionManager</code>, the <code>SessionPath</code>, <code>Continue</code>, and <code>NoSession</code> options are ignored — your manager handles its own storage and session selection.</p>`,headings:[{depth:2,text:`Automatic persistence`,id:`automatic-persistence`},{depth:2,text:`Accessing session info`,id:`accessing-session-info`},{depth:2,text:`Configuring sessions via Options`,id:`configuring-sessions-via-options`},{depth:2,text:`Clearing history`,id:`clearing-history`},{depth:2,text:`Tree-based sessions`,id:`tree-based-sessions`},{depth:2,text:`Listing and managing sessions`,id:`listing-and-managing-sessions`},{depth:2,text:`Custom session manager`,id:`custom-session-manager`}],raw:`
 # SDK Sessions
 
@@ -169,6 +173,11 @@ which collapses a branch range into a single summary entry. Custom managers
 that don't track branch summaries can return \`kit.ErrBranchSummaryNotSupported\`
 from that method; \`host.CollapseBranch\` then surfaces the same sentinel so
 callers can detect it with \`errors.Is\`.
+
+When a Kit has no session manager at all, \`host.Branch\`, \`host.NavigateTo\`,
+\`host.SummarizeBranch\`, \`host.CollapseBranch\`, \`host.SetSessionName\` and the
+extension session API return \`kit.ErrNoSession\`, which is also detectable with
+\`errors.Is\`.
 
 When using a custom \`SessionManager\`, the \`SessionPath\`, \`Continue\`, and \`NoSession\` options are ignored — your manager handles its own storage and session selection.
 `};export{e as default};

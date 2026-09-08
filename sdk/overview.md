@@ -479,8 +479,7 @@ for _, msg := range host.DrainSteer() {
 
 `Options.CoreToolList` accepts an explicit allow-list of core tool names. Build
 it from include/exclude filters with `FilterCoreToolNames` (nil means "all core
-tools"). Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`,
-which leaks the configuration library into the public signature.
+tools").
 
 ```go
 // Keep only read-only tools:

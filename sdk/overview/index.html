@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BhPHf78f.js"></script>
+<script type="module" src="/assets/index-CNuUlf0E.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -492,8 +492,7 @@ for _, msg := range host.DrainSteer() {
 
 `Options.CoreToolList` accepts an explicit allow-list of core tool names. Build
 it from include/exclude filters with `FilterCoreToolNames` (nil means "all core
-tools"). Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`,
-which leaks the configuration library into the public signature.
+tools").
 
 ```go
 // Keep only read-only tools:

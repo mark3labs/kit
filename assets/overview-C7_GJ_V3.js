@@ -475,8 +475,7 @@ reclaimed with <code>DrainSteer</code> after the turn ends.</p>
 <h2 id="filtering-core-tools"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#filtering-core-tools"><span class="icon icon-link"></span></a>Filtering core tools</h2>
 <p><code>Options.CoreToolList</code> accepts an explicit allow-list of core tool names. Build
 it from include/exclude filters with <code>FilterCoreToolNames</code> (nil means "all core
-tools"). Prefer this over the deprecated <code>CoreToolFilterHelper(*viper.Viper)</code>,
-which leaks the configuration library into the public signature.</p>
+tools").</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Keep only read-only tools:</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">list, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">FilterCoreToolNames</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    []</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"read"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"grep"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"find"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"ls"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// include</span></span>
@@ -1287,8 +1286,7 @@ for _, msg := range host.DrainSteer() {
 
 \`Options.CoreToolList\` accepts an explicit allow-list of core tool names. Build
 it from include/exclude filters with \`FilterCoreToolNames\` (nil means "all core
-tools"). Prefer this over the deprecated \`CoreToolFilterHelper(*viper.Viper)\`,
-which leaks the configuration library into the public signature.
+tools").
 
 \`\`\`go
 // Keep only read-only tools:

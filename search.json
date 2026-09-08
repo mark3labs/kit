@@ -434,7 +434,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3368
+      "wordCount": 3355
     },
     {
       "id": "sdk/overview",
@@ -474,7 +474,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 3936
+      "wordCount": 3921
     },
     {
       "id": "sdk/sessions",
@@ -491,7 +491,7 @@
         "Custom session manager"
       ],
       "tags": [],
-      "wordCount": 366
+      "wordCount": 393
     },
     {
       "id": "sessions",

@@ -103,4 +103,9 @@ that don't track branch summaries can return `kit.ErrBranchSummaryNotSupported`
 from that method; `host.CollapseBranch` then surfaces the same sentinel so
 callers can detect it with `errors.Is`.
 
+When a Kit has no session manager at all, `host.Branch`, `host.NavigateTo`,
+`host.SummarizeBranch`, `host.CollapseBranch`, `host.SetSessionName` and the
+extension session API return `kit.ErrNoSession`, which is also detectable with
+`errors.Is`.
+
 When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.

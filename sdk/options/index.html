@@ -7,7 +7,7 @@
 <meta name="description" content="Configuration options for the Kit Go SDK.">
 <link rel="canonical" href="/sdk/options">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BhPHf78f.js"></script>
+<script type="module" src="/assets/index-CNuUlf0E.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -510,8 +510,6 @@ host, _ := kit.New(ctx, &kit.Options{CoreToolList: list})
 ```
 
 `DisableCoreTools: true` is the chat-only shortcut for an empty core set.
-`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer
-`FilterCoreToolNames`, which does not expose the configuration library.
 
 Create custom tools with `kit.NewTool` — no external dependencies needed:
 

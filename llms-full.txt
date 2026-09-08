@@ -4713,8 +4713,6 @@ host, _ := kit.New(ctx, &kit.Options{CoreToolList: list})
 ```
 
 `DisableCoreTools: true` is the chat-only shortcut for an empty core set.
-`CoreToolFilterHelper(*viper.Viper)` is deprecated — prefer
-`FilterCoreToolNames`, which does not expose the configuration library.
 
 Create custom tools with `kit.NewTool` — no external dependencies needed:
 
@@ -5221,8 +5219,7 @@ for _, msg := range host.DrainSteer() {
 
 `Options.CoreToolList` accepts an explicit allow-list of core tool names. Build
 it from include/exclude filters with `FilterCoreToolNames` (nil means "all core
-tools"). Prefer this over the deprecated `CoreToolFilterHelper(*viper.Viper)`,
-which leaks the configuration library into the public signature.
+tools").
 
 ```go
 // Keep only read-only tools:
@@ -5692,6 +5689,11 @@ which collapses a branch range into a single summary entry. Custom managers
 that don't track branch summaries can return `kit.ErrBranchSummaryNotSupported`
 from that method; `host.CollapseBranch` then surfaces the same sentinel so
 callers can detect it with `errors.Is`.
+
+When a Kit has no session manager at all, `host.Branch`, `host.NavigateTo`,
+`host.SummarizeBranch`, `host.CollapseBranch`, `host.SetSessionName` and the
+extension session API return `kit.ErrNoSession`, which is also detectable with
+`errors.Is`.
 
 When using a custom `SessionManager`, the `SessionPath`, `Continue`, and `NoSession` options are ignored — your manager handles its own storage and session selection.
 
