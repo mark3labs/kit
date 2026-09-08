@@ -102,6 +102,10 @@ func GetValidCopilotAccessToken() (string, error) {
 // GetOpenAIAPIKey resolves the OpenAI API key using the standard
 // resolution order: stored credentials -> OPENAI_API_KEY env var.
 // Returns an empty string if no key is found.
+//
+// Deprecated: Use [HasOpenAICredentials] to check for credentials; the
+// provider layer resolves the key itself. This function has no callers and
+// will be removed in a future release.
 func GetOpenAIAPIKey() string {
 	cm, err := auth.NewCredentialManager()
 	if err == nil {

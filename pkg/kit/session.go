@@ -9,6 +9,12 @@ import (
 // that do not support collapsing a branch range into a summary entry.
 var ErrBranchSummaryNotSupported = errors.New("session manager does not support branch summaries")
 
+// ErrNoSession is returned by session-dependent operations ([Kit.Branch],
+// [Kit.NavigateTo], [Kit.SummarizeBranch], [Kit.CollapseBranch], and the
+// extension session API) when the Kit was created without a session manager.
+// Callers can detect this condition with errors.Is.
+var ErrNoSession = errors.New("no session available")
+
 // SessionManager defines the contract for conversation storage backends.
 // Implementations can use files (default), databases, cloud storage, etc.
 //

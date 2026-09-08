@@ -183,14 +183,11 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 		switch e := entry.(type) {
 		case *MessageEntry:
 			newEntry = &MessageEntry{
-				Type:      EntryTypeMessage,
-				ID:        newID,
-				ParentID:  prevNewID, // Chain sequentially in new session
-				Timestamp: e.Timestamp,
-				Role:      e.Role,
-				Parts:     e.Parts,
-				Model:     e.Model,
-				Provider:  e.Provider,
+				Entry:    cloneEntry(e.Entry, newID, prevNewID),
+				Role:     e.Role,
+				Parts:    e.Parts,
+				Model:    e.Model,
+				Provider: e.Provider,
 			}
 			// Copy label if present.
 			if label, ok := tm.labels[oldID]; ok {
@@ -199,12 +196,9 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 
 		case *ModelChangeEntry:
 			newEntry = &ModelChangeEntry{
-				Type:      EntryTypeModelChange,
-				ID:        newID,
-				ParentID:  prevNewID,
-				Timestamp: e.Timestamp,
-				Provider:  e.Provider,
-				ModelID:   e.ModelID,
+				Entry:    cloneEntry(e.Entry, newID, prevNewID),
+				Provider: e.Provider,
+				ModelID:  e.ModelID,
 			}
 
 		case *LabelEntry:
@@ -214,32 +208,23 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newTargetID = mapped
 			}
 			newEntry = &LabelEntry{
-				Type:      EntryTypeLabel,
-				ID:        newID,
-				ParentID:  prevNewID,
-				Timestamp: e.Timestamp,
-				TargetID:  newTargetID,
-				Label:     e.Label,
+				Entry:    cloneEntry(e.Entry, newID, prevNewID),
+				TargetID: newTargetID,
+				Label:    e.Label,
 			}
 
 		case *SessionInfoEntry:
 			newEntry = &SessionInfoEntry{
-				Type:      EntryTypeSessionInfo,
-				ID:        newID,
-				ParentID:  prevNewID,
-				Timestamp: e.Timestamp,
-				Name:      e.Name,
+				Entry: cloneEntry(e.Entry, newID, prevNewID),
+				Name:  e.Name,
 			}
 			newTm.sessionName = e.Name
 
 		case *ExtensionDataEntry:
 			newEntry = &ExtensionDataEntry{
-				Type:      EntryTypeExtensionData,
-				ID:        newID,
-				ParentID:  prevNewID,
-				Timestamp: e.Timestamp,
-				ExtType:   e.ExtType,
-				Data:      e.Data,
+				Entry:   cloneEntry(e.Entry, newID, prevNewID),
+				ExtType: e.ExtType,
+				Data:    e.Data,
 			}
 
 		case *BranchSummaryEntry:
@@ -249,12 +234,9 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newFromID = mapped
 			}
 			newEntry = &BranchSummaryEntry{
-				Type:      EntryTypeBranchSummary,
-				ID:        newID,
-				ParentID:  prevNewID,
-				Timestamp: e.Timestamp,
-				FromID:    newFromID,
-				Summary:   e.Summary,
+				Entry:   cloneEntry(e.Entry, newID, prevNewID),
+				FromID:  newFromID,
+				Summary: e.Summary,
 			}
 
 		case *CompactionEntry:
@@ -264,10 +246,7 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 				newFirstKeptID = mapped
 			}
 			newEntry = &CompactionEntry{
-				Type:             EntryTypeCompaction,
-				ID:               newID,
-				ParentID:         prevNewID,
-				Timestamp:        e.Timestamp,
+				Entry:            cloneEntry(e.Entry, newID, prevNewID),
 				Summary:          e.Summary,
 				FirstKeptEntryID: newFirstKeptID,
 				TokensBefore:     e.TokensBefore,
@@ -297,6 +276,20 @@ func (tm *TreeManager) ForkToNewSession(cwd string, targetID string) (*TreeManag
 	newTm.leafID = prevNewID
 
 	return newTm, nil
+}
+
+// cloneEntry builds the base envelope for an entry copied into a forked
+// session: it keeps the original type and timestamp but assigns the fresh ID
+// and the remapped parent so the copy chains sequentially in the new tree.
+// Every per-type case in ForkBranch goes through this helper, so a new base
+// field on Entry needs exactly one edit here.
+func cloneEntry(old Entry, newID, parentID string) Entry {
+	return Entry{
+		Type:      old.Type,
+		ID:        newID,
+		ParentID:  parentID,
+		Timestamp: old.Timestamp,
+	}
 }
 
 // SetParentLink records a parent session reference (and, optionally, the

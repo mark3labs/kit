@@ -73,7 +73,7 @@ func setSDKDefaults(v *viper.Viper) {
 	v.SetDefault("main-gpu", 0)
 }
 
-// InitConfig initializes the process-global viper configuration system.
+// InitConfig initializes the process-global configuration store.
 // It searches for config files in standard locations and loads them with
 // environment variable substitution.
 //
@@ -81,7 +81,7 @@ func setSDKDefaults(v *viper.Viper) {
 // debug: if true, print warnings about missing configs to stderr.
 //
 // This wraps [initConfig] using the process-global store and is retained for
-// the CLI, which binds its flags to the global viper.
+// the CLI, which binds its flags to that global store.
 func InitConfig(configFile string, debug bool) error {
 	return initConfig(viper.GetViper(), configFile, debug, false)
 }
@@ -104,8 +104,8 @@ type ConfigInitOptions struct {
 	Bare bool
 }
 
-// InitConfigWithOptions initializes the process-global viper configuration
-// system with explicit control over discovery. Use it instead of [InitConfig]
+// InitConfigWithOptions initializes the process-global configuration store
+// with explicit control over discovery. Use it instead of [InitConfig]
 // when project-local configuration must be ignored.
 func InitConfigWithOptions(opts ConfigInitOptions) error {
 	return initConfig(viper.GetViper(), opts.ConfigFile, opts.Debug, opts.Bare)
@@ -175,7 +175,11 @@ func initConfig(v *viper.Viper, configFile string, debug, bare bool) error {
 }
 
 // LoadConfigWithEnvSubstitution loads a config file with ${ENV_VAR} expansion
-// into the process-global viper store.
+// into the process-global configuration store.
+//
+// Deprecated: Use [InitConfig] or [InitConfigWithOptions] with an explicit
+// ConfigFile instead. [New] loads configuration automatically; this function
+// has no callers and will be removed in a future release.
 func LoadConfigWithEnvSubstitution(configPath string) error {
 	return loadConfigWithEnvSubstitution(viper.GetViper(), configPath)
 }

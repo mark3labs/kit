@@ -1099,13 +1099,13 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 // and will use CLI defaults if not specified.
 //
 // Config isolation: each [New] / [NewAgent] call constructs its own isolated
-// configuration store (via viper.New internally). Options are applied to that
-// per-instance store, so two Kits constructed in the same process do NOT share
-// or clobber each other's configuration. Runtime mutators ([Kit.SetModel],
-// [Kit.SetThinkingLevel]) and config readers ([Kit.GetThinkingLevel]) operate
-// only on the owning instance. Fields left at their zero value are simply not
-// applied; they fall through to the precedence chain (env → .kit.yml →
-// per-model defaults) resolved within the instance's own store.
+// configuration store. Options are applied to that per-instance store, so two
+// Kits constructed in the same process do NOT share or clobber each other's
+// configuration. Runtime mutators ([Kit.SetModel], [Kit.SetThinkingLevel])
+// and config readers ([Kit.GetThinkingLevel]) operate only on the owning
+// instance. Fields left at their zero value are simply not applied; they fall
+// through to the precedence chain (env → .kit.yml → per-model defaults)
+// resolved within the instance's own store.
 type Options struct {
 	Model        string // Override model (e.g., "anthropic/claude-sonnet-4-5-20250929")
 	SystemPrompt string // Override system prompt
@@ -1512,18 +1512,17 @@ func InitTreeSession(opts *Options) (*TreeManager, error) {
 // It loads configuration, initializes MCP servers, creates the LLM model, and
 // sets up the agent for interaction. Returns an error if initialization fails.
 //
-// Config isolation: New constructs a per-instance configuration store (via
-// viper.New internally) and applies [Options] to it. Two Kits constructed in
-// the same process are therefore fully isolated — neither overwrites the
-// other's model, thinking level, or generation parameters, and runtime
-// mutators ([Kit.SetModel], [Kit.SetThinkingLevel]) only affect the owning
-// instance. This makes subagent spawning and multi-Kit embedding safe without
-// any external synchronization.
+// Config isolation: New constructs a per-instance configuration store and
+// applies [Options] to it. Two Kits constructed in the same process are
+// therefore fully isolated — neither overwrites the other's model, thinking
+// level, or generation parameters, and runtime mutators ([Kit.SetModel],
+// [Kit.SetThinkingLevel]) only affect the owning instance. This makes subagent
+// spawning and multi-Kit embedding safe without any external synchronization.
 //
 // CLI integration: when Options.CLI is non-nil the Kit shares the
-// process-global viper store instead of allocating a fresh one, so cobra flag
-// bindings established by the CLI remain in effect. SDK callers leave
-// Options.CLI nil and always get an isolated store.
+// process-global configuration store instead of allocating a fresh one, so
+// the CLI's flag bindings remain in effect. SDK callers leave Options.CLI nil
+// and always get an isolated store.
 //
 // For an ergonomic functional-options front door, see [NewAgent].
 func New(ctx context.Context, opts *Options) (*Kit, error) {
@@ -2806,7 +2805,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		OnToolCall: func(toolCallID, toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
-				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
+				ToolArgs: toolArgs, ParsedArgs: extensions.ParseToolArgs(toolArgs),
 			})
 		},
 		OnToolExecution: func(toolCallID, toolName, toolArgs string, isStarting bool) {
@@ -2819,7 +2818,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		OnToolResult: func(toolCallID, toolName, toolArgs, resultText, metadata string, isError bool) {
 			evt := ToolResultEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
-				ToolArgs: toolArgs, ParsedArgs: parseToolArgs(toolArgs),
+				ToolArgs: toolArgs, ParsedArgs: extensions.ParseToolArgs(toolArgs),
 				Result: resultText, IsError: isError,
 			}
 			if metadata != "" {

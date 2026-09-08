@@ -88,6 +88,9 @@ func NewDefaultMCPAuthHandler() (*DefaultMCPAuthHandler, error) {
 // specified port on localhost. The port is reserved immediately. Pass 0 to
 // let the OS pick a free port (equivalent to [NewDefaultMCPAuthHandler]).
 // Call [DefaultMCPAuthHandler.Close] when the handler is no longer needed.
+//
+// Deprecated: Use [NewDefaultMCPAuthHandler] instead. This function has no
+// callers and will be removed in a future release.
 func NewDefaultMCPAuthHandlerWithPort(port int) (*DefaultMCPAuthHandler, error) {
 	addr := fmt.Sprintf("localhost:%d", port)
 	listener, err := net.Listen("tcp", addr)

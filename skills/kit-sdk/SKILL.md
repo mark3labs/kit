@@ -801,7 +801,6 @@ info := kit.LookupModel("anthropic", "claude-sonnet-4-5-20250929") // *kit.Model
 info := kit.GetProviderInfo("openai")    // *kit.ProviderInfo (env vars, API URL)
 err := kit.ValidateEnvironment("anthropic", "") // check API keys
 suggestions := kit.SuggestModels("anthropic", "claudee") // fuzzy match
-kit.RefreshModelRegistry() // reload model database
 ```
 
 ### Model string format
@@ -1251,7 +1250,6 @@ kit.MCPAuthHandler         // interface: RedirectURI() + HandleAuth(ctx, server,
 kit.DefaultMCPAuthHandler  // SDK-provided transport mechanics (port + callback server); set OnAuthURL hook
 kit.CLIMCPAuthHandler      // CLI wrapper around DefaultMCPAuthHandler: opens browser, prints status
 kit.NewDefaultMCPAuthHandler()         // random port, no UX side effects
-kit.NewDefaultMCPAuthHandlerWithPort() // fixed port (useful when registering a stable redirect URI)
 kit.NewCLIMCPAuthHandler()             // CLI handler: browser + stderr + localhost callback
 kit.MCPTokenStore        // interface for custom OAuth token storage
 kit.MCPToken             // OAuth token struct (access, refresh, expiry)
@@ -1408,7 +1406,8 @@ Config files support `${ENV_VAR}` expansion.
 ```go
 // Initialize config manually (usually not needed — kit.New handles this)
 kit.InitConfig("/path/to/config.yml", false)
-kit.LoadConfigWithEnvSubstitution("/path/to/config.yml")
+// Same, but skip project-local .kit.yml discovery
+kit.InitConfigWithOptions(kit.ConfigInitOptions{ConfigFile: "/path/to/config.yml", Bare: true})
 ```
 
 ---
