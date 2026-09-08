@@ -15,8 +15,6 @@ const (
 	DefaultMaxLines = defaultMaxLines
 	// DefaultMaxBytes is the exported default byte limit for truncation.
 	DefaultMaxBytes = defaultMaxBytes
-	// DefaultMaxLineLen is the exported default per-line character limit.
-	DefaultMaxLineLen = defaultMaxLineLen
 )
 
 // TruncationResult describes how output was truncated.

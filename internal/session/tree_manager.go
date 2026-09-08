@@ -997,13 +997,6 @@ func (tm *TreeManager) GetSessionName() string {
 	return tm.sessionName
 }
 
-// GetCwd returns the working directory this session was created in.
-func (tm *TreeManager) GetCwd() string {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.header.Cwd
-}
-
 // GetFilePath returns the JSONL file path, or empty for in-memory sessions.
 func (tm *TreeManager) GetFilePath() string {
 	tm.mu.RLock()
@@ -1227,28 +1220,6 @@ func (tm *TreeManager) GetLastCompaction() *CompactionEntry {
 		}
 	}
 	return nil
-}
-
-// --- Legacy bridge ---
-
-// AddLLMMessages appends multiple LLM messages as entries. This is
-// used when syncing from the agent's ConversationMessages after a step.
-// All entries are buffered and flushed to disk in a single batch.
-func (tm *TreeManager) AddLLMMessages(msgs []fantasy.Message) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	for _, msg := range msgs {
-		entry, err := NewMessageEntry(tm.leafID, message.FromLLMMessage(msg))
-		if err != nil {
-			return err
-		}
-		if err := tm.appendAndPersist(entry); err != nil {
-			return err
-		}
-		tm.leafID = entry.ID
-	}
-	return tm.flushLocked()
 }
 
 // GetLLMMessages builds the context and returns just the messages.

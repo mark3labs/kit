@@ -1014,11 +1014,6 @@ func (s *InputComponent) ClearPendingImages() ([]core.ImageAttachment, tea.Cmd) 
 	return images, cleanup
 }
 
-// PendingImageCount returns the number of images currently attached.
-func (s *InputComponent) PendingImageCount() int {
-	return len(s.pendingImages)
-}
-
 // Clear clears the textarea content and resets related state. Returns true if
 // there was content to clear, false if the input was already empty.
 func (s *InputComponent) Clear() bool {

@@ -506,15 +506,6 @@ func (p *PopupList) IsSearching() bool {
 	return p.search != ""
 }
 
-// SelectedItem returns the item under the cursor, or nil if the list is empty.
-func (p *PopupList) SelectedItem() *PopupItem {
-	if p.cursor < len(p.filtered) {
-		item := p.filtered[p.cursor]
-		return &item
-	}
-	return nil
-}
-
 // --- Internal helpers ---
 
 func (p *PopupList) rebuildFiltered() {

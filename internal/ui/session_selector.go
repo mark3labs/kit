@@ -146,12 +146,6 @@ func NewSessionSelector(store SessionStore, cwd string, width, height int) *Sess
 	return ss
 }
 
-// SetCurrentPath sets the currently active session path so the picker can
-// highlight it in the list.
-func (ss *SessionSelectorComponent) SetCurrentPath(path string) {
-	ss.currentPath = path
-}
-
 // Init implements tea.Model.
 func (ss *SessionSelectorComponent) Init() tea.Cmd {
 	return nil

@@ -101,7 +101,6 @@ type Runner struct {
 	customEditor    *EditorConfig             // nil = no custom editor interceptor
 	uiVisibility    *UIVisibility             // nil = show everything (default)
 	disabledTools   map[string]bool           // nil = all tools enabled
-	customEventSubs map[string][]func(string) // inter-extension event bus
 	optionOverrides map[string]string         // runtime option overrides
 	configStore     *viper.Viper              // per-instance config store (nil = global)
 	state           map[string]string         // session-scoped extension state (last-write-wins)
@@ -1074,7 +1073,6 @@ func (r *Runner) Reload(exts []LoadedExtension) {
 	r.customEditor = nil
 	r.uiVisibility = nil
 	r.disabledTools = nil
-	r.customEventSubs = nil
 	// optionOverrides and state are intentionally preserved across reloads:
 	// they represent user/session intent (not extension code) and would be
 	// surprising to lose on a hot-reload.
@@ -1084,26 +1082,13 @@ func (r *Runner) Reload(exts []LoadedExtension) {
 // Inter-extension event bus
 // ---------------------------------------------------------------------------
 
-// SubscribeCustomEvent registers a handler for a named custom event. Handlers
-// execute in registration order when EmitCustomEvent is called. Thread-safe.
-func (r *Runner) SubscribeCustomEvent(name string, handler func(string)) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.customEventSubs == nil {
-		r.customEventSubs = make(map[string][]func(string))
-	}
-	r.customEventSubs[name] = append(r.customEventSubs[name], handler)
-}
-
-// EmitCustomEvent dispatches a named event to all subscribed handlers.
-// Handlers run synchronously in extension load order. Panics are recovered
+// EmitCustomEvent dispatches a named event to all handlers registered via
+// api.OnCustomEvent. Handlers run synchronously in extension load order. Panics are recovered
 // and logged. Thread-safe.
 func (r *Runner) EmitCustomEvent(name, data string) {
-	// Collect handlers: extension-registered (Init-time) + dynamic subs.
 	// extensions and extMu are snapshotted together for the same reason as
 	// in Emit — Reload may swap them concurrently.
 	r.mu.RLock()
-	dynamicHandlers := r.customEventSubs[name]
 	exts := r.extensions
 	mus := r.extMu
 	r.mu.RUnlock()
@@ -1128,10 +1113,6 @@ func (r *Runner) EmitCustomEvent(name, data string) {
 			safeInvoke(h)
 		}
 		mus[i].unlock()
-	}
-	// Then dynamic subscriptions (not extension-scoped, no per-ext lock).
-	for _, h := range dynamicHandlers {
-		safeInvoke(h)
 	}
 }
 
