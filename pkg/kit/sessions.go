@@ -110,7 +110,7 @@ func (m *Kit) Branch(entryID string) error {
 // SetSessionName sets a user-defined display name for the active session.
 func (m *Kit) SetSessionName(name string) error {
 	if m.session == nil {
-		return fmt.Errorf("session naming requires a session")
+		return ErrNoSession
 	}
 	return m.session.SetSessionName(name)
 }

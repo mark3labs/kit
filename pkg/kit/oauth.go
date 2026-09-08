@@ -89,8 +89,9 @@ func NewDefaultMCPAuthHandler() (*DefaultMCPAuthHandler, error) {
 // let the OS pick a free port (equivalent to [NewDefaultMCPAuthHandler]).
 // Call [DefaultMCPAuthHandler.Close] when the handler is no longer needed.
 //
-// Deprecated: Use [NewDefaultMCPAuthHandler] instead. This function has no
-// callers and will be removed in a future release.
+// Use this constructor when the OAuth provider requires a stable, pre-registered
+// redirect URI: [NewDefaultMCPAuthHandler] picks a random port, so its
+// [DefaultMCPAuthHandler.RedirectURI] changes on every run.
 func NewDefaultMCPAuthHandlerWithPort(port int) (*DefaultMCPAuthHandler, error) {
 	addr := fmt.Sprintf("localhost:%d", port)
 	listener, err := net.Listen("tcp", addr)

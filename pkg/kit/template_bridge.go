@@ -401,7 +401,8 @@ func GetCurrentModelID(model string) string {
 // JoinModel combines provider and model ID into a model string.
 //
 // Deprecated: This function has no callers and will be removed in a future
-// release. Concatenate provider + "/" + modelID directly.
+// release. Replace it with the equivalent conditional: return modelID when
+// provider is empty, otherwise provider + "/" + modelID.
 func JoinModel(provider, modelID string) string {
 	if provider == "" {
 		return modelID

@@ -1250,6 +1250,7 @@ kit.MCPAuthHandler         // interface: RedirectURI() + HandleAuth(ctx, server,
 kit.DefaultMCPAuthHandler  // SDK-provided transport mechanics (port + callback server); set OnAuthURL hook
 kit.CLIMCPAuthHandler      // CLI wrapper around DefaultMCPAuthHandler: opens browser, prints status
 kit.NewDefaultMCPAuthHandler()         // random port, no UX side effects
+kit.NewDefaultMCPAuthHandlerWithPort(p) // fixed port (stable, pre-registered redirect URI)
 kit.NewCLIMCPAuthHandler()             // CLI handler: browser + stderr + localhost callback
 kit.MCPTokenStore        // interface for custom OAuth token storage
 kit.MCPToken             // OAuth token struct (access, refresh, expiry)

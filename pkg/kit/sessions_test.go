@@ -24,6 +24,9 @@ func TestErrNoSessionSentinel(t *testing.T) {
 	if err := k.CollapseBranch("a", "b", "s"); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("CollapseBranch: got %v, want ErrNoSession", err)
 	}
+	if err := k.SetSessionName("n"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("SetSessionName: got %v, want ErrNoSession", err)
+	}
 
 	api := &extensionAPI{kit: k}
 	if _, err := api.AppendEntry("ext", "{}"); !errors.Is(err, ErrNoSession) {
