@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	charmlog "github.com/charmbracelet/log"
 	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/app"
@@ -316,7 +317,7 @@ func startExtensionSession(ctx context.Context, k *kit.Kit, appInstance *app.App
 	extCtx.PrintError = buffer
 	k.Extensions().SetContext(extCtx)
 	if err := k.Extensions().InitStatePersistence(); err != nil {
-		log.Printf("WARN extension state init failed: %v", err)
+		charmlog.Warn("extension state init failed", "err", err)
 	}
 	k.Extensions().EmitSessionStart()
 
@@ -355,14 +356,14 @@ func loadPromptTemplates(reload bool) []*prompts.PromptTemplate {
 	tpls, diags, err := prompts.LoadAll(promptLoadOptions())
 	if err != nil {
 		if reload {
-			log.Printf("Warning: failed to reload prompt templates: %v", err)
+			charmlog.Warn("failed to reload prompt templates", "err", err)
 		} else {
-			log.Printf("Warning: failed to load some prompt templates: %v", err)
+			charmlog.Warn("failed to load some prompt templates", "err", err)
 		}
 	}
 	if !reload {
 		for _, d := range diags {
-			log.Printf("Prompt template collision: /%s kept from %s, dropped from %s", d.Name, d.KeptPath, d.DroppedPath)
+			charmlog.Warn("prompt template collision", "name", "/"+d.Name, "kept", d.KeptPath, "dropped", d.DroppedPath)
 		}
 	}
 	return tpls
@@ -384,7 +385,7 @@ func collectSkillItems(k *kit.Kit, cwd string) []ui.SkillItem {
 	var items []ui.SkillItem
 	for _, s := range k.GetSkills() {
 		source := "user"
-		if strings.HasPrefix(s.Path, cwd) {
+		if cwd != "" && strings.HasPrefix(s.Path, cwd) {
 			source = "project"
 		}
 		items = append(items, ui.SkillItem{
@@ -401,7 +402,7 @@ func collectSkillItems(k *kit.Kit, cwd string) []ui.SkillItem {
 // UI items. Used by the TUI when ContentReloadEvent fires.
 func reloadSkillItems(k *kit.Kit) []ui.SkillItem {
 	if err := k.ReloadSkills(); err != nil {
-		log.Printf("Warning: failed to reload skills: %v", err)
+		charmlog.Warn("failed to reload skills", "err", err)
 		return nil
 	}
 	cwd, _ := os.Getwd()
@@ -593,14 +594,14 @@ func startExtensionWatcher(ctx context.Context, appInstance *app.App, reload fun
 
 	extWatcher, err := extensions.NewWatcher(watchDirs, func() {
 		if err := reload(); err != nil {
-			log.Printf("auto-reload extensions failed: %v", err)
+			charmlog.Warn("auto-reload extensions failed", "err", err)
 			appInstance.PrintFromExtension("error", fmt.Sprintf("Extension auto-reload failed: %v", err))
 			return
 		}
 		appInstance.PrintFromExtension("info", "Extensions reloaded.")
 	})
 	if err != nil {
-		log.Printf("extension file watcher not started: %v", err)
+		charmlog.Warn("extension file watcher not started", "err", err)
 		return func() {}
 	}
 	go extWatcher.Start(ctx)
@@ -648,12 +649,12 @@ func startContentWatcher(ctx context.Context, appInstance *app.App) func() {
 		Extensions: []string{".md", ".txt"},
 		Label:      "prompts/skills",
 		OnReload: func() {
-			log.Printf("auto-reloading prompts and skills")
+			charmlog.Info("auto-reloading prompts and skills")
 			appInstance.NotifyContentReload()
 		},
 	})
 	if err != nil {
-		log.Printf("content file watcher not started: %v", err)
+		charmlog.Warn("content file watcher not started", "err", err)
 		return func() {}
 	}
 	go contentWatcher.Start(ctx)
