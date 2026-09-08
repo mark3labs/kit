@@ -45,6 +45,13 @@ type Kit struct {
 	agent       *agent.Agent
 	session     SessionManager
 	modelString string
+	// endpointProvider is the provider the provider-url, provider-api-key
+	// and provider-wire overrides belong to: the provider of the model that
+	// was active when those overrides were configured. A model switch to a
+	// different provider must not carry them along, or every provider would
+	// be pointed at the endpoint of the first one. Empty means no override
+	// is configured.
+	endpointProvider string
 	// shell is the effective shell of this instance, resolved from the SDK
 	// option and the configuration store at construction. Subagents built
 	// without an explicit tool set inherit it.
@@ -782,6 +789,17 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		SessionIDFunc:  m.GetSessionID,
 	}
 
+	// The endpoint overrides belong to one provider. A switch to a different
+	// provider must resolve that provider's own endpoint and credentials;
+	// otherwise `--provider-url http://localhost:1234/v1 --model local` and
+	// then `/model openai/gpt-x` would send openai requests, with the local
+	// key, to the local server, which then answers with the model it has.
+	if !m.endpointOverridesApply(modelString) {
+		cfg.ProviderAPIKey = ""
+		cfg.ProviderURL = ""
+		cfg.ProviderWire = ""
+	}
+
 	// Only set generation parameter pointers when the user has explicitly
 	// provided a value. This leaves nil pointers for unset params, allowing
 	// per-model defaults (modelSettings / customModels params) to apply.
@@ -838,6 +856,42 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	}
 
 	return nil
+}
+
+// endpointOverridesConfigured reports whether the store holds any of the
+// provider endpoint overrides: provider-url, provider-api-key, provider-wire.
+func endpointOverridesConfigured(v *viper.Viper) bool {
+	return v.GetString("provider-url") != "" ||
+		v.GetString("provider-api-key") != "" ||
+		v.GetString("provider-wire") != ""
+}
+
+// endpointProviderFor returns the provider the endpoint overrides bind to for
+// the given model, or "" when no override is configured.
+func endpointProviderFor(v *viper.Viper, modelString string) string {
+	if !endpointOverridesConfigured(v) {
+		return ""
+	}
+	provider, _, err := ParseModelString(modelString)
+	if err != nil {
+		return ""
+	}
+	return provider
+}
+
+// endpointOverridesApply reports whether the configured endpoint overrides
+// belong to the provider of modelString. With no bound provider they apply
+// unconditionally, which keeps the SDK behaviour for a store that gained the
+// overrides without a model (nothing to bind to).
+func (m *Kit) endpointOverridesApply(modelString string) bool {
+	if m.endpointProvider == "" {
+		return true
+	}
+	provider, _, err := ParseModelString(modelString)
+	if err != nil {
+		return false
+	}
+	return provider == m.endpointProvider
 }
 
 // HasCustomSystemPrompt reports whether the user explicitly configured a system
@@ -1980,6 +2034,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		agent:                 agentResult.Agent,
 		session:               sessionManager,
 		modelString:           modelString,
+		endpointProvider:      endpointProviderFor(v, modelString),
 		shell:                 append([]string(nil), shell...),
 		events:                newEventBus(),
 		autoCompact:           opts.AutoCompact,
@@ -2651,6 +2706,13 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// programmatic Options or runtime setters (e.g. SetThinkingLevel) would
 	// otherwise be lost.
 	inheritProviderConfig(childOpts, m.v)
+	// The endpoint overrides belong to the parent's bound provider. A child
+	// on a different provider resolves its own endpoint and credentials.
+	if !m.endpointOverridesApply(model) {
+		childOpts.ProviderAPIKey = ""
+		childOpts.ProviderURL = ""
+		childOpts.ProviderWire = ""
+	}
 	// A per-subagent temperature (explicit or from a named agent definition)
 	// overrides whatever the parent's config store provided.
 	if cfg.Temperature != nil {
@@ -3437,6 +3499,7 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 		prevURL := m.v.GetString("provider-url")
 		prevKeySet := m.v.IsSet("provider-api-key")
 		prevKey := m.v.GetString("provider-api-key")
+		prevEndpointProvider := m.endpointProvider
 
 		if opts.ThinkingLevel != "" {
 			m.v.Set("thinking-level", opts.ThinkingLevel)
@@ -3452,8 +3515,14 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 		if targetModel == "" {
 			targetModel = prevModel
 		}
+		// A per-call endpoint override is for the model of this call, so bind
+		// it to that model's provider for the duration of the call.
+		if opts.ProviderURL != "" || opts.ProviderAPIKey != "" {
+			m.endpointProvider = endpointProviderFor(m.v, targetModel)
+		}
 		if err := m.SetModel(ctx, targetModel); err != nil {
 			// Revert config keys we may have set, then unwind prior restores.
+			m.endpointProvider = prevEndpointProvider
 			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
 			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
 			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
@@ -3461,6 +3530,7 @@ func (m *Kit) applyPromptOptions(ctx context.Context, opts PromptOptions) (func(
 			return nil, err
 		}
 		restores = append(restores, func() {
+			m.endpointProvider = prevEndpointProvider
 			restoreViperString(m.v, "thinking-level", prevThinking, prevThinkingSet)
 			restoreViperString(m.v, "provider-url", prevURL, prevURLSet)
 			restoreViperString(m.v, "provider-api-key", prevKey, prevKeySet)
