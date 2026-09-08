@@ -193,16 +193,6 @@ func (s *ScrollList) SetWidth(width int) {
 	s.clampOffset()
 }
 
-// SetItemGap sets the number of blank lines between items (0 = no gap).
-func (s *ScrollList) SetItemGap(gap int) {
-	s.itemGap = gap
-}
-
-// ItemGap returns the current gap between items.
-func (s *ScrollList) ItemGap() int {
-	return s.itemGap
-}
-
 // --------------------------------------------------------------------------
 // Mouse event handling — character-level text selection (crush-style)
 // --------------------------------------------------------------------------
@@ -650,11 +640,6 @@ func (s *ScrollList) AtBottom() bool {
 	return true
 }
 
-// AtTop returns true if the viewport is at the top of the list.
-func (s *ScrollList) AtTop() bool {
-	return s.offsetIdx == 0 && s.offsetLine == 0
-}
-
 // --------------------------------------------------------------------------
 // Rendering
 // --------------------------------------------------------------------------
@@ -811,43 +796,6 @@ func (s *ScrollList) VisibleItems() []VisibleItem {
 		}
 	}
 	return out
-}
-
-// ScrollPercent returns the current scroll position as a percentage (0.0-1.0).
-// 0.0 = at top, 1.0 = at bottom. Useful for scroll indicators.
-func (s *ScrollList) ScrollPercent() float64 {
-	if len(s.items) == 0 {
-		return 0.0
-	}
-
-	totalHeight := 0
-	for idx := range s.items {
-		totalHeight += s.itemHeight(idx)
-	}
-
-	if totalHeight <= s.height {
-		return 1.0
-	}
-
-	linesAbove := 0
-	for i := 0; i < s.offsetIdx && i < len(s.items); i++ {
-		linesAbove += s.itemHeight(i)
-	}
-	linesAbove += s.offsetLine
-
-	scrollableHeight := totalHeight - s.height
-	if scrollableHeight <= 0 {
-		return 1.0
-	}
-
-	percent := float64(linesAbove) / float64(scrollableHeight)
-	if percent > 1.0 {
-		percent = 1.0
-	}
-	if percent < 0.0 {
-		percent = 0.0
-	}
-	return percent
 }
 
 // clampOffset ensures the offset values are within valid bounds after

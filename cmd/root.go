@@ -1638,7 +1638,7 @@ func runNormalMode(ctx context.Context) error {
 // runNonInteractiveModeApp executes a single prompt via the app layer and exits,
 // or transitions to the interactive BubbleTea TUI when --no-exit is set.
 //
-// In quiet mode, RunOnce is used (no intermediate output, final response only).
+// In quiet mode, RunOnceWithFiles is used (no intermediate output, final response only).
 // Otherwise, RunOnceWithDisplay streams tool calls and responses through the
 // shared CLIEventHandler — giving --prompt mode the same rich output as
 // interactive mode.

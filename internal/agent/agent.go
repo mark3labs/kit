@@ -317,7 +317,7 @@ type GenerateWithLoopResult struct {
 // Core tools (shell, read, write, edit, grep, find, ls) are always registered.
 // If MCP servers are configured, their tools are loaded in the background —
 // the agent returns immediately and is usable with core tools only. The first
-// LLM call (GenerateWithLoop) automatically waits for MCP tools to finish
+// LLM call (GenerateWithCallbacks) automatically waits for MCP tools to finish
 // loading and rebuilds the agent with the full tool set.
 func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// Create the LLM provider
@@ -597,20 +597,6 @@ func buildAgentOptions(agentConfig *AgentConfig, providerResult *models.Provider
 	}
 
 	return agentOpts
-}
-
-// GenerateWithLoop processes messages with a custom loop that displays tool calls in real-time.
-func (a *Agent) GenerateWithLoop(ctx context.Context, messages []fantasy.Message,
-	onToolCall ToolCallHandler, onToolExecution ToolExecutionHandler, onToolResult ToolResultHandler,
-	onResponse ResponseHandler, onToolCallContent ToolCallContentHandler,
-) (*GenerateWithLoopResult, error) {
-	return a.GenerateWithCallbacks(ctx, messages, GenerateCallbacks{
-		OnToolCall:        onToolCall,
-		OnToolExecution:   onToolExecution,
-		OnToolResult:      onToolResult,
-		OnResponse:        onResponse,
-		OnToolCallContent: onToolCallContent,
-	})
 }
 
 // GenerateWithCallbacks processes messages using the agent with streaming and callbacks.
@@ -1450,13 +1436,6 @@ func (a *Agent) SetSystemPrompt(prompt string) {
 	defer a.promptMu.Unlock()
 	a.systemPrompt = prompt
 	a.rebuildFantasyAgent()
-}
-
-// GetSystemPrompt returns the agent's current system prompt.
-func (a *Agent) GetSystemPrompt() string {
-	a.promptMu.Lock()
-	defer a.promptMu.Unlock()
-	return a.systemPrompt
 }
 
 // GetMaxTokens returns the effective max output tokens the agent currently

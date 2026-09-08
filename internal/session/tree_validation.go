@@ -5,48 +5,6 @@ import (
 	"log"
 )
 
-// ValidateParentChain checks that the parent ID points to an existing entry
-// and that appending this entry would not create a cycle. This should be called
-// before appending any entry to the tree.
-// Returns an error if the parent is invalid or would create a cycle.
-func (tm *TreeManager) ValidateParentChain(parentID string, newEntryID string) error {
-	if parentID == "" {
-		// Empty parent is valid (root entry)
-		return nil
-	}
-
-	// Check that parent exists
-	if _, ok := tm.index[parentID]; !ok {
-		return fmt.Errorf("parent entry %q does not exist in index", parentID)
-	}
-
-	// Check that we're not creating a cycle by walking up the parent chain
-	// from parentID and ensuring we don't hit newEntryID (or any node that
-	// has newEntryID as an ancestor, but since newEntryID is new, just check
-	// that parentID isn't newEntryID, which it can't be since we check existence)
-	visited := make(map[string]bool)
-	current := parentID
-	for current != "" {
-		if visited[current] {
-			return fmt.Errorf("existing cycle detected at entry %q", current)
-		}
-		visited[current] = true
-
-		// Safety check: if somehow we reach the new entry ID, that's a cycle
-		if current == newEntryID {
-			return fmt.Errorf("would create cycle: entry %q cannot be its own ancestor", newEntryID)
-		}
-
-		entry, ok := tm.index[current]
-		if !ok {
-			return fmt.Errorf("broken parent chain: entry %q not found", current)
-		}
-		current = tm.entryParentID(entry)
-	}
-
-	return nil
-}
-
 // DetectCycle walks the parent chain from the given entry ID and returns true
 // if a cycle is detected. This is used for diagnostics.
 func (tm *TreeManager) DetectCycle(fromID string) (cycleDetected bool, cycleEntry string) {

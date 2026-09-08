@@ -193,27 +193,6 @@ func (m *Message) Reasoning() ReasoningContent {
 	return ReasoningContent{}
 }
 
-// AddPart appends a content part and updates the timestamp.
-func (m *Message) AddPart(part ContentPart) {
-	m.Parts = append(m.Parts, part)
-	m.UpdatedAt = time.Now()
-}
-
-// AddToolCall appends or updates a ToolCall part. If a call with the same
-// ID already exists, it is replaced (supports streaming where partial calls
-// arrive before the final version).
-func (m *Message) AddToolCall(tc ToolCall) {
-	for i, part := range m.Parts {
-		if existing, ok := part.(ToolCall); ok && existing.ID == tc.ID {
-			m.Parts[i] = tc
-			m.UpdatedAt = time.Now()
-			return
-		}
-	}
-	m.Parts = append(m.Parts, tc)
-	m.UpdatedAt = time.Now()
-}
-
 // --- Type-tagged JSON serialization ---
 
 type partType string

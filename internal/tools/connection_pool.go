@@ -108,15 +108,6 @@ func (p *MCPConnectionPool) SetDebugLogger(logger DebugLogger) {
 	p.debugLogger = logger
 }
 
-// SetOAuthFlow sets the OAuth flow runner for the connection pool.
-// When set, the pool can trigger OAuth re-authorization when a tool call fails
-// with an OAuth error (e.g. expired token). Thread-safe and can be called at any time.
-func (p *MCPConnectionPool) SetOAuthFlow(flow *OAuthFlowRunner) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.oauthFlow = flow
-}
-
 // GetConnection retrieves or creates a connection for the specified MCP server.
 // If a healthy, non-idle connection exists in the pool, it will be reused.
 // Otherwise, a new connection is created and added to the pool.
@@ -591,29 +582,6 @@ func (p *MCPConnectionPool) HandleConnectionError(serverName string, err error) 
 	}
 }
 
-// GetConnectionStats returns detailed statistics for all connections in the pool.
-// The returned map includes health status, last usage time, error counts, and
-// last error for each connection. Useful for monitoring and debugging connection
-// pool behavior. The returned data is a snapshot and safe for concurrent access.
-func (p *MCPConnectionPool) GetConnectionStats() map[string]any {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	stats := make(map[string]any)
-	for serverName, conn := range p.connections {
-		conn.mu.RLock()
-		stats[serverName] = map[string]any{
-			"is_healthy":  conn.isHealthy,
-			"last_used":   conn.lastUsed,
-			"last_error":  conn.lastError,
-			"error_count": conn.errorCount,
-			"server_name": conn.serverName,
-		}
-		conn.mu.RUnlock()
-	}
-	return stats
-}
-
 // ServerName returns the server name associated with this MCP connection.
 // This is the configured name from the KIT configuration, not necessarily
 // the actual server implementation name.
@@ -672,7 +640,7 @@ func (p *MCPConnectionPool) ServerSupportsToolTasks(serverName string) bool {
 // GetClients returns a map of all MCP clients currently in the pool.
 // The map keys are server names and values are the corresponding MCP client instances.
 // The returned map is a copy and modifications won't affect the pool.
-// Note that clients may be unhealthy; use GetConnectionStats to check health status.
+// Note that clients may be unhealthy.
 func (p *MCPConnectionPool) GetClients() map[string]client.MCPClient {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

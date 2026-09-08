@@ -157,10 +157,6 @@ type MCPToolManager struct {
 	// mutates the tool list. The agent layer uses this to trigger a rebuild
 	// so the LLM sees the updated tools.
 	onToolsChanged func()
-
-	// onResourcesChanged, if non-nil, is called when a subscribed resource
-	// is updated by the server.
-	onResourcesChanged func()
 }
 
 // toolMapping stores the mapping between prefixed tool names and their original details
@@ -234,13 +230,6 @@ func (m *MCPToolManager) SetOnToolsChanged(cb func()) {
 // Subsequent calls replace the previous configuration wholesale.
 func (m *MCPToolManager) SetTaskConfig(cfg MCPTaskConfig) {
 	m.taskCfg = cfg
-}
-
-// TaskConfig returns the manager's current task-augmented tools/call
-// configuration. The zero value means: defer to per-server config and
-// auto-detected capability, with no progress callback and default polling.
-func (m *MCPToolManager) TaskConfig() MCPTaskConfig {
-	return m.taskCfg
 }
 
 // AddServer connects to a new MCP server at runtime and loads its tools.
@@ -1101,12 +1090,6 @@ func (m *MCPToolManager) GetResources() []MCPResource {
 	return result
 }
 
-// SetOnResourcesChanged sets the callback invoked when a subscribed resource
-// changes. Used by the UI layer to refresh autocomplete or re-read content.
-func (m *MCPToolManager) SetOnResourcesChanged(cb func()) {
-	m.onResourcesChanged = cb
-}
-
 // ReadResource reads a specific resource from an MCP server by URI.
 // Returns the resource content (text or binary blob).
 func (m *MCPToolManager) ReadResource(ctx context.Context, serverName, uri string) (*MCPResourceContent, error) {
@@ -1183,8 +1166,6 @@ func (m *MCPToolManager) ReadResource(ctx context.Context, serverName, uri strin
 }
 
 // SubscribeResource subscribes to change notifications for a resource.
-// When the resource changes on the server, onResourcesChanged is called
-// and the resource list is refreshed automatically.
 func (m *MCPToolManager) SubscribeResource(ctx context.Context, serverName, uri string) error {
 	if m.connectionPool == nil {
 		return fmt.Errorf("no connection pool available")
@@ -1234,51 +1215,6 @@ func (m *MCPToolManager) UnsubscribeResource(ctx context.Context, serverName, ur
 	m.mu.Unlock()
 
 	return nil
-}
-
-// RefreshServerResources re-fetches resources from a specific server.
-// Called when a resource change notification is received.
-func (m *MCPToolManager) RefreshServerResources(ctx context.Context, serverName string) {
-	if m.connectionPool == nil {
-		return
-	}
-
-	clients := m.connectionPool.GetClients()
-	mcpClient, ok := clients[serverName]
-	if !ok {
-		return
-	}
-
-	listResult, err := mcpClient.ListResources(ctx, mcp.ListResourcesRequest{})
-	if err != nil {
-		return
-	}
-
-	var newResources []MCPResource
-	for _, r := range listResult.Resources {
-		newResources = append(newResources, MCPResource{
-			URI:         r.URI,
-			Name:        r.Name,
-			Description: r.Description,
-			MIMEType:    r.MIMEType,
-			ServerName:  serverName,
-		})
-	}
-
-	m.mu.Lock()
-	// Remove old resources from this server, add new ones.
-	filtered := make([]MCPResource, 0, len(m.resources))
-	for _, r := range m.resources {
-		if r.ServerName != serverName {
-			filtered = append(filtered, r)
-		}
-	}
-	m.resources = append(filtered, newResources...)
-	m.mu.Unlock()
-
-	if m.onResourcesChanged != nil {
-		m.onResourcesChanged()
-	}
 }
 
 // GetLoadedServerNames returns the names of all successfully loaded MCP servers.
