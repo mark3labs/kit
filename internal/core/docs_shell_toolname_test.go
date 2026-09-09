@@ -17,11 +17,39 @@ import (
 var toolNameComparison = regexp.MustCompile(
 	`(?:[\w.]*ToolName\s*(?:==|!=)\s*"([^"]*)")|(?:"([^"]*)"\s*(?:==|!=)\s*[\w.]*ToolName)`)
 
+// stripLineComment removes a trailing // comment so that comment prose cannot
+// satisfy the ShellToolName exception below. A line such as
+//
+//	if h.ToolName == "bash" { // unlike h.ToolName == "shell"
+//
+// would otherwise look like it compares against both names. Quoted strings are
+// tracked so a // inside a literal (a URL, say) is not mistaken for a comment.
+func stripLineComment(line string) string {
+	var inString bool
+	var quote rune
+	prev := rune(0)
+	for i, r := range line {
+		switch {
+		case inString:
+			if r == quote && prev != '\\' {
+				inString = false
+			}
+		case r == '"' || r == '`' || r == '\'':
+			inString = true
+			quote = r
+		case r == '/' && prev == '/':
+			return line[:i-1]
+		}
+		prev = r
+	}
+	return line
+}
+
 // comparedToolNames returns every quoted literal that line compares against a
-// ToolName field, in either operand order.
+// ToolName field, in either operand order. Trailing comments are ignored.
 func comparedToolNames(line string) []string {
 	var out []string
-	for _, m := range toolNameComparison.FindAllStringSubmatch(line, -1) {
+	for _, m := range toolNameComparison.FindAllStringSubmatch(stripLineComment(line), -1) {
 		// Exactly one of the two capture groups is set per match.
 		if m[1] != "" {
 			out = append(out, m[1])
@@ -72,6 +100,14 @@ func TestFlagsLegacyToolNameComparison(t *testing.T) {
 		// A "shell" literal that is not a ToolName comparison must not excuse it.
 		{`if h.ToolName == "bash" || label == "shell" {`, true},
 		{`if h.ToolName == "bash" { log("shell") }`, true},
+
+		// Nor may comment prose: only real code counts toward the exception.
+		{`if h.ToolName == "bash" { // unlike h.ToolName == "shell"`, true},
+		{`// h.ToolName == "shell" is right, this is not:`, false},
+		{`if h.ToolName == "bash" { // TODO: should be "shell"`, true},
+
+		// A // inside a string literal is not a comment.
+		{`if h.ToolName == "bash" && url == "http://x" || h.ToolName == "shell" {`, false},
 
 		// Correct and unrelated lines.
 		{`    if h.ToolName == "shell" {`, false},
