@@ -55,11 +55,17 @@ var e={frontmatter:{title:`Callbacks`,description:`Monitor tool calls and stream
 <h3 id="beforetoolcall--block-tool-execution"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#beforetoolcall--block-tool-execution"><span class="icon icon-link"></span></a>BeforeToolCall — block tool execution</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnBeforeToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.ToolCallID, h.ToolName, h.ToolArgs</span></span>
-<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> h.ToolName </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "bash"</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Contains</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(h.ToolArgs, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"rm -rf"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // The command-execution tool reports itself as "shell" (both kit.NewShellTool</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // and the deprecated kit.NewBashTool register it under that name).</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> h.ToolName </span><span style="color:#D73A49;--shiki-dark:#F97583">==</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> "shell"</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;&amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> strings.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Contains</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(h.ToolArgs, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"rm -rf"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">BeforeToolCallResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{Block: </span><span style="color:#005CC5;--shiki-dark:#79B8FF">true</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, Reason: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"dangerous command"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // allow</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p><code>h.ToolArgs</code> is the raw JSON the model produced. A substring match over it is a
+convenience guard, not a security boundary — <code>rm -r -f</code>, a shell expansion, or a
+script file all get past it. Parse the arguments and enforce an allowlist when
+you need a real control.</p>
 <h3 id="aftertoolresult--modify-tool-output"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#aftertoolresult--modify-tool-output"><span class="icon icon-link"></span></a>AfterToolResult — modify tool output</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnAfterToolResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(kit.HookPriorityNormal, </span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">h</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AfterToolResultHook</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">AfterToolResultResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError</span></span>
@@ -296,4 +302,230 @@ start/end lifecycle telemetry without hand-rolling the failure path:</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        })</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
-<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:`Event-based monitoring`,id:`event-based-monitoring`},{depth:2,text:`Tool call argument streaming`,id:`tool-call-argument-streaming`},{depth:2,text:`Hook system`,id:`hook-system`},{depth:3,text:`BeforeToolCall — block tool execution`,id:`beforetoolcall--block-tool-execution`},{depth:3,text:`AfterToolResult — modify tool output`,id:`aftertoolresult--modify-tool-output`},{depth:3,text:`BeforeTurn — modify prompt, inject messages`,id:`beforeturn--modify-prompt-inject-messages`},{depth:3,text:`AfterTurn — observation only`,id:`afterturn--observation-only`},{depth:3,text:`PrepareStep — intercept messages between steps`,id:`preparestep--intercept-messages-between-steps`},{depth:3,text:`Hook priorities`,id:`hook-priorities`},{depth:2,text:`All event types`,id:`all-event-types`},{depth:3,text:`Compaction telemetry`,id:`compaction-telemetry`},{depth:2,text:`Subagent event monitoring`,id:`subagent-event-monitoring`}],raw:'\n# Callbacks\n\n## Event-based monitoring\n\nSubscribe to events for real-time monitoring. Each method returns an unsubscribe function:\n\n```go\nunsub := host.OnToolCall(func(event kit.ToolCallEvent) {\n    fmt.Printf("Tool: %s, Args: %s\\n", event.ToolName, event.ToolArgs)\n})\ndefer unsub()\n\nunsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {\n    fmt.Printf("Result: %s (error: %v)\\n", event.ToolName, event.IsError)\n})\ndefer unsub2()\n\nunsub3 := host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {\n    fmt.Print(event.Chunk)\n})\ndefer unsub3()\n\nunsub4 := host.OnResponse(func(event kit.ResponseEvent) {\n    fmt.Println("Final response received")\n})\ndefer unsub4()\n\nunsub5 := host.OnTurnStart(func(event kit.TurnStartEvent) {\n    fmt.Println("Turn started")\n})\ndefer unsub5()\n\nunsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {\n    fmt.Println("Turn ended")\n})\ndefer unsub6()\n```\n\n## Tool call argument streaming\n\nFor tools with large arguments (e.g., `write` with a full file body), the `ToolCallEvent` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:\n\n```go\nhost.OnToolCallStart(func(event kit.ToolCallStartEvent) {\n    // Fires as soon as the LLM begins generating tool arguments.\n    // event.ToolCallID, event.ToolName, event.ToolKind\n    fmt.Printf("⏳ %s generating arguments...\\n", event.ToolName)\n})\n\nhost.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {\n    // Each streamed JSON fragment of the tool arguments.\n    // event.ToolCallID, event.Delta\n    // Useful for live-previewing content or showing byte progress.\n})\n\nhost.OnToolCallEnd(func(event kit.ToolCallEndEvent) {\n    // Tool argument streaming complete — execution about to begin.\n    // event.ToolCallID\n    fmt.Printf("✓ Arguments ready, executing...\\n")\n})\n```\n\n**Full tool lifecycle**: `ToolCallStartEvent` → `ToolCallDeltaEvent` (repeated) → `ToolCallEndEvent` → `ToolCallEvent` → `ToolExecutionStartEvent` → `ToolOutputEvent` (optional) → `ToolExecutionEndEvent` → `ToolResultEvent`\n\n## Hook system\n\nHooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.\n\n### BeforeToolCall — block tool execution\n\n```go\nhost.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {\n    // h.ToolCallID, h.ToolName, h.ToolArgs\n    if h.ToolName == "bash" && strings.Contains(h.ToolArgs, "rm -rf") {\n        return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}\n    }\n    return nil // allow\n})\n```\n\n### AfterToolResult — modify tool output\n\n```go\nhost.OnAfterToolResult(kit.HookPriorityNormal, func(h kit.AfterToolResultHook) *kit.AfterToolResultResult {\n    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError\n    if h.ToolName == "read" {\n        filtered := redactSecrets(h.Result)\n        return &kit.AfterToolResultResult{Result: &filtered}\n    }\n    return nil\n})\n```\n\n### BeforeTurn — modify prompt, inject messages\n\n```go\nhost.OnBeforeTurn(kit.HookPriorityNormal, func(h kit.BeforeTurnHook) *kit.BeforeTurnResult {\n    // h.Prompt\n    newPrompt := h.Prompt + "\\nAlways respond in JSON."\n    return &kit.BeforeTurnResult{Prompt: &newPrompt}\n    // Also available: SystemPrompt *string, InjectText *string\n})\n```\n\n### AfterTurn — observation only\n\n```go\nhost.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {\n    // h.Response, h.Error\n    log.Printf("Turn completed: %d chars", len(h.Response))\n})\n```\n\n### PrepareStep — intercept messages between steps\n\nThe most powerful hook — fires between steps within a multi-step agent turn, after any steering messages are injected and before messages are sent to the LLM. Can replace the entire context window.\n\n```go\nhost.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {\n    // h.StepNumber — zero-based step index within the turn\n    // h.Messages   — current context window (includes any steering)\n    \n    // Example: transform tool results with images into user messages\n    modified := transformImageToolResults(h.Messages)\n    return &kit.PrepareStepResult{Messages: modified}\n    // Return nil to pass through unchanged\n})\n```\n\nUse cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.\n\n### Hook priorities\n\n```go\nkit.HookPriorityHigh   = 0   // runs first\nkit.HookPriorityNormal = 50  // default\nkit.HookPriorityLow    = 100 // runs last\n```\n\nLower values run first. First non-nil result wins.\n\n## All event types\n\n| Event | Typed Subscriber | Description |\n|-------|-----------------|-------------|\n| `TurnStartEvent` | `OnTurnStart` | Agent turn started |\n| `TurnEndEvent` | `OnTurnEnd` | Agent turn completed |\n| `MessageStartEvent` | `OnMessageStart` | New assistant message begins |\n| `MessageUpdateEvent` | `OnMessageUpdate` | Streaming text chunk from LLM |\n| `MessageEndEvent` | `OnMessageEnd` | Assistant message complete |\n| `ToolCallStartEvent` | `OnToolCallStart` | LLM began generating tool call arguments |\n| `ToolCallDeltaEvent` | `OnToolCallDelta` | Streamed JSON fragment of tool call arguments |\n| `ToolCallEndEvent` | `OnToolCallEnd` | Tool argument streaming complete |\n| `ToolCallEvent` | `OnToolCall` | Tool call fully parsed, about to execute |\n| `ToolExecutionStartEvent` | `OnToolExecutionStart` | Tool begins executing |\n| `ToolExecutionEndEvent` | `OnToolExecutionEnd` | Tool finishes executing |\n| `ToolResultEvent` | `OnToolResult` | Tool execution completed with result |\n| `ToolCallContentEvent` | `OnToolCallContent` | Text content alongside tool calls |\n| `ToolOutputEvent` | `OnToolOutput` | Streaming output chunk from tool (e.g., bash) |\n| `ResponseEvent` | `OnResponse` | Final response received |\n| `ReasoningStartEvent` | `OnReasoningStart` | LLM begins reasoning/thinking |\n| `ReasoningDeltaEvent` | `OnReasoningDelta` | Streaming reasoning/thinking chunk |\n| `ReasoningCompleteEvent` | `OnReasoningComplete` | Reasoning/thinking finished |\n| `StepStartEvent` | `OnStepStart` | New LLM call begins within a turn |\n| `StepFinishEvent` | `OnStepFinish` | Step completes (with usage, finish reason, tool call info) |\n| `StepUsageEvent` | `OnStepUsage` | Per-step token usage |\n| `StreamFinishEvent` | `OnStreamFinish` | Per-step stream completes (with usage + finish reason) |\n| `TextStartEvent` | `OnTextStart` | LLM begins text content generation |\n| `TextEndEvent` | `OnTextEnd` | LLM finishes text content generation |\n| `WarningsEvent` | `OnWarnings` | LLM provider returned warnings |\n| `SourceEvent` | `OnSource` | LLM referenced a source (e.g., web search) |\n| `ErrorEvent` | `OnError` | Agent-level error during streaming |\n| `RetryEvent` | `OnRetry` | LLM request retried after transient error |\n| `CompactionEvent` | `OnCompaction` | Conversation compacted (fires on success **and** failure — check `Err`) |\n| `SteerConsumedEvent` | `OnSteerConsumed` | Steering messages injected into turn |\n| `PasswordPromptEvent` | — | Sudo command needs password (respond via `ResponseCh`) |\n\n> **Note:** `OnStreaming` is a deprecated alias for `OnMessageUpdate` and will be removed in a future release.\n\n### Compaction telemetry\n\n`CompactionEvent` fires after every compaction attempt. On success `Err` is\n`nil` and the summary/token/file fields are populated; on failure `Err` is\nnon-nil and the rest are zero-valued. This lets you wire symmetric\nstart/end lifecycle telemetry without hand-rolling the failure path:\n\n```go\nhost.OnCompaction(func(e kit.CompactionEvent) {\n    if e.Err != nil {\n        log.Printf("compaction failed: %v", e.Err)\n        return\n    }\n    log.Printf("compacted %d → %d tokens (%d messages removed)",\n        e.OriginalTokens, e.CompactedTokens, e.MessagesRemoved)\n})\n```\n\n## Subagent event monitoring\n\nMonitor real-time events from LLM-initiated subagents (when the model uses the `subagent` tool):\n\n```go\nhost.OnToolCall(func(e kit.ToolCallEvent) {\n    if e.ToolName == "subagent" {\n        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {\n            // Receives the same event types as Subscribe(), scoped to the child agent\n            switch ev := event.(type) {\n            case kit.MessageUpdateEvent:\n                fmt.Print(ev.Chunk)\n            case kit.ToolCallEvent:\n                fmt.Printf("Subagent calling: %s\\n", ev.ToolName)\n            }\n        })\n    }\n})\n```\n\n`SubscribeSubagent` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.\n'};export{e as default};
+<p><code>SubscribeSubagent</code> returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See <a href="/advanced/subagents">Subagents</a> for more details.</p>`,headings:[{depth:2,text:`Event-based monitoring`,id:`event-based-monitoring`},{depth:2,text:`Tool call argument streaming`,id:`tool-call-argument-streaming`},{depth:2,text:`Hook system`,id:`hook-system`},{depth:3,text:`BeforeToolCall — block tool execution`,id:`beforetoolcall--block-tool-execution`},{depth:3,text:`AfterToolResult — modify tool output`,id:`aftertoolresult--modify-tool-output`},{depth:3,text:`BeforeTurn — modify prompt, inject messages`,id:`beforeturn--modify-prompt-inject-messages`},{depth:3,text:`AfterTurn — observation only`,id:`afterturn--observation-only`},{depth:3,text:`PrepareStep — intercept messages between steps`,id:`preparestep--intercept-messages-between-steps`},{depth:3,text:`Hook priorities`,id:`hook-priorities`},{depth:2,text:`All event types`,id:`all-event-types`},{depth:3,text:`Compaction telemetry`,id:`compaction-telemetry`},{depth:2,text:`Subagent event monitoring`,id:`subagent-event-monitoring`}],raw:`
+# Callbacks
+
+## Event-based monitoring
+
+Subscribe to events for real-time monitoring. Each method returns an unsubscribe function:
+
+\`\`\`go
+unsub := host.OnToolCall(func(event kit.ToolCallEvent) {
+    fmt.Printf("Tool: %s, Args: %s\\n", event.ToolName, event.ToolArgs)
+})
+defer unsub()
+
+unsub2 := host.OnToolResult(func(event kit.ToolResultEvent) {
+    fmt.Printf("Result: %s (error: %v)\\n", event.ToolName, event.IsError)
+})
+defer unsub2()
+
+unsub3 := host.OnMessageUpdate(func(event kit.MessageUpdateEvent) {
+    fmt.Print(event.Chunk)
+})
+defer unsub3()
+
+unsub4 := host.OnResponse(func(event kit.ResponseEvent) {
+    fmt.Println("Final response received")
+})
+defer unsub4()
+
+unsub5 := host.OnTurnStart(func(event kit.TurnStartEvent) {
+    fmt.Println("Turn started")
+})
+defer unsub5()
+
+unsub6 := host.OnTurnEnd(func(event kit.TurnEndEvent) {
+    fmt.Println("Turn ended")
+})
+defer unsub6()
+\`\`\`
+
+## Tool call argument streaming
+
+For tools with large arguments (e.g., \`write\` with a full file body), the \`ToolCallEvent\` only fires after the full argument JSON finishes streaming — which can take 5-10+ seconds of "dead air." These three events fire during argument generation so UIs can show activity immediately:
+
+\`\`\`go
+host.OnToolCallStart(func(event kit.ToolCallStartEvent) {
+    // Fires as soon as the LLM begins generating tool arguments.
+    // event.ToolCallID, event.ToolName, event.ToolKind
+    fmt.Printf("⏳ %s generating arguments...\\n", event.ToolName)
+})
+
+host.OnToolCallDelta(func(event kit.ToolCallDeltaEvent) {
+    // Each streamed JSON fragment of the tool arguments.
+    // event.ToolCallID, event.Delta
+    // Useful for live-previewing content or showing byte progress.
+})
+
+host.OnToolCallEnd(func(event kit.ToolCallEndEvent) {
+    // Tool argument streaming complete — execution about to begin.
+    // event.ToolCallID
+    fmt.Printf("✓ Arguments ready, executing...\\n")
+})
+\`\`\`
+
+**Full tool lifecycle**: \`ToolCallStartEvent\` → \`ToolCallDeltaEvent\` (repeated) → \`ToolCallEndEvent\` → \`ToolCallEvent\` → \`ToolExecutionStartEvent\` → \`ToolOutputEvent\` (optional) → \`ToolExecutionEndEvent\` → \`ToolResultEvent\`
+
+## Hook system
+
+Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are read-write interceptors.
+
+### BeforeToolCall — block tool execution
+
+\`\`\`go
+host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
+    // h.ToolCallID, h.ToolName, h.ToolArgs
+    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
+    // and the deprecated kit.NewBashTool register it under that name).
+    if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
+        return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
+    }
+    return nil // allow
+})
+\`\`\`
+
+\`h.ToolArgs\` is the raw JSON the model produced. A substring match over it is a
+convenience guard, not a security boundary — \`rm -r -f\`, a shell expansion, or a
+script file all get past it. Parse the arguments and enforce an allowlist when
+you need a real control.
+
+### AfterToolResult — modify tool output
+
+\`\`\`go
+host.OnAfterToolResult(kit.HookPriorityNormal, func(h kit.AfterToolResultHook) *kit.AfterToolResultResult {
+    // h.ToolCallID, h.ToolName, h.ToolArgs, h.Result, h.IsError
+    if h.ToolName == "read" {
+        filtered := redactSecrets(h.Result)
+        return &kit.AfterToolResultResult{Result: &filtered}
+    }
+    return nil
+})
+\`\`\`
+
+### BeforeTurn — modify prompt, inject messages
+
+\`\`\`go
+host.OnBeforeTurn(kit.HookPriorityNormal, func(h kit.BeforeTurnHook) *kit.BeforeTurnResult {
+    // h.Prompt
+    newPrompt := h.Prompt + "\\nAlways respond in JSON."
+    return &kit.BeforeTurnResult{Prompt: &newPrompt}
+    // Also available: SystemPrompt *string, InjectText *string
+})
+\`\`\`
+
+### AfterTurn — observation only
+
+\`\`\`go
+host.OnAfterTurn(kit.HookPriorityNormal, func(h kit.AfterTurnHook) {
+    // h.Response, h.Error
+    log.Printf("Turn completed: %d chars", len(h.Response))
+})
+\`\`\`
+
+### PrepareStep — intercept messages between steps
+
+The most powerful hook — fires between steps within a multi-step agent turn, after any steering messages are injected and before messages are sent to the LLM. Can replace the entire context window.
+
+\`\`\`go
+host.OnPrepareStep(kit.HookPriorityNormal, func(h kit.PrepareStepHook) *kit.PrepareStepResult {
+    // h.StepNumber — zero-based step index within the turn
+    // h.Messages   — current context window (includes any steering)
+    
+    // Example: transform tool results with images into user messages
+    modified := transformImageToolResults(h.Messages)
+    return &kit.PrepareStepResult{Messages: modified}
+    // Return nil to pass through unchanged
+})
+\`\`\`
+
+Use cases: transforming tool results (e.g., image data for vision models), dynamic tool filtering per step, mid-turn context injection, custom stop conditions.
+
+### Hook priorities
+
+\`\`\`go
+kit.HookPriorityHigh   = 0   // runs first
+kit.HookPriorityNormal = 50  // default
+kit.HookPriorityLow    = 100 // runs last
+\`\`\`
+
+Lower values run first. First non-nil result wins.
+
+## All event types
+
+| Event | Typed Subscriber | Description |
+|-------|-----------------|-------------|
+| \`TurnStartEvent\` | \`OnTurnStart\` | Agent turn started |
+| \`TurnEndEvent\` | \`OnTurnEnd\` | Agent turn completed |
+| \`MessageStartEvent\` | \`OnMessageStart\` | New assistant message begins |
+| \`MessageUpdateEvent\` | \`OnMessageUpdate\` | Streaming text chunk from LLM |
+| \`MessageEndEvent\` | \`OnMessageEnd\` | Assistant message complete |
+| \`ToolCallStartEvent\` | \`OnToolCallStart\` | LLM began generating tool call arguments |
+| \`ToolCallDeltaEvent\` | \`OnToolCallDelta\` | Streamed JSON fragment of tool call arguments |
+| \`ToolCallEndEvent\` | \`OnToolCallEnd\` | Tool argument streaming complete |
+| \`ToolCallEvent\` | \`OnToolCall\` | Tool call fully parsed, about to execute |
+| \`ToolExecutionStartEvent\` | \`OnToolExecutionStart\` | Tool begins executing |
+| \`ToolExecutionEndEvent\` | \`OnToolExecutionEnd\` | Tool finishes executing |
+| \`ToolResultEvent\` | \`OnToolResult\` | Tool execution completed with result |
+| \`ToolCallContentEvent\` | \`OnToolCallContent\` | Text content alongside tool calls |
+| \`ToolOutputEvent\` | \`OnToolOutput\` | Streaming output chunk from tool (e.g., bash) |
+| \`ResponseEvent\` | \`OnResponse\` | Final response received |
+| \`ReasoningStartEvent\` | \`OnReasoningStart\` | LLM begins reasoning/thinking |
+| \`ReasoningDeltaEvent\` | \`OnReasoningDelta\` | Streaming reasoning/thinking chunk |
+| \`ReasoningCompleteEvent\` | \`OnReasoningComplete\` | Reasoning/thinking finished |
+| \`StepStartEvent\` | \`OnStepStart\` | New LLM call begins within a turn |
+| \`StepFinishEvent\` | \`OnStepFinish\` | Step completes (with usage, finish reason, tool call info) |
+| \`StepUsageEvent\` | \`OnStepUsage\` | Per-step token usage |
+| \`StreamFinishEvent\` | \`OnStreamFinish\` | Per-step stream completes (with usage + finish reason) |
+| \`TextStartEvent\` | \`OnTextStart\` | LLM begins text content generation |
+| \`TextEndEvent\` | \`OnTextEnd\` | LLM finishes text content generation |
+| \`WarningsEvent\` | \`OnWarnings\` | LLM provider returned warnings |
+| \`SourceEvent\` | \`OnSource\` | LLM referenced a source (e.g., web search) |
+| \`ErrorEvent\` | \`OnError\` | Agent-level error during streaming |
+| \`RetryEvent\` | \`OnRetry\` | LLM request retried after transient error |
+| \`CompactionEvent\` | \`OnCompaction\` | Conversation compacted (fires on success **and** failure — check \`Err\`) |
+| \`SteerConsumedEvent\` | \`OnSteerConsumed\` | Steering messages injected into turn |
+| \`PasswordPromptEvent\` | — | Sudo command needs password (respond via \`ResponseCh\`) |
+
+> **Note:** \`OnStreaming\` is a deprecated alias for \`OnMessageUpdate\` and will be removed in a future release.
+
+### Compaction telemetry
+
+\`CompactionEvent\` fires after every compaction attempt. On success \`Err\` is
+\`nil\` and the summary/token/file fields are populated; on failure \`Err\` is
+non-nil and the rest are zero-valued. This lets you wire symmetric
+start/end lifecycle telemetry without hand-rolling the failure path:
+
+\`\`\`go
+host.OnCompaction(func(e kit.CompactionEvent) {
+    if e.Err != nil {
+        log.Printf("compaction failed: %v", e.Err)
+        return
+    }
+    log.Printf("compacted %d → %d tokens (%d messages removed)",
+        e.OriginalTokens, e.CompactedTokens, e.MessagesRemoved)
+})
+\`\`\`
+
+## Subagent event monitoring
+
+Monitor real-time events from LLM-initiated subagents (when the model uses the \`subagent\` tool):
+
+\`\`\`go
+host.OnToolCall(func(e kit.ToolCallEvent) {
+    if e.ToolName == "subagent" {
+        host.SubscribeSubagent(e.ToolCallID, func(event kit.Event) {
+            // Receives the same event types as Subscribe(), scoped to the child agent
+            switch ev := event.(type) {
+            case kit.MessageUpdateEvent:
+                fmt.Print(ev.Chunk)
+            case kit.ToolCallEvent:
+                fmt.Printf("Subagent calling: %s\\n", ev.ToolName)
+            }
+        })
+    }
+})
+\`\`\`
+
+\`SubscribeSubagent\` returns an unsubscribe function. Listeners are also cleaned up automatically when the subagent completes. See [Subagents](/advanced/subagents) for more details.
+`};export{e as default};

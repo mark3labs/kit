@@ -7,7 +7,7 @@
 <meta name="description" content="Monitor tool calls and streaming output with the Kit Go SDK.">
 <link rel="canonical" href="/sdk/callbacks">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-Cu-V1mIK.js"></script>
+<script type="module" src="/assets/index-BSpk5z_I.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -85,12 +85,19 @@ Hooks can **modify or cancel** operations. Unlike events (read-only), hooks are 
 ```go
 host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
     // h.ToolCallID, h.ToolName, h.ToolArgs
-    if h.ToolName == "bash" && strings.Contains(h.ToolArgs, "rm -rf") {
+    // The command-execution tool reports itself as "shell" (both kit.NewShellTool
+    // and the deprecated kit.NewBashTool register it under that name).
+    if h.ToolName == "shell" && strings.Contains(h.ToolArgs, "rm -rf") {
         return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
     return nil // allow
 })
 ```
+
+`h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
+convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
+script file all get past it. Parse the arguments and enforce an allowlist when
+you need a real control.
 
 ### AfterToolResult — modify tool output
 
