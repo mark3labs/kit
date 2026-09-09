@@ -603,7 +603,7 @@ updated instructions — no restart, no file shuffling.</p>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RemoveContextFile</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Sprintf</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"session://</span><span style="color:#005CC5;--shiki-dark:#79B8FF">%s</span><span style="color:#032F62;--shiki-dark:#9ECBFF">/AGENTS.md"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, userID))</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Hide a skill from the model-facing catalog without unloading it — it stays</span></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// available for explicit /skill: activation. EnableSkill reverses this.</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// available for explicit /&lt;name&gt; activation. EnableSkill reverses this.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">DisableSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"refund-policy"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">EnableSkill</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"refund-policy"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"></span>
@@ -655,10 +655,28 @@ skills override user-level skills of the same <code>name</code>. Skills missing 
 the catalog while keeping it available for explicit activation.</p>
 </li>
 <li>
-<p><strong>Skill helpers.</strong> A <code>kit.Skill</code> exposes <code>BaseDir()</code> (its directory) and
+<p><strong>Skill helpers.</strong> A <code>kit.Skill</code> exposes <code>BaseDir()</code> (its directory),
 <code>Resources()</code> (the files bundled under <code>scripts/</code>, <code>references/</code>, and
-<code>assets/</code>), which power the <code>&lt;skill_resources&gt;</code> enumeration shown when a skill
-is activated.</p>
+<code>assets/</code>, which power the <code>&lt;skill_resources&gt;</code> enumeration shown when a skill
+is activated), <code>Scope()</code> (<code>"project"</code> or <code>"user"</code>), and <code>Validate()</code> /
+<code>Warnings()</code>, which return <code>[]kit.SkillDiagnostic</code> describing agentskills.io
+spec deviations (name format, length limits, name/directory mismatch, body
+over 500 lines). Only a missing <code>name</code> or <code>description</code> is an <code>"error"</code>;
+everything else is a <code>"warning"</code> and the skill still loads.</p>
+</li>
+<li>
+<p><strong>Scoped discovery.</strong> <code>kit.LoadUserSkills()</code> and <code>kit.LoadProjectSkills(cwd)</code>
+return the raw per-scope sets; <code>kit.CombineSkills(user, project)</code> validates,
+drops error-level skills, and resolves name collisions (project wins). This
+is what <code>kit skill list</code> uses so it can show scope without prompting for
+trust.</p>
+</li>
+<li>
+<p><strong>User-explicit activation.</strong> A prompt of the form <code>/&lt;skill-name&gt; [args]</code>
+passed to <code>Prompt</code>/<code>Run</code> is expanded before the turn starts: the skill file
+is re-read, its body wrapped in <code>&lt;skill_content name=… location=…&gt;</code> with a
+<code>&lt;skill_resources&gt;</code> listing, and the args appended. <code>kit.ParseSkillCommand</code>
+performs the syntactic split if a host wants to do its own routing.</p>
 </li>
 <li>
 <p><strong><code>fs.FS</code>-backed discovery.</strong> The package-level loaders <code>kit.LoadSkill</code>,
@@ -1437,7 +1455,7 @@ host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
 // Hide a skill from the model-facing catalog without unloading it — it stays
-// available for explicit /skill: activation. EnableSkill reverses this.
+// available for explicit /<name> activation. EnableSkill reverses this.
 host.DisableSkill("refund-policy")
 host.EnableSkill("refund-policy")
 
@@ -1478,10 +1496,24 @@ Key points:
   \`description\` are skipped with a logged warning, and a skill's
   \`disable-model-invocation: true\` (or \`Options.SkillsDisable\`) hides it from
   the catalog while keeping it available for explicit activation.
-- **Skill helpers.** A \`kit.Skill\` exposes \`BaseDir()\` (its directory) and
+- **Skill helpers.** A \`kit.Skill\` exposes \`BaseDir()\` (its directory),
   \`Resources()\` (the files bundled under \`scripts/\`, \`references/\`, and
-  \`assets/\`), which power the \`<skill_resources>\` enumeration shown when a skill
-  is activated.
+  \`assets/\`, which power the \`<skill_resources>\` enumeration shown when a skill
+  is activated), \`Scope()\` (\`"project"\` or \`"user"\`), and \`Validate()\` /
+  \`Warnings()\`, which return \`[]kit.SkillDiagnostic\` describing agentskills.io
+  spec deviations (name format, length limits, name/directory mismatch, body
+  over 500 lines). Only a missing \`name\` or \`description\` is an \`"error"\`;
+  everything else is a \`"warning"\` and the skill still loads.
+- **Scoped discovery.** \`kit.LoadUserSkills()\` and \`kit.LoadProjectSkills(cwd)\`
+  return the raw per-scope sets; \`kit.CombineSkills(user, project)\` validates,
+  drops error-level skills, and resolves name collisions (project wins). This
+  is what \`kit skill list\` uses so it can show scope without prompting for
+  trust.
+- **User-explicit activation.** A prompt of the form \`/<skill-name> [args]\`
+  passed to \`Prompt\`/\`Run\` is expanded before the turn starts: the skill file
+  is re-read, its body wrapped in \`<skill_content name=… location=…>\` with a
+  \`<skill_resources>\` listing, and the args appended. \`kit.ParseSkillCommand\`
+  performs the syntactic split if a host wants to do its own routing.
 - **\`fs.FS\`-backed discovery.** The package-level loaders \`kit.LoadSkill\`,
   \`kit.LoadSkillsFromDir\`, and \`kit.LoadSkills\` are path-string based;
   \`kit.LoadSkillsFromFS(fsys, root)\` is the \`fs.FS\`-typed counterpart for

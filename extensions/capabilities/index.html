@@ -7,7 +7,7 @@
 <meta name="description" content="All extension capabilities — lifecycle events, tools, commands, widgets, and more.">
 <link rel="canonical" href="/extensions/capabilities">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-E2vbN7Bt.js"></script>
+<script type="module" src="/assets/index-Cu-V1mIK.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -798,7 +798,9 @@ skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
 
-// Inject a skill as context (pre-loads for next turn)
+// Inject a skill as context (pre-loads for next turn). The body is wrapped
+// in a <skill_content name="..."> block, the same wrapper the /<name> slash
+// command and the activate_skill tool use, so it survives /compact.
 err := ctx.InjectSkillAsContext("skill-name")  // error string
 
 // Inject a skill file directly

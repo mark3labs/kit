@@ -90,6 +90,7 @@
         "Extension management",
         "Installing extensions from git",
         "Skills",
+        "Activating skills",
         "Skills CLI flags",
         "Skill frontmatter",
         "Project trust prompt",
@@ -110,7 +111,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 3112
+      "wordCount": 3552
     },
     {
       "id": "cli/flags",
@@ -221,7 +222,7 @@
         "Model pricing"
       ],
       "tags": [],
-      "wordCount": 4245
+      "wordCount": 4272
     },
     {
       "id": "extensions/examples",
@@ -475,7 +476,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 3921
+      "wordCount": 4056
     },
     {
       "id": "sdk/sessions",

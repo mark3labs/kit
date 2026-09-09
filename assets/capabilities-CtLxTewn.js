@@ -883,7 +883,9 @@ from a goroutine if that matters.</p>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Load all skills from a directory</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">result </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LoadSkillsFromDir</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"/path/to/skills"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// ext.SkillLoadResult</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inject a skill as context (pre-loads for next turn)</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inject a skill as context (pre-loads for next turn). The body is wrapped</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// in a &lt;skill_content name="..."&gt; block, the same wrapper the /&lt;name&gt; slash</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// command and the activate_skill tool use, so it survives /compact.</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">InjectSkillAsContext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"skill-name"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// error string</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Inject a skill file directly</span></span>
@@ -1757,7 +1759,9 @@ skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
 
-// Inject a skill as context (pre-loads for next turn)
+// Inject a skill as context (pre-loads for next turn). The body is wrapped
+// in a <skill_content name="..."> block, the same wrapper the /<name> slash
+// command and the activate_skill tool use, so it survives /compact.
 err := ctx.InjectSkillAsContext("skill-name")  // error string
 
 // Inject a skill file directly

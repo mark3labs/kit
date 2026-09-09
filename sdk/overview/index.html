@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-E2vbN7Bt.js"></script>
+<script type="module" src="/assets/index-Cu-V1mIK.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -643,7 +643,7 @@ host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
 // Hide a skill from the model-facing catalog without unloading it — it stays
-// available for explicit /skill: activation. EnableSkill reverses this.
+// available for explicit /<name> activation. EnableSkill reverses this.
 host.DisableSkill("refund-policy")
 host.EnableSkill("refund-policy")
 
@@ -684,10 +684,24 @@ Key points:
   `description` are skipped with a logged warning, and a skill's
   `disable-model-invocation: true` (or `Options.SkillsDisable`) hides it from
   the catalog while keeping it available for explicit activation.
-- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory) and
+- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory),
   `Resources()` (the files bundled under `scripts/`, `references/`, and
-  `assets/`), which power the `<skill_resources>` enumeration shown when a skill
-  is activated.
+  `assets/`, which power the `<skill_resources>` enumeration shown when a skill
+  is activated), `Scope()` (`"project"` or `"user"`), and `Validate()` /
+  `Warnings()`, which return `[]kit.SkillDiagnostic` describing agentskills.io
+  spec deviations (name format, length limits, name/directory mismatch, body
+  over 500 lines). Only a missing `name` or `description` is an `"error"`;
+  everything else is a `"warning"` and the skill still loads.
+- **Scoped discovery.** `kit.LoadUserSkills()` and `kit.LoadProjectSkills(cwd)`
+  return the raw per-scope sets; `kit.CombineSkills(user, project)` validates,
+  drops error-level skills, and resolves name collisions (project wins). This
+  is what `kit skill list` uses so it can show scope without prompting for
+  trust.
+- **User-explicit activation.** A prompt of the form `/<skill-name> [args]`
+  passed to `Prompt`/`Run` is expanded before the turn starts: the skill file
+  is re-read, its body wrapped in `<skill_content name=… location=…>` with a
+  `<skill_resources>` listing, and the args appended. `kit.ParseSkillCommand`
+  performs the syntactic split if a host wants to do its own routing.
 - **`fs.FS`-backed discovery.** The package-level loaders `kit.LoadSkill`,
   `kit.LoadSkillsFromDir`, and `kit.LoadSkills` are path-string based;
   `kit.LoadSkillsFromFS(fsys, root)` is the `fs.FS`-typed counterpart for

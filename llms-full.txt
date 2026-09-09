@@ -879,9 +879,34 @@ kit install --all            # Install all extensions without prompting
 
 ## Skills
 
+Kit implements the [Agent Skills](https://agentskills.io/specification) format. A skill is a directory with a `SKILL.md` file (YAML frontmatter + Markdown instructions) and optional `scripts/`, `references/`, and `assets/` subdirectories.
+
 ```bash
-kit skill                    # Install the Kit extensions skill via skills.sh
+kit skill list               # List discovered skills with scope, path and spec warnings
+kit skill validate <path>    # Validate a skill directory / SKILL.md against the spec
+kit skill install            # Install the Kit skills (kit-extensions, kit-sdk) via skills.sh
+kit skill                    # Same as "kit skill install"
 ```
+
+`kit skill list` honors `--skill`, `--skills-dir`, `--no-skills` and `--bare`, and never prompts for project trust (it is read-only). `kit skill validate` accepts a `SKILL.md` file, a skill directory, or a directory of skills; errors (missing `name`/`description`) make the exit code non-zero, while warnings (name format, length limits, name/directory mismatch, body over 500 lines) are informational.
+
+### Activating skills
+
+Skills load in three tiers, following the spec's progressive-disclosure model:
+
+1. **Catalog** — at startup the model sees every skill's `name`, `description` and location in an `<available_skills>` block in the system prompt.
+2. **Instructions** — the full `SKILL.md` body is loaded when a skill is activated, either by the model (the `activate_skill` tool, or a `read` of the listed location) or by you.
+3. **Resources** — bundled files are listed in a `<skill_resources>` block and read on demand.
+
+To activate a skill yourself, type its name as a slash command, optionally followed by a request:
+
+```
+/pdf-processing extract the tables from report.pdf
+```
+
+The `/` autocomplete popup lists every loaded skill that is not shadowed by another slash command (see precedence below) with a `[skill]` badge next to it — hidden-from-model skills included, since hiding only affects the model-facing catalog (prompt templates show `[prompt]`, extension commands `[ext]`, MCP prompts `[mcp]`). Kit wraps the skill body in a `<skill_content>` block, appends your text, and sends it as the turn. Activated skill content is protected from `/compact` pruning.
+
+Slash-name precedence is: built-in commands, extension commands, MCP prompts (`/server:prompt`), prompt templates, then skills. A skill whose name is already taken is left out of the popup and a warning is logged, so rename one side if that happens.
 
 ### Skills CLI flags
 
@@ -897,7 +922,7 @@ kit --skill ./skill1.md --skill ./skill2.md "prompt"
 # Scan a directory directly for skills (overrides auto-discovery)
 kit --skills-dir /path/to/skills "prompt"
 
-# Hide a skill from the model catalog by name (still usable via /skill:)
+# Hide a skill from the model catalog by name (still usable via /<name>)
 kit --skill-disable noisy-skill "prompt"
 
 # Disable all skill loading (auto-discovery and explicit)
@@ -915,7 +940,7 @@ Skills follow the [agentskills.io](https://agentskills.io/specification) convent
 
 When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
 
-Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/skill:<name>` command.
+Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/<name>` slash command.
 
 ### Skill frontmatter
 
@@ -923,20 +948,20 @@ A skill is a markdown file (`SKILL.md` in a directory, or a standalone `.md`/`.t
 
 ```yaml
 ---
-name: pdf-extractor                 # required
+name: pdf-extractor                 # required; lowercase, digits, single hyphens; must match the directory
 description: Use when extracting tables from PDFs   # required (drives model discovery)
 license: MIT                        # optional, SPDX identifier
-compatibility: claude-code, cursor  # optional, targeted environments
-allowed-tools: read, bash           # optional (experimental) tool restriction
+compatibility: Requires python3 and pdftotext  # optional, environment requirements (max 500 chars)
+allowed-tools: Read Bash(pdftotext:*)  # optional (experimental); parsed, not enforced by Kit
 disable-model-invocation: false     # optional; true hides from the catalog
-metadata:                           # optional arbitrary key/value pairs
+metadata:                           # optional arbitrary string key/value pairs
   author: you
 tags: [pdf, data]                   # Kit extension
 when: on-demand                     # Kit extension
 ---
 ```
 
-`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
+`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Other spec constraints (name is 1–64 chars of `a-z0-9-` with no leading/trailing/double hyphen and matches the parent directory; description ≤ 1024 chars; `compatibility` ≤ 500 chars; body under 500 lines) are checked leniently: the skill still loads, and the deviation is reported by `kit skill list` / `kit skill validate`. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
 
 ### Project trust prompt
 
@@ -1082,11 +1107,13 @@ Save to `~/.kit/prompts/review.md` or `.kit/prompts/review.md`.
 
 ### Using templates
 
-Templates appear as slash commands:
+Templates appear as slash commands, tagged `[prompt]` in the autocomplete popup:
 
 ```
 /review error handling
 ```
+
+A template and a [skill](#activating-skills) with the same name cannot both be reached: the template wins and the skill is left out of the popup with a logged warning.
 
 ### Argument placeholders
 
@@ -1347,7 +1374,7 @@ and the other per-server fields, use the [config file](/configuration#mcp-server
 |------|-------|---------|-------------|
 | `--skill` | — | — | Load skill file or directory (repeatable) |
 | `--skills-dir` | — | — | Scan this directory directly for skills (overrides auto-discovery) |
-| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/skill:` |
+| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/<name>` |
 | `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
 | `--no-agents` | — | `false` | Disable named agent discovery (built-ins and [definition files](/advanced/subagents#named-agents)) |
 
@@ -1425,7 +1452,7 @@ stream: true
 | `no-agents` | bool | `false` | Disable named agent discovery ([built-ins and definition files](/advanced/subagents#named-agents)) |
 | `skill` | list | — | Explicit skill files or directories to load (disables auto-discovery) |
 | `skills-dir` | string | — | Scan this directory directly for skills (overrides auto-discovery; not treated as a parent of `.agents`/`.kit`) |
-| `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+| `skill-disable` | list | — | Skill names to hide from the model catalog (still usable via `/<name>`) |
 
 ## Environment variables
 
@@ -2570,7 +2597,9 @@ skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
 
-// Inject a skill as context (pre-loads for next turn)
+// Inject a skill as context (pre-loads for next turn). The body is wrapped
+// in a <skill_content name="..."> block, the same wrapper the /<name> slash
+// command and the activate_skill tool use, so it survives /compact.
 err := ctx.InjectSkillAsContext("skill-name")  // error string
 
 // Inject a skill file directly
@@ -4433,7 +4462,7 @@ from the host machine.
 | `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Scan this directory directly for skills (overrides auto-discovery; scanned as-is) |
-| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/<name>`) |
 | `SkillTrustPrompt` | `func(projectDir string, skillCount int) TrustDecision` | `nil` | Callback gating project-local skill loading on a trust decision (see below) |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
 
@@ -5408,7 +5437,7 @@ host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
 // Hide a skill from the model-facing catalog without unloading it — it stays
-// available for explicit /skill: activation. EnableSkill reverses this.
+// available for explicit /<name> activation. EnableSkill reverses this.
 host.DisableSkill("refund-policy")
 host.EnableSkill("refund-policy")
 
@@ -5449,10 +5478,24 @@ Key points:
   `description` are skipped with a logged warning, and a skill's
   `disable-model-invocation: true` (or `Options.SkillsDisable`) hides it from
   the catalog while keeping it available for explicit activation.
-- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory) and
+- **Skill helpers.** A `kit.Skill` exposes `BaseDir()` (its directory),
   `Resources()` (the files bundled under `scripts/`, `references/`, and
-  `assets/`), which power the `<skill_resources>` enumeration shown when a skill
-  is activated.
+  `assets/`, which power the `<skill_resources>` enumeration shown when a skill
+  is activated), `Scope()` (`"project"` or `"user"`), and `Validate()` /
+  `Warnings()`, which return `[]kit.SkillDiagnostic` describing agentskills.io
+  spec deviations (name format, length limits, name/directory mismatch, body
+  over 500 lines). Only a missing `name` or `description` is an `"error"`;
+  everything else is a `"warning"` and the skill still loads.
+- **Scoped discovery.** `kit.LoadUserSkills()` and `kit.LoadProjectSkills(cwd)`
+  return the raw per-scope sets; `kit.CombineSkills(user, project)` validates,
+  drops error-level skills, and resolves name collisions (project wins). This
+  is what `kit skill list` uses so it can show scope without prompting for
+  trust.
+- **User-explicit activation.** A prompt of the form `/<skill-name> [args]`
+  passed to `Prompt`/`Run` is expanded before the turn starts: the skill file
+  is re-read, its body wrapped in `<skill_content name=… location=…>` with a
+  `<skill_resources>` listing, and the args appended. `kit.ParseSkillCommand`
+  performs the syntactic split if a host wants to do its own routing.
 - **`fs.FS`-backed discovery.** The package-level loaders `kit.LoadSkill`,
   `kit.LoadSkillsFromDir`, and `kit.LoadSkills` are path-string based;
   `kit.LoadSkillsFromFS(fsys, root)` is the `fs.FS`-typed counterpart for

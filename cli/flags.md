@@ -124,7 +124,7 @@ and the other per-server fields, use the [config file](/configuration#mcp-server
 |------|-------|---------|-------------|
 | `--skill` | — | — | Load skill file or directory (repeatable) |
 | `--skills-dir` | — | — | Scan this directory directly for skills (overrides auto-discovery) |
-| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/skill:` |
+| `--skill-disable` | — | — | Hide a skill from the model catalog by name (repeatable); still usable via `/<name>` |
 | `--no-skills` | — | `false` | Disable skill loading (auto-discovery and explicit) |
 | `--no-agents` | — | `false` | Disable named agent discovery (built-ins and [definition files](/advanced/subagents#named-agents)) |
 
