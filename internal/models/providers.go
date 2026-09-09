@@ -536,17 +536,23 @@ func autoRouteProvider(ctx context.Context, config *ProviderConfig, provider, mo
 }
 
 // resolveAutoRouteAPIKey looks up the API key for an auto-routed provider,
-// returning a uniform error message when none can be resolved.
+// returning a MissingCredentialsError when none can be resolved.
 func resolveAutoRouteAPIKey(config *ProviderConfig, info *ProviderInfo) (string, error) {
-	apiKey := resolveAPIKey(config.ProviderAPIKey, info.Env)
+	apiKey := resolveAPIKey(config.ProviderAPIKey, info.ID, info.Env)
 	if apiKey == "" {
-		if len(info.Env) == 0 {
-			return "", fmt.Errorf("%s API key not provided. Use --provider-api-key, or declare apiKeyEnv for this provider in the `providers` config section", info.Name)
-		}
-		return "", fmt.Errorf("%s API key not provided. Use --provider-api-key or set %s",
-			info.Name, strings.Join(info.Env, " / "))
+		return "", missingKeyError(info.ID, info.Name, info.Env)
 	}
 	return apiKey, nil
+}
+
+// missingKeyError builds the typed error every "no API key" path returns so
+// callers can recognise the condition with auth.IsMissingCredentials.
+func missingKeyError(providerID, providerName string, envVars []string) error {
+	return &auth.MissingCredentialsError{
+		Provider:     providerID,
+		ProviderName: providerName,
+		EnvVars:      envVars,
+	}
 }
 
 // wrapProviderErr produces the uniform "failed to create X provider/model: %w"
@@ -837,11 +843,17 @@ func (t *geminiProxyTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return t.base.RoundTrip(req)
 }
 
-// resolveAPIKey returns the first non-empty API key from the explicit key
-// or the environment variables.
-func resolveAPIKey(explicitKey string, envVars []string) string {
+// resolveAPIKey returns the first non-empty API key, in priority order:
+// the explicit key (--provider-api-key), a key stored in the credentials
+// file for providerID, then the environment variables.
+func resolveAPIKey(explicitKey, providerID string, envVars []string) string {
 	if explicitKey != "" {
 		return explicitKey
+	}
+	if providerID != "" {
+		if stored := auth.LookupStoredAPIKey(providerID); stored != "" {
+			return stored
+		}
 	}
 	for _, envVar := range envVars {
 		if v := os.Getenv(envVar); v != "" {
@@ -1245,7 +1257,12 @@ func createOpenAIProvider(ctx context.Context, config *ProviderConfig, modelName
 	}
 
 	if apiKey == "" {
-		return nil, fmt.Errorf("OpenAI API key not provided. Use 'kit auth login openai', --provider-api-key flag, or OPENAI_API_KEY environment variable")
+		return nil, &auth.MissingCredentialsError{
+			Provider:     "openai",
+			ProviderName: "OpenAI",
+			EnvVars:      []string{"OPENAI_API_KEY"},
+			Hint:         "ChatGPT Plus/Pro users can run 'kit auth login openai' instead",
+		}
 	}
 
 	if os.Getenv("DEBUG") != "" || os.Getenv("KIT_DEBUG") != "" {
@@ -1305,6 +1322,13 @@ func createCopilotProvider(ctx context.Context, config *ProviderConfig, modelNam
 
 	token, err := cm.GetValidCopilotAccessTokenContext(ctx)
 	if err != nil {
+		if has, _ := cm.HasCopilotCredentials(); !has {
+			return nil, &auth.MissingCredentialsError{
+				Provider:     "copilot",
+				ProviderName: "GitHub Copilot",
+				Hint:         "GitHub Copilot uses device login: run 'kit auth login copilot'",
+			}
+		}
 		return nil, fmt.Errorf("GitHub Copilot credentials not available. Use 'kit auth login copilot': %w", err)
 	}
 
@@ -1573,14 +1597,10 @@ func (t *copilotTransport) cachedToken(ctx context.Context) string {
 }
 
 func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	apiKey := firstNonEmpty(
-		config.ProviderAPIKey,
-		os.Getenv("GOOGLE_API_KEY"),
-		os.Getenv("GEMINI_API_KEY"),
-		os.Getenv("GOOGLE_GENERATIVE_AI_API_KEY"),
-	)
+	googleEnv := []string{"GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"}
+	apiKey := resolveAPIKey(config.ProviderAPIKey, "google", googleEnv)
 	if apiKey == "" {
-		return nil, fmt.Errorf("google API key not provided, use --provider-api-key flag or GOOGLE_API_KEY/GEMINI_API_KEY/GOOGLE_GENERATIVE_AI_API_KEY environment variable")
+		return nil, missingKeyError("google", "Google", googleEnv)
 	}
 
 	var opts []google.Option
@@ -1600,12 +1620,9 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 }
 
 func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	apiKey := config.ProviderAPIKey
+	apiKey := resolveAPIKey(config.ProviderAPIKey, "azure", []string{"AZURE_OPENAI_API_KEY"})
 	if apiKey == "" {
-		apiKey = os.Getenv("AZURE_OPENAI_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("azure OpenAI API key not provided, use --provider-api-key flag or AZURE_OPENAI_API_KEY environment variable")
+		return nil, missingKeyError("azure", "Azure OpenAI", []string{"AZURE_OPENAI_API_KEY"})
 	}
 
 	baseURL := config.ProviderURL
@@ -1638,12 +1655,9 @@ func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName 
 }
 
 func createOpenRouterProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	apiKey := config.ProviderAPIKey
+	apiKey := resolveAPIKey(config.ProviderAPIKey, "openrouter", []string{"OPENROUTER_API_KEY"})
 	if apiKey == "" {
-		apiKey = os.Getenv("OPENROUTER_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("OpenRouter API key not provided. Use --provider-api-key flag or OPENROUTER_API_KEY environment variable")
+		return nil, missingKeyError("openrouter", "OpenRouter", []string{"OPENROUTER_API_KEY"})
 	}
 
 	var opts []openrouter.Option
@@ -1680,12 +1694,9 @@ func createBedrockProvider(ctx context.Context, config *ProviderConfig, modelNam
 }
 
 func createVercelProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	apiKey := config.ProviderAPIKey
+	apiKey := resolveAPIKey(config.ProviderAPIKey, "vercel", []string{"VERCEL_API_KEY"})
 	if apiKey == "" {
-		apiKey = os.Getenv("VERCEL_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("vercel API key not provided, use --provider-api-key flag or VERCEL_API_KEY environment variable")
+		return nil, missingKeyError("vercel", "Vercel", []string{"VERCEL_API_KEY"})
 	}
 
 	var opts []vercel.Option
@@ -1727,7 +1738,7 @@ func createCustomProvider(ctx context.Context, config *ProviderConfig, modelName
 		apiKey = modelInfo.APIKey
 	}
 	if apiKey == "" {
-		apiKey = os.Getenv("CUSTOM_API_KEY")
+		apiKey = resolveAPIKey("", "custom", []string{"CUSTOM_API_KEY"})
 	}
 	if apiKey == "" {
 		// Many local/custom endpoints don't require a key; use a placeholder.

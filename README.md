@@ -258,11 +258,14 @@ mcpServers:
 ### Commands
 
 ```bash
-# Authentication (for OAuth-enabled providers)
-kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+# Authentication (OAuth for anthropic/openai/copilot, API key for everything else)
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic) or prompt for an API key
+kit auth login groq --api-key ...  # Store an API key without prompting
 kit auth login [provider] --set-default  # Set provider's default model as system default
 kit auth logout [provider]         # Remove credentials for provider
 kit auth status                    # Check authentication status
+# Stored keys ($XDG_CONFIG_HOME/.kit/credentials.json) win over env vars; env vars stay the fallback.
+# No key yet? Kit still starts — use /connect inside the TUI to add one.
 
 # GitHub Copilot login (experimental; requires active Copilot subscription)
 kit auth login copilot

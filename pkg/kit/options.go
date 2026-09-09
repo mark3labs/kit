@@ -72,6 +72,13 @@ func WithExtraTools(t ...Tool) Option { return func(o *Options) { o.ExtraTools =
 // provider.
 func WithProviderAPIKey(key string) Option { return func(o *Options) { o.ProviderAPIKey = key } }
 
+// WithAllowMissingCredentials lets New succeed when the configured provider
+// has no credentials. See Options.AllowMissingCredentials and
+// Kit.ProviderError.
+func WithAllowMissingCredentials() Option {
+	return func(o *Options) { o.AllowMissingCredentials = true }
+}
+
 // WithProviderURL overrides the provider endpoint URL. Useful for
 // OpenAI-compatible proxies (LiteLLM, vLLM, Azure OpenAI, etc.).
 func WithProviderURL(url string) Option { return func(o *Options) { o.ProviderURL = url } }

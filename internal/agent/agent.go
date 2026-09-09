@@ -15,6 +15,7 @@ import (
 	"charm.land/fantasy"
 	log "github.com/charmbracelet/log"
 
+	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/message"
@@ -30,6 +31,13 @@ type AgentConfig struct {
 	MaxSteps         int
 	StreamingEnabled bool
 	DebugLogger      tools.DebugLogger
+
+	// AllowMissingCredentials lets NewAgent succeed when the configured
+	// provider has no API key or OAuth token. The agent then carries a
+	// placeholder model that fails every LLM call with the original error
+	// (see ProviderError) until SetModel installs a working provider. Used
+	// by the interactive TUI so the user can add a key from inside the app.
+	AllowMissingCredentials bool
 
 	// AuthHandler handles OAuth authorization for remote MCP servers.
 	// When set, remote transports are configured with OAuth support.
@@ -308,6 +316,11 @@ type Agent struct {
 	skipMaxOutputTokens bool
 	modelConfig         *models.ProviderConfig
 
+	// providerErr is non-nil when the agent was created without a working
+	// provider (AllowMissingCredentials) and holds the creation error. It is
+	// cleared by a successful SetModel.
+	providerErr error
+
 	// authHandler and tokenStoreFactory are stored from AgentConfig so that
 	// AddMCPServer() can propagate them when creating a new MCPToolManager
 	// at runtime (i.e. when no MCP servers were configured at init time).
@@ -364,9 +377,21 @@ type GenerateWithLoopResult struct {
 // loading and rebuilds the agent with the full tool set.
 func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	// Create the LLM provider
+	var providerErr error
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create model provider: %v", err)
+		if !agentConfig.AllowMissingCredentials || !auth.IsMissingCredentials(err) {
+			return nil, fmt.Errorf("failed to create model provider: %v", err)
+		}
+		// No credentials for the configured provider. Start with a placeholder
+		// model so the caller (the interactive TUI) can come up and let the
+		// user add a key; every LLM call fails with providerErr until then.
+		providerErr = err
+		prov, name := "", ""
+		if agentConfig.ModelConfig != nil {
+			prov, name, _ = models.ParseModelString(agentConfig.ModelConfig.ModelString)
+		}
+		providerResult = &models.ProviderResult{Model: models.NewUnavailableModel(prov, name, err)}
 	}
 
 	// Register core tools (direct AgentTool implementations, no MCP overhead).
@@ -439,6 +464,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		providerOptions:     providerResult.ProviderOptions,
 		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
 		modelConfig:         agentConfig.ModelConfig,
+		providerErr:         providerErr,
 		authHandler:         agentConfig.AuthHandler,
 		tokenStoreFactory:   agentConfig.TokenStoreFactory,
 		mcpTaskConfig:       agentConfig.MCPTaskConfig,
@@ -1456,6 +1482,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.providerOptions = providerResult.ProviderOptions
 	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
 	a.modelConfig = config
+	a.providerErr = nil
 
 	// Update system prompt when the config carries one (from per-model
 	// settings or the global config). This allows model-specific system
@@ -1480,6 +1507,13 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 // GetModel returns the underlying LanguageModel.
 func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
+}
+
+// ProviderError returns the error that prevented the LLM provider from being
+// created when the agent was started with AllowMissingCredentials. It is nil
+// when the provider is usable. A successful SetModel clears it.
+func (a *Agent) ProviderError() error {
+	return a.providerErr
 }
 
 // SetSystemPrompt updates the agent's system prompt and rebuilds the underlying

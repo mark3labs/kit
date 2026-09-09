@@ -523,6 +523,12 @@ func (r *ModelsRegistry) ValidateEnvironment(provider string, apiKey string) err
 		}
 	}
 
+	// Any provider may have an API key stored in the credentials file
+	// (via /connect or 'kit auth login <provider>').
+	if auth.LookupStoredAPIKey(provider) != "" {
+		return nil
+	}
+
 	envVars, err := r.getRequiredEnvVars(provider)
 	if err != nil {
 		// Unknown provider — nothing to validate

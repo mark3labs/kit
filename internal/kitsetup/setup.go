@@ -75,6 +75,10 @@ type AgentSetupOptions struct {
 	// NoExtensions skips extension loading. When false, viper is consulted.
 	// Only meaningful when ProviderConfig is also set.
 	NoExtensions bool
+	// AllowMissingCredentials lets agent creation succeed when the provider
+	// has no credentials; the agent then reports the error via
+	// ProviderError until a working model is installed with SetModel.
+	AllowMissingCredentials bool
 	// Bare restricts extension loading to paths named explicitly via
 	// --extension / -e. No system, user or project directory is scanned.
 	Bare bool
@@ -263,27 +267,28 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 	}
 
 	a, err := agent.CreateAgent(ctx, &agent.AgentCreationOptions{
-		ModelConfig:       modelConfig,
-		MCPConfig:         opts.MCPConfig,
-		SystemPrompt:      systemPrompt,
-		MaxSteps:          maxSteps,
-		StreamingEnabled:  streamingEnabled,
-		ShowSpinner:       opts.ShowSpinner,
-		Quiet:             opts.Quiet,
-		SpinnerFunc:       opts.SpinnerFunc,
-		DebugLogger:       debugLogger,
-		AuthHandler:       opts.AuthHandler,
-		TokenStoreFactory: opts.TokenStoreFactory,
-		CoreTools:         opts.CoreTools,
-		CoreToolList:      opts.CoreToolList,
-		ToolWrapper:       toolWrapper,
-		ExtraTools:        extraTools,
-		NamedAgents:       opts.NamedAgents,
-		ShellTimeout:      opts.ShellTimeout,
-		ShellMaxTimeout:   opts.ShellMaxTimeout,
-		Shell:             opts.Shell,
-		OnMCPServerLoaded: opts.OnMCPServerLoaded,
-		MCPTaskConfig:     opts.MCPTaskConfig,
+		ModelConfig:             modelConfig,
+		MCPConfig:               opts.MCPConfig,
+		SystemPrompt:            systemPrompt,
+		MaxSteps:                maxSteps,
+		StreamingEnabled:        streamingEnabled,
+		ShowSpinner:             opts.ShowSpinner,
+		Quiet:                   opts.Quiet,
+		SpinnerFunc:             opts.SpinnerFunc,
+		DebugLogger:             debugLogger,
+		AllowMissingCredentials: opts.AllowMissingCredentials,
+		AuthHandler:             opts.AuthHandler,
+		TokenStoreFactory:       opts.TokenStoreFactory,
+		CoreTools:               opts.CoreTools,
+		CoreToolList:            opts.CoreToolList,
+		ToolWrapper:             toolWrapper,
+		ExtraTools:              extraTools,
+		NamedAgents:             opts.NamedAgents,
+		ShellTimeout:            opts.ShellTimeout,
+		ShellMaxTimeout:         opts.ShellMaxTimeout,
+		Shell:                   opts.Shell,
+		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
+		MCPTaskConfig:           opts.MCPTaskConfig,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent: %w", err)

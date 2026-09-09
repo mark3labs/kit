@@ -319,6 +319,15 @@ func (m *Kit) GetLoadingMessage() string {
 	return m.agent.GetLoadingMessage()
 }
 
+// ProviderError returns the error that kept the model provider from being
+// created when the instance was built with Options.AllowMissingCredentials.
+// It is nil when the provider is usable. Use IsMissingCredentialsError to
+// check whether the cause is an absent API key. A successful SetModel
+// clears it.
+func (m *Kit) ProviderError() error {
+	return m.agent.ProviderError()
+}
+
 // GetLoadedServerNames returns the names of successfully loaded MCP servers.
 // If MCP servers are still loading in the background, this returns only the
 // servers that have completed loading so far.
@@ -1233,9 +1242,18 @@ type Options struct {
 	// proxies), or running against self-hosted infrastructure.
 
 	// ProviderAPIKey overrides the API key used to authenticate with the
-	// model provider. "" = use the value from config or the
-	// provider-specific environment variable.
+	// model provider. "" = use the value from config, the credentials file
+	// (see SetProviderAPIKey), or the provider-specific environment variable.
 	ProviderAPIKey string
+
+	// AllowMissingCredentials lets New succeed when the configured provider
+	// has no API key or OAuth token. The instance then reports the problem
+	// through ProviderError, and every prompt fails with that error until
+	// SetModel installs a model whose provider has credentials (for
+	// example after SetProviderAPIKey stored a key). The interactive CLI
+	// uses this so users can add a key from inside the TUI. Off by default
+	// so SDK callers keep failing fast.
+	AllowMissingCredentials bool
 
 	// ProviderURL overrides the provider endpoint. "" = use the provider's
 	// default URL.
@@ -1948,24 +1966,25 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	}
 
 	setupOpts := kitsetup.AgentSetupOptions{
-		MCPConfig:         mcpConfig,
-		Quiet:             opts.Quiet,
-		CoreTools:         opts.Tools,
-		CoreToolList:      toolList,
-		ExtraTools:        extraTools,
-		NamedAgents:       namedAgentSpecs(namedAgents),
-		ShellTimeout:      shellTimeout,
-		ShellMaxTimeout:   shellMaxTimeout,
-		Shell:             shell,
-		ToolWrapper:       hookToolWrapper(beforeToolCall, afterToolResult),
-		ProviderConfig:    providerConfig,
-		Debug:             debug,
-		DebugLogger:       opts.DebugLogger,
-		NoExtensions:      noExtensions,
-		Bare:              opts.Bare,
-		MaxSteps:          maxSteps,
-		StreamingEnabled:  streaming,
-		OnMCPServerLoaded: opts.OnMCPServerLoaded,
+		MCPConfig:               mcpConfig,
+		Quiet:                   opts.Quiet,
+		CoreTools:               opts.Tools,
+		CoreToolList:            toolList,
+		ExtraTools:              extraTools,
+		NamedAgents:             namedAgentSpecs(namedAgents),
+		ShellTimeout:            shellTimeout,
+		ShellMaxTimeout:         shellMaxTimeout,
+		Shell:                   shell,
+		ToolWrapper:             hookToolWrapper(beforeToolCall, afterToolResult),
+		ProviderConfig:          providerConfig,
+		Debug:                   debug,
+		DebugLogger:             opts.DebugLogger,
+		NoExtensions:            noExtensions,
+		AllowMissingCredentials: opts.AllowMissingCredentials,
+		Bare:                    opts.Bare,
+		MaxSteps:                maxSteps,
+		StreamingEnabled:        streaming,
+		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig: mcpTaskOptions{
 			perServer:       opts.MCPTaskMode,
 			defaultTTL:      opts.MCPTaskTTL,

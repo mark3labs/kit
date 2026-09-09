@@ -23,6 +23,58 @@ type CopilotCredentials = auth.CopilotCredentials
 // CredentialStore holds all stored credentials for various providers.
 type CredentialStore = auth.CredentialStore
 
+// ProviderCredentials holds a stored API key for a generic provider.
+type ProviderCredentials = auth.ProviderCredentials
+
+// MissingCredentialsError is returned when no API key or OAuth token can be
+// resolved for a provider. Check for it with IsMissingCredentialsError.
+type MissingCredentialsError = auth.MissingCredentialsError
+
+// IsMissingCredentialsError reports whether err is (or wraps) a
+// MissingCredentialsError.
+func IsMissingCredentialsError(err error) bool {
+	return auth.IsMissingCredentials(err)
+}
+
+// SetProviderAPIKey stores an API key for providerID in the credentials file
+// ($XDG_CONFIG_HOME/.kit/credentials.json, mode 0600). Stored keys take
+// precedence over provider environment variables and are picked up by the
+// next provider creation (e.g. SetModel). Anthropic and OpenAI keys go to
+// their dedicated slots; GitHub Copilot is OAuth-only and is rejected.
+func SetProviderAPIKey(providerID, apiKey string) error {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return err
+	}
+	return cm.SetProviderAPIKey(providerID, apiKey)
+}
+
+// GetProviderAPIKey returns the API key stored for providerID, or "" when
+// none is stored.
+func GetProviderAPIKey(providerID string) string {
+	return auth.LookupStoredAPIKey(providerID)
+}
+
+// RemoveProviderCredentials deletes every stored credential for providerID.
+func RemoveProviderCredentials(providerID string) error {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return err
+	}
+	return cm.RemoveProviderCredentials(providerID)
+}
+
+// HasProviderCredentials reports whether any credential (API key or OAuth
+// token) is stored for providerID.
+func HasProviderCredentials(providerID string) bool {
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return false
+	}
+	has, err := cm.HasProviderCredentials(providerID)
+	return err == nil && has
+}
+
 // NewCredentialManager creates a credential manager for secure storage and
 // retrieval of authentication credentials.
 func NewCredentialManager() (*CredentialManager, error) {
