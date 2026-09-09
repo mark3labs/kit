@@ -1,10 +1,21 @@
 var e={frontmatter:{title:`Commands`,description:`Complete reference for all Kit CLI subcommands.`,hidden:!1,toc:!0,draft:!1},html:`<h1 id="commands"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#commands"><span class="icon icon-link"></span></a>Commands</h1>
 <h2 id="authentication"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#authentication"><span class="icon icon-link"></span></a>Authentication</h2>
-<p>For OAuth-enabled providers like Anthropic.</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]          </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Start OAuth flow (e.g., anthropic)</span></span>
+<p>Anthropic, OpenAI and GitHub Copilot use OAuth flows. Every other provider
+in the model database takes an API key.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]          </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Start OAuth flow (e.g., anthropic) or prompt for an API key</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> groq</span><span style="color:#6A737D;--shiki-dark:#6A737D">                # Prompt for a Groq API key (hidden input)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> openrouter</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --api-key</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> sk-or-...</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # Store a key without prompting</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> login</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider] --set-default  </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Set provider's default model as system default</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> logout</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]       </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Remove credentials for provider</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> logout</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]         </span><span style="color:#6A737D;--shiki-dark:#6A737D"># Remove credentials for provider</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> auth</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> status</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # Check authentication status</span></span></code></pre>
+<p>Stored keys live in <code>$XDG_CONFIG_HOME/.kit/credentials.json</code> (defaults to
+<code>~/.config/.kit/credentials.json</code>, mode <code>0600</code>) and take precedence over the
+provider's environment variable (for example <code>GROQ_API_KEY</code>). The
+environment variable is still used when no key is stored.</p>
+<p>Kit starts even when the configured model has no key. The TUI shows a notice
+and refuses to send prompts until you add a key with <code>/connect</code> (or switch
+to a model whose provider has one with <code>/model</code>). One-shot prompts
+(<code>kit "question"</code>) still fail fast with the same error.</p>
 <h2 id="model-database"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#model-database"><span class="icon icon-link"></span></a>Model database</h2>
 <p>Manage the local model database that maps provider names to API configurations.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> models</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> [provider]        </span><span style="color:#6A737D;--shiki-dark:#6A737D"># List available models (optionally filter by provider)</span></span>
@@ -166,6 +177,10 @@ Load them into the agent? [t]rust always / [o]nce / [s]kip (default skip):
 <tr>
 <td><code>/model [name]</code></td>
 <td>Switch model or open model selector</td>
+</tr>
+<tr>
+<td><code>/connect [provider]</code></td>
+<td>Add an API key for a provider. Opens a searchable provider list, then a masked key input. The key is saved to the credentials file and the active model is reconnected when it belongs to that provider. <code>/connect groq</code> skips the list. Alias: <code>/login</code>.</td>
 </tr>
 <tr>
 <td><code>/theme [name]</code></td>
@@ -449,14 +464,27 @@ per user.</p>`,headings:[{depth:2,text:`Authentication`,id:`authentication`},{de
 
 ## Authentication
 
-For OAuth-enabled providers like Anthropic.
+Anthropic, OpenAI and GitHub Copilot use OAuth flows. Every other provider
+in the model database takes an API key.
 
 \`\`\`bash
-kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic) or prompt for an API key
+kit auth login groq                # Prompt for a Groq API key (hidden input)
+kit auth login openrouter --api-key sk-or-...   # Store a key without prompting
 kit auth login [provider] --set-default  # Set provider's default model as system default
-kit auth logout [provider]       # Remove credentials for provider
+kit auth logout [provider]         # Remove credentials for provider
 kit auth status                    # Check authentication status
 \`\`\`
+
+Stored keys live in \`$XDG_CONFIG_HOME/.kit/credentials.json\` (defaults to
+\`~/.config/.kit/credentials.json\`, mode \`0600\`) and take precedence over the
+provider's environment variable (for example \`GROQ_API_KEY\`). The
+environment variable is still used when no key is stored.
+
+Kit starts even when the configured model has no key. The TUI shows a notice
+and refuses to send prompts until you add a key with \`/connect\` (or switch
+to a model whose provider has one with \`/model\`). One-shot prompts
+(\`kit "question"\`) still fail fast with the same error.
 
 ## Model database
 
@@ -613,6 +641,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | \`/tools\` | List available MCP tools |
 | \`/servers\` | Show connected MCP servers |
 | \`/model [name]\` | Switch model or open model selector |
+| \`/connect [provider]\` | Add an API key for a provider. Opens a searchable provider list, then a masked key input. The key is saved to the credentials file and the active model is reconnected when it belongs to that provider. \`/connect groq\` skips the list. Alias: \`/login\`. |
 | \`/theme [name]\` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
 | \`/thinking [level]\` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (\`off\`, \`none\`, \`minimal\`, \`low\`, \`medium\`, \`high\`) switches directly, substituting with the nearest supported level when needed. |
 | \`/compact [focus]\` | Summarize older messages to free context |
