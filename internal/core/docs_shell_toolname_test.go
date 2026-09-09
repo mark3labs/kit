@@ -8,9 +8,86 @@ import (
 	"testing"
 )
 
-// legacyToolNameEquality matches a doc example that tests a live tool name for
-// equality with the shell tool's earlier name, e.g. `h.ToolName == "bash"`.
-var legacyToolNameEquality = regexp.MustCompile(`ToolName\s*(==|!=)\s*"` + LegacyShellToolName + `"`)
+// toolNameComparison matches a comparison between a *ToolName field and a
+// quoted literal, in either operand order:
+//
+//	h.ToolName == "bash"    tc.ToolName != "shell"    "bash" == h.ToolName
+//
+// The captured literal is whichever side is quoted.
+var toolNameComparison = regexp.MustCompile(
+	`(?:[\w.]*ToolName\s*(?:==|!=)\s*"([^"]*)")|(?:"([^"]*)"\s*(?:==|!=)\s*[\w.]*ToolName)`)
+
+// comparedToolNames returns every quoted literal that line compares against a
+// ToolName field, in either operand order.
+func comparedToolNames(line string) []string {
+	var out []string
+	for _, m := range toolNameComparison.FindAllStringSubmatch(line, -1) {
+		// Exactly one of the two capture groups is set per match.
+		if m[1] != "" {
+			out = append(out, m[1])
+		} else if m[2] != "" {
+			out = append(out, m[2])
+		}
+	}
+	return out
+}
+
+// flagsLegacyToolNameComparison reports whether line compares a live ToolName
+// against the shell tool's earlier name without also comparing it against the
+// current name. The exception is scoped to ToolName comparisons specifically,
+// so an unrelated `|| label == "shell"` on the same line does not excuse it.
+func flagsLegacyToolNameComparison(line string) bool {
+	names := comparedToolNames(line)
+	var sawLegacy, sawCurrent bool
+	for _, n := range names {
+		switch n {
+		case LegacyShellToolName:
+			sawLegacy = true
+		case ShellToolName:
+			sawCurrent = true
+		}
+	}
+	return sawLegacy && !sawCurrent
+}
+
+// TestFlagsLegacyToolNameComparison covers the matcher used by the docs scan
+// below, including both operand orders and the scoped "shell" exception.
+func TestFlagsLegacyToolNameComparison(t *testing.T) {
+	cases := []struct {
+		line string
+		flag bool
+	}{
+		// Plain comparisons against the earlier name — always dead code.
+		{`    if h.ToolName == "bash" {`, true},
+		{`    if h.ToolName != "bash" {`, true},
+		{`    if "bash" == h.ToolName {`, true},
+		{`    if "bash" != tc.ToolName {`, true},
+		{`if e.ToolName=="bash"{`, true},
+
+		// The defensive both-spellings form, in either order.
+		{`if tc.ToolName != "shell" && tc.ToolName != "bash" {`, false},
+		{`if tc.ToolName == "bash" || tc.ToolName == "shell" {`, false},
+		{`if "shell" == h.ToolName || "bash" == h.ToolName {`, false},
+
+		// A "shell" literal that is not a ToolName comparison must not excuse it.
+		{`if h.ToolName == "bash" || label == "shell" {`, true},
+		{`if h.ToolName == "bash" { log("shell") }`, true},
+
+		// Correct and unrelated lines.
+		{`    if h.ToolName == "shell" {`, false},
+		{`    if h.ToolName == "read" {`, false},
+		{`    if e.ToolName == "subagent" {`, false},
+		{`    ToolName:    "bash",`, false}, // renderer registration, normalized
+		{`list, _ := kit.FilterCoreToolNames(nil, []string{"bash", "write"})`, false},
+		{`shell: "bash"`, false}, // the shell binary, not the tool name
+		{``, false},
+	}
+	for _, c := range cases {
+		if got := flagsLegacyToolNameComparison(c.line); got != c.flag {
+			t.Errorf("flagsLegacyToolNameComparison(%q) = %v, want %v", c.line, got, c.flag)
+		}
+	}
+}
 
 // TestDocsDoNotCompareLiveToolNameToLegacyShellName keeps doc examples honest
 // about the name the shell tool reports at runtime.
@@ -22,8 +99,8 @@ var legacyToolNameEquality = regexp.MustCompile(`ToolName\s*(==|!=)\s*"` + Legac
 // is always ShellToolName. An example comparing that field to "bash" is dead
 // code, and two such examples shipped for months before a reviewer caught them.
 //
-// A comparison is allowed when the same line also names ShellToolName, which is
-// the defensive `!= "shell" && != "bash"` form used by examples that must cope
+// A comparison is allowed when the same line also compares ToolName against
+// ShellToolName, which is the defensive form used by examples that must cope
 // with sessions recorded by older builds.
 func TestDocsDoNotCompareLiveToolNameToLegacyShellName(t *testing.T) {
 	repoRoot := filepath.Join("..", "..")
@@ -55,18 +132,15 @@ func TestDocsDoNotCompareLiveToolNameToLegacyShellName(t *testing.T) {
 			}
 			scanned++
 			for i, line := range strings.Split(string(body), "\n") {
-				if !legacyToolNameEquality.MatchString(line) {
+				if !flagsLegacyToolNameComparison(line) {
 					continue
-				}
-				if strings.Contains(line, `"`+ShellToolName+`"`) {
-					continue // defensive form naming both spellings
 				}
 				rel, relErr := filepath.Rel(repoRoot, path)
 				if relErr != nil {
 					rel = path
 				}
 				t.Errorf("%s:%d compares a live ToolName to %q, which never matches "+
-					"(the shell tool reports %q); use %q or name both spellings:\n\t%s",
+					"(the shell tool reports %q); use %q or compare against both names:\n\t%s",
 					rel, i+1, LegacyShellToolName, ShellToolName, ShellToolName,
 					strings.TrimSpace(line))
 			}
