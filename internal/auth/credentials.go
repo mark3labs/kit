@@ -3,18 +3,90 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
 
-// CredentialStore holds stored credentials for Anthropic, OpenAI, and GitHub Copilot.
+// CredentialStore holds stored credentials for Anthropic, OpenAI, GitHub
+// Copilot, and any other provider that authenticates with a plain API key.
 type CredentialStore struct {
 	Anthropic *AnthropicCredentials `json:"anthropic,omitempty"`
 	OpenAI    *OpenAICredentials    `json:"openai,omitempty"`
 	Copilot   *CopilotCredentials   `json:"copilot,omitempty"`
+	// Providers holds API-key credentials for every other provider, keyed
+	// by the models.dev provider ID (e.g. "google", "openrouter", "groq").
+	// Anthropic, OpenAI and Copilot keep their dedicated fields above because
+	// they also support OAuth.
+	Providers map[string]*ProviderCredentials `json:"providers,omitempty"`
+}
+
+// ProviderCredentials holds an API key for a generic provider.
+type ProviderCredentials struct {
+	Type      string    `json:"type"`              // always "api_key"
+	APIKey    string    `json:"api_key,omitempty"` // the stored key
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// isEmpty reports whether the store holds no credentials at all, so the
+// backing file can be removed instead of rewritten.
+func (s *CredentialStore) isEmpty() bool {
+	return s.Anthropic == nil && s.OpenAI == nil && s.Copilot == nil && len(s.Providers) == 0
+}
+
+// MissingCredentialsError is returned by the provider layer when no API key
+// or OAuth token can be resolved for a provider. Callers use
+// [IsMissingCredentials] to tell this apart from other provider failures
+// (bad model, network, etc.) and, in interactive mode, start without a model
+// so the user can add a key from inside the TUI.
+type MissingCredentialsError struct {
+	// Provider is the provider ID as used in model strings (e.g. "anthropic").
+	Provider string
+	// ProviderName is a human-friendly provider name, when known.
+	ProviderName string
+	// EnvVars lists the environment variables that would satisfy the
+	// provider, in priority order. May be empty.
+	EnvVars []string
+	// Hint is an optional extra sentence (e.g. an OAuth login command).
+	Hint string
+}
+
+// Error implements error.
+func (e *MissingCredentialsError) Error() string {
+	name := e.ProviderName
+	if name == "" {
+		name = e.Provider
+	}
+	msg := fmt.Sprintf("no API key configured for %s", name)
+	if len(e.EnvVars) > 0 {
+		msg += " (set " + strings.Join(e.EnvVars, " or ") + ", or store a key with 'kit auth login " + e.Provider + "')"
+	} else {
+		msg += " (store a key with 'kit auth login " + e.Provider + "')"
+	}
+	if e.Hint != "" {
+		msg += ". " + e.Hint
+	}
+	return msg
+}
+
+// IsMissingCredentials reports whether err is (or wraps) a
+// [MissingCredentialsError].
+func IsMissingCredentials(err error) bool {
+	var target *MissingCredentialsError
+	return errors.As(err, &target)
+}
+
+// AsMissingCredentials returns the wrapped [MissingCredentialsError], or nil
+// when err is not one.
+func AsMissingCredentials(err error) *MissingCredentialsError {
+	if target, ok := errors.AsType[*MissingCredentialsError](err); ok {
+		return target
+	}
+	return nil
 }
 
 // AnthropicCredentials holds Anthropic API credentials supporting both OAuth
@@ -241,15 +313,18 @@ func (cm *CredentialManager) RemoveAnthropicCredentials() error {
 	}
 
 	store.Anthropic = nil
+	return cm.saveOrRemove(store)
+}
 
-	// If store is empty, remove the file entirely
-	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
+// saveOrRemove writes the store, or deletes the credentials file when the
+// store no longer holds any credential.
+func (cm *CredentialManager) saveOrRemove(store *CredentialStore) error {
+	if store.isEmpty() {
 		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove credentials file: %w", err)
 		}
 		return nil
 	}
-
 	return cm.SaveCredentials(store)
 }
 
@@ -298,16 +373,7 @@ func (cm *CredentialManager) RemoveOpenAICredentials() error {
 	}
 
 	store.OpenAI = nil
-
-	// If store is empty, remove the file entirely
-	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
-		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove credentials file: %w", err)
-		}
-		return nil
-	}
-
-	return cm.SaveCredentials(store)
+	return cm.saveOrRemove(store)
 }
 
 // GetCopilotCredentials retrieves stored GitHub Copilot credentials.
@@ -328,15 +394,7 @@ func (cm *CredentialManager) RemoveCopilotCredentials() error {
 	}
 
 	store.Copilot = nil
-
-	if store.Anthropic == nil && store.OpenAI == nil && store.Copilot == nil {
-		if err := os.Remove(cm.credentialsPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove credentials file: %w", err)
-		}
-		return nil
-	}
-
-	return cm.SaveCredentials(store)
+	return cm.saveOrRemove(store)
 }
 
 // HasCopilotCredentials checks if valid GitHub Copilot credentials are stored.
@@ -561,13 +619,190 @@ func GetAnthropicAPIKey(flagValue string) (string, string, error) {
 		return envKey, "ANTHROPIC_API_KEY environment variable", nil
 	}
 
+	missing := &MissingCredentialsError{
+		Provider:     "anthropic",
+		ProviderName: "Anthropic",
+		EnvVars:      []string{"ANTHROPIC_API_KEY"},
+	}
+
 	// Check if OpenAI credentials exist to provide a helpful suggestion
 	if cm != nil {
 		hasOpenAI, _ := cm.HasOpenAICredentials()
 		if hasOpenAI {
-			return "", "", fmt.Errorf("no Anthropic API key found. Use 'kit auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag\n\nNote: OpenAI credentials were detected. To use OpenAI, run with --model openai/gpt-5.4 or set it as default:\n  kit auth login openai --set-default")
+			missing.Hint = "OpenAI credentials were detected: run with --model openai/gpt-5.4 or set it as default with 'kit auth login openai --set-default'"
 		}
 	}
 
-	return "", "", fmt.Errorf("no Anthropic API key found. Use 'kit auth login anthropic', set ANTHROPIC_API_KEY environment variable, or use --provider-api-key flag")
+	return "", "", missing
+}
+
+// ---------------------------------------------------------------------------
+// Generic provider API keys
+// ---------------------------------------------------------------------------
+
+// providerKeyAlias maps user-facing provider aliases onto the ID used as the
+// storage key so "copilot" and "github-copilot" (or "gemini" and "google")
+// resolve to the same entry.
+func providerKeyAlias(providerID string) string {
+	switch strings.ToLower(strings.TrimSpace(providerID)) {
+	case "gemini":
+		return "google"
+	case "github-copilot":
+		return "copilot"
+	default:
+		return strings.ToLower(strings.TrimSpace(providerID))
+	}
+}
+
+// SetProviderAPIKey stores an API key for any provider. Anthropic and OpenAI
+// are routed to their dedicated credential slots so the existing resolution
+// paths (which also handle OAuth) pick the key up; every other provider is
+// written to the generic Providers map. Copilot only supports OAuth and is
+// rejected.
+func (cm *CredentialManager) SetProviderAPIKey(providerID, apiKey string) error {
+	providerID = providerKeyAlias(providerID)
+	apiKey = strings.TrimSpace(apiKey)
+	if providerID == "" {
+		return fmt.Errorf("provider ID cannot be empty")
+	}
+	if apiKey == "" {
+		return fmt.Errorf("API key cannot be empty")
+	}
+
+	switch providerID {
+	case "anthropic":
+		return cm.SetAnthropicCredentials(apiKey)
+	case "openai":
+		store, err := cm.LoadCredentials()
+		if err != nil {
+			return err
+		}
+		store.OpenAI = &OpenAICredentials{Type: "api_key", APIKey: apiKey, CreatedAt: time.Now()}
+		return cm.SaveCredentials(store)
+	case "copilot":
+		return fmt.Errorf("GitHub Copilot does not use API keys; run 'kit auth login copilot'")
+	}
+
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return err
+	}
+	if store.Providers == nil {
+		store.Providers = make(map[string]*ProviderCredentials)
+	}
+	store.Providers[providerID] = &ProviderCredentials{
+		Type:      "api_key",
+		APIKey:    apiKey,
+		CreatedAt: time.Now(),
+	}
+	return cm.SaveCredentials(store)
+}
+
+// GetProviderAPIKey returns the stored API key for a provider, or "" when
+// none is stored. For Anthropic and OpenAI only an api_key-type credential
+// is returned; OAuth tokens are resolved by the provider-specific helpers.
+func (cm *CredentialManager) GetProviderAPIKey(providerID string) (string, error) {
+	providerID = providerKeyAlias(providerID)
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return "", err
+	}
+
+	switch providerID {
+	case "anthropic":
+		if store.Anthropic != nil && store.Anthropic.Type == "api_key" {
+			return store.Anthropic.APIKey, nil
+		}
+		return "", nil
+	case "openai":
+		if store.OpenAI != nil && store.OpenAI.Type == "api_key" {
+			return store.OpenAI.APIKey, nil
+		}
+		return "", nil
+	}
+
+	if creds, ok := store.Providers[providerID]; ok && creds != nil && creds.Type == "api_key" {
+		return creds.APIKey, nil
+	}
+	return "", nil
+}
+
+// HasProviderCredentials reports whether any credential (API key or OAuth)
+// is stored for the provider.
+func (cm *CredentialManager) HasProviderCredentials(providerID string) (bool, error) {
+	switch providerKeyAlias(providerID) {
+	case "anthropic":
+		return cm.HasAnthropicCredentials()
+	case "openai":
+		return cm.HasOpenAICredentials()
+	case "copilot":
+		return cm.HasCopilotCredentials()
+	}
+	key, err := cm.GetProviderAPIKey(providerID)
+	return key != "", err
+}
+
+// RemoveProviderCredentials deletes every stored credential for a provider.
+func (cm *CredentialManager) RemoveProviderCredentials(providerID string) error {
+	providerID = providerKeyAlias(providerID)
+	switch providerID {
+	case "anthropic":
+		return cm.RemoveAnthropicCredentials()
+	case "openai":
+		return cm.RemoveOpenAICredentials()
+	case "copilot":
+		return cm.RemoveCopilotCredentials()
+	}
+
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return err
+	}
+	delete(store.Providers, providerID)
+	if len(store.Providers) == 0 {
+		store.Providers = nil
+	}
+	return cm.saveOrRemove(store)
+}
+
+// StoredProviderIDs returns the IDs of every provider with a stored
+// credential (dedicated slots and generic entries), sorted.
+func (cm *CredentialManager) StoredProviderIDs() ([]string, error) {
+	store, err := cm.LoadCredentials()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if store.Anthropic != nil {
+		ids = append(ids, "anthropic")
+	}
+	if store.OpenAI != nil {
+		ids = append(ids, "openai")
+	}
+	if store.Copilot != nil {
+		ids = append(ids, "copilot")
+	}
+	for id, creds := range store.Providers {
+		if creds != nil && creds.APIKey != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// LookupStoredAPIKey is a best-effort helper for the provider layer: it
+// returns the stored API key for providerID, or "" when the credential store
+// is unavailable or holds nothing for that provider. It never returns an
+// error so callers can chain it with environment-variable fallbacks.
+func LookupStoredAPIKey(providerID string) string {
+	cm, err := NewCredentialManager()
+	if err != nil {
+		return ""
+	}
+	key, err := cm.GetProviderAPIKey(providerID)
+	if err != nil {
+		return ""
+	}
+	return key
 }

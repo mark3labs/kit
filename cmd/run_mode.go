@@ -62,6 +62,7 @@ type startupSnapshot struct {
 	isReasoningModel         bool
 	thinkingLevel            string
 	startupExtensionMessages []string // interactive only
+	providerError            error    // non-nil when the model has no usable credentials
 }
 
 // uiProviders holds read-only getters that the TUI polls to render extension
@@ -94,6 +95,7 @@ type uiActions struct {
 	emitBeforeFork          func(string, bool, string) (bool, string)
 	emitBeforeSessionSwitch func(string, string) (bool, string)
 	setModel                func(string) error
+	saveProviderAPIKey      func(providerID, key string) error
 	emitModelChange         func(string, string, string)
 	emitThinkingLevelChange func(string, string, string)
 	emitTerminalResize      func(int, int)
@@ -186,6 +188,10 @@ func buildKitOptions(mcpConfig *config.Config, authHandler *kit.CLIMCPAuthHandle
 		SkillsDisable:     skillsDisable,
 		SkillTrustPrompt:  skillTrustPrompt(),
 		OnMCPServerLoaded: onMCPServerLoaded,
+		// Interactive sessions start even without provider credentials so
+		// the user can add a key with /connect. One-shot prompts keep
+		// failing fast.
+		AllowMissingCredentials: positionalPrompt == "",
 		CLI: &kit.CLIOptions{
 			MCPConfig:          mcpConfig,
 			ShowSpinner:        true,
@@ -538,6 +544,11 @@ func buildUIActions(k *kit.Kit, appInstance *app.App, usageTracker *ui.UsageTrac
 			// Update usage tracker with new model info for correct token counting.
 			ui.UpdateUsageTrackerForModel(usageTracker, modelString, viper.GetString("provider-api-key"))
 			return nil
+		},
+		// saveProviderAPIKey backs the /connect command. Keys go to the
+		// credentials file and win over environment variables.
+		saveProviderAPIKey: func(providerID, key string) error {
+			return kit.SetProviderAPIKey(providerID, key)
 		},
 		emitModelChange:         k.Extensions().EmitModelChange,
 		emitThinkingLevelChange: k.Extensions().EmitThinkingLevelChange,

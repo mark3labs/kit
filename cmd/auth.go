@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"charm.land/huh/v2"
 	"github.com/mark3labs/kit/internal/auth"
+	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/ui"
 	kit "github.com/mark3labs/kit/pkg/kit"
 	"github.com/spf13/cobra"
@@ -30,11 +32,19 @@ Available providers:
   - anthropic: Anthropic Claude API (OAuth)
   - openai:    OpenAI API (OAuth and API key)
   - copilot:   GitHub Copilot (GitHub device login)
+  - any other provider from the model database (API key), e.g. google,
+    openrouter, groq, deepseek, opencode
+
+Keys are stored in $XDG_CONFIG_HOME/.kit/credentials.json (mode 0600) and
+take precedence over the provider's environment variable. Inside the TUI,
+/connect does the same thing.
 
 Examples:
   kit auth login anthropic
   kit auth login openai
   kit auth login copilot
+  kit auth login groq
+  kit auth login openrouter --api-key sk-or-...
   kit auth logout anthropic
   kit auth status`,
 }
@@ -55,15 +65,19 @@ Available providers:
   - anthropic: Anthropic Claude API (OAuth)
   - openai:    OpenAI ChatGPT Plus/Pro (Codex OAuth)
   - copilot:   GitHub Copilot (GitHub device login, experimental)
+  - any other provider ID from 'kit models' (API key, prompted or --api-key)
 
 Flags:
   --set-default   Set this provider's default model as the system default
+  --api-key       Store this key without prompting (API-key providers)
 
 Examples:
   kit auth login anthropic
   kit auth login openai
   kit auth login copilot
-  kit auth login copilot --set-default`,
+  kit auth login copilot --set-default
+  kit auth login groq
+  kit auth login google --api-key AIza...`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAuthLogin,
 }
@@ -110,6 +124,7 @@ Example:
 
 var (
 	loginSetDefault bool
+	loginAPIKey     string
 )
 
 // defaultModels maps providers to their recommended default models.
@@ -146,6 +161,7 @@ func init() {
 	authCmd.AddCommand(authStatusCmd)
 
 	authLoginCmd.Flags().BoolVar(&loginSetDefault, "set-default", false, "Set this provider's default model as the system default after login")
+	authLoginCmd.Flags().StringVar(&loginAPIKey, "api-key", "", "Store this API key without prompting (API-key providers only)")
 }
 
 // runAuthLogin dispatches OAuth login to the selected provider.
@@ -157,11 +173,77 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 		return loginAnthropic()
 	case "openai":
 		return loginOpenAI()
-	case "copilot":
+	case "copilot", "github-copilot":
 		return loginCopilot(cmd.Context())
 	default:
-		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai, copilot", provider)
+		return loginProviderAPIKey(provider)
 	}
+}
+
+// loginProviderAPIKey stores an API key for any provider that authenticates
+// with a plain key. The provider must exist in the model database; the key
+// comes from --api-key or a hidden prompt.
+func loginProviderAPIKey(provider string) error {
+	registry := models.GetGlobalRegistry()
+	info := registry.GetProviderInfo(provider)
+	if info == nil {
+		return fmt.Errorf("unknown provider: %s (see 'kit models' for provider IDs)", provider)
+	}
+	displayName := info.Name
+	if displayName == "" {
+		displayName = provider
+	}
+
+	cm, err := newCredentialManager()
+	if err != nil {
+		return err
+	}
+
+	if has, err := cm.HasProviderCredentials(provider); err == nil && has && loginAPIKey == "" {
+		if !confirmReauth(fmt.Sprintf("A key for %s is already stored", displayName)) {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	apiKey := strings.TrimSpace(loginAPIKey)
+	if apiKey == "" {
+		desc := "The key is stored locally and used instead of the environment variable."
+		if len(info.Env) > 0 {
+			desc = fmt.Sprintf("Stored keys take precedence over %s.", strings.Join(info.Env, " / "))
+		}
+		err := huh.NewInput().
+			Title(fmt.Sprintf("%s API key", displayName)).
+			Description(desc).
+			EchoMode(huh.EchoModePassword).
+			Value(&apiKey).
+			Run()
+		if err != nil {
+			return fmt.Errorf("failed to read API key: %w", err)
+		}
+		apiKey = strings.TrimSpace(apiKey)
+	}
+	if apiKey == "" {
+		return fmt.Errorf("API key cannot be empty")
+	}
+
+	if err := cm.SetProviderAPIKey(provider, apiKey); err != nil {
+		return fmt.Errorf("failed to store API key: %w", err)
+	}
+
+	fmt.Printf("✅ Stored %s API key.\n", displayName)
+	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
+	fmt.Printf("\n🎉 %s/* models can be used now. Pick one with --model or /model.\n", provider)
+
+	// The key is stored; an unsupported --set-default must not turn the
+	// command into a failure.
+	if loginSetDefault {
+		if _, ok := defaultModels[provider]; !ok {
+			fmt.Printf("\n💡 --set-default is not supported for %s. Pick a model with --model or /model.\n", provider)
+			return nil
+		}
+	}
+	return setDefaultModelIfRequested(provider)
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
@@ -172,10 +254,14 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		return logoutAnthropic()
 	case "openai":
 		return logoutOpenAI()
-	case "copilot":
+	case "copilot", "github-copilot":
 		return logoutCopilot()
 	default:
-		return fmt.Errorf("unsupported provider: %s. Available providers: anthropic, openai, copilot", provider)
+		return runProviderLogout(provider,
+			func(cm *kit.CredentialManager) (bool, error) { return cm.HasProviderCredentials(provider) },
+			func(cm *kit.CredentialManager) error { return cm.RemoveProviderCredentials(provider) },
+			fmt.Sprintf("✓ Removed the stored %s API key.", provider),
+			"The provider's environment variable is used again, when set.")
 	}
 }
 
@@ -370,10 +456,28 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		fmt.Println("✗ Not authenticated")
 	}
 
+	// Generic API-key providers.
+	if store, err := cm.LoadCredentials(); err == nil && len(store.Providers) > 0 {
+		ids := make([]string, 0, len(store.Providers))
+		for id := range store.Providers {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		fmt.Println("\nOther providers (API key):")
+		for _, id := range ids {
+			creds := store.Providers[id]
+			if creds == nil || creds.APIKey == "" {
+				continue
+			}
+			fmt.Printf("  %s: ✓ stored %s\n", id, creds.CreatedAt.Format("2006-01-02 15:04:05"))
+		}
+	}
+
 	fmt.Println("\nTo authenticate with a provider:")
 	fmt.Println("  kit auth login anthropic")
 	fmt.Println("  kit auth login openai")
 	fmt.Println("  kit auth login copilot")
+	fmt.Println("  kit auth login <provider>   # any API-key provider, e.g. groq")
 
 	return nil
 }

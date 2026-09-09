@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/app"
+	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
@@ -69,6 +70,9 @@ const (
 
 	// stateThemeSelector means the /theme selector overlay is active.
 	stateThemeSelector
+
+	// stateProviderConnect means the /connect provider/key dialog is active.
+	stateProviderConnect
 
 	// stateSessionSelector means the /resume session picker is active.
 	stateSessionSelector
@@ -567,6 +571,17 @@ type AppModelOptions struct {
 	// be created. May be nil if model switching is not supported.
 	SetModel func(modelString string) error
 
+	// ProviderError is the error that kept the model provider from being
+	// created at startup (typically a missing API key). When non-nil the
+	// TUI greets the user with a notice, refuses to send prompts, and
+	// clears the error once /connect or /model installs a working provider.
+	ProviderError error
+
+	// SaveProviderAPIKey stores an API key for a provider (backs /connect).
+	// May be nil, in which case /connect reports that key storage is
+	// unavailable.
+	SaveProviderAPIKey func(providerID, key string) error
+
 	// EmitModelChange fires the OnModelChange extension event after a
 	// successful model switch. Parameters are (newModel, previousModel, source).
 	// May be nil if extensions are not loaded.
@@ -880,6 +895,16 @@ type AppModel struct {
 	// May be nil if model switching is not supported.
 	setModel func(modelString string) error
 
+	// providerError is non-nil while the active model has no usable
+	// provider (no API key). See AppModelOptions.ProviderError.
+	providerError error
+
+	// saveProviderAPIKey stores a provider API key. Wired from cmd/root.go.
+	saveProviderAPIKey func(providerID, key string) error
+
+	// providerConnect is the /connect dialog, active in stateProviderConnect.
+	providerConnect *ProviderConnectComponent
+
 	// emitModelChange fires the OnModelChange extension event. May be nil.
 	emitModelChange func(newModel, previousModel, source string)
 
@@ -1169,6 +1194,8 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 	m.getShortcutList = opts.GetShortcutList
 	m.getExtensionCommands = opts.GetExtensionCommands
 	m.setModel = opts.SetModel
+	m.providerError = opts.ProviderError
+	m.saveProviderAPIKey = opts.SaveProviderAPIKey
 	m.emitModelChange = opts.EmitModelChange
 	m.emitThinkingLevelChange = opts.EmitThinkingLevelChange
 	m.emitTerminalResize = opts.EmitTerminalResize
@@ -1424,6 +1451,16 @@ func (m *AppModel) AddStartupMessageToScrollList() {
 	})
 	m.splashItem = item
 	m.messages = append(m.messages, item)
+
+	// No credentials for the configured provider: greet the user with the
+	// fix instead of failing at startup.
+	if m.providerError != nil {
+		notice := m.providerErrorNotice()
+		now := time.Now()
+		m.messages = append(m.messages, NewThemedMessageItem(generateMessageID(), "system", notice, func() string {
+			return m.renderer.RenderSystemMessage(notice, now).Content
+		}))
+	}
 
 	// Add extension startup messages if any. These are ordinary system
 	// notices and are rendered as such — appending the raw string would put
@@ -1799,6 +1836,33 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	// ── Provider connect (/connect) events ─────────────────────────────────
+	case ProviderKeySubmittedMsg:
+		if err := m.storeProviderKey(msg.ProviderID, msg.Key); err != nil {
+			// Keep the dialog open on the key step so the user can fix it.
+			if m.providerConnect != nil {
+				m.providerConnect.SetError(err.Error())
+			}
+			return m, nil
+		}
+		m.providerConnect = nil
+		m.state = stateInput
+		m.afterProviderKeySaved(msg.ProviderID, msg.ProviderName)
+		return m, tea.Batch(cmds...)
+
+	case ProviderConnectOAuthMsg:
+		m.providerConnect = nil
+		m.state = stateInput
+		m.printSystemMessage(fmt.Sprintf(
+			"%s uses device login instead of an API key. Quit and run:\n\n  kit auth login copilot",
+			msg.ProviderName))
+		return m, tea.Batch(cmds...)
+
+	case ProviderConnectCancelledMsg:
+		m.providerConnect = nil
+		m.state = stateInput
+		return m, nil
+
 	// ── Session selector events ──────────────────────────────────────────────
 	case SessionSelectedMsg:
 		m.sessionSelector = nil
@@ -2050,6 +2114,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateThemeSelector && m.themeSelector != nil {
 			updated, cmd := m.themeSelector.Update(msg)
 			m.themeSelector = updated.(*ThemeSelectorComponent)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Route to the /connect dialog when active.
+		if m.state == stateProviderConnect && m.providerConnect != nil {
+			updated, cmd := m.providerConnect.Update(msg)
+			m.providerConnect = updated.(*ProviderConnectComponent)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -2381,6 +2453,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		} else if ok {
 			msg.Text = expanded
+		}
+
+		// No usable provider: do not send the prompt, tell the user how to
+		// fix it (mirrors opencode's "Connect a provider to send prompts").
+		if m.providerError != nil {
+			m.printSystemMessage(m.providerErrorNotice())
+			if ic, ok := m.input.(*InputComponent); ok {
+				ic.textarea.SetValue(msg.Text)
+				ic.textarea.CursorEnd()
+			}
+			return m, tea.Batch(cmds...)
 		}
 
 		// Regular prompt — forward to the app layer.
@@ -3197,6 +3280,16 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layoutDirty = true
 
 	default:
+		// The /connect key input owns paste and cursor-blink messages while
+		// it is open; the composer must not receive a pasted API key.
+		if m.state == stateProviderConnect && m.providerConnect != nil {
+			updated, cmd := m.providerConnect.Update(msg)
+			m.providerConnect = updated.(*ProviderConnectComponent)
+			cmds = append(cmds, cmd)
+			if _, isPaste := msg.(tea.PasteMsg); isPaste {
+				return m, tea.Batch(cmds...)
+			}
+		}
 		// Pass unrecognised messages to all children.
 		if m.input != nil {
 			updated, cmd := m.input.Update(msg)
@@ -3406,6 +3499,11 @@ func (m *AppModel) View() tea.View {
 	// Theme selector.
 	if m.state == stateThemeSelector && m.themeSelector != nil {
 		finalContent = compositeCentered(finalContent, m.themeSelector.RenderOverlay(), m.width, m.height)
+	}
+
+	// Provider connect dialog (/connect).
+	if m.state == stateProviderConnect && m.providerConnect != nil {
+		finalContent = compositeCentered(finalContent, m.providerConnect.RenderOverlay(), m.width, m.height)
 	}
 
 	// Tree selector (/tree).
@@ -4350,6 +4448,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		m.printResetUsage()
 	case "/model":
 		return m.handleModelCommand(args)
+	case "/connect":
+		return m.handleConnectCommand(args)
 	case "/theme":
 		return m.handleThemeCommand(args)
 	case "/thinking":
@@ -5550,6 +5650,9 @@ func (m *AppModel) switchModel(modelString string) {
 		return
 	}
 
+	// A working provider is installed now.
+	m.providerError = nil
+
 	// Update display state directly (cannot use prog.Send from Update).
 	if parts := strings.SplitN(modelString, "/", 2); len(parts) == 2 {
 		m.providerName = parts[0]
@@ -5608,6 +5711,107 @@ func (m *AppModel) notifyThinkingLevel(newLevel, previousLevel, source string) {
 	}
 	emit := m.emitThinkingLevelChange
 	m.extEvents.dispatch(func() { emit(newLevel, previousLevel, source) })
+}
+
+// --------------------------------------------------------------------------
+// Provider connect (/connect) command handler
+// --------------------------------------------------------------------------
+
+// handleConnectCommand opens the provider picker. With an argument
+// ("/connect groq") the key input opens for that provider directly.
+func (m *AppModel) handleConnectCommand(args string) tea.Cmd {
+	if m.saveProviderAPIKey == nil {
+		m.printSystemMessage("Storing API keys is not available in this session.")
+		return nil
+	}
+	m.providerConnect = NewProviderConnect(strings.TrimSpace(args), m.width, m.height)
+	m.state = stateProviderConnect
+	return m.providerConnect.Init()
+}
+
+// storeProviderKey persists the key through the wired callback.
+func (m *AppModel) storeProviderKey(providerID, key string) error {
+	if m.saveProviderAPIKey == nil {
+		return fmt.Errorf("storing API keys is not available in this session")
+	}
+	return m.saveProviderAPIKey(providerID, key)
+}
+
+// afterProviderKeySaved reports the save and, when the key belongs to the
+// active model's provider and that provider was unusable, rebuilds the
+// provider in place so the user can start chatting without a /model round
+// trip.
+func (m *AppModel) afterProviderKeySaved(providerID, providerName string) {
+	path := tildeHome(credentialsPathOrDefault())
+	m.printSystemMessage(fmt.Sprintf("Saved %s API key to %s", providerName, path))
+
+	if m.providerError == nil {
+		m.printSystemMessage(fmt.Sprintf("Use /model to pick a %s model.", providerName))
+		return
+	}
+	if !sameProviderID(providerID, m.providerName) {
+		m.printSystemMessage(fmt.Sprintf(
+			"The active model still uses %s, which has no key. Use /model to switch to a %s model, or /connect %s.",
+			m.providerName, providerName, m.providerName))
+		return
+	}
+	if m.setModel == nil {
+		return
+	}
+	current := m.providerName + "/" + m.modelName
+	if err := m.setModel(current); err != nil {
+		m.printSystemMessage(fmt.Sprintf("Key saved, but %s could not be started: %v", current, err))
+		return
+	}
+	m.providerError = nil
+	m.printSystemMessage(fmt.Sprintf("Connected. %s is ready — type a message to start.", current))
+}
+
+// sameProviderID compares provider IDs while treating the known aliases
+// (copilot/github-copilot, gemini/google) as equal.
+func sameProviderID(a, b string) bool {
+	norm := func(s string) string {
+		switch strings.ToLower(s) {
+		case "github-copilot":
+			return "copilot"
+		case "gemini":
+			return "google"
+		default:
+			return strings.ToLower(s)
+		}
+	}
+	return norm(a) == norm(b)
+}
+
+// providerErrorNotice builds the user-facing text for a missing provider
+// credential: what is missing, and the two ways to fix it.
+func (m *AppModel) providerErrorNotice() string {
+	if m.providerError == nil {
+		return ""
+	}
+	model := m.providerName + "/" + m.modelName
+	if mc := auth.AsMissingCredentials(m.providerError); mc != nil {
+		name := mc.ProviderName
+		if name == "" {
+			name = mc.Provider
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "No API key is set for %s, so the model %s cannot be used yet.\n\n", name, model)
+		if mc.Provider == "copilot" || mc.Provider == "github-copilot" {
+			b.WriteString("GitHub Copilot uses device login: quit and run `kit auth login copilot`.")
+			return b.String()
+		}
+		fmt.Fprintf(&b, "  • Run /connect to add a key for %s (saved to %s)\n", name, tildeHome(credentialsPathOrDefault()))
+		if len(mc.EnvVars) > 0 {
+			fmt.Fprintf(&b, "  • Or set %s in your environment and restart\n", strings.Join(mc.EnvVars, " or "))
+		}
+		b.WriteString("  • Or run /model to pick a model from a provider that has a key")
+		if mc.Hint != "" {
+			b.WriteString("\n\n" + mc.Hint)
+		}
+		return b.String()
+	}
+	return fmt.Sprintf("The model %s is not available: %v\n\nRun /connect to add an API key or /model to switch models.", model, m.providerError)
 }
 
 // --------------------------------------------------------------------------

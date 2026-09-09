@@ -7,14 +7,27 @@ description: Complete reference for all Kit CLI subcommands.
 
 ## Authentication
 
-For OAuth-enabled providers like Anthropic.
+Anthropic, OpenAI and GitHub Copilot use OAuth flows. Every other provider
+in the model database takes an API key.
 
 ```bash
-kit auth login [provider]          # Start OAuth flow (e.g., anthropic)
+kit auth login [provider]          # Start OAuth flow (e.g., anthropic) or prompt for an API key
+kit auth login groq                # Prompt for a Groq API key (hidden input)
+kit auth login openrouter --api-key sk-or-...   # Store a key without prompting
 kit auth login [provider] --set-default  # Set provider's default model as system default
-kit auth logout [provider]       # Remove credentials for provider
+kit auth logout [provider]         # Remove credentials for provider
 kit auth status                    # Check authentication status
 ```
+
+Stored keys live in `$XDG_CONFIG_HOME/.kit/credentials.json` (defaults to
+`~/.config/.kit/credentials.json`, mode `0600`) and take precedence over the
+provider's environment variable (for example `GROQ_API_KEY`). The
+environment variable is still used when no key is stored.
+
+Kit starts even when the configured model has no key. The TUI shows a notice
+and refuses to send prompts until you add a key with `/connect` (or switch
+to a model whose provider has one with `/model`). One-shot prompts
+(`kit "question"`) still fail fast with the same error.
 
 ## Model database
 
@@ -171,6 +184,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/tools` | List available MCP tools |
 | `/servers` | Show connected MCP servers |
 | `/model [name]` | Switch model or open model selector |
+| `/connect [provider]` | Add an API key for a provider. Opens a searchable provider list, then a masked key input. The key is saved to the credentials file and the active model is reconnected when it belongs to that provider. `/connect groq` skips the list. Alias: `/login`. |
 | `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
 | `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
 | `/compact [focus]` | Summarize older messages to free context |

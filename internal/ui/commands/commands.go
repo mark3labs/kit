@@ -76,6 +76,13 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/m"},
 	},
 	{
+		Name:        "/connect",
+		Description: "Add an API key for a provider (saved in the credentials file)",
+		Category:    "System",
+		Aliases:     []string{"/login"},
+		// No Complete function: /connect opens a modal picker (like /model).
+	},
+	{
 		Name:        "/thinking",
 		Description: "Set thinking/reasoning level (off, none, minimal, low, medium, high)",
 		Category:    "System",
