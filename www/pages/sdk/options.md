@@ -183,7 +183,7 @@ from the host machine.
 | `SkipConfig` | `bool` | `false` | Skip `.kit.yml` file loading (viper defaults + env vars still apply) |
 | `Skills` | `[]string` | — | Explicit skill files/dirs to load |
 | `SkillsDir` | `string` | — | Scan this directory directly for skills (overrides auto-discovery; scanned as-is) |
-| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/skill:`) |
+| `SkillsDisable` | `[]string` | — | Skill names to hide from the model catalog (still usable via `/<name>`) |
 | `SkillTrustPrompt` | `func(projectDir string, skillCount int) TrustDecision` | `nil` | Callback gating project-local skill loading on a trust decision (see below) |
 | `NoSkills` | `bool` | `false` | Disable skill loading entirely |
 

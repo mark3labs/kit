@@ -490,8 +490,11 @@ func roleLabel(role fantasy.MessageRole) string {
 // explicitly-activated skill content. Such messages are exempt from
 // compaction pruning per the agentskills.io spec (issue #65, gap #7): an
 // activated skill must remain in context verbatim instead of being folded
-// into a lossy summary.
-var skillContentMarkers = []string{"<skill ", "<skill>", "<skill_content"}
+// into a lossy summary. Every activation path (activate_skill tool, the
+// /<name> slash command, and extension injection) emits <skill_content>; the
+// bare <skill> forms are kept so sessions recorded by older builds stay
+// protected.
+var skillContentMarkers = []string{"<skill_content", "<skill ", "<skill>"}
 
 // isProtectedMessage reports whether msg carries explicitly-activated skill
 // content that must survive compaction unchanged.

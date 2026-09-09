@@ -67,7 +67,7 @@ type Skill struct {
 	AllowedTools string `yaml:"allowed-tools,omitempty" json:"allowed_tools,omitempty"`
 	// DisableModelInvocation, when true, hides the skill from the
 	// model-facing catalog (spec field). The skill can still be activated
-	// explicitly via the /skill: slash command.
+	// explicitly via the /<name> slash command.
 	DisableModelInvocation bool `yaml:"disable-model-invocation,omitempty" json:"disable_model_invocation,omitempty"`
 
 	// Tags are optional labels for categorisation. Kit extension.
@@ -93,23 +93,111 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 
+// Spec limits from https://agentskills.io/specification.
+const (
+	maxNameLen          = 64
+	maxDescriptionLen   = 1024
+	maxCompatibilityLen = 500
+	// recommendedBodyLines is the spec's guidance for SKILL.md length.
+	recommendedBodyLines = 500
+)
+
+// skillNameRe matches a spec-compliant skill name: lowercase letters, digits
+// and single hyphens, not at either end.
+var skillNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
 // Validate checks the skill against the agentskills.io specification and
 // returns a list of diagnostics. An empty slice means the skill is fully
-// compliant. A missing description is reported as an error because the spec
-// makes it required for discovery.
+// compliant.
+//
+// Following the spec's lenient-validation guidance, only a missing name or
+// description is an error (the description is the sole basis for discovery).
+// Everything else — name format, length limits, name/directory mismatch, an
+// over-long body — is reported as a warning so skills authored for other
+// clients still load.
 func (s *Skill) Validate() []Diagnostic {
 	var diags []Diagnostic
-	if strings.TrimSpace(s.Name) == "" {
-		diags = append(diags, Diagnostic{Severity: "error", Field: "name", Message: "name is required"})
+	warn := func(field, msg string) {
+		diags = append(diags, Diagnostic{Severity: "warning", Field: field, Message: msg})
 	}
-	if strings.TrimSpace(s.Description) == "" {
+
+	name := strings.TrimSpace(s.Name)
+	if name == "" {
+		diags = append(diags, Diagnostic{Severity: "error", Field: "name", Message: "name is required"})
+	} else {
+		if n := len([]rune(name)); n > maxNameLen {
+			warn("name", fmt.Sprintf("name is %d characters; spec maximum is %d", n, maxNameLen))
+		}
+		if !skillNameRe.MatchString(name) {
+			warn("name", "name must use only lowercase letters, digits and single hyphens, and must not start or end with a hyphen")
+		}
+		if dir := s.dirName(); dir != "" && dir != name {
+			warn("name", fmt.Sprintf("name %q does not match parent directory %q", name, dir))
+		}
+	}
+
+	desc := strings.TrimSpace(s.Description)
+	if desc == "" {
 		diags = append(diags, Diagnostic{
 			Severity: "error",
 			Field:    "description",
 			Message:  "description is required for skill discovery",
 		})
+	} else if n := len([]rune(desc)); n > maxDescriptionLen {
+		warn("description", fmt.Sprintf("description is %d characters; spec maximum is %d", n, maxDescriptionLen))
 	}
+
+	if n := len([]rune(strings.TrimSpace(s.Compatibility))); n > maxCompatibilityLen {
+		warn("compatibility", fmt.Sprintf("compatibility is %d characters; spec maximum is %d", n, maxCompatibilityLen))
+	}
+
+	if s.Content != "" {
+		if n := strings.Count(s.Content, "\n") + 1; n > recommendedBodyLines {
+			warn("body", fmt.Sprintf("SKILL.md body is %d lines; spec recommends under %d — move detail into references/", n, recommendedBodyLines))
+		}
+	}
+
 	return diags
+}
+
+// dirName returns the name of the skill's parent directory when the skill was
+// loaded from a SKILL.md file inside a directory, or "" for bare .md/.txt
+// files (which have no directory the spec expects the name to match).
+func (s *Skill) dirName() string {
+	if s.Path == "" {
+		return ""
+	}
+	base := filepath.Base(s.Path)
+	if !strings.EqualFold(base, "SKILL.md") {
+		return ""
+	}
+	dir := filepath.Base(filepath.Dir(s.Path))
+	if dir == "." || dir == "/" || dir == "" {
+		return ""
+	}
+	return dir
+}
+
+// Scope reports where the skill was discovered: "project" for skills found
+// under <project>/.agents/skills or <project>/.kit/skills, "user" otherwise
+// (user-level scopes, explicit --skill paths, --skills-dir, programmatic
+// skills).
+func (s *Skill) Scope() string {
+	if s.project {
+		return "project"
+	}
+	return "user"
+}
+
+// Warnings returns only the warning-severity diagnostics from Validate.
+func (s *Skill) Warnings() []Diagnostic {
+	var out []Diagnostic
+	for _, d := range s.Validate() {
+		if d.Severity == "warning" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // hasError reports whether diags contains a diagnostic with "error" severity.
@@ -503,13 +591,20 @@ func finalizeSkills(loaded []*Skill) []*Skill {
 	var result []*Skill
 
 	for _, s := range loaded {
-		if diags := s.Validate(); hasError(diags) {
+		diags := s.Validate()
+		if hasError(diags) {
 			for _, d := range diags {
 				if d.Severity == "error" {
 					log.Warn("skipping skill: validation failed", "path", s.Path, "field", d.Field, "reason", d.Message)
 				}
 			}
 			continue
+		}
+		// Non-fatal spec deviations are recorded at debug level so they do
+		// not spam the TUI; `kit skill list` and `kit skill validate` surface
+		// them on demand.
+		for _, d := range diags {
+			log.Debug("skill spec warning", "name", s.Name, "path", s.Path, "field", d.Field, "reason", d.Message)
 		}
 
 		if idx, ok := byName[s.Name]; ok {
@@ -543,7 +638,7 @@ func finalizeSkills(loaded []*Skill) []*Skill {
 // the agent reads the full skill file on demand using the read tool. Skill
 // fields are XML-escaped so that descriptions containing <, >, & or quotes
 // produce valid markup. Skills with DisableModelInvocation set are omitted
-// from the catalog (they remain available via the /skill: slash command).
+// from the catalog (they remain available via the /<name> slash command).
 func FormatForPrompt(skills []*Skill) string {
 	if len(skills) == 0 {
 		return ""
@@ -586,6 +681,28 @@ func escapeXML(s string) string {
 	if err := xml.EscapeText(&buf, []byte(s)); err != nil {
 		return s
 	}
+	return buf.String()
+}
+
+// FormatActivation renders a skill for injection into the conversation when
+// it is activated (by the model via activate_skill or by the user via
+// /<name>). The frontmatter-stripped body is wrapped in a <skill_content>
+// block carrying the skill's name and location, followed by a note on how to
+// resolve relative paths and a <skill_resources> listing of bundled files.
+// Both activation paths use this function so compaction can recognise the
+// block with a single marker.
+func FormatActivation(s *Skill) string {
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "<skill_content name=%q location=%q>\n", s.Name, s.Path)
+	if base := s.BaseDir(); base != "" {
+		fmt.Fprintf(&buf, "References are relative to %s.\n\n", base)
+	}
+	buf.WriteString(s.Content)
+	if res := FormatResources(s.Resources()); res != "" {
+		buf.WriteString("\n\n")
+		buf.WriteString(res)
+	}
+	buf.WriteString("\n</skill_content>")
 	return buf.String()
 }
 

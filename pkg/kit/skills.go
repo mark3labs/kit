@@ -16,6 +16,11 @@ import (
 // frontmatter that provides domain-specific context and workflows.
 type Skill = skills.Skill
 
+// SkillDiagnostic describes a validation problem found by Skill.Validate.
+// Severity is "error" (the skill is not loaded) or "warning" (the skill is
+// loaded but deviates from the agentskills.io specification).
+type SkillDiagnostic = skills.Diagnostic
+
 // PromptTemplate is a named text template with {{variable}} placeholders.
 type PromptTemplate = skills.PromptTemplate
 
@@ -62,6 +67,38 @@ func LoadSkillsFromFS(fsys fs.FS, root string) ([]*Skill, error) {
 // the current working directory is used.
 func LoadSkills(cwd string) ([]*Skill, error) {
 	return skills.LoadSkills(cwd)
+}
+
+// LoadUserSkills discovers skills from the user-level scopes only
+// (~/.agents/skills and $XDG_CONFIG_HOME/kit/skills). The result is not yet
+// validated or deduplicated; pass it to CombineSkills.
+func LoadUserSkills() []*Skill {
+	return skills.LoadUserSkills()
+}
+
+// LoadProjectSkills discovers skills from the project-local scopes only
+// (<cwd>/.agents/skills and <cwd>/.kit/skills). The result is not yet
+// validated or deduplicated; pass it to CombineSkills. Callers that inject
+// the result into a prompt should gate it on a trust check first.
+func LoadProjectSkills(cwd string) []*Skill {
+	return skills.LoadProjectSkills(cwd)
+}
+
+// CombineSkills validates and deduplicates the union of user-level and
+// project-level skills. Skills with error-severity diagnostics are dropped;
+// on a name collision the project-level skill wins.
+func CombineSkills(user, project []*Skill) []*Skill {
+	return skills.Combine(user, project)
+}
+
+// FormatSkillActivation renders a skill for injection into the conversation
+// when it is activated: the body wrapped in a <skill_content name=… location=…>
+// block, a note on resolving relative paths against the skill directory, and a
+// <skill_resources> listing of bundled files. This is the exact text the
+// activate_skill tool and the /<name> slash command emit, so hosts that
+// inject skills themselves get the same compaction protection.
+func FormatSkillActivation(s *Skill) string {
+	return skills.FormatActivation(s)
 }
 
 // FormatSkillsForPrompt formats skills for inclusion in a system prompt.
@@ -319,7 +356,7 @@ func (m *Kit) RefreshSystemPrompt() {
 // ---------------------------------------------------------------------------
 
 // applySkillDisableList sets DisableModelInvocation on every skill whose Name
-// appears in names. Disabled skills remain loaded (so explicit /skill:
+// appears in names. Disabled skills remain loaded (so explicit /<name>
 // activation still works) but are hidden from the model-facing catalog.
 func applySkillDisableList(skillList []*skills.Skill, names []string) {
 	if len(names) == 0 {
@@ -337,7 +374,7 @@ func applySkillDisableList(skillList []*skills.Skill, names []string) {
 }
 
 // DisableSkill hides the named skill from the model-facing catalog while
-// keeping it loaded (so it can still be activated explicitly via /skill:).
+// keeping it loaded (so it can still be activated explicitly via /<name>).
 // The system prompt is recomposed and applied. Returns true when a skill with
 // that name was found.
 func (m *Kit) DisableSkill(name string) bool {

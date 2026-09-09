@@ -348,7 +348,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		skills := kitInstance.DiscoverSkillsForExtension()
 		for _, s := range skills {
 			if s.Name == skillName {
-				appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+				appInstance.Run(kit.FormatSkillActivation(&kit.Skill{Name: s.Name, Path: s.Path, Content: s.Content}))
 				return ""
 			}
 		}
@@ -359,7 +359,7 @@ func buildInteractiveExtensionContext(deps extensionContextDeps) extensions.Cont
 		if err != "" {
 			return err
 		}
-		appInstance.Run(fmt.Sprintf("<skill name=%q>\n%s\n</skill>", s.Name, s.Content))
+		appInstance.Run(kit.FormatSkillActivation(&kit.Skill{Name: s.Name, Path: s.Path, Content: s.Content}))
 		return ""
 	}
 

@@ -1272,18 +1272,14 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		}
 	}
 
-	// Merge skills into autocomplete as /skill:<name> commands. Skills accept
-	// optional trailing args, so HasArgs is true — Enter populates the input
-	// with "/skill:name " rather than auto-submitting.
+	// Merge skills into autocomplete as /<name> commands (the agentskills.io
+	// user-explicit activation convention). Skills accept optional trailing
+	// args, so HasArgs is true — Enter populates the input with "/name "
+	// rather than auto-submitting. A skill whose name is already taken by a
+	// built-in command, extension command or prompt template is shadowed at
+	// dispatch time, so it is left out of the popup and logged.
 	if ic, ok := m.input.(*InputComponent); ok && len(opts.SkillItems) > 0 {
-		for _, s := range opts.SkillItems {
-			ic.commands = append(ic.commands, commands.SlashCommand{
-				Name:        "/skill:" + s.Name,
-				Description: formatSkillDescription(s),
-				Category:    "Skills",
-				HasArgs:     true,
-			})
-		}
+		ic.commands = appendSkillCommands(ic.commands, opts.SkillItems)
 	}
 
 	// Merge MCP prompts into autocomplete as /<server>:<prompt> commands.
@@ -4798,16 +4794,39 @@ func (m *AppModel) refreshSkillItems() {
 				kept = append(kept, sc)
 			}
 		}
-		for _, s := range newItems {
-			kept = append(kept, commands.SlashCommand{
-				Name:        "/skill:" + s.Name,
-				Description: formatSkillDescription(s),
-				Category:    "Skills",
-				HasArgs:     true,
-			})
-		}
-		ic.commands = kept
+		ic.commands = appendSkillCommands(kept, newItems)
 	}
+}
+
+// appendSkillCommands appends one "/<name>" autocomplete entry per skill to
+// cmds and returns the result. Skills whose slash name collides with an
+// existing entry (built-in, extension, MCP prompt or prompt template) are
+// skipped, because dispatch would never reach them; the collision is logged
+// so the author can rename one side.
+func appendSkillCommands(cmds []commands.SlashCommand, items []SkillItem) []commands.SlashCommand {
+	taken := make(map[string]string, len(cmds))
+	for _, sc := range cmds {
+		taken[sc.Name] = sc.Category
+		for _, a := range sc.Aliases {
+			taken[a] = sc.Category
+		}
+	}
+	for _, s := range items {
+		name := "/" + s.Name
+		if cat, dup := taken[name]; dup {
+			log.Warn("skill shadowed by existing slash command",
+				"skill", s.Name, "path", s.Path, "shadowed_by", cat)
+			continue
+		}
+		taken[name] = "Skills"
+		cmds = append(cmds, commands.SlashCommand{
+			Name:        name,
+			Description: formatSkillDescription(s),
+			Category:    "Skills",
+			HasArgs:     true,
+		})
+	}
+	return cmds
 }
 
 // refreshExtensionItems reloads extension items from the provider callback
@@ -4820,17 +4839,20 @@ func (m *AppModel) refreshExtensionItems() {
 	m.extensionItems = m.getExtensionItems()
 }
 
-// formatSkillDescription returns the autocomplete description for a skill,
-// prefixed with [project] or [user] so users can tell colliding names apart.
+// formatSkillDescription returns the autocomplete description for a skill.
+// Project-local skills are tagged so the user can see where a skill came
+// from; user-level skills (the common case) are shown without a prefix. Name
+// collisions are already resolved at load time (project wins), so a bare
+// name is never ambiguous.
 func formatSkillDescription(s SkillItem) string {
-	prefix := "[user]"
+	desc := s.Description
 	if s.Source == "project" {
-		prefix = "[project]"
+		if desc == "" {
+			return "(project)"
+		}
+		return "(project) " + desc
 	}
-	if s.Description == "" {
-		return prefix
-	}
-	return prefix + " " + s.Description
+	return desc
 }
 
 // refreshMCPPrompts reloads MCP prompts from the provider callback and
@@ -4926,7 +4948,7 @@ func (m *AppModel) printHelpMessage() {
 	if len(m.skillItems) > 0 {
 		var skillHelp strings.Builder
 		skillHelp.WriteString("**Skills:**\n")
-		skillHelp.WriteString("- `/skill:<name> [args]`: Load a skill into context and run with optional args\n")
+		skillHelp.WriteString("- `/<name> [args]`: Load a skill into context and run with optional args\n")
 		skillHelp.WriteString("  Available skills: ")
 		for i, si := range m.skillItems {
 			if i > 0 {

@@ -107,7 +107,7 @@ func (t *activateSkillTool) Run(_ context.Context, call fantasy.ToolCall) (fanta
 
 	// Resolve the skill path from the current provider snapshot. Skills with
 	// disable-model-invocation set are not activatable by the model (they
-	// remain available via the /skill: command), mirroring their exclusion
+	// remain available via the /<name> command), mirroring their exclusion
 	// from the catalog and the tool's name enum.
 	var path string
 	for _, s := range t.provider() {
@@ -126,17 +126,7 @@ func (t *activateSkillTool) Run(_ context.Context, call fantasy.ToolCall) (fanta
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to load skill %q: %v", name, err)), nil
 	}
 
-	var buf strings.Builder
-	fmt.Fprintf(&buf, "<skill_content name=%q location=%q>\n", loaded.Name, loaded.Path)
-	fmt.Fprintf(&buf, "References are relative to %s.\n\n", loaded.BaseDir())
-	buf.WriteString(loaded.Content)
-	if res := skills.FormatResources(loaded.Resources()); res != "" {
-		buf.WriteString("\n\n")
-		buf.WriteString(res)
-	}
-	buf.WriteString("\n</skill_content>")
-
 	t.activated[name] = true
 
-	return fantasy.NewTextResponse(buf.String()), nil
+	return fantasy.NewTextResponse(skills.FormatActivation(loaded)), nil
 }
