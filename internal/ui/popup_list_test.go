@@ -308,7 +308,7 @@ func TestPopupList_RenderBadge(t *testing.T) {
 	p := NewPopupList("Commands", items, 80, 40)
 	plain := stripAnsi(p.Render())
 
-	for _, want := range []string{"/pdf-processing [skill]", "/review [prompt]", "/help Built-in"} {
+	for _, want := range []string{"/pdf-processing  skill  Extract PDF text", "/review  prompt  Code review template", "/help Built-in"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("expected %q in rendered popup:\n%s", want, plain)
 		}
@@ -317,7 +317,7 @@ func TestPopupList_RenderBadge(t *testing.T) {
 	// Cursor row keeps the badge.
 	p.HandleKey("down", "")
 	plain = stripAnsi(p.Render())
-	if !strings.Contains(plain, "> /review [prompt]") {
+	if !strings.Contains(plain, "> /review  prompt  Code review template") {
 		t.Errorf("expected badge on cursor row:\n%s", plain)
 	}
 

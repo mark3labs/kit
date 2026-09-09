@@ -584,7 +584,7 @@ func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWi
 	}
 	badgeWidth := 0
 	if entry.Badge != "" {
-		badgeWidth = len([]rune(entry.Badge)) + 3 // " [badge]"
+		badgeWidth = len([]rune(entry.Badge)) + 3 // " " + " badge " chip
 	}
 	available := max(innerWidth-2-activeWidth-badgeWidth, 6) // 2 for indicator, already included
 
@@ -625,18 +625,21 @@ func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWi
 	if entry.Badge != "" {
 		result += " " + renderBadge(entry.Badge, isCursor)
 	}
+	// Anything drawn after an inner Render() must carry the row background
+	// itself: the inner style's trailing reset clears the row's background
+	// attribute, and a cursor-row description in theme.Background would then
+	// be dark-on-dark and vanish.
 	if desc != "" {
-		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		descStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.Background)
 		if isCursor {
-			// When selected, use a dimmer foreground that still contrasts with Primary bg.
-			descStyle = lipgloss.NewStyle().Foreground(theme.Background)
+			descStyle = lipgloss.NewStyle().Foreground(theme.Background).Background(theme.Primary)
 		}
-		result += " " + descStyle.Render(desc)
+		result += descStyle.Render(" " + desc)
 	}
 	if entry.Active {
-		checkStyle := lipgloss.NewStyle().Foreground(theme.Success)
+		checkStyle := lipgloss.NewStyle().Foreground(theme.Success).Background(theme.Background)
 		if isCursor {
-			checkStyle = lipgloss.NewStyle().Foreground(theme.Background)
+			checkStyle = lipgloss.NewStyle().Foreground(theme.Background).Background(theme.Primary)
 		}
 		result += checkStyle.Render(" ✓")
 	}
@@ -661,16 +664,24 @@ func badgeColor(badge string) color.Color {
 	}
 }
 
-// renderBadge draws a small "[kind]" tag. The brackets are muted so the kind
-// word stands out; on the cursor row everything is drawn in the popup
-// background colour so it stays readable against the Primary highlight.
+// renderBadge draws the kind tag as a small chip: the kind word on a
+// coloured background taken from the active theme (" skill "). On the cursor
+// row the chip is inverted — theme background fill with the kind colour as
+// text — so it stays legible on top of the Primary highlight instead of
+// clashing with it.
 func renderBadge(badge string, isCursor bool) string {
 	theme := style.GetTheme()
+	chip := " " + badge + " "
 	if isCursor {
-		st := lipgloss.NewStyle().Foreground(theme.Background)
-		return st.Render("[" + badge + "]")
+		return lipgloss.NewStyle().
+			Foreground(badgeColor(badge)).
+			Background(theme.Background).
+			Bold(true).
+			Render(chip)
 	}
-	bracket := lipgloss.NewStyle().Foreground(theme.VeryMuted)
-	word := lipgloss.NewStyle().Foreground(badgeColor(badge)).Bold(true)
-	return bracket.Render("[") + word.Render(badge) + bracket.Render("]")
+	return lipgloss.NewStyle().
+		Foreground(theme.Background).
+		Background(badgeColor(badge)).
+		Bold(true).
+		Render(chip)
 }
