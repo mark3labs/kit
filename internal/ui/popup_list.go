@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -10,11 +11,13 @@ import (
 )
 
 // PopupItem represents a single entry in a PopupList. The component renders
-// Label as the primary text and Description as secondary text to its right.
-// The Active flag renders a checkmark to indicate the currently-active item
-// (e.g. the current model). Meta is opaque caller data returned on selection.
+// Label as the primary text, an optional Badge tag right after it, and
+// Description as secondary text to its right. The Active flag renders a
+// checkmark to indicate the currently-active item (e.g. the current model).
+// Meta is opaque caller data returned on selection.
 type PopupItem struct {
 	Label       string // primary display text
+	Badge       string // optional short kind tag rendered after the label (e.g. "skill")
 	Description string // secondary text (shown right of label)
 	Active      bool   // true → render checkmark indicator
 	Meta        any    // opaque data returned on selection
@@ -574,12 +577,16 @@ func defaultFilter(query string, items []PopupItem) []PopupItem {
 func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWidth int, isCursor bool) string {
 	theme := style.GetTheme()
 
-	// Reserve space: indicator(2) + potential checkmark(2)
+	// Reserve space: indicator(2) + potential checkmark(2) + badge.
 	activeWidth := 0
 	if entry.Active {
 		activeWidth = 2
 	}
-	available := max(innerWidth-2-activeWidth, 6) // 2 for indicator, already included
+	badgeWidth := 0
+	if entry.Badge != "" {
+		badgeWidth = len([]rune(entry.Badge)) + 3 // " [badge]"
+	}
+	available := max(innerWidth-2-activeWidth-badgeWidth, 6) // 2 for indicator, already included
 
 	label := entry.Label
 	desc := entry.Description
@@ -615,6 +622,9 @@ func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWi
 	}
 
 	result := indicator + label
+	if entry.Badge != "" {
+		result += " " + renderBadge(entry.Badge, isCursor)
+	}
 	if desc != "" {
 		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 		if isCursor {
@@ -631,4 +641,36 @@ func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWi
 		result += checkStyle.Render(" ✓")
 	}
 	return result
+}
+
+// badgeColor picks a per-kind foreground for an autocomplete badge so the
+// eye can tell skills, prompts, extensions and MCP prompts apart at a glance.
+func badgeColor(badge string) color.Color {
+	theme := style.GetTheme()
+	switch badge {
+	case "skill":
+		return theme.Accent
+	case "prompt":
+		return theme.Info
+	case "ext":
+		return theme.Secondary
+	case "mcp":
+		return theme.Success
+	default:
+		return theme.Muted
+	}
+}
+
+// renderBadge draws a small "[kind]" tag. The brackets are muted so the kind
+// word stands out; on the cursor row everything is drawn in the popup
+// background colour so it stays readable against the Primary highlight.
+func renderBadge(badge string, isCursor bool) string {
+	theme := style.GetTheme()
+	if isCursor {
+		st := lipgloss.NewStyle().Foreground(theme.Background)
+		return st.Render("[" + badge + "]")
+	}
+	bracket := lipgloss.NewStyle().Foreground(theme.VeryMuted)
+	word := lipgloss.NewStyle().Foreground(badgeColor(badge)).Bold(true)
+	return bracket.Render("[") + word.Render(badge) + bracket.Render("]")
 }

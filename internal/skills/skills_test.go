@@ -534,3 +534,140 @@ func TestSkillResources(t *testing.T) {
 		t.Errorf("FormatResources output missing script: %q", formatted)
 	}
 }
+
+// TestValidate_SpecWarnings verifies the lenient spec checks: deviations in
+// name format, length limits, directory mismatch and body length are
+// reported as warnings (the skill still loads), never as errors.
+func TestValidate_SpecWarnings(t *testing.T) {
+	fields := func(diags []Diagnostic) map[string]int {
+		out := map[string]int{}
+		for _, d := range diags {
+			if d.Severity != "warning" {
+				t.Fatalf("unexpected %s diagnostic: %+v", d.Severity, d)
+			}
+			out[d.Field]++
+		}
+		return out
+	}
+
+	t.Run("bad name format", func(t *testing.T) {
+		for _, name := range []string{"PDF-Processing", "-pdf", "pdf-", "pdf--processing", "pdf_processing", "pdf processing"} {
+			s := &Skill{Name: name, Description: "d"}
+			if fields(s.Validate())["name"] == 0 {
+				t.Errorf("name %q: expected a name-format warning", name)
+			}
+		}
+	})
+
+	t.Run("good names", func(t *testing.T) {
+		for _, name := range []string{"pdf-processing", "a", "code-review-2", "x1"} {
+			s := &Skill{Name: name, Description: "d"}
+			if len(s.Validate()) != 0 {
+				t.Errorf("name %q: expected no diagnostics, got %+v", name, s.Validate())
+			}
+		}
+	})
+
+	t.Run("name too long", func(t *testing.T) {
+		s := &Skill{Name: strings.Repeat("a", 65), Description: "d"}
+		if fields(s.Validate())["name"] == 0 {
+			t.Error("expected a name-length warning")
+		}
+	})
+
+	t.Run("description too long", func(t *testing.T) {
+		s := &Skill{Name: "ok", Description: strings.Repeat("d", 1025)}
+		if fields(s.Validate())["description"] == 0 {
+			t.Error("expected a description-length warning")
+		}
+	})
+
+	t.Run("compatibility too long", func(t *testing.T) {
+		s := &Skill{Name: "ok", Description: "d", Compatibility: strings.Repeat("c", 501)}
+		if fields(s.Validate())["compatibility"] == 0 {
+			t.Error("expected a compatibility-length warning")
+		}
+	})
+
+	t.Run("directory mismatch", func(t *testing.T) {
+		s := &Skill{Name: "ok", Description: "d", Path: "/tmp/skills/other-name/SKILL.md"}
+		if fields(s.Validate())["name"] == 0 {
+			t.Error("expected a name/directory mismatch warning")
+		}
+		match := &Skill{Name: "ok", Description: "d", Path: "/tmp/skills/ok/SKILL.md"}
+		if len(match.Validate()) != 0 {
+			t.Errorf("matching directory: expected no diagnostics, got %+v", match.Validate())
+		}
+		// Bare .md files have no directory to match.
+		bare := &Skill{Name: "ok", Description: "d", Path: "/tmp/skills/whatever.md"}
+		if len(bare.Validate()) != 0 {
+			t.Errorf("bare file: expected no diagnostics, got %+v", bare.Validate())
+		}
+	})
+
+	t.Run("body too long", func(t *testing.T) {
+		s := &Skill{Name: "ok", Description: "d", Content: strings.Repeat("line\n", 600)}
+		if fields(s.Validate())["body"] == 0 {
+			t.Error("expected a body-length warning")
+		}
+	})
+
+	t.Run("warnings do not block loading", func(t *testing.T) {
+		got := finalizeSkills([]*Skill{{Name: "Bad_Name", Description: "d"}})
+		if len(got) != 1 {
+			t.Fatalf("expected warning-only skill to load, got %d skills", len(got))
+		}
+		if len(got[0].Warnings()) == 0 {
+			t.Error("expected Warnings() to report the name-format deviation")
+		}
+	})
+}
+
+// TestScope verifies the discovery-scope accessor used by the TUI and the
+// `kit skill list` command.
+func TestScope(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, ".agents", "skills", "p")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "SKILL.md"), []byte("---\nname: p\ndescription: d\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ps := LoadProjectSkills(dir)
+	if len(ps) != 1 || ps[0].Scope() != "project" {
+		t.Fatalf("expected one project-scoped skill, got %+v", ps)
+	}
+	if (&Skill{Name: "x"}).Scope() != "user" {
+		t.Error("expected default scope to be user")
+	}
+}
+
+// TestFormatActivation verifies the shared activation wrapper used by both
+// the activate_skill tool and the /<name> slash command.
+func TestFormatActivation(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Skill{Name: "my-skill", Description: "d", Content: "# Body", Path: filepath.Join(skillDir, "SKILL.md")}
+	out := FormatActivation(s)
+	for _, want := range []string{
+		`<skill_content name="my-skill" location="` + s.Path + `">`,
+		"References are relative to " + skillDir + ".",
+		"# Body",
+		"<file>scripts/run.sh</file>",
+		"</skill_content>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("FormatActivation missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "<skill ") || strings.Contains(out, "<skill>") {
+		t.Errorf("FormatActivation must not emit the legacy <skill> tag:\n%s", out)
+	}
+}

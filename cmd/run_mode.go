@@ -385,19 +385,15 @@ func contextFilePaths(k *kit.Kit) []string {
 	return paths
 }
 
-// collectSkillItems converts the loaded skills into UI items. Skills whose
-// path lies under cwd are tagged "project"; all others are tagged "user".
-func collectSkillItems(k *kit.Kit, cwd string) []ui.SkillItem {
+// collectSkillItems converts the loaded skills into UI items. The source tag
+// comes from the skill's discovery scope ("project" or "user").
+func collectSkillItems(k *kit.Kit) []ui.SkillItem {
 	var items []ui.SkillItem
 	for _, s := range k.GetSkills() {
-		source := "user"
-		if cwd != "" && strings.HasPrefix(s.Path, cwd) {
-			source = "project"
-		}
 		items = append(items, ui.SkillItem{
 			Name:        s.Name,
 			Path:        s.Path,
-			Source:      source,
+			Source:      s.Scope(),
 			Description: s.Description,
 		})
 	}
@@ -411,8 +407,7 @@ func reloadSkillItems(k *kit.Kit) []ui.SkillItem {
 		charmlog.Warn("failed to reload skills", "err", err)
 		return nil
 	}
-	cwd, _ := os.Getwd()
-	return collectSkillItems(k, cwd)
+	return collectSkillItems(k)
 }
 
 // mcpPromptsForUI converts kit.MCPPrompt values to the UI-layer type.

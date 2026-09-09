@@ -13,8 +13,10 @@ import (
 // TestDocumentedEventCountMatchesTable keeps the prose event totals in the
 // docs honest.
 //
-// Both pages open with "Kit provides N lifecycle events" / "Extensions can
-// hook into N lifecycle events" and then enumerate them in a table. The number
+// The docs page opens with "Extensions can hook into N lifecycle events" and
+// enumerates them in a table; the kit-extensions skill says "one of N
+// lifecycle events" in its index and "Kit provides N lifecycle events" in
+// references/lifecycle-events.md. The number
 // has drifted out of step three times as events were added (24, 27 and 30 were
 // each stale at some point), because nothing tied the sentence to the list
 // beneath it. This asserts the two agree.
@@ -23,6 +25,7 @@ func TestDocumentedEventCountMatchesTable(t *testing.T) {
 
 	capabilities := filepath.Join(repoRoot, "www", "pages", "extensions", "capabilities.md")
 	skill := filepath.Join(repoRoot, "skills", "kit-extensions", "SKILL.md")
+	skillEvents := filepath.Join(repoRoot, "skills", "kit-extensions", "references", "lifecycle-events.md")
 
 	// The table lives in capabilities.md and is the source of truth.
 	capsBody, err := os.ReadFile(capabilities)
@@ -40,7 +43,8 @@ func TestDocumentedEventCountMatchesTable(t *testing.T) {
 		re   *regexp.Regexp
 	}{
 		{capabilities, regexp.MustCompile(`hook into (\d+) lifecycle events`)},
-		{skill, regexp.MustCompile(`Kit provides (\d+) lifecycle events`)},
+		{skill, regexp.MustCompile(`one of (\d+) lifecycle events`)},
+		{skillEvents, regexp.MustCompile(`Kit provides (\d+) lifecycle events`)},
 	} {
 		body, err := os.ReadFile(tc.path)
 		if err != nil {

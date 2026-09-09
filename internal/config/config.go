@@ -525,7 +525,7 @@ mcpServers:
 # skill:                                    # Explicit skill files/dirs (disables auto-discovery)
 #   - "/path/to/skill.md"
 # skills-dir: "/path/to/skills"            # Scan this directory directly for skills (overrides auto-discovery)
-# skill-disable:                            # Hide skills from the model catalog by name (still usable via /skill:)
+# skill-disable:                            # Hide skills from the model catalog by name (still usable via /<name>)
 #   - "some-skill"
 #
 # Skill files follow the agentskills.io spec. A SKILL.md frontmatter block

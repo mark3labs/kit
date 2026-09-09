@@ -1332,7 +1332,7 @@ type Options struct {
 	NoSkills  bool     // Disable skill loading entirely (auto-discovery and explicit)
 
 	// SkillsDisable names skills (by Name) to exclude from the model-facing
-	// catalog. Disabled skills remain available via the /skill: slash command.
+	// catalog. Disabled skills remain available via the /<name> slash command.
 	SkillsDisable []string
 
 	// SkillTrustPrompt is an optional callback invoked the first time Kit
@@ -1754,7 +1754,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 			}
 
 			// Apply per-skill disable list (--skill-disable / skill-disable
-			// config key). Disabled skills stay loaded (so /skill: still
+			// config key). Disabled skills stay loaded (so /<name> still
 			// works) but are hidden from the model-facing catalog.
 			disable := opts.SkillsDisable
 			if len(disable) == 0 {
@@ -2162,21 +2162,19 @@ func loadContextFiles(cwd string) []*ContextFile {
 // Skill command expansion
 // ---------------------------------------------------------------------------
 
-// expandSkillCommand checks whether prompt starts with "/skill:<name>" and, if
-// so, re-reads the skill file, strips its YAML frontmatter, wraps the body in
-// a <skill> block with baseDir metadata, and appends any trailing user args.
-// Returns the original text unchanged when the prefix is absent or the skill is
-// not found.
+// expandSkillCommand checks whether prompt is a user-explicit skill
+// activation of the form "/<skill-name> [args]" (the agentskills.io slash
+// convention). If the name matches a loaded skill it re-reads the skill file,
+// strips its YAML frontmatter, wraps the body in a <skill_content> block with
+// location metadata and a bundled-resource listing, and appends any trailing
+// user args. Returns the original text unchanged when the prompt is not a
+// slash command or no skill has that name.
+//
+// User-explicit activation is not subject to disable-model-invocation or the
+// SkillsDisable list: those only hide a skill from the model-facing catalog.
 func (m *Kit) expandSkillCommand(prompt string) string {
-	if !strings.HasPrefix(prompt, "/skill:") {
-		return prompt
-	}
-
-	// Parse: /skill:name [args]
-	rest := prompt[len("/skill:"):]
-	name, args, _ := strings.Cut(rest, " ")
-	name = strings.TrimSpace(name)
-	if name == "" {
+	name, args, ok := ParseSkillCommand(prompt)
+	if !ok {
 		return prompt
 	}
 
@@ -2200,28 +2198,29 @@ func (m *Kit) expandSkillCommand(prompt string) string {
 		return prompt
 	}
 
-	baseDir := filepath.Dir(loaded.Path)
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "<skill name=%q location=%q>\n", loaded.Name, loaded.Path)
-	fmt.Fprintf(&buf, "References are relative to %s.\n\n", baseDir)
-	buf.WriteString(loaded.Content)
-
-	// Enumerate bundled resources (scripts/, references/, assets/) so the model
-	// knows what it can read without listing the directory itself.
-	if res := skills.FormatResources(loaded.Resources()); res != "" {
-		buf.WriteString("\n\n")
-		buf.WriteString(res)
-	}
-
-	buf.WriteString("\n</skill>")
-
-	args = strings.TrimSpace(args)
+	buf.WriteString(skills.FormatActivation(loaded))
 	if args != "" {
 		buf.WriteString("\n\n")
 		buf.WriteString(args)
 	}
-
 	return buf.String()
+}
+
+// ParseSkillCommand splits a user prompt of the form "/<name> [args]" into
+// its skill name and trailing args. ok is false when prompt does not start
+// with a slash or has an empty name. The caller decides whether name refers
+// to an actual skill; this only performs the syntactic split.
+func ParseSkillCommand(prompt string) (name, args string, ok bool) {
+	if !strings.HasPrefix(prompt, "/") {
+		return "", "", false
+	}
+	head, rest, _ := strings.Cut(prompt, " ")
+	name = strings.TrimPrefix(head, "/")
+	if name == "" {
+		return "", "", false
+	}
+	return name, strings.TrimSpace(rest), true
 }
 
 // ---------------------------------------------------------------------------
@@ -3142,8 +3141,8 @@ func (m *Kit) persistGenerationRemainder(result *agent.GenerateWithLoopResult, s
 // promptLabel is the human-readable label emitted in TurnStartEvent.Prompt.
 // prompt is the raw user text passed to BeforeTurn hooks.
 func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, preMessages []fantasy.Message) (*TurnResult, error) {
-	// Expand /skill:name commands — reads the skill file, wraps it in a
-	// <skill> block, and appends any trailing user args.
+	// Expand /<skill-name> commands — reads the skill file, wraps it in a
+	// <skill_content> block, and appends any trailing user args.
 	if expanded := m.expandSkillCommand(prompt); expanded != prompt {
 		prompt = expanded
 		// Replace the last user message in preMessages with the expanded text,

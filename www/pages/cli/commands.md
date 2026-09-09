@@ -72,9 +72,34 @@ kit install --all            # Install all extensions without prompting
 
 ## Skills
 
+Kit implements the [Agent Skills](https://agentskills.io/specification) format. A skill is a directory with a `SKILL.md` file (YAML frontmatter + Markdown instructions) and optional `scripts/`, `references/`, and `assets/` subdirectories.
+
 ```bash
-kit skill                    # Install the Kit extensions skill via skills.sh
+kit skill list               # List discovered skills with scope, path and spec warnings
+kit skill validate <path>    # Validate a skill directory / SKILL.md against the spec
+kit skill install            # Install the Kit skills (kit-extensions, kit-sdk) via skills.sh
+kit skill                    # Same as "kit skill install"
 ```
+
+`kit skill list` honors `--skill`, `--skills-dir`, `--no-skills` and `--bare`, and never prompts for project trust (it is read-only). `kit skill validate` accepts a `SKILL.md` file, a skill directory, or a directory of skills; errors (missing `name`/`description`) make the exit code non-zero, while warnings (name format, length limits, name/directory mismatch, body over 500 lines) are informational.
+
+### Activating skills
+
+Skills load in three tiers, following the spec's progressive-disclosure model:
+
+1. **Catalog** — at startup the model sees every skill's `name`, `description` and location in an `<available_skills>` block in the system prompt.
+2. **Instructions** — the full `SKILL.md` body is loaded when a skill is activated, either by the model (the `activate_skill` tool, or a `read` of the listed location) or by you.
+3. **Resources** — bundled files are listed in a `<skill_resources>` block and read on demand.
+
+To activate a skill yourself, type its name as a slash command, optionally followed by a request:
+
+```
+/pdf-processing extract the tables from report.pdf
+```
+
+The `/` autocomplete popup lists every skill with a `[skill]` badge next to it (prompt templates show `[prompt]`, extension commands `[ext]`, MCP prompts `[mcp]`). Kit wraps the skill body in a `<skill_content>` block, appends your text, and sends it as the turn. Activated skill content is protected from `/compact` pruning.
+
+Slash-name precedence is: built-in commands, extension commands, MCP prompts (`/server:prompt`), prompt templates, then skills. A skill whose name is already taken is left out of the popup and a warning is logged, so rename one side if that happens.
 
 ### Skills CLI flags
 
@@ -90,7 +115,7 @@ kit --skill ./skill1.md --skill ./skill2.md "prompt"
 # Scan a directory directly for skills (overrides auto-discovery)
 kit --skills-dir /path/to/skills "prompt"
 
-# Hide a skill from the model catalog by name (still usable via /skill:)
+# Hide a skill from the model catalog by name (still usable via /<name>)
 kit --skill-disable noisy-skill "prompt"
 
 # Disable all skill loading (auto-discovery and explicit)
@@ -108,7 +133,7 @@ Skills follow the [agentskills.io](https://agentskills.io/specification) convent
 
 When two skills share the same `name`, the project-level one takes precedence over the user-level one. Use `--skills-dir` to scan one directory directly instead (it is **not** treated as a parent of `.agents`/`.kit` — the directory itself is scanned). `--skill` loads files explicitly (which disables auto-discovery), and `--no-skills` suppresses all skill loading regardless of other flags.
 
-Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/skill:<name>` command.
+Disabled skills (`--skill-disable`, the `skill-disable` config key, or `disable-model-invocation: true` in a skill's frontmatter) are hidden from the model-facing `<available_skills>` catalog but remain available for explicit activation via the `/<name>` slash command.
 
 ### Skill frontmatter
 
@@ -116,20 +141,20 @@ A skill is a markdown file (`SKILL.md` in a directory, or a standalone `.md`/`.t
 
 ```yaml
 ---
-name: pdf-extractor                 # required
+name: pdf-extractor                 # required; lowercase, digits, single hyphens; must match the directory
 description: Use when extracting tables from PDFs   # required (drives model discovery)
 license: MIT                        # optional, SPDX identifier
-compatibility: claude-code, cursor  # optional, targeted environments
-allowed-tools: read, bash           # optional (experimental) tool restriction
+compatibility: Requires python3 and pdftotext  # optional, environment requirements (max 500 chars)
+allowed-tools: Read Bash(pdftotext:*)  # optional (experimental); parsed, not enforced by Kit
 disable-model-invocation: false     # optional; true hides from the catalog
-metadata:                           # optional arbitrary key/value pairs
+metadata:                           # optional arbitrary string key/value pairs
   author: you
 tags: [pdf, data]                   # Kit extension
 when: on-demand                     # Kit extension
 ---
 ```
 
-`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
+`name` and `description` are required — a skill missing its description is skipped with a logged warning, since the description is the sole basis on which the model decides relevance. Other spec constraints (name is 1–64 chars of `a-z0-9-` with no leading/trailing/double hyphen and matches the parent directory; description ≤ 1024 chars; `compatibility` ≤ 500 chars; body under 500 lines) are checked leniently: the skill still loads, and the deviation is reported by `kit skill list` / `kit skill validate`. Descriptions are XML-escaped before they enter the catalog, so characters like `<`, `>`, and `&` are safe. A skill directory may bundle `scripts/`, `references/`, and `assets/` subdirectories; when a skill is activated those files are enumerated in a `<skill_resources>` block so the model knows what it can read.
 
 ### Project trust prompt
 
@@ -275,11 +300,13 @@ Save to `~/.kit/prompts/review.md` or `.kit/prompts/review.md`.
 
 ### Using templates
 
-Templates appear as slash commands:
+Templates appear as slash commands, tagged `[prompt]` in the autocomplete popup:
 
 ```
 /review error handling
 ```
+
+A template and a [skill](#activating-skills) with the same name cannot both be reached: the template wins and the skill is left out of the popup with a logged warning.
 
 ### Argument placeholders
 

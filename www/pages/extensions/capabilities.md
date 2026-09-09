@@ -789,7 +789,9 @@ skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)
 // Load all skills from a directory
 result := ctx.LoadSkillsFromDir("/path/to/skills")  // ext.SkillLoadResult
 
-// Inject a skill as context (pre-loads for next turn)
+// Inject a skill as context (pre-loads for next turn). The body is wrapped
+// in a <skill_content name="..."> block, the same wrapper the /<name> slash
+// command and the activate_skill tool use, so it survives /compact.
 err := ctx.InjectSkillAsContext("skill-name")  // error string
 
 // Inject a skill file directly

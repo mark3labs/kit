@@ -412,7 +412,7 @@ func init() {
 	rootCmd.PersistentFlags().
 		StringVar(&skillsDir, "skills-dir", "", "scan this directory directly for skills (overrides auto-discovery)")
 	rootCmd.PersistentFlags().
-		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /skill:")
+		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /<name>")
 	rootCmd.Flags().
 		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
 
@@ -1070,7 +1070,7 @@ func runNormalMode(ctx context.Context) error {
 			promptTemplates:          loadPromptTemplates(false),
 			contextPaths:             contextFilePaths(kitInstance),
 			bare:                     bareFlag,
-			skillItems:               collectSkillItems(kitInstance, cwd),
+			skillItems:               collectSkillItems(kitInstance),
 			extensionItems:           buildExtensionItems(kitInstance, cwd),
 			mcpPrompts:               mcpPromptsForUI(kitInstance),
 			isReasoningModel:         kitInstance.IsReasoningModel(),

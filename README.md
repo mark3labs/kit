@@ -147,7 +147,7 @@ no-skills: false          # set to true to disable all skill loading
 skill:                    # explicit skill files/dirs (disables auto-discovery)
   - /path/to/skill.md
 skills-dir: ""            # scan this directory directly for skills (overrides auto-discovery)
-skill-disable:            # hide skills from the model catalog by name (still usable via /skill:)
+skill-disable:            # hide skills from the model catalog by name (still usable via /<name>)
   - some-skill
 
 # Named agents
@@ -235,7 +235,7 @@ mcpServers:
 # Skills
 --skill                  Load skill file or directory (repeatable)
 --skills-dir             Scan this directory directly for skills (overrides auto-discovery)
---skill-disable          Hide a skill from the model catalog by name (repeatable); still usable via /skill:
+--skill-disable          Hide a skill from the model catalog by name (repeatable); still usable via /<name>
 --no-skills              Disable skill loading (auto-discovery and explicit)
 --no-agents              Disable named agent discovery (built-ins and definition files)
 
@@ -286,7 +286,9 @@ kit install -u <git-url>     # Update an already-installed package
 kit install --uninstall <pkg> # Remove an installed package
 
 # Skills
-kit skill                    # Install the Kit extensions skill via skills.sh
+kit skill list               # List discovered skills with scope and spec warnings
+kit skill validate <path>    # Validate a skill against the agentskills.io spec
+kit skill install            # Install the Kit skills (kit-extensions, kit-sdk) via skills.sh
 
 # GitHub integration
 kit github install           # Scaffold .github/workflows/kit.yml (run Kit on '/kit' comments)
@@ -1001,7 +1003,7 @@ host.RemoveSkill("polite-french")
 host.RemoveContextFile(fmt.Sprintf("session://%s/AGENTS.md", userID))
 
 // Hide a skill from the model catalog without unloading it (still usable
-// via /skill:); EnableSkill reverses it.
+// via /<name>); EnableSkill reverses it.
 host.DisableSkill("refund-policy")
 host.EnableSkill("refund-policy")
 

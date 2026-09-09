@@ -295,3 +295,38 @@ func TestPopupList_CursorClamping(t *testing.T) {
 }
 
 // stripAnsi is defined in usage_tracker_render_test.go
+
+// TestPopupList_RenderBadge verifies the kind badge is drawn after the label
+// on both normal and cursor rows, and that a badge never pushes a row past
+// the popup's inner width.
+func TestPopupList_RenderBadge(t *testing.T) {
+	items := []PopupItem{
+		{Label: "/pdf-processing", Badge: "skill", Description: "Extract PDF text"},
+		{Label: "/review", Badge: "prompt", Description: "Code review template"},
+		{Label: "/help", Description: "Built-in, no badge"},
+	}
+	p := NewPopupList("Commands", items, 80, 40)
+	plain := stripAnsi(p.Render())
+
+	for _, want := range []string{"/pdf-processing [skill]", "/review [prompt]", "/help Built-in"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("expected %q in rendered popup:\n%s", want, plain)
+		}
+	}
+
+	// Cursor row keeps the badge.
+	p.HandleKey("down", "")
+	plain = stripAnsi(p.Render())
+	if !strings.Contains(plain, "> /review [prompt]") {
+		t.Errorf("expected badge on cursor row:\n%s", plain)
+	}
+
+	// Narrow popup: badge is still present and lines are bounded.
+	narrow := NewPopupList("Commands", items, 40, 40)
+	_, _, innerW, _ := narrow.dimensions()
+	for line := range strings.SplitSeq(stripAnsi(narrow.Render()), "\n") {
+		if w := len([]rune(line)); w > innerW+6 { // border(2)+padding(4)
+			t.Errorf("line too wide (%d > %d): %q", w, innerW+6, line)
+		}
+	}
+}
