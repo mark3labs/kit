@@ -234,6 +234,15 @@ func loginProviderAPIKey(provider string) error {
 	fmt.Printf("✅ Stored %s API key.\n", displayName)
 	fmt.Printf("📁 Credentials stored in: %s\n", cm.GetCredentialsPath())
 	fmt.Printf("\n🎉 %s/* models can be used now. Pick one with --model or /model.\n", provider)
+
+	// The key is stored; an unsupported --set-default must not turn the
+	// command into a failure.
+	if loginSetDefault {
+		if _, ok := defaultModels[provider]; !ok {
+			fmt.Printf("\n💡 --set-default is not supported for %s. Pick a model with --model or /model.\n", provider)
+			return nil
+		}
+	}
 	return setDefaultModelIfRequested(provider)
 }
 

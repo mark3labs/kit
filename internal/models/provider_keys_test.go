@@ -113,3 +113,31 @@ func TestUnavailableModel(t *testing.T) {
 		t.Errorf("StreamObject err = %v", err)
 	}
 }
+
+// TestAzureStoredKeyUsesSelectedProviderID checks that a key stored under
+// the azure-cognitive-services registry ID is found when that ID is used in
+// the model string (both IDs route to createAzureProvider).
+func TestAzureStoredKeyUsesSelectedProviderID(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+	t.Setenv("AZURE_OPENAI_BASE_URL", "https://example.openai.azure.com")
+
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.SetProviderAPIKey("azure-cognitive-services", "azure-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = CreateProvider(context.Background(), &ProviderConfig{ModelString: "azure-cognitive-services/gpt-4o"})
+	if auth.IsMissingCredentials(err) {
+		t.Fatalf("stored azure-cognitive-services key was not used: %v", err)
+	}
+
+	// The plain "azure" ID must not see that key.
+	_, err = CreateProvider(context.Background(), &ProviderConfig{ModelString: "azure/gpt-4o"})
+	if mc := auth.AsMissingCredentials(err); mc == nil || mc.Provider != "azure" {
+		t.Fatalf("azure/gpt-4o: err = %v, want MissingCredentialsError for azure", err)
+	}
+}

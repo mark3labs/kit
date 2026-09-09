@@ -355,7 +355,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	case "ollama":
 		result, createErr = createOllamaProvider(ctx, config, modelName)
 	case "azure", "azure-cognitive-services":
-		result, createErr = createAzureProvider(ctx, config, modelName)
+		result, createErr = createAzureProvider(ctx, config, provider, modelName)
 	case "google-vertex-anthropic":
 		result, createErr = createVertexAnthropicProvider(ctx, config, modelName)
 	case "google-vertex":
@@ -1619,10 +1619,13 @@ func createGoogleProvider(ctx context.Context, config *ProviderConfig, modelName
 	return &ProviderResult{Model: model}, nil
 }
 
-func createAzureProvider(ctx context.Context, config *ProviderConfig, modelName string) (*ProviderResult, error) {
-	apiKey := resolveAPIKey(config.ProviderAPIKey, "azure", []string{"AZURE_OPENAI_API_KEY"})
+// createAzureProvider builds the Azure OpenAI provider. providerID is the
+// registry ID the user selected ("azure" or "azure-cognitive-services") so a
+// key stored under either ID is found; both share the same env fallback.
+func createAzureProvider(ctx context.Context, config *ProviderConfig, providerID, modelName string) (*ProviderResult, error) {
+	apiKey := resolveAPIKey(config.ProviderAPIKey, providerID, []string{"AZURE_OPENAI_API_KEY"})
 	if apiKey == "" {
-		return nil, missingKeyError("azure", "Azure OpenAI", []string{"AZURE_OPENAI_API_KEY"})
+		return nil, missingKeyError(providerID, "Azure OpenAI", []string{"AZURE_OPENAI_API_KEY"})
 	}
 
 	baseURL := config.ProviderURL
