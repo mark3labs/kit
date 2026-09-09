@@ -131,8 +131,8 @@ func TestAzureStoredKeyUsesSelectedProviderID(t *testing.T) {
 	}
 
 	_, err = CreateProvider(context.Background(), &ProviderConfig{ModelString: "azure-cognitive-services/gpt-4o"})
-	if auth.IsMissingCredentials(err) {
-		t.Fatalf("stored azure-cognitive-services key was not used: %v", err)
+	if err != nil {
+		t.Fatalf("azure-cognitive-services/gpt-4o: CreateProvider failed: %v", err)
 	}
 
 	// The plain "azure" ID must not see that key.
