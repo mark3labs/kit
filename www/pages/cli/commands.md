@@ -97,7 +97,7 @@ To activate a skill yourself, type its name as a slash command, optionally follo
 /pdf-processing extract the tables from report.pdf
 ```
 
-The `/` autocomplete popup lists every skill with a `[skill]` badge next to it (prompt templates show `[prompt]`, extension commands `[ext]`, MCP prompts `[mcp]`). Kit wraps the skill body in a `<skill_content>` block, appends your text, and sends it as the turn. Activated skill content is protected from `/compact` pruning.
+The `/` autocomplete popup lists every loaded skill that is not shadowed by another slash command (see precedence below) with a `[skill]` badge next to it — hidden-from-model skills included, since hiding only affects the model-facing catalog (prompt templates show `[prompt]`, extension commands `[ext]`, MCP prompts `[mcp]`). Kit wraps the skill body in a `<skill_content>` block, appends your text, and sends it as the turn. Activated skill content is protected from `/compact` pruning.
 
 Slash-name precedence is: built-in commands, extension commands, MCP prompts (`/server:prompt`), prompt templates, then skills. A skill whose name is already taken is left out of the popup and a warning is logged, so rename one side if that happens.
 

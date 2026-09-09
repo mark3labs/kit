@@ -39,7 +39,8 @@ Load and inject skills dynamically at runtime:
 ```go
 // Discover skills from standard locations
 result := ctx.DiscoverSkills()  // ext.SkillLoadResult{Skills, Error}
-// Standard locations: ~/.config/kit/skills/, .kit/skills/, .agents/skills/
+// Standard locations: ~/.agents/skills/, ~/.config/kit/skills/,
+//                     <project>/.agents/skills/, <project>/.kit/skills/
 
 // Load a specific skill file
 skill, err := ctx.LoadSkill("/path/to/skill.md")  // (*ext.Skill, error string)

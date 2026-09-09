@@ -37,7 +37,7 @@ import (
 func main() {
     ctx := context.Background()
 
-    host, err := kit.New(ctx, nil) // nil = load ~/.kit.yml defaults
+    host, err := kit.New(ctx, nil) // nil = load .kit.yml (cwd) then ~/.kit.yml defaults
     if err != nil {
         log.Fatal(err)
     }

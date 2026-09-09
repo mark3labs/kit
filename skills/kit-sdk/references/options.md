@@ -47,7 +47,7 @@ host, err := kit.New(ctx, &kit.Options{
     Tools:            []kit.Tool{kit.NewShellTool()}, // REPLACES entire default tool set
     ExtraTools:       []kit.Tool{myTool},            // ADDS alongside core/MCP/extension tools
     DisableCoreTools: true,                        // Use no core tools (0 tools, for chat-only)
-    CoreToolList      []string,                    // List of core tools to include, if empty (default) include all
+    CoreToolList:     nil,                         // nil = use config/defaults; with no configured names, include all core tools
 
     // Configuration
     SkipConfig:   true,                        // Skip .kit.yml files (viper defaults + env vars still apply)

@@ -75,9 +75,21 @@ host.OnToolResult(func(e kit.ToolResultEvent) {
 ### Pattern: Guard rails with hooks
 
 ```go
-// Block dangerous commands
+// Block dangerous commands. The command-execution tool is named "shell"
+// (kit.NewShellTool / the deprecated kit.NewBashTool both register it under
+// that name). Parse ToolArgs instead of grepping the raw JSON, and fail closed
+// on a parse error. A substring match is a convenience guard, not a security
+// boundary: "rm -r -f" or a script file slip past it. Enforce an allowlist if
+// you need a real control.
 host.OnBeforeToolCall(kit.HookPriorityHigh, func(h kit.BeforeToolCallHook) *kit.BeforeToolCallResult {
-    if h.ToolName == "bash" && strings.Contains(h.ToolArgs, "rm -rf") {
+    if h.ToolName != "shell" {
+        return nil
+    }
+    var args struct{ Command string `json:"command"` }
+    if err := json.Unmarshal([]byte(h.ToolArgs), &args); err != nil {
+        return &kit.BeforeToolCallResult{Block: true, Reason: "unreadable shell input"}
+    }
+    if strings.Contains(args.Command, "rm -rf") { // illustrative only
         return &kit.BeforeToolCallResult{Block: true, Reason: "dangerous command"}
     }
     return nil

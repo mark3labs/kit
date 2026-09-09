@@ -28,10 +28,10 @@ err = host.SetThinkingLevel(ctx, "medium") // recreates agent with new thinking 
 ```go
 models := host.GetAvailableModels()      // []extensions.ModelInfoEntry
 providers := kit.GetSupportedProviders() // []string
-providers := kit.GetLLMProviders()       // providers with LLM support
-models, _ := kit.GetModelsForProvider("anthropic") // map[string]kit.ModelInfo
-info := kit.LookupModel("anthropic", "claude-sonnet-4-5-20250929") // *kit.ModelInfo
-info := kit.GetProviderInfo("openai")    // *kit.ProviderInfo (env vars, API URL)
+llmProviders := kit.GetLLMProviders()    // providers with LLM support
+anthropicModels, _ := kit.GetModelsForProvider("anthropic") // map[string]kit.ModelInfo
+modelInfo := kit.LookupModel("anthropic", "claude-sonnet-4-5-20250929") // *kit.ModelInfo
+providerInfo := kit.GetProviderInfo("openai") // *kit.ProviderInfo (env vars, API URL)
 err := kit.ValidateEnvironment("anthropic", "") // check API keys
 suggestions := kit.SuggestModels("anthropic", "claudee") // fuzzy match
 ```

@@ -4,7 +4,9 @@
 
 ## Testing Extensions
 
-Kit provides a testing package to help you write unit tests for your extensions:
+Kit provides a testing package to help you write unit tests for your extensions.
+
+> **Scope:** `Harness.Emit` takes event types from `github.com/mark3labs/kit/internal/extensions`, which Go only lets you import from inside the Kit module. The example below therefore works for tests that live in the Kit repository (for instance `examples/extensions/*_test.go`) or in a fork. From an external extension repository, use `harness.EmitJSON(toolName, input)` for tool-call tests and the `test.Assert*` helpers, which need no internal types.
 
 ```go
 package main

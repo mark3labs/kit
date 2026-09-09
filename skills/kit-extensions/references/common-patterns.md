@@ -6,18 +6,23 @@
 
 ### Pattern: Tool Call Blocking
 
-Block dangerous operations by intercepting tool calls:
+Block operations by intercepting tool calls. The command-execution tool is named `shell` (it was `bash` in older builds). Fail closed when the input cannot be parsed, and treat a substring match as a convenience guard only — `rm -r -f`, `$(...)`, or a script file all get past it. A real security boundary must parse the command and enforce an allowlist.
 
 ```go
 api.OnToolCall(func(tc ext.ToolCallEvent, ctx ext.Context) *ext.ToolCallResult {
-    if tc.ToolName == "bash" {
-        var input struct{ Command string `json:"command"` }
-        json.Unmarshal([]byte(tc.Input), &input)
-        if strings.Contains(input.Command, "rm -rf") {
-            return &ext.ToolCallResult{
-                Block:  true,
-                Reason: "Dangerous command blocked",
-            }
+    if tc.ToolName != "shell" {
+        return nil
+    }
+    var input struct{ Command string `json:"command"` }
+    if err := json.Unmarshal([]byte(tc.Input), &input); err != nil {
+        // Fail closed: never run a command you could not inspect.
+        return &ext.ToolCallResult{Block: true, Reason: "unreadable shell input: " + err.Error()}
+    }
+    // Illustrative only — not a security control (see note above).
+    if strings.Contains(input.Command, "rm -rf") {
+        return &ext.ToolCallResult{
+            Block:  true,
+            Reason: "Dangerous command blocked",
         }
     }
     return nil
@@ -79,14 +84,30 @@ api.OnContextPrepare(func(e ext.ContextPrepareEvent, ctx ext.Context) *ext.Conte
 
 ### Pattern: Live Widget Updates
 
-Update a widget periodically from a goroutine:
+Update a widget periodically from a goroutine. `OnSessionStart` fires for every session that is opened or created and `ext.Context` carries no cancellation signal, so retire the previous ticker with a mutex-guarded generation counter (the same pattern as `examples/extensions/status-footer.go`) or stale goroutines keep calling `ctx.SetWidget`:
 
 ```go
+var (
+    mu        sync.Mutex
+    tickerGen int
+)
+
 api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
+    mu.Lock()
+    tickerGen++
+    gen := tickerGen // this goroutine's generation
+    mu.Unlock()
+
     go func() {
         ticker := time.NewTicker(time.Second)
         defer ticker.Stop()
         for range ticker.C {
+            mu.Lock()
+            stale := gen != tickerGen
+            mu.Unlock()
+            if stale {
+                return // a newer session (or shutdown) superseded this ticker
+            }
             ctx.SetWidget(ext.WidgetConfig{
                 ID:        "clock",
                 Placement: ext.WidgetAbove,
@@ -95,6 +116,12 @@ api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
             })
         }
     }()
+})
+
+api.OnSessionShutdown(func(_ ext.SessionShutdownEvent, _ ext.Context) {
+    mu.Lock()
+    tickerGen++ // retire the running ticker
+    mu.Unlock()
 })
 ```
 

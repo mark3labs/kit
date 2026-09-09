@@ -119,7 +119,12 @@ func discoverSkillsForListing() ([]*kit.Skill, error) {
 		for _, p := range skillsPaths {
 			ss, err := loadSkillPath(p)
 			if err != nil {
-				return nil, err
+				if len(ss) == 0 {
+					return nil, err
+				}
+				// A directory with one malformed file still yields its
+				// valid siblings; report the failure and keep going.
+				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			}
 			all = append(all, ss...)
 		}
@@ -128,7 +133,10 @@ func discoverSkillsForListing() ([]*kit.Skill, error) {
 	if skillsDir != "" {
 		ss, err := kit.LoadSkillsFromDir(skillsDir)
 		if err != nil {
-			return nil, err
+			if len(ss) == 0 {
+				return nil, err
+			}
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 		}
 		return kit.CombineSkills(ss, nil), nil
 	}
@@ -213,11 +221,15 @@ func runSkillValidate(_ *cobra.Command, args []string) error {
 	for _, p := range args {
 		list, err := collectSkillsForValidation(p)
 		if err != nil {
+			// A directory load can return the skills that did parse
+			// alongside an error for the ones that did not. Count the
+			// failure, print it, and still report on the survivors.
 			errCount++
 			fmt.Printf("✗ %s\n    error: %v\n", p, err)
-			continue
-		}
-		if len(list) == 0 {
+			if len(list) == 0 {
+				continue
+			}
+		} else if len(list) == 0 {
 			errCount++
 			fmt.Printf("✗ %s\n    error: no SKILL.md found\n", p)
 			continue

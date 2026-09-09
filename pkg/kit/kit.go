@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"charm.land/fantasy"
 
@@ -2208,19 +2209,26 @@ func (m *Kit) expandSkillCommand(prompt string) string {
 }
 
 // ParseSkillCommand splits a user prompt of the form "/<name> [args]" into
-// its skill name and trailing args. ok is false when prompt does not start
-// with a slash or has an empty name. The caller decides whether name refers
-// to an actual skill; this only performs the syntactic split.
+// its skill name and trailing args. The name ends at the first whitespace
+// character (space, tab or newline — multi-line TUI input puts the request
+// on the next line), and args is the remainder with surrounding whitespace
+// trimmed. ok is false when prompt does not start with a slash or has an
+// empty name. The caller decides whether name refers to an actual skill;
+// this only performs the syntactic split.
 func ParseSkillCommand(prompt string) (name, args string, ok bool) {
 	if !strings.HasPrefix(prompt, "/") {
 		return "", "", false
 	}
-	head, rest, _ := strings.Cut(prompt, " ")
-	name = strings.TrimPrefix(head, "/")
+	body := prompt[1:]
+	if idx := strings.IndexFunc(body, unicode.IsSpace); idx >= 0 {
+		name, args = body[:idx], body[idx:]
+	} else {
+		name = body
+	}
 	if name == "" {
 		return "", "", false
 	}
-	return name, strings.TrimSpace(rest), true
+	return name, strings.TrimSpace(args), true
 }
 
 // ---------------------------------------------------------------------------

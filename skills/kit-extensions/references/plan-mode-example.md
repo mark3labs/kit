@@ -45,7 +45,8 @@ func Init(api ext.API) {
     })
 
     api.OnSessionStart(func(_ ext.SessionStartEvent, ctx ext.Context) {
-        if strings.ToLower(ctx.GetOption("plan")) == "true" {
+        opt := strings.ToLower(ctx.GetOption("plan"))
+        if opt == "true" || opt == "1" || opt == "yes" {
             planActive = true
             applyMode(ctx, true, readOnlyTools)
         }

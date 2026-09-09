@@ -18,6 +18,8 @@ func TestParseSkillCommand(t *testing.T) {
 		{"/pdf", "pdf", "", true},
 		{"/pdf extract tables", "pdf", "extract tables", true},
 		{"/pdf   spaced  ", "pdf", "spaced", true},
+		{"/pdf\nextract tables\nfrom report.pdf", "pdf", "extract tables\nfrom report.pdf", true},
+		{"/pdf\targs", "pdf", "args", true},
 		{"/", "", "", false},
 		{"pdf", "", "", false},
 		{"hello /pdf", "", "", false},

@@ -91,6 +91,16 @@ func CombineSkills(user, project []*Skill) []*Skill {
 	return skills.Combine(user, project)
 }
 
+// FormatSkillActivation renders a skill for injection into the conversation
+// when it is activated: the body wrapped in a <skill_content name=… location=…>
+// block, a note on resolving relative paths against the skill directory, and a
+// <skill_resources> listing of bundled files. This is the exact text the
+// activate_skill tool and the /<name> slash command emit, so hosts that
+// inject skills themselves get the same compaction protection.
+func FormatSkillActivation(s *Skill) string {
+	return skills.FormatActivation(s)
+}
+
 // FormatSkillsForPrompt formats skills for inclusion in a system prompt.
 // Each skill is rendered as a named section with its content.
 //
