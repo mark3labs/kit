@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -23,16 +24,32 @@ var ErrNoSession = errors.New("no session available")
 // AppendMessage is called incrementally from the agent's step-completion
 // callback while read methods (GetMessages, GetCurrentBranch, etc.) may be
 // called concurrently from the UI or extension goroutines.
+//
+// # Stability
+//
+// This interface is frozen for the v0.x line. New capability is added through
+// optional interfaces that Kit type-asserts for — see [StepAppender] — rather
+// than by adding methods here. Go interfaces have no default implementations,
+// so a new method would break every external implementer at compile time with
+// no deprecation window. Implementers can therefore rely on the method set
+// below staying fixed.
 type SessionManager interface {
 	// AppendMessage adds a message to the current branch and returns its entry ID.
 	// The entry ID is used for tree navigation and must be unique within the session.
 	//
 	// During generation, AppendMessage is called incrementally after each
 	// completed agent step rather than in a batch at the end of the turn.
-	// For tool-calling steps, the assistant message (containing tool_use parts)
-	// and the tool-role message (containing tool_result parts) are appended
-	// together as a pair. This ensures the session never contains an orphaned
-	// tool call without its result, which would break subsequent LLM requests.
+	// For tool-calling steps, Kit delivers the assistant message (containing
+	// tool_use parts) and the tool-role message (containing tool_result parts)
+	// back to back, in that order, so a session assembled during normal
+	// execution never presents an orphaned tool call to the next LLM request.
+	//
+	// That ordering is not atomicity. Kit calls AppendMessage once per
+	// message, so an implementation that writes to durable storage performs
+	// one write per message, and a process that dies between the two writes of
+	// a tool-calling step leaves an orphaned tool call in storage. Implement
+	// [StepAppender] to receive a whole step in one call and commit it
+	// atomically.
 	AppendMessage(msg LLMMessage) (entryID string, err error)
 
 	// GetMessages returns all messages on the current branch (from root to leaf),
@@ -159,4 +176,82 @@ type ExtensionDataEntry struct {
 	ExtType   string
 	Data      string
 	Timestamp time.Time
+}
+
+// StepAppender is an optional interface a [SessionManager] may implement to
+// receive the messages of one agent step in a single call.
+//
+// Kit type-asserts for it at every site that persists more than one message.
+// When a session manager implements it, Kit calls AppendStep instead of
+// looping over [SessionManager.AppendMessage]; otherwise Kit falls back to the
+// loop, so implementing it is entirely optional and adding it to an existing
+// implementation is not a breaking change.
+//
+// # Why this exists
+//
+// A tool-calling step produces two messages: an assistant message carrying the
+// tool_use parts, and a tool-role message carrying the matching tool_result
+// parts. Kit's per-message persistence writes them separately, so a session
+// manager backed by durable storage performs two independent writes. A process
+// that dies between them leaves storage holding an assistant message whose
+// tool call has no result — a conversation that LLM providers reject, which
+// makes the session unresumable.
+//
+// AppendStep hands the whole step over at once so that an implementation can
+// commit it as a single unit: one fsync, one database transaction, one object
+// write. Implementations that persist durably should do exactly that.
+//
+// # Contract
+//
+// AppendStep returns one entry ID per input message, in the same order. A
+// partial write must not be reported as success: return an error and leave
+// storage unchanged, or commit every message. Implementations must be safe for
+// concurrent use, like the rest of [SessionManager].
+//
+// # Cancellation
+//
+// ctx carries the cancellation and values of the turn that produced the step.
+// It may already be cancelled: Kit persists a completed step before it checks
+// for cancellation, precisely so that finished work survives an interrupted
+// turn. An implementation that aborts on ctx.Err() therefore discards exactly
+// the progress this callback exists to save, and the loss is silent because
+// Kit ignores the returned error.
+//
+// Implementations that must not lose a completed step should keep the values
+// but drop the cancellation:
+//
+//	func (s *MySession) AppendStep(ctx context.Context, msgs []kit.LLMMessage) ([]string, error) {
+//	    ctx = context.WithoutCancel(ctx) // keep tracing spans, ignore cancellation
+//	    // ... commit atomically
+//	}
+//
+// Use ctx for tracing, request-scoped values, and a write deadline of your own
+// choosing rather than as a reason to skip the write.
+type StepAppender interface {
+	AppendStep(ctx context.Context, msgs []LLMMessage) (entryIDs []string, err error)
+}
+
+// appendMessages persists a group of messages that belong together, using
+// [StepAppender] when the session manager provides it and falling back to
+// per-message appends when it does not.
+//
+// ctx is forwarded to [StepAppender.AppendStep] so durable implementations can
+// carry tracing values and pick their own write deadline. See the Cancellation
+// section on [StepAppender]: ctx may already be cancelled, and aborting the
+// write on that basis loses completed work.
+//
+// Errors are deliberately ignored, matching the historical behaviour of the
+// call sites this replaces: a persistence failure must not abort a turn that
+// has already produced model output.
+func appendMessages(ctx context.Context, sm SessionManager, msgs []LLMMessage) {
+	if sm == nil || len(msgs) == 0 {
+		return
+	}
+	if sa, ok := sm.(StepAppender); ok {
+		_, _ = sa.AppendStep(ctx, msgs)
+		return
+	}
+	for _, msg := range msgs {
+		_, _ = sm.AppendMessage(msg)
+	}
 }

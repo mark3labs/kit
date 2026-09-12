@@ -278,6 +278,119 @@ response, _ := host.Prompt(ctx, "What's my name?")
 host.ClearSession()
 ```
 
+### Custom Session Storage
+
+Pass your own [`SessionManager`](session.go) to persist conversations anywhere:
+a database, object storage, or an append-only log. The interface is **frozen
+for the v0.x line** — new capability arrives through optional interfaces that
+Kit type-asserts for, never by adding methods — so an external implementation
+will not break on a minor upgrade.
+
+#### Atomic step persistence (`StepAppender`)
+
+Kit persists conversation messages as a turn progresses. A tool-calling step
+produces two messages: an assistant message carrying the tool call, and a
+tool-role message carrying its result. By default these arrive as two separate
+`AppendMessage` calls, so a durable backend performs two writes. A process that
+dies between them leaves an orphaned tool call in storage — a conversation that
+providers reject, which makes the session unresumable.
+
+Implement the optional `StepAppender` interface to receive a whole step in one
+call and commit it atomically:
+
+```go
+type StepAppender interface {
+    AppendStep(ctx context.Context, msgs []kit.LLMMessage) (entryIDs []string, err error)
+}
+```
+
+```go
+func (s *MySession) AppendStep(ctx context.Context, msgs []kit.LLMMessage) ([]string, error) {
+    // Kit persists a completed step before it checks for cancellation, so ctx
+    // may already be done. Keep the values, drop the cancellation, or a
+    // cancelled turn silently loses the work this call exists to save.
+    ctx = context.WithoutCancel(ctx)
+
+    tx, err := s.db.BeginTx(ctx, nil)
+    if err != nil {
+        return nil, err
+    }
+    defer func() { _ = tx.Rollback() }()
+
+    ids := make([]string, 0, len(msgs))
+    for _, m := range msgs {
+        id, err := insertMessage(ctx, tx, m)
+        if err != nil {
+            return nil, err // nothing is committed
+        }
+        ids = append(ids, id)
+    }
+    return ids, tx.Commit() // one transaction, one step
+}
+```
+
+Kit falls back to per-message `AppendMessage` when the interface is absent, so
+adding it to an existing implementation is not a breaking change. Return one
+entry ID per input message, in order, and never report a partial write as
+success.
+
+### Suspending a Turn (human-in-the-loop)
+
+A tool can stop the agent loop and hand a typed value back to the caller by
+returning `ToolOutput` with `Halt` set. This is a supported suspension
+mechanism, not just an early exit:
+
+```go
+type AskRequest struct{ Question string }
+
+ask := kit.NewTool("ask_human", "Ask the operator a question.",
+    func(ctx context.Context, in struct {
+        Question string `json:"question"`
+    }) (kit.ToolOutput, error) {
+        return kit.ToolOutput{
+            Content:    "Awaiting operator response.",
+            Halt:       true,
+            FinalValue: AskRequest{Question: in.Question},
+        }, nil
+    })
+
+res, _ := host.PromptResult(ctx, "Deploy the app.")
+if req, ok := res.FinalValue.(AskRequest); ok {
+    // The turn is parked. Persist and resume later — possibly in another
+    // process. res.HaltedByTool is "ask_human".
+    answer := askOperator(req.Question)
+    _, _ = host.PromptResult(ctx, answer)
+}
+```
+
+Two guarantees make resumption safe:
+
+1. A halted tool call still produces a well-formed tool result, so the stored
+   conversation is valid input for the next provider request.
+2. `FinalValue` is propagated by dynamic type, unmodified.
+
+### Per-Step Tool Filtering
+
+`OnPrepareStep` fires between steps of a multi-step turn and can replace the
+context window, the tool-choice mode, and the tool set:
+
+```go
+unsub := host.OnPrepareStep(kit.HookPriorityNormal,
+    func(h kit.PrepareStepHook) *kit.PrepareStepResult {
+        if h.StepNumber < 2 {
+            return nil // nil leaves the live tool set alone
+        }
+        // After two steps, withdraw every tool to force a text answer.
+        return &kit.PrepareStepResult{Tools: []kit.Tool{}}
+    })
+defer unsub()
+```
+
+`Tools` is nil-versus-empty sensitive. Nil keeps the Kit's live tool set, so
+runtime `AddTools` and `RemoveTools` still take effect mid-turn. An empty
+non-nil slice offers the model no tools at all, which ends the turn
+deterministically. The override lasts one step.
+
 ### Runtime Skills and Context Files
 
 For multi-tenant chatbots, web services, or any host that needs per-user or

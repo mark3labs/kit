@@ -120,6 +120,30 @@ type ToolOutput struct {
 	// populated so embedders building structured-result extraction patterns
 	// (model calls a finish(...) tool, the loop ends, the typed value is
 	// returned) no longer need a side-channel.
+	//
+	// # Supported suspension mechanism
+	//
+	// Halt together with FinalValue is a supported way to suspend an agent
+	// turn and hand control back to the embedder, not merely a convenience
+	// for stopping early. Frameworks built on the SDK use it for
+	// human-in-the-loop: a tool returns Halt with a host-defined request
+	// value, the embedder parks the run, and a later turn resumes with the
+	// answer.
+	//
+	// Two properties are part of the contract and will not change without a
+	// major version bump:
+	//
+	//  1. A halted tool call still produces a well-formed tool result. The
+	//     halt is recorded before the response is built, so the assistant
+	//     message carrying the tool call and the tool message carrying its
+	//     result are both emitted and both persisted. The conversation left
+	//     behind is valid input for the next provider request, which is what
+	//     makes resumption possible.
+	//
+	//  2. FinalValue is propagated by dynamic type, unmodified. Kit neither
+	//     inspects nor copies it, so an embedder can round-trip any value,
+	//     including an unexported type, and recover it with a type assertion
+	//     on [TurnResult.FinalValue].
 	Halt bool
 }
 

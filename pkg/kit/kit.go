@@ -2987,10 +2987,13 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 		// Persist step messages incrementally so that progress survives
 		// crashes and long-running turns don't lose work.
+		//
+		// The whole step goes through appendMessages so that a session
+		// manager implementing [StepAppender] can commit the assistant
+		// message and its tool results atomically. Without that, a crash
+		// between the two writes orphans the tool call.
 		OnStepMessages: func(stepMessages []fantasy.Message) {
-			for _, msg := range stepMessages {
-				_, _ = m.session.AppendMessage(msg)
-			}
+			appendMessages(ctx, m.session, stepMessages)
 		},
 		OnStepUsage: func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			if m.v.GetBool("debug") {
@@ -3101,12 +3104,16 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 					StepNumber: stepNumber,
 					Messages:   messages,
 				})
-				if hookResult == nil || (hookResult.Messages == nil && hookResult.ToolChoice == nil) {
+				if hookResult == nil ||
+					(hookResult.Messages == nil &&
+						hookResult.ToolChoice == nil &&
+						hookResult.Tools == nil) {
 					return nil
 				}
 				return &agent.PrepareStepUpdate{
 					Messages:   hookResult.Messages,
 					ToolChoice: hookResult.ToolChoice,
+					Tools:      hookResult.Tools,
 				}
 			}
 		}(),
@@ -3117,7 +3124,11 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 // were not already persisted incrementally by the onStepMessages callback.
 // sentCount is the number of input messages sent to the LLM (the prefix of
 // result.ConversationMessages to skip). Safe to call with a nil result.
-func (m *Kit) persistGenerationRemainder(result *agent.GenerateWithLoopResult, sentCount int) {
+//
+// ctx is forwarded to [StepAppender] implementations. It is often already
+// cancelled here, because this runs after a turn ends for any reason; see the
+// Cancellation section on [StepAppender].
+func (m *Kit) persistGenerationRemainder(ctx context.Context, result *agent.GenerateWithLoopResult, sentCount int) {
 	if result == nil || len(result.ConversationMessages) <= sentCount {
 		return
 	}
@@ -3125,9 +3136,9 @@ func (m *Kit) persistGenerationRemainder(result *agent.GenerateWithLoopResult, s
 	if result.PersistedMessageCount >= len(newMessages) {
 		return
 	}
-	for _, msg := range newMessages[result.PersistedMessageCount:] {
-		_, _ = m.session.AppendMessage(msg)
-	}
+	// The remainder can span a complete assistant + tool-result pair, so it is
+	// persisted as one group to keep [StepAppender] implementations atomic.
+	appendMessages(ctx, m.session, newMessages[result.PersistedMessageCount:])
 }
 
 // runTurn is the shared lifecycle for every prompt mode:
@@ -3191,9 +3202,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Persist pre-generation messages to session.
-	for _, msg := range preMessages {
-		_, _ = m.session.AppendMessage(msg)
-	}
+	appendMessages(ctx, m.session, preMessages)
 
 	// Auto-compact if enabled and conversation is near the context limit.
 	if m.autoCompact && m.ShouldCompact() {
@@ -3233,7 +3242,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		// Persist completed-step messages from the failed attempt first so
 		// compaction and the rebuilt context include them — the replay then
 		// resumes from where the turn overflowed rather than restarting.
-		m.persistGenerationRemainder(result, sentCount)
+		m.persistGenerationRemainder(ctx, result, sentCount)
 		result = nil
 
 		if retryMessages, retryErr := m.prepareOverflowRetry(ctx); retryErr != nil {
@@ -3260,7 +3269,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 		// layer only includes fully-paired tool_use + tool_result messages
 		// in completedStepMessages, so there are no orphaned entries that
 		// would break subsequent API requests.
-		m.persistGenerationRemainder(result, sentCount)
+		m.persistGenerationRemainder(ctx, result, sentCount)
 		m.events.emit(TurnEndEvent{Error: err})
 		// Run AfterTurn hooks even on error.
 		m.afterTurn.run(AfterTurnHook{Error: err})
@@ -3273,7 +3282,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	// by the onStepMessages callback during generation. This handles the
 	// non-streaming path (where onStepMessages is not called) and any edge
 	// cases where the final response messages weren't covered by step callbacks.
-	m.persistGenerationRemainder(result, sentCount)
+	m.persistGenerationRemainder(ctx, result, sentCount)
 
 	// Store the API-reported token count so GetContextStats() matches the
 	// built-in status bar. The context window is filled by all token

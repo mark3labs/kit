@@ -138,12 +138,23 @@ type PrepareStepHook struct {
 	Messages []LLMMessage
 }
 
-// PrepareStepResult can replace the context window and override the
+// PrepareStepResult can replace the context window, the tool set, and the
 // tool-choice mode between steps.
 type PrepareStepResult struct {
 	// Messages replaces the entire context window for this step. If nil,
 	// the original messages (including any steering) are used unchanged.
 	Messages []LLMMessage
+	// Tools replaces the tool set offered to the model for this step only.
+	// If nil, the Kit's live tool set is used, so runtime AddTools and
+	// RemoveTools calls still take effect.
+	//
+	// An empty non-nil slice is meaningful and distinct from nil: it offers
+	// the model no tools at all for this step, which forces a text response.
+	// Use that to end a turn deterministically once a phase is complete.
+	//
+	// The override lasts one step. Return nil on the next step to restore
+	// the live tool set.
+	Tools []Tool
 	// ToolChoice, when non-nil, overrides the tool-choice mode for this step
 	// only. Use [LLMToolChoiceRequired] or [LLMSpecificToolChoice] to force a
 	// tool call, [LLMToolChoiceNone] to forbid tool calls, or
