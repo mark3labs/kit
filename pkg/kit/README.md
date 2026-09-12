@@ -300,13 +300,18 @@ call and commit it atomically:
 
 ```go
 type StepAppender interface {
-    AppendStep(msgs []kit.LLMMessage) (entryIDs []string, err error)
+    AppendStep(ctx context.Context, msgs []kit.LLMMessage) (entryIDs []string, err error)
 }
 ```
 
 ```go
-func (s *MySession) AppendStep(msgs []kit.LLMMessage) ([]string, error) {
-    tx, err := s.db.Begin()
+func (s *MySession) AppendStep(ctx context.Context, msgs []kit.LLMMessage) ([]string, error) {
+    // Kit persists a completed step before it checks for cancellation, so ctx
+    // may already be done. Keep the values, drop the cancellation, or a
+    // cancelled turn silently loses the work this call exists to save.
+    ctx = context.WithoutCancel(ctx)
+
+    tx, err := s.db.BeginTx(ctx, nil)
     if err != nil {
         return nil, err
     }
@@ -314,7 +319,7 @@ func (s *MySession) AppendStep(msgs []kit.LLMMessage) ([]string, error) {
 
     ids := make([]string, 0, len(msgs))
     for _, m := range msgs {
-        id, err := insertMessage(tx, m)
+        id, err := insertMessage(ctx, tx, m)
         if err != nil {
             return nil, err // nothing is committed
         }

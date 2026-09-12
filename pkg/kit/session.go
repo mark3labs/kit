@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -38,17 +39,17 @@ type SessionManager interface {
 	//
 	// During generation, AppendMessage is called incrementally after each
 	// completed agent step rather than in a batch at the end of the turn.
-	// For tool-calling steps, the assistant message (containing tool_use parts)
-	// and the tool-role message (containing tool_result parts) are appended
-	// together as a pair. This ensures the session never contains an orphaned
-	// tool call without its result, which would break subsequent LLM requests.
+	// For tool-calling steps, Kit delivers the assistant message (containing
+	// tool_use parts) and the tool-role message (containing tool_result parts)
+	// back to back, in that order, so a session assembled during normal
+	// execution never presents an orphaned tool call to the next LLM request.
 	//
-	// The pairing guarantee is per-call, not atomic. Kit calls AppendMessage
-	// once per message, so an implementation that writes to durable storage
-	// produces one write per message. A process that dies between the two
-	// writes of a tool-calling step leaves an orphaned tool call in storage.
-	// Implement [StepAppender] to receive a whole step in one call and write
-	// it atomically.
+	// That ordering is not atomicity. Kit calls AppendMessage once per
+	// message, so an implementation that writes to durable storage performs
+	// one write per message, and a process that dies between the two writes of
+	// a tool-calling step leaves an orphaned tool call in storage. Implement
+	// [StepAppender] to receive a whole step in one call and commit it
+	// atomically.
 	AppendMessage(msg LLMMessage) (entryID string, err error)
 
 	// GetMessages returns all messages on the current branch (from root to leaf),
@@ -206,23 +207,48 @@ type ExtensionDataEntry struct {
 // partial write must not be reported as success: return an error and leave
 // storage unchanged, or commit every message. Implementations must be safe for
 // concurrent use, like the rest of [SessionManager].
+//
+// # Cancellation
+//
+// ctx carries the cancellation and values of the turn that produced the step.
+// It may already be cancelled: Kit persists a completed step before it checks
+// for cancellation, precisely so that finished work survives an interrupted
+// turn. An implementation that aborts on ctx.Err() therefore discards exactly
+// the progress this callback exists to save, and the loss is silent because
+// Kit ignores the returned error.
+//
+// Implementations that must not lose a completed step should keep the values
+// but drop the cancellation:
+//
+//	func (s *MySession) AppendStep(ctx context.Context, msgs []kit.LLMMessage) ([]string, error) {
+//	    ctx = context.WithoutCancel(ctx) // keep tracing spans, ignore cancellation
+//	    // ... commit atomically
+//	}
+//
+// Use ctx for tracing, request-scoped values, and a write deadline of your own
+// choosing rather than as a reason to skip the write.
 type StepAppender interface {
-	AppendStep(msgs []LLMMessage) (entryIDs []string, err error)
+	AppendStep(ctx context.Context, msgs []LLMMessage) (entryIDs []string, err error)
 }
 
 // appendMessages persists a group of messages that belong together, using
 // [StepAppender] when the session manager provides it and falling back to
 // per-message appends when it does not.
 //
+// ctx is forwarded to [StepAppender.AppendStep] so durable implementations can
+// carry tracing values and pick their own write deadline. See the Cancellation
+// section on [StepAppender]: ctx may already be cancelled, and aborting the
+// write on that basis loses completed work.
+//
 // Errors are deliberately ignored, matching the historical behaviour of the
 // call sites this replaces: a persistence failure must not abort a turn that
 // has already produced model output.
-func appendMessages(sm SessionManager, msgs []LLMMessage) {
+func appendMessages(ctx context.Context, sm SessionManager, msgs []LLMMessage) {
 	if sm == nil || len(msgs) == 0 {
 		return
 	}
 	if sa, ok := sm.(StepAppender); ok {
-		_, _ = sa.AppendStep(msgs)
+		_, _ = sa.AppendStep(ctx, msgs)
 		return
 	}
 	for _, msg := range msgs {

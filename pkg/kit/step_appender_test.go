@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -57,10 +58,13 @@ type batchSessionManager struct {
 	steps     [][]string
 	stepCalls int
 	err       error
+	// gotCtx records the context handed to the most recent AppendStep call.
+	gotCtx context.Context
 }
 
-func (b *batchSessionManager) AppendStep(msgs []LLMMessage) ([]string, error) {
+func (b *batchSessionManager) AppendStep(ctx context.Context, msgs []LLMMessage) ([]string, error) {
 	b.stepCalls++
+	b.gotCtx = ctx
 	if b.err != nil {
 		return nil, b.err
 	}
@@ -92,7 +96,7 @@ func TestAppendMessagesUsesStepAppender(t *testing.T) {
 	t.Parallel()
 
 	sm := &batchSessionManager{}
-	appendMessages(sm, toolStep())
+	appendMessages(context.Background(), sm, toolStep())
 
 	if sm.stepCalls != 1 {
 		t.Fatalf("AppendStep called %d times, want exactly 1", sm.stepCalls)
@@ -115,7 +119,7 @@ func TestAppendMessagesFallsBackToPerMessage(t *testing.T) {
 	t.Parallel()
 
 	sm := &stubSessionManager{}
-	appendMessages(sm, toolStep())
+	appendMessages(context.Background(), sm, toolStep())
 
 	if sm.appends != 2 {
 		t.Fatalf("AppendMessage called %d times, want 2", sm.appends)
@@ -132,7 +136,7 @@ func TestAppendMessagesSwallowsStepAppenderError(t *testing.T) {
 	t.Parallel()
 
 	sm := &batchSessionManager{err: errors.New("disk full")}
-	appendMessages(sm, toolStep()) // must not panic
+	appendMessages(context.Background(), sm, toolStep()) // must not panic
 
 	if sm.stepCalls != 1 {
 		t.Fatalf("AppendStep called %d times, want 1", sm.stepCalls)
@@ -146,15 +150,69 @@ func TestAppendMessagesSwallowsStepAppenderError(t *testing.T) {
 func TestAppendMessagesIgnoresEmptyAndNil(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	sm := &batchSessionManager{}
-	appendMessages(sm, nil)
-	appendMessages(sm, []LLMMessage{})
+	appendMessages(ctx, sm, nil)
+	appendMessages(ctx, sm, []LLMMessage{})
 	if sm.stepCalls != 0 || sm.appends != 0 {
 		t.Fatalf("empty input caused %d step calls and %d appends, want none",
 			sm.stepCalls, sm.appends)
 	}
 
-	appendMessages(nil, toolStep()) // must not panic
+	appendMessages(ctx, nil, toolStep()) // must not panic
+}
+
+// TestAppendMessagesForwardsContext proves the turn's context reaches a
+// StepAppender, so a durable implementation can carry tracing values and pick
+// its own write deadline.
+func TestAppendMessagesForwardsContext(t *testing.T) {
+	t.Parallel()
+
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "trace-42")
+
+	sm := &batchSessionManager{}
+	appendMessages(ctx, sm, toolStep())
+
+	if sm.gotCtx == nil {
+		t.Fatal("AppendStep received a nil context")
+	}
+	if got := sm.gotCtx.Value(ctxKey{}); got != "trace-42" {
+		t.Fatalf("context value = %v, want the caller's value to survive", got)
+	}
+}
+
+// TestAppendMessagesStillWritesWhenContextCancelled pins deliberate behaviour.
+// Kit persists a completed step BEFORE it checks for cancellation (see
+// OnStepFinish in internal/agent), so that finished work survives an
+// interrupted turn. appendMessages must therefore hand the step over even when
+// ctx is already done, and must not short-circuit on ctx.Err() as a
+// well-meaning optimisation: doing so would silently drop exactly the progress
+// this path exists to save.
+func TestAppendMessagesStillWritesWhenContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	sm := &batchSessionManager{}
+	appendMessages(ctx, sm, toolStep())
+
+	if sm.stepCalls != 1 {
+		t.Fatalf("AppendStep called %d times on a cancelled context, want 1: "+
+			"completed work must still be persisted", sm.stepCalls)
+	}
+	if sm.gotCtx == nil || sm.gotCtx.Err() == nil {
+		t.Fatal("the cancelled context must be passed through unchanged, " +
+			"so implementations can decide for themselves")
+	}
+
+	// The fallback path must behave the same way.
+	plain := &stubSessionManager{}
+	appendMessages(ctx, plain, toolStep())
+	if plain.appends != 2 {
+		t.Fatalf("AppendMessage called %d times on a cancelled context, want 2", plain.appends)
+	}
 }
 
 // TestSessionManagerInterfaceIsFrozen guards the stability promise in the
