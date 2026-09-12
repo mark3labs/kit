@@ -2987,10 +2987,13 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		},
 		// Persist step messages incrementally so that progress survives
 		// crashes and long-running turns don't lose work.
+		//
+		// The whole step goes through appendMessages so that a session
+		// manager implementing [StepAppender] can commit the assistant
+		// message and its tool results atomically. Without that, a crash
+		// between the two writes orphans the tool call.
 		OnStepMessages: func(stepMessages []fantasy.Message) {
-			for _, msg := range stepMessages {
-				_, _ = m.session.AppendMessage(msg)
-			}
+			appendMessages(m.session, stepMessages)
 		},
 		OnStepUsage: func(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int64) {
 			if m.v.GetBool("debug") {
@@ -3101,12 +3104,16 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 					StepNumber: stepNumber,
 					Messages:   messages,
 				})
-				if hookResult == nil || (hookResult.Messages == nil && hookResult.ToolChoice == nil) {
+				if hookResult == nil ||
+					(hookResult.Messages == nil &&
+						hookResult.ToolChoice == nil &&
+						hookResult.Tools == nil) {
 					return nil
 				}
 				return &agent.PrepareStepUpdate{
 					Messages:   hookResult.Messages,
 					ToolChoice: hookResult.ToolChoice,
+					Tools:      hookResult.Tools,
 				}
 			}
 		}(),
@@ -3125,9 +3132,9 @@ func (m *Kit) persistGenerationRemainder(result *agent.GenerateWithLoopResult, s
 	if result.PersistedMessageCount >= len(newMessages) {
 		return
 	}
-	for _, msg := range newMessages[result.PersistedMessageCount:] {
-		_, _ = m.session.AppendMessage(msg)
-	}
+	// The remainder can span a complete assistant + tool-result pair, so it is
+	// persisted as one group to keep [StepAppender] implementations atomic.
+	appendMessages(m.session, newMessages[result.PersistedMessageCount:])
 }
 
 // runTurn is the shared lifecycle for every prompt mode:
@@ -3191,9 +3198,7 @@ func (m *Kit) runTurn(ctx context.Context, promptLabel string, prompt string, pr
 	}
 
 	// Persist pre-generation messages to session.
-	for _, msg := range preMessages {
-		_, _ = m.session.AppendMessage(msg)
-	}
+	appendMessages(m.session, preMessages)
 
 	// Auto-compact if enabled and conversation is near the context limit.
 	if m.autoCompact && m.ShouldCompact() {

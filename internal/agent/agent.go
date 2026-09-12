@@ -203,6 +203,9 @@ type PrepareStepUpdate struct {
 	Messages []fantasy.Message
 	// ToolChoice, when non-nil, overrides the tool-choice mode for this step.
 	ToolChoice *fantasy.ToolChoice
+	// Tools, when non-nil, replaces the tool set for this step. An empty
+	// non-nil slice is meaningful: it offers the model no tools at all.
+	Tools []fantasy.AgentTool
 }
 
 // PrepareStepHandler is called between steps to allow message modification
@@ -1039,6 +1042,14 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				}
 				if update.ToolChoice != nil {
 					result.ToolChoice = update.ToolChoice
+				}
+				if update.Tools != nil {
+					// Overrides the live tool set read above. An empty
+					// non-nil slice disables tools for this step: fantasy
+					// only replaces stepTools when Tools is non-nil, so
+					// the distinction between nil and empty is preserved
+					// all the way down.
+					result.Tools = update.Tools
 				}
 			}
 		}
