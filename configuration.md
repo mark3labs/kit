@@ -124,7 +124,7 @@ mcpServers:
 A legacy format with `transport`, `args`, and `env` fields is also supported; `headers` works in both the current and legacy formats.
 
 For a one-off server without a config file, pass `--mcp 'name=command args...'`
-or `--mcp 'name=https://...'` on the command line. See
+or `--mcp 'name=https://... -H "Key: Value"'` on the command line. See
 [CLI flags](/cli/flags#one-off-mcp-servers).
 
 ### MCP tasks (long-running tools)

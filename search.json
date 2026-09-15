@@ -125,13 +125,14 @@
         "Context",
         "Tools",
         "One-off MCP servers",
+        "Headers for remote servers",
         "Extensions",
         "Skills",
         "Generation parameters",
         "System"
       ],
       "tags": [],
-      "wordCount": 1180
+      "wordCount": 1386
     },
     {
       "id": "configuration",
@@ -156,7 +157,7 @@
         "Preferences persistence"
       ],
       "tags": [],
-      "wordCount": 1964
+      "wordCount": 1967
     },
     {
       "id": "development",
