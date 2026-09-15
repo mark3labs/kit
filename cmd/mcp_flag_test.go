@@ -91,6 +91,61 @@ func TestParseMCPFlag(t *testing.T) {
 			wantName: "browser",
 			want:     config.MCPServerConfig{Type: "local", Command: []string{"lightpanda", "mcp"}},
 		},
+		{
+			name:     "url with one header",
+			in:       `docs=https://mcp.example.com/mcp -H "Authorization: Bearer abc"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"Authorization: Bearer abc"}, NoOAuth: true},
+		},
+		{
+			name:     "url with several headers",
+			in:       `docs=https://mcp.example.com/mcp -H "X-Api-Key: secret" --header "X-Tenant: acme"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Api-Key: secret", "X-Tenant: acme"}, NoOAuth: true},
+		},
+		{
+			name:     "header with equals form",
+			in:       `docs=https://mcp.example.com/mcp -H="X-Api-Key: secret" --header="X-Tenant: acme"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Api-Key: secret", "X-Tenant: acme"}, NoOAuth: true},
+		},
+		{
+			name:     "header spacing normalized",
+			in:       `docs=https://mcp.example.com/mcp -H "X-Api-Key:secret"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Api-Key: secret"}, NoOAuth: true},
+		},
+		{
+			name:     "header value keeps colons",
+			in:       `docs=https://mcp.example.com/mcp -H "X-Trace: a:b:c"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Trace: a:b:c"}, NoOAuth: true},
+		},
+		{
+			name:     "header env default used",
+			in:       `docs=https://mcp.example.com/mcp -H "X-Api-Key: ${env://KIT_TEST_UNSET_KEY:-fallback}"`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Api-Key: fallback"}, NoOAuth: true},
+		},
+		{
+			name:     "headers with explicit oauth keep oauth on",
+			in:       `docs=https://mcp.example.com/mcp -H "X-Tenant: acme" --oauth`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", Headers: []string{"X-Tenant: acme"}},
+		},
+		{
+			name:     "no-oauth without headers",
+			in:       `docs=https://mcp.example.com/mcp --no-oauth`,
+			wantName: "docs",
+			want:     config.MCPServerConfig{Type: "remote", URL: "https://mcp.example.com/mcp", NoOAuth: true},
+		},
+		{name: "header without colon", in: `docs=https://mcp.example.com/mcp -H nocolon`, wantErr: true},
+		{name: "header without name", in: `docs=https://mcp.example.com/mcp -H ": value"`, wantErr: true},
+		{name: "header name with space", in: `docs=https://mcp.example.com/mcp -H "Bad Key: value"`, wantErr: true},
+		{name: "header flag without value", in: `docs=https://mcp.example.com/mcp -H`, wantErr: true},
+		{name: "unknown flag after url", in: `docs=https://mcp.example.com/mcp --bogus x`, wantErr: true},
+		{name: "bare argument after url", in: `docs=https://mcp.example.com/mcp extra`, wantErr: true},
+		{name: "missing env var in header", in: `docs=https://mcp.example.com/mcp -H "X-Api-Key: ${env://KIT_TEST_UNSET_KEY}"`, wantErr: true},
 		{name: "missing equals", in: "lightpanda mcp", wantErr: true},
 		{name: "empty name", in: "=lightpanda mcp", wantErr: true},
 		{name: "empty spec", in: "browser=", wantErr: true},
@@ -172,6 +227,22 @@ func TestApplyMCPFlags(t *testing.T) {
 		}
 		if got := cfg.MCPServers["b"].Command; !reflect.DeepEqual(got, []string{"second"}) {
 			t.Errorf("command = %#v, want [second]", got)
+		}
+	})
+
+	t.Run("remote headers reach the server config", func(t *testing.T) {
+		t.Setenv("KIT_TEST_MCP_KEY", "s3cret")
+		cfg := &config.Config{}
+		err := applyMCPFlags(cfg, []string{`docs=https://mcp.example.com/mcp -H "Authorization: Bearer ${env://KIT_TEST_MCP_KEY}"`})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"Authorization: Bearer s3cret"}
+		if got := cfg.MCPServers["docs"].Headers; !reflect.DeepEqual(got, want) {
+			t.Errorf("docs headers = %#v, want %#v", got, want)
+		}
+		if got := cfg.MCPServers["docs"].URL; got != "https://mcp.example.com/mcp" {
+			t.Errorf("docs url = %q", got)
 		}
 	})
 

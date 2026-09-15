@@ -400,7 +400,7 @@ func init() {
 		StringSliceVarP(&extensionPaths, "extension", "e", nil, "load additional extension file(s)")
 	// StringArray (not StringSlice) so a command line with commas stays one value.
 	rootCmd.PersistentFlags().
-		StringArrayVar(&mcpFlags, "mcp", nil, `add an MCP server for this run (repeatable): "name=command args..." for stdio or "name=https://..." for remote`)
+		StringArrayVar(&mcpFlags, "mcp", nil, `add an MCP server for this run (repeatable): "name=command args..." for stdio or "name=https://... [-H 'Key: Value']" for remote`)
 
 	// Skills flags
 	rootCmd.PersistentFlags().

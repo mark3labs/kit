@@ -92,7 +92,7 @@ self-defeating.
 | `--no-core-tools` | — | `false` | Disable all built-in core tools |
 | `--include-core-tools` | — | — | Comma-separated list of core tools to include (mutually exclusive with `--exclude-core-tools`) |
 | `--exclude-core-tools` | — | — | Comma-separated list of core tools to exclude (mutually exclusive with `--include-core-tools`) |
-| `--mcp` | — | — | Add an MCP server for this run (repeatable). `name=command args...` starts a local stdio server; `name=https://...` connects to a remote server |
+| `--mcp` | — | — | Add an MCP server for this run (repeatable). `name=command args...` starts a local stdio server; `name=https://... [-H "Key: Value"]` connects to a remote server |
 
 ### One-off MCP servers
 
@@ -109,9 +109,40 @@ kit --mcp 'fs=npx -y @modelcontextprotocol/server-filesystem "/my dir"' \
     --mcp 'browser=lightpanda mcp' "..."
 ```
 
+#### Headers for remote servers
+
+A remote spec can carry HTTP headers after the URL, curl style. Use `-H` or
+`--header`, once per header, with the header as one `"Key: Value"` string.
+Header values support the same env-substitution as the config file, so an API
+key stays out of the command line and out of the shell history:
+
+```bash
+kit --mcp 'docs=https://mcp.example.com/mcp -H "Authorization: Bearer ${env://API_KEY}"' "..."
+kit --mcp 'docs=https://mcp.example.com/mcp -H "X-Api-Key: ${env://KEY}" -H "X-Tenant: acme"' "..."
+kit --mcp 'docs=https://mcp.example.com/mcp --header="X-Api-Key: secret"' "..."
+```
+
+`${env://VAR}` fails at startup when `VAR` is not set; use
+`${env://VAR:-default}` for an optional value. Headers apply to remote servers
+only — after a local command, `-H` is passed to that command unchanged.
+
+Headers are the credential for that server, so Kit switches OAuth off for it.
+Otherwise Kit would try dynamic client registration first and fail before it
+sends the headers. Two switches override this:
+
+| Argument | Effect |
+|----------|--------|
+| `--oauth` | Keep OAuth on, even with headers (for a server that needs OAuth plus a routing header) |
+| `--no-oauth` | Switch OAuth off without headers (for a public server) |
+
+```bash
+kit --mcp 'docs=https://mcp.example.com/mcp -H "X-Tenant: acme" --oauth' "..."
+kit --mcp 'pubmed=https://mcp.example.com/mcp --no-oauth' "..."
+```
+
 A flag server with the same name as a `mcpServers` entry in `.kit.yml`
-replaces that entry for the run. For `environment`, `allowedTools`, `headers`
-and the other per-server fields, use the [config file](/configuration#mcp-server-configuration).
+replaces that entry for the run. For `environment`, `allowedTools` and the
+other per-server fields, use the [config file](/configuration#mcp-server-configuration).
 
 ## Extensions
 
