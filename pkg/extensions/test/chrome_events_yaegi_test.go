@@ -3,7 +3,7 @@ package test
 import (
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // TestNewEventsCrossYaegiBoundary verifies the three chrome-oriented events

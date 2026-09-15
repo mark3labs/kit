@@ -10,6 +10,8 @@
 //
 //	import (
 //	    "testing"
+//
+//	    "github.com/mark3labs/kit/pkg/extensions"
 //	    "github.com/mark3labs/kit/pkg/extensions/test"
 //	)
 //
@@ -18,13 +20,16 @@
 //	    harness := test.New(t)
 //
 //	    // Load your extension file
-//	    ext := harness.LoadFile("my-ext.go")
+//	    _ = harness.LoadFile("my-ext.go")
 //
 //	    // Emit events and check results
-//	    result := harness.Emit(test.ToolCallEvent{
+//	    result, err := harness.Emit(extensions.ToolCallEvent{
 //	        ToolName: "my_tool",
 //	        Input:    `{"key": "value"}`,
 //	    })
+//	    if err != nil {
+//	        t.Fatal(err)
+//	    }
 //
 //	    // Use assertion helpers
 //	    test.AssertNotBlocked(t, result)
@@ -40,7 +45,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	internalext "github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 	"github.com/traefik/yaegi/stdlib/unrestricted"
@@ -106,7 +112,7 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 	}
 
 	// Expose Kit extension API symbols
-	if err := i.Use(extensions.Symbols()); err != nil {
+	if err := i.Use(internalext.Symbols()); err != nil {
 		h.t.Fatalf("failed to load extension symbols: %v", err)
 	}
 
@@ -121,7 +127,7 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 		h.t.Fatalf("extension has no Init function: %v", err)
 	}
 
-	initFn, ok := reflect.TypeAssert[func(extensions.API)](initVal)
+	initFn, ok := reflect.TypeAssert[func(internalext.API)](initVal)
 	if !ok {
 		h.t.Fatalf("Init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
 	}
@@ -129,17 +135,17 @@ func (h *Harness) loadSource(src string, path string) *extensions.LoadedExtensio
 	// Create the extension struct
 	ext := &extensions.LoadedExtension{
 		Path:     path,
-		Handlers: make(map[extensions.EventType][]extensions.HandlerFunc),
+		Handlers: make(map[extensions.EventType][]internalext.HandlerFunc),
 	}
 
 	// Create the API object using the test helper
-	api := extensions.NewTestAPI(ext)
+	api := internalext.NewTestAPI(ext)
 
 	// Call Init to register handlers
 	initFn(api)
 
 	// Create runner with the loaded extension
-	h.runner = extensions.NewRunner([]extensions.LoadedExtension{*ext})
+	h.runner = internalext.NewRunner([]extensions.LoadedExtension{*ext})
 
 	// Wire the mock context
 	h.runner.SetContext(h.context.ToContext())

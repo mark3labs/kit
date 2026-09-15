@@ -3,7 +3,8 @@ package test
 import (
 	"sync"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	internalext "github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // MockContext records all interactions with the extension context.
@@ -329,7 +330,7 @@ func (m *MockContext) suspendTUI(callback func()) error {
 
 func (m *MockContext) renderMessage(rendererName string, content string) {}
 
-func (m *MockContext) registerTheme(name string, config extensions.ThemeColorConfig) {}
+func (m *MockContext) registerTheme(name string, config internalext.ThemeColorConfig) {}
 
 func (m *MockContext) setTheme(name string) error {
 	return nil
@@ -343,7 +344,7 @@ func (m *MockContext) reloadExtensions() error {
 	return nil
 }
 
-func (m *MockContext) spawnSubagent(config extensions.SubagentConfig) (*extensions.SubagentHandle, *extensions.SubagentResult, error) {
+func (m *MockContext) spawnSubagent(config internalext.SubagentConfig) (*internalext.SubagentHandle, *internalext.SubagentResult, error) {
 	return nil, nil, nil
 }
 

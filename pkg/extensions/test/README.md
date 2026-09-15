@@ -19,7 +19,7 @@ The test package is part of the Kit codebase. Import it in your extension tests:
 import (
     "testing"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+    "github.com/mark3labs/kit/pkg/extensions"
 )
 ```
 
@@ -33,7 +33,7 @@ package main
 import (
     "testing"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+    "github.com/mark3labs/kit/pkg/extensions"
 )
 
 func TestMyExtension(t *testing.T) {
@@ -337,7 +337,7 @@ package main
 import (
     "testing"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+    "github.com/mark3labs/kit/pkg/extensions"
 )
 
 // Test that the extension properly blocks dangerous tools
