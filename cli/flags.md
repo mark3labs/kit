@@ -34,7 +34,8 @@ These flags control Kit's behavior. When a prompt is passed as a positional argu
 | `--max-steps` | — | `0` | Maximum agent steps (0 for unlimited) |
 | `--stream` | — | `true` | Enable streaming output |
 | `--compact` | — | `false` | Enable compact output mode |
-| `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. [Detachable sessions](/cli/commands#detachable-sessions) always start this way, including with `kit attach --new`, so the flag is only needed when running `kit` directly |
+| `--pick-dir` | — | `false` | Choose a working directory with a picker before starting. The daemon uses this flag for any [detachable session](/cli/commands#detachable-sessions) that has no directory of its own — `kit attach --new`, or a remote client |
+| `--no-daemon` | — | `false` | Run in this terminal even when the kit daemon could host a [detachable session](/advanced/remote-sessions#detachable-by-default). `KIT_NO_DAEMON=1` does the same; `daemon-mode` in the config file is the standing preference |
 | `--auto-compact` | — | `false` | Compact proactively when near the context limit (reactive compact-and-retry on provider overflow errors is [always on](/sessions#reactive-compaction-on-overflow)) |
 
 ## Context

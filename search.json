@@ -31,6 +31,7 @@
       "headings": [
         "Requirements",
         "Commands",
+        "Detachable by default",
         "Sessions on this machine",
         "Sessions and daemon restarts",
         "Session keys",
@@ -43,7 +44,7 @@
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 2666
+      "wordCount": 3196
     },
     {
       "id": "advanced/subagents",
@@ -111,7 +112,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 3552
+      "wordCount": 3814
     },
     {
       "id": "cli/flags",
@@ -132,7 +133,7 @@
         "System"
       ],
       "tags": [],
-      "wordCount": 1386
+      "wordCount": 1424
     },
     {
       "id": "configuration",

@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-s538JHMc.js"></script>
+<script type="module" src="/assets/index-DAQvO8pd.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -352,9 +352,30 @@ kit acp --debug              # With debug logging to stderr
 
 Run Kit inside a session that survives closing your terminal, and switch
 between several of them like tmux or zellij. Sessions are hosted by a
-background daemon; `kit attach` starts one automatically if none is
-running. See [Remote sessions](/advanced/remote-sessions) for the full
-picture.
+background daemon. See [Remote sessions](/advanced/remote-sessions) for
+the full picture.
+
+**When the daemon is running, plain `kit` is already detachable.** There
+is no separate command to learn: the session starts in the directory you
+ran it from, with the arguments you gave it.
+
+```bash
+kit daemon service install        # Start the daemon once (systemd user service)
+
+cd ~/project && kit               # A detachable session, right here
+# Ctrl+] d                        # Detach; the agent keeps working
+kit attach                        # Come back to it
+```
+
+Kit falls back to running in your terminal when no daemon is running, for
+a one-shot prompt (`kit "..."`), for `--quiet`/`--json`, when stdin or
+stdout is not a terminal, and for `--no-daemon`. See [Detachable by
+default](/advanced/remote-sessions#detachable-by-default) for the exact
+rule and the `daemon-mode` setting.
+
+`kit attach` is the command for choosing *which* session — going back to
+one, or starting one somewhere else. It starts a daemon automatically if
+none is running.
 
 ```bash
 kit attach                        # Pick a live session (local or paired host), or start one
@@ -365,6 +386,8 @@ kit attach --all                  # Pick across paired hosts without starting a 
 
 kit ls                            # List live sessions on this machine
 kit ls --all                      # Include sessions on every paired host
+
+kit --no-daemon                   # Run in this terminal, daemon or no daemon
 ```
 
 The `kit attach` picker lists this machine's sessions **and** those on
@@ -373,14 +396,21 @@ shows everything you can attach to. Querying those hosts costs up to eight
 seconds when one is asleep (in parallel, so eight seconds total); `--new`
 and `kit attach <id>` skip it, because neither opens a picker.
 
-Every new session starts with the working-directory picker, whichever way
-you create it — `kit attach`, `kit attach --new`, or `Ctrl+] c`. `--new`
-skips the *session* picker, not the directory one. Once a directory is
-chosen the session behaves exactly like a local `kit`.
+Where a new session starts depends on how you asked for it:
+
+| How you started it | Working directory |
+|--------------------|-------------------|
+| `kit` | Where you ran it — no picker |
+| `Ctrl+] c` | The same directory as the session you were in |
+| `kit attach`, `kit attach --new` | The directory picker, opened where you ran it |
+| A remote client (`kit remote --host`) | The directory picker, opened in the host's home directory |
+
+A remote client never sends a directory: it names nothing that exists on
+the host. `--new` skips the *session* picker, not the directory one.
 
 You can also run the directory picker outside a session with
-[`kit --pick-dir`](/cli/flags); the daemon uses that same flag to start
-each session.
+[`kit --pick-dir`](/cli/flags); the daemon uses that same flag whenever a
+session has no directory to start in.
 
 Inside a session, `Ctrl+]` is the multiplexer prefix:
 
@@ -388,7 +418,7 @@ Inside a session, `Ctrl+]` is the multiplexer prefix:
 |-------|--------|
 | `Ctrl+] d` | Detach; the session keeps running |
 | `Ctrl+] s` | Switch to another session |
-| `Ctrl+] c` | Start a new session |
+| `Ctrl+] c` | Start a new session, in the same directory |
 | `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
 | `Ctrl+] w` | Switch across paired hosts |
 | `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |
@@ -408,6 +438,11 @@ client forwards its `TERM`, `COLORTERM` and background color when it
 attaches — otherwise a session would inherit the daemon's environment and
 render a truecolor theme in the wrong palette. See [Terminal and
 colors](/advanced/remote-sessions#terminal-and-colors).
+
+A local client also forwards its working directory and an allowlist of
+environment variables — `PATH`, `HOME`, `SHELL`, `EDITOR`, the locale,
+proxy settings and the provider credentials — so a hosted session finds
+the same tools and keys your shell has. Remote clients never do.
 
 ## Remote sessions
 

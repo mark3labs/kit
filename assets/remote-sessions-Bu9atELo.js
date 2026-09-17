@@ -3,9 +3,17 @@ var e={frontmatter:{title:`Remote Sessions`,description:`Run Kit in detachable s
 running when you close the terminal, and you can reattach to it later,
 switch between several like tmux, or share one with someone else. The
 daemon can be on this machine or on another.</p>
-<p>For sessions on this machine, no setup and no pairing is needed — skip to
-<a href="#sessions-on-this-machine">Sessions on this machine</a>:</p>
-<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span></span></code></pre>
+<p>When a daemon is running on this machine, <strong><code>kit</code> itself is detachable</strong> —
+there is nothing extra to type:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> ~/project</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#6A737D;--shiki-dark:#6A737D">                 # same command, same directory, same flags</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># Ctrl+] d          # detach; the agent keeps working</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> attach</span><span style="color:#6A737D;--shiki-dark:#6A737D">          # come back to it</span></span></code></pre>
+<p>When no daemon is running, <code>kit</code> runs in your terminal exactly as it
+always has. See <a href="#detachable-by-default">Detachable by default</a> for the
+exact rule, and skip to <a href="#sessions-on-this-machine">Sessions on this
+machine</a> for the local setup — no pairing and
+no configuration are needed.</p>
 <p>The rest of this page covers <strong>remote</strong> sessions. All work — the agent,
 tools, extensions, sessions — happens on the daemon host; your local
 terminal just renders it. The transport is <a href="https://iroh.computer">iroh</a>:
@@ -117,14 +125,88 @@ be punched, the n0 relay fleet.</li>
 <td>either</td>
 <td>List live sessions (<code>--all</code> includes paired hosts)</td>
 </tr>
+<tr>
+<td><code>kit --no-daemon</code></td>
+<td>either</td>
+<td>Run in this terminal, even when a daemon could host the session</td>
+</tr>
 </tbody>
 </table>
+<h2 id="detachable-by-default"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#detachable-by-default"><span class="icon icon-link"></span></a>Detachable by default</h2>
+<p>A plain <code>kit</code> becomes a daemon-hosted session whenever the local daemon is
+running. The session is the <strong>same command</strong>: it starts in the directory
+you ran it from, with the arguments you gave it, and with the credentials
+and <code>PATH</code> from your shell. Nothing about the agent, the extensions, or
+session persistence changes — only where the process lives.</p>
+<p>Start the daemon once and it stays:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> service</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> install</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # systemd user service (recommended)</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> daemon</span><span style="color:#6A737D;--shiki-dark:#6A737D">                   # or run it in a terminal</span></span></code></pre>
+<p>Kit runs <strong>in your terminal</strong>, undetachable, whenever hosting it would
+change what the command means:</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No daemon is running</td>
+<td>Nothing to host it; this is the default state</td>
+</tr>
+<tr>
+<td><code>--no-daemon</code>, or <code>KIT_NO_DAEMON=1</code></td>
+<td>You asked for this terminal</td>
+</tr>
+<tr>
+<td><code>daemon-mode: never</code> in the config</td>
+<td>Same, as a standing preference</td>
+</tr>
+<tr>
+<td>A one-shot prompt (<code>kit "..."</code>, <code>kit @file.go "..."</code>)</td>
+<td>The caller is waiting for output, not for a session to detach from</td>
+</tr>
+<tr>
+<td><code>--quiet</code> or <code>--json</code></td>
+<td>Consumed by a pipe; a relayed terminal is the wrong shape</td>
+</tr>
+<tr>
+<td>stdin or stdout is not a terminal</td>
+<td>A session is a relayed PTY; there is nothing to relay</td>
+</tr>
+<tr>
+<td>Already inside a session</td>
+<td>Including a <code>kit</code> the agent runs from its own shell tool</td>
+</tr>
+</tbody>
+</table>
+<p>Set the standing preference in any <code>.kit.yml</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">daemon-mode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">auto</span><span style="color:#6A737D;--shiki-dark:#6A737D">    # host when a daemon is running (the default)</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">daemon-mode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">never</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # always run in this terminal</span></span>
+<span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">daemon-mode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">always</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # start a daemon on demand, then host</span></span></code></pre>
+<p><code>always</code> starts a daemon for you the first time you need one. If it cannot
+be started, kit runs in your terminal and says so rather than failing.</p>
+<p>Only the <strong>local socket</strong> carries your directory, arguments and
+environment. A paired remote client never does — a directory from another
+machine names nothing here, and accepting an argument list from a peer
+would make pairing equivalent to arbitrary execution. Remote sessions
+therefore still open the working-directory picker, as they always have.</p>
+<p>The environment a session inherits is an <strong>allowlist</strong>, not a copy:
+<code>PATH</code>, <code>HOME</code>, <code>SHELL</code>, <code>EDITOR</code>, the locale, proxy settings, and the
+provider credential variables (<code>ANTHROPIC_*</code>, <code>OPENAI_*</code>, <code>PROVIDER_*</code>,
+and so on). Variables the daemon owns are never taken from a client.</p>
 <h2 id="sessions-on-this-machine"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sessions-on-this-machine"><span class="icon icon-link"></span></a>Sessions on this machine</h2>
 <p><code>kit attach</code> gives you the same detachable sessions without any pairing:
 it talks to a daemon on this machine over a Unix socket in
 <code>$XDG_RUNTIME_DIR/kit/</code>, and starts one if none is running. The socket is
 <code>0600</code> inside a <code>0700</code> directory and every connection's peer uid is
 checked, so only your own processes can reach it.</p>
+<p>Where plain <code>kit</code> starts a session <strong>here</strong>, <code>kit attach</code> asks <em>which</em>
+session — so it is the command to reach for when you want to go back to
+something, or start one somewhere else. A new session from <code>kit attach</code>
+opens the working-directory picker, rooted in the directory you ran it
+from.</p>
 <p>The picker it opens is <strong>not</strong> limited to this machine: it lists the local
 daemon's sessions followed by those on every paired host, each group under
 its host name. Plain <code>kit attach</code> is therefore the one command that shows
@@ -188,7 +270,7 @@ never be mistaken for a session.</p>
 </tr>
 <tr>
 <td><code>Ctrl+] c</code></td>
-<td>Start a new session</td>
+<td>Start a new session, in the same directory</td>
 </tr>
 <tr>
 <td><code>Ctrl+] n</code> / <code>Ctrl+] p</code></td>
@@ -410,7 +492,7 @@ allowlist is shared).</p>
 <td>Just reconnect with <code>kit remote --host &lt;name&gt;</code>; the daemon keeps running</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
+</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Detachable by default`,id:`detachable-by-default`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
 # Remote Sessions
 
 Kit can run as a daemon that hosts **detachable sessions**: a session keeps
@@ -418,12 +500,21 @@ running when you close the terminal, and you can reattach to it later,
 switch between several like tmux, or share one with someone else. The
 daemon can be on this machine or on another.
 
-For sessions on this machine, no setup and no pairing is needed — skip to
-[Sessions on this machine](#sessions-on-this-machine):
+When a daemon is running on this machine, **\`kit\` itself is detachable** —
+there is nothing extra to type:
 
 \`\`\`bash
-kit attach
+cd ~/project
+kit                 # same command, same directory, same flags
+# Ctrl+] d          # detach; the agent keeps working
+kit attach          # come back to it
 \`\`\`
+
+When no daemon is running, \`kit\` runs in your terminal exactly as it
+always has. See [Detachable by default](#detachable-by-default) for the
+exact rule, and skip to [Sessions on this
+machine](#sessions-on-this-machine) for the local setup — no pairing and
+no configuration are needed.
 
 The rest of this page covers **remote** sessions. All work — the agent,
 tools, extensions, sessions — happens on the daemon host; your local
@@ -484,6 +575,57 @@ rendering, and session persistence all run on the daemon host.
 | \`kit attach --host <name>\` | client | Attach on a paired host, with session switching |
 | \`kit attach --all\` | client | Pick across every paired host **without** starting a local daemon first |
 | \`kit ls\` | either | List live sessions (\`--all\` includes paired hosts) |
+| \`kit --no-daemon\` | either | Run in this terminal, even when a daemon could host the session |
+
+## Detachable by default
+
+A plain \`kit\` becomes a daemon-hosted session whenever the local daemon is
+running. The session is the **same command**: it starts in the directory
+you ran it from, with the arguments you gave it, and with the credentials
+and \`PATH\` from your shell. Nothing about the agent, the extensions, or
+session persistence changes — only where the process lives.
+
+Start the daemon once and it stays:
+
+\`\`\`bash
+kit daemon service install   # systemd user service (recommended)
+kit daemon                   # or run it in a terminal
+\`\`\`
+
+Kit runs **in your terminal**, undetachable, whenever hosting it would
+change what the command means:
+
+| Case | Why |
+|------|-----|
+| No daemon is running | Nothing to host it; this is the default state |
+| \`--no-daemon\`, or \`KIT_NO_DAEMON=1\` | You asked for this terminal |
+| \`daemon-mode: never\` in the config | Same, as a standing preference |
+| A one-shot prompt (\`kit "..."\`, \`kit @file.go "..."\`) | The caller is waiting for output, not for a session to detach from |
+| \`--quiet\` or \`--json\` | Consumed by a pipe; a relayed terminal is the wrong shape |
+| stdin or stdout is not a terminal | A session is a relayed PTY; there is nothing to relay |
+| Already inside a session | Including a \`kit\` the agent runs from its own shell tool |
+
+Set the standing preference in any \`.kit.yml\`:
+
+\`\`\`yaml
+daemon-mode: auto    # host when a daemon is running (the default)
+daemon-mode: never   # always run in this terminal
+daemon-mode: always  # start a daemon on demand, then host
+\`\`\`
+
+\`always\` starts a daemon for you the first time you need one. If it cannot
+be started, kit runs in your terminal and says so rather than failing.
+
+Only the **local socket** carries your directory, arguments and
+environment. A paired remote client never does — a directory from another
+machine names nothing here, and accepting an argument list from a peer
+would make pairing equivalent to arbitrary execution. Remote sessions
+therefore still open the working-directory picker, as they always have.
+
+The environment a session inherits is an **allowlist**, not a copy:
+\`PATH\`, \`HOME\`, \`SHELL\`, \`EDITOR\`, the locale, proxy settings, and the
+provider credential variables (\`ANTHROPIC_*\`, \`OPENAI_*\`, \`PROVIDER_*\`,
+and so on). Variables the daemon owns are never taken from a client.
 
 ## Sessions on this machine
 
@@ -492,6 +634,12 @@ it talks to a daemon on this machine over a Unix socket in
 \`$XDG_RUNTIME_DIR/kit/\`, and starts one if none is running. The socket is
 \`0600\` inside a \`0700\` directory and every connection's peer uid is
 checked, so only your own processes can reach it.
+
+Where plain \`kit\` starts a session **here**, \`kit attach\` asks *which*
+session — so it is the command to reach for when you want to go back to
+something, or start one somewhere else. A new session from \`kit attach\`
+opens the working-directory picker, rooted in the directory you ran it
+from.
 
 The picker it opens is **not** limited to this machine: it lists the local
 daemon's sessions followed by those on every paired host, each group under
@@ -551,7 +699,7 @@ Inside an attached session, \`Ctrl+]\` is the multiplexer prefix:
 |-------|--------|
 | \`Ctrl+] d\` | Detach; the session keeps running |
 | \`Ctrl+] s\` | Switch to another session |
-| \`Ctrl+] c\` | Start a new session |
+| \`Ctrl+] c\` | Start a new session, in the same directory |
 | \`Ctrl+] n\` / \`Ctrl+] p\` | Next / previous session |
 | \`Ctrl+] w\` | Switch across paired hosts |
 | \`Ctrl+] Ctrl+]\` | Send a literal \`Ctrl+]\` to the session |
