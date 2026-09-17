@@ -7,7 +7,7 @@
 <meta name="description" content="Run Kit in detachable sessions — on this machine, or on another over an end-to-end encrypted iroh connection.">
 <link rel="canonical" href="/advanced/remote-sessions">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-HkIadqZx.js"></script>
+<script type="module" src="/assets/index-dr0DKUaD.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -134,6 +134,24 @@ daemon-mode: always  # start a daemon on demand, then host
 
 `always` starts a daemon for you the first time you need one. If it cannot
 be started, kit runs in your terminal and says so rather than failing.
+
+### Upgrading kit
+
+A daemon keeps running across an upgrade, and it spawns every session
+from **its own** binary — so until it is restarted, a session it hosts
+runs the version the daemon started with, not the one you just installed.
+
+Kit refuses to host in that state rather than hide it. You get a session
+in your terminal, in the right directory, plus a note naming both
+versions. Restart the daemon to get detachable sessions back:
+
+```bash
+systemctl --user restart kit   # if installed as a service
+# otherwise: stop the running `kit daemon` and start it again
+```
+
+`kit daemon status` always reports the version a hosted session would
+run, and flags it when that differs from your `kit`.
 
 Only the **local socket** carries your directory, arguments and
 environment. A paired remote client never does — a directory from another

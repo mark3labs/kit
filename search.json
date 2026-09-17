@@ -32,6 +32,7 @@
         "Requirements",
         "Commands",
         "Detachable by default",
+        "Upgrading kit",
         "Sessions on this machine",
         "Sessions and daemon restarts",
         "Session keys",
@@ -44,7 +45,7 @@
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 3196
+      "wordCount": 3318
     },
     {
       "id": "advanced/subagents",

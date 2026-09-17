@@ -187,6 +187,17 @@ change what the command means:</p>
 <span class="line"><span style="color:#22863A;--shiki-dark:#85E89D">daemon-mode</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">always</span><span style="color:#6A737D;--shiki-dark:#6A737D">  # start a daemon on demand, then host</span></span></code></pre>
 <p><code>always</code> starts a daemon for you the first time you need one. If it cannot
 be started, kit runs in your terminal and says so rather than failing.</p>
+<h3 id="upgrading-kit"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#upgrading-kit"><span class="icon icon-link"></span></a>Upgrading kit</h3>
+<p>A daemon keeps running across an upgrade, and it spawns every session
+from <strong>its own</strong> binary — so until it is restarted, a session it hosts
+runs the version the daemon started with, not the one you just installed.</p>
+<p>Kit refuses to host in that state rather than hide it. You get a session
+in your terminal, in the right directory, plus a note naming both
+versions. Restart the daemon to get detachable sessions back:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">systemctl</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --user</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> restart</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> kit</span><span style="color:#6A737D;--shiki-dark:#6A737D">   # if installed as a service</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># otherwise: stop the running \`kit daemon\` and start it again</span></span></code></pre>
+<p><code>kit daemon status</code> always reports the version a hosted session would
+run, and flags it when that differs from your <code>kit</code>.</p>
 <p>Only the <strong>local socket</strong> carries your directory, arguments and
 environment. A paired remote client never does — a directory from another
 machine names nothing here, and accepting an argument list from a peer
@@ -492,7 +503,7 @@ allowlist is shared).</p>
 <td>Just reconnect with <code>kit remote --host &lt;name&gt;</code>; the daemon keeps running</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Detachable by default`,id:`detachable-by-default`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
+</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Detachable by default`,id:`detachable-by-default`},{depth:3,text:`Upgrading kit`,id:`upgrading-kit`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
 # Remote Sessions
 
 Kit can run as a daemon that hosts **detachable sessions**: a session keeps
@@ -615,6 +626,24 @@ daemon-mode: always  # start a daemon on demand, then host
 
 \`always\` starts a daemon for you the first time you need one. If it cannot
 be started, kit runs in your terminal and says so rather than failing.
+
+### Upgrading kit
+
+A daemon keeps running across an upgrade, and it spawns every session
+from **its own** binary — so until it is restarted, a session it hosts
+runs the version the daemon started with, not the one you just installed.
+
+Kit refuses to host in that state rather than hide it. You get a session
+in your terminal, in the right directory, plus a note naming both
+versions. Restart the daemon to get detachable sessions back:
+
+\`\`\`bash
+systemctl --user restart kit   # if installed as a service
+# otherwise: stop the running \`kit daemon\` and start it again
+\`\`\`
+
+\`kit daemon status\` always reports the version a hosted session would
+run, and flags it when that differs from your \`kit\`.
 
 Only the **local socket** carries your directory, arguments and
 environment. A paired remote client never does — a directory from another
