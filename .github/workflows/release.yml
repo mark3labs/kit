@@ -3,7 +3,19 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      # Full versions only, so a floating alias tag (v0, and formerly v0.1)
+      # can never start a release of its own.
+      #
+      # An alias pushed by hand alongside the version — `git push origin
+      # v0.108.0 v0.108` — matched a `v*` pattern and started a SECOND,
+      # identical release run. Both built the same artifacts and raced to
+      # upload them; the loser died on `already_exists`, and npm-publish
+      # (needs: goreleaser) was skipped — so the GitHub release looked
+      # complete while npm stayed on the previous version. The alias the
+      # bot pushes below is exempt for a different reason (GITHUB_TOKEN
+      # pushes never raise workflow events), but a human's is not, and
+      # this pattern covers both.
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
@@ -17,6 +29,15 @@ on:
 permissions:
   contents: write
   id-token: write  # Required for npm trusted publishing (OIDC)
+
+# One release at a time, repo-wide. The tag filter above is the real fix
+# for the alias race; this is the backstop for everything else that can
+# put two releases in flight at once (a re-run, a hand-pushed tag, two
+# versions tagged back to back). Queue rather than cancel: a half-done
+# release that gets cancelled mid-upload is worse than a slow one.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
@@ -39,8 +60,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Keep floating major/minor tags (e.g. v1, v1.2) pointing at the latest
-  # release so the composite action can be referenced as `mark3labs/kit@v1`.
+  # Keep the floating major tag (e.g. v1) pointing at the latest release,
+  # so the composite action can be referenced as `mark3labs/kit@v1` — which
+  # is exactly what `kit github install` scaffolds into a user's workflow
+  # (see cmd/github.go). This tag is load-bearing: leaving it behind pins
+  # every scaffolded workflow to whatever release it last pointed at.
+  #
+  # Only the major tag. A floating minor (v1.2) has no consumer anywhere —
+  # nothing references the action that way — and every alias is another
+  # tag push that the release trigger has to be careful not to answer.
   action-tags:
     runs-on: ubuntu-latest
     needs: goreleaser
@@ -52,22 +80,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Update floating major/minor tags
+      - name: Update floating major tag
         env:
           FULL_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # FULL_TAG looks like v1.2.3 — derive v1 and v1.2.
+          # FULL_TAG looks like v1.2.3 — derive v1.
           VER="${FULL_TAG#v}"
           MAJOR="v${VER%%.*}"
-          MINOR="v${VER%.*}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for t in "$MAJOR" "$MINOR"; do
-            echo "Pointing $t at $FULL_TAG"
-            git tag -f "$t" "$FULL_TAG"
-            git push -f origin "refs/tags/$t"
-          done
+          echo "Pointing $MAJOR at $FULL_TAG"
+          git tag -f "$MAJOR" "$FULL_TAG"
+          git push -f origin "refs/tags/$MAJOR"
 
   # Rebuild the GHCR sandbox image so it ships the just-released kit binary.
   # Called directly instead of relying on a `release: [published]` trigger in
