@@ -75,6 +75,12 @@ type wireConn struct {
 	// against what the client reported here. Guarded by connSet.mu, so it
 	// is read and written through the set rather than directly.
 	term TerminalInfo
+
+	// spec describes how a NEW session on this connection should be
+	// started: working directory, arguments, environment. Nil means the
+	// client asked for nothing in particular, which is the directory
+	// picker in the daemon user's home. Guarded by connSet.mu.
+	spec *SessionSpec
 }
 
 // connSet tracks the live client connections by wire id.
@@ -130,6 +136,43 @@ func (c *connSet) terminalFor(id uint32) TerminalInfo {
 		return conn.term
 	}
 	return TerminalInfo{}
+}
+
+// setSpec records how a client wants its next new session started.
+//
+// Refused for a remote connection: a working directory and an argument
+// list from another machine describe nothing on this one, and honouring
+// argv from a paired peer would make pairing equivalent to arbitrary
+// execution. Reports whether the spec was accepted, so the caller can say
+// so in the log rather than dropping it silently.
+func (c *connSet) setSpec(id uint32, spec SessionSpec) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn, ok := c.conns[id]
+	if !ok || !conn.local {
+		return false
+	}
+	stored := spec
+	conn.spec = &stored
+	return true
+}
+
+// consumeSpec returns the spec for a new session on this connection and
+// leaves behind what the NEXT new session should inherit.
+//
+// The arguments describe one invocation and are spent here; the directory
+// and environment describe the terminal the client is sitting in and stay
+// for as long as it is connected. See inheritedSpec.
+func (c *connSet) consumeSpec(id uint32) *SessionSpec {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn, ok := c.conns[id]
+	if !ok || conn.spec == nil {
+		return nil
+	}
+	spec := conn.spec
+	conn.spec = inheritedSpec(spec)
+	return spec
 }
 
 // remove drops one connection.

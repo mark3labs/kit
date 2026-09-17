@@ -62,15 +62,37 @@ func LocalSocketPath() (string, error) {
 
 // listenLocal binds the local control socket.
 //
-// A leftover socket file from a crashed daemon is removed first. This is
-// safe because Serve already holds the single-instance flock by the time
-// it calls us: no other daemon can be listening, so any file still there
-// is stale by definition.
+// A leftover socket file from a crashed daemon is removed first, but only
+// after proving that nobody is listening on it.
+//
+// The single-instance flock is NOT sufficient proof on its own. The lock
+// lives in the daemon's runtime directory, derived from the user's cache
+// directory, while the socket lives under XDG_RUNTIME_DIR — two settings
+// that can be moved independently. Two daemons with different cache
+// directories and the same runtime directory (a packaged build beside a
+// dev build, a nix devshell, a direnv that sets XDG_CACHE_HOME) both
+// acquire a lock without contention and then meet here, over one socket.
+//
+// Unlinking blindly is the worst possible outcome of that meeting. The
+// running daemon keeps its bound inode and goes on listening, but nothing
+// can reach it by path ever again — a bound socket cannot be re-linked —
+// so its sessions become unreachable while it reports itself healthy.
+// That is the exact failure the crash-recovery design exists to prevent,
+// arrived at from the other direction.
+//
+// Refusing to start is the safe direction: a stuck socket file is
+// recoverable in one command, and the message below says which one.
 func listenLocal(path string) (net.Listener, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("daemon: socket dir: %w", err)
 	}
 	if _, err := os.Stat(path); err == nil {
+		if socketIsLive(path) {
+			return nil, fmt.Errorf(
+				"daemon: another kit daemon is already listening on %s\n"+
+					"(it holds a different lock, so its state directory differs from this one — "+
+					"check XDG_CACHE_HOME and XDG_RUNTIME_DIR)", path)
+		}
 		if err := os.Remove(path); err != nil {
 			return nil, fmt.Errorf("daemon: remove stale socket: %w", err)
 		}
@@ -88,6 +110,27 @@ func listenLocal(path string) (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// socketIsLive reports whether something is listening on a socket path.
+//
+// connect(2) on a Unix socket is answered by the kernel from the listen
+// backlog, so a daemon that is merely busy still answers immediately and
+// a daemon that has died gives ECONNREFUSED just as fast. The timeout is
+// therefore for the pathological case only, and it resolves towards
+// "live": treating an unanswered probe as a dead socket is what would
+// unlink a working daemon.
+func socketIsLive(path string) bool {
+	conn, err := net.DialTimeout("unix", path, socketProbeTimeout)
+	if err == nil {
+		_ = conn.Close()
+		return true
+	}
+	// Nobody is home: the classic stale-socket signature.
+	return !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, os.ErrNotExist)
+}
+
+// socketProbeTimeout bounds the liveness probe in listenLocal.
+const socketProbeTimeout = 2 * time.Second
 
 // serveLocal accepts local clients until the listener closes. Each
 // connection gets its own wire id and frame sink, and is served by its own

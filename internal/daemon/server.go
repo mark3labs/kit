@@ -361,6 +361,15 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 			} else {
 				log.Warn("bad terminal frame", "wire", frame.Session, "error", derr)
 			}
+		case FrameSessionSpec:
+			// Describes how a new session on this connection should be
+			// started; recorded against the connection like FrameTerminal,
+			// and consumed by the next attach that spawns a child.
+			if spec, derr := DecodeSessionSpec(frame.Payload); derr != nil {
+				log.Warn("bad session spec frame", "wire", frame.Session, "error", derr)
+			} else if !t.conns.setSpec(frame.Session, spec) {
+				log.Warn("ignored a session spec from a remote client", "wire", frame.Session)
+			}
 		case FrameSessionList:
 			t.sendSessionList(frame.Session)
 		case FrameSessionAttach:
@@ -658,7 +667,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		s.attachClient(wire, winSize{})
 		t.mu.Unlock()
 
-		child, ptmx, err := t.spawnPickDir(logical, t.conns.terminalFor(wire))
+		child, ptmx, err := t.spawnSession(logical, t.conns.terminalFor(wire), t.conns.consumeSpec(wire))
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
 			t.retireSession(logical)
@@ -837,21 +846,32 @@ func (t *sessionTable) sessionCwd(s *remoteSession) string {
 	return strings.TrimSpace(string(data))
 }
 
-// spawnPickDir starts a kit child with the hidden --pick-dir flag in the
-// daemon user's home directory, so the peer picks the session's working
-// directory from the modal rendered inside the PTY.
+// spawnSession starts a kit child for a new session, rendered into the
+// PTY the daemon owns.
+//
+// Without a spec the child gets the hidden --pick-dir flag and starts in
+// the daemon user's home directory, so the peer chooses the session's
+// working directory from the modal rendered inside the PTY. That is the
+// only thing a remote client can be offered: the daemon shares no
+// directory, no argument list and no environment with it.
+//
+// With a spec — only ever from the local socket — the child reproduces
+// the invocation the user typed: their directory, their arguments, their
+// environment. This is what lets a plain `kit` in a project directory be
+// hosted by the daemon without behaving like a different command.
 //
 // info describes the terminal of the client that asked for the session, so
 // the child renders for that terminal rather than for the daemon's own
 // environment.
-func (t *sessionTable) spawnPickDir(session uint64, info TerminalInfo) (*exec.Cmd, *os.File, error) {
+func (t *sessionTable) spawnSession(session uint64, info TerminalInfo, spec *SessionSpec) (*exec.Cmd, *os.File, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
 	}
+	dir, specArgs := specCommand(spec)
 
-	cmd := exec.Command(exe, "--pick-dir")
-	cmd.Dir = homeDir()
+	cmd := exec.Command(exe, specArgs...)
+	cmd.Dir = dir
 	own := map[string]string{
 		clipboard.RemoteClipboardEnv: t.remoteClipboardPath(session),
 		sessionCwdEnv:                t.sessionCwdPath(session),
@@ -862,8 +882,10 @@ func (t *sessionTable) spawnPickDir(session uint64, info TerminalInfo) (*exec.Cm
 		own[sessionOwnerEnv] = home
 	}
 	// The child renders into the CLIENT's terminal, not the daemon's; see
-	// childEnv for why the PTY between them cannot answer for it.
-	cmd.Env = childEnv(os.Environ(), info, own)
+	// childEnv for why the PTY between them cannot answer for it. The
+	// spec's variables go underneath, where the daemon's own per-session
+	// values still override them.
+	cmd.Env = childEnv(specBase(os.Environ(), spec), info, own)
 
 	// Ask the kernel to kill this child if the daemon dies, so a crash
 	// cannot leave an unreachable session running (see recovery.go).

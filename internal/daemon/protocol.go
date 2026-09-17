@@ -56,6 +56,15 @@ const (
 	// before SESSION_ATTACH so a new session's child is spawned already
 	// describing the terminal it will be seen in.
 	FrameTerminal FrameType = 0x0e // client -> daemon: JSON TerminalInfo
+	// FrameSessionSpec describes the command line a NEW session should be
+	// started as: a working directory, the arguments to pass, and the
+	// environment variables to layer on the daemon's own (JSON, see
+	// SessionSpec). Without it a new session always starts in the daemon
+	// user's home directory behind the directory picker, which is right
+	// for 'kit attach' but wrong for a plain 'kit' in a project directory.
+	// Sent before SESSION_ATTACH, like TERMINAL; a daemon too old to know
+	// the frame drops it and starts the session the old way.
+	FrameSessionSpec FrameType = 0x0f // client -> daemon: JSON SessionSpec
 
 	// Historical frame types (retired with the Rust kit-tunnel sidecar,
 	// which owned the transport in a subprocess). SESSION_OPEN/CLOSED
@@ -195,6 +204,56 @@ func DecodeTerminalInfo(payload []byte) (TerminalInfo, error) {
 		return TerminalInfo{}, fmt.Errorf("daemon: bad terminal payload: %w", err)
 	}
 	return info, nil
+}
+
+// SessionSpec describes how to start a NEW session, so a session hosted
+// by the daemon begins where the user ran the command rather than in the
+// daemon's home directory.
+//
+// The daemon inherits nothing from the client: it is a separate process,
+// usually started by a service manager, with its own working directory
+// and its own environment. A session spawned from it therefore has to be
+// told all three parts explicitly.
+//
+// A spec is honoured only on the LOCAL socket. A working directory and an
+// argument list from another machine name nothing that exists on this
+// one, and accepting argv over the network would turn a paired client
+// into arbitrary execution. The local socket is already restricted to the
+// daemon's own user, so a spec there grants no more than running kit
+// directly would.
+type SessionSpec struct {
+	// Cwd is the directory the session starts in. An empty or missing
+	// directory falls back to the daemon user's home.
+	Cwd string `json:"cwd,omitempty"`
+	// Args are the arguments to pass to the session's kit process,
+	// without the program name.
+	Args []string `json:"args,omitempty"`
+	// Env holds environment variables to layer on the daemon's own. Keys
+	// the daemon owns are ignored; see reservedSpecEnv.
+	Env map[string]string `json:"env,omitempty"`
+	// Pick asks for the working-directory picker, rooted at Cwd, instead
+	// of starting straight away.
+	//
+	// This is what `kit attach` asks for: the user said which MACHINE they
+	// wanted a session on, not which directory, so they are still offered
+	// the choice — but offered it where they are standing rather than in
+	// their home directory. A routed `kit` leaves it false, because there
+	// the directory is the whole point.
+	Pick bool `json:"pick,omitempty"`
+}
+
+// EncodeSessionSpec renders a SESSION_SPEC payload.
+func EncodeSessionSpec(spec SessionSpec) ([]byte, error) {
+	return json.Marshal(spec)
+}
+
+// DecodeSessionSpec parses a SESSION_SPEC payload.
+func DecodeSessionSpec(payload []byte) (SessionSpec, error) {
+	var spec SessionSpec
+	if err := json.Unmarshal(payload, &spec); err != nil {
+		return SessionSpec{}, fmt.Errorf("daemon: bad session spec payload: %w", err)
+	}
+	return spec, nil
 }
 
 // WriteDataFrames splits b into chunkSize DATA frames tagged with session.

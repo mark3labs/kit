@@ -139,7 +139,7 @@ func isSessionChild(pid int, owner string) bool {
 	if err != nil {
 		return false // cannot identify it, so do not touch it
 	}
-	if !strings.Contains(cmdline, pickDirFlagName) {
+	if !isSessionChildCmdline(cmdline) {
 		return false
 	}
 	owned, err := processOwnedBy(pid, owner)
@@ -151,8 +151,25 @@ func isSessionChild(pid int, owner string) bool {
 	return owned
 }
 
-// pickDirFlagName is the flag every session child is spawned with.
+// pickDirFlagName asks a session child to open the directory picker
+// before it starts. It is what a session spawned without a SessionSpec
+// gets, and what every session child got before specs existed.
 const pickDirFlagName = "--pick-dir"
+
+// isSessionChildCmdline reports whether a command line is a kit session
+// child's.
+//
+// Two markers are accepted. --daemon-session is on every child this
+// daemon spawns, whatever else the spec asked for, and is the reason a
+// child running the user's own arguments is still recognisable. The older
+// --pick-dir is accepted as well so a daemon upgraded in place still
+// sweeps the children its predecessor left behind; on its own it is no
+// longer sufficient proof, which is why ownership is settled by the
+// environment marker in isSessionChild rather than here.
+func isSessionChildCmdline(cmdline string) bool {
+	return strings.Contains(cmdline, SessionFlag) ||
+		strings.Contains(cmdline, pickDirFlagName)
+}
 
 // sweepOrphanSessions kills any session child left behind by a previous
 // run of THIS daemon and clears the registry. Called once at start-up.

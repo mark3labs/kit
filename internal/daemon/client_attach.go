@@ -91,6 +91,14 @@ type AttachOptions struct {
 	// HubEntries supplies sessions from other hosts for the hub picker.
 	// The context bounds the queries it makes.
 	HubEntries func(ctx context.Context) []SessionEntry
+	// Spec describes how a NEW session should be started: the directory
+	// the user ran the command in, the arguments they gave it, and the
+	// environment it needs. Nil asks for the daemon's default, which is
+	// the directory picker in the daemon user's home.
+	//
+	// Honoured on the local socket only. RunHost clears it: see
+	// SessionSpec for why argv must not cross a network boundary.
+	Spec *SessionSpec
 }
 
 // attachOutcome reports why a single attached session stopped.
@@ -641,6 +649,17 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 	// terminal. A daemon too old to know the frame ignores it.
 	if payload, terr := EncodeTerminalInfo(localTerm); terr == nil {
 		_ = conn.write(FrameTerminal, payload)
+	}
+	// Likewise the spec: it has to be on record before the attach that
+	// spawns the child reads it. A daemon too old to know this frame drops
+	// it and starts the session in the home directory behind the picker,
+	// which is what every session did before specs existed.
+	if opts.Spec != nil {
+		if spec, ok := specFits(*opts.Spec); !ok {
+			fmt.Fprintln(os.Stderr, "This command line is too long to hand to the daemon; starting with the directory picker instead.")
+		} else if payload, serr := EncodeSessionSpec(spec); serr == nil {
+			_ = conn.write(FrameSessionSpec, payload)
+		}
 	}
 	// Give the terminal back on the way out. Everything above this call
 	// may hand control to a caller that reads stdin itself — a cross-host

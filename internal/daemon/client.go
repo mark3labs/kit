@@ -153,6 +153,13 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 	// hub picker, so a choice carrying a different host is a cross-host
 	// switch.
 	opts.Host = name
+	// A spec names a directory, an argument list and an environment on
+	// the machine the client is sitting at. None of it describes this
+	// host, and forwarding argv to a paired peer would make pairing
+	// equivalent to arbitrary execution. The daemon refuses a spec from a
+	// remote connection anyway; dropping it here means the client never
+	// puts it on the wire.
+	opts.Spec = nil
 	if opts.Reattach == "" {
 		// The hint is completed with the session id, and only 'kit attach'
 		// takes one: 'kit remote --host X 1' is not a valid command line.

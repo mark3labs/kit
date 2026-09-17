@@ -31,7 +31,7 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 - **Non-Interactive Mode**: Script-friendly positional args with JSON output
 - **GitHub Integration**: Scaffold a GitHub Actions workflow with `kit github install` to run Kit as a collaborator/reviewer on `/kit` comments
 - **ACP Server**: Run Kit as an [Agent Client Protocol](https://agentclientprotocol.com) agent over stdio
-- **Sessions**: `kit attach` runs a detachable session on a local daemon (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle) and its picker lists sessions on this machine *and* every paired host; `kit ls` lists them
+- **Sessions**: with the daemon running, a plain `kit` is already a detachable session in the directory you ran it from (tmux-style: `Ctrl+]` `d` detach, `s` switch, `c` new, `n`/`p` cycle); `kit attach` picks which session to return to, across this machine *and* every paired host, and `kit ls` lists them
 - **Remote Sessions**: `kit daemon` on one machine; pair a client once with `kit daemon pair` + `kit remote --pair <code>` (accept/reject on the host), then connect any time with `kit remote --host <name>` — sessions can be detached (`Ctrl+] d`) and reattached from the in-client session list, or shared by several clients at once (tmux-style mirrored view) — end-to-end encrypted iroh transport, revocable public-key credentials, clipboard image paste from the client machine, systemd service support
 - **Go SDK**: Embed Kit in your own applications with full agent lifecycle events (30+ event types) and behavior-modifying hooks
 
@@ -301,11 +301,14 @@ kit acp                      # Start as ACP agent (stdio JSON-RPC)
 kit acp --debug              # With debug logging to stderr
 
 # Detachable sessions (survive closing the terminal; Ctrl+] is the prefix)
+kit daemon service install   # Start the daemon once; after this, plain `kit` is detachable
+cd ~/project && kit          # A detachable session, right here — Ctrl+] d to leave it working
 kit attach                   # Pick a live session (local or paired host), or start one
 kit attach 3                 # Attach straight to session 3
 kit attach --new             # Skip the picker, start a new session
 kit ls                       # List live sessions
 kit ls --all                 # Include sessions on every paired host
+kit --no-daemon              # Run in this terminal, daemon or no daemon
 
 # Remote sessions (host)
 kit daemon                   # Host sessions for local and paired clients
@@ -688,7 +691,7 @@ During an interactive session, use these slash commands:
 | `Ctrl+U` | Clear all pending image attachments |
 | `Ctrl+X e` | Open `$VISUAL`/`$EDITOR` to compose or edit your prompt |
 | `Ctrl+X s` | Steer — inject a system-level instruction mid-turn |
-| `Ctrl+]` | Session prefix in `kit attach`/`kit remote`: `d` detach · `s` switch · `c` new · `n`/`p` cycle · `w` across hosts |
+| `Ctrl+]` | Session prefix in any daemon-hosted session (`kit` with a daemon running, `kit attach`, `kit remote`): `d` detach · `s` switch · `c` new · `n`/`p` cycle · `w` across hosts |
 | `ESC ESC` | Cancel the current operation (tool call or streaming) |
 | `↑` / `↓` | Navigate prompt history |
 

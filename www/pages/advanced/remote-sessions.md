@@ -10,12 +10,21 @@ running when you close the terminal, and you can reattach to it later,
 switch between several like tmux, or share one with someone else. The
 daemon can be on this machine or on another.
 
-For sessions on this machine, no setup and no pairing is needed — skip to
-[Sessions on this machine](#sessions-on-this-machine):
+When a daemon is running on this machine, **`kit` itself is detachable** —
+there is nothing extra to type:
 
 ```bash
-kit attach
+cd ~/project
+kit                 # same command, same directory, same flags
+# Ctrl+] d          # detach; the agent keeps working
+kit attach          # come back to it
 ```
+
+When no daemon is running, `kit` runs in your terminal exactly as it
+always has. See [Detachable by default](#detachable-by-default) for the
+exact rule, and skip to [Sessions on this
+machine](#sessions-on-this-machine) for the local setup — no pairing and
+no configuration are needed.
 
 The rest of this page covers **remote** sessions. All work — the agent,
 tools, extensions, sessions — happens on the daemon host; your local
@@ -76,6 +85,57 @@ rendering, and session persistence all run on the daemon host.
 | `kit attach --host <name>` | client | Attach on a paired host, with session switching |
 | `kit attach --all` | client | Pick across every paired host **without** starting a local daemon first |
 | `kit ls` | either | List live sessions (`--all` includes paired hosts) |
+| `kit --no-daemon` | either | Run in this terminal, even when a daemon could host the session |
+
+## Detachable by default
+
+A plain `kit` becomes a daemon-hosted session whenever the local daemon is
+running. The session is the **same command**: it starts in the directory
+you ran it from, with the arguments you gave it, and with the credentials
+and `PATH` from your shell. Nothing about the agent, the extensions, or
+session persistence changes — only where the process lives.
+
+Start the daemon once and it stays:
+
+```bash
+kit daemon service install   # systemd user service (recommended)
+kit daemon                   # or run it in a terminal
+```
+
+Kit runs **in your terminal**, undetachable, whenever hosting it would
+change what the command means:
+
+| Case | Why |
+|------|-----|
+| No daemon is running | Nothing to host it; this is the default state |
+| `--no-daemon`, or `KIT_NO_DAEMON=1` | You asked for this terminal |
+| `daemon-mode: never` in the config | Same, as a standing preference |
+| A one-shot prompt (`kit "..."`, `kit @file.go "..."`) | The caller is waiting for output, not for a session to detach from |
+| `--quiet` or `--json` | Consumed by a pipe; a relayed terminal is the wrong shape |
+| stdin or stdout is not a terminal | A session is a relayed PTY; there is nothing to relay |
+| Already inside a session | Including a `kit` the agent runs from its own shell tool |
+
+Set the standing preference in any `.kit.yml`:
+
+```yaml
+daemon-mode: auto    # host when a daemon is running (the default)
+daemon-mode: never   # always run in this terminal
+daemon-mode: always  # start a daemon on demand, then host
+```
+
+`always` starts a daemon for you the first time you need one. If it cannot
+be started, kit runs in your terminal and says so rather than failing.
+
+Only the **local socket** carries your directory, arguments and
+environment. A paired remote client never does — a directory from another
+machine names nothing here, and accepting an argument list from a peer
+would make pairing equivalent to arbitrary execution. Remote sessions
+therefore still open the working-directory picker, as they always have.
+
+The environment a session inherits is an **allowlist**, not a copy:
+`PATH`, `HOME`, `SHELL`, `EDITOR`, the locale, proxy settings, and the
+provider credential variables (`ANTHROPIC_*`, `OPENAI_*`, `PROVIDER_*`,
+and so on). Variables the daemon owns are never taken from a client.
 
 ## Sessions on this machine
 
@@ -84,6 +144,12 @@ it talks to a daemon on this machine over a Unix socket in
 `$XDG_RUNTIME_DIR/kit/`, and starts one if none is running. The socket is
 `0600` inside a `0700` directory and every connection's peer uid is
 checked, so only your own processes can reach it.
+
+Where plain `kit` starts a session **here**, `kit attach` asks *which*
+session — so it is the command to reach for when you want to go back to
+something, or start one somewhere else. A new session from `kit attach`
+opens the working-directory picker, rooted in the directory you ran it
+from.
 
 The picker it opens is **not** limited to this machine: it lists the local
 daemon's sessions followed by those on every paired host, each group under
@@ -143,7 +209,7 @@ Inside an attached session, `Ctrl+]` is the multiplexer prefix:
 |-------|--------|
 | `Ctrl+] d` | Detach; the session keeps running |
 | `Ctrl+] s` | Switch to another session |
-| `Ctrl+] c` | Start a new session |
+| `Ctrl+] c` | Start a new session, in the same directory |
 | `Ctrl+] n` / `Ctrl+] p` | Next / previous session |
 | `Ctrl+] w` | Switch across paired hosts |
 | `Ctrl+] Ctrl+]` | Send a literal `Ctrl+]` to the session |

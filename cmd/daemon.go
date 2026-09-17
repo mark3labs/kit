@@ -19,9 +19,10 @@ var daemonCmd = &cobra.Command{
 	Long: `Run Kit as a remote daemon.
 
 Hosts sessions for clients on this machine and for paired remote
-clients. Local clients connect over a Unix socket with 'kit attach';
-remote clients pair once and then connect over an end-to-end encrypted
-iroh connection. Each client picks a working directory and gets its own
+clients. With a daemon running, a plain 'kit' on this machine is a
+detachable session: Ctrl-] d leaves it working, 'kit attach' brings it
+back, and 'kit ls' lists them. Remote clients pair once and then connect
+over an end-to-end encrypted iroh connection. Each client gets its own
 session: the session runs entirely on this machine, rendered inside the
 peer's terminal. Multiple clients can hold sessions at the same time,
 and exiting a session only disconnects that client.

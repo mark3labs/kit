@@ -101,6 +101,12 @@ var (
 	// (--pick-dir, hidden — spawned by `kit daemon`).
 	pickDirFlag bool
 
+	// Detachable sessions. --daemon-session (hidden) marks a process the
+	// daemon spawned to BE a session, so it never tries to route itself
+	// into another one; --no-daemon opts one invocation out of routing.
+	daemonSessionFlag bool
+	noDaemonFlag      bool
+
 	// Preference restoration flags — set in RunE after cobra parses, used
 	// in runNormalMode to decide whether to apply saved preferences.
 	modelFlagChanged    bool
@@ -145,8 +151,13 @@ func (a *kitUIAdapter) GetExtensionToolCount() int {
 var rootCmd = &cobra.Command{
 	Use:   "kit [@file...] [prompt]",
 	Short: "Chat with AI models through a unified interface",
-	Long:  `KIT (Knowledge Inference Tool) — A lightweight AI agent for coding`,
-	Args:  cobra.ArbitraryArgs,
+	Long: `KIT (Knowledge Inference Tool) — A lightweight AI agent for coding
+
+When the kit daemon is running, a session started here is detachable:
+Ctrl-] d leaves it working and 'kit attach' brings it back. Without a
+daemon, kit runs in this terminal as usual. Use --no-daemon to insist on
+this terminal, and 'kit daemon service install' to keep a daemon around.`,
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Parse positional args: @-prefixed args are file attachments,
 		// remaining args form the prompt (like Pi: kit @code.ts "Review this").
@@ -171,7 +182,7 @@ var rootCmd = &cobra.Command{
 			strings.TrimSpace(f.Value.String()) == "" {
 			return fmt.Errorf(`--shell needs a shell, e.g. --shell /bin/dash or --shell "busybox ash"`)
 		}
-		return runKit(context.Background())
+		return runKitRouted(context.Background())
 	},
 }
 
@@ -239,6 +250,7 @@ var globalBoolFlags = []string{
 	"continue", "resume", "auto-compact", "compact", "stream",
 	"no-extensions", "no-prompt-templates", "no-skills", "no-agents",
 	"no-core-tools", "tls-skip-verify", "pick-dir", "version",
+	"daemon-session", "no-daemon",
 	"c", "r", // -c (continue), -r (resume)
 }
 
@@ -415,6 +427,14 @@ func init() {
 		StringSliceVar(&skillsDisable, "skill-disable", nil, "hide a skill from the model catalog by name (repeatable); still usable via /<name>")
 	rootCmd.Flags().
 		BoolVar(&pickDirFlag, "pick-dir", false, "choose a working directory with a picker before starting")
+	// Set by the daemon on every session child it spawns. Users never pass
+	// it: it exists so a hosted session can recognise itself and so the
+	// crash sweep can recognise it from the outside (see daemon.SessionFlag).
+	rootCmd.Flags().
+		BoolVar(&daemonSessionFlag, daemon.SessionFlagName, false, "internal: this process is a daemon-hosted session")
+	_ = rootCmd.Flags().MarkHidden(daemon.SessionFlagName)
+	rootCmd.PersistentFlags().
+		BoolVar(&noDaemonFlag, "no-daemon", false, "run in this terminal even when the kit daemon could host a detachable session")
 
 	flags := rootCmd.PersistentFlags()
 	flags.StringVar(&providerURL, "provider-url", "", "base URL for the provider API (applies to OpenAI, Anthropic, Ollama, and Google)")
@@ -477,6 +497,11 @@ func init() {
 	_ = viper.BindPFlag("skill", rootCmd.PersistentFlags().Lookup("skill"))
 	_ = viper.BindPFlag("skills-dir", rootCmd.PersistentFlags().Lookup("skills-dir"))
 	_ = viper.BindPFlag("skill-disable", rootCmd.PersistentFlags().Lookup("skill-disable"))
+
+	// `daemon-mode` has no flag of its own: --no-daemon covers the only
+	// choice worth making on one command line, and the other two values
+	// describe a standing preference rather than a one-off.
+	viper.SetDefault("daemon-mode", daemonModeAuto)
 
 	// Defaults are already set in flag definitions, no need to duplicate in viper
 
@@ -552,10 +577,28 @@ func processPositionalArgs(args []string) {
 // exits the process directly on cancellation or failure.
 func preInitDispatch() {
 	if !pickDirFlag {
+		// A session started from a SessionSpec is already in the right
+		// directory — the daemon spawned it there — so there is nothing to
+		// pick, but the daemon still has to be told, or `kit ls` and the
+		// session picker would show the session with no directory at all.
+		if daemonSessionFlag {
+			if cwd, err := os.Getwd(); err == nil {
+				daemon.ReportSessionCwd(cwd)
+			}
+		}
 		return
 	}
-	home, _ := os.UserHomeDir()
-	chosen, err := ui.RunDirPicker(home)
+	// The picker opens where this process already is, not in the home
+	// directory. Run by hand that is the shell's directory, which is where
+	// the user is working; spawned by the daemon it is whatever the client
+	// asked for, which is the same thing one machine removed. Home remains
+	// the fallback, and it is also what a session with no spec starts in,
+	// so that case is unchanged.
+	start, err := os.Getwd()
+	if err != nil || start == "" {
+		start, _ = os.UserHomeDir()
+	}
+	chosen, err := ui.RunDirPicker(start)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

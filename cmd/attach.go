@@ -79,6 +79,10 @@ started automatically if none is running.
   kit attach --host homelab  # attach on a paired remote host
   kit attach --all           # list sessions across every paired host
 
+When the daemon is running, a plain 'kit' is already a detachable session
+in the directory you run it from. Use this command to choose WHICH
+session: to go back to one you left, or to start one somewhere else.
+
 Sessions keep running when you detach, so you can leave one working and
 come back to it later — from this terminal or another machine.
 
@@ -86,7 +90,7 @@ Inside a session, Ctrl-] is the multiplexer prefix:
 
   Ctrl-] d    detach, leaving the session running
   Ctrl-] s    switch session
-  Ctrl-] c    start a new session
+  Ctrl-] c    start a new session in the same directory
   Ctrl-] n/p  next / previous session
   Ctrl-] w    switch across hosts
   Ctrl-] Ctrl-]  send a literal Ctrl-]`,
@@ -107,6 +111,13 @@ Inside a session, Ctrl-] is the multiplexer prefix:
 			Pick:     localPicker,
 			Target:   target,
 			ForceNew: attachNew,
+			// A session started from here is started on purpose, without
+			// saying where, so the directory picker stays — but it opens
+			// where the user ran the command instead of in their home
+			// directory, and the session inherits the environment of the
+			// shell that asked for it. Dropped again by RunHost: a
+			// directory here names nothing on a paired host.
+			Spec: attachSpec(),
 		}
 
 		if attachAll {
@@ -114,6 +125,19 @@ Inside a session, Ctrl-] is the multiplexer prefix:
 		}
 		return runFollowingHostSwitches(ctx, attachHost, opts)
 	},
+}
+
+// attachSpec describes this client to a local daemon: where it is, and
+// what environment a session it starts should have. Nil when the working
+// directory cannot be read, which simply leaves the daemon to its own
+// default of a picker in the home directory.
+func attachSpec() *daemon.SessionSpec {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	spec := daemon.SessionSpecForPicker(cwd)
+	return &spec
 }
 
 // maxHostSwitches bounds one invocation's cross-host hops, so a session
