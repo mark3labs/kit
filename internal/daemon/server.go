@@ -153,6 +153,11 @@ type remoteSession struct {
 	ptmx    *os.File
 	started time.Time
 
+	// modes remembers the terminal modes the child has set, so a client
+	// that attaches after the child set them still gets them. See
+	// termModes.
+	modes *termModes
+
 	mu      sync.Mutex
 	name    string             // user-set display name, empty until renamed
 	clients map[uint32]winSize // attached wire ids -> last known size (0,0 = unknown)
@@ -193,6 +198,27 @@ func (s *remoteSession) nudgeRedraw() {
 		time.Sleep(40 * time.Millisecond)
 		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows)})
 	}()
+}
+
+// sendTermModes hands one client the terminal modes the session's child
+// has set: mouse reporting, bracketed paste, focus reporting, cursor
+// visibility and the keyboard protocol.
+//
+// Only the client that STARTED a session sees those sequences on the
+// wire, because the child sends each one once and never repeats it — a
+// repaint is not a mode change. Every later client (a reattach, a session
+// switch, a second client sharing the view) would otherwise run the
+// session in a terminal that reports no mouse at all.
+//
+// Sent to the asking client alone: the others are already in this state,
+// and a fan-out would write over whatever they are drawing.
+func (t *sessionTable) sendTermModes(s *remoteSession, wire uint32) {
+	if s.modes == nil {
+		return
+	}
+	if replay := s.modes.Replay(); len(replay) > 0 {
+		_ = t.writeTo(Frame{Type: FrameData, Session: wire, Payload: replay})
+	}
 }
 
 type winSize struct{ cols, rows int }
@@ -376,6 +402,12 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 			t.attachSession(frame.Session, frame.Payload)
 		case FrameSessionRedraw:
 			if sess := t.logicalFor(frame.Session); sess != nil {
+				// A client asks to repaint exactly when it has taken
+				// over the screen, which is also the moment its terminal
+				// needs the modes the child set before it arrived. The
+				// modes go first: the repaint that follows is drawn into
+				// a terminal already in the right state.
+				t.sendTermModes(sess, frame.Session)
 				sess.nudgeRedraw()
 			}
 		case FrameSessionRename:
@@ -661,6 +693,7 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 			id:      logical,
 			started: time.Now(),
 			clients: make(map[uint32]winSize),
+			modes:   newTermModes(),
 		}
 		t.sessions[logical] = s
 		t.wireMap[wire] = logical
@@ -728,6 +761,13 @@ func (t *sessionTable) watchSession(s *remoteSession) {
 		for {
 			n, err := sess.ptmx.Read(buf)
 			if n > 0 {
+				// Watch the stream for terminal modes on the way past.
+				// The next client to attach is handed them; it will
+				// never see the sequences themselves, because the child
+				// sends each one once.
+				if sess.modes != nil {
+					sess.modes.Feed(buf[:n])
+				}
 				for _, wire := range sess.clientIDs() {
 					// Write errors mean the tunnel is gone; the restart
 					// loop takes over from here.

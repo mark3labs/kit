@@ -44,6 +44,12 @@ const (
 	// a full-screen TUI redraw; doing it daemon-side keeps the two size
 	// changes off the network, where the round trip made the old
 	// client-side version of this trick unreliable.
+	//
+	// The daemon answers it with the session's terminal modes (mouse,
+	// bracketed paste, focus, cursor, keyboard protocol) as ordinary data
+	// first: a client that attaches to a running session never saw the
+	// child set them, because a TUI sends each mode sequence once. See
+	// termModes.
 	FrameSessionRedraw FrameType = 0x0c // client -> daemon: repaint (payload empty)
 	// FrameSessionRename sets a session's display name so a list of many
 	// sessions stays readable.
