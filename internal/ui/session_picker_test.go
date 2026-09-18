@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/creack/pty"
 )
 
@@ -21,12 +22,8 @@ import (
 // The picker therefore always leaves the alternate screen itself, and the
 // attach client re-enters it (see daemon.runPicker).
 func TestSessionPickerLeavesTheAltScreen(t *testing.T) {
-	m := &sessionPickerModel{
-		rows:   buildRows([]SessionEntry{{ID: 1, Started: time.Now()}}),
-		title:  "Live sessions",
-		width:  80,
-		height: 24,
-	}
+	m := newSessionPickerModel([]SessionEntry{{ID: 1, Started: time.Now()}}, "Live sessions")
+	m.width, m.height = 80, 24
 
 	if v := m.View(); !v.AltScreen {
 		t.Fatal("a running picker must own the alternate screen")
@@ -141,5 +138,173 @@ func TestSessionPickerLeavesLocalOnlyListsUngrouped(t *testing.T) {
 		if !r.selectable {
 			t.Fatalf("a local-only list grew a %q header", r.header)
 		}
+	}
+}
+
+// pressKey drives the picker the way Bubble Tea would.
+func pressKey(t *testing.T, m *sessionPickerModel, key string) {
+	t.Helper()
+	m.handleKey(pickerKey(key))
+}
+
+// pickerKey builds the key message for a key name the picker understands.
+func pickerKey(name string) tea.KeyPressMsg {
+	switch name {
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	default:
+		r := []rune(name)[0]
+		return tea.KeyPressMsg{Code: r, Text: string(r)}
+	}
+}
+
+// cursorRow returns the row the cursor sits on.
+func cursorRow(t *testing.T, m *sessionPickerModel) pickerRow {
+	t.Helper()
+	items := m.popup.Items()
+	if len(items) == 0 {
+		t.Fatal("the picker has no rows")
+	}
+	row, ok := items[m.popup.Cursor()].Meta.(pickerRow)
+	if !ok {
+		t.Fatal("a picker row lost its metadata")
+	}
+	return row
+}
+
+// TestSessionPickerCursorSkipsHeaders keeps group headings out of the
+// selection. A header names a machine; it is not something to attach to,
+// so arrowing through the list must step over it in both directions.
+func TestSessionPickerCursorSkipsHeaders(t *testing.T) {
+	m := newSessionPickerModel([]SessionEntry{
+		{ID: 1, Host: ""},
+		{ID: 2, Host: "mev"},
+	}, "Live sessions")
+
+	if row := cursorRow(t, m); !row.selectable {
+		t.Fatal("the picker opened on a header")
+	}
+	for _, key := range []string{"down", "down", "up", "up", "home", "end"} {
+		pressKey(t, m, key)
+		if row := cursorRow(t, m); !row.selectable {
+			t.Fatalf("%q left the cursor on the %q header", key, row.header)
+		}
+	}
+}
+
+// TestSessionPickerFilterKeepsGrouping checks the search line: typing
+// narrows the sessions, a heading left with nothing under it goes away,
+// and the new-session row stays reachable however narrow the list gets.
+func TestSessionPickerFilterKeepsGrouping(t *testing.T) {
+	m := newSessionPickerModel([]SessionEntry{
+		{ID: 1, Host: "", Cwd: "/home/ada/kit"},
+		{ID: 2, Host: "mev", Name: "compiler"},
+	}, "Live sessions")
+
+	for _, ch := range "compiler" {
+		pressKey(t, m, string(ch))
+	}
+
+	var headers []string
+	sessions, newRows := 0, 0
+	for _, item := range m.popup.Items() {
+		row := item.Meta.(pickerRow)
+		switch {
+		case row.isNew:
+			newRows++
+		case !row.selectable:
+			headers = append(headers, row.header)
+		default:
+			sessions++
+		}
+	}
+	if sessions != 1 {
+		t.Fatalf("matching sessions = %d, want 1", sessions)
+	}
+	if newRows != 1 {
+		t.Fatalf("new-session rows = %d, want 1", newRows)
+	}
+	if len(headers) != 1 || headers[0] != "mev" {
+		t.Fatalf("headers = %v, want only the host that still has a session", headers)
+	}
+	if row := cursorRow(t, m); !row.selectable {
+		t.Fatal("filtering parked the cursor on a header")
+	}
+}
+
+// TestSessionPickerEnterPicksTheCursorRow pins what Enter returns: the
+// entry under the cursor, by its index in the caller's slice, not the row
+// index of the list (which headers shift).
+func TestSessionPickerEnterPicksTheCursorRow(t *testing.T) {
+	m := newSessionPickerModel([]SessionEntry{
+		{ID: 1, Host: "mev"},
+		{ID: 2, Host: "mev"},
+	}, "Live sessions")
+
+	pressKey(t, m, "down") // second session
+	pressKey(t, m, "enter")
+
+	if !m.quitting || m.cancelled {
+		t.Fatal("enter did not end the picker with a choice")
+	}
+	if m.choice.index != 1 {
+		t.Fatalf("chosen index = %d, want 1", m.choice.index)
+	}
+}
+
+// TestSessionPickerEscCancels checks the two esc steps of the search box:
+// the first clears a query, the second dismisses the picker. A user who
+// typed a filter should get their list back before losing the picker.
+func TestSessionPickerEscCancels(t *testing.T) {
+	m := newSessionPickerModel([]SessionEntry{{ID: 1}}, "Live sessions")
+
+	pressKey(t, m, "x")
+	pressKey(t, m, "esc")
+	if m.cancelled {
+		t.Fatal("esc on a filtered list cancelled instead of clearing the search")
+	}
+	if m.popup.Search() != "" {
+		t.Fatalf("search = %q, want it cleared", m.popup.Search())
+	}
+
+	pressKey(t, m, "esc")
+	if !m.cancelled {
+		t.Fatal("esc on an empty search did not cancel the picker")
+	}
+}
+
+// TestSessionPickerFilterResetsTheCursor covers the trap in a filtered
+// list: the cursor used to be merely clamped, so narrowing the list from
+// below the cursor parked it on the last row — "start a new session" —
+// and Enter started a session instead of attaching to the match the user
+// had just typed. A new query puts the cursor on the first match.
+func TestSessionPickerFilterResetsTheCursor(t *testing.T) {
+	m := newSessionPickerModel([]SessionEntry{
+		{ID: 1, Host: "mev", Name: "alpha"},
+		{ID: 2, Host: "mev", Name: "beta"},
+		{ID: 3, Host: "mev", Name: "gamma"},
+	}, "Live sessions")
+
+	pressKey(t, m, "end") // on "start a new session"
+	for _, ch := range "alpha" {
+		pressKey(t, m, string(ch))
+	}
+
+	row := cursorRow(t, m)
+	if row.isNew {
+		t.Fatal("filtering left the cursor on the new-session row")
+	}
+	if row.entry.Name != "alpha" {
+		t.Fatalf("cursor on %q, want the first match", row.entry.Name)
 	}
 }
