@@ -572,8 +572,18 @@ func (p *PopupList) rebuildFiltered() {
 				break
 			}
 		}
+		// Only an unfiltered list snaps past disabled rows, so the popup
+		// opens on something pickable.
+		p.snapToSelectable(1)
+		return
 	}
-	p.snapToSelectable(1)
+	// While searching the cursor stays on the top hit even when that row is
+	// disabled. Snapping here would scroll the best matches off-screen: the
+	// viewport centres on the cursor, so on a catalogue where a query's
+	// strongest hits all lack credentials the cursor would walk hundreds of
+	// rows away to the first selectable entry and hide every relevant match.
+	// Enter on a disabled row is already handled — it returns Rejected and
+	// the footer shows DisabledHint — so resting here costs nothing.
 }
 
 // nextSelectable returns the index of the first non-disabled item strictly

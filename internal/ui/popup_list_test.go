@@ -475,3 +475,66 @@ func TestPopupList_SearchResetsCursorToTopHit(t *testing.T) {
 		t.Errorf("expected cursor back on the active item, got %d", p.cursor)
 	}
 }
+
+// Searching must leave the cursor on the top hit even when that row is
+// disabled. The viewport centres on the cursor, so snapping forward to the
+// first selectable row scrolls the best matches off-screen — on a long
+// catalogue the user sees an arbitrary slice of weak matches and concludes
+// the models they searched for are missing.
+func TestPopupList_SearchKeepsCursorOnDisabledTopHit(t *testing.T) {
+	// Labels are equal length so defaultFilter scores them identically and
+	// falls back to alphabetical order, putting the locked rows on top.
+	items := []PopupItem{
+		{Label: "match-locked-a", Disabled: true},
+		{Label: "match-locked-b", Disabled: true},
+		{Label: "match-usable-x"},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	p.HandleKey("m", "m")
+	if p.cursor != 0 {
+		t.Errorf("expected the cursor to stay on the top hit (index 0), got %d", p.cursor)
+	}
+	if !p.Items()[p.cursor].Disabled {
+		t.Error("expected the top hit to be the disabled row, not a snapped-to selectable one")
+	}
+}
+
+// The no-query list still opens on a pickable row: with nothing typed there
+// is no relevance order to preserve, so skipping locked rows is free.
+func TestPopupList_ClearedSearchSnapsToSelectable(t *testing.T) {
+	items := []PopupItem{
+		{Label: "locked", Disabled: true},
+		{Label: "usable"},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	p.HandleKey("l", "l")
+	if p.cursor != 0 {
+		t.Fatalf("expected cursor on the disabled top hit, got %d", p.cursor)
+	}
+
+	p.HandleKey("esc", "")
+	if p.cursor != 1 {
+		t.Errorf("expected the cleared list to snap to the selectable row, got %d", p.cursor)
+	}
+}
+
+// Enter on the disabled top hit must still be refused rather than selecting
+// it, now that the cursor is allowed to rest there.
+func TestPopupList_EnterOnDisabledTopHitRejected(t *testing.T) {
+	items := []PopupItem{
+		{Label: "match-locked", Disabled: true},
+		{Label: "match-usable"},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+	p.HandleKey("m", "m")
+
+	res := p.HandleKey("enter", "")
+	if res.Selected != nil {
+		t.Errorf("expected no selection, got %q", res.Selected.Label)
+	}
+	if !res.Rejected {
+		t.Error("expected Rejected=true so the caller can surface a hint")
+	}
+}

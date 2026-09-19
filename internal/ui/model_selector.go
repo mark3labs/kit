@@ -214,15 +214,23 @@ func filterModels(query string, items []PopupItem) []PopupItem {
 	sort.Slice(matches, func(i, j int) bool {
 		a := matches[i].item.Meta.(ModelEntry)
 		b := matches[j].item.Meta.(ModelEntry)
-		// Keep unusable models below usable ones even when they score higher,
-		// so Enter on the top hit always works.
-		if a.Available != b.Available {
-			return a.Available
-		}
+		// Rank purely by relevance. Models whose provider has no credentials
+		// must stay searchable: the catalogue holds thousands of models, so
+		// sinking every unavailable hit below every available one buries
+		// whole providers hundreds of rows down and makes them look absent.
+		// A dimmed top hit is harmless — PopupList refuses Enter on it and
+		// shows the /connect hint instead of selecting.
 		if matches[i].score != matches[j].score {
 			return matches[i].score > matches[j].score
 		}
-		return a.ModelID < b.ModelID
+		// Equal relevance: prefer the model the user can actually run.
+		if a.Available != b.Available {
+			return a.Available
+		}
+		if a.ModelID != b.ModelID {
+			return a.ModelID < b.ModelID
+		}
+		return a.Provider < b.Provider
 	})
 
 	result := make([]PopupItem, len(matches))
