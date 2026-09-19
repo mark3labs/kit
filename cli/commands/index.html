@@ -7,7 +7,7 @@
 <meta name="description" content="Complete reference for all Kit CLI subcommands.">
 <link rel="canonical" href="/cli/commands">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-DXDTVwi4.js"></script>
+<script type="module" src="/assets/index-ypQ19_ai.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -217,7 +217,7 @@ These commands are available inside the Kit TUI during an interactive session:
 | `/help` | Show available commands |
 | `/tools` | List available MCP tools |
 | `/servers` | Show connected MCP servers |
-| `/model [name]` | Switch model or open model selector. The selector lists every model in the catalogue; models whose provider has no credentials are dimmed and cannot be selected — use `/connect` to add a key. |
+| `/model [name]` | Switch model or open model selector. The selector lists every model in the catalogue; models whose provider has no credentials are dimmed and cannot be selected — use `/connect` to add a key. Search ranks by match quality alone, so dimmed models stay findable (e.g. type `openrouter/sonnet`). |
 | `/connect [provider]` | Add an API key for a provider. Opens a searchable provider list, then a masked key input. The key is saved to the credentials file and the active model is reconnected when it belongs to that provider. `/connect groq` skips the list. Alias: `/login`. |
 | `/theme [name]` | Switch color theme. Running with no argument opens a modal picker showing every built-in and user theme. |
 | `/thinking [level]` | Set thinking level. Running with no argument opens a modal picker showing only the levels the current model accepts; passing a level (`off`, `none`, `minimal`, `low`, `medium`, `high`) switches directly, substituting with the nearest supported level when needed. |
