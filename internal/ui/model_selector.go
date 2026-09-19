@@ -17,6 +17,7 @@ type ModelEntry struct {
 	Name         string // human-friendly name (e.g. "Claude Haiku 4.5")
 	ContextLimit int
 	Reasoning    bool
+	Available    bool // provider has credentials configured
 }
 
 // ModelSelectedMsg is sent when the user selects a model from the selector.
@@ -40,17 +41,16 @@ type ModelSelectorComponent struct {
 	active       bool
 }
 
-// NewModelSelector creates a model selector populated from the global registry,
-// filtered to only providers with configured API keys.
+// NewModelSelector creates a model selector populated from the global
+// registry. Every known model is listed; models whose provider has no
+// credentials are dimmed and cannot be selected.
 func NewModelSelector(currentModel string, width, height int) *ModelSelectorComponent {
 	registry := models.GetGlobalRegistry()
 	var allModels []ModelEntry
 
 	for _, providerID := range registry.GetLLMProviders() {
-		// Only include providers with valid API keys configured.
-		if err := registry.ValidateEnvironment(providerID, ""); err != nil {
-			continue
-		}
+		// Providers without credentials stay in the list but are disabled.
+		available := registry.ValidateEnvironment(providerID, "") == nil
 
 		modelsMap, err := registry.GetModelsForProvider(providerID)
 		if err != nil {
@@ -79,12 +79,18 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 				Name:         info.Name,
 				ContextLimit: info.Limit.Context,
 				Reasoning:    info.Reasoning,
+				Available:    available,
 			})
 		}
 	}
 
-	// Sort: alphabetically by model ID, grouped by provider.
+	// Sort: usable models first, then alphabetically by model ID, grouped
+	// by provider. Unavailable models sink to the bottom so the list still
+	// opens on something the user can actually pick.
 	sort.Slice(allModels, func(i, j int) bool {
+		if allModels[i].Available != allModels[j].Available {
+			return allModels[i].Available
+		}
 		if allModels[i].Provider != allModels[j].Provider {
 			return allModels[i].Provider < allModels[j].Provider
 		}
@@ -94,16 +100,22 @@ func NewModelSelector(currentModel string, width, height int) *ModelSelectorComp
 	// Build PopupItems from model entries.
 	items := make([]PopupItem, len(allModels))
 	for i, m := range allModels {
+		desc := fmt.Sprintf("[%s]", m.Provider)
+		if !m.Available {
+			desc = fmt.Sprintf("[%s] no credentials", m.Provider)
+		}
 		items[i] = PopupItem{
 			Label:       m.ModelID,
-			Description: fmt.Sprintf("[%s]", m.Provider),
+			Description: desc,
 			Active:      m.Provider+"/"+m.ModelID == currentModel,
+			Disabled:    !m.Available,
 			Meta:        m,
 		}
 	}
 
 	popup := NewPopupList("Model Selector", items, width, height)
-	popup.Subtitle = "Only showing models with configured API keys"
+	popup.Subtitle = "Dimmed models need credentials — use /connect to add a key"
+	popup.DisabledHint = "no credentials — run /connect to use this provider"
 	popup.FilterFunc = func(query string, allItems []PopupItem) []PopupItem {
 		return filterModels(query, allItems)
 	}
@@ -200,11 +212,16 @@ func filterModels(query string, items []PopupItem) []PopupItem {
 	}
 
 	sort.Slice(matches, func(i, j int) bool {
+		a := matches[i].item.Meta.(ModelEntry)
+		b := matches[j].item.Meta.(ModelEntry)
+		// Keep unusable models below usable ones even when they score higher,
+		// so Enter on the top hit always works.
+		if a.Available != b.Available {
+			return a.Available
+		}
 		if matches[i].score != matches[j].score {
 			return matches[i].score > matches[j].score
 		}
-		a := matches[i].item.Meta.(ModelEntry)
-		b := matches[j].item.Meta.(ModelEntry)
 		return a.ModelID < b.ModelID
 	})
 

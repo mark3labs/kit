@@ -330,3 +330,148 @@ func TestPopupList_RenderBadge(t *testing.T) {
 		}
 	}
 }
+
+// --- Disabled item behaviour ---
+
+func TestPopupList_DisabledItemsSkippedOnInit(t *testing.T) {
+	items := []PopupItem{
+		{Label: "locked-a", Disabled: true},
+		{Label: "locked-b", Disabled: true},
+		{Label: "usable"},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	if p.cursor != 2 {
+		t.Errorf("expected the initial cursor to skip disabled items to index 2, got %d", p.cursor)
+	}
+}
+
+func TestPopupList_DisabledActiveItemDoesNotHoldCursor(t *testing.T) {
+	items := []PopupItem{
+		{Label: "usable"},
+		{Label: "locked", Active: true, Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor 0 (disabled active item skipped), got %d", p.cursor)
+	}
+}
+
+// Disabled rows stay reachable: the user must be able to scroll through the
+// full catalogue, they simply cannot pick a locked entry.
+func TestPopupList_NavigationReachesDisabled(t *testing.T) {
+	items := []PopupItem{
+		{Label: "a"},
+		{Label: "b", Disabled: true},
+		{Label: "c", Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	if res := p.HandleKey("down", ""); !res.Changed || p.cursor != 1 {
+		t.Errorf("down: expected cursor 1, got %d (changed=%v)", p.cursor, res.Changed)
+	}
+	if res := p.HandleKey("down", ""); !res.Changed || p.cursor != 2 {
+		t.Errorf("down: expected cursor 2, got %d (changed=%v)", p.cursor, res.Changed)
+	}
+	if res := p.HandleKey("up", ""); !res.Changed || p.cursor != 1 {
+		t.Errorf("up: expected cursor 1, got %d (changed=%v)", p.cursor, res.Changed)
+	}
+}
+
+func TestPopupList_EnterOnDisabledItemDoesNotSelect(t *testing.T) {
+	items := []PopupItem{
+		{Label: "usable"},
+		{Label: "locked", Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+	p.HandleKey("down", "")
+
+	res := p.HandleKey("enter", "")
+	if res.Selected != nil {
+		t.Errorf("expected no selection for a disabled item, got %q", res.Selected.Label)
+	}
+	if !res.Rejected {
+		t.Error("expected Rejected=true so the caller can surface a hint")
+	}
+	if res.Cancelled {
+		t.Error("expected the popup to stay open")
+	}
+}
+
+func TestPopupList_FooterExplainsDisabledRow(t *testing.T) {
+	items := []PopupItem{
+		{Label: "usable"},
+		{Label: "locked", Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+	p.DisabledHint = "no credentials — run /connect"
+	p.HandleKey("down", "")
+
+	out := p.Render()
+	if !strings.Contains(out, "no credentials") {
+		t.Error("expected the footer to explain why the row is disabled")
+	}
+}
+
+func TestPopupList_AllDisabledKeepsCursorInRange(t *testing.T) {
+	items := []PopupItem{
+		{Label: "a", Disabled: true},
+		{Label: "b", Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	if p.cursor < 0 || p.cursor >= len(items) {
+		t.Fatalf("cursor out of range: %d", p.cursor)
+	}
+	p.HandleKey("down", "")
+	p.HandleKey("up", "")
+	if p.cursor < 0 || p.cursor >= len(items) {
+		t.Fatalf("cursor out of range after navigation: %d", p.cursor)
+	}
+	// Render must not panic with an all-disabled list.
+	_ = p.Render()
+}
+
+func TestPopupList_DisabledItemRendersDimmed(t *testing.T) {
+	items := []PopupItem{
+		{Label: "usable", Description: "[ok]"},
+		{Label: "locked", Description: "[provider] no credentials", Disabled: true},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+
+	out := p.Render()
+	if !strings.Contains(out, "locked") {
+		t.Error("expected the disabled item to still be visible in the list")
+	}
+	if !strings.Contains(out, "no credentials") {
+		t.Error("expected the disabled item description to render")
+	}
+}
+
+// Filtering must re-seat the cursor on the top hit instead of keeping a
+// stale index, which on a long list lands on an arbitrary (often disabled)
+// row of the new result set.
+func TestPopupList_SearchResetsCursorToTopHit(t *testing.T) {
+	items := []PopupItem{
+		{Label: "alpha"},
+		{Label: "beta"},
+		{Label: "gamma", Active: true},
+		{Label: "delta"},
+	}
+	p := NewPopupList("Test", items, 80, 40)
+	if p.cursor != 2 {
+		t.Fatalf("expected cursor on the active item, got %d", p.cursor)
+	}
+
+	p.HandleKey("a", "a")
+	if p.cursor != 0 {
+		t.Errorf("expected cursor 0 after filtering, got %d", p.cursor)
+	}
+
+	// Clearing the search returns to the active item.
+	p.HandleKey("esc", "")
+	if p.cursor != 2 {
+		t.Errorf("expected cursor back on the active item, got %d", p.cursor)
+	}
+}

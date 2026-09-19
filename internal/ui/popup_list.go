@@ -20,6 +20,7 @@ type PopupItem struct {
 	Badge       string // optional short kind tag rendered after the label (e.g. "skill")
 	Description string // secondary text (shown right of label)
 	Active      bool   // true → render checkmark indicator
+	Disabled    bool   // true → dimmed row that cannot be selected
 	Meta        any    // opaque data returned on selection
 }
 
@@ -50,6 +51,10 @@ type PopupList struct {
 	// ExtraFooter is appended to the footer line (after the default hint).
 	// Used by selectors to surface mode info like the active filter.
 	ExtraFooter string
+
+	// DisabledHint replaces the footer hint while the cursor rests on a
+	// disabled item, to explain why Enter does nothing.
+	DisabledHint string
 
 	// FullScreen renders the popup at almost the full terminal size instead
 	// of a centered ~80-col box. Used by tree/session/fork selectors.
@@ -96,6 +101,9 @@ type PopupResult struct {
 	Cancelled bool
 	// Changed is true when the search or cursor moved (caller should re-render).
 	Changed bool
+	// Rejected is true when the user pressed Enter on a disabled item. The
+	// popup stays open; the caller may surface a hint.
+	Rejected bool
 }
 
 // NewPopupList creates a new popup list with the given items and dimensions.
@@ -110,11 +118,12 @@ func NewPopupList(title string, items []PopupItem, width, height int) *PopupList
 	}
 	// Position cursor on the active item if one exists.
 	for i, item := range p.filtered {
-		if item.Active {
+		if item.Active && !item.Disabled {
 			p.cursor = i
 			break
 		}
 	}
+	p.snapToSelectable(1)
 	return p
 }
 
@@ -264,6 +273,12 @@ func (p *PopupList) HandleKey(keyName, keyText string) PopupResult {
 	case "enter":
 		if p.cursor < len(p.filtered) {
 			item := p.filtered[p.cursor]
+			if item.Disabled {
+				// Unselectable row (e.g. a model with no credentials).
+				// Swallow the key: the popup stays open and the footer
+				// already says why the row cannot be picked.
+				return PopupResult{Rejected: true}
+			}
 			return PopupResult{Selected: &item}
 		}
 		return PopupResult{}
@@ -374,6 +389,14 @@ func (p *PopupList) Render() string {
 		Padding(0, 1).
 		Bold(true)
 
+	// Cursor row on an unselectable item: a neutral grey fill instead of the
+	// accent colour, so "where I am" and "what I can pick" stay separate.
+	selectedDisabledBg := lipgloss.NewStyle().
+		Background(theme.Muted).
+		Foreground(theme.Background).
+		Width(innerW).
+		Padding(0, 1)
+
 	scrollStyle := lipgloss.NewStyle().
 		Background(popupBg).
 		Foreground(theme.VeryMuted).
@@ -425,6 +448,9 @@ func (p *PopupList) Render() string {
 				rowStyle := normalItemBg
 				if isCursor {
 					rowStyle = selectedItemBg
+					if entry.Disabled {
+						rowStyle = selectedDisabledBg
+					}
 				}
 				content := p.RenderItem(entry, itemContentWidth, isCursor)
 				items = append(items, rowStyle.Render(content))
@@ -434,6 +460,9 @@ func (p *PopupList) Render() string {
 			itemStyle := normalItemBg
 			if isCursor {
 				itemStyle = selectedItemBg
+				if entry.Disabled {
+					itemStyle = selectedDisabledBg
+				}
 			}
 
 			// Build indicator.
@@ -477,6 +506,20 @@ func (p *PopupList) Render() string {
 		footerParts = append(footerParts, p.ExtraFooter)
 	}
 
+	// A disabled row cannot be picked, so replace the hints with the reason.
+	// Silently swallowing Enter reads as a broken popup otherwise.
+	if p.cursor < len(p.filtered) && p.filtered[p.cursor].Disabled {
+		hint := p.DisabledHint
+		if hint == "" {
+			hint = "unavailable — cannot be selected"
+		}
+		footerParts = nil
+		if !p.HideCount {
+			footerParts = append(footerParts, fmt.Sprintf("(%d/%d)", p.cursor+1, len(p.filtered)))
+		}
+		footerParts = append(footerParts, hint)
+	}
+
 	// Clamp the footer to a single line. Custom hints are written for a wide
 	// popup, and lipgloss wraps rather than truncates, so an unclamped hint
 	// silently becomes a three-line paragraph at narrow widths — more visual
@@ -517,9 +560,61 @@ func (p *PopupList) rebuildFiltered() {
 	} else {
 		p.filtered = defaultFilter(p.search, p.allItems)
 	}
-	// Clamp cursor.
+	// Re-seat the cursor rather than only clamping it. With a long list a
+	// stale index lands on an arbitrary row of the new result set — usually
+	// the tail, which is where unselectable rows live. With a query the top
+	// hit wins; with no query the active item wins.
+	p.cursor = 0
+	if p.search == "" {
+		for i, item := range p.filtered {
+			if item.Active && !item.Disabled {
+				p.cursor = i
+				break
+			}
+		}
+	}
+	p.snapToSelectable(1)
+}
+
+// nextSelectable returns the index of the first non-disabled item strictly
+// after (dir > 0) or before (dir < 0) `from`. It returns -1 when no such
+// item exists.
+func (p *PopupList) nextSelectable(from, dir int) int {
+	for i := from + dir; i >= 0 && i < len(p.filtered); i += dir {
+		if !p.filtered[i].Disabled {
+			return i
+		}
+	}
+	return -1
+}
+
+// snapToSelectable moves the cursor off a disabled item so the list opens on
+// a row the user can actually pick. It searches forward first, then backward.
+// When every item is disabled the cursor stays put. Navigation keys do NOT
+// call this: disabled rows stay reachable so the user can read them.
+func (p *PopupList) snapToSelectable(preferDir int) {
+	if len(p.filtered) == 0 {
+		p.cursor = 0
+		return
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
 	if p.cursor >= len(p.filtered) {
-		p.cursor = max(len(p.filtered)-1, 0)
+		p.cursor = len(p.filtered) - 1
+	}
+	if !p.filtered[p.cursor].Disabled {
+		return
+	}
+	if preferDir == 0 {
+		preferDir = 1
+	}
+	if next := p.nextSelectable(p.cursor, preferDir); next >= 0 {
+		p.cursor = next
+		return
+	}
+	if next := p.nextSelectable(p.cursor, -preferDir); next >= 0 {
+		p.cursor = next
 	}
 }
 
@@ -621,27 +716,46 @@ func (p *PopupList) renderItemContent(indicator string, entry PopupItem, innerWi
 		}
 	}
 
+	// Row background the inline styles below must repaint. Anything drawn
+	// after an inner Render() must carry it itself: the inner style's
+	// trailing reset clears the row's background attribute, and a cursor-row
+	// description in theme.Background would then be dark-on-dark and vanish.
+	rowBg := theme.Background
+	if isCursor {
+		rowBg = theme.Primary
+		if entry.Disabled {
+			rowBg = theme.Muted
+		}
+	}
+
 	result := indicator + label
+	if entry.Disabled && !isCursor {
+		// Dim the primary column so a credential-less row reads as
+		// unavailable at a glance.
+		result = lipgloss.NewStyle().
+			Foreground(theme.VeryMuted).
+			Background(rowBg).
+			Render(indicator + label)
+	}
 	if entry.Badge != "" {
 		result += " " + renderBadge(entry.Badge, isCursor)
 	}
-	// Anything drawn after an inner Render() must carry the row background
-	// itself: the inner style's trailing reset clears the row's background
-	// attribute, and a cursor-row description in theme.Background would then
-	// be dark-on-dark and vanish.
 	if desc != "" {
-		descStyle := lipgloss.NewStyle().Foreground(theme.Muted).Background(theme.Background)
-		if isCursor {
-			descStyle = lipgloss.NewStyle().Foreground(theme.Background).Background(theme.Primary)
+		descFg := theme.Muted
+		if entry.Disabled {
+			descFg = theme.VeryMuted
 		}
-		result += descStyle.Render(" " + desc)
+		if isCursor {
+			descFg = theme.Background
+		}
+		result += lipgloss.NewStyle().Foreground(descFg).Background(rowBg).Render(" " + desc)
 	}
 	if entry.Active {
-		checkStyle := lipgloss.NewStyle().Foreground(theme.Success).Background(theme.Background)
+		checkFg := theme.Success
 		if isCursor {
-			checkStyle = lipgloss.NewStyle().Foreground(theme.Background).Background(theme.Primary)
+			checkFg = theme.Background
 		}
-		result += checkStyle.Render(" ✓")
+		result += lipgloss.NewStyle().Foreground(checkFg).Background(rowBg).Render(" ✓")
 	}
 	return result
 }
