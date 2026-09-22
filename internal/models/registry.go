@@ -445,6 +445,13 @@ func loadEmbeddedProviders() map[string]modelsDBProvider {
 // expected for new models, custom fine-tunes, or providers the database
 // doesn't track yet. Callers should treat a nil return as "unknown model"
 // and continue with sensible defaults.
+//
+// Aggregator catalogs key their entries by a provider-qualified ID (for
+// example OpenRouter's own router models, such as "openrouter/auto"). A
+// configured "openrouter/auto" parses into provider "openrouter" plus the bare
+// model name "auto", so the direct key misses. When that happens the lookup
+// retries with "<provider>/<modelID>" before it gives up. Providers whose
+// catalog keys are already bare are not affected: the direct key wins.
 func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 	provider = catalogProviderID(provider)
 	providerInfo, exists := r.providers[provider]
@@ -454,7 +461,10 @@ func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 
 	modelInfo, exists := providerInfo.Models[modelID]
 	if !exists {
-		return nil
+		modelInfo, exists = providerInfo.Models[provider+"/"+modelID]
+		if !exists {
+			return nil
+		}
 	}
 
 	return &modelInfo
