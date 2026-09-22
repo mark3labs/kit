@@ -191,6 +191,12 @@ this terminal, and 'kit daemon service install' to keep a daemon around.`,
 // called from main.go with the appropriate version string.
 func GetRootCommand(v string) *cobra.Command {
 	rootCmd.Version = v
+	// The daemon reports its release in `kit daemon status` and in the
+	// hello it sends every client, so a user can see when a running daemon
+	// predates the binary on disk. It is DISPLAY ONLY: whether a client
+	// and a daemon can talk is decided by daemon.ProtocolVersion, which
+	// changes far less often than a release does.
+	daemon.SetBuildVersion(v)
 	return rootCmd
 }
 

@@ -156,7 +156,7 @@ func TestAttachSessionRefusesAnUnknownSession(t *testing.T) {
 
 	payload := make([]byte, 8)
 	payload[7] = 99 // a session that was never created
-	table.attachSession(conn.id, payload)
+	table.attachSession(t.Context(), conn.id, payload)
 
 	frame, err := ReadFrame(&buf)
 	if err != nil {
@@ -295,7 +295,7 @@ func TestSweepOrphanSessionsSkipsTheCurrentRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sweepOrphanSessions(run)
+	sweepOrphanSessions(run, nil)
 
 	if !processExists(cmd.Process.Pid) {
 		t.Fatal("the sweep killed a process belonging to the current run")
@@ -319,7 +319,7 @@ func TestSweepSparesAnUnprovenProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sweepOrphanSessions("this-run")
+	sweepOrphanSessions("this-run", nil)
 
 	if !processExists(cmd.Process.Pid) {
 		t.Fatal("the sweep killed a process it could not prove it owned")
@@ -373,7 +373,7 @@ func TestSharedSessionRegrowsWhenTheSmallestClientLeaves(t *testing.T) {
 		t.Cleanup(func() { _ = tty.Close(); _ = ptmx.Close() })
 
 		sess := table.fakeSession(id)
-		sess.ptmx = ptmx
+		sess.io = &ptyIO{ptmx: ptmx}
 		table.mu.Lock()
 		for wire := range wires {
 			table.wireMap[wire] = id
@@ -388,7 +388,7 @@ func TestSharedSessionRegrowsWhenTheSmallestClientLeaves(t *testing.T) {
 
 	sizeOf := func(t *testing.T, sess *remoteSession) winSize {
 		t.Helper()
-		ws, err := pty.GetsizeFull(sess.ptmx)
+		ws, err := pty.GetsizeFull(sess.io.(*ptyIO).ptmx)
 		if err != nil {
 			t.Fatalf("pty size: %v", err)
 		}
@@ -417,7 +417,7 @@ func TestSharedSessionRegrowsWhenTheSmallestClientLeaves(t *testing.T) {
 		table.fakeSession(2)
 
 		// The small client moves to session 2; session 1 keeps the big one.
-		table.attachSession(smallWire, encodeSessionID(2))
+		table.attachSession(t.Context(), smallWire, encodeSessionID(2))
 
 		if got := sizeOf(t, left); got != big {
 			t.Fatalf("pty after the small client switched away = %+v, want %+v", got, big)

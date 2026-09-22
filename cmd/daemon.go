@@ -27,10 +27,11 @@ session: the session runs entirely on this machine, rendered inside the
 peer's terminal. Multiple clients can hold sessions at the same time,
 and exiting a session only disconnects that client.
 
-Sessions survive a client disconnect, but NOT a restart of this daemon:
-a session's terminal is owned by this process, so stopping the daemon
-stops its sessions. They are shut down cleanly on SIGINT/SIGTERM, and
-any that survive a hard crash are cleaned up on the next start.
+Sessions survive a client disconnect AND a restart of this daemon: each
+runs in a supervisor process of its own, so stopping, restarting or
+upgrading the daemon costs the connection and not the work. The next
+daemon adopts them again, and a client that was attached reconnects on
+its own. 'kit ls' lists them; 'kit attach <id>' picks one up.
 
 Pair a new client with 'kit daemon pair' — it shows a one-time code and
 asks you to accept or reject the client on this terminal. Only one
@@ -118,13 +119,55 @@ var daemonStatusCmd = &cobra.Command{
 		}
 		uptime := time.Since(s.StartedAt).Round(time.Second)
 		fmt.Printf("kit daemon is running (pid %d, up %s)\n", s.PID, uptime)
+		if s.Build != "" {
+			// The RUNNING daemon's build, which is not necessarily this
+			// binary's: an upgrade replaces the file on disk and leaves the
+			// daemon started from the old one running. Sessions keep
+			// working across that skew — compatibility is the protocol
+			// version, not the release — but a user wondering why a new
+			// feature is missing needs to be able to see it.
+			fmt.Printf("  Build:            %s\n", s.Build)
+			if s.Build != daemon.BuildVersion() {
+				fmt.Printf("                    (this kit is %s — restart the daemon to match)\n",
+					daemon.BuildVersion())
+			}
+		}
+		fmt.Printf("  Protocol:         %d\n", s.Protocol)
 		if s.Endpoint != "" {
 			fmt.Printf("  Endpoint:         %s\n", s.Endpoint)
 		}
 		clients, _ := daemon.ListAuthorized()
 		fmt.Printf("  Paired clients:   %d\n", len(clients))
 		fmt.Printf("  Active sessions:  %d\n", s.SessionsActive)
+		if s.SessionsHosted > 0 {
+			fmt.Printf("    surviving a restart: %d\n", s.SessionsHosted)
+		}
 		return nil
+	},
+}
+
+var daemonSessionHostConfig string
+
+// daemonSessionHostCmd is the supervisor process behind one hosted
+// session. It is started by the daemon and never by a user, which is why
+// it is hidden: running it by hand needs a config file the daemon writes.
+//
+// This is the process that makes a session outlive its daemon. It holds
+// the PTY master and the kit child, and offers a socket any daemon may
+// dial — so stopping, restarting or upgrading the daemon costs a socket
+// and nothing else. See internal/daemon/sessionhost.go.
+var daemonSessionHostCmd = &cobra.Command{
+	Use:    "session-host",
+	Short:  "Host one daemon session (internal)",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		// No signal.NotifyContext here. A supervisor must not stop because
+		// something signalled the terminal or the process group the daemon
+		// once belonged to; it stops when its child exits, or when a
+		// daemon tells it to over the socket. RunSessionHost ignores
+		// SIGHUP and SIGINT for the same reason.
+		return daemon.RunSessionHost(cmd.Context(), daemonSessionHostConfig)
 	},
 }
 
@@ -160,6 +203,9 @@ func init() {
 
 	daemonCmd.AddCommand(daemonPairCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
+	daemonSessionHostCmd.Flags().StringVar(&daemonSessionHostConfig, "config", "",
+		"path to the session host configuration written by the daemon")
+	daemonCmd.AddCommand(daemonSessionHostCmd)
 	daemonServiceCmd.AddCommand(daemonServiceInstallCmd)
 	daemonServiceCmd.AddCommand(daemonServiceRemoveCmd)
 	daemonCmd.AddCommand(daemonServiceCmd)

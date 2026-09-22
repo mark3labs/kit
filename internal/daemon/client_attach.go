@@ -99,7 +99,21 @@ type AttachOptions struct {
 	// Honoured on the local socket only. RunHost clears it: see
 	// SessionSpec for why argv must not cross a network boundary.
 	Spec *SessionSpec
+	// Redial reopens a connection to the SAME daemon after the stream
+	// drops, so a daemon that is restarted or upgraded interrupts a
+	// session instead of ending it. Nil disables reconnection, and the
+	// client then reports a lost connection the way it always did.
+	//
+	// It must dial the same daemon the client started against: a
+	// reconnect reattaches by logical session id, and every daemon numbers
+	// its sessions from 1, so a redial that landed somewhere else would
+	// silently drop the user into a stranger's session.
+	Redial Redialer
 }
+
+// Redialer opens a fresh connection to a daemon. It returns the frame
+// stream and a function that releases it; the caller owns both.
+type Redialer func(ctx context.Context) (io.ReadWriter, func(), error)
 
 // attachOutcome reports why a single attached session stopped.
 type attachOutcome struct {
@@ -112,6 +126,14 @@ type attachOutcome struct {
 	switchHost string
 	// ended means the remote session finished on its own.
 	ended bool
+	// lost means the CONNECTION went away without the session ending: the
+	// daemon was stopped, restarted or killed.
+	//
+	// It is deliberately not the same as ended. Sessions outlive their
+	// daemon now, so reporting a lost connection as a finished session
+	// would tell the user their work is gone while it is still running,
+	// and would stop the client reconnecting to it.
+	lost bool
 }
 
 // clientConn owns a frame stream to one daemon: a single reader goroutine
@@ -123,6 +145,12 @@ type clientConn struct {
 	sink *frameSink
 
 	ctrlCh chan Frame
+
+	// helloCh carries the daemon's hello to whoever asks for it, and
+	// helloOnce makes sure a second reply (a daemon that answers twice, a
+	// reconnect racing a stale frame) cannot block the read loop.
+	helloCh   chan Hello
+	helloOnce sync.Once
 
 	attached atomic.Bool
 
@@ -380,6 +408,7 @@ func newClientConn(rw io.ReadWriter) *clientConn {
 		rw:           rw,
 		sink:         newFrameSink(rw),
 		ctrlCh:       make(chan Frame, 16),
+		helloCh:      make(chan Hello, 1),
 		endedCh:      make(chan struct{}),
 		closedCh:     make(chan struct{}),
 		stdinCh:      make(chan []byte, 8),
@@ -424,6 +453,16 @@ func (c *clientConn) readLoop() {
 			case c.ctrlCh <- frame:
 			default: // a stale reply nobody is waiting for
 			}
+		case FrameHello:
+			peer, herr := DecodeHello(frame.Payload)
+			if herr != nil {
+				// Unreadable, but it still proves the daemon knows the
+				// frame. Report it as a legacy daemon so the waiter is
+				// released instead of timing out.
+				peer = legacyHello(RoleDaemon)
+			}
+			peer.Role = RoleDaemon
+			c.helloOnce.Do(func() { c.helloCh <- peer; close(c.helloCh) })
 		case FrameBye, FrameSessionClosed:
 			c.sessionEnded()
 			return
@@ -490,8 +529,43 @@ func (c *clientConn) listSessionsWithin(timeout time.Duration) ([]SessionEntry, 
 	return entries, nil
 }
 
+// greet announces this client to the daemon and waits briefly for the
+// daemon's own hello.
+//
+// The wait is short and its expiry is NOT an error. Every kit released
+// before the hello existed answers nothing at all, and those daemons must
+// keep working: silence means "legacy daemon, protocol v1, no optional
+// features", which is exactly what such a daemon is. A client that
+// blocked here would have traded a working connection for a guarantee it
+// does not need.
+//
+// An incompatible daemon IS an error, and it is reported here rather than
+// left to fail later as a session that half works.
+func (c *clientConn) greet() (Hello, error) {
+	payload, err := EncodeHello(localHello(RoleClient))
+	if err == nil {
+		_ = c.write(FrameHello, payload)
+	}
+	select {
+	case peer := <-c.helloCh:
+		if cerr := peer.Compatible(); cerr != nil {
+			return peer, cerr
+		}
+		return peer, nil
+	case <-c.closedCh:
+		return legacyHello(RoleDaemon), errStreamClosed
+	case <-time.After(helloTimeout):
+		return legacyHello(RoleDaemon), nil
+	}
+}
+
+// helloTimeout bounds the wait for the daemon's hello. It is generous
+// relative to a local socket round trip and to an already-established
+// iroh stream, and short enough that a legacy daemon is not a noticeable
+// pause before the first frame is drawn.
+const helloTimeout = 1500 * time.Millisecond
+
 // attach binds this connection to a session. Logical id 0 spawns a new one.
-// Returns the id the daemon assigned.
 func (c *clientConn) attach(id uint64) (uint64, error) {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, id)
@@ -611,19 +685,30 @@ func runPicker(ctx context.Context, conn *clientConn, pick SessionPicker, entrie
 
 // RunClient drives a daemon connection for the whole client session: pick a
 // session, attach, run, and repeat when the user switches. It returns when
-// the user detaches, the session ends, or the connection drops.
+// the user detaches or the session ends.
 //
-// The caller owns rw and closes it.
+// It deliberately OUTLIVES the connection. A daemon that is stopped,
+// restarted, upgraded or killed takes its socket with it — but not its
+// sessions, which run in supervisor processes of their own and are
+// adopted by the next daemon (see FeatureReattach and sessionhost.go). A
+// dropped stream is therefore an interruption, not an ending: the client
+// redials, reattaches to the same logical session and repaints. Without
+// this the sessions would survive a daemon restart and the user would
+// still lose every screen they had open, which is most of the point.
+//
+// The caller owns rw and closes it. Connections opened by a reconnect are
+// owned and closed here.
 func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return fmt.Errorf("attaching to a session needs an interactive terminal")
 	}
 
-	// The alt screen is entered once for the whole attachment and left on
-	// the way out, so the user's shell scrollback comes back untouched.
-	// The parting message is deferred with it: printed inside the alt
-	// screen it would be drawn over the session's last frame and then
-	// scrubbed away with it.
+	// The alt screen is entered once for the WHOLE client — reconnects
+	// included — and left on the way out, so the user's shell scrollback
+	// comes back untouched and a redial does not flash the terminal. The
+	// parting message is deferred with it: printed inside the alt screen it
+	// would be drawn over the session's last frame and then scrubbed away
+	// with it.
 	var parting string
 	_, _ = os.Stdout.WriteString(altScreenEnter)
 	defer func() {
@@ -634,17 +719,125 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 	}()
 
 	// Describe this terminal before anything else takes stdin: the probe
-	// is a synchronous OSC query, so it has to finish before the reader
-	// below owns the fd and before a picker draws. The daemon has no other
+	// is a synchronous OSC query, so it has to finish before a connection's
+	// reader owns the fd and before a picker draws. The daemon has no other
 	// way to learn any of it — the PTY it owns reports no colour depth and
-	// answers no background query.
+	// answers no background query. Probed ONCE for the whole client: the
+	// terminal does not change under a reconnect, and asking again would
+	// mean querying a terminal whose input another reader may still hold.
 	localTerm := detectTerminalInfo()
 
+	stream := rw
+	// closeStream is set only for connections this function opened. The
+	// caller's own rw is never closed here.
+	var closeStream func()
+	defer func() {
+		if closeStream != nil {
+			closeStream()
+		}
+	}()
+
+	for {
+		run, rerr := runClientSession(ctx, stream, opts, localTerm)
+		parting = run.parting
+
+		// Anything that is not a lost connection is the client's real
+		// outcome: a detach, a finished session, a host switch, a failure
+		// worth reporting. Reconnecting past any of those would ignore
+		// what the user asked for.
+		if !errors.Is(rerr, errStreamClosed) || opts.Redial == nil || ctx.Err() != nil {
+			return rerr
+		}
+		// A terminal reader that would not let go makes a second client on
+		// this terminal unsafe: two readers on one fd split the user's
+		// keystrokes between them at random. Stop rather than reconnect
+		// into a session that would drop half of what is typed at it.
+		if !run.stdinReleased {
+			return fmt.Errorf("%w (this terminal did not release its input; start a new one to continue)", rerr)
+		}
+		if closeStream != nil {
+			closeStream()
+			closeStream = nil
+		}
+
+		next, closer, cerr := reconnectToDaemon(ctx, opts, run)
+		if cerr != nil {
+			parting = reconnectParting(opts, run, cerr)
+			return nil
+		}
+		stream, closeStream = next, closer
+
+		// Go straight back to the session we were on. A client that had
+		// not attached to anything yet has nothing to resume and falls
+		// back into the ordinary choose-a-session path.
+		opts.Target, opts.ForceNew = run.current, false
+	}
+}
+
+// clientRun reports how one connection's worth of client work ended.
+// RunClient reads it to decide between reporting and reconnecting.
+type clientRun struct {
+	// parting is the message to print once the alt screen is gone.
+	parting string
+	// current is the logical session the client was attached to, and the
+	// one a reconnect reattaches to. Zero means it never got that far.
+	current uint64
+	// stdinReleased records whether the terminal reader gave the terminal
+	// back. A reconnect needs it, because it starts a reader of its own.
+	stdinReleased bool
+	// daemon is what the daemon said about itself, so a lost connection
+	// can be described honestly: a daemon with FeatureReattach left the
+	// session running, and one without it did not.
+	daemon Hello
+}
+
+// runClientSession drives ONE connection: greet, describe the terminal,
+// choose a session, and run it until something ends the connection or the
+// user leaves.
+//
+// Everything that belongs to the terminal rather than to the connection —
+// the alt screen, the terminal probe, the parting message — is owned by
+// RunClient above, so that a reconnect replaces the connection without
+// disturbing the screen.
+func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions, localTerm TerminalInfo) (run clientRun, err error) {
 	conn := newClientConn(rw)
 	go conn.readLoop()
-	if err := conn.readStdin(ctx); err != nil {
-		return err
+	if serr := conn.readStdin(ctx); serr != nil {
+		// No reader was ever started, so the terminal is still free.
+		run.stdinReleased = true
+		return run, serr
 	}
+	// Give the terminal back on the way out. Everything above this may
+	// hand control to a caller that reads stdin itself — a cross-host
+	// switch starts a second client, a reconnect starts a second reader,
+	// and an error returned from here is rendered by a printer that queries
+	// the terminal — and a reader still parked on stdin would swallow
+	// their input, or deadlock them.
+	//
+	// A hand-off that cannot be made is recorded rather than hidden: the
+	// next client would look alive while every keystroke went to this one.
+	defer func() {
+		run.stdinReleased = conn.stopStdin()
+		run.current = conn.current()
+		if run.stdinReleased || err == nil || errors.Is(err, errSessionEnded) ||
+			errors.Is(err, errStreamClosed) {
+			// Either the hand-off worked, or nothing is going to run after
+			// us that needs the terminal. A lost connection is excluded
+			// too: RunClient checks stdinReleased itself before it starts
+			// a second reader, and says so in its own words.
+			return
+		}
+		err = fmt.Errorf("%w (this terminal did not release its input; start a new one to continue)", err)
+	}()
+
+	// Announce ourselves and learn what this daemon can do. A daemon too
+	// old to answer is not an error: see greet.
+	peer, herr := conn.greet()
+	run.daemon = peer
+	if herr != nil {
+		return run, herr
+	}
+
 	// Sent before any attach so a spawned child starts out describing this
 	// terminal. A daemon too old to know the frame ignores it.
 	if payload, terr := EncodeTerminalInfo(localTerm); terr == nil {
@@ -661,65 +854,46 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 			_ = conn.write(FrameSessionSpec, payload)
 		}
 	}
-	// Give the terminal back on the way out. Everything above this call
-	// may hand control to a caller that reads stdin itself — a cross-host
-	// switch starts a second client, and an error returned from here is
-	// rendered by a printer that queries the terminal — and a reader still
-	// parked on stdin would swallow their input, or deadlock them.
-	//
-	// A hand-off that cannot be made is reported rather than hidden: the
-	// next client would look alive while every keystroke went to this one.
-	defer func() {
-		if conn.stopStdin() {
-			return
-		}
-		if err == nil || errors.Is(err, errSessionEnded) {
-			// Nothing is going to run after us that needs the terminal,
-			// and the process is on its way out; saying so would be noise.
-			return
-		}
-		err = fmt.Errorf("%w (this terminal did not release its input; start a new one to continue)", err)
-	}()
 
 	choice, err := chooseSession(ctx, conn, opts)
 	if err != nil {
-		return err
+		return run, err
 	}
 	if choice.Cancel {
-		return nil
+		return run, nil
 	}
 	if sw := hostSwitch(opts, choice); sw != nil {
-		return sw
+		return run, sw
 	}
 
 	for {
 		select {
 		case <-conn.endedCh:
-			return errSessionEnded
+			return run, errSessionEnded
 		case <-conn.closedCh:
-			return errStreamClosed
+			return run, errStreamClosed
 		default:
 		}
 
 		if sw := hostSwitch(opts, choice); sw != nil {
-			return sw
+			return run, sw
 		}
 
-		if assigned, err := conn.attach(choice.ID); err != nil {
-			return err
+		if assigned, aerr := conn.attach(choice.ID); aerr != nil {
+			return run, aerr
 		} else {
 			conn.setCurrent(assigned)
 		}
 
-		out, err := runAttached(ctx, conn, opts)
-		if err != nil {
-			return err
+		out, rerr := runAttached(ctx, conn, opts)
+		if rerr != nil {
+			return run, rerr
 		}
 		switch {
 		case out.wantSwitch:
-			next, cancelled, rerr := resolveSwitch(ctx, conn, opts, out)
-			if rerr != nil {
-				return rerr
+			next, cancelled, serr := resolveSwitch(ctx, conn, opts, out)
+			if serr != nil {
+				return run, serr
 			}
 			if cancelled {
 				// The picker was dismissed: stay on the session we were
@@ -737,20 +911,24 @@ func RunClient(ctx context.Context, rw io.ReadWriter, opts AttachOptions) (err e
 			// The daemon rebinds a wire id on its own, but detaching
 			// first keeps the session's client count honest for anyone
 			// else listing sessions in between.
-			if err := conn.write(FrameSessionDetach, nil); err != nil {
-				return err
+			if werr := conn.write(FrameSessionDetach, nil); werr != nil {
+				return run, werr
 			}
 			choice = next
 			continue
 		case out.detached:
-			parting = fmt.Sprintf("Detached — the session keeps running on the daemon. Reattach with: %s %d",
+			run.parting = fmt.Sprintf("Detached — the session keeps running on the daemon. Reattach with: %s %d",
 				opts.Reattach, conn.current())
-			return nil
+			return run, nil
 		case out.ended:
-			parting = "Session ended."
-			return nil
+			run.parting = "Session ended."
+			return run, nil
+		case out.lost:
+			// The daemon went away mid-session. RunClient reconnects on
+			// this error and reattaches to the same logical session.
+			return run, errStreamClosed
 		default:
-			return nil
+			return run, nil
 		}
 	}
 }
@@ -916,9 +1094,14 @@ func runAttached(ctx context.Context, conn *clientConn, opts AttachOptions) (att
 	select {
 	case <-done:
 	case <-conn.endedCh:
+		// BYE from the daemon: the session itself is over.
 		setOutcome(attachOutcome{ended: true})
 	case <-conn.closedCh:
-		setOutcome(attachOutcome{ended: true})
+		// The stream died without a BYE, which is what a stopped,
+		// restarted or killed daemon looks like. The session is very
+		// probably still running in its supervisor, so this is reported as
+		// a lost connection and the client reconnects.
+		setOutcome(attachOutcome{lost: true})
 	case <-ctx.Done():
 		// Say goodbye so the session detaches cleanly, then report the
 		// cancellation. Falling through would return an empty outcome,
@@ -932,8 +1115,9 @@ func runAttached(ctx context.Context, conn *clientConn, opts AttachOptions) (att
 	result := out
 	outMu.Unlock()
 
-	// A switch keeps the connection; a plain exit says goodbye.
-	if !result.detached && !result.wantSwitch && !result.ended {
+	// A switch keeps the connection; a plain exit says goodbye. A lost
+	// connection has nothing to say goodbye on.
+	if !result.detached && !result.wantSwitch && !result.ended && !result.lost {
 		_ = conn.write(FrameBye, nil)
 	}
 	return result, nil

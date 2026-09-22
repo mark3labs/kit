@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -291,8 +292,43 @@ func RunLocal(ctx context.Context, opts AttachOptions) error {
 	if opts.Reattach == "" {
 		opts.Reattach = "kit attach"
 	}
+	opts.Redial = localRedialer
 	return RunClient(ctx, conn, opts)
 }
+
+// localRedialer reopens the local socket after a daemon restart.
+//
+// A daemon that is simply not there yet is retried rather than started:
+// the overwhelmingly common reason to be here is a restart in progress,
+// and starting a competing daemon into that window would race the one
+// coming up for the single-instance lock and the socket.
+//
+// Once the window has nearly run out the calculus flips. By then the
+// daemon is not coming back on its own, and the user's sessions are still
+// running with nothing to route them; starting a daemon is what lets them
+// be adopted (see adoptHostedSessions). It is attempted once, on the
+// understanding that a dial failure afterwards is reported honestly.
+func localRedialer(ctx context.Context) (io.ReadWriter, func(), error) {
+	conn, err := DialLocal(ctx)
+	if errors.Is(err, ErrNoLocalDaemon) {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > daemonRestartGrace {
+			return nil, nil, err // still inside the restart window: just wait
+		}
+		if serr := StartLocalDaemon(ctx); serr != nil {
+			return nil, nil, err
+		}
+		conn, err = DialLocal(ctx)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, func() { _ = conn.Close() }, nil
+}
+
+// daemonRestartGrace is how much of a reconnect window is left to a
+// daemon that is restarting before the client stops waiting for it and
+// starts one itself.
+const daemonRestartGrace = 5 * time.Second
 
 // ListLocalSessions reports the local daemon's live sessions without
 // attaching. Returns ErrNoLocalDaemon when nothing is running, so a caller
