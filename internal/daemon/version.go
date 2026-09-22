@@ -173,11 +173,27 @@ const (
 )
 
 // localHello builds this build's hello for the given role.
+//
+// FeatureReattach is cleared when this platform cannot host sessions in
+// supervisor processes. The bit is a promise that sessions survive a
+// daemon restart, and a client reads it to decide whether to tell the
+// user their work is still running; advertising it where sessions die
+// with the daemon would turn that message into a lie at the worst
+// possible moment.
+//
+// The bit describes the platform, which is all a daemon-wide hello can
+// describe. A session that fell back to a PTY on a platform that DOES
+// support supervisors is reported per session, in the attach ack — see
+// attachSession.
 func localHello(role string) Hello {
+	features := ProtocolFeatures
+	if !hostedSessionsSupported() {
+		features &^= FeatureReattach
+	}
 	return Hello{
 		Protocol: ProtocolName,
 		Version:  ProtocolVersion,
-		Features: ProtocolFeatures,
+		Features: features,
 		Build:    BuildVersion(),
 		Role:     role,
 		PID:      os.Getpid(),

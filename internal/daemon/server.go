@@ -85,7 +85,13 @@ func Serve(ctx context.Context) error {
 	listener, remoteErr := bindRemoteListener(ctx, table)
 	if remoteErr != nil {
 		if lnErr != nil {
-			table.killAll()
+			// No socket of any kind, so this daemon cannot serve the
+			// sessions it adopted a moment ago. Let GO of them rather
+			// than ending them: they were running before this process
+			// started and a daemon that failed to bind is no reason to
+			// destroy them. killAll here would call Terminate on every
+			// adopted session and take the user's work with it.
+			table.releaseSessions()
 			return fmt.Errorf("%w (and remote sessions failed too: %v)", lnErr, remoteErr)
 		}
 		log.Warn("daemon: remote sessions are disabled", "error", remoteErr)
@@ -574,14 +580,6 @@ func (t *sessionTable) detachWire(wire uint32) {
 	}
 }
 
-// killAll tears down every logical session, ending its child. Used when a
-// daemon is shutting down and its sessions cannot outlive it.
-func (t *sessionTable) killAll() {
-	for _, id := range t.sessionIDs() {
-		t.retireSession(id)
-	}
-}
-
 // releaseSessions is how a daemon lets go on shutdown.
 //
 // A hosted session is DETACHED, not ended: its supervisor keeps the child
@@ -879,9 +877,27 @@ func (t *sessionTable) attachSession(ctx context.Context, wire uint32, payload [
 		}
 	}
 
-	ack := make([]byte, 9)
+	// The ack is 9 bytes plus a flags byte. The tenth byte is ADDITIVE: a
+	// client too old to read it stops at the ninth and behaves exactly as
+	// before, and a new client talking to an old daemon gets 9 bytes and
+	// falls back to the daemon-wide FeatureReattach bit. That is why this
+	// needs no protocol version bump.
+	ack := make([]byte, 10)
 	binary.BigEndian.PutUint64(ack[:8], logical)
 	ack[8] = ok
+	if ok == 1 {
+		// Whether THIS session survives a daemon restart. The daemon-wide
+		// hello cannot answer that: a daemon which supports supervisors
+		// can still have fallen back to a plain PTY for one session (see
+		// spawnSession), and that session dies with the daemon while its
+		// neighbours do not. A client which was told otherwise would
+		// promise the user work that is already gone.
+		t.mu.Lock()
+		if sess := t.sessions[logical]; sess != nil && sess.hosted() {
+			ack[9] = 1
+		}
+		t.mu.Unlock()
+	}
 	_ = t.writeTo(Frame{Type: FrameSessionAttachAck, Session: wire, Payload: ack})
 	if ok == 0 {
 		log.Warn("attach failed", "wire", wire, "requested", requested)

@@ -315,7 +315,11 @@ func localRedialer(ctx context.Context) (io.ReadWriter, func(), error) {
 			return nil, nil, err // still inside the restart window: just wait
 		}
 		if serr := StartLocalDaemon(ctx); serr != nil {
-			return nil, nil, err
+			// Report why the daemon would not start, not the
+			// ErrNoLocalDaemon that sent us here. The parting message
+			// quotes this, and "no local daemon is running" tells the
+			// user nothing they did not already know.
+			return nil, nil, serr
 		}
 		conn, err = DialLocal(ctx)
 	}

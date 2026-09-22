@@ -160,7 +160,7 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 
 	// Attaching to a session that does not exist must be refused rather
 	// than hang: the client blocks on this ack.
-	if _, err := client.attach(42); err == nil {
+	if _, _, err := client.attach(42); err == nil {
 		t.Fatal("expected the attach to a missing session to be refused")
 	}
 

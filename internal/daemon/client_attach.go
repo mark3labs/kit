@@ -566,15 +566,20 @@ func (c *clientConn) greet() (Hello, error) {
 const helloTimeout = 1500 * time.Millisecond
 
 // attach binds this connection to a session. Logical id 0 spawns a new one.
-func (c *clientConn) attach(id uint64) (uint64, error) {
+//
+// Returns the assigned logical id and what the daemon said about whether
+// that session outlives it. A daemon too old to send the flag reports
+// durabilityUnknown, and the caller falls back to the daemon-wide
+// FeatureReattach bit.
+func (c *clientConn) attach(id uint64) (assigned uint64, durability sessionDurability, err error) {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, id)
-	if err := c.write(FrameSessionAttach, payload); err != nil {
-		return 0, err
+	if werr := c.write(FrameSessionAttach, payload); werr != nil {
+		return 0, durabilityUnknown, werr
 	}
 	ack, err := c.awaitCtrl(FrameSessionAttachAck, 10*time.Second)
 	if err != nil {
-		return 0, err
+		return 0, durabilityUnknown, err
 	}
 	if len(ack.Payload) < 9 || ack.Payload[8] != 1 {
 		// The daemon refuses an attach for exactly two reasons, and they
@@ -582,11 +587,22 @@ func (c *clientConn) attach(id uint64) (uint64, error) {
 		// (mistyped, or ended since it was listed), or a new session it
 		// could not start.
 		if id == 0 {
-			return 0, fmt.Errorf("the daemon could not start a session")
+			return 0, durabilityUnknown, fmt.Errorf("the daemon could not start a session")
 		}
-		return 0, fmt.Errorf("no live session %d on this daemon — list the live ones with 'kit ls'", id)
+		return 0, durabilityUnknown, fmt.Errorf("no live session %d on this daemon — list the live ones with 'kit ls'", id)
 	}
-	return binary.BigEndian.Uint64(ack.Payload[:8]), nil
+	// The flags byte is optional, so its ABSENCE must not read as "this
+	// session does not survive": that is a real answer, and an old daemon
+	// has not given one.
+	durability = durabilityUnknown
+	if len(ack.Payload) >= 10 {
+		if ack.Payload[9] == 1 {
+			durability = durabilityHosted
+		} else {
+			durability = durabilityInDaemon
+		}
+	}
+	return binary.BigEndian.Uint64(ack.Payload[:8]), durability, nil
 }
 
 // chooseSession runs the picker when sessions exist, and short-circuits to
@@ -789,6 +805,48 @@ type clientRun struct {
 	// can be described honestly: a daemon with FeatureReattach left the
 	// session running, and one without it did not.
 	daemon Hello
+	// sessionDurability is what the daemon said about whether THIS
+	// session outlives it, from the attach ack. A daemon too old to answer
+	// leaves it unknown, and the daemon-wide feature bit decides instead.
+	sessionDurability sessionDurability
+}
+
+// sessionDurability answers whether one session outlives its daemon.
+//
+// A plain bool cannot express this: "the daemon said no" and "the daemon
+// is too old to say" need different answers, and conflating them would
+// have every pre-ack daemon report its surviving sessions as lost.
+type sessionDurability uint8
+
+const (
+	// durabilityUnknown: the daemon sent no flag. It predates the ack
+	// byte, so the platform-wide FeatureReattach bit is the best answer
+	// available.
+	durabilityUnknown sessionDurability = iota
+	// durabilityHosted: the session runs in a supervisor process and
+	// survives its daemon.
+	durabilityHosted
+	// durabilityInDaemon: the daemon hosts this session itself, so the
+	// session ends when the daemon does — whatever the platform supports
+	// in general.
+	durabilityInDaemon
+)
+
+// survives reports whether the session this client was on outlives the
+// daemon that was serving it.
+//
+// The per-session answer wins when there is one, because a daemon that
+// hosts sessions separately can still have fallen back for this one. The
+// feature bit is the fallback for a daemon too old to be specific.
+func (r clientRun) survives() bool {
+	switch r.sessionDurability {
+	case durabilityHosted:
+		return true
+	case durabilityInDaemon:
+		return false
+	default:
+		return r.daemon.Features.Has(FeatureReattach)
+	}
 }
 
 // runClientSession drives ONE connection: greet, describe the terminal,
@@ -879,10 +937,14 @@ func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions,
 			return run, sw
 		}
 
-		if assigned, aerr := conn.attach(choice.ID); aerr != nil {
+		if assigned, durability, aerr := conn.attach(choice.ID); aerr != nil {
 			return run, aerr
 		} else {
 			conn.setCurrent(assigned)
+			// Recorded per attach, because it is a property of the
+			// SESSION rather than of the daemon: a daemon that hosts
+			// sessions separately can still have fallen back for this one.
+			run.sessionDurability = durability
 		}
 
 		out, rerr := runAttached(ctx, conn, opts)

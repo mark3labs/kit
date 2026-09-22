@@ -92,8 +92,12 @@ func reconnectToDaemon(ctx context.Context, opts AttachOptions, run clientRun) (
 }
 
 // reconnectingMessage describes what the client is waiting for.
+//
+// It names the session only when that session actually survives the
+// daemon. Promising a session is "still running" while it is being
+// reaped would be the most misleading thing this client could say.
 func reconnectingMessage(run clientRun) string {
-	if run.current != 0 {
+	if run.current != 0 && run.survives() {
 		return fmt.Sprintf("The daemon went away. Session %d is still running \u2014 reconnecting\u2026", run.current)
 	}
 	return "The daemon went away \u2014 reconnecting\u2026"
@@ -103,10 +107,9 @@ func reconnectingMessage(run clientRun) string {
 // of time, once the alt screen is gone.
 //
 // It says what happened to the SESSION, because that is the user's actual
-// question. A daemon that hosts its sessions separately left them running
-// and they can be picked up again; one that does not took them with it,
-// and pretending otherwise would send the user looking for a session that
-// no longer exists.
+// question. A session hosted separately kept running and can be picked up
+// again; one the daemon hosted itself went with it, and pretending
+// otherwise would send the user looking for work that no longer exists.
 func reconnectParting(opts AttachOptions, run clientRun, cause error) string {
 	var b strings.Builder
 	b.WriteString("Lost the connection to the daemon")
@@ -115,9 +118,14 @@ func reconnectParting(opts AttachOptions, run clientRun, cause error) string {
 	}
 	b.WriteString(".\n")
 	switch {
-	case run.daemon.Features.Has(FeatureReattach) && run.current != 0:
+	case run.current != 0 && run.survives():
 		fmt.Fprintf(&b, "Session %d is still running — reattach with: %s %d",
 			run.current, reattachHint(opts), run.current)
+	case run.current != 0:
+		// Attached to a session the daemon was hosting itself, so it died
+		// with the daemon. Saying so is kinder than a reattach command
+		// that will report no such session.
+		fmt.Fprintf(&b, "Session %d was hosted by that daemon itself, so it stopped with it.", run.current)
 	case run.daemon.Features.Has(FeatureReattach):
 		fmt.Fprintf(&b, "Any sessions are still running — list them with: %s", listHint(opts))
 	default:

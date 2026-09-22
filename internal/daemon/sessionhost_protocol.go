@@ -180,6 +180,13 @@ func sessionHostHello(cfg SessionHostConfig, childPID int, started time.Time, na
 // readReportedCwd reads a session's cwd report file. A missing file means
 // the child has not chosen a directory yet, which is the honest answer
 // while the directory picker is still on screen.
+//
+// Only a trailing line ending is removed, never arbitrary whitespace. A
+// space is a legal character in a path, at either end, so trimming one
+// off would report a directory the session is not in — and the report is
+// what `kit ls` shows and what a user reads to tell two sessions apart.
+// ReportSessionCwd writes the path with no delimiter at all; the trim is
+// tolerance for a file written by hand or by an older kit.
 func readReportedCwd(path string) string {
 	if path == "" {
 		return ""
@@ -188,7 +195,8 @@ func readReportedCwd(path string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	// "\n" first, then "\r", so a CRLF ending is removed whole.
+	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
 }
 
 // mkdirPrivate creates a directory only its owner can enter.

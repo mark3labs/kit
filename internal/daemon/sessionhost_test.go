@@ -221,15 +221,21 @@ func TestHostIOCloseIsNotTerminate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn := <-host.conns
+	// Not read directly: fakeSessionHost.accept already owns a reader on
+	// this connection, and a second one here would race it — the accept
+	// reader could consume the very frame this test exists to catch, and
+	// the test would pass by accident.
+	<-host.conns
 
 	_ = io.Close()
 
 	// The supervisor sees the connection drop and NOTHING else: no BYE,
 	// which is the frame that would stop it.
-	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-	if f, rerr := ReadFrame(conn); rerr == nil && f.Type == FrameBye {
-		t.Fatal("Close sent BYE; a daemon shutting down would kill every session")
+	select {
+	case f := <-host.received:
+		t.Fatalf("Close sent frame %#x; a daemon shutting down must send nothing, "+
+			"and BYE in particular would kill every session", byte(f.Type))
+	case <-time.After(time.Second):
 	}
 }
 

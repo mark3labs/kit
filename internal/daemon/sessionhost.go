@@ -180,7 +180,12 @@ type sessionHost struct {
 
 	mu   sync.Mutex
 	name string
-	sink *frameSink // the daemon currently driving this session, if any
+	// sink and conn are the daemon currently driving this session, if
+	// any. Both are kept because closing a sink only stops WRITES: the
+	// socket underneath has a reader on it, and a daemon that has been
+	// replaced must be cut off entirely, not merely muted.
+	sink *frameSink
+	conn net.Conn
 
 	doneOnce sync.Once
 	done     chan struct{}
@@ -272,18 +277,48 @@ func (h *sessionHost) send(f Frame) {
 func (h *sessionHost) serve(ctx context.Context, conn net.Conn) {
 	sink := newFrameSink(conn)
 
+	// The hello goes out BEFORE the sink is published.
+	//
+	// dialSessionHost requires the hello to be the first frame and refuses
+	// the connection otherwise, and a refused connection means an adopted
+	// session is unreachable — the exact failure this design exists to
+	// remove. pump() writes through h.sink the instant it becomes visible,
+	// so a child producing output in the window between publishing and
+	// greeting would put DATA on the wire ahead of the hello.
 	h.mu.Lock()
-	previous := h.sink
-	h.sink = sink
 	name, childPID := h.name, h.childPID()
 	h.mu.Unlock()
-	if previous != nil {
-		previous.close()
-	}
 
 	info := sessionHostHello(h.cfg, childPID, h.started, name, h.reportedCwd())
-	if payload, err := EncodeSessionHostInfo(info); err == nil {
-		_ = sink.write(Frame{Type: FrameHello, Payload: payload})
+	payload, err := EncodeSessionHostInfo(info)
+	if err == nil {
+		err = sink.write(Frame{Type: FrameHello, Payload: payload})
+	}
+	if err != nil {
+		// A connection we could not introduce ourselves on is no use to
+		// anyone, and must not displace a daemon that is driving this
+		// session perfectly well.
+		log.Warn("session host: could not greet a daemon", "session_id", h.cfg.ID, "error", err)
+		sink.close()
+		_ = conn.Close()
+		return
+	}
+
+	h.mu.Lock()
+	prevSink, prevConn := h.sink, h.conn
+	h.sink, h.conn = sink, conn
+	h.mu.Unlock()
+	if prevSink != nil {
+		prevSink.close()
+	}
+	if prevConn != nil {
+		// The SOCKET, not just the sink. A closed sink stops writes and
+		// nothing else: the previous daemon's readDaemon goroutine is
+		// still parked on this connection and would go on feeding the
+		// session input, resizes, renames — and FrameBye, which ends it —
+		// after another daemon has taken over. Closing it here is what
+		// makes "one driver at a time" true rather than merely intended.
+		_ = prevConn.Close()
 	}
 
 	go func() {
@@ -293,6 +328,9 @@ func (h *sessionHost) serve(ctx context.Context, conn net.Conn) {
 			h.mu.Lock()
 			if h.sink == sink {
 				h.sink = nil // the daemon went away; the session has not
+			}
+			if h.conn == conn {
+				h.conn = nil
 			}
 			h.mu.Unlock()
 		}()
