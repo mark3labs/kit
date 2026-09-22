@@ -204,6 +204,9 @@ func Init(api ext.API) {
 // accepts (or returns) a pkg/extensions type, so a signature that regresses to
 // an internal-only type breaks the build of this file.
 
+// requireExtensionPath fails the test unless the loaded extension carries the
+// expected path. Its parameter pins Harness.LoadFile and Harness.LoadString to
+// the public *extensions.LoadedExtension.
 func requireExtensionPath(t *testing.T, loaded *extensions.LoadedExtension, want string) {
 	t.Helper()
 	if loaded == nil {
@@ -214,6 +217,8 @@ func requireExtensionPath(t *testing.T, loaded *extensions.LoadedExtension, want
 	}
 }
 
+// requireRunner fails the test when the harness exposes no runner. Its
+// parameter pins Harness.Runner to the public *extensions.Runner.
 func requireRunner(t *testing.T, runner *extensions.Runner) {
 	t.Helper()
 	if runner == nil {
@@ -221,6 +226,8 @@ func requireRunner(t *testing.T, runner *extensions.Runner) {
 	}
 }
 
+// requireBlocked fails the test unless the tool call was blocked. Its
+// parameter pins Harness.EmitJSON to the public *extensions.ToolCallResult.
 func requireBlocked(t *testing.T, result *extensions.ToolCallResult) {
 	t.Helper()
 	if result == nil || !result.Block {
@@ -228,6 +235,10 @@ func requireBlocked(t *testing.T, result *extensions.ToolCallResult) {
 	}
 }
 
+// requireNoRegistrations fails the test when the extension registered a tool
+// or a command. Its parameters pin Harness.RegisteredTools and
+// Harness.RegisteredCommands to the public []extensions.ToolDef and
+// []extensions.CommandDef.
 func requireNoRegistrations(t *testing.T, tools []extensions.ToolDef, commands []extensions.CommandDef) {
 	t.Helper()
 	if len(tools) != 0 || len(commands) != 0 {
@@ -235,8 +246,16 @@ func requireNoRegistrations(t *testing.T, tools []extensions.ToolDef, commands [
 	}
 }
 
+// asEvent returns the event unchanged. It exists to type the value as the
+// public extensions.Event before Harness.Emit receives it, which fails to
+// compile if Emit stops accepting the public interface.
 func asEvent(event extensions.Event) extensions.Event { return event }
 
+// asEventType returns the event type unchanged. It exists to type the value as
+// the public extensions.EventType before Harness.HasHandlers receives it.
 func asEventType(eventType extensions.EventType) extensions.EventType { return eventType }
 
+// asResult returns the result unchanged. It exists to type the value as the
+// public extensions.Result before an assertion helper receives it, which fails
+// to compile if Emit stops returning the public interface.
 func asResult(result extensions.Result) extensions.Result { return result }
