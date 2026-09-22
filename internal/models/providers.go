@@ -1100,10 +1100,37 @@ func SuggestThinkingLevelFallback(level ThinkingLevel, provider, modelName strin
 	return ThinkingOff
 }
 
+// anthropicEffortForLevel maps a Kit ThinkingLevel onto the Anthropic
+// output_config.effort value. Only Kit's graded levels have an effort
+// equivalent; "off", "none", and "minimal" have no effort name, so the caller
+// must coerce those to a supported graded level first (see
+// SuggestThinkingLevelFallback). Returns ok=false for a level with no effort
+// mapping.
+func anthropicEffortForLevel(level ThinkingLevel) (anthropic.Effort, bool) {
+	switch level {
+	case ThinkingLow:
+		return anthropic.EffortLow, true
+	case ThinkingMedium:
+		return anthropic.EffortMedium, true
+	case ThinkingHigh:
+		return anthropic.EffortHigh, true
+	default:
+		return "", false
+	}
+}
+
 // buildAnthropicProviderOptions returns fantasy.ProviderOptions configured for
 // Anthropic models with extended thinking. When thinking is enabled, it sets
-// SendReasoning to true and configures the thinking budget. For thinking-off
-// or non-reasoning models the returned map is nil.
+// SendReasoning to true and configures reasoning in the shape the model
+// accepts. For thinking-off or non-reasoning models the returned map is nil.
+//
+// Two reasoning APIs exist. Newer models (e.g. claude-opus-5, opus-4.5+,
+// sonnet-4.6) publish a named "effort" scale and take output_config.effort;
+// several of them (opus-5) drop thinking.budget_tokens entirely, so sending a
+// budget is rejected. Classic models (e.g. claude-sonnet-4-5, haiku-4-5) take
+// only thinking.budget_tokens. The catalog's ReasoningIsGraded flag tells the
+// two apart: graded means the model exposes an effort scale, so route to
+// effort; otherwise route to the token budget.
 //
 // NOTE: With message-level caching, thinking and caching can work together.
 // Message-level cache control (ProviderCacheControlOptions) doesn't conflict
@@ -1111,11 +1138,34 @@ func SuggestThinkingLevelFallback(level ThinkingLevel, provider, modelName strin
 //
 // Anthropic requires max_tokens > thinking.budget_tokens. If the configured
 // MaxTokens is too low, it is bumped to budget + 4096 to leave room for the
-// actual response.
+// actual response. Effort mode uses adaptive thinking (no fixed budget), so
+// this bump does not apply there.
 func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fantasy.ProviderOptions {
 	// Thinking is OFF by default. If user hasn't explicitly enabled it, return nil.
 	if config.ThinkingLevel == "" || config.ThinkingLevel == ThinkingOff {
 		return nil
+	}
+
+	sendReasoning := true
+
+	// Effort-graded models take output_config.effort, not a token budget.
+	if info := GetGlobalRegistry().LookupModel("anthropic", modelName); info != nil && info.ReasoningIsGraded {
+		// Kit's "none"/"minimal" have no effort equivalent; coerce to the
+		// nearest supported graded level so the request is accepted rather
+		// than rejected by the API.
+		level := config.ThinkingLevel
+		if !IsValidThinkingLevelForModel(level, "anthropic", modelName) {
+			level = SuggestThinkingLevelFallback(level, "anthropic", modelName)
+		}
+		effort, ok := anthropicEffortForLevel(level)
+		if !ok {
+			return nil
+		}
+		opts := &anthropic.ProviderOptions{
+			SendReasoning: &sendReasoning,
+			Effort:        &effort,
+		}
+		return anthropic.NewProviderOptions(opts)
 	}
 
 	budget := thinkingBudgetTokens(config.ThinkingLevel)
@@ -1129,7 +1179,6 @@ func buildAnthropicProviderOptions(config *ProviderConfig, modelName string) fan
 		config.MaxTokens = minRequired
 	}
 
-	sendReasoning := true
 	opts := &anthropic.ProviderOptions{
 		SendReasoning: &sendReasoning,
 		Thinking: &anthropic.ThinkingProviderOption{
