@@ -72,6 +72,17 @@ const (
 	// the frame drops it and starts the session the old way.
 	FrameSessionSpec FrameType = 0x0f // client -> daemon: JSON SessionSpec
 
+	// FrameHello announces which protocol a peer speaks and what it can
+	// do (JSON, see Hello). Both ends send it first and neither waits for
+	// the other's: a peer too old to know the frame drops it, and silence
+	// is read as "protocol v1, no optional features" rather than as a
+	// failure. See version.go for why compatibility is one rarely-changing
+	// number plus an additive feature bitmap.
+	//
+	// 0x15 sits in the gap left by the retired SESSION_OPEN/CLOSED pair so
+	// the session frames stay contiguous.
+	FrameHello FrameType = 0x15 // both ways: JSON Hello
+
 	// Historical frame types (retired with the Rust kit-tunnel sidecar,
 	// which owned the transport in a subprocess). SESSION_OPEN/CLOSED
 	// introduced and retired wire connections on the sidecar's stdio; the

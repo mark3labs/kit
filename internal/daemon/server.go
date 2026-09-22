@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -42,17 +43,25 @@ func Serve(ctx context.Context) error {
 	fmt.Println("  kit daemon")
 	fmt.Println()
 
-	// The session table outlives tunnel restarts: logical sessions keep
-	// running (detached) while clients come and go.
+	// The session table outlives tunnel restarts AND this daemon: logical
+	// sessions keep running (detached) while clients come and go, and
+	// hosted ones keep running while DAEMONS come and go.
 	table := newSessionTable(rt)
 
-	// Anything still running from a previous daemon run is unreachable:
-	// its PTY master died with the process that owned it. Kill it now,
-	// while the single-instance lock guarantees no live daemon owns those
-	// pids, and clear the scratch files it left behind.
-	sweepOrphanSessions(table.run)
-	sweepStaleTempFiles(table.run)
-	defer removeSessionRegistry()
+	// Sessions left by a previous daemon come first. The hosted ones are
+	// adopted — dialled, put back in the table with their ids, names and
+	// ages intact, and made available to the clients still waiting on
+	// them. Only then is the rest swept: a session this daemon could not
+	// adopt because its PTY master died with the daemon that held it is
+	// unreachable by construction, and is ended rather than left running
+	// where nothing can ever reach it.
+	adopted := table.adoptHostedSessions(ctx)
+	if len(adopted) > 0 {
+		fmt.Printf("  Adopted %s from a previous daemon.\n", countSessions(len(adopted)))
+	}
+	table.seedSessionIDs(adopted)
+	sweepOrphanSessions(table.run, adopted)
+	sweepStaleTempFiles(table.sessionIDs())
 
 	// The local socket is bound first and closed only on shutdown. The
 	// lock above guarantees no other daemon owns this socket.
@@ -76,7 +85,13 @@ func Serve(ctx context.Context) error {
 	listener, remoteErr := bindRemoteListener(ctx, table)
 	if remoteErr != nil {
 		if lnErr != nil {
-			table.killAll()
+			// No socket of any kind, so this daemon cannot serve the
+			// sessions it adopted a moment ago. Let GO of them rather
+			// than ending them: they were running before this process
+			// started and a daemon that failed to bind is no reason to
+			// destroy them. killAll here would call Terminate on every
+			// adopted session and take the user's work with it.
+			table.releaseSessions()
 			return fmt.Errorf("%w (and remote sessions failed too: %v)", lnErr, remoteErr)
 		}
 		log.Warn("daemon: remote sessions are disabled", "error", remoteErr)
@@ -118,19 +133,49 @@ func bindRemoteListener(ctx context.Context, table *sessionTable) (*remoteListen
 	return listenRemote(ctx, seed, table)
 }
 
-// shutdown ends every session and reports a clean exit.
+// shutdown lets go of every session and reports a clean exit.
+//
+// "Lets go of", not "ends": a hosted session is detached and keeps
+// running, so stopping or restarting the daemon costs the user nothing.
+// Only sessions this daemon hosts itself are ended, because those cannot
+// be reached by any future daemon. See releaseSessions.
 //
 // A cancelled context is how a SIGINT/SIGTERM stop arrives, which is
 // success, not failure: returning ctx.Err() here would exit non-zero and
 // have systemd log "status=1/FAILURE" for an ordinary `systemctl stop`.
 func shutdown(table *sessionTable) error {
-	n := table.sessionCount()
-	if n > 0 {
-		log.Info("daemon: stopping sessions", "count", n)
+	released, ended := table.releaseSessions()
+	if released > 0 {
+		log.Info("daemon: leaving sessions running for the next daemon", "count", released)
+		fmt.Printf("\n  %s left running. Reattach with: kit attach\n",
+			capitalise(countSessions(released)))
 	}
-	table.killAll()
-	removeSessionRegistry()
+	if ended > 0 {
+		log.Info("daemon: stopped sessions this daemon hosted itself", "count", ended)
+	}
+	// The registry is left in place when sessions were released: it is how
+	// a later sweep tells an adopted session from an orphan, and removing
+	// it would make the next daemon's records start empty.
+	if released == 0 {
+		removeSessionRegistry()
+	}
 	return nil
+}
+
+// countSessions renders a session count with its noun.
+func countSessions(n int) string {
+	if n == 1 {
+		return "1 session"
+	}
+	return fmt.Sprintf("%d sessions", n)
+}
+
+// capitalise upper-cases the first letter of a message that starts a line.
+func capitalise(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // shortEndpoint renders the first bytes of an endpoint id for display.
@@ -148,14 +193,23 @@ func shortEndpoint(id string) string {
 // attached clients is detached but keeps running until the child exits or
 // the daemon shuts down.
 type remoteSession struct {
-	id      uint64 // logical id, daemon-assigned monotonic
-	cmd     *exec.Cmd
-	ptmx    *os.File
+	id uint64 // logical id, daemon-assigned monotonic
+	// io is how this daemon reaches the session's terminal: directly,
+	// through a PTY master it holds, or through a socket to the supervisor
+	// that holds it. See sessionio.go — the difference decides whether the
+	// session survives this daemon.
+	io      sessionIO
 	started time.Time
 
 	// modes remembers the terminal modes the child has set, so a client
 	// that attaches after the child set them still gets them. See
 	// termModes.
+	//
+	// A hosted session tracks them in its supervisor as well, because this
+	// copy is lost whenever the daemon is. The two are not redundant: this
+	// one serves a single attaching client without disturbing the others,
+	// while the supervisor's covers a daemon that has just adopted a
+	// session and knows nothing about it yet.
 	modes *termModes
 
 	mu      sync.Mutex
@@ -168,6 +222,11 @@ func (s *remoteSession) setName(name string) {
 	s.mu.Lock()
 	s.name = name
 	s.mu.Unlock()
+	// The name belongs to the SESSION, so a hosted one keeps it where the
+	// session lives and it survives this daemon along with it.
+	if s.io != nil {
+		s.io.Rename(name)
+	}
 }
 
 // displayName returns the session's name, or "" when it has none.
@@ -177,27 +236,21 @@ func (s *remoteSession) displayName() string {
 	return s.name
 }
 
-// nudgeRedraw makes the child repaint by changing the PTY size and putting
-// it back. A full-screen TUI redraws on SIGWINCH, which is the only
-// portable way to force a repaint of a child we do not emulate.
+// hosted reports whether this session outlives the daemon.
+func (s *remoteSession) hosted() bool {
+	return s.io != nil && s.io.Hosted()
+}
+
+// nudgeRedraw makes the session repaint into a client that has just taken
+// over the screen, and restores the terminal state that client never saw
+// the child set.
 //
-// Both size changes happen here rather than at the client, so the gap
-// between them is a local sleep instead of two network round trips. The
-// child needs to observe two distinct sizes: setting the same size twice
-// is not a change and produces no repaint.
+// How it is done depends on where the session lives; see sessionIO.Redraw.
 func (s *remoteSession) nudgeRedraw() {
-	s.mu.Lock()
-	size := minSizeLocked(s.clients)
-	ptmx := s.ptmx
-	s.mu.Unlock()
-	if ptmx == nil || size.cols < 2 || size.rows < 2 {
+	if s.io == nil {
 		return
 	}
-	go func() {
-		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows - 1)})
-		time.Sleep(40 * time.Millisecond)
-		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(size.cols), Rows: uint16(size.rows)})
-	}()
+	s.io.Redraw(s.minSize())
 }
 
 // sendTermModes hands one client the terminal modes the session's child
@@ -308,10 +361,12 @@ func minSizeLocked(clients map[uint32]winSize) winSize {
 type sessionTable struct {
 	rt    *daemonRuntime
 	conns *connSet
-	// run identifies this daemon run. It tags registry records and
-	// per-session temp files so a later run can tell its own state from a
-	// crashed predecessor's.
+	// run identifies this daemon run. It tags registry records so a later
+	// run can tell its own state from a crashed predecessor's.
 	run string
+	// closing marks a daemon on its way out, so the per-session watchers
+	// do not read a deliberately released session as one that ended.
+	closing atomic.Bool
 
 	mu           sync.Mutex
 	nextID       uint64
@@ -368,6 +423,8 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 		}
 		frame.Session = wire
 		switch frame.Type {
+		case FrameHello:
+			t.handleHello(frame.Session, frame.Payload)
 		case FrameSessionDetach:
 			// Detach unbinds the session but KEEPS the connection: the
 			// client is still there and usually attaches to another
@@ -399,7 +456,7 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 		case FrameSessionList:
 			t.sendSessionList(frame.Session)
 		case FrameSessionAttach:
-			t.attachSession(frame.Session, frame.Payload)
+			t.attachSession(ctx, frame.Session, frame.Payload)
 		case FrameSessionRedraw:
 			if sess := t.logicalFor(frame.Session); sess != nil {
 				// A client asks to repaint exactly when it has taken
@@ -414,7 +471,7 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 			t.renameSession(frame.Payload)
 		case FrameData:
 			if sess := t.logicalFor(frame.Session); sess != nil {
-				if _, err := sess.ptmx.Write(frame.Payload); err != nil {
+				if _, err := sess.io.Write(frame.Payload); err != nil {
 					t.retireSession(sess.id)
 				}
 			}
@@ -428,10 +485,59 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 			if sess := t.logicalFor(frame.Session); sess != nil {
 				t.handleClipboardChunk(ctx, sess.id, frame.Payload)
 			}
+		default:
+			// A frame from a NEWER client than this daemon. Dropping it is
+			// the contract — every frame added since v1 is additive, and a
+			// client that needs one negotiated it through the feature
+			// bitmap first. Logged so an unexpected one is at least
+			// findable, and at debug level so a mixed-version pair does not
+			// fill the journal.
+			log.Debug("daemon: ignoring an unknown frame",
+				"type", fmt.Sprintf("%#x", byte(frame.Type)), "wire", frame.Session)
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+	}
+}
+
+// handleHello reports a client's announced protocol and answers with our
+// own, so each end knows what the other can do.
+//
+// A mismatched version is reported and then SERVED anyway. The daemon is
+// the long-lived side: it cannot know whether the client is older or
+// newer, and refusing here would take away the one channel through which
+// the client can be told what is wrong. The client makes the decision,
+// because the client is the side that can print a message and exit.
+//
+// Nothing about the peer is kept. The daemon's behaviour does not depend
+// on it: every frame added since v1 is additive, so a client simply does
+// not send what it does not have, and one that sends something we lack is
+// already ignored by the frame loop. Recording it would be state that
+// nothing reads.
+//
+// Our reply goes out even to a peer whose hello was unreadable: that peer
+// still needs to learn what this daemon is, and a garbled hello is far
+// more likely to be a version skew than an attack (the local socket is
+// already uid-restricted, and a remote peer has passed the pairing
+// handshake before reaching this frame loop). A client that has gone in
+// the meantime is handled by writeTo, which drops frames for a connection
+// it no longer knows.
+func (t *sessionTable) handleHello(wire uint32, payload []byte) {
+	peer, err := DecodeHello(payload)
+	switch {
+	case err != nil:
+		log.Warn("daemon: unreadable client hello", "wire", wire, "error", err)
+	case peer.Compatible() != nil:
+		log.Warn("daemon: client protocol mismatch", "wire", wire,
+			"client_version", peer.Version, "daemon_version", ProtocolVersion,
+			"client_build", peer.Build)
+	default:
+		log.Debug("daemon: client hello", "wire", wire,
+			"build", peer.Build, "features", peer.Features)
+	}
+	if reply, merr := EncodeHello(localHello(RoleDaemon)); merr == nil {
+		_ = t.writeTo(Frame{Type: FrameHello, Session: wire, Payload: reply})
 	}
 }
 
@@ -474,29 +580,61 @@ func (t *sessionTable) detachWire(wire uint32) {
 	}
 }
 
-// killAll tears down every logical session, killing children. Used on
-// daemon shutdown.
-func (t *sessionTable) killAll() {
+// releaseSessions is how a daemon lets go on shutdown.
+//
+// A hosted session is DETACHED, not ended: its supervisor keeps the child
+// running and the next daemon adopts it. This is the single most
+// important line in the shutdown path — ending those sessions here would
+// make every `systemctl restart kit` destroy the user's work, which is
+// precisely the behaviour this design removes.
+//
+// A session this daemon hosts itself has nowhere to go: its PTY master
+// dies with this process and no future daemon could ever reach the child,
+// so it is ended cleanly instead of being left unreachable.
+func (t *sessionTable) releaseSessions() (released, ended int) {
+	t.closing.Store(true)
+	for _, id := range t.sessionIDs() {
+		t.mu.Lock()
+		sess := t.sessions[id]
+		t.mu.Unlock()
+		if sess == nil {
+			continue
+		}
+		if !sess.hosted() {
+			t.retireSession(id)
+			ended++
+			continue
+		}
+		// Tell the clients the connection is over without telling them
+		// the SESSION is over: BYE means "ended" to a client, and a client
+		// that heard it would stop instead of reconnecting. Dropping the
+		// stream is the honest signal, and the one RunClient retries on.
+		_ = sess.io.Close()
+		released++
+	}
+	return released, ended
+}
+
+// sessionIDs snapshots the live logical ids.
+func (t *sessionTable) sessionIDs() []uint64 {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	ids := make([]uint64, 0, len(t.sessions))
 	for id := range t.sessions {
 		ids = append(ids, id)
 	}
-	t.mu.Unlock()
-	for _, id := range ids {
-		t.retireSession(id)
-	}
+	return ids
 }
 
-// applySize sets the session's PTY to ws, if it names a real size.
+// applySize sets the session's terminal to ws, if it names a real size.
 //
 // The zero size means no attached client has reported one yet, and the
-// PTY is left at its default rather than resized to nothing.
+// terminal is left at its default rather than resized to nothing.
 func (s *remoteSession) applySize(ws winSize) {
-	if ws.cols == 0 || ws.rows == 0 || s.ptmx == nil {
+	if s.io == nil {
 		return
 	}
-	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(ws.cols), Rows: uint16(ws.rows)})
+	_ = s.io.Resize(ws)
 }
 
 // applyResize records one client's size and applies the minimum across all
@@ -558,12 +696,12 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 		t.clipboards[session] = coll
 	}
 	s, live := t.sessions[session]
-	var ptmx *os.File
+	var sio sessionIO
 	if live && s != nil {
-		ptmx = s.ptmx
+		sio = s.io
 	}
 	t.mu.Unlock()
-	if !live || ptmx == nil {
+	if !live || sio == nil {
 		return
 	}
 
@@ -589,7 +727,7 @@ func (t *sessionTable) handleClipboardChunk(ctx context.Context, session uint64,
 
 	// Synthetic Ctrl-V: the child reads the file via KIT_REMOTE_CLIPBOARD
 	// and runs its normal pending-image preview flow.
-	if _, err := fmt.Fprintf(ptmx, "%c", pasteKey); err != nil {
+	if _, err := fmt.Fprintf(sio, "%c", pasteKey); err != nil {
 		log.Error("daemon: clipboard inject failed", "session_id", session, "error", err)
 		return
 	}
@@ -676,7 +814,7 @@ func (t *sessionTable) sendSessionList(wire uint32) {
 // attachSession binds a client's wire id to a logical session and answers
 // with an ack the client waits for. Logical id 0 means "spawn a new
 // session"; the ack carries the assigned (or attached) logical id.
-func (t *sessionTable) attachSession(wire uint32, payload []byte) {
+func (t *sessionTable) attachSession(ctx context.Context, wire uint32, payload []byte) {
 	requested := uint64(0)
 	if len(payload) >= 8 {
 		requested = binary.BigEndian.Uint64(payload[:8])
@@ -700,19 +838,16 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		s.attachClient(wire, winSize{})
 		t.mu.Unlock()
 
-		child, ptmx, err := t.spawnSession(logical, t.conns.terminalFor(wire), t.conns.consumeSpec(wire))
+		sio, err := t.spawnSession(ctx, logical, t.conns.terminalFor(wire), t.conns.consumeSpec(wire))
 		if err != nil {
 			log.Error("daemon: session spawn failed", "session_id", logical, "error", err)
 			t.retireSession(logical)
 			ok = 0
 		} else {
-			s.cmd, s.ptmx = child, ptmx
-			t.mu.Lock()
-			active := len(t.sessions)
-			t.mu.Unlock()
-			t.rt.setSessions(active)
+			s.io = sio
+			t.reportSessions()
 			t.syncSessionRegistry()
-			log.Info("session started", "session_id", logical, "wire", wire)
+			log.Info("session started", "session_id", logical, "wire", wire, "hosted", sio.Hosted())
 			t.watchSession(s)
 			ok = 1
 		}
@@ -742,24 +877,81 @@ func (t *sessionTable) attachSession(wire uint32, payload []byte) {
 		}
 	}
 
-	ack := make([]byte, 9)
+	// The ack is 9 bytes plus a flags byte. The tenth byte is ADDITIVE: a
+	// client too old to read it stops at the ninth and behaves exactly as
+	// before, and a new client talking to an old daemon gets 9 bytes and
+	// falls back to the daemon-wide FeatureReattach bit. That is why this
+	// needs no protocol version bump.
+	ack := make([]byte, 10)
 	binary.BigEndian.PutUint64(ack[:8], logical)
 	ack[8] = ok
+	if ok == 1 {
+		// Whether THIS session survives a daemon restart. The daemon-wide
+		// hello cannot answer that: a daemon which supports supervisors
+		// can still have fallen back to a plain PTY for one session (see
+		// spawnSession), and that session dies with the daemon while its
+		// neighbours do not. A client which was told otherwise would
+		// promise the user work that is already gone.
+		t.mu.Lock()
+		if sess := t.sessions[logical]; sess != nil && sess.hosted() {
+			ack[9] = 1
+		}
+		t.mu.Unlock()
+	}
 	_ = t.writeTo(Frame{Type: FrameSessionAttachAck, Session: wire, Payload: ack})
 	if ok == 0 {
 		log.Warn("attach failed", "wire", wire, "requested", requested)
+		return
 	}
+	if requested == 0 && !t.conns.live(wire) {
+		// We spawned this session for a client that has already gone: it
+		// cancelled, or its connection dropped, between asking and being
+		// told the answer. Nobody knows this session exists, so it is
+		// retired rather than left as a detached session the user never
+		// asked for and would find in 'kit ls' with no idea what it is.
+		//
+		// Narrow on purpose. Only a session created FOR THIS REQUEST is
+		// eligible, and only while no other client has attached to it.
+		// An established session is never touched, because outliving its
+		// client is the whole point of one.
+		t.retireUnclaimedSession(logical, wire)
+	}
+}
+
+// retireUnclaimedSession ends a session that was just spawned for a
+// client which vanished before it could be told the session existed.
+//
+// A session whose requester never learned its id is not a detached
+// session, it is litter: nothing points at it, and the user did not ask
+// for it to keep running. A session anyone else has attached to is
+// somebody's work and is left alone.
+func (t *sessionTable) retireUnclaimedSession(logical uint64, wire uint32) {
+	t.mu.Lock()
+	sess := t.sessions[logical]
+	if bound, ok := t.wireMap[wire]; ok && bound == logical {
+		delete(t.wireMap, wire)
+	}
+	t.mu.Unlock()
+	if sess == nil {
+		return
+	}
+	if _, remaining := sess.detachClient(wire); remaining > 0 {
+		return // another client is watching it; it is theirs now
+	}
+	log.Warn("daemon: retiring a session whose client never received it",
+		"session_id", logical, "wire", wire)
+	t.retireSession(logical)
 }
 
 // watchSession starts the per-session PTY fan-out reader and the child
 // lifecycle watcher.
 func (t *sessionTable) watchSession(s *remoteSession) {
-	// PTY -> clients: raw child output as DATA frames fanned out to every
-	// attached client (shared view).
+	// Session -> clients: raw child output as DATA frames fanned out to
+	// every attached client (shared view).
 	go func(sess *remoteSession) {
 		buf := make([]byte, chunkSize)
 		for {
-			n, err := sess.ptmx.Read(buf)
+			n, err := sess.io.Read(buf)
 			if n > 0 {
 				// Watch the stream for terminal modes on the way past.
 				// The next client to attach is handed them; it will
@@ -775,15 +967,21 @@ func (t *sessionTable) watchSession(s *remoteSession) {
 				}
 			}
 			if err != nil {
-				return // EIO when the child exits, or PTY closed
+				return // EIO when the child exits, or the link closed
 			}
 		}
 	}(s)
 
-	// Child lifecycle: when the child quits (user exited the remote TUI),
-	// retire exactly this session — other sessions are unaffected.
+	// Session lifecycle: when the session ends (the user exited the TUI),
+	// retire exactly this one — the others are unaffected.
 	go func(sess *remoteSession) {
-		_, _ = sess.cmd.Process.Wait()
+		sess.io.Wait()
+		if t.closing.Load() {
+			// The daemon is shutting down and has just let go of this
+			// session on purpose. Retiring it here would kill a child
+			// that was deliberately left running.
+			return
+		}
 		t.retireSession(sess.id)
 	}(s)
 }
@@ -794,6 +992,16 @@ func (t *sessionTable) watchSession(s *remoteSession) {
 func (t *sessionTable) retireSession(id uint64) {
 	t.mu.Lock()
 	s, ok := t.sessions[id]
+	// A daemon on its way out has already let go of its hosted sessions
+	// deliberately (see releaseSessions). A frame that arrives in that
+	// window — a client keystroke landing on a sink we have just closed —
+	// fails to write and lands here, and retiring the session would end a
+	// child that was left running on purpose. One late keystroke would
+	// destroy the user's work on every restart.
+	if ok && t.closing.Load() && s.io != nil && s.io.Hosted() {
+		t.mu.Unlock()
+		return
+	}
 	delete(t.sessions, id)
 	temps := t.sessionTemps[id]
 	delete(t.sessionTemps, id)
@@ -807,7 +1015,6 @@ func (t *sessionTable) retireSession(id uint64) {
 	for _, wire := range wires {
 		delete(t.wireMap, wire)
 	}
-	active := len(t.sessions)
 	t.mu.Unlock()
 	for _, wire := range wires {
 		_ = t.writeTo(Frame{Type: FrameBye, Session: wire})
@@ -818,22 +1025,18 @@ func (t *sessionTable) retireSession(id uint64) {
 		}
 		return
 	}
-	t.rt.setSessions(active)
+	t.reportSessions()
 	for _, p := range temps {
 		_ = os.Remove(p)
 	}
 
-	if s.ptmx != nil {
-		_ = s.ptmx.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		// SIGTERM first: the child flushes its conversation store and
-		// restores the terminal. SIGKILL only if it ignores that.
-		//
-		// Off the frame loop: retireSession runs inline there when a PTY
-		// write fails, so waiting out the grace period here would stall
-		// that client's whole frame loop for seconds.
-		go terminateProcess(s.cmd.Process.Pid)
+	if s.io != nil {
+		// Terminate, not Close: this is the session ending, so the child
+		// is asked to exit and then made to. SIGTERM first — the child
+		// flushes its conversation store and restores the terminal — and
+		// SIGKILL only if it ignores that. A hosted session's supervisor
+		// does the same on its side and then exits with it.
+		s.io.Terminate()
 	}
 	t.syncSessionRegistry()
 	log.Info("session ended", "session_id", id)
@@ -844,9 +1047,17 @@ func (t *sessionTable) retireSession(id uint64) {
 // internal/clipboard.RemoteClipboardEnv), so a paste is a file rewrite
 // followed by a synthetic 0x16 keystroke — the child's own clipboard
 // pipeline then renders the preview exactly like a local paste.
+//
+// Named by logical session id ALONE. It used to carry the daemon's run
+// nonce as well, which was right when a session could not outlive its
+// daemon: the id was reused by the next run and the nonce kept the two
+// apart. A session now survives the daemon, and its child holds this path
+// in its environment for its whole life, so a name that changed with the
+// daemon would leave every adopted session pasting into a file nobody
+// writes. Ids are no longer reused (see nextSessionID), which is what
+// makes the nonce unnecessary rather than merely inconvenient.
 func (t *sessionTable) remoteClipboardPath(session uint64) string {
-	return filepath.Join(t.scratchDir(),
-		fmt.Sprintf("%sclip-%s-%d", tempFilePrefix, t.run, session))
+	return filepath.Join(t.scratchDir(), fmt.Sprintf("%sclip-%d", tempFilePrefix, session))
 }
 
 // sessionCwdPath is the stable per-session file a session's child writes
@@ -854,10 +1065,10 @@ func (t *sessionTable) remoteClipboardPath(session uint64) string {
 //
 // Reading /proc/<pid>/cwd would be simpler but only works on Linux, and it
 // reports the child's cwd rather than the directory the user picked. The
-// file follows the same convention as the clipboard file above.
+// file follows the same convention as the clipboard file above, and for
+// the same reason is named by session id alone.
 func (t *sessionTable) sessionCwdPath(session uint64) string {
-	return filepath.Join(t.scratchDir(),
-		fmt.Sprintf("%scwd-%s-%d", tempFilePrefix, t.run, session))
+	return filepath.Join(t.scratchDir(), fmt.Sprintf("%scwd-%d", tempFilePrefix, session))
 }
 
 // scratchDir is where per-session files live.
@@ -879,15 +1090,18 @@ func (t *sessionTable) scratchDir() string {
 // It is empty until the child has chosen one, which is the honest answer
 // while the directory picker is still on screen.
 func (t *sessionTable) sessionCwd(s *remoteSession) string {
-	data, err := os.ReadFile(t.sessionCwdPath(s.id))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
+	return readReportedCwd(t.sessionCwdPath(s.id))
 }
 
-// spawnSession starts a kit child for a new session, rendered into the
-// PTY the daemon owns.
+// spawnSession starts a session for a new logical id and returns the
+// handle the daemon drives it through.
+//
+// A supervisor process is preferred, always. It is what makes the session
+// survive this daemon being stopped, restarted or upgraded, and it costs
+// one small process. Only when one cannot be started does the daemon fall
+// back to holding the PTY itself — a session that works now and dies with
+// the daemon is strictly better than no session at all, and the log says
+// which kind the user got.
 //
 // Without a spec the child gets the hidden --pick-dir flag and starts in
 // the daemon user's home directory, so the peer chooses the session's
@@ -903,29 +1117,35 @@ func (t *sessionTable) sessionCwd(s *remoteSession) string {
 // info describes the terminal of the client that asked for the session, so
 // the child renders for that terminal rather than for the daemon's own
 // environment.
-func (t *sessionTable) spawnSession(session uint64, info TerminalInfo, spec *SessionSpec) (*exec.Cmd, *os.File, error) {
+func (t *sessionTable) spawnSession(ctx context.Context, session uint64, info TerminalInfo, spec *SessionSpec) (sessionIO, error) {
+	if hostedSessionsSupported() {
+		io, err := t.spawnSessionHost(ctx, session, info, spec)
+		if err == nil {
+			return io, nil
+		}
+		log.Warn("daemon: could not start a session host — this session will not survive a daemon restart",
+			"session_id", session, "error", err)
+	}
+	return t.spawnLocalSession(session, info, spec)
+}
+
+// spawnLocalSession starts a session whose PTY master this daemon holds.
+// It dies with the daemon; see spawnSession for when that is accepted.
+func (t *sessionTable) spawnLocalSession(session uint64, info TerminalInfo, spec *SessionSpec) (sessionIO, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve kit binary: %w", err)
+		return nil, fmt.Errorf("resolve kit binary: %w", err)
 	}
 	dir, specArgs := specCommand(spec)
 
 	cmd := exec.Command(exe, specArgs...)
 	cmd.Dir = dir
-	own := map[string]string{
-		clipboard.RemoteClipboardEnv: t.remoteClipboardPath(session),
-		sessionCwdEnv:                t.sessionCwdPath(session),
-	}
-	// Mark the child with this daemon's runtime directory so a later
-	// sweep can prove the process is ours before signalling it.
-	if home, herr := daemonRuntimeDir(); herr == nil {
-		own[sessionOwnerEnv] = home
-	}
+	owner, _ := daemonRuntimeDir()
 	// The child renders into the CLIENT's terminal, not the daemon's; see
 	// childEnv for why the PTY between them cannot answer for it. The
 	// spec's variables go underneath, where the daemon's own per-session
 	// values still override them.
-	cmd.Env = childEnv(specBase(os.Environ(), spec), info, own)
+	cmd.Env = childEnv(specBase(os.Environ(), spec), info, t.sessionEnv(session, owner))
 
 	// Ask the kernel to kill this child if the daemon dies, so a crash
 	// cannot leave an unreachable session running (see recovery.go).
@@ -933,9 +1153,26 @@ func (t *sessionTable) spawnSession(session uint64, info TerminalInfo, spec *Ses
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
 	if err != nil {
-		return nil, nil, fmt.Errorf("start child: %w", err)
+		return nil, fmt.Errorf("start child: %w", err)
 	}
-	return cmd, ptmx, nil
+	return &ptyIO{cmd: cmd, ptmx: ptmx}, nil
+}
+
+// sessionEnv builds the per-session variables the daemon owns, whichever
+// kind of session is being started.
+//
+// owner marks the child with the runtime directory of the daemon that
+// started it, so a later sweep can prove a process is ours before
+// signalling it.
+func (t *sessionTable) sessionEnv(session uint64, owner string) map[string]string {
+	env := map[string]string{
+		clipboard.RemoteClipboardEnv: t.remoteClipboardPath(session),
+		sessionCwdEnv:                t.sessionCwdPath(session),
+	}
+	if owner != "" {
+		env[sessionOwnerEnv] = owner
+	}
+	return env
 }
 
 func homeDir() string {
@@ -946,6 +1183,23 @@ func homeDir() string {
 		return u.HomeDir
 	}
 	return "/"
+}
+
+// reportSessions publishes the session counts into the state file
+// `kit daemon status` reads.
+//
+// Both numbers, because the difference is what a user needs: a hosted
+// session comes back after a restart and a directly-hosted one does not.
+func (t *sessionTable) reportSessions() {
+	t.mu.Lock()
+	active, hosted := len(t.sessions), 0
+	for _, sess := range t.sessions {
+		if sess.io != nil && sess.io.Hosted() {
+			hosted++
+		}
+	}
+	t.mu.Unlock()
+	t.rt.setSessions(active, hosted)
 }
 
 // sessionCount reports how many logical sessions are live.

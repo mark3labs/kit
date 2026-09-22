@@ -5,47 +5,60 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
 )
 
-// Crash recovery for session children.
+// Crash recovery and session adoption.
 //
-// A session's PTY master lives in the daemon process. When the daemon
-// exits, that fd goes with it and there is no way to re-open a master for
-// an existing slave, so a bare child can never be adopted by the next
-// daemon: it is unreachable by construction. Surviving a daemon restart
-// would need a per-session supervisor process that owns the master and
-// hands it over (the tmux/mosh design) — see docs.
+// A session's PTY master has to live somewhere, and whichever process
+// holds it is the only one that can ever reach the child: a master cannot
+// be re-opened for an existing slave. That single fact decides everything
+// here.
 //
-// What we can guarantee is that a child never outlives the daemon that
-// owns it. Whether the kernel's SIGHUP happens to kill it depends on
-// process-group state at the moment the master closes, which makes
-// survival a race rather than a rule. Two independent mechanisms close it:
+// Sessions are therefore hosted by supervisor processes of their own (see
+// sessionhost.go), and a daemon that starts ADOPTS them by dialling their
+// sockets. Stopping, restarting or upgrading a daemon costs a socket and
+// nothing more.
 //
-//   - Pdeathsig (Linux): the kernel signals the child the instant its
-//     parent dies, whatever killed the parent. Nothing to run, nothing to
-//     miss.
-//   - This registry (all platforms): the daemon records each child's pid,
-//     and the next daemon start sweeps any survivor. This is the portable
-//     fallback, and it also covers the window before Pdeathsig is armed.
+// Two things still need this file:
+//
+//   - A session a daemon had to host itself, because no supervisor could
+//     be started. It dies with that daemon, and a survivor of one is
+//     unreachable by construction, so the next daemon sweeps it. Pdeathsig
+//     (Linux) normally gets there first; this registry is the portable
+//     fallback and covers the window before Pdeathsig is armed.
+//   - Session ids, which must never be reused. An adopted session keeps
+//     the id its clients, its scratch files and its socket already carry,
+//     so a new session must be numbered above every id that has ever
+//     existed rather than above the ones that happen to be live.
 
 const sessionsFileName = "sessions.json"
 
-// sessionRecord is the on-disk description of one session child. It holds
-// what a sweep needs to identify the process safely, plus the fields a
-// future supervisor-based implementation would use to reattach.
+// sessionRecord is the on-disk description of one session. It holds what
+// a sweep needs to identify a process safely, what adoption needs to
+// recognise a session it can reach, and what id allocation needs to avoid
+// handing out a number twice.
 type sessionRecord struct {
-	ID      uint64    `json:"id"`
+	ID uint64 `json:"id"`
+	// PID is the supervisor for a hosted session, or the kit child itself
+	// for one the daemon hosted directly. Only the latter is ever
+	// signalled by a sweep.
 	PID     int       `json:"pid"`
 	Cwd     string    `json:"cwd,omitempty"`
 	Name    string    `json:"name,omitempty"`
 	Started time.Time `json:"started"`
-	// Run is the nonce of the daemon run that spawned this child. A record
-	// from another run is a crash survivor.
+	// Run is the nonce of the daemon run that wrote this record. A record
+	// from another run describes a session that daemon left behind.
 	Run string `json:"run"`
+	// Hosted marks a session that lives in a supervisor process, so it
+	// survives the daemon and is adopted rather than swept.
+	Hosted bool `json:"hosted,omitempty"`
+	// Socket is the supervisor's socket path, for hosted sessions.
+	Socket string `json:"socket,omitempty"`
 }
 
 func sessionsFilePath() (string, error) {
@@ -171,14 +184,21 @@ func isSessionChildCmdline(cmdline string) bool {
 		strings.Contains(cmdline, pickDirFlagName)
 }
 
-// sweepOrphanSessions kills any session child left behind by a previous
-// run of THIS daemon and clears the registry. Called once at start-up.
+// sweepOrphanSessions ends any session left behind by a previous run of
+// THIS daemon that cannot be adopted, and clears the registry. Called
+// once at start-up, AFTER adoption.
+//
+// adopted names the sessions this daemon has already taken over; they are
+// alive, reachable and must never be touched. Everything else in the
+// registry from another run is a session whose daemon held its PTY master
+// directly: that master is gone, so the child is unreachable by any
+// future daemon and is ended rather than left running invisibly.
 //
 // The single-instance lock is per runtime directory, not per user, so
 // another daemon with its own state directory may be running right now
 // with sessions of its own. Ownership is therefore proved per process
 // (see isSessionChild) rather than assumed from the lock.
-func sweepOrphanSessions(run string) {
+func sweepOrphanSessions(run string, adopted []uint64) {
 	records := readSessionRecords()
 	if len(records) == 0 {
 		removeSessionRegistry()
@@ -188,23 +208,67 @@ func sweepOrphanSessions(run string) {
 	if err != nil {
 		return // cannot establish ownership, so sweep nothing
 	}
+	live := make(map[uint64]bool, len(adopted))
+	for _, id := range adopted {
+		live[id] = true
+	}
 	swept := 0
 	for _, rec := range records {
-		if rec.Run == run {
+		switch {
+		case rec.Run == run:
 			continue // our own record, written by this run
+		case live[rec.ID]:
+			continue // adopted: alive and reachable
+		case rec.Hosted:
+			// A hosted session that adoption did not pick up. Its
+			// supervisor did not answer, which usually means it is gone
+			// already; it is NOT killed on that evidence, because the one
+			// other explanation is a supervisor from another protocol
+			// version, and destroying a user's work over a version skew
+			// is the worst outcome available here.
+			continue
+		case !isSessionChild(rec.PID, owner):
+			continue // already gone, or not provably ours to end
 		}
-		if !isSessionChild(rec.PID, owner) {
-			continue // already gone, or not provably ours to kill
-		}
-		log.Warn("daemon: killing a session left by a previous run",
+		log.Warn("daemon: ending an unreachable session left by a previous run",
 			"session_id", rec.ID, "pid", rec.PID, "cwd", rec.Cwd)
 		terminateProcess(rec.PID)
 		swept++
 	}
 	if swept > 0 {
-		log.Info("daemon: swept sessions from a previous run", "count", swept)
+		log.Info("daemon: swept unreachable sessions from a previous run", "count", swept)
 	}
-	removeSessionRegistry()
+}
+
+// seedSessionIDs sets the id allocator above every id that has ever been
+// handed out, so a new session can never reuse one.
+//
+// Reuse used to be harmless: ids were per daemon run and nothing outlived
+// a run. Now a session's id is written into its child's environment (the
+// clipboard and cwd files), into its supervisor's socket name, and into
+// whatever a client wrote down to reattach with. Handing the same number
+// to a second session would point two of them at one set of files and let
+// `kit attach 3` reach the wrong work.
+//
+// The registry is the memory here: it names every session the previous
+// daemon knew about, adopted or not.
+func (t *sessionTable) seedSessionIDs(adopted []uint64) {
+	highest := uint64(0)
+	for _, id := range adopted {
+		if id > highest {
+			highest = id
+		}
+	}
+	for _, rec := range readSessionRecords() {
+		if rec.ID > highest {
+			highest = rec.ID
+		}
+	}
+	t.mu.Lock()
+	if highest > t.nextID {
+		t.nextID = highest
+	}
+	t.mu.Unlock()
 }
 
 // terminateProcess asks a process to exit, then insists.
@@ -232,22 +296,29 @@ const childGrace = 3 * time.Second
 
 // syncSessionRegistry rewrites the registry from the live session table.
 // Called whenever a session is created or retired, so a crash at any point
-// leaves a registry that names every live child.
+// leaves a registry that names every live session.
 func (t *sessionTable) syncSessionRegistry() {
 	t.mu.Lock()
 	records := make([]sessionRecord, 0, len(t.sessions))
 	for id, sess := range t.sessions {
-		if sess.cmd == nil || sess.cmd.Process == nil {
+		if sess.io == nil {
 			continue // spawned but not running yet
 		}
-		records = append(records, sessionRecord{
+		rec := sessionRecord{
 			ID:      id,
-			PID:     sess.cmd.Process.Pid,
+			PID:     sess.io.PID(),
 			Cwd:     t.sessionCwd(sess),
 			Name:    sess.displayName(),
 			Started: sess.started,
 			Run:     t.run,
-		})
+			Hosted:  sess.io.Hosted(),
+		}
+		if rec.Hosted {
+			if sock, err := sessionSocketPath(id); err == nil {
+				rec.Socket = sock
+			}
+		}
+		records = append(records, rec)
 	}
 	t.mu.Unlock()
 
@@ -258,18 +329,20 @@ func (t *sessionTable) syncSessionRegistry() {
 	}
 }
 
-// sweepStaleTempFiles removes per-session scratch files left by previous
-// runs.
+// sweepStaleTempFiles removes per-session scratch files whose session no
+// longer exists.
 //
-// The files are named per daemon run, so a new daemon cannot inherit an
-// old session's clipboard image through a reused logical id — but the old
-// files would still accumulate after a crash.
+// The files are named by session id, which is what lets an ADOPTED
+// session keep using the exact path its child was handed at start-up.
+// That is also why the sweep has to be told which sessions are live
+// rather than deriving it from a daemon run nonce: a file belonging to an
+// adopted session was written by a previous run and must survive.
 //
 // The sweep is confined to this daemon's runtime directory. Sweeping a
 // shared directory would delete the live clipboard and cwd files of a
 // concurrently running daemon, whose sessions would then report no working
 // directory and silently drop image pastes.
-func sweepStaleTempFiles(run string) {
+func sweepStaleTempFiles(live []uint64) {
 	dir, err := daemonRuntimeDir()
 	if err != nil {
 		return
@@ -278,16 +351,38 @@ func sweepStaleTempFiles(run string) {
 	if err != nil {
 		return
 	}
+	keep := make(map[uint64]bool, len(live))
+	for _, id := range live {
+		keep[id] = true
+	}
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasPrefix(name, tempFilePrefix) {
 			continue
 		}
-		if strings.Contains(name, run) {
-			continue // belongs to this run
+		if id, ok := tempFileSession(name); ok && keep[id] {
+			continue // belongs to a session that is still running
 		}
 		_ = os.Remove(filepath.Join(dir, name))
 	}
+}
+
+// tempFileSession reads the session id off a scratch file name
+// ("kit-session-clip-7", "kit-session-cwd-7").
+//
+// A name that does not parse is reported as belonging to no session,
+// which makes it sweepable — that covers the run-nonce names written by
+// daemons from before ids were stable, which have no owner any more.
+func tempFileSession(name string) (uint64, bool) {
+	idx := strings.LastIndexByte(name, '-')
+	if idx < 0 || idx+1 >= len(name) {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(name[idx+1:], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }
 
 // tempFilePrefix is shared by every per-session scratch file so a sweep can

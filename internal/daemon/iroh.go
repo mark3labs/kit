@@ -23,9 +23,17 @@ import (
 
 const (
 	// remoteALPN names kit's remote-session protocol on the iroh endpoint.
+	//
+	// The trailing 1 is ProtocolVersion, spelled out rather than built at
+	// run time because an ALPN is matched byte for byte by peers compiled
+	// years apart. protocol_test.go asserts the two agree, so a version
+	// bump cannot silently leave the ALPN behind.
 	remoteALPN = "kit/remote/1"
-	// remoteProtocolVersion is protocol v1: the pairing model.
-	remoteProtocolVersion = 1
+	// remoteProtocolVersion is the version offered in the remote
+	// handshake. It is THE protocol constant (see version.go): the local
+	// socket and the iroh transport must never drift into two different
+	// notions of what "compatible" means.
+	remoteProtocolVersion = ProtocolVersion
 
 	// nonceLen and tagLen size the handshake nonces and HMAC tags.
 	nonceLen = 32

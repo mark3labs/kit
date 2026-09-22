@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"strings"
@@ -165,6 +166,22 @@ func RunHost(ctx context.Context, name string, opts AttachOptions) error {
 		// takes one: 'kit remote --host X 1' is not a valid command line.
 		opts.Reattach = "kit attach --host " + name
 	}
+	// A remote daemon is restarted the same way a local one is, and its
+	// sessions survive it the same way. Redial by NAME rather than by
+	// reusing this connection's endpoint: a daemon that came back has a
+	// new QUIC connection either way, and the saved host entry is what the
+	// client was told to trust.
+	opts.Redial = func(ctx context.Context) (io.ReadWriter, func(), error) {
+		entry, err := GetHost(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		conn, err := dialHostQuiet(ctx, name, entry, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		return conn, func() { conn.Close() }, nil
+	}
 	return RunClient(ctx, conn, opts)
 }
 
@@ -233,5 +250,5 @@ func ListHostSessions(ctx context.Context, name string, timeout time.Duration) (
 	// Bound the reply by what is left of the caller's timeout: the picker
 	// queries hosts one at a time, so a host that stops replying must not
 	// stretch the wait past the deadline the caller asked for.
-	return cc.listSessionsWithin(time.Until(deadline))
+	return cc.listSessionsWithin(ctx, time.Until(deadline))
 }

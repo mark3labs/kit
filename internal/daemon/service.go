@@ -157,12 +157,15 @@ ExecStart=%s daemon
 EnvironmentFile=-%s
 Restart=on-failure
 RestartSec=5
-# The daemon owns its sessions' terminals and shuts them down itself on
-# SIGTERM. KillMode=mixed sends the signal to the daemon only, so it gets
-# to end each session cleanly; the default (control-group) would signal
-# every child at once and cut sessions off mid-turn. TimeoutStopSec is the
-# backstop if the daemon fails to finish.
-KillMode=mixed
+# Sessions are hosted by supervisor processes of their own (see
+# sessionhost.go) so they survive this daemon being stopped, restarted or
+# upgraded: the next daemon adopts them again. KillMode=process signals
+# ONLY the daemon, leaving those supervisors — and the work inside them —
+# running. The default (control-group) and KillMode=mixed both end by
+# killing everything left in the cgroup, which would destroy every session
+# on a plain 'systemctl restart kit'. TimeoutStopSec is the backstop if
+# the daemon fails to finish.
+KillMode=process
 TimeoutStopSec=15
 
 [Install]

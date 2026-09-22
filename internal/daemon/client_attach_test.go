@@ -150,7 +150,7 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 	go client.readLoop()
 
 	// An empty daemon reports no sessions.
-	entries, err := client.listSessions()
+	entries, err := client.listSessions(t.Context())
 	if err != nil {
 		t.Fatalf("list sessions: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 
 	// Attaching to a session that does not exist must be refused rather
 	// than hang: the client blocks on this ack.
-	if _, err := client.attach(42); err == nil {
+	if _, _, err := client.attach(t.Context(), 42); err == nil {
 		t.Fatal("expected the attach to a missing session to be refused")
 	}
 
@@ -176,7 +176,7 @@ func TestLocalSocketRoundTrip(t *testing.T) {
 	}
 
 	// The connection still works after the detach.
-	if _, err := client.listSessions(); err != nil {
+	if _, err := client.listSessions(t.Context()); err != nil {
 		t.Fatalf("list after detach: %v", err)
 	}
 }

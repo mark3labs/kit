@@ -29,6 +29,18 @@ type daemonState struct {
 	Endpoint       string    `json:"endpoint,omitempty"`
 	StartedAt      time.Time `json:"started_at"`
 	SessionsActive int       `json:"sessions_active"`
+	// SessionsHosted counts the sessions that would survive this daemon
+	// being stopped. It is reported separately because the difference
+	// matters to the user: those come back after a restart, and any others
+	// do not.
+	SessionsHosted int `json:"sessions_hosted,omitempty"`
+	// Build is the release this daemon was started from, which an upgrade
+	// does NOT change: the binary on disk is replaced while the running
+	// daemon keeps its own code. Display only.
+	Build string `json:"build,omitempty"`
+	// Protocol is the wire version this daemon speaks. It, and not Build,
+	// is what decides whether a client can talk to it. See version.go.
+	Protocol uint16 `json:"protocol,omitempty"`
 }
 
 func daemonRuntimeDir() (string, error) {
@@ -93,6 +105,8 @@ func newDaemonRuntime(lock *daemonLock) *daemonRuntime {
 		state: daemonState{
 			PID:       os.Getpid(),
 			StartedAt: time.Now(),
+			Build:     BuildVersion(),
+			Protocol:  ProtocolVersion,
 		},
 	}
 }
@@ -105,10 +119,12 @@ func (r *daemonRuntime) setEndpoint(endpoint string) {
 	_ = r.persist()
 }
 
-// setSessions records the active session count.
-func (r *daemonRuntime) setSessions(n int) {
+// setSessions records the active session count, and how many of them
+// would survive this daemon.
+func (r *daemonRuntime) setSessions(active, hosted int) {
 	r.mu.Lock()
-	r.state.SessionsActive = n
+	r.state.SessionsActive = active
+	r.state.SessionsHosted = hosted
 	r.mu.Unlock()
 	_ = r.persist()
 }
@@ -209,6 +225,7 @@ func ReadStatus() Status {
 	st := readStateFile(dir)
 	if st != nil {
 		st.SessionsActive = 0
+		st.SessionsHosted = 0
 	}
 	return Status{Running: false, State: st}
 }

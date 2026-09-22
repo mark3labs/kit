@@ -113,6 +113,15 @@ func TestClipboardClearFlagDetection(t *testing.T) {
 	}
 }
 
+// TestRemoteClipboardPathStablePerSession pins the property the path
+// must have now that a session outlives its daemon: it depends on the
+// SESSION and on nothing else.
+//
+// It used to carry the daemon's run nonce as well, so that a new run
+// reusing logical id 3 could not inherit the dead session's image. Ids
+// are no longer reused (seedSessionIDs), and an adopted session's child
+// holds this path in its environment for its whole life — so a path that
+// changed with the daemon would break every adopted session's paste.
 func TestRemoteClipboardPathStablePerSession(t *testing.T) {
 	table := newSessionTable(newDaemonRuntime(nil))
 	a, b := table.remoteClipboardPath(3), table.remoteClipboardPath(3)
@@ -126,17 +135,20 @@ func TestRemoteClipboardPathStablePerSession(t *testing.T) {
 		t.Fatalf("unexpected path: %s", a)
 	}
 
-	// A second daemon run must not reuse the first run's files: logical
-	// ids restart at 1, so a shared path would let a new session inherit a
-	// dead session's clipboard image.
+	// A later daemon run must reach the SAME file, or an adopted session's
+	// child would go on writing to a path the new daemon never reads.
 	other := newSessionTable(newDaemonRuntime(nil))
-	if other.remoteClipboardPath(3) == a {
-		t.Fatal("two daemon runs share a clipboard path; a stale image could leak into a new session")
+	if other.remoteClipboardPath(3) != a {
+		t.Fatal("a new daemon run sees a different clipboard path; an adopted session's pastes would be lost")
 	}
 }
 
 // A staging file left behind by a crash is collected by the next daemon
 // run's sweep, so a dropped paste cannot leave an image on disk forever.
+//
+// The sweep is now told which sessions are live rather than which run is
+// current, because an adopted session's files were written by a previous
+// run and must survive. Nothing is live here, so everything goes.
 func TestPublishClipboardImageStagingIsSweepable(t *testing.T) {
 	isolateRuntimeDir(t)
 	dir, err := daemonRuntimeDir()
@@ -151,10 +163,43 @@ func TestPublishClipboardImageStagingIsSweepable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sweepStaleTempFiles("run-new")
+	sweepStaleTempFiles(nil)
 
 	if _, err := os.Stat(leaked); !os.IsNotExist(err) {
 		t.Fatalf("a crashed run's staging file survived the sweep: %v", err)
+	}
+}
+
+// TestSweepStaleTempFilesKeepsLiveSessions is the other half of the
+// sweep's contract, and the one that adoption depends on: a scratch file
+// belonging to a session that is STILL RUNNING must survive, even though
+// it was written by a previous daemon run.
+//
+// Getting this wrong is silent and destructive — an adopted session would
+// keep working while its pastes went nowhere and its directory vanished
+// from `kit ls`.
+func TestSweepStaleTempFilesKeepsLiveSessions(t *testing.T) {
+	isolateRuntimeDir(t)
+	table := newSessionTable(newDaemonRuntime(nil))
+
+	live := table.remoteClipboardPath(7)
+	liveCwd := table.sessionCwdPath(7)
+	dead := table.remoteClipboardPath(8)
+	for _, p := range []string{live, liveCwd, dead} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sweepStaleTempFiles([]uint64{7})
+
+	for _, p := range []string{live, liveCwd} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("a live session's scratch file was swept: %s (%v)", p, err)
+		}
+	}
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Fatal("a finished session's scratch file survived the sweep")
 	}
 }
 
