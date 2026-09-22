@@ -34,6 +34,7 @@
         "Detachable by default",
         "Sessions on this machine",
         "Sessions and daemon restarts",
+        "Versions and compatibility",
         "Session keys",
         "How pairing works",
         "How reconnection works",
@@ -44,7 +45,7 @@
         "Troubleshooting"
       ],
       "tags": [],
-      "wordCount": 3196
+      "wordCount": 3723
     },
     {
       "id": "advanced/subagents",

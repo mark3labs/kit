@@ -226,30 +226,84 @@ not start a local daemon you were not going to use. Plain <code>kit attach</code
 dials the local daemon first — starting one if none is running — because
 that is where it looks for sessions before asking anyone else.</p>
 <h2 id="sessions-and-daemon-restarts"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sessions-and-daemon-restarts"><span class="icon icon-link"></span></a>Sessions and daemon restarts</h2>
-<p>A session survives a <strong>client</strong> disconnect, but not a restart of the
-<strong>daemon</strong>. The session's terminal is owned by the daemon process, so
-stopping the daemon stops its sessions — reattaching to a session from a
-previous daemon is not possible, because the terminal it was rendering to
-no longer exists.</p>
-<p>Kit makes that boundary predictable rather than leaving it to chance:</p>
+<p>A session survives a <strong>client</strong> disconnect <em>and</em> a restart of the
+<strong>daemon</strong>. Each session runs in a supervisor process of its own, which
+owns the terminal and the kit process inside it; the daemon holds only a
+socket to that supervisor. Stopping, restarting or upgrading the daemon
+costs the socket and nothing else.</p>
+<p>This is forced by the kernel rather than chosen. A pseudo-terminal master
+cannot be re-opened for an existing slave, so whichever process holds the
+master is the only one that can ever reach the session. Keeping it in the
+daemon made the daemon's lifetime the session's lifetime; moving it into
+a process whose only job is to hold it removes the coupling.</p>
+<p>What that means in practice:</p>
 <ul>
-<li>On <code>SIGINT</code>/<code>SIGTERM</code> — including <code>systemctl --user stop kit</code> — the
-daemon ends each session with <code>SIGTERM</code> first, so kit can save its
-conversation before exiting. The generated unit sets <code>KillMode=mixed</code>
-so systemd signals the daemon rather than every session at once.</li>
-<li>On a hard crash (<code>SIGKILL</code>, a panic, the OOM killer) the kernel kills
-each session child immediately, through the parent-death signal armed
-when it was spawned. The iroh endpoint dies with the daemon process
-itself, so a crashed daemon can never leave anything serving its
-endpoint behind.</li>
-<li>On the next start, the daemon sweeps any session recorded by a previous
-run that is somehow still alive, and clears its scratch files.</li>
+<li><code>systemctl --user restart kit</code> leaves every session running. The new
+daemon scans for supervisor sockets, dials each one, and <strong>adopts</strong> the
+sessions with their ids, names, working directories and uptimes intact.</li>
+<li>A client that was attached does not exit. It keeps the screen, says
+<code>The daemon went away. Session N is still running — reconnecting…</code>, and
+reattaches by itself once a daemon answers. The supervisor replays the
+recent output, so the screen comes back rather than staying blank.</li>
+<li>The same holds for a hard crash: <code>SIGKILL</code>, a panic, or the OOM killer
+takes the daemon and leaves the supervisors alone.</li>
+<li>The generated systemd unit sets <code>KillMode=process</code> for this reason. The
+default (<code>control-group</code>) and <code>KillMode=mixed</code> both end by killing
+everything left in the cgroup, which would destroy every session on an
+ordinary restart.</li>
 </ul>
+<p>A session ends when the work inside it ends: you exit the kit TUI, or you
+stop the session deliberately. Nothing else stops it.</p>
+<p>Two cases still end with the daemon, and both are reported rather than
+silent:</p>
+<ul>
+<li>A daemon that could not start a supervisor hosts that session itself
+and says so in the log. It works normally and dies with the daemon.</li>
+<li>Windows has no local socket transport yet, so a Windows daemon hosts
+every session itself. It does not advertise the <code>reattach</code> capability,
+so clients do not promise the user something the daemon cannot deliver.</li>
+</ul>
+<p>On the next start the daemon sweeps only what it can prove is both <strong>its
+own</strong> and <strong>unreachable</strong>: a session recorded by a previous run whose
+terminal died with it. A supervisor it could not talk to — one speaking
+another protocol version, say — is left strictly alone, because the work
+inside it is real and an unreadable supervisor is no reason to destroy it.</p>
 <p>A session is only ever signalled when the daemon can <strong>prove</strong> it owns
 it: the process is checked against a marker inherited from the daemon
 that spawned it. A process that cannot be identified is left alone, so
 one daemon can never disturb another's sessions, and a recycled pid can
 never be mistaken for a session.</p>
+<p>Session ids are never reused. An id is written into the session's socket
+name, into its scratch files, and into whatever you wrote down to
+reattach with, so a new session is always numbered above every id that
+has ever been handed out.</p>
+<h2 id="versions-and-compatibility"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#versions-and-compatibility"><span class="icon icon-link"></span></a>Versions and compatibility</h2>
+<p>A client and a daemon are two separate installations of the same program,
+and nothing guarantees they were released together: upgrading the package
+replaces the binary on disk while the daemon started from the old one
+keeps running.</p>
+<p>Compatibility is therefore decided by a <strong>protocol version</strong>, not by the
+release version. It changes only when the wire format changes in a way
+that an older peer genuinely cannot follow, which is rare. Everything
+added since — new frames, new fields, new capabilities — is negotiated
+through a <strong>feature bitmap</strong> instead: a peer that lacks a bit simply does
+not get that behaviour, and the connection is unaffected.</p>
+<p>So a daemon from an older release and a client from a newer one talk
+normally, as long as the protocol version matches. A daemon so old that
+it predates the capability exchange entirely is also fine: saying nothing
+is read as "protocol v1, no optional features", which is exactly what
+such a daemon is.</p>
+<p><code>kit daemon status</code> reports both numbers:</p>
+<pre><code>kit daemon is running (pid 4242, up 3d2h)
+  Build:            v0.9.1
+                    (this kit is v0.10.0 — restart the daemon to match)
+  Protocol:         1
+  Active sessions:  3
+    surviving a restart: 3
+</code></pre>
+<p>The build line is information, never a reason to refuse a connection. It
+is there for the moment you wonder why a feature you just installed is
+missing from a daemon you started three weeks ago.</p>
 <h2 id="session-keys"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-keys"><span class="icon icon-link"></span></a>Session keys</h2>
 <p>Inside an attached session, <code>Ctrl+]</code> is the multiplexer prefix:</p>
 <table>
@@ -492,7 +546,7 @@ allowlist is shared).</p>
 <td>Just reconnect with <code>kit remote --host &lt;name&gt;</code>; the daemon keeps running</td>
 </tr>
 </tbody>
-</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Detachable by default`,id:`detachable-by-default`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
+</table>`,headings:[{depth:2,text:`Requirements`,id:`requirements`},{depth:2,text:`Commands`,id:`commands`},{depth:2,text:`Detachable by default`,id:`detachable-by-default`},{depth:2,text:`Sessions on this machine`,id:`sessions-on-this-machine`},{depth:2,text:`Sessions and daemon restarts`,id:`sessions-and-daemon-restarts`},{depth:2,text:`Versions and compatibility`,id:`versions-and-compatibility`},{depth:2,text:`Session keys`,id:`session-keys`},{depth:2,text:`How pairing works`,id:`how-pairing-works`},{depth:2,text:`How reconnection works`,id:`how-reconnection-works`},{depth:2,text:`Clipboard images`,id:`clipboard-images`},{depth:2,text:`Terminal and colors`,id:`terminal-and-colors`},{depth:2,text:`Security notes`,id:`security-notes`},{depth:2,text:`systemd`,id:`systemd`},{depth:2,text:`Troubleshooting`,id:`troubleshooting`}],raw:`
 # Remote Sessions
 
 Kit can run as a daemon that hosts **detachable sessions**: a session keeps
@@ -665,31 +719,97 @@ that is where it looks for sessions before asking anyone else.
 
 ## Sessions and daemon restarts
 
-A session survives a **client** disconnect, but not a restart of the
-**daemon**. The session's terminal is owned by the daemon process, so
-stopping the daemon stops its sessions — reattaching to a session from a
-previous daemon is not possible, because the terminal it was rendering to
-no longer exists.
+A session survives a **client** disconnect *and* a restart of the
+**daemon**. Each session runs in a supervisor process of its own, which
+owns the terminal and the kit process inside it; the daemon holds only a
+socket to that supervisor. Stopping, restarting or upgrading the daemon
+costs the socket and nothing else.
 
-Kit makes that boundary predictable rather than leaving it to chance:
+This is forced by the kernel rather than chosen. A pseudo-terminal master
+cannot be re-opened for an existing slave, so whichever process holds the
+master is the only one that can ever reach the session. Keeping it in the
+daemon made the daemon's lifetime the session's lifetime; moving it into
+a process whose only job is to hold it removes the coupling.
 
-- On \`SIGINT\`/\`SIGTERM\` — including \`systemctl --user stop kit\` — the
-  daemon ends each session with \`SIGTERM\` first, so kit can save its
-  conversation before exiting. The generated unit sets \`KillMode=mixed\`
-  so systemd signals the daemon rather than every session at once.
-- On a hard crash (\`SIGKILL\`, a panic, the OOM killer) the kernel kills
-  each session child immediately, through the parent-death signal armed
-  when it was spawned. The iroh endpoint dies with the daemon process
-  itself, so a crashed daemon can never leave anything serving its
-  endpoint behind.
-- On the next start, the daemon sweeps any session recorded by a previous
-  run that is somehow still alive, and clears its scratch files.
+What that means in practice:
+
+- \`systemctl --user restart kit\` leaves every session running. The new
+  daemon scans for supervisor sockets, dials each one, and **adopts** the
+  sessions with their ids, names, working directories and uptimes intact.
+- A client that was attached does not exit. It keeps the screen, says
+  \`The daemon went away. Session N is still running — reconnecting…\`, and
+  reattaches by itself once a daemon answers. The supervisor replays the
+  recent output, so the screen comes back rather than staying blank.
+- The same holds for a hard crash: \`SIGKILL\`, a panic, or the OOM killer
+  takes the daemon and leaves the supervisors alone.
+- The generated systemd unit sets \`KillMode=process\` for this reason. The
+  default (\`control-group\`) and \`KillMode=mixed\` both end by killing
+  everything left in the cgroup, which would destroy every session on an
+  ordinary restart.
+
+A session ends when the work inside it ends: you exit the kit TUI, or you
+stop the session deliberately. Nothing else stops it.
+
+Two cases still end with the daemon, and both are reported rather than
+silent:
+
+- A daemon that could not start a supervisor hosts that session itself
+  and says so in the log. It works normally and dies with the daemon.
+- Windows has no local socket transport yet, so a Windows daemon hosts
+  every session itself. It does not advertise the \`reattach\` capability,
+  so clients do not promise the user something the daemon cannot deliver.
+
+On the next start the daemon sweeps only what it can prove is both **its
+own** and **unreachable**: a session recorded by a previous run whose
+terminal died with it. A supervisor it could not talk to — one speaking
+another protocol version, say — is left strictly alone, because the work
+inside it is real and an unreadable supervisor is no reason to destroy it.
 
 A session is only ever signalled when the daemon can **prove** it owns
 it: the process is checked against a marker inherited from the daemon
 that spawned it. A process that cannot be identified is left alone, so
 one daemon can never disturb another's sessions, and a recycled pid can
 never be mistaken for a session.
+
+Session ids are never reused. An id is written into the session's socket
+name, into its scratch files, and into whatever you wrote down to
+reattach with, so a new session is always numbered above every id that
+has ever been handed out.
+
+## Versions and compatibility
+
+A client and a daemon are two separate installations of the same program,
+and nothing guarantees they were released together: upgrading the package
+replaces the binary on disk while the daemon started from the old one
+keeps running.
+
+Compatibility is therefore decided by a **protocol version**, not by the
+release version. It changes only when the wire format changes in a way
+that an older peer genuinely cannot follow, which is rare. Everything
+added since — new frames, new fields, new capabilities — is negotiated
+through a **feature bitmap** instead: a peer that lacks a bit simply does
+not get that behaviour, and the connection is unaffected.
+
+So a daemon from an older release and a client from a newer one talk
+normally, as long as the protocol version matches. A daemon so old that
+it predates the capability exchange entirely is also fine: saying nothing
+is read as "protocol v1, no optional features", which is exactly what
+such a daemon is.
+
+\`kit daemon status\` reports both numbers:
+
+\`\`\`
+kit daemon is running (pid 4242, up 3d2h)
+  Build:            v0.9.1
+                    (this kit is v0.10.0 — restart the daemon to match)
+  Protocol:         1
+  Active sessions:  3
+    surviving a restart: 3
+\`\`\`
+
+The build line is information, never a reason to refuse a connection. It
+is there for the moment you wonder why a feature you just installed is
+missing from a daemon you started three weeks ago.
 
 ## Session keys
 
