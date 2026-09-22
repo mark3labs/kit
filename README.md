@@ -488,15 +488,19 @@ kit --no-extensions
 
 ### Testing Extensions
 
-Kit provides a testing package to help you write unit tests for your extensions:
+Kit provides a testing package to help you write unit tests for your extensions.
+`pkg/extensions/test` holds the harness and the assertions; `pkg/extensions`
+holds the event, result, and config types the harness speaks in. Both are
+public, so these tests build from your own repository:
 
 ```go
 package main
 
 import (
     "testing"
+
+    "github.com/mark3labs/kit/pkg/extensions"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
 )
 
 func TestMyExtension(t *testing.T) {

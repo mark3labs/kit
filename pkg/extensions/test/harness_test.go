@@ -3,7 +3,7 @@ package test
 import (
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // Test harness with a simple extension

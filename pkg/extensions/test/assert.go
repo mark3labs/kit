@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // AssertNotBlocked fails the test if the tool call result indicates the tool was blocked.

@@ -3,7 +3,7 @@ package test
 import (
 	"sync"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // MockContext records all interactions with the extension context.
