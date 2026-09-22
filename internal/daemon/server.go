@@ -495,7 +495,7 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 	}
 }
 
-// handleHello records a client's announced protocol and answers with our
+// handleHello reports a client's announced protocol and answers with our
 // own, so each end knows what the other can do.
 //
 // A mismatched version is reported and then SERVED anyway. The daemon is
@@ -504,29 +504,31 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 // the client can be told what is wrong. The client makes the decision,
 // because the client is the side that can print a message and exit.
 //
+// Nothing about the peer is kept. The daemon's behaviour does not depend
+// on it: every frame added since v1 is additive, so a client simply does
+// not send what it does not have, and one that sends something we lack is
+// already ignored by the frame loop. Recording it would be state that
+// nothing reads.
+//
 // Our reply goes out even to a peer whose hello was unreadable: that peer
 // still needs to learn what this daemon is, and a garbled hello is far
 // more likely to be a version skew than an attack (the local socket is
 // already uid-restricted, and a remote peer has passed the pairing
-// handshake before reaching this frame loop).
+// handshake before reaching this frame loop). A client that has gone in
+// the meantime is handled by writeTo, which drops frames for a connection
+// it no longer knows.
 func (t *sessionTable) handleHello(wire uint32, payload []byte) {
 	peer, err := DecodeHello(payload)
-	if err != nil {
+	switch {
+	case err != nil:
 		log.Warn("daemon: unreadable client hello", "wire", wire, "error", err)
-		peer = legacyHello(RoleClient)
-	} else {
-		peer.Role = RoleClient
-		if cerr := peer.Compatible(); cerr != nil {
-			log.Warn("daemon: client protocol mismatch", "wire", wire,
-				"client_version", peer.Version, "daemon_version", ProtocolVersion,
-				"client_build", peer.Build)
-		} else {
-			log.Debug("daemon: client hello", "wire", wire,
-				"build", peer.Build, "features", peer.Features)
-		}
-	}
-	if !t.conns.setHello(wire, peer) {
-		return // the client has already gone
+	case peer.Compatible() != nil:
+		log.Warn("daemon: client protocol mismatch", "wire", wire,
+			"client_version", peer.Version, "daemon_version", ProtocolVersion,
+			"client_build", peer.Build)
+	default:
+		log.Debug("daemon: client hello", "wire", wire,
+			"build", peer.Build, "features", peer.Features)
 	}
 	if reply, merr := EncodeHello(localHello(RoleDaemon)); merr == nil {
 		_ = t.writeTo(Frame{Type: FrameHello, Session: wire, Payload: reply})

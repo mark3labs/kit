@@ -81,12 +81,6 @@ type wireConn struct {
 	// client asked for nothing in particular, which is the directory
 	// picker in the daemon user's home. Guarded by connSet.mu.
 	spec *SessionSpec
-
-	// hello is what the client said about itself: the protocol it speaks
-	// and the features it has. A client that sent none is recorded as a
-	// legacy peer rather than left zero, so every read of this field
-	// describes a real peer. Guarded by connSet.mu.
-	hello Hello
 }
 
 // connSet tracks the live client connections by wire id.
@@ -103,7 +97,7 @@ func newConnSet() *connSet {
 // addRemote registers a remote (iroh) connection under the id its
 // handshake assigned. Re-registering an id replaces the old entry.
 func (c *connSet) addRemote(id uint32, sink *frameSink) *wireConn {
-	conn := &wireConn{id: id, sink: sink, hello: legacyHello(RoleClient)}
+	conn := &wireConn{id: id, sink: sink}
 	c.mu.Lock()
 	c.conns[id] = conn
 	c.mu.Unlock()
@@ -115,34 +109,10 @@ func (c *connSet) addLocal(sink *frameSink) *wireConn {
 	c.mu.Lock()
 	c.nextLocal++
 	id := localWireBase + c.nextLocal
-	conn := &wireConn{id: id, sink: sink, local: true, hello: legacyHello(RoleClient)}
+	conn := &wireConn{id: id, sink: sink, local: true}
 	c.conns[id] = conn
 	c.mu.Unlock()
 	return conn
-}
-
-// setHello records what a client said about itself, and reports whether
-// the connection is still there to record it against.
-func (c *connSet) setHello(id uint32, h Hello) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	conn, ok := c.conns[id]
-	if !ok {
-		return false
-	}
-	conn.hello = h
-	return true
-}
-
-// helloFor returns what a client said about itself. A client that said
-// nothing reads as a legacy peer: protocol v1, no optional features.
-func (c *connSet) helloFor(id uint32) Hello {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if conn, ok := c.conns[id]; ok {
-		return conn.hello
-	}
-	return legacyHello(RoleClient)
 }
 
 // setTerminal records what a client said about its terminal. It arrives

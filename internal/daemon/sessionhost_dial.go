@@ -11,7 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -408,7 +408,7 @@ func (t *sessionTable) adoptHostedSessions(ctx context.Context) []uint64 {
 		log.Info("daemon: adopted a session from a previous run",
 			"session_id", id, "cwd", info.Cwd, "child_pid", info.ChildPID)
 	}
-	sort.Slice(adopted, func(i, j int) bool { return adopted[i] < adopted[j] })
+	slices.Sort(adopted)
 	if len(adopted) > 0 {
 		t.reportSessions()
 		t.syncSessionRegistry()
