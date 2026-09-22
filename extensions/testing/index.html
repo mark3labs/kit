@@ -7,7 +7,7 @@
 <meta name="description" content="Write unit tests for your Kit extensions using the test package.">
 <link rel="canonical" href="/extensions/testing">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-BqGEyEx6.js"></script>
+<script type="module" src="/assets/index-qNOGr1Ll.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -29,15 +29,27 @@ Extension tests allow you to:
 
 ## Installation
 
-The test package is part of the Kit codebase. Import it in your extension tests:
+Add Kit to your extension repository and import two packages: the harness, and
+the types the harness speaks in.
+
+```bash
+go get github.com/mark3labs/kit
+```
 
 ```go
 import (
     "testing"
-    "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+
+    "github.com/mark3labs/kit/pkg/extensions"      // events, results, configs
+    "github.com/mark3labs/kit/pkg/extensions/test" // harness and assertions
 )
 ```
+
+`pkg/extensions` re-exports every extension-facing type — `ToolCallEvent`,
+`ToolCallResult`, `SessionStartEvent`, `WidgetConfig`, the `EventType`
+constants, and the rest — as aliases of Kit's internal declarations. Build an
+event with one of these types and hand it straight to `harness.Emit`; no
+conversion and no internal import is needed.
 
 ## Basic Usage
 
@@ -51,7 +63,7 @@ package main
 import (
     "testing"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+    "github.com/mark3labs/kit/pkg/extensions"
 )
 
 func TestMyExtension(t *testing.T) {

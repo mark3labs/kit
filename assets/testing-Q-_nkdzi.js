@@ -11,12 +11,20 @@ var e={frontmatter:{title:`Testing Extensions`,description:`Write unit tests for
 <li>Verify widget, header, footer, and status bar updates</li>
 </ul>
 <h2 id="installation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#installation"><span class="icon icon-link"></span></a>Installation</h2>
-<p>The test package is part of the Kit codebase. Import it in your extension tests:</p>
+<p>Add Kit to your extension repository and import two packages: the harness, and
+the types the harness speaks in.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">go</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> get</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> github.com/mark3labs/kit</span></span></code></pre>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#6A737D;--shiki-dark:#6A737D">      // events, results, configs</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // harness and assertions</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p><code>pkg/extensions</code> re-exports every extension-facing type — <code>ToolCallEvent</code>,
+<code>ToolCallResult</code>, <code>SessionStartEvent</code>, <code>WidgetConfig</code>, the <code>EventType</code>
+constants, and the rest — as aliases of Kit's internal declarations. Build an
+event with one of these types and hand it straight to <code>harness.Emit</code>; no
+conversion and no internal import is needed.</p>
 <h2 id="basic-usage"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#basic-usage"><span class="icon icon-link"></span></a>Basic Usage</h2>
 <h3 id="testing-an-extension-file"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#testing-an-extension-file"><span class="icon icon-link"></span></a>Testing an Extension File</h3>
 <p>Create a test file alongside your extension (e.g., <code>my-ext_test.go</code>):</p>
@@ -25,7 +33,7 @@ var e={frontmatter:{title:`Testing Extensions`,description:`Write unit tests for
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">import</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> (</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions/test</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
-<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/internal/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
+<span class="line"><span style="color:#032F62;--shiki-dark:#9ECBFF">    "</span><span style="color:#6F42C1;--shiki-dark:#B392F0">github.com/mark3labs/kit/pkg/extensions</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> TestMyExtension</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">t</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#6F42C1;--shiki-dark:#B392F0">testing</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">T</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
@@ -486,15 +494,27 @@ Extension tests allow you to:
 
 ## Installation
 
-The test package is part of the Kit codebase. Import it in your extension tests:
+Add Kit to your extension repository and import two packages: the harness, and
+the types the harness speaks in.
+
+\`\`\`bash
+go get github.com/mark3labs/kit
+\`\`\`
 
 \`\`\`go
 import (
     "testing"
-    "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+
+    "github.com/mark3labs/kit/pkg/extensions"      // events, results, configs
+    "github.com/mark3labs/kit/pkg/extensions/test" // harness and assertions
 )
 \`\`\`
+
+\`pkg/extensions\` re-exports every extension-facing type — \`ToolCallEvent\`,
+\`ToolCallResult\`, \`SessionStartEvent\`, \`WidgetConfig\`, the \`EventType\`
+constants, and the rest — as aliases of Kit's internal declarations. Build an
+event with one of these types and hand it straight to \`harness.Emit\`; no
+conversion and no internal import is needed.
 
 ## Basic Usage
 
@@ -508,7 +528,7 @@ package main
 import (
     "testing"
     "github.com/mark3labs/kit/pkg/extensions/test"
-    "github.com/mark3labs/kit/internal/extensions"
+    "github.com/mark3labs/kit/pkg/extensions"
 )
 
 func TestMyExtension(t *testing.T) {
