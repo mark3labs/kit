@@ -476,7 +476,11 @@ var (
 )
 
 // awaitCtrl waits for a control frame of the given type.
-func (c *clientConn) awaitCtrl(want FrameType, timeout time.Duration) (Frame, error) {
+//
+// Cancellable, because every caller is a blocking request made on behalf
+// of a user who can walk away from it: a client that is told to stop
+// must not sit here for the rest of the timeout holding the terminal.
+func (c *clientConn) awaitCtrl(ctx context.Context, want FrameType, timeout time.Duration) (Frame, error) {
 	deadline := time.After(timeout)
 	for {
 		select {
@@ -484,6 +488,8 @@ func (c *clientConn) awaitCtrl(want FrameType, timeout time.Duration) (Frame, er
 			if f.Type == want {
 				return f, nil
 			}
+		case <-ctx.Done():
+			return Frame{}, ctx.Err()
 		case <-deadline:
 			return Frame{}, fmt.Errorf("daemon: no answer to request %#x", want)
 		case <-c.endedCh:
@@ -495,19 +501,19 @@ func (c *clientConn) awaitCtrl(want FrameType, timeout time.Duration) (Frame, er
 }
 
 // listSessions asks the daemon for its live sessions.
-func (c *clientConn) listSessions() ([]SessionEntry, error) {
-	return c.listSessionsWithin(10 * time.Second)
+func (c *clientConn) listSessions(ctx context.Context) ([]SessionEntry, error) {
+	return c.listSessionsWithin(ctx, 10*time.Second)
 }
 
 // listSessionsWithin is listSessions bounded by an explicit timeout.
-func (c *clientConn) listSessionsWithin(timeout time.Duration) ([]SessionEntry, error) {
+func (c *clientConn) listSessionsWithin(ctx context.Context, timeout time.Duration) ([]SessionEntry, error) {
 	if timeout <= 0 {
 		return nil, fmt.Errorf("daemon: no time left to list sessions")
 	}
 	if err := c.write(FrameSessionList, nil); err != nil {
 		return nil, err
 	}
-	reply, err := c.awaitCtrl(FrameSessionListReply, timeout)
+	reply, err := c.awaitCtrl(ctx, FrameSessionListReply, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -571,13 +577,16 @@ const helloTimeout = 1500 * time.Millisecond
 // that session outlives it. A daemon too old to send the flag reports
 // durabilityUnknown, and the caller falls back to the daemon-wide
 // FeatureReattach bit.
-func (c *clientConn) attach(id uint64) (assigned uint64, durability sessionDurability, err error) {
+//
+// ctx cancels the wait for the ack, which is otherwise up to ten seconds
+// of a user's time that they cannot interrupt.
+func (c *clientConn) attach(ctx context.Context, id uint64) (assigned uint64, durability sessionDurability, err error) {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, id)
 	if werr := c.write(FrameSessionAttach, payload); werr != nil {
 		return 0, durabilityUnknown, werr
 	}
-	ack, err := c.awaitCtrl(FrameSessionAttachAck, 10*time.Second)
+	ack, err := c.awaitCtrl(ctx, FrameSessionAttachAck, 10*time.Second)
 	if err != nil {
 		return 0, durabilityUnknown, err
 	}
@@ -628,7 +637,7 @@ func chooseSession(ctx context.Context, conn *clientConn, opts AttachOptions) (S
 	if opts.Target != 0 {
 		return here(opts.Target), nil
 	}
-	entries, err := conn.listSessions()
+	entries, err := conn.listSessions(ctx)
 	if err != nil {
 		return SessionChoice{}, err
 	}
@@ -937,7 +946,7 @@ func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions,
 			return run, sw
 		}
 
-		if assigned, durability, aerr := conn.attach(choice.ID); aerr != nil {
+		if assigned, durability, aerr := conn.attach(ctx, choice.ID); aerr != nil {
 			return run, aerr
 		} else {
 			conn.setCurrent(assigned)
@@ -1041,7 +1050,7 @@ func hostSwitch(opts AttachOptions, choice SessionChoice) *ErrSwitchHost {
 func resolveSwitch(ctx context.Context, conn *clientConn, opts AttachOptions, out attachOutcome) (SessionChoice, bool, error) {
 	switch out.switchTo {
 	case pickSentinel:
-		entries, err := conn.listSessions()
+		entries, err := conn.listSessions(ctx)
 		if err != nil {
 			return SessionChoice{}, false, err
 		}
@@ -1065,7 +1074,7 @@ func resolveSwitch(ctx context.Context, conn *clientConn, opts AttachOptions, ou
 		return choice, choice.Cancel, nil
 
 	case cycleNext, cyclePrev:
-		entries, err := conn.listSessions()
+		entries, err := conn.listSessions(ctx)
 		if err != nil {
 			return SessionChoice{}, false, err
 		}

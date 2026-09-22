@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Regression tests for the CodeRabbit review on PR #142.
@@ -92,7 +95,7 @@ func TestAttachReadsPerSessionDurability(t *testing.T) {
 			// daemon on the other end.
 			conn.ctrlCh <- Frame{Type: FrameSessionAttachAck, Payload: tc.ack}
 
-			assigned, durability, err := conn.attach(3)
+			assigned, durability, err := conn.attach(t.Context(), 3)
 			if err != nil {
 				t.Fatalf("attach failed: %v", err)
 			}
@@ -207,6 +210,60 @@ func TestReportedCwdKeepsPathWhitespace(t *testing.T) {
 	}
 	if got := readReportedCwd(""); got != "" {
 		t.Errorf("an unset report path reads as %q, want empty", got)
+	}
+}
+
+// TestAttachIsCancellable covers the finding that `attach` blocked for a
+// full ten seconds with no way to interrupt it.
+//
+// The wait is made on behalf of a user who can change their mind, and a
+// client that has been cancelled still holds the terminal until it
+// unwinds. Ten seconds of an unresponsive terminal is the difference
+// between "it is thinking" and "it is broken".
+func TestAttachIsCancellable(t *testing.T) {
+	conn := newClientConn(silentStream{})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := conn.attach(ctx, 7)
+		done <- err
+	}()
+
+	// Nothing will ever answer, so without cancellation this sits for the
+	// full ack timeout.
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("attach returned %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("attach ignored its context and is still waiting for an ack")
+	}
+}
+
+// TestListSessionsIsCancellable is the same guarantee for the other
+// blocking request on this connection.
+func TestListSessionsIsCancellable(t *testing.T) {
+	conn := newClientConn(silentStream{})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.listSessions(ctx)
+		done <- err
+	}()
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("listSessions returned %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("listSessions ignored its context")
 	}
 }
 

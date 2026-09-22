@@ -250,5 +250,5 @@ func ListHostSessions(ctx context.Context, name string, timeout time.Duration) (
 	// Bound the reply by what is left of the caller's timeout: the picker
 	// queries hosts one at a time, so a host that stops replying must not
 	// stretch the wait past the deadline the caller asked for.
-	return cc.listSessionsWithin(time.Until(deadline))
+	return cc.listSessionsWithin(ctx, time.Until(deadline))
 }

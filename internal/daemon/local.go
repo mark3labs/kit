@@ -348,5 +348,5 @@ func ListLocalSessions(ctx context.Context) ([]SessionEntry, error) {
 
 	client := newClientConn(conn)
 	go client.readLoop()
-	return client.listSessions()
+	return client.listSessions(ctx)
 }
