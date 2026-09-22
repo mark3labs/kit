@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // TestTaglessSwitchCommaCaseList documents a live Yaegi miscompilation.

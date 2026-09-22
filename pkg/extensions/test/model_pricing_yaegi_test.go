@@ -3,7 +3,7 @@ package test
 import (
 	"testing"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/pkg/extensions"
 )
 
 // TestModelPricingCrossesYaegiBoundary verifies that ModelPricing and the
