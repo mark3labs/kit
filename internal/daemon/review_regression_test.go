@@ -271,3 +271,105 @@ func TestListSessionsIsCancellable(t *testing.T) {
 func writeFileString(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
+
+// TestUnclaimedSessionIsRetired covers the finding that a session spawned
+// for a client which vanished mid-request was left running.
+//
+// The client cancels (or its connection drops) between asking for a new
+// session and being told the id. Nobody then knows the session exists:
+// it is not a detached session the user can come back to, it is litter
+// in `kit ls` that they cannot account for.
+func TestUnclaimedSessionIsRetired(t *testing.T) {
+	isolateRuntimeDir(t)
+	table := newSessionTable(newDaemonRuntime(nil))
+
+	const wire uint32 = 1
+	sess := table.fakeSession(9)
+	sess.io = &noopSessionIO{}
+	table.mu.Lock()
+	table.wireMap[wire] = 9
+	table.mu.Unlock()
+	sess.attachClient(wire, winSize{})
+
+	// The requesting client is gone: it was never registered in connSet,
+	// which is exactly what a dropped connection leaves behind.
+	table.retireUnclaimedSession(9, wire)
+
+	table.mu.Lock()
+	_, stillThere := table.sessions[9]
+	table.mu.Unlock()
+	if stillThere {
+		t.Fatal("a session whose client never received its id was left running")
+	}
+}
+
+// TestUnclaimedSessionSparesASharedOne is the guard on the rule above.
+//
+// Retiring on a vanished requester must never reach a session somebody
+// else is watching — that would turn a narrow cleanup into a way to lose
+// work, which is the opposite of this PR.
+func TestUnclaimedSessionSparesASharedOne(t *testing.T) {
+	isolateRuntimeDir(t)
+	table := newSessionTable(newDaemonRuntime(nil))
+
+	const requester, observer uint32 = 1, 2
+	sess := table.fakeSession(9)
+	sess.io = &noopSessionIO{}
+	table.mu.Lock()
+	table.wireMap[requester] = 9
+	table.wireMap[observer] = 9
+	table.mu.Unlock()
+	sess.attachClient(requester, winSize{})
+	sess.attachClient(observer, winSize{})
+
+	table.retireUnclaimedSession(9, requester)
+
+	table.mu.Lock()
+	_, stillThere := table.sessions[9]
+	table.mu.Unlock()
+	if !stillThere {
+		t.Fatal("retiring an unclaimed session killed one another client was attached to")
+	}
+}
+
+// TestEstablishedSessionSurvivesAVanishedClient states the rule the
+// cleanup above must not break: a session that a client ATTACHED to
+// (rather than just created) outlives that client disconnecting. That is
+// what a detached session is.
+func TestEstablishedSessionSurvivesAVanishedClient(t *testing.T) {
+	isolateRuntimeDir(t)
+	table := newSessionTable(newDaemonRuntime(nil))
+
+	const wire uint32 = 1
+	sess := table.fakeSession(9)
+	sess.io = &noopSessionIO{}
+	table.mu.Lock()
+	table.wireMap[wire] = 9
+	table.mu.Unlock()
+	sess.attachClient(wire, winSize{})
+
+	// The ordinary disconnect path, which must leave the session running.
+	table.detachWire(wire)
+
+	table.mu.Lock()
+	_, stillThere := table.sessions[9]
+	table.mu.Unlock()
+	if !stillThere {
+		t.Fatal("an ordinary client disconnect ended the session; detached sessions would not exist")
+	}
+}
+
+// noopSessionIO stands in for a session's terminal in tests that only
+// care about table bookkeeping.
+type noopSessionIO struct{ terminated bool }
+
+func (n *noopSessionIO) Read([]byte) (int, error)    { select {} }
+func (n *noopSessionIO) Write(p []byte) (int, error) { return len(p), nil }
+func (n *noopSessionIO) Close() error                { return nil }
+func (n *noopSessionIO) Resize(winSize) error        { return nil }
+func (n *noopSessionIO) Redraw(winSize)              {}
+func (n *noopSessionIO) Rename(string)               {}
+func (n *noopSessionIO) Terminate()                  { n.terminated = true }
+func (n *noopSessionIO) Wait()                       {}
+func (n *noopSessionIO) Hosted() bool                { return true }
+func (n *noopSessionIO) PID() int                    { return 0 }

@@ -189,6 +189,18 @@ func (c *connSet) get(id uint32) *wireConn {
 	return c.conns[id]
 }
 
+// live reports whether a client connection is still registered.
+//
+// Used to tell "the client is waiting for this" from "the client gave up
+// while we were working on it", which decides whether a session spawned
+// for a request still has anyone to belong to.
+func (c *connSet) live(id uint32) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.conns[id]
+	return ok
+}
+
 // removeRemotes drops every remote connection, leaving local ones alone.
 func (c *connSet) removeRemotes() []uint32 {
 	c.mu.Lock()

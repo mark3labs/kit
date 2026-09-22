@@ -901,7 +901,46 @@ func (t *sessionTable) attachSession(ctx context.Context, wire uint32, payload [
 	_ = t.writeTo(Frame{Type: FrameSessionAttachAck, Session: wire, Payload: ack})
 	if ok == 0 {
 		log.Warn("attach failed", "wire", wire, "requested", requested)
+		return
 	}
+	if requested == 0 && !t.conns.live(wire) {
+		// We spawned this session for a client that has already gone: it
+		// cancelled, or its connection dropped, between asking and being
+		// told the answer. Nobody knows this session exists, so it is
+		// retired rather than left as a detached session the user never
+		// asked for and would find in 'kit ls' with no idea what it is.
+		//
+		// Narrow on purpose. Only a session created FOR THIS REQUEST is
+		// eligible, and only while no other client has attached to it.
+		// An established session is never touched, because outliving its
+		// client is the whole point of one.
+		t.retireUnclaimedSession(logical, wire)
+	}
+}
+
+// retireUnclaimedSession ends a session that was just spawned for a
+// client which vanished before it could be told the session existed.
+//
+// A session whose requester never learned its id is not a detached
+// session, it is litter: nothing points at it, and the user did not ask
+// for it to keep running. A session anyone else has attached to is
+// somebody's work and is left alone.
+func (t *sessionTable) retireUnclaimedSession(logical uint64, wire uint32) {
+	t.mu.Lock()
+	sess := t.sessions[logical]
+	if bound, ok := t.wireMap[wire]; ok && bound == logical {
+		delete(t.wireMap, wire)
+	}
+	t.mu.Unlock()
+	if sess == nil {
+		return
+	}
+	if _, remaining := sess.detachClient(wire); remaining > 0 {
+		return // another client is watching it; it is theirs now
+	}
+	log.Warn("daemon: retiring a session whose client never received it",
+		"session_id", logical, "wire", wire)
+	t.retireSession(logical)
 }
 
 // watchSession starts the per-session PTY fan-out reader and the child
