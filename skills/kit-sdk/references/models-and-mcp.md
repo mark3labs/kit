@@ -83,7 +83,7 @@ Rules:
 - The model name is everything after the first `/` (`local/org/m.gguf` → `org/m.gguf`).
 - Names are case-insensitive and must not contain `/`. `kit.New` copies `Options.Providers` and rejects nil factories and names that differ only in case.
 - Kit calls the factory at construction, on `SetModel`, for `ExecuteCompletion` with a `Model`, and for subagents. Cache expensive resources in the factory.
-- `cfg` carries the Kit's generation settings and max tokens (the request's `MaxTokens` for `ExecuteCompletion`). It carries `ProviderAPIKey`/`ProviderURL`/`ProviderWire` only when they belong to this provider. Do not mutate `cfg`.
+- `cfg` carries the Kit's generation settings and max tokens (for `ExecuteCompletion`, the request's `MaxTokens` when it is set). It carries `ProviderAPIKey`/`ProviderURL`/`ProviderWire` only when they belong to this provider. Do not mutate `cfg`.
 - Kit closes `ProviderResult.Closer` on model switch, on `Close`, and when the factory returns an error.
 - Kit adds no automatic prompt-cache options; set `ProviderResult.ProviderOptions` yourself.
 - The model is usually not in the model database, so set `CompactionOptions.ContextWindow` for auto-compaction.

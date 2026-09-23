@@ -332,7 +332,7 @@ Behaviour:
   `ExecuteCompletion` with a `Model`, and for subagents. Cache expensive
   resources inside the factory.
 - `cfg` carries the Kit's generation settings and max tokens (for
-  `ExecuteCompletion`, the request's `MaxTokens`). It carries `ProviderAPIKey`,
+  `ExecuteCompletion`, the request's `MaxTokens` when it is set). It carries `ProviderAPIKey`,
   `ProviderURL` and `ProviderWire` only when those overrides belong to the
   factory's provider.
 - Kit closes `ProviderResult.Closer` when the model is replaced, when the Kit

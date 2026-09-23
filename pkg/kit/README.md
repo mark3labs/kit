@@ -254,7 +254,7 @@ Rules:
   with a model, and for subagents. Cache expensive resources in the factory.
 - `cfg` carries the Kit's explicit generation settings (temperature, top-p,
   top-k, penalties) and its max tokens. For `ExecuteCompletion`, `MaxTokens` is
-  `CompleteRequest.MaxTokens` (0 when unset). `cfg` carries `ProviderAPIKey`,
+  `CompleteRequest.MaxTokens` when it is set. `cfg` carries `ProviderAPIKey`,
   `ProviderURL` and `ProviderWire` only when those overrides belong to the
   factory's provider.
 - Kit does not add automatic prompt-cache options to factory models. Set

@@ -261,3 +261,241 @@ func TestProviders_InvalidInstanceFactories(t *testing.T) {
 		})
 	}
 }
+
+// configCapture records the ProviderConfig each factory call receives.
+type configCapture struct {
+	mu   sync.Mutex
+	cfgs map[string]ProviderConfig // keyed by model name
+}
+
+func (c *configCapture) factory(provider string) ProviderFactory {
+	return func(_ context.Context, cfg *ProviderConfig, modelName string) (*ProviderResult, error) {
+		c.mu.Lock()
+		if c.cfgs == nil {
+			c.cfgs = make(map[string]ProviderConfig)
+		}
+		c.cfgs[modelName] = *cfg
+		c.mu.Unlock()
+		return &ProviderResult{Model: &echoModel{provider: provider, model: modelName}}, nil
+	}
+}
+
+func (c *configCapture) get(model string) (ProviderConfig, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cfg, ok := c.cfgs[model]
+	return cfg, ok
+}
+
+// Regression test for the CodeRabbit finding on PR #143: a temporary
+// factory model in ExecuteCompletion must get the Kit's effective settings,
+// and endpoint overrides only when they belong to the factory's provider.
+func TestProviders_ExecuteCompletionPassesEffectiveSettings(t *testing.T) {
+	local := &configCapture{}
+	other := &configCapture{}
+	temp := float32(0.3)
+	k := newProviderTestKit(t, &Options{
+		Model:          "local/main",
+		Temperature:    &temp,
+		ProviderURL:    "http://127.0.0.1:9/v1",
+		ProviderAPIKey: "local-key",
+		Providers: map[string]ProviderFactory{
+			"local": local.factory("local"),
+			"other": other.factory("other"),
+		},
+	})
+
+	if _, err := k.ExecuteCompletion(context.Background(), CompleteRequest{
+		Model: "local/side", Prompt: "x", MaxTokens: 77,
+	}); err != nil {
+		t.Fatalf("ExecuteCompletion local: %v", err)
+	}
+	cfg, ok := local.get("side")
+	if !ok {
+		t.Fatal("local factory was not called for local/side")
+	}
+	if cfg.ProviderURL != "http://127.0.0.1:9/v1" || cfg.ProviderAPIKey != "local-key" {
+		t.Errorf("local cfg endpoint = (%q, %q), want the Kit's overrides", cfg.ProviderURL, cfg.ProviderAPIKey)
+	}
+	if cfg.Temperature == nil || *cfg.Temperature != temp {
+		t.Errorf("local cfg Temperature = %v, want %v", cfg.Temperature, temp)
+	}
+	if cfg.MaxTokens != 77 {
+		t.Errorf("local cfg MaxTokens = %d, want the request's 77", cfg.MaxTokens)
+	}
+
+	// The overrides are bound to "local": another provider must not get them.
+	if _, err := k.ExecuteCompletion(context.Background(), CompleteRequest{
+		Model: "other/m", Prompt: "x",
+	}); err != nil {
+		t.Fatalf("ExecuteCompletion other: %v", err)
+	}
+	cfg, ok = other.get("m")
+	if !ok {
+		t.Fatal("other factory was not called for other/m")
+	}
+	if cfg.ProviderURL != "" || cfg.ProviderAPIKey != "" || cfg.ProviderWire != "" {
+		t.Errorf("other cfg endpoint = (%q, %q, %q), want empty", cfg.ProviderURL, cfg.ProviderAPIKey, cfg.ProviderWire)
+	}
+	if cfg.Temperature == nil || *cfg.Temperature != temp {
+		t.Errorf("other cfg Temperature = %v, want %v", cfg.Temperature, temp)
+	}
+}
+
+// Regression test for the CodeRabbit finding on PR #143: New must snapshot
+// Options.Providers so later changes to the caller's map do not reach an
+// existing Kit.
+func TestProviders_NewSnapshotsProvidersMap(t *testing.T) {
+	first := &recordingFactory{}
+	second := &recordingFactory{}
+	opts := &Options{
+		Model:     "local/a",
+		Providers: map[string]ProviderFactory{"local": first.factory("local")},
+	}
+	k := newProviderTestKit(t, opts)
+
+	// Replace the factory in the caller's map after construction.
+	opts.Providers["local"] = second.factory("local")
+
+	if err := k.SetModel(context.Background(), "local/b"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	if created, _ := first.snapshot(); !slices.Contains(created, "b") {
+		t.Errorf("first factory created %v, want b (snapshot must be used)", created)
+	}
+	if created, _ := second.snapshot(); len(created) != 0 {
+		t.Errorf("second factory created %v, want none", created)
+	}
+}
+
+func TestProviders_RejectsCaseVariantNames(t *testing.T) {
+	f := (&recordingFactory{}).factory("local")
+	_, err := New(context.Background(), &Options{
+		Model:        "local/m",
+		Providers:    map[string]ProviderFactory{"Local": f, "local": f},
+		Quiet:        true,
+		NoSession:    true,
+		NoExtensions: true,
+		SkipConfig:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "same provider") {
+		t.Fatalf("err = %v, want a 'same provider' error", err)
+	}
+}
+
+// Regression test for the CodeRabbit finding on PR #143: CreateProvider may
+// raise MaxTokens (right-sizing to the model's known output limit) before it
+// calls the factory. ExecuteCompletion must give the factory the request's
+// MaxTokens, which is the limit the completion agent uses.
+func TestProviders_ExecuteCompletionKeepsRequestMaxTokens(t *testing.T) {
+	capture := &configCapture{}
+	// openai/gpt-4o is in the model database with a known output limit, so
+	// right-sizing would raise an unpinned MaxTokens.
+	k := newProviderTestKit(t, &Options{
+		Model:     "openai/gpt-4o",
+		Providers: map[string]ProviderFactory{"openai": capture.factory("openai")},
+	})
+
+	if _, err := k.ExecuteCompletion(context.Background(), CompleteRequest{
+		Model: "openai/gpt-4o", Prompt: "x", MaxTokens: 77,
+	}); err != nil {
+		t.Fatalf("ExecuteCompletion: %v", err)
+	}
+	cfg, ok := capture.get("gpt-4o")
+	if !ok {
+		t.Fatal("factory was not called")
+	}
+	if cfg.MaxTokens != 77 {
+		t.Errorf("factory cfg MaxTokens = %d, want the request's 77", cfg.MaxTokens)
+	}
+}
+
+// testProviderOption is a minimal provider option value.
+type testProviderOption struct{}
+
+func (testProviderOption) Options()                     {}
+func (testProviderOption) MarshalJSON() ([]byte, error) { return []byte(`{}`), nil }
+func (*testProviderOption) UnmarshalJSON([]byte) error  { return nil }
+
+// optionsModel records the provider options of each call.
+type optionsModel struct {
+	echoModel
+	mu   sync.Mutex
+	seen []LLMProviderOptions
+}
+
+func (m *optionsModel) record(opts LLMProviderOptions) {
+	m.mu.Lock()
+	m.seen = append(m.seen, opts)
+	m.mu.Unlock()
+}
+
+func (m *optionsModel) Generate(ctx context.Context, call fantasy.Call) (*fantasy.Response, error) {
+	m.record(call.ProviderOptions)
+	return m.echoModel.Generate(ctx, call)
+}
+
+func (m *optionsModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+	m.record(call.ProviderOptions)
+	return m.echoModel.Stream(ctx, call)
+}
+
+func (m *optionsModel) last() LLMProviderOptions {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.seen) == 0 {
+		return nil
+	}
+	return m.seen[len(m.seen)-1]
+}
+
+// Regression test for the CodeRabbit finding on PR #143: when
+// ExecuteCompletion reuses an active factory model, the completion call must
+// carry the options that the factory returned.
+func TestProviders_ExecuteCompletionReusesFactoryProviderOptions(t *testing.T) {
+	model := &optionsModel{}
+	model.provider, model.model = "local", "main"
+	k := newProviderTestKit(t, &Options{
+		Model: "local/main",
+		Providers: map[string]ProviderFactory{
+			"local": func(context.Context, *ProviderConfig, string) (*ProviderResult, error) {
+				return &ProviderResult{
+					Model:           model,
+					ProviderOptions: LLMProviderOptions{"local": &testProviderOption{}},
+				}, nil
+			},
+		},
+	})
+
+	if _, err := k.ExecuteCompletion(context.Background(), CompleteRequest{Prompt: "x"}); err != nil {
+		t.Fatalf("ExecuteCompletion: %v", err)
+	}
+	if _, ok := model.last()["local"]; !ok {
+		t.Errorf("completion provider options = %v, want the factory's options", model.last())
+	}
+}
+
+// The factory-backed flag follows the active model, so built-in models keep
+// nil provider options in ExecuteCompletion.
+func TestProviders_ActiveModelFromFactoryTracksModel(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	k := newProviderTestKit(t, &Options{
+		Model:     "openai/gpt-4o-mini",
+		Providers: map[string]ProviderFactory{"local": (&recordingFactory{}).factory("local")},
+	})
+	if k.activeModelFromFactory {
+		t.Fatal("built-in model must not be marked as factory-backed")
+	}
+	if err := k.SetModel(context.Background(), "local/m"); err != nil {
+		t.Fatalf("SetModel local: %v", err)
+	}
+	if !k.activeModelFromFactory {
+		t.Error("factory model must be marked as factory-backed")
+	}
+	if err := k.SetModel(context.Background(), "openai/gpt-4o-mini"); err != nil {
+		t.Fatalf("SetModel openai: %v", err)
+	}
+	if k.activeModelFromFactory {
+		t.Error("flag must clear after switching back to a built-in model")
+	}
+}

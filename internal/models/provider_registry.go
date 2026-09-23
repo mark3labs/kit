@@ -158,6 +158,12 @@ func HasProviderFactory(cfg *ProviderConfig, provider string) bool {
 	return ok
 }
 
+// LookupProviderFactory returns the factory that CreateProvider would use for
+// provider: an instance factory on cfg first, then a process-wide one.
+func LookupProviderFactory(cfg *ProviderConfig, provider string) (ProviderFactory, bool) {
+	return lookupProviderFactory(cfg, provider)
+}
+
 // createFromFactory calls f and checks its result.
 func createFromFactory(ctx context.Context, f ProviderFactory, config *ProviderConfig, provider, modelName string) (*ProviderResult, error) {
 	result, err := f(ctx, config, modelName)

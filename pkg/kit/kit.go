@@ -71,7 +71,10 @@ type Kit struct {
 	// normalized provider name. Taken in New so later changes to the caller's
 	// map do not affect this Kit. Nil when no instance factories are set.
 	providers map[string]ProviderFactory
-	mcpConfig *config.Config // loaded MCP/server config, shared with subagents
+	// activeModelFromFactory is true when the active model was built by a
+	// ProviderFactory. Set in New and SetModel.
+	activeModelFromFactory bool
+	mcpConfig              *config.Config // loaded MCP/server config, shared with subagents
 
 	// v is this Kit instance's isolated configuration store. Each Kit owns its
 	// own *viper.Viper (constructed via viper.New) so that runtime config
@@ -821,11 +824,13 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		}
 	}
 
+	fromFactory := m.factoryBacked(modelString)
 	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
 
 	m.modelString = modelString
+	m.activeModelFromFactory = fromFactory
 
 	// Update extension context's Model field.
 	if m.extRunner != nil {
@@ -1039,6 +1044,14 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		llmModel = m.agent.GetModel()
 		usedModel = m.modelString
 		closer = func() {} // nothing to clean up
+		// A factory-backed model gets the options its factory returned: Kit
+		// adds none of its own, so they may be required by the backend.
+		// Built-in providers keep nil options here: their stored options
+		// carry agent settings (e.g. an Anthropic thinking budget) that can
+		// conflict with a small req.MaxTokens.
+		if m.activeModelFromFactory {
+			providerOps = m.agent.ProviderOptions()
+		}
 	} else {
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
@@ -1055,8 +1068,19 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		// A factory gets the resolved configuration its contract promises:
 		// the effective endpoint overrides and generation settings of this
 		// Kit. Built-in providers keep the minimal configuration above.
-		if provider, _, perr := models.ParseModelString(req.Model); perr == nil && models.HasProviderFactory(config, provider) {
-			m.applyEffectiveProviderSettings(config, req.Model)
+		if provider, _, perr := models.ParseModelString(req.Model); perr == nil {
+			if factory, ok := models.LookupProviderFactory(config, provider); ok {
+				m.applyEffectiveProviderSettings(config, req.Model)
+				// CreateProvider may raise MaxTokens (per-model settings,
+				// right-sizing) before it calls the factory. The completion
+				// agent uses req.MaxTokens, so the factory must see the
+				// same limit.
+				if req.MaxTokens > 0 {
+					config.ProviderFactories = map[string]ProviderFactory{
+						provider: withMaxTokens(factory, req.MaxTokens),
+					}
+				}
+			}
 		}
 		providerResult, err := models.CreateProvider(ctx, config)
 		if err != nil {
@@ -2094,6 +2118,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		prepareStep:           prepareStep,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
+	// The agent setup above built the model with the same factory lookup.
+	k.activeModelFromFactory = k.factoryBacked(modelString)
 
 	// Late-bind the session ID supplier onto the provider config. The agent
 	// (and its HTTP transport) already hold this same ProviderConfig pointer,

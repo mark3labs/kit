@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"context"
+
 	"charm.land/fantasy"
 
 	"github.com/mark3labs/kit/internal/models"
@@ -22,7 +24,7 @@ type LLMLanguageModel = fantasy.LanguageModel
 // modelName is the part of the model string after the first "/". cfg is the
 // resolved provider configuration: generation parameters, max tokens, system
 // prompt and per-model settings. For [Kit.ExecuteCompletion], MaxTokens is the
-// request's value. cfg also carries the Kit's ProviderAPIKey,
+// request's MaxTokens when it is set. cfg also carries the Kit's ProviderAPIKey,
 // ProviderURL and ProviderWire overrides when they belong to this provider;
 // overrides configured for a different provider are left empty. The factory
 // must not mutate cfg.
@@ -128,6 +130,27 @@ func (m *Kit) applyEffectiveProviderSettings(cfg *models.ProviderConfig, modelSt
 	if m.v.IsSet("presence-penalty") {
 		v := float32(m.v.GetFloat64("presence-penalty"))
 		cfg.PresencePenalty = &v
+	}
+}
+
+// factoryBacked reports whether CreateProvider builds modelString with a
+// provider factory: an instance factory of this Kit or a process-wide one.
+func (m *Kit) factoryBacked(modelString string) bool {
+	provider, _, err := models.ParseModelString(modelString)
+	if err != nil {
+		return false
+	}
+	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.providers}, provider)
+}
+
+// withMaxTokens wraps f so that it receives maxTokens in cfg.MaxTokens,
+// whatever limit CreateProvider resolved before the call. The factory gets a
+// copy of cfg, so the caller's configuration is not changed.
+func withMaxTokens(f ProviderFactory, maxTokens int) ProviderFactory {
+	return func(ctx context.Context, cfg *ProviderConfig, modelName string) (*ProviderResult, error) {
+		c := *cfg
+		c.MaxTokens = maxTokens
+		return f(ctx, &c, modelName)
 	}
 }
 
