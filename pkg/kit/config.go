@@ -83,7 +83,7 @@ func setSDKDefaults(v *viper.Viper) {
 // This wraps [initConfig] using the process-global store and is retained for
 // the CLI, which binds its flags to that global store.
 func InitConfig(configFile string, debug bool) error {
-	return initConfig(viper.GetViper(), configFile, debug, false)
+	return initConfig(viper.GetViper(), configFile, debug, false, true)
 }
 
 // ConfigInitOptions controls configuration discovery for
@@ -108,13 +108,16 @@ type ConfigInitOptions struct {
 // with explicit control over discovery. Use it instead of [InitConfig]
 // when project-local configuration must be ignored.
 func InitConfigWithOptions(opts ConfigInitOptions) error {
-	return initConfig(viper.GetViper(), opts.ConfigFile, opts.Debug, opts.Bare)
+	return initConfig(viper.GetViper(), opts.ConfigFile, opts.Debug, opts.Bare, true)
 }
 
 // initConfig loads configuration into the supplied per-instance store. When v
 // is nil the process-global store is used. When bare is true the working
-// directory is excluded from the config search path.
-func initConfig(v *viper.Viper, configFile string, debug, bare bool) error {
+// directory is excluded from the config search path. When createDefault is
+// true and no config file exists, a commented template is written to
+// ~/.kit.yml; only the CLI entry points set it, so embedding the SDK never
+// writes to the user's home directory.
+func initConfig(v *viper.Viper, configFile string, debug, bare, createDefault bool) error {
 	if v == nil {
 		v = viper.GetViper()
 	}
@@ -133,10 +136,12 @@ func initConfig(v *viper.Viper, configFile string, debug, bare bool) error {
 		return loadConfigWithEnvSubstitution(v, configFile)
 	}
 
-	// Ensure a config file exists (create default if none found).
-	if err := config.EnsureConfigExists(); err != nil {
-		if debug {
-			fmt.Fprintf(os.Stderr, "Warning: Could not create default config file: %v\n", err)
+	// Give first-time CLI users a template to edit (create default if none found).
+	if createDefault {
+		if err := config.EnsureConfigExists(); err != nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "Warning: Could not create default config file: %v\n", err)
+			}
 		}
 	}
 

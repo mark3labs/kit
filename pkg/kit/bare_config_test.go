@@ -24,7 +24,7 @@ func TestBareConfig_SkipsProjectConfig(t *testing.T) {
 
 	// Control: without bare, the project config is picked up.
 	v := viper.New()
-	if err := initConfig(v, "", false, false); err != nil {
+	if err := initConfig(v, "", false, false, true); err != nil {
 		t.Fatalf("initConfig: %v", err)
 	}
 	if got := v.GetString("model"); got != "project/should-not-load" {
@@ -33,7 +33,7 @@ func TestBareConfig_SkipsProjectConfig(t *testing.T) {
 
 	// Bare must not see it.
 	vBare := viper.New()
-	if err := initConfig(vBare, "", false, true); err != nil {
+	if err := initConfig(vBare, "", false, true, true); err != nil {
 		t.Fatalf("initConfig bare: %v", err)
 	}
 	if got := vBare.GetString("model"); got != "" {
@@ -51,7 +51,7 @@ func TestBareConfig_KeepsExplicitConfigFile(t *testing.T) {
 	}
 
 	v := viper.New()
-	if err := initConfig(v, path, false, true); err != nil {
+	if err := initConfig(v, path, false, true, true); err != nil {
 		t.Fatalf("initConfig: %v", err)
 	}
 	if got := v.GetString("model"); got != "explicit/model" {
@@ -71,7 +71,7 @@ func TestBareConfig_KeepsHomeConfig(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	v := viper.New()
-	if err := initConfig(v, "", false, true); err != nil {
+	if err := initConfig(v, "", false, true, true); err != nil {
 		t.Fatalf("initConfig: %v", err)
 	}
 	if got := v.GetString("model"); got != "home/model" {

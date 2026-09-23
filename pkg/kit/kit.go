@@ -1689,7 +1689,9 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
 		if !opts.SkipConfig && opts.CLI == nil {
-			if err := initConfig(v, opts.ConfigFile, false, opts.Bare); err != nil {
+			// createDefault=false: an embedding application must not have
+			// kit drop a ~/.kit.yml into its users' home directories.
+			if err := initConfig(v, opts.ConfigFile, false, opts.Bare, false); err != nil {
 				return fmt.Errorf("failed to initialize config: %w", err)
 			}
 		}

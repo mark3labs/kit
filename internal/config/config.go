@@ -2,7 +2,9 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -458,12 +460,16 @@ func EnsureConfigExists() error {
 func createDefaultConfig(homeDir string) error {
 	configPath := filepath.Join(homeDir, ".kit.yml")
 
-	// Create the file
-	file, err := os.Create(configPath)
+	// O_EXCL rather than os.Create: two kit processes starting on first run
+	// can both see no config, and os.Create would truncate whatever the
+	// other one (or the user) had just written. Losing the race is fine.
+	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("error creating config file: %v", err)
 	}
-	defer func() { _ = file.Close() }()
 
 	// Write a comprehensive YAML template with examples
 	content := `# KIT Configuration File
@@ -581,8 +587,11 @@ mcpServers:
 #       systemPrompt: "You are a helpful local assistant."
 `
 
-	_, err = file.WriteString(content)
-	if err != nil {
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close() // the write error is the one worth reporting
+		return fmt.Errorf("error writing config content: %v", err)
+	}
+	if err := file.Close(); err != nil {
 		return fmt.Errorf("error writing config content: %v", err)
 	}
 
