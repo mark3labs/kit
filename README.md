@@ -37,6 +37,27 @@ A powerful, extensible AI coding agent CLI with multi-provider support, built-in
 
 ## Installation
 
+### Using the install script (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mark3labs/kit/master/install.sh | bash
+```
+
+The script downloads the latest release binary for your platform, verifies its
+SHA-256 checksum, and installs it to `~/.local/bin` (or another writable
+directory on your system). Options:
+
+```bash
+# Install a specific version into a custom directory
+curl -fsSL https://raw.githubusercontent.com/mark3labs/kit/master/install.sh | bash -s -- --version v0.111.0 --bin-dir /usr/local/bin
+```
+
+| Option | Description |
+|--------|-------------|
+| `--bin-dir <dir>` | Install directory (env: `KIT_BIN_DIR`) |
+| `--version <tag>` | Release tag to install, default is latest (env: `KIT_VERSION`) |
+| `--no-provider-check` | Skip the LLM provider API key reminder |
+
 ### Using npm / bun / pnpm
 
 ```bash

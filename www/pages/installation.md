@@ -1,9 +1,38 @@
 ---
 title: Installation
-description: Install Kit using npm, bun, pnpm, Go, or build from source.
+description: Install Kit using the install script, npm, bun, pnpm, Go, or build from source.
 ---
 
 # Installation
+
+## Using the install script (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mark3labs/kit/master/install.sh | bash
+```
+
+The script:
+
+- Detects your OS (`linux`, `darwin`) and architecture (`amd64`, `arm64`)
+- Downloads the matching binary from the latest [GitHub release](https://github.com/mark3labs/kit/releases)
+- Verifies the SHA-256 checksum against `checksums.txt` and stops if it does not match
+- Installs `kit` into the first writable directory of `~/.local/bin`, `~/bin`, or `/usr/local/bin` (it creates `~/.local/bin` if none exist)
+- Tells you if the install directory is not on your `$PATH`
+
+To pass options, use `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mark3labs/kit/master/install.sh | bash -s -- --version v0.111.0 --bin-dir /usr/local/bin
+```
+
+| Option | Environment variable | Description |
+|--------|----------------------|-------------|
+| `--bin-dir <dir>` | `KIT_BIN_DIR` | Directory to install `kit` into |
+| `--version <tag>` | `KIT_VERSION` | Release tag to install (default: latest) |
+| `--no-provider-check` | | Skip the LLM provider API key reminder |
+| `-h`, `--help` | | Show help |
+
+On Windows, use npm / bun / pnpm below, or download the `.zip` from the [releases page](https://github.com/mark3labs/kit/releases).
 
 ## Using npm / bun / pnpm
 

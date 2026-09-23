@@ -34,6 +34,9 @@ release:
     ## Installation
 
     ```bash
+    # Install script (macOS / Linux)
+    curl -fsSL https://raw.githubusercontent.com/mark3labs/kit/master/install.sh | bash
+
     # Bun / npm
     bun add -g @mark3labs/kit
     # or: npm install -g @mark3labs/kit
