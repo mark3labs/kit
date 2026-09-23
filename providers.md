@@ -19,6 +19,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
 | **Custom** | `custom/` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
+| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends) |
 
 ## Model string format
 
@@ -253,6 +254,7 @@ kit --model corp-llm/claude-sonnet-4-5 \
 | [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
 | [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
 | `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+| [`kit.ProviderFactory`](/sdk/overview#custom-provider-backends) (Go SDK only) | Any (your code builds the model) | Per Kit instance or per process | In-process inference bundled with an app, test doubles, custom transports |
 
 ## Model database
 

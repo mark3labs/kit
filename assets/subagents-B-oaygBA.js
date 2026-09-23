@@ -244,6 +244,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    SessionID: first.SessionID, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// resume the same child session</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see <a href="#session-linking-and-resuming">Session linking and resuming</a>); set <code>ParentSessionID</code> to override the recorded link.</p>
+<p>Children inherit the parent's <code>Options.Providers</code>, so <code>Model</code> can name an app-supplied <a href="/sdk/overview#custom-provider-backends">custom provider backend</a> (for example <code>"local/qwen3-8b"</code>).</p>
 <p>Inspect the discovered definitions:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">def, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// lookup by name</span></span>
@@ -524,6 +525,8 @@ followUp, err := host.Subagent(ctx, kit.SubagentConfig{
 \`\`\`
 
 New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set \`ParentSessionID\` to override the recorded link.
+
+Children inherit the parent's \`Options.Providers\`, so \`Model\` can name an app-supplied [custom provider backend](/sdk/overview#custom-provider-backends) (for example \`"local/qwen3-8b"\`).
 
 Inspect the discovered definitions:
 

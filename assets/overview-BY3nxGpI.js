@@ -95,6 +95,10 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 <td><code>Options.ProviderWire</code> (wire protocol for auto-routed providers: <code>openai</code>, <code>openai-compat</code>, <code>anthropic</code>, <code>google</code>)</td>
 </tr>
 <tr>
+<td><code>WithProvider(string, ProviderFactory)</code></td>
+<td>Adds one entry to <code>Options.Providers</code> (see <a href="#custom-provider-backends">Custom provider backends</a>)</td>
+</tr>
+<tr>
 <td><code>WithConfigFile(string)</code></td>
 <td><code>Options.ConfigFile</code></td>
 </tr>
@@ -323,6 +327,78 @@ entirely in-code via <code>Options</code>, without touching <code>.kit.yml</code
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> ptrFloat32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">v</span><span style="color:#D73A49;--shiki-dark:#F97583"> float32</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) </span><span style="color:#D73A49;--shiki-dark:#F97583">*float32</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> { </span><span style="color:#D73A49;--shiki-dark:#F97583">return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#24292E;--shiki-dark:#E1E4E8">v }</span></span></code></pre>
 <p>See <a href="/sdk/options#generation-parameters">Options</a> for the full field reference,
 including <code>TopP</code>, <code>TopK</code>, <code>FrequencyPenalty</code>, <code>PresencePenalty</code>, and <code>TLSSkipVerify</code>.</p>
+<h2 id="custom-provider-backends"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#custom-provider-backends"><span class="icon icon-link"></span></a>Custom provider backends</h2>
+<p>A <code>kit.ProviderFactory</code> serves a provider name from your own Go code. Model
+strings <code>name/&lt;model&gt;</code> then go to your factory instead of a built-in provider.
+Use it to ship an agentic application with its own inference backend (for
+example an in-process local runtime), or to plug in a test double or a proxy.
+Kit itself takes no dependency on the backend.</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">factory </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">ctx</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Context</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">cfg</span><span style="color:#D73A49;--shiki-dark:#F97583"> *</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ProviderConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#E36209;--shiki-dark:#FFAB70">model</span><span style="color:#D73A49;--shiki-dark:#F97583"> string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) (</span><span style="color:#D73A49;--shiki-dark:#F97583">*</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ProviderResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#D73A49;--shiki-dark:#F97583">error</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    m, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> backend.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">LanguageModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, model) </span><span style="color:#6A737D;--shiki-dark:#6A737D">// backend is any kit.LLMProvider</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">        return</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, err</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#D73A49;--shiki-dark:#F97583"> &amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ProviderResult</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Model:  m,       </span><span style="color:#6A737D;--shiki-dark:#6A737D">// kit.LLMLanguageModel</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">        Closer: release, </span><span style="color:#6A737D;--shiki-dark:#6A737D">// optional io.Closer</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }, </span><span style="color:#005CC5;--shiki-dark:#79B8FF">nil</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// For one Kit instance (its subagents inherit it):</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">New</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#D73A49;--shiki-dark:#F97583">&amp;</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Options</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Model:     </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"local/qwen3-8b"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    Providers: </span><span style="color:#D73A49;--shiki-dark:#F97583">map</span><span style="color:#24292E;--shiki-dark:#E1E4E8">[</span><span style="color:#D73A49;--shiki-dark:#F97583">string</span><span style="color:#24292E;--shiki-dark:#E1E4E8">]</span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ProviderFactory</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"local"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">: factory},</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">// Or for every Kit instance in the process:</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RegisterProvider</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"local"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, factory); err </span><span style="color:#D73A49;--shiki-dark:#F97583">!=</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> err</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"local/qwen3-8b"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">))</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>Scope</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Options.Providers</code> / <code>WithProvider</code></td>
+<td>One Kit and its subagents</td>
+<td>Highest precedence. <code>kit.New</code> copies the map.</td>
+</tr>
+<tr>
+<td><code>RegisterProvider</code> / <code>UnregisterProvider</code> / <code>RegisteredProviders</code></td>
+<td>Every Kit in the process</td>
+<td>Wins over the built-in providers. A nil factory removes the name.</td>
+</tr>
+</tbody>
+</table>
+<p>Behaviour:</p>
+<ul>
+<li>The factory gets everything after the first <code>/</code> as the model name, so
+<code>local/org/model.gguf</code> gives <code>org/model.gguf</code>.</li>
+<li>A factory can replace a built-in name such as <code>openai</code>. Names are
+case-insensitive and must not contain <code>/</code>. <code>kit.New</code> rejects a nil factory
+and two names that differ only in case.</li>
+<li>Kit calls the factory at construction, on <code>SetModel</code>, for
+<code>ExecuteCompletion</code> with a <code>Model</code>, and for subagents. Cache expensive
+resources inside the factory.</li>
+<li><code>cfg</code> carries the Kit's generation settings and max tokens (for
+<code>ExecuteCompletion</code>, the request's <code>MaxTokens</code> when it is set). It carries <code>ProviderAPIKey</code>,
+<code>ProviderURL</code> and <code>ProviderWire</code> only when those overrides belong to the
+factory's provider.</li>
+<li>Kit closes <code>ProviderResult.Closer</code> when the model is replaced, when the Kit
+closes, and when the factory returns an error. Release resources that all
+models share after you close every Kit.</li>
+<li>Kit does not add automatic prompt-cache options. Set
+<code>ProviderResult.ProviderOptions</code> if your backend needs options.</li>
+<li>A factory model is usually not in the <a href="/providers#model-database">model database</a>,
+so its context window is unknown. Set <code>CompactionOptions.ContextWindow</code> if
+you use auto-compaction.</li>
+</ul>
 <h2 id="event-system"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#event-system"><span class="icon icon-link"></span></a>Event system</h2>
 <p>Subscribe to events for monitoring:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">unsubscribe </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">OnToolCall</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#D73A49;--shiki-dark:#F97583">func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#E36209;--shiki-dark:#FFAB70">event</span><span style="color:#6F42C1;--shiki-dark:#B392F0"> kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ToolCallEvent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">) {</span></span>
@@ -437,7 +513,8 @@ provider is retiring.</p>
 summaries, classifiers, or any side request that should not touch the session
 or tools. When <code>CompleteRequest.Model</code> is empty the current agent model is
 reused (no extra provider setup); set it to spin up a temporary provider that
-is closed when the call returns.</p>
+is closed when the call returns. The model can also name a
+<a href="#custom-provider-backends">custom provider backend</a>.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">resp, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ExecuteCompletion</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, </span><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">CompleteRequest</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Model: "openai/gpt-4o-mini", // optional override</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    System: </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"You are a terse classifier."</span><span style="color:#24292E;--shiki-dark:#E1E4E8">,</span></span>
@@ -823,7 +900,7 @@ as <code>SubagentConfig.SessionID</code> to resume the child session for follow-
 prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -900,6 +977,7 @@ Available options:
 | \`WithProviderAPIKey(string)\` | \`Options.ProviderAPIKey\` |
 | \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
 | \`WithProviderWire(string)\` | \`Options.ProviderWire\` (wire protocol for auto-routed providers: \`openai\`, \`openai-compat\`, \`anthropic\`, \`google\`) |
+| \`WithProvider(string, ProviderFactory)\` | Adds one entry to \`Options.Providers\` (see [Custom provider backends](#custom-provider-backends)) |
 | \`WithConfigFile(string)\` | \`Options.ConfigFile\` |
 | \`WithDebug()\` | \`Options.Debug = true\` |
 | \`WithDebugLogger(DebugLogger)\` | \`Options.DebugLogger\` (route engine + MCP debug output into a custom logger; overrides \`WithDebug\` when set) |
@@ -1103,6 +1181,67 @@ func ptrFloat32(v float32) *float32 { return &v }
 See [Options](/sdk/options#generation-parameters) for the full field reference,
 including \`TopP\`, \`TopK\`, \`FrequencyPenalty\`, \`PresencePenalty\`, and \`TLSSkipVerify\`.
 
+## Custom provider backends
+
+A \`kit.ProviderFactory\` serves a provider name from your own Go code. Model
+strings \`name/<model>\` then go to your factory instead of a built-in provider.
+Use it to ship an agentic application with its own inference backend (for
+example an in-process local runtime), or to plug in a test double or a proxy.
+Kit itself takes no dependency on the backend.
+
+\`\`\`go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+    m, err := backend.LanguageModel(ctx, model) // backend is any kit.LLMProvider
+    if err != nil {
+        return nil, err
+    }
+    return &kit.ProviderResult{
+        Model:  m,       // kit.LLMLanguageModel
+        Closer: release, // optional io.Closer
+    }, nil
+}
+
+// For one Kit instance (its subagents inherit it):
+host, err := kit.New(ctx, &kit.Options{
+    Model:     "local/qwen3-8b",
+    Providers: map[string]kit.ProviderFactory{"local": factory},
+})
+
+// Or for every Kit instance in the process:
+if err := kit.RegisterProvider("local", factory); err != nil {
+    return err
+}
+host, err = kit.NewAgent(ctx, kit.WithModel("local/qwen3-8b"))
+\`\`\`
+
+| API | Scope | Notes |
+|-----|-------|-------|
+| \`Options.Providers\` / \`WithProvider\` | One Kit and its subagents | Highest precedence. \`kit.New\` copies the map. |
+| \`RegisterProvider\` / \`UnregisterProvider\` / \`RegisteredProviders\` | Every Kit in the process | Wins over the built-in providers. A nil factory removes the name. |
+
+Behaviour:
+
+- The factory gets everything after the first \`/\` as the model name, so
+  \`local/org/model.gguf\` gives \`org/model.gguf\`.
+- A factory can replace a built-in name such as \`openai\`. Names are
+  case-insensitive and must not contain \`/\`. \`kit.New\` rejects a nil factory
+  and two names that differ only in case.
+- Kit calls the factory at construction, on \`SetModel\`, for
+  \`ExecuteCompletion\` with a \`Model\`, and for subagents. Cache expensive
+  resources inside the factory.
+- \`cfg\` carries the Kit's generation settings and max tokens (for
+  \`ExecuteCompletion\`, the request's \`MaxTokens\` when it is set). It carries \`ProviderAPIKey\`,
+  \`ProviderURL\` and \`ProviderWire\` only when those overrides belong to the
+  factory's provider.
+- Kit closes \`ProviderResult.Closer\` when the model is replaced, when the Kit
+  closes, and when the factory returns an error. Release resources that all
+  models share after you close every Kit.
+- Kit does not add automatic prompt-cache options. Set
+  \`ProviderResult.ProviderOptions\` if your backend needs options.
+- A factory model is usually not in the [model database](/providers#model-database),
+  so its context window is unknown. Set \`CompactionOptions.ContextWindow\` if
+  you use auto-compaction.
+
 ## Event system
 
 Subscribe to events for monitoring:
@@ -1256,7 +1395,8 @@ provider is retiring.
 summaries, classifiers, or any side request that should not touch the session
 or tools. When \`CompleteRequest.Model\` is empty the current agent model is
 reused (no extra provider setup); set it to spin up a temporary provider that
-is closed when the call returns.
+is closed when the call returns. The model can also name a
+[custom provider backend](#custom-provider-backends).
 
 \`\`\`go
 resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{

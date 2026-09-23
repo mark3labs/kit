@@ -256,6 +256,8 @@ followUp, err := host.Subagent(ctx, kit.SubagentConfig{
 
 New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set `ParentSessionID` to override the recorded link.
 
+Children inherit the parent's `Options.Providers`, so `Model` can name an app-supplied [custom provider backend](/sdk/overview#custom-provider-backends) (for example `"local/qwen3-8b"`).
+
 Inspect the discovered definitions:
 
 ```go

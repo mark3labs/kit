@@ -75,6 +75,7 @@ Available options:
 | `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
+| `WithProvider(string, ProviderFactory)` | Adds one entry to `Options.Providers` (see [Custom provider backends](#custom-provider-backends)) |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
@@ -278,6 +279,67 @@ func ptrFloat32(v float32) *float32 { return &v }
 See [Options](/sdk/options#generation-parameters) for the full field reference,
 including `TopP`, `TopK`, `FrequencyPenalty`, `PresencePenalty`, and `TLSSkipVerify`.
 
+## Custom provider backends
+
+A `kit.ProviderFactory` serves a provider name from your own Go code. Model
+strings `name/<model>` then go to your factory instead of a built-in provider.
+Use it to ship an agentic application with its own inference backend (for
+example an in-process local runtime), or to plug in a test double or a proxy.
+Kit itself takes no dependency on the backend.
+
+```go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+    m, err := backend.LanguageModel(ctx, model) // backend is any kit.LLMProvider
+    if err != nil {
+        return nil, err
+    }
+    return &kit.ProviderResult{
+        Model:  m,       // kit.LLMLanguageModel
+        Closer: release, // optional io.Closer
+    }, nil
+}
+
+// For one Kit instance (its subagents inherit it):
+host, err := kit.New(ctx, &kit.Options{
+    Model:     "local/qwen3-8b",
+    Providers: map[string]kit.ProviderFactory{"local": factory},
+})
+
+// Or for every Kit instance in the process:
+if err := kit.RegisterProvider("local", factory); err != nil {
+    return err
+}
+host, err = kit.NewAgent(ctx, kit.WithModel("local/qwen3-8b"))
+```
+
+| API | Scope | Notes |
+|-----|-------|-------|
+| `Options.Providers` / `WithProvider` | One Kit and its subagents | Highest precedence. `kit.New` copies the map. |
+| `RegisterProvider` / `UnregisterProvider` / `RegisteredProviders` | Every Kit in the process | Wins over the built-in providers. A nil factory removes the name. |
+
+Behaviour:
+
+- The factory gets everything after the first `/` as the model name, so
+  `local/org/model.gguf` gives `org/model.gguf`.
+- A factory can replace a built-in name such as `openai`. Names are
+  case-insensitive and must not contain `/`. `kit.New` rejects a nil factory
+  and two names that differ only in case.
+- Kit calls the factory at construction, on `SetModel`, for
+  `ExecuteCompletion` with a `Model`, and for subagents. Cache expensive
+  resources inside the factory.
+- `cfg` carries the Kit's generation settings and max tokens (for
+  `ExecuteCompletion`, the request's `MaxTokens` when it is set). It carries `ProviderAPIKey`,
+  `ProviderURL` and `ProviderWire` only when those overrides belong to the
+  factory's provider.
+- Kit closes `ProviderResult.Closer` when the model is replaced, when the Kit
+  closes, and when the factory returns an error. Release resources that all
+  models share after you close every Kit.
+- Kit does not add automatic prompt-cache options. Set
+  `ProviderResult.ProviderOptions` if your backend needs options.
+- A factory model is usually not in the [model database](/providers#model-database),
+  so its context window is unknown. Set `CompactionOptions.ContextWindow` if
+  you use auto-compaction.
+
 ## Event system
 
 Subscribe to events for monitoring:
@@ -431,7 +493,8 @@ provider is retiring.
 summaries, classifiers, or any side request that should not touch the session
 or tools. When `CompleteRequest.Model` is empty the current agent model is
 reused (no extra provider setup); set it to spin up a temporary provider that
-is closed when the call returns.
+is closed when the call returns. The model can also name a
+[custom provider backend](#custom-provider-backends).
 
 ```go
 resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{

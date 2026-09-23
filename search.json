@@ -66,7 +66,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 1530
+      "wordCount": 1547
     },
     {
       "id": "advanced/testing",
@@ -374,7 +374,7 @@
         "Model database"
       ],
       "tags": [],
-      "wordCount": 1203
+      "wordCount": 1255
     },
     {
       "id": "quick-start",
@@ -440,7 +440,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3355
+      "wordCount": 3423
     },
     {
       "id": "sdk/overview",
@@ -460,6 +460,7 @@
         "Schema-driven tools",
         "Halting the agent loop",
         "Generation &amp; provider overrides",
+        "Custom provider backends",
         "Event system",
         "Model management",
         "Long-context pricing tiers",
@@ -480,7 +481,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 4056
+      "wordCount": 4462
     },
     {
       "id": "sdk/sessions",

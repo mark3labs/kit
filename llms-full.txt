@@ -829,6 +829,8 @@ followUp, err := host.Subagent(ctx, kit.SubagentConfig{
 
 New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set `ParentSessionID` to override the recorded link.
 
+Children inherit the parent's `Options.Providers`, so `Model` can name an app-supplied [custom provider backend](/sdk/overview#custom-provider-backends) (for example `"local/qwen3-8b"`).
+
 Inspect the discovered definitions:
 
 ```go
@@ -3956,6 +3958,7 @@ Kit supports a wide range of LLM providers through a unified `provider/model` st
 | **Vercel AI** | `vercel/` | Vercel AI SDK models |
 | **Custom** | `custom/` | Any OpenAI-compatible endpoint |
 | **Auto-routed** | any | Any provider from the models.dev database |
+| **App-supplied (Go SDK)** | any name you register | Your own backend via a `kit.ProviderFactory`. See [Custom provider backends](/sdk/overview#custom-provider-backends) |
 
 ## Model string format
 
@@ -4190,6 +4193,7 @@ kit --model corp-llm/claude-sonnet-4-5 \
 | [`customModels`](/configuration#custom-models) | OpenAI-compatible only | Per-model, persistent | Self-hosted models needing cost/limit metadata |
 | [`providers` overrides](/configuration#provider-overrides) | All four | Per-provider, persistent | Internal gateways, fixing database routing, non-OpenAI wires |
 | `--provider-wire` + `--provider-url` | All four | One-off | Ad-hoc proxies on any wire, no config edit |
+| [`kit.ProviderFactory`](/sdk/overview#custom-provider-backends) (Go SDK only) | Any (your code builds the model) | Per Kit instance or per process | In-process inference bundled with an app, test doubles, custom transports |
 
 ## Model database
 
@@ -4572,6 +4576,9 @@ host, err := kit.New(ctx, &kit.Options{
     ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint
     ProviderWire:   "anthropic",                  // "" = infer wire from model database
     TLSSkipVerify:  false,                         // only effective when true
+    Providers: map[string]kit.ProviderFactory{    // app-supplied backends for "local/<model>"
+        "local": localFactory,
+    },
 
     // Session
     SessionPath:  "./session.jsonl",
@@ -4673,6 +4680,7 @@ when embedding Kit as a library.
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
 | `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
+| `Providers` | `map[string]ProviderFactory` | — | Provider factories for this instance, keyed by provider name (case-insensitive, no `/`). A model string `name/<model>` is built by the factory. Wins over `kit.RegisterProvider` and the built-in providers; subagents inherit it. `kit.New` copies the map and rejects nil factories and names that differ only in case. See [Custom provider backends](/sdk/overview#custom-provider-backends). |
 
 ### Session
 
@@ -5129,6 +5137,7 @@ Available options:
 | `WithProviderAPIKey(string)` | `Options.ProviderAPIKey` |
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
+| `WithProvider(string, ProviderFactory)` | Adds one entry to `Options.Providers` (see [Custom provider backends](#custom-provider-backends)) |
 | `WithConfigFile(string)` | `Options.ConfigFile` |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
@@ -5332,6 +5341,67 @@ func ptrFloat32(v float32) *float32 { return &v }
 See [Options](/sdk/options#generation-parameters) for the full field reference,
 including `TopP`, `TopK`, `FrequencyPenalty`, `PresencePenalty`, and `TLSSkipVerify`.
 
+## Custom provider backends
+
+A `kit.ProviderFactory` serves a provider name from your own Go code. Model
+strings `name/<model>` then go to your factory instead of a built-in provider.
+Use it to ship an agentic application with its own inference backend (for
+example an in-process local runtime), or to plug in a test double or a proxy.
+Kit itself takes no dependency on the backend.
+
+```go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+    m, err := backend.LanguageModel(ctx, model) // backend is any kit.LLMProvider
+    if err != nil {
+        return nil, err
+    }
+    return &kit.ProviderResult{
+        Model:  m,       // kit.LLMLanguageModel
+        Closer: release, // optional io.Closer
+    }, nil
+}
+
+// For one Kit instance (its subagents inherit it):
+host, err := kit.New(ctx, &kit.Options{
+    Model:     "local/qwen3-8b",
+    Providers: map[string]kit.ProviderFactory{"local": factory},
+})
+
+// Or for every Kit instance in the process:
+if err := kit.RegisterProvider("local", factory); err != nil {
+    return err
+}
+host, err = kit.NewAgent(ctx, kit.WithModel("local/qwen3-8b"))
+```
+
+| API | Scope | Notes |
+|-----|-------|-------|
+| `Options.Providers` / `WithProvider` | One Kit and its subagents | Highest precedence. `kit.New` copies the map. |
+| `RegisterProvider` / `UnregisterProvider` / `RegisteredProviders` | Every Kit in the process | Wins over the built-in providers. A nil factory removes the name. |
+
+Behaviour:
+
+- The factory gets everything after the first `/` as the model name, so
+  `local/org/model.gguf` gives `org/model.gguf`.
+- A factory can replace a built-in name such as `openai`. Names are
+  case-insensitive and must not contain `/`. `kit.New` rejects a nil factory
+  and two names that differ only in case.
+- Kit calls the factory at construction, on `SetModel`, for
+  `ExecuteCompletion` with a `Model`, and for subagents. Cache expensive
+  resources inside the factory.
+- `cfg` carries the Kit's generation settings and max tokens (for
+  `ExecuteCompletion`, the request's `MaxTokens` when it is set). It carries `ProviderAPIKey`,
+  `ProviderURL` and `ProviderWire` only when those overrides belong to the
+  factory's provider.
+- Kit closes `ProviderResult.Closer` when the model is replaced, when the Kit
+  closes, and when the factory returns an error. Release resources that all
+  models share after you close every Kit.
+- Kit does not add automatic prompt-cache options. Set
+  `ProviderResult.ProviderOptions` if your backend needs options.
+- A factory model is usually not in the [model database](/providers#model-database),
+  so its context window is unknown. Set `CompactionOptions.ContextWindow` if
+  you use auto-compaction.
+
 ## Event system
 
 Subscribe to events for monitoring:
@@ -5485,7 +5555,8 @@ provider is retiring.
 summaries, classifiers, or any side request that should not touch the session
 or tools. When `CompleteRequest.Model` is empty the current agent model is
 reused (no extra provider setup); set it to spin up a temporary provider that
-is closed when the call returns.
+is closed when the call returns. The model can also name a
+[custom provider backend](#custom-provider-backends).
 
 ```go
 resp, err := host.ExecuteCompletion(ctx, kit.CompleteRequest{
