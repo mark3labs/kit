@@ -54,6 +54,40 @@ On `SetModel()`, if the new model has a per-model system prompt and no custom gl
 
 Models can define default generation parameters (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`) via `modelSettings` or `customModels` `params` in `.kit.yml`. These defaults apply when the user hasn't explicitly set the parameter. Explicit CLI flags or config values always take priority.
 
+### Custom provider backends (`ProviderFactory`)
+
+Use a `kit.ProviderFactory` when the app bundles its own inference backend (an in-process local runtime), or needs a test double or proxy. Model strings `name/<model>` then go to the factory. Kit takes no dependency on the backend.
+
+```go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+    m, err := backend.LanguageModel(ctx, model) // backend is any kit.LLMProvider
+    if err != nil {
+        return nil, err
+    }
+    return &kit.ProviderResult{Model: m, Closer: release}, nil // Closer is optional
+}
+
+// One Kit instance (subagents inherit it):
+host, _ := kit.New(ctx, &kit.Options{
+    Model:     "local/qwen3-8b",
+    Providers: map[string]kit.ProviderFactory{"local": factory},
+})
+// Same thing with functional options: kit.WithProvider("local", factory)
+
+// Every Kit instance in the process:
+_ = kit.RegisterProvider("local", factory) // also: UnregisterProvider, RegisteredProviders
+```
+
+Rules:
+- Precedence: `Options.Providers` → `kit.RegisterProvider` → built-in providers. A factory can replace a built-in name such as `openai`.
+- The model name is everything after the first `/` (`local/org/m.gguf` → `org/m.gguf`).
+- Names are case-insensitive and must not contain `/`. `kit.New` copies `Options.Providers` and rejects nil factories and names that differ only in case.
+- Kit calls the factory at construction, on `SetModel`, for `ExecuteCompletion` with a `Model`, and for subagents. Cache expensive resources in the factory.
+- `cfg` carries the Kit's generation settings and max tokens (for `ExecuteCompletion`, the request's `MaxTokens` when it is set). It carries `ProviderAPIKey`/`ProviderURL`/`ProviderWire` only when they belong to this provider. Do not mutate `cfg`.
+- Kit closes `ProviderResult.Closer` on model switch, on `Close`, and when the factory returns an error.
+- Kit adds no automatic prompt-cache options; set `ProviderResult.ProviderOptions` yourself.
+- The model is usually not in the model database, so set `CompactionOptions.ContextWindow` for auto-compaction.
+
 ---
 
 ## Dynamic MCP Server Management

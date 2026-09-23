@@ -705,6 +705,12 @@ func (r *ModelsRegistry) ValidateModelString(modelString string) error {
 		return nil
 	}
 
+	// Providers backed by a process-wide factory decide themselves which
+	// models they serve.
+	if HasProviderFactory(nil, provider) {
+		return nil
+	}
+
 	// Check if the provider exists in the registry.
 	providerInfo := r.GetProviderInfo(provider)
 	if providerInfo == nil {

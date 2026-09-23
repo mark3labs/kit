@@ -67,7 +67,14 @@ type Kit struct {
 	bufferedLogger *tools.BufferedDebugLogger
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
 	opts           *Options       // stored for reload operations (skills, etc.)
-	mcpConfig      *config.Config // loaded MCP/server config, shared with subagents
+	// providers is this instance's snapshot of Options.Providers, keyed by
+	// normalized provider name. Taken in New so later changes to the caller's
+	// map do not affect this Kit. Nil when no instance factories are set.
+	providers map[string]ProviderFactory
+	// activeModelFromFactory is true when the active model was built by a
+	// ProviderFactory. Set in New and SetModel.
+	activeModelFromFactory bool
+	mcpConfig              *config.Config // loaded MCP/server config, shared with subagents
 
 	// v is this Kit instance's isolated configuration store. Each Kit owns its
 	// own *viper.Viper (constructed via viper.New) so that runtime config
@@ -788,51 +795,16 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: m.v.GetString("provider-api-key"),
-		ProviderURL:    m.v.GetString("provider-url"),
-		ProviderWire:   m.v.GetString("provider-wire"),
 		MaxTokens:      m.v.GetInt("max-tokens"),
 		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
 		DisableCaching: false, // Caching enabled by default, works with thinking
 		ConfigStore:    m.v,
 		SessionIDFunc:  m.GetSessionID,
+		// Instance provider factories (snapshot of Options.Providers).
+		ProviderFactories: m.providers,
 	}
-
-	// The endpoint overrides belong to one provider. A switch to a different
-	// provider must resolve that provider's own endpoint and credentials;
-	// otherwise `--provider-url http://localhost:1234/v1 --model local` and
-	// then `/model openai/gpt-x` would send openai requests, with the local
-	// key, to the local server, which then answers with the model it has.
-	if !m.endpointOverridesApply(modelString) {
-		cfg.ProviderAPIKey = ""
-		cfg.ProviderURL = ""
-		cfg.ProviderWire = ""
-	}
-
-	// Only set generation parameter pointers when the user has explicitly
-	// provided a value. This leaves nil pointers for unset params, allowing
-	// per-model defaults (modelSettings / customModels params) to apply.
-	if m.v.IsSet("temperature") {
-		v := float32(m.v.GetFloat64("temperature"))
-		cfg.Temperature = &v
-	}
-	if m.v.IsSet("top-p") {
-		v := float32(m.v.GetFloat64("top-p"))
-		cfg.TopP = &v
-	}
-	if m.v.IsSet("top-k") {
-		v := int32(m.v.GetInt("top-k"))
-		cfg.TopK = &v
-	}
-	if m.v.IsSet("frequency-penalty") {
-		v := float32(m.v.GetFloat64("frequency-penalty"))
-		cfg.FrequencyPenalty = &v
-	}
-	if m.v.IsSet("presence-penalty") {
-		v := float32(m.v.GetFloat64("presence-penalty"))
-		cfg.PresencePenalty = &v
-	}
+	m.applyEffectiveProviderSettings(cfg, modelString)
 
 	// When the user hasn't set a custom global system prompt, check for a
 	// per-model system prompt. Pre-apply model settings to discover it,
@@ -852,11 +824,13 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		}
 	}
 
+	fromFactory := m.factoryBacked(modelString)
 	if err := m.agent.SetModel(ctx, cfg); err != nil {
 		return err
 	}
 
 	m.modelString = modelString
+	m.activeModelFromFactory = fromFactory
 
 	// Update extension context's Model field.
 	if m.extRunner != nil {
@@ -1063,13 +1037,25 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		closer      func()
 		usedModel   string
 		providerOps LLMProviderOptions
+		// skipMaxOutputTokens mirrors ProviderResult.SkipMaxOutputTokens:
+		// the provider rejects the max_output_tokens parameter.
+		skipMaxOutputTokens bool
 	)
 
 	if req.Model == "" {
 		// Reuse the active agent's model.
 		llmModel = m.agent.GetModel()
 		usedModel = m.modelString
+		skipMaxOutputTokens = m.agent.SkipMaxOutputTokens()
 		closer = func() {} // nothing to clean up
+		// A factory-backed model gets the options its factory returned: Kit
+		// adds none of its own, so they may be required by the backend.
+		// Built-in providers keep nil options here: their stored options
+		// carry agent settings (e.g. an Anthropic thinking budget) that can
+		// conflict with a small req.MaxTokens.
+		if m.activeModelFromFactory {
+			providerOps = m.agent.ProviderOptions()
+		}
 	} else {
 		// Create a temporary provider for the requested model.
 		config := &models.ProviderConfig{
@@ -1077,9 +1063,28 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
 			ConfigStore:   m.v,
 			SessionIDFunc: m.GetSessionID,
+			// Instance provider factories (snapshot of Options.Providers).
+			ProviderFactories: m.providers,
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
+		}
+		// A factory gets the resolved configuration its contract promises:
+		// the effective endpoint overrides and generation settings of this
+		// Kit. Built-in providers keep the minimal configuration above.
+		if provider, _, perr := models.ParseModelString(req.Model); perr == nil {
+			if factory, ok := models.LookupProviderFactory(config, provider); ok {
+				m.applyEffectiveProviderSettings(config, req.Model)
+				// CreateProvider may raise MaxTokens (per-model settings,
+				// right-sizing) before it calls the factory. The completion
+				// agent uses req.MaxTokens, so the factory must see the
+				// same limit.
+				if req.MaxTokens > 0 {
+					config.ProviderFactories = map[string]ProviderFactory{
+						provider: withMaxTokens(factory, req.MaxTokens),
+					}
+				}
+			}
 		}
 		providerResult, err := models.CreateProvider(ctx, config)
 		if err != nil {
@@ -1088,6 +1093,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		llmModel = providerResult.Model
 		usedModel = req.Model
 		providerOps = providerResult.ProviderOptions
+		skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
 		closer = func() {
 			if providerResult.Closer != nil {
 				_ = providerResult.Closer.Close()
@@ -1101,7 +1107,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 	if req.System != "" {
 		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(req.System))
 	}
-	if req.MaxTokens > 0 {
+	if req.MaxTokens > 0 && !skipMaxOutputTokens {
 		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(req.MaxTokens)))
 	}
 	if providerOps != nil {
@@ -1409,6 +1415,35 @@ type Options struct {
 	//	})
 	InProcessMCPServers map[string]*MCPServer
 
+	// Providers registers provider factories for this Kit instance, keyed by
+	// provider name (case-insensitive, must not contain "/"). A model string
+	// "name/model" is then built by the factory instead of a built-in
+	// provider. Use this to bundle an in-process inference backend, a test
+	// double, or a proxy with your application.
+	//
+	// Instance factories take precedence over factories registered with
+	// [RegisterProvider] and over the built-in providers. Subagents spawned
+	// by this Kit inherit them. Kit does not take ownership of resources the
+	// factories hold outside of [ProviderResult.Closer].
+	//
+	// [New] copies the map, so later changes to it (or to a reused Options
+	// value) do not affect the Kit. [New] returns an error for an empty
+	// name, a name with "/", a nil factory, or two names that differ only in
+	// case, such as "Local" and "local".
+	//
+	// Example:
+	//
+	//	host, _ := kit.New(ctx, &kit.Options{
+	//	    Model: "local/qwen3-8b",
+	//	    Providers: map[string]kit.ProviderFactory{
+	//	        "local": func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+	//	            m, err := myBackend.LanguageModel(ctx, model)
+	//	            return &kit.ProviderResult{Model: m}, err
+	//	        },
+	//	    },
+	//	})
+	Providers map[string]ProviderFactory
+
 	// Compaction
 	// AutoCompact enables proactive compaction before turns that near the
 	// context limit. Independent of this setting, the turn loop always
@@ -1601,6 +1636,12 @@ func InitTreeSession(opts *Options) (*TreeManager, error) {
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
+	}
+	// Snapshot the instance provider factories so later changes to the
+	// caller's map (or a reused Options value) cannot affect this Kit.
+	providers, err := models.NormalizeProviderFactories(opts.Providers)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
 	// Construct this Kit's configuration store. SDK callers get a fresh,
@@ -1868,6 +1909,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
+		providerConfig.ProviderFactories = providers
 		modelString = v.GetString("model")
 		debug = v.GetBool("debug")
 		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
@@ -2066,6 +2108,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
+		providers:             providers,
 		mcpConfig:             mcpConfig,
 		v:                     v,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
@@ -2080,6 +2123,8 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		prepareStep:           prepareStep,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
+	// The agent setup above built the model with the same factory lookup.
+	k.activeModelFromFactory = k.factoryBacked(modelString)
 
 	// Late-bind the session ID supplier onto the provider config. The agent
 	// (and its HTTP transport) already hold this same ProviderConfig pointer,
@@ -2664,7 +2709,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// gives the calling agent immediate feedback it can act on — e.g.
 	// correcting a typo — instead of waiting for a full Kit.New() cycle
 	// that silently falls back to the parent model.
-	if model != m.modelString {
+	if model != m.modelString && !m.hasInstanceProvider(model) {
 		if err := models.GetGlobalRegistry().ValidateModelString(model); err != nil {
 			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
 		}
@@ -2757,6 +2802,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// exactly the context (and the arbitrary extension code) bare mode exists
 	// to keep out.
 	inheritIsolationOptions(childOpts, m.opts)
+	// Propagate instance provider factories so a child can use the same
+	// application-provided backends as the parent.
+	childOpts.Providers = m.providers
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)

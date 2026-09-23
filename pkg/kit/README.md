@@ -74,8 +74,8 @@ host, err := kit.NewAgent(ctx,
 
 Helpers: `WithModel`, `WithSystemPrompt`, `WithStreaming`, `WithMaxTokens`,
 `WithThinkingLevel`, `WithTools`, `WithExtraTools`, `WithProviderAPIKey`,
-`WithProviderURL`, `WithConfigFile`, `WithDebug`, `WithDebugLogger`, and
-`Ephemeral`. `Option` is
+`WithProviderURL`, `WithProvider`, `WithConfigFile`, `WithDebug`,
+`WithDebugLogger`, and `Ephemeral`. `Option` is
 a plain `func(*Options)`, so you can define your own. For fields without a
 `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task
 tuning) construct an `Options` value and call `kit.New`.
@@ -208,6 +208,59 @@ fmt.Printf("Loaded %d tools from in-process server\n", n)
 ```
 
 Kit does not take ownership of the server's lifecycle — the caller is responsible for any cleanup. In-process server tools are prefixed the same way as external MCP servers (e.g. `"docs__search_docs"`).
+
+### Bundled Inference Backends (Custom Providers)
+
+Register a `kit.ProviderFactory` to serve a provider name from your own code:
+an in-process local runtime, a test double, or a proxy. Model strings
+`name/<model>` then go to your factory instead of a built-in provider. This
+lets an agentic application ship with its own inference backend.
+
+```go
+factory := func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+    m, err := backend.LanguageModel(ctx, model) // any kit.LLMProvider
+    if err != nil {
+        return nil, err
+    }
+    return &kit.ProviderResult{
+        Model:  m,        // kit.LLMLanguageModel
+        Closer: release,  // optional io.Closer, closed on model switch and Kit.Close
+    }, nil
+}
+
+// Option 1: for one Kit instance (inherited by its subagents)
+host, _ := kit.New(ctx, &kit.Options{
+    Model:     "local/qwen3-8b",
+    Providers: map[string]kit.ProviderFactory{"local": factory},
+})
+
+// Option 2: for every Kit instance in the process
+_ = kit.RegisterProvider("local", factory)
+host, _ = kit.NewAgent(ctx, kit.WithModel("local/qwen3-8b"))
+```
+
+Rules:
+
+- `modelName` is everything after the first `/`, so `local/org/model.gguf`
+  gives `org/model.gguf`.
+- Factories in `Options.Providers` win over `RegisterProvider`, which wins over
+  the built-in providers. A factory can therefore replace a built-in name such
+  as `openai`.
+- Provider names are case-insensitive and must not contain `/`. `kit.New`
+  rejects a nil factory and two names that differ only in case (`Local` and
+  `local`). It also copies `Options.Providers`, so later changes to your map do
+  not affect a running Kit.
+- Kit calls the factory at construction, on `SetModel`, for `ExecuteCompletion`
+  with a model, and for subagents. Cache expensive resources in the factory.
+- `cfg` carries the Kit's explicit generation settings (temperature, top-p,
+  top-k, penalties) and its max tokens. For `ExecuteCompletion`, `MaxTokens` is
+  `CompleteRequest.MaxTokens` when it is set. `cfg` carries `ProviderAPIKey`,
+  `ProviderURL` and `ProviderWire` only when those overrides belong to the
+  factory's provider.
+- Kit does not add automatic prompt-cache options to factory models. Set
+  `ProviderResult.ProviderOptions` if your backend needs options.
+- Models that are not in the model database have no known context window.
+  Set `CompactionOptions.ContextWindow` if you need auto-compaction.
 
 ### MCP Prompts
 
@@ -445,6 +498,11 @@ kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
 kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ...}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+kit.LLMProvider     // source of language models (adapt into a ProviderFactory)
+kit.LLMLanguageModel // model returned by a ProviderFactory
+
+// Custom provider backends
+kit.ProviderFactory // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)
 
 // Agent configuration — concrete Kit-owned structs and function types.
 // All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct
@@ -587,6 +645,7 @@ Key `Options` fields for SDK usage:
 | `SessionPath` | Open specific session file |
 | `Continue` | Resume most recent session |
 | `InProcessMCPServers` | Map of name → `*kit.MCPServer` for in-process MCP servers |
+| `Providers` | Map of provider name → `kit.ProviderFactory` for application-supplied inference backends |
 | `Debug` | Enable debug logging via the built-in console logger (ignored when `DebugLogger` is set) |
 | `DebugLogger` | Custom `DebugLogger` implementation — routes engine + MCP debug output into your own logging system |
 

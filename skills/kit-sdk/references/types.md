@@ -20,6 +20,9 @@ kit.Config, kit.MCPServerConfig
 
 // Provider types
 kit.ProviderConfig, kit.ProviderResult, kit.ModelInfo, kit.ModelCost, kit.ModelLimit
+kit.ProviderFactory  // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)
+kit.LLMProvider      // source of language models; adapt one into a ProviderFactory
+kit.LLMLanguageModel // the model a ProviderFactory returns in ProviderResult.Model
 
 // LLM types — clean aliases (no external library dependency in consumer code)
 kit.LLMMessage      // {Role LLMMessageRole, Content string}

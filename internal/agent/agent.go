@@ -1520,6 +1520,18 @@ func (a *Agent) GetModel() fantasy.LanguageModel {
 	return a.model
 }
 
+// ProviderOptions returns the provider-specific options of the active model,
+// as returned by the provider in ProviderResult.ProviderOptions. May be nil.
+func (a *Agent) ProviderOptions() fantasy.ProviderOptions {
+	return a.providerOptions
+}
+
+// SkipMaxOutputTokens reports whether the active provider does not support
+// the max_output_tokens parameter (ProviderResult.SkipMaxOutputTokens).
+func (a *Agent) SkipMaxOutputTokens() bool {
+	return a.skipMaxOutputTokens
+}
+
 // ProviderError returns the error that prevented the LLM provider from being
 // created when the agent was started with AllowMissingCredentials. It is nil
 // when the provider is usable. A successful SetModel clears it.
