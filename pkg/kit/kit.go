@@ -797,6 +797,8 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 		DisableCaching: false, // Caching enabled by default, works with thinking
 		ConfigStore:    m.v,
 		SessionIDFunc:  m.GetSessionID,
+		// Instance provider factories (Options.Providers).
+		ProviderFactories: m.providerFactories(),
 	}
 
 	// The endpoint overrides belong to one provider. A switch to a different
@@ -1077,6 +1079,8 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
 			ConfigStore:   m.v,
 			SessionIDFunc: m.GetSessionID,
+			// Instance provider factories (Options.Providers).
+			ProviderFactories: m.providerFactories(),
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
@@ -1409,6 +1413,30 @@ type Options struct {
 	//	})
 	InProcessMCPServers map[string]*MCPServer
 
+	// Providers registers provider factories for this Kit instance, keyed by
+	// provider name (case-insensitive, must not contain "/"). A model string
+	// "name/model" is then built by the factory instead of a built-in
+	// provider. Use this to bundle an in-process inference backend, a test
+	// double, or a proxy with your application.
+	//
+	// Instance factories take precedence over factories registered with
+	// [RegisterProvider] and over the built-in providers. Subagents spawned
+	// by this Kit inherit them. Kit does not take ownership of resources the
+	// factories hold outside of [ProviderResult.Closer].
+	//
+	// Example:
+	//
+	//	host, _ := kit.New(ctx, &kit.Options{
+	//	    Model: "local/qwen3-8b",
+	//	    Providers: map[string]kit.ProviderFactory{
+	//	        "local": func(ctx context.Context, cfg *kit.ProviderConfig, model string) (*kit.ProviderResult, error) {
+	//	            m, err := myBackend.LanguageModel(ctx, model)
+	//	            return &kit.ProviderResult{Model: m}, err
+	//	        },
+	//	    },
+	//	})
+	Providers map[string]ProviderFactory
+
 	// Compaction
 	// AutoCompact enables proactive compaction before turns that near the
 	// context limit. Independent of this setting, the turn loop always
@@ -1601,6 +1629,9 @@ func InitTreeSession(opts *Options) (*TreeManager, error) {
 func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
+	}
+	if err := models.ValidateProviderFactories(opts.Providers); err != nil {
+		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
 	// Construct this Kit's configuration store. SDK callers get a fresh,
@@ -1868,6 +1899,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
+		providerConfig.ProviderFactories = opts.Providers
 		modelString = v.GetString("model")
 		debug = v.GetBool("debug")
 		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
@@ -2664,7 +2696,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// gives the calling agent immediate feedback it can act on — e.g.
 	// correcting a typo — instead of waiting for a full Kit.New() cycle
 	// that silently falls back to the parent model.
-	if model != m.modelString {
+	if model != m.modelString && !m.hasInstanceProvider(model) {
 		if err := models.GetGlobalRegistry().ValidateModelString(model); err != nil {
 			return nil, fmt.Errorf("invalid subagent model %q: %w", model, err)
 		}
@@ -2757,6 +2789,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// exactly the context (and the arbitrary extension code) bare mode exists
 	// to keep out.
 	inheritIsolationOptions(childOpts, m.opts)
+	// Propagate instance provider factories so a child can use the same
+	// application-provided backends as the parent.
+	childOpts.Providers = m.providerFactories()
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)

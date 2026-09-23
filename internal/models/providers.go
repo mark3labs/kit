@@ -218,6 +218,12 @@ type ProviderConfig struct {
 	// which use it for request routing and prompt caching. When nil, or when
 	// it returns "", a stable per-process fallback ID is sent instead.
 	SessionIDFunc func() string
+
+	// ProviderFactories holds per-instance provider factories keyed by
+	// provider name (case-insensitive). They take precedence over factories
+	// registered with RegisterProviderFactory and over the built-in
+	// providers. May be nil.
+	ProviderFactories map[string]ProviderFactory
 }
 
 // ProviderResult contains the result of provider creation.
@@ -285,8 +291,13 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 		return nil, err
 	}
 
+	// A registered provider factory (per-instance or process-wide) owns this
+	// provider name. It takes precedence over the built-in providers and the
+	// model database auto-routing.
+	factory, hasFactory := lookupProviderFactory(config, provider)
+
 	// Resolve model aliases to full model names
-	if provider == "anthropic" || provider == "google-vertex-anthropic" || provider == "openai" || provider == "google" {
+	if !hasFactory && (provider == "anthropic" || provider == "google-vertex-anthropic" || provider == "openai" || provider == "google") {
 		modelName = resolveModelAlias(provider, modelName)
 	}
 
@@ -299,7 +310,11 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// API be the authority except for Copilot, whose non-GPT catalog entries
 	// require unsupported wire protocols.
 	modelInfo := registry.LookupModel(lookupProvider, modelName)
-	if isCopilotProvider(provider) {
+	switch {
+	case hasFactory:
+		// The factory is the authority on which models it serves. Database
+		// metadata, when present for the name, is still used below.
+	case isCopilotProvider(provider):
 		providerInfo := registry.GetProviderInfo(copilotProviderID)
 		if providerInfo == nil {
 			return nil, fmt.Errorf("unsupported provider: %s (not found in model database)", copilotProviderID)
@@ -310,7 +325,7 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 			}
 			return nil, fmt.Errorf("model %q not found for provider %s", modelName, copilotProviderID)
 		}
-	} else if modelInfo == nil && provider != "ollama" && config.ProviderURL == "" {
+	case modelInfo == nil && provider != "ollama" && config.ProviderURL == "":
 		// Model not in database — warn with suggestions but don't block.
 		if suggestions := registry.SuggestModels(lookupProvider, modelName); len(suggestions) > 0 {
 			fmt.Fprintf(os.Stderr, "Warning: model %q not found in model database for provider %s. Similar models: %s\n",
@@ -338,6 +353,13 @@ func CreateProvider(ctx context.Context, config *ProviderConfig) (*ProviderResul
 	// user hasn't explicitly set --max-tokens and no per-model override
 	// applied. Runs after ApplyModelSettings so explicit modelSettings win.
 	rightSizeMaxTokens(config, modelInfo)
+
+	// Registered factories build the model themselves. Kit does not add
+	// automatic prompt-cache options to their result: the factory owns its
+	// provider options.
+	if hasFactory {
+		return createFromFactory(ctx, factory, config, provider, modelName)
+	}
 
 	// Create the base provider
 	var result *ProviderResult
