@@ -67,7 +67,11 @@ type Kit struct {
 	bufferedLogger *tools.BufferedDebugLogger
 	authHandler    MCPAuthHandler // OAuth handler for remote MCP servers (may need Close)
 	opts           *Options       // stored for reload operations (skills, etc.)
-	mcpConfig      *config.Config // loaded MCP/server config, shared with subagents
+	// providers is this instance's snapshot of Options.Providers, keyed by
+	// normalized provider name. Taken in New so later changes to the caller's
+	// map do not affect this Kit. Nil when no instance factories are set.
+	providers map[string]ProviderFactory
+	mcpConfig *config.Config // loaded MCP/server config, shared with subagents
 
 	// v is this Kit instance's isolated configuration store. Each Kit owns its
 	// own *viper.Viper (constructed via viper.New) so that runtime config
@@ -788,53 +792,16 @@ func (m *Kit) SetModel(ctx context.Context, modelString string) error {
 	cfg := &models.ProviderConfig{
 		ModelString:    modelString,
 		SystemPrompt:   systemPrompt,
-		ProviderAPIKey: m.v.GetString("provider-api-key"),
-		ProviderURL:    m.v.GetString("provider-url"),
-		ProviderWire:   m.v.GetString("provider-wire"),
 		MaxTokens:      m.v.GetInt("max-tokens"),
 		TLSSkipVerify:  m.v.GetBool("tls-skip-verify"),
 		ThinkingLevel:  thinkingLevel,
 		DisableCaching: false, // Caching enabled by default, works with thinking
 		ConfigStore:    m.v,
 		SessionIDFunc:  m.GetSessionID,
-		// Instance provider factories (Options.Providers).
-		ProviderFactories: m.providerFactories(),
+		// Instance provider factories (snapshot of Options.Providers).
+		ProviderFactories: m.providers,
 	}
-
-	// The endpoint overrides belong to one provider. A switch to a different
-	// provider must resolve that provider's own endpoint and credentials;
-	// otherwise `--provider-url http://localhost:1234/v1 --model local` and
-	// then `/model openai/gpt-x` would send openai requests, with the local
-	// key, to the local server, which then answers with the model it has.
-	if !m.endpointOverridesApply(modelString) {
-		cfg.ProviderAPIKey = ""
-		cfg.ProviderURL = ""
-		cfg.ProviderWire = ""
-	}
-
-	// Only set generation parameter pointers when the user has explicitly
-	// provided a value. This leaves nil pointers for unset params, allowing
-	// per-model defaults (modelSettings / customModels params) to apply.
-	if m.v.IsSet("temperature") {
-		v := float32(m.v.GetFloat64("temperature"))
-		cfg.Temperature = &v
-	}
-	if m.v.IsSet("top-p") {
-		v := float32(m.v.GetFloat64("top-p"))
-		cfg.TopP = &v
-	}
-	if m.v.IsSet("top-k") {
-		v := int32(m.v.GetInt("top-k"))
-		cfg.TopK = &v
-	}
-	if m.v.IsSet("frequency-penalty") {
-		v := float32(m.v.GetFloat64("frequency-penalty"))
-		cfg.FrequencyPenalty = &v
-	}
-	if m.v.IsSet("presence-penalty") {
-		v := float32(m.v.GetFloat64("presence-penalty"))
-		cfg.PresencePenalty = &v
-	}
+	m.applyEffectiveProviderSettings(cfg, modelString)
 
 	// When the user hasn't set a custom global system prompt, check for a
 	// per-model system prompt. Pre-apply model settings to discover it,
@@ -1079,11 +1046,17 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 			TLSSkipVerify: m.v.GetBool("tls-skip-verify"),
 			ConfigStore:   m.v,
 			SessionIDFunc: m.GetSessionID,
-			// Instance provider factories (Options.Providers).
-			ProviderFactories: m.providerFactories(),
+			// Instance provider factories (snapshot of Options.Providers).
+			ProviderFactories: m.providers,
 		}
 		if req.MaxTokens > 0 {
 			config.MaxTokens = req.MaxTokens
+		}
+		// A factory gets the resolved configuration its contract promises:
+		// the effective endpoint overrides and generation settings of this
+		// Kit. Built-in providers keep the minimal configuration above.
+		if provider, _, perr := models.ParseModelString(req.Model); perr == nil && models.HasProviderFactory(config, provider) {
+			m.applyEffectiveProviderSettings(config, req.Model)
 		}
 		providerResult, err := models.CreateProvider(ctx, config)
 		if err != nil {
@@ -1424,6 +1397,11 @@ type Options struct {
 	// by this Kit inherit them. Kit does not take ownership of resources the
 	// factories hold outside of [ProviderResult.Closer].
 	//
+	// [New] copies the map, so later changes to it (or to a reused Options
+	// value) do not affect the Kit. [New] returns an error for an empty
+	// name, a name with "/", a nil factory, or two names that differ only in
+	// case, such as "Local" and "local".
+	//
 	// Example:
 	//
 	//	host, _ := kit.New(ctx, &kit.Options{
@@ -1630,7 +1608,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
-	if err := models.ValidateProviderFactories(opts.Providers); err != nil {
+	// Snapshot the instance provider factories so later changes to the
+	// caller's map (or a reused Options value) cannot affect this Kit.
+	providers, err := models.NormalizeProviderFactories(opts.Providers)
+	if err != nil {
 		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
@@ -1899,7 +1880,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
 			providerConfig.MaxTokens = sdkDefaultMaxTokens
 		}
-		providerConfig.ProviderFactories = opts.Providers
+		providerConfig.ProviderFactories = providers
 		modelString = v.GetString("model")
 		debug = v.GetBool("debug")
 		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
@@ -2098,6 +2079,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
 		opts:                  opts,
+		providers:             providers,
 		mcpConfig:             mcpConfig,
 		v:                     v,
 		hasCustomSystemPrompt: hasCustomSystemPrompt,
@@ -2791,7 +2773,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	inheritIsolationOptions(childOpts, m.opts)
 	// Propagate instance provider factories so a child can use the same
 	// application-provided backends as the parent.
-	childOpts.Providers = m.providerFactories()
+	childOpts.Providers = m.providers
 	child, err := New(ctx, childOpts)
 	if err != nil {
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)

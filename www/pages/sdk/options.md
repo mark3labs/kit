@@ -46,6 +46,9 @@ host, err := kit.New(ctx, &kit.Options{
     ProviderURL:    "https://proxy.internal/v1",  // "" = provider default endpoint
     ProviderWire:   "anthropic",                  // "" = infer wire from model database
     TLSSkipVerify:  false,                         // only effective when true
+    Providers: map[string]kit.ProviderFactory{    // app-supplied backends for "local/<model>"
+        "local": localFactory,
+    },
 
     // Session
     SessionPath:  "./session.jsonl",
@@ -147,6 +150,7 @@ when embedding Kit as a library.
 | `ProviderURL` | `string` | — | Override the provider endpoint (e.g. LiteLLM, vLLM, Azure OpenAI, internal proxy). `""` = provider default. |
 | `ProviderWire` | `string` | — | Override the wire protocol for auto-routed providers: `openai` (Responses API), `openai-compat` (chat completions), `anthropic`, or `google`. `""` = infer from the model database. Takes precedence over per-provider `wire` declarations in the [`providers` config section](/configuration#provider-overrides). Combine with `ProviderURL` to target providers not in the database. |
 | `TLSSkipVerify` | `bool` | `false` | Disable TLS certificate verification on the provider HTTP client. Only effective when `true`; to force-disable, use config file or env var instead. For self-signed dev certs only. |
+| `Providers` | `map[string]ProviderFactory` | — | Provider factories for this instance, keyed by provider name (case-insensitive, no `/`). A model string `name/<model>` is built by the factory. Wins over `kit.RegisterProvider` and the built-in providers; subagents inherit it. `kit.New` copies the map and rejects nil factories and names that differ only in case. See [Custom provider backends](/sdk/overview#custom-provider-backends). |
 
 ### Session
 

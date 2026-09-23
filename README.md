@@ -831,8 +831,8 @@ host, err := kit.NewAgent(ctx,
 
 Available options: `WithModel`, `WithSystemPrompt`, `WithStreaming`,
 `WithMaxTokens`, `WithThinkingLevel`, `WithTools`, `WithExtraTools`,
-`WithProviderAPIKey`, `WithProviderURL`, `WithConfigFile`, `WithDebug`,
-`WithDebugLogger`, and `Ephemeral`. For advanced configuration not covered by
+`WithProviderAPIKey`, `WithProviderURL`, `WithProvider`, `WithConfigFile`,
+`WithDebug`, `WithDebugLogger`, and `Ephemeral`. For advanced configuration not covered by
 the helpers (custom MCP config, in-process MCP servers, session backends, MCP
 task tuning) construct an `Options` value explicitly and call `kit.New`.
 
@@ -1200,6 +1200,7 @@ npm/                 - NPM package wrapper for distribution
 - **Vercel AI** - Vercel AI SDK models
 - **Custom** - Any OpenAI-compatible endpoint via `--provider-url`
 - **Auto-routed** - Any provider from models.dev database
+- **App-supplied (Go SDK)** - Your own inference backend under any provider name, via `kit.RegisterProvider` or `Options.Providers` (see [pkg/kit/README.md](pkg/kit/README.md#bundled-inference-backends-custom-providers))
 
 ### Custom Provider
 

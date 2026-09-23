@@ -20,8 +20,12 @@ type LLMLanguageModel = fantasy.LanguageModel
 // proxy, and use it through normal "provider/model" strings.
 //
 // modelName is the part of the model string after the first "/". cfg is the
-// resolved provider configuration (generation parameters, max tokens, system
-// prompt, per-model settings). The factory must not mutate cfg.
+// resolved provider configuration: generation parameters, max tokens, system
+// prompt and per-model settings. For [Kit.ExecuteCompletion], MaxTokens is the
+// request's value. cfg also carries the Kit's ProviderAPIKey,
+// ProviderURL and ProviderWire overrides when they belong to this provider;
+// overrides configured for a different provider are left empty. The factory
+// must not mutate cfg.
 //
 // Kit calls the factory each time it needs a model for the provider: at
 // construction, on [Kit.SetModel], for completions that name a model, and in
@@ -82,24 +86,60 @@ func WithProvider(name string, f ProviderFactory) Option {
 	}
 }
 
-// providerFactories returns the instance provider factories, or nil.
-func (m *Kit) providerFactories() map[string]ProviderFactory {
-	if m.opts == nil {
-		return nil
+// applyEffectiveProviderSettings copies this Kit's effective endpoint
+// overrides and generation settings into cfg for modelString.
+//
+// The endpoint overrides (provider-api-key, provider-url, provider-wire)
+// belong to one provider. They apply only when modelString uses that
+// provider; otherwise `--provider-url http://localhost:1234/v1 --model local`
+// and then `/model openai/gpt-x` would send openai requests, with the local
+// key, to the local server.
+//
+// Generation parameter pointers are set only when the user explicitly
+// provided a value, so nil pointers leave room for per-model defaults
+// (modelSettings / customModels params).
+func (m *Kit) applyEffectiveProviderSettings(cfg *models.ProviderConfig, modelString string) {
+	if m.endpointOverridesApply(modelString) {
+		cfg.ProviderAPIKey = m.v.GetString("provider-api-key")
+		cfg.ProviderURL = m.v.GetString("provider-url")
+		cfg.ProviderWire = m.v.GetString("provider-wire")
+	} else {
+		cfg.ProviderAPIKey = ""
+		cfg.ProviderURL = ""
+		cfg.ProviderWire = ""
 	}
-	return m.opts.Providers
+
+	if m.v.IsSet("temperature") {
+		v := float32(m.v.GetFloat64("temperature"))
+		cfg.Temperature = &v
+	}
+	if m.v.IsSet("top-p") {
+		v := float32(m.v.GetFloat64("top-p"))
+		cfg.TopP = &v
+	}
+	if m.v.IsSet("top-k") {
+		v := int32(m.v.GetInt("top-k"))
+		cfg.TopK = &v
+	}
+	if m.v.IsSet("frequency-penalty") {
+		v := float32(m.v.GetFloat64("frequency-penalty"))
+		cfg.FrequencyPenalty = &v
+	}
+	if m.v.IsSet("presence-penalty") {
+		v := float32(m.v.GetFloat64("presence-penalty"))
+		cfg.PresencePenalty = &v
+	}
 }
 
 // hasInstanceProvider reports whether modelString names a provider that has
 // an instance factory.
 func (m *Kit) hasInstanceProvider(modelString string) bool {
-	factories := m.providerFactories()
-	if len(factories) == 0 {
+	if len(m.providers) == 0 {
 		return false
 	}
 	provider, _, err := models.ParseModelString(modelString)
 	if err != nil {
 		return false
 	}
-	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: factories}, provider)
+	return models.HasProviderFactory(&models.ProviderConfig{ProviderFactories: m.providers}, provider)
 }

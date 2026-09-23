@@ -73,7 +73,7 @@ defer func() { _ = host.Close() }()
 | Intercept (read-write) | `host.OnBeforeToolCall(priority, fn)`, `OnAfterToolResult`, `OnBeforeTurn`, `OnPrepareStep`, `OnContextPrepare`, `OnBeforeCompact` | `references/hooks.md` |
 | Add capabilities | `kit.NewTool(name, desc, fn)`, `kit.TextResult`, built-in tool constructors and bundles | `references/tools.md` |
 | Persist conversations | `SessionPath`, `Continue`, `NoSession`, instance and package-level session methods | `references/sessions.md` |
-| Models and MCP | `host.SetModel`, model registry, `AddMCPServer`, in-process servers, MCP OAuth | `references/models-and-mcp.md` |
+| Models and MCP | `host.SetModel`, model registry, custom provider backends (`kit.RegisterProvider`, `Options.Providers`), `AddMCPServer`, in-process servers, MCP OAuth | `references/models-and-mcp.md` |
 | Manage the context window | `EstimateContextTokens`, `Compact`, `AutoCompact`, `host.Subagent` | `references/context-compaction-subagents.md` |
 
 A minimal custom tool, which is the most common extension point:
@@ -123,7 +123,7 @@ Read the file that matches the task. Paths are relative to this skill's root dir
 | `references/hooks.md` | Each hook (`BeforeToolCall`, `AfterToolResult`, `BeforeTurn`, `AfterTurn`, `PrepareStep`, `ContextPrepare`, `BeforeCompact`) with result types, plus hook priorities. |
 | `references/tools.md` | Creating custom tools with `kit.NewTool` (schema auto-generation, struct tags, output helpers), built-in tool constructors, tool bundles, tool options, using tools in `Options`, querying tools at runtime. |
 | `references/sessions.md` | Session modes, instance methods, package-level session operations, and implementing a custom `SessionManager`. |
-| `references/models-and-mcp.md` | Model management at creation and runtime, the model registry, model string format, per-model system prompts and generation parameters; dynamic MCP server management, in-process MCP servers, MCP prompts, MCP resources, MCP OAuth authorization and token storage. |
+| `references/models-and-mcp.md` | Model management at creation and runtime, the model registry, model string format, per-model system prompts and generation parameters, custom provider backends (`ProviderFactory`); dynamic MCP server management, in-process MCP servers, MCP prompts, MCP resources, MCP OAuth authorization and token storage. |
 | `references/context-compaction-subagents.md` | Context token estimation, `GetContextStats`, manual and automatic compaction, reactive compaction; in-process subagents, subscribing to subagent events, named agents. |
 | `references/extension-api-auth-skills.md` | The `ExtensionAPI` (`kit.Extensions()`), credential management (`auth`), and skill loading/prompt building. |
 | `references/types.md` | The full list of re-exported types (`LLMMessage`, `LLMUsage`, tool types, event types, errors, ...). |

@@ -246,8 +246,17 @@ Rules:
 - Factories in `Options.Providers` win over `RegisterProvider`, which wins over
   the built-in providers. A factory can therefore replace a built-in name such
   as `openai`.
+- Provider names are case-insensitive and must not contain `/`. `kit.New`
+  rejects a nil factory and two names that differ only in case (`Local` and
+  `local`). It also copies `Options.Providers`, so later changes to your map do
+  not affect a running Kit.
 - Kit calls the factory at construction, on `SetModel`, for `ExecuteCompletion`
   with a model, and for subagents. Cache expensive resources in the factory.
+- `cfg` carries the Kit's explicit generation settings (temperature, top-p,
+  top-k, penalties) and its max tokens. For `ExecuteCompletion`, `MaxTokens` is
+  `CompleteRequest.MaxTokens` (0 when unset). `cfg` carries `ProviderAPIKey`,
+  `ProviderURL` and `ProviderWire` only when those overrides belong to the
+  factory's provider.
 - Kit does not add automatic prompt-cache options to factory models. Set
   `ProviderResult.ProviderOptions` if your backend needs options.
 - Models that are not in the model database have no known context window.
@@ -489,6 +498,11 @@ kit.LLMMessageRole  // "user" | "assistant" | "system" | "tool"
 kit.LLMUsage        // {InputTokens, OutputTokens, TotalTokens, ...}
 kit.LLMResponse     // {Content, FinishReason, Usage}
 kit.LLMFilePart     // {Filename, Data []byte, MediaType}
+kit.LLMProvider     // source of language models (adapt into a ProviderFactory)
+kit.LLMLanguageModel // model returned by a ProviderFactory
+
+// Custom provider backends
+kit.ProviderFactory // func(ctx, *ProviderConfig, modelName string) (*ProviderResult, error)
 
 // Agent configuration — concrete Kit-owned structs and function types.
 // All fields use SDK types (e.g. `[]kit.Tool`), so consumers can construct

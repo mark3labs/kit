@@ -87,6 +87,8 @@ func ptrFloat32(v float32) *float32 { return &v }
 
 **Critical distinction**: `Tools` replaces ALL default tools (core + MCP + extension). `ExtraTools` adds tools alongside the defaults. Use `Tools` to restrict the agent's capabilities; use `ExtraTools` to extend them.
 
+**Custom provider backends**: `Providers: map[string]kit.ProviderFactory{"local": f}` (or `kit.WithProvider`) routes `local/<model>` to your factory. See `references/models-and-mcp.md`.
+
 **In-process MCP servers** bypass subprocess spawning entirely. Pass `*server.MCPServer` instances from mcp-go via `InProcessMCPServers` or call `AddInProcessMCPServer()` at runtime.
 
 ### Generation & provider Options (cheat sheet)
@@ -103,6 +105,7 @@ func ptrFloat32(v float32) *float32 { return &v }
 | `ProviderAPIKey` | `string` | Use config / provider env var | Overrides pre-existing viper state |
 | `ProviderURL` | `string` | Use provider default endpoint | Same base URL flag as `--provider-url` |
 | `TLSSkipVerify` | `bool` | — | Only effective when `true`; cannot force-disable via Options |
+| `Providers` | `map[string]ProviderFactory` | No instance factories | App-supplied backends; wins over `kit.RegisterProvider` and built-ins; copied by `kit.New` |
 
 These fields eliminate the old `viper.Set("max-tokens", 16384)` dance many
 downstream embedders used to do before calling `kit.New()`. Everything is

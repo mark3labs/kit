@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -100,18 +101,38 @@ func TestRegisterProviderFactory_Lifecycle(t *testing.T) {
 	}
 }
 
-func TestValidateProviderFactories(t *testing.T) {
-	if err := ValidateProviderFactories(nil); err != nil {
-		t.Errorf("nil map: %v", err)
+func TestNormalizeProviderFactories(t *testing.T) {
+	if got, err := NormalizeProviderFactories(nil); err != nil || got != nil {
+		t.Errorf("nil map: got %v, %v; want nil, nil", got, err)
 	}
-	if err := ValidateProviderFactories(map[string]ProviderFactory{"ok": stubFactory("ok")}); err != nil {
-		t.Errorf("valid map: %v", err)
-	}
-	if err := ValidateProviderFactories(map[string]ProviderFactory{"a/b": stubFactory("x")}); err == nil {
+	if _, err := NormalizeProviderFactories(map[string]ProviderFactory{"a/b": stubFactory("x")}); err == nil {
 		t.Error("name with '/' must be rejected")
 	}
-	if err := ValidateProviderFactories(map[string]ProviderFactory{"ok": nil}); err == nil {
+	if _, err := NormalizeProviderFactories(map[string]ProviderFactory{"ok": nil}); err == nil {
 		t.Error("nil factory must be rejected")
+	}
+
+	// Case variants of one name are the same provider: reject them.
+	_, err := NormalizeProviderFactories(map[string]ProviderFactory{
+		"Local": stubFactory("a"),
+		"local": stubFactory("b"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "same provider") {
+		t.Errorf("case-variant duplicates: err = %v, want 'same provider' error", err)
+	}
+
+	// Keys are normalized, and the result is a copy of the input map.
+	in := map[string]ProviderFactory{" Local ": stubFactory("a")}
+	got, err := NormalizeProviderFactories(in)
+	if err != nil {
+		t.Fatalf("valid map: %v", err)
+	}
+	if _, ok := got["local"]; !ok || len(got) != 1 {
+		t.Errorf("normalized keys = %v, want [local]", slices.Collect(maps.Keys(got)))
+	}
+	in["other"] = stubFactory("b")
+	if _, ok := got["other"]; ok {
+		t.Error("result must not share storage with the input map")
 	}
 }
 

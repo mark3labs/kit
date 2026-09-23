@@ -91,26 +91,56 @@ func RegisteredProviderFactories() []string {
 	return names
 }
 
-// ValidateProviderFactories checks the keys of a per-instance factory map.
-func ValidateProviderFactories(factories map[string]ProviderFactory) error {
+// NormalizeProviderFactories checks a per-instance factory map and returns a
+// copy keyed by normalized provider name. The copy isolates the caller's map:
+// later changes to it do not affect the result. It rejects invalid names, nil
+// factories, and names that differ only in case or surrounding space (such as
+// "Local" and "local"), because those would resolve to one provider. A nil or
+// empty map gives a nil result.
+func NormalizeProviderFactories(factories map[string]ProviderFactory) (map[string]ProviderFactory, error) {
+	if len(factories) == 0 {
+		return nil, nil
+	}
+	normalized := make(map[string]ProviderFactory, len(factories))
+	original := make(map[string]string, len(factories))
 	for name, f := range factories {
-		if err := validateProviderName(normalizeProviderName(name)); err != nil {
-			return err
+		key := normalizeProviderName(name)
+		if err := validateProviderName(key); err != nil {
+			return nil, err
 		}
 		if f == nil {
-			return fmt.Errorf("provider %q has a nil factory", name)
+			return nil, fmt.Errorf("provider %q has a nil factory", name)
 		}
+		if prev, dup := original[key]; dup {
+			a, b := prev, name
+			if b < a {
+				a, b = b, a
+			}
+			return nil, fmt.Errorf("provider names %q and %q are the same provider", a, b)
+		}
+		original[key] = name
+		normalized[key] = f
 	}
-	return nil
+	return normalized, nil
 }
 
 // lookupProviderFactory returns the factory for provider. Per-instance
-// factories on cfg take precedence over process-wide ones.
+// factories on cfg take precedence over process-wide ones. An exact match on
+// the normalized key wins; otherwise keys are compared after normalization in
+// sorted order, so a map with case variants resolves deterministically.
 func lookupProviderFactory(cfg *ProviderConfig, provider string) (ProviderFactory, bool) {
 	key := normalizeProviderName(provider)
-	if cfg != nil {
-		for name, f := range cfg.ProviderFactories {
-			if f != nil && normalizeProviderName(name) == key {
+	if cfg != nil && len(cfg.ProviderFactories) > 0 {
+		if f := cfg.ProviderFactories[key]; f != nil {
+			return f, true
+		}
+		names := make([]string, 0, len(cfg.ProviderFactories))
+		for name := range cfg.ProviderFactories {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if f := cfg.ProviderFactories[name]; f != nil && normalizeProviderName(name) == key {
 				return f, true
 			}
 		}
