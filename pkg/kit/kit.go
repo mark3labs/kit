@@ -1037,12 +1037,16 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		closer      func()
 		usedModel   string
 		providerOps LLMProviderOptions
+		// skipMaxOutputTokens mirrors ProviderResult.SkipMaxOutputTokens:
+		// the provider rejects the max_output_tokens parameter.
+		skipMaxOutputTokens bool
 	)
 
 	if req.Model == "" {
 		// Reuse the active agent's model.
 		llmModel = m.agent.GetModel()
 		usedModel = m.modelString
+		skipMaxOutputTokens = m.agent.SkipMaxOutputTokens()
 		closer = func() {} // nothing to clean up
 		// A factory-backed model gets the options its factory returned: Kit
 		// adds none of its own, so they may be required by the backend.
@@ -1089,6 +1093,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 		llmModel = providerResult.Model
 		usedModel = req.Model
 		providerOps = providerResult.ProviderOptions
+		skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
 		closer = func() {
 			if providerResult.Closer != nil {
 				_ = providerResult.Closer.Close()
@@ -1102,7 +1107,7 @@ func (m *Kit) ExecuteCompletion(ctx context.Context, req CompleteRequest) (Compl
 	if req.System != "" {
 		agentOpts = append(agentOpts, fantasy.WithSystemPrompt(req.System))
 	}
-	if req.MaxTokens > 0 {
+	if req.MaxTokens > 0 && !skipMaxOutputTokens {
 		agentOpts = append(agentOpts, fantasy.WithMaxOutputTokens(int64(req.MaxTokens)))
 	}
 	if providerOps != nil {

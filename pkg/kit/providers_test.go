@@ -420,24 +420,35 @@ func (*testProviderOption) UnmarshalJSON([]byte) error  { return nil }
 // optionsModel records the provider options of each call.
 type optionsModel struct {
 	echoModel
-	mu   sync.Mutex
-	seen []LLMProviderOptions
+	mu     sync.Mutex
+	seen   []LLMProviderOptions
+	maxOut []*int64 // MaxOutputTokens of each call
 }
 
-func (m *optionsModel) record(opts LLMProviderOptions) {
+func (m *optionsModel) record(call fantasy.Call) {
 	m.mu.Lock()
-	m.seen = append(m.seen, opts)
+	m.seen = append(m.seen, call.ProviderOptions)
+	m.maxOut = append(m.maxOut, call.MaxOutputTokens)
 	m.mu.Unlock()
 }
 
 func (m *optionsModel) Generate(ctx context.Context, call fantasy.Call) (*fantasy.Response, error) {
-	m.record(call.ProviderOptions)
+	m.record(call)
 	return m.echoModel.Generate(ctx, call)
 }
 
 func (m *optionsModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
-	m.record(call.ProviderOptions)
+	m.record(call)
 	return m.echoModel.Stream(ctx, call)
+}
+
+func (m *optionsModel) lastMaxOut() (*int64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.maxOut) == 0 {
+		return nil, false
+	}
+	return m.maxOut[len(m.maxOut)-1], true
 }
 
 func (m *optionsModel) last() LLMProviderOptions {
@@ -497,5 +508,55 @@ func TestProviders_ActiveModelFromFactoryTracksModel(t *testing.T) {
 	}
 	if k.activeModelFromFactory {
 		t.Error("flag must clear after switching back to a built-in model")
+	}
+}
+
+// Regression test for the CodeRabbit finding on PR #143: ExecuteCompletion
+// must not send max_output_tokens when the provider result sets
+// SkipMaxOutputTokens, both when it reuses the active model and when it
+// builds a temporary one.
+func TestProviders_ExecuteCompletionHonorsSkipMaxOutputTokens(t *testing.T) {
+	models := map[string]*optionsModel{}
+	var mu sync.Mutex
+	factory := func(_ context.Context, _ *ProviderConfig, modelName string) (*ProviderResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		m, ok := models[modelName]
+		if !ok {
+			m = &optionsModel{}
+			m.provider, m.model = "local", modelName
+			models[modelName] = m
+		}
+		return &ProviderResult{Model: m, SkipMaxOutputTokens: true}, nil
+	}
+	k := newProviderTestKit(t, &Options{
+		Model:     "local/main",
+		Providers: map[string]ProviderFactory{"local": factory},
+	})
+
+	for _, tc := range []struct{ name, reqModel, modelName string }{
+		{"reuse active model", "", "main"},
+		{"temporary model", "local/side", "side"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := k.ExecuteCompletion(context.Background(), CompleteRequest{
+				Model: tc.reqModel, Prompt: "x", MaxTokens: 50,
+			}); err != nil {
+				t.Fatalf("ExecuteCompletion: %v", err)
+			}
+			mu.Lock()
+			m := models[tc.modelName]
+			mu.Unlock()
+			if m == nil {
+				t.Fatalf("model %q was not built", tc.modelName)
+			}
+			got, called := m.lastMaxOut()
+			if !called {
+				t.Fatalf("model %q was not called", tc.modelName)
+			}
+			if got != nil {
+				t.Errorf("MaxOutputTokens = %d, want unset", *got)
+			}
+		})
 	}
 }
