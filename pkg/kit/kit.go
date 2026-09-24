@@ -61,7 +61,12 @@ type Kit struct {
 	// enabled. New always sets it (empty, not nil, when core tools are
 	// disabled); nil means no limit. Subagents built without an explicit
 	// tool set are limited to it.
-	coreToolList   []string
+	coreToolList []string
+	// customTools is a copy of Options.Tools taken in New: the tools that
+	// replaced the core tools, if any. Subagents built without an explicit
+	// tool set get these. A copy, so a later change to the caller's Options
+	// cannot widen what a subagent receives.
+	customTools    []Tool
 	events         *eventBus
 	autoCompact    bool
 	compactionOpts *CompactionOptions
@@ -2110,6 +2115,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		endpointProvider:      endpointProviderFor(v, modelString),
 		shell:                 append([]string(nil), shell...),
 		coreToolList:          append([]string{}, toolList...),
+		customTools:           append([]Tool(nil), opts.Tools...),
 		events:                newEventBus(),
 		autoCompact:           opts.AutoCompact,
 		compactionOpts:        opts.CompactionOptions,
@@ -2659,9 +2665,9 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // parent replaced its core tools with Options.Tools, the child gets those
 // same tools (minus subagent), not the built-in ones.
 func (m *Kit) subagentDefaultTools() []Tool {
-	if m.opts != nil && len(m.opts.Tools) > 0 {
-		tools := make([]Tool, 0, len(m.opts.Tools))
-		for _, t := range m.opts.Tools {
+	if len(m.customTools) > 0 {
+		tools := make([]Tool, 0, len(m.customTools))
+		for _, t := range m.customTools {
 			if t.Info().Name != "subagent" {
 				tools = append(tools, t)
 			}

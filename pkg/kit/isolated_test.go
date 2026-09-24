@@ -319,4 +319,26 @@ func TestSubagentDefaultTools_FollowParentCoreTools(t *testing.T) {
 	if !slices.Equal(got, []string{"find", "grep", "ls", "read"}) {
 		t.Errorf("WithTools(ReadOnlyTools()): default subagent tools = %v", got)
 	}
+
+	// The parent keeps the tools it was built with: a later change to the
+	// caller's Options must not widen the subagent default.
+	opts := &Options{
+		Model:          "openai/gpt-4o-mini",
+		Tools:          ReadOnlyTools(),
+		NoSession:      true,
+		NoExtensions:   true,
+		NoContextFiles: true,
+		NoSkills:       true,
+		NoAgents:       true,
+		SkipConfig:     true,
+	}
+	k, err := New(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = k.Close() })
+	opts.Tools = append(opts.Tools, CodingTools()...)
+	if got := toolNames(k.subagentDefaultTools()); slices.Contains(got, "write") {
+		t.Errorf("subagent default follows the mutated Options: %v", got)
+	}
 }
