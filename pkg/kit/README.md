@@ -43,11 +43,18 @@ func main() {
 
 ## Configuration
 
-The SDK behaves identically to the CLI:
-- Loads configuration from `~/.kit.yml` by default
-- Creates default configuration if none exists
+The SDK reads configuration the same way as the CLI:
+- Loads configuration from `~/.kit.yml` (and a project `.kit.yml`) when present
+- `kit.New` and `kit.NewAgent` never write a config file; only the `kit` CLI
+  creates a default `~/.kit.yml` on first run. The exported initializers
+  `kit.InitConfig` and `kit.InitConfigWithOptions` follow the CLI path and can
+  create `~/.kit.yml` when no config file exists
 - Respects all environment variables (`KIT_*`)
 - Uses the same defaults as the CLI
+
+To turn off this discovery (and the other host side effects) for an embedded
+agent, use `kit.Isolated()` or `kit.NewIsolatedAgent`. See
+[Isolated agents](#isolated-agents-isolated-newisolatedagent).
 
 Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,
 so constructing multiple Kit instances in the same process is safe — setting
@@ -75,10 +82,43 @@ host, err := kit.NewAgent(ctx,
 Helpers: `WithModel`, `WithSystemPrompt`, `WithStreaming`, `WithMaxTokens`,
 `WithThinkingLevel`, `WithTools`, `WithExtraTools`, `WithProviderAPIKey`,
 `WithProviderURL`, `WithProvider`, `WithConfigFile`, `WithDebug`,
-`WithDebugLogger`, and `Ephemeral`. `Option` is
+`WithDebugLogger`, `Ephemeral`, `Isolated`, and the opt-ins listed below. `Option` is
 a plain `func(*Options)`, so you can define your own. For fields without a
 `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task
 tuning) construct an `Options` value and call `kit.New`.
+
+### Isolated agents (`Isolated`, `NewIsolatedAgent`)
+
+By default the SDK discovers things on the host, as the CLI does: `.kit.yml`
+(and the MCP servers it declares), `AGENTS.md`, skills, extensions and named
+agents. It also writes session files and enables the file and shell tools.
+An application that embeds Kit usually does not want this.
+
+`kit.Isolated()` turns all of these off. `kit.NewIsolatedAgent(ctx, ...)` is
+`NewAgent` with `Isolated()` applied first. Options apply in order, so you can
+turn features back on one at a time:
+
+```go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithCoreTools("read", "grep"), // only these core tools
+    kit.WithSessions(),                // persist sessions
+)
+```
+
+| Opt-in | Turns back on |
+|--------|---------------|
+| `WithConfig()` | `.kit.yml` discovery (`SkipConfig = false`) |
+| `WithConfigFile(path)` | Loads only that config file |
+| `WithContextFiles()` | `AGENTS.md` loading |
+| `WithSkills(paths...)` | Skills: auto-discovery, or only the given paths |
+| `WithExtensions()` | Extension loading |
+| `WithAgents()` | Named agent definitions |
+| `WithSessions()` | Persistent sessions |
+| `WithCoreTools(names...)` | Core tools: all, or only the given names |
+
+`KIT_*` environment variables still apply. Subagents of an isolated Kit are
+isolated in the same way.
 
 ### Options
 
@@ -573,6 +613,7 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
 
 - `New(ctx, opts)` - Create new Kit instance
 - `NewAgent(ctx, ...Option)` - Create a Kit via functional options (streaming on by default)
+- `NewIsolatedAgent(ctx, ...Option)` - `NewAgent` with `Isolated()` applied first (no ambient config, context, skills, extensions, sessions or core tools)
 - `Prompt(ctx, message)` - Send message and get response string
 - `PromptResult(ctx, message)` - Send message and get full TurnResult (blocks
   until end-of-turn; populates `TurnResult.Stream` in streaming mode)

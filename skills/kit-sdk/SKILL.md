@@ -67,7 +67,7 @@ defer func() { _ = host.Close() }()
 
 | Area | Entry points | Reference |
 |------|--------------|-----------|
-| Configure the instance | `kit.Options{Model, SystemPrompt, MaxSteps, Tools, ExtraTools, NoSession, ...}` | `references/options.md` |
+| Configure the instance | `kit.Options{Model, SystemPrompt, MaxSteps, Tools, ExtraTools, NoSession, ...}`, `kit.NewIsolatedAgent` / `kit.Isolated()` for hermetic embeds | `references/options.md` |
 | Talk to the agent | `Prompt`, `PromptResult`, `PromptResultWithFiles`, `PromptWithOptions`, `Steer`, `FollowUp`, `PromptResultWithMessages` | `references/prompt-methods.md` |
 | Observe (read-only) | `host.OnToolCall(...)`, `host.OnMessageUpdate(...)`, `host.Subscribe(...)` | `references/events.md` |
 | Intercept (read-write) | `host.OnBeforeToolCall(priority, fn)`, `OnAfterToolResult`, `OnBeforeTurn`, `OnPrepareStep`, `OnContextPrepare`, `OnBeforeCompact` | `references/hooks.md` |
@@ -117,7 +117,7 @@ Read the file that matches the task. Paths are relative to this skill's root dir
 
 | File | Read it when you need... |
 |------|--------------------------|
-| `references/options.md` | Every `kit.Options` field with comments (model, behavior, generation parameters, provider overrides, session, tools, skills, feature toggles, compaction, MCP OAuth, in-process MCP) and the generation/provider cheat-sheet table. |
+| `references/options.md` | Every `kit.Options` field with comments (model, behavior, generation parameters, provider overrides, session, tools, skills, feature toggles, compaction, MCP OAuth, in-process MCP), the generation/provider cheat-sheet table, and isolated agents (`NewIsolatedAgent`, `Isolated`, opt-in options). |
 | `references/prompt-methods.md` | All prompt variants: simple string, full result with usage stats, multimodal file attachments, per-call system message injection, system-level steering, continue without new input, multiple user messages in one turn. |
 | `references/events.md` | Typed convenience subscribers, the generic subscriber, the full list of event types with their fields, and tool-kind constants. |
 | `references/hooks.md` | Each hook (`BeforeToolCall`, `AfterToolResult`, `BeforeTurn`, `AfterTurn`, `PrepareStep`, `ContextPrepare`, `BeforeCompact`) with result types, plus hook priorities. |

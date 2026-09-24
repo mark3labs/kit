@@ -148,18 +148,6 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 
 	defer resetViper()
 
-	ctx := context.Background()
-	host, err := kit.New(ctx, &kit.Options{
-		Model:      "anthropic/claude-sonnet-4-5-20250929",
-		Quiet:      true,
-		NoSession:  true,
-		SkipConfig: true, // isolate from any ~/.kit.yml values
-	})
-	if err != nil {
-		t.Fatalf("Failed to create Kit: %v", err)
-	}
-	defer func() { _ = host.Close() }()
-
 	// These keys must remain "unset" from viper's perspective so the
 	// downstream isExplicitlySet() checks allow per-model defaults to
 	// take effect.
@@ -173,10 +161,29 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 		"thinking-level",
 	}
 
-	// With SkipConfig: true, InitConfig() is not invoked, so viper has
-	// no env-var bindings registered. Any IsSet() here would come purely
-	// from SDK-side SetDefault/Set calls — which is exactly what this
-	// test is guarding against.
+	// SkipConfig still reads KIT_* variables, so a value in the test
+	// process would correctly make IsSet true. Clear them (viper treats an
+	// empty variable as unset).
+	for _, k := range checkKeys {
+		t.Setenv("KIT_"+strings.ToUpper(strings.ReplaceAll(k, "-", "_")), "")
+	}
+
+	ctx := context.Background()
+	host, err := kit.New(ctx, &kit.Options{
+		Model:      "anthropic/claude-sonnet-4-5-20250929",
+		Quiet:      true,
+		NoSession:  true,
+		SkipConfig: true, // isolate from any ~/.kit.yml values
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Kit: %v", err)
+	}
+	defer func() { _ = host.Close() }()
+
+	// With SkipConfig: true, no config file is read. KIT_* env lookup is
+	// registered, but no KIT_* variable for these keys is set here, so any
+	// IsSet() would come purely from SDK-side SetDefault/Set calls — which
+	// is exactly what this test is guarding against.
 	for _, k := range checkKeys {
 		if host.ConfigValueIsSetForTest(k) {
 			t.Errorf("instance store reports %q explicitly set when no Options field set it "+

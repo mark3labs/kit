@@ -91,6 +91,32 @@ func ptrFloat32(v float32) *float32 { return &v }
 
 **In-process MCP servers** bypass subprocess spawning entirely. Pass `*server.MCPServer` instances from mcp-go via `InProcessMCPServers` or call `AddInProcessMCPServer()` at runtime.
 
+### Isolated agents (functional options)
+
+By default an embedded Kit discovers `.kit.yml` (and its MCP servers), `AGENTS.md`, skills, extensions and named agents on the host, writes session files, and enables the core file and shell tools. For an agent that uses only what your application passes in, use `kit.NewIsolatedAgent` (or `kit.Isolated()` as the first option to `kit.NewAgent`):
+
+```go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithExtraTools(myTool),
+)
+```
+
+`Isolated()` sets `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions`, `NoAgents`, `NoSession` and `DisableCoreTools`. It does not set `Bare`. Options apply in order, so put opt-ins after it:
+
+| Opt-in | Effect |
+|--------|--------|
+| `WithConfig()` | `SkipConfig = false` (`.kit.yml` discovery) |
+| `WithConfigFile(path)` | Loads only that file; also clears `SkipConfig` |
+| `WithContextFiles()` | `NoContextFiles = false` |
+| `WithSkills(paths...)` | `NoSkills = false`; sets `Skills` when paths are given |
+| `WithExtensions()` | `NoExtensions = false` |
+| `WithAgents()` | `NoAgents = false` |
+| `WithSessions()` | `NoSession = false` |
+| `WithCoreTools(names...)` | `DisableCoreTools = false`; sets `CoreToolList` when names are given |
+
+`KIT_*` environment variables still apply. Subagents inherit the discovery switches (`Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions`, `NoAgents`) and `NoSession`, and a subagent without explicit `Tools` gets only the parent's enabled core tools, so they stay isolated too.
+
 ### Generation & provider Options (cheat sheet)
 
 | Field | Type | Empty/nil means | Notes |

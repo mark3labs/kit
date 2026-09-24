@@ -118,7 +118,8 @@ func namedAgentSpecs(defs []*AgentDefinition) []core.NamedAgentSpec {
 // cfg. Explicitly set scalar cfg fields (Model, SystemPrompt, Timeout,
 // Temperature) win over the definition's values. Tools are handled
 // differently: when the definition declares a tools allowlist, cfg.Tools is
-// treated as the base set (defaulting to SubagentTools()) and intersected
+// treated as the base set (defaulting to the parent's enabled core tools)
+// and intersected
 // with the allowlist — it never widens beyond it. This is deliberate: the
 // internal agent-loop spawner always passes the parent's inherited tools,
 // and a full override there would let inherited tools bypass the allowlist.
@@ -135,7 +136,7 @@ func (m *Kit) resolveAgentDefinition(cfg *SubagentConfig) (restricted bool, err 
 	if len(def.Tools) > 0 {
 		base := cfg.Tools
 		if base == nil {
-			base = SubagentTools()
+			base = m.subagentDefaultTools()
 		}
 		cfg.Tools = filterToolsByName(base, def.Tools)
 		restricted = true

@@ -548,6 +548,31 @@ func TestEnsureConfigExistsWhenFileExists(t *testing.T) {
 	}
 }
 
+// TestCreateDefaultConfigDoesNotTruncate covers the first-run race: another
+// process (or the user) writes ~/.kit.yml after EnsureConfigExists saw none.
+// Creating the template must then leave that file alone rather than
+// truncating it.
+func TestCreateDefaultConfigDoesNotTruncate(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, ".kit.yml")
+	existing := "model: raced/model\n"
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := createDefaultConfig(home); err != nil {
+		t.Fatalf("createDefaultConfig: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != existing {
+		t.Errorf("existing config was overwritten:\n%s", content)
+	}
+}
+
 func TestMCPServerConfig_OAuthFields_JSON(t *testing.T) {
 	jsonData := `{
 		"type": "remote",

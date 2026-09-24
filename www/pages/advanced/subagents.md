@@ -116,6 +116,8 @@ An agent without a `tools:` list gets the default subagent tool set (everything 
 
 Disable named-agent discovery entirely with `--no-agents`, the `no-agents` config key, or `KIT_NO_AGENTS=true`.
 
+`--no-skills` and `--no-agents` also apply to the subagents that the `subagent` tool starts.
+
 ## Extension subagents
 
 Extensions can spawn subagents programmatically:
@@ -261,6 +263,10 @@ followUp, err := host.Subagent(ctx, kit.SubagentConfig{
 New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set `ParentSessionID` to override the recorded link.
 
 Children inherit the parent's `Options.Providers`, so `Model` can name an app-supplied [custom provider backend](/sdk/overview#custom-provider-backends) (for example `"local/qwen3-8b"`).
+
+Children also inherit the parent's discovery switches: `Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions` and `NoAgents`. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an [isolated](/sdk/overview#isolated-agents) Kit therefore does not load `.kit.yml`, `AGENTS.md`, skills, extensions or named agents.
+
+A parent with `NoSession` gives its children an in-memory session too, so a `SessionID` resume request is rejected. When `Tools` is nil, the child gets only the core tools that the parent enabled: a parent with `DisableCoreTools` gives it none, a parent with `CoreToolList` gives it only those tools, and a parent with `Tools` gives it those same tools.
 
 Inspect the discovered definitions:
 
