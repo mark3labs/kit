@@ -1375,3 +1375,31 @@ func TestNewSessionRequestEvent_cancelledByExtension(t *testing.T) {
 		t.Fatalf("expected no Run calls when cancelled, got %v", ctrl.runCalls)
 	}
 }
+
+// TestScrollKeysWorkWhileAgentIsWorking checks that PgUp/PgDn and
+// Ctrl+Home/Ctrl+End scroll the history during a turn. They were once
+// limited to stateInput, so a long turn left the keyboard with no way to
+// read back.
+func TestScrollKeysWorkWhileAgentIsWorking(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.state = stateWorking
+	m.scrollList.autoScroll = true
+
+	m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.scrollList.autoScroll {
+		t.Error("PgUp in stateWorking did not stop auto-scroll")
+	}
+
+	m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyEnd, Mod: tea.ModCtrl})
+	if !m.scrollList.autoScroll {
+		t.Error("Ctrl+End in stateWorking did not resume auto-scroll")
+	}
+
+	m = sendMsg(m, tea.KeyPressMsg{Code: tea.KeyHome, Mod: tea.ModCtrl})
+	if m.scrollList.autoScroll {
+		t.Error("Ctrl+Home in stateWorking did not stop auto-scroll")
+	}
+	if m.state != stateWorking {
+		t.Errorf("state = %v, want stateWorking", m.state)
+	}
+}

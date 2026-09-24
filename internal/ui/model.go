@@ -2045,9 +2045,12 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Scrollback keybindings (PgUp/PgDn/Home/End) for navigating message history.
-		// Only active when not working (to avoid conflicts during streaming).
-		if m.state == stateInput {
+		// Scrollback keybindings (PgUp/PgDn/Ctrl+Home/Ctrl+End) for navigating
+		// message history. Active while the agent works too: a long turn is
+		// exactly when the user wants to read back, and the mouse wheel
+		// already scrolls in that state. Scrolling up clears autoScroll, so
+		// streamed output does not pull the view back to the bottom.
+		if m.state == stateInput || m.state == stateWorking {
 			switch msg.String() {
 			case "pgup":
 				m.scrollList.ScrollBy(-m.scrollList.height)
@@ -5829,7 +5832,8 @@ func (m *AppModel) providerErrorNotice() string {
 		}
 		b.WriteString("  • Or run /model to pick a model from a provider that has a key")
 		if mc.Hint != "" {
-			b.WriteString("\n\n" + mc.Hint)
+			b.WriteString("\n\n")
+			b.WriteString(mc.Hint)
 		}
 		return b.String()
 	}

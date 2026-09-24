@@ -44,8 +44,25 @@ type termModes struct {
 	// sawESC records an ESC awaiting its introducer byte.
 	sawESC bool
 
-	// modes maps a DEC private mode number to its current state.
+	// modes maps a DEC private mode number to its current state. Mouse
+	// tracking and mouse encoding modes are NOT kept here; see mouseTrack.
 	modes map[int]bool
+
+	// mouseTrack is the active mouse tracking mode (9, 1000, 1001, 1002
+	// or 1003), or 0 for none.
+	//
+	// Terminals do not treat these as separate modes: they are one
+	// setting, and a reset of ANY of them turns mouse reporting off.
+	// Bubble Tea turns the mouse off with ?1002l?1003l, so a tracker
+	// that kept each number on its own remembered "1002 on, 1003 off"
+	// and replayed them in number order — ?1002h then ?1003l — which
+	// leaves the attaching client with no mouse at all.
+	mouseTrack     int
+	mouseTrackSeen bool
+	// mouseEnc is the active mouse encoding (1005, 1006, 1015 or 1016),
+	// or 0 for the legacy encoding. Kept as one value for the same reason.
+	mouseEnc     int
+	mouseEncSeen bool
 	// kitty is the kitty keyboard protocol stack, innermost last. The
 	// child pushes flags with CSI > flags u and pops with CSI < n u.
 	kitty []int
@@ -126,7 +143,26 @@ func (m *termModes) applyLocked(seq []byte) {
 		}
 		set := final == 'h'
 		for p := range strings.SplitSeq(body[1:], ";") {
-			if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil && replayableMode(n) {
+			n, err := strconv.Atoi(strings.TrimSpace(p))
+			if err != nil || !replayableMode(n) {
+				continue
+			}
+			switch {
+			case isMouseTrackingMode(n):
+				m.mouseTrackSeen = true
+				if set {
+					m.mouseTrack = n
+				} else {
+					m.mouseTrack = 0 // any reset turns tracking off
+				}
+			case isMouseEncodingMode(n):
+				m.mouseEncSeen = true
+				if set {
+					m.mouseEnc = n
+				} else if m.mouseEnc == n {
+					m.mouseEnc = 0
+				}
+			default:
 				m.modes[n] = set
 			}
 		}
@@ -184,6 +220,40 @@ func replayableMode(n int) bool {
 	return true
 }
 
+// mouseTrackingModes are the DEC modes that share one mouse tracking
+// setting in the terminal. mouseEncodingModes share one encoding setting.
+var (
+	mouseTrackingModes = []int{9, 1000, 1001, 1002, 1003}
+	mouseEncodingModes = []int{1005, 1006, 1015, 1016}
+)
+
+func isMouseTrackingMode(n int) bool {
+	switch n {
+	case 9, 1000, 1001, 1002, 1003:
+		return true
+	}
+	return false
+}
+
+func isMouseEncodingMode(n int) bool {
+	switch n {
+	case 1005, 1006, 1015, 1016:
+		return true
+	}
+	return false
+}
+
+// writeMode appends CSI ? n h|l.
+func writeMode(b *strings.Builder, n int, set bool) {
+	b.WriteString("\x1b[?")
+	b.WriteString(strconv.Itoa(n))
+	if set {
+		b.WriteString("h")
+	} else {
+		b.WriteString("l")
+	}
+}
+
 // Replay returns the sequences that bring a freshly attached client's
 // terminal into the state the child believes it is drawing on. It is
 // empty when nothing has been recorded yet, which is the normal case for
@@ -204,15 +274,30 @@ func (m *termModes) Replay() []byte {
 
 	var b strings.Builder
 	for _, n := range nums {
-		b.WriteString("\x1b[?")
-		b.WriteString(strconv.Itoa(n))
-		if m.modes[n] {
-			b.WriteString("h")
-		} else {
-			// A mode the child turned OFF is replayed too: some default
-			// to on — 25, the cursor, most visibly — so leaving them out
-			// would show a cursor the session hides.
-			b.WriteString("l")
+		// A mode the child turned OFF is replayed too: some default to
+		// on — 25, the cursor, most visibly — so leaving them out would
+		// show a cursor the session hides.
+		writeMode(&b, n, m.modes[n])
+	}
+	// The mouse is replayed as "clear everything, then set the one that
+	// is active", so the terminal ends in the child's state whatever it
+	// held before — including a mode a previous session left on.
+	if m.mouseEncSeen {
+		for _, n := range mouseEncodingModes {
+			if n != m.mouseEnc {
+				writeMode(&b, n, false)
+			}
+		}
+		if m.mouseEnc != 0 {
+			writeMode(&b, m.mouseEnc, true)
+		}
+	}
+	if m.mouseTrackSeen {
+		for _, n := range mouseTrackingModes {
+			writeMode(&b, n, false)
+		}
+		if m.mouseTrack != 0 {
+			writeMode(&b, m.mouseTrack, true)
 		}
 	}
 	if m.modifyOther != "" {

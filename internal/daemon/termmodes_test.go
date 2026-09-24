@@ -169,7 +169,49 @@ func TestTermModesReplayIsStable(t *testing.T) {
 			t.Fatalf("Replay() = %q, want the stable %q", got, first)
 		}
 	}
-	if want := "\x1b[?25l\x1b[?1002h\x1b[?1006h\x1b[?2004h"; first != want {
+	if want := "\x1b[?25l\x1b[?2004h" +
+		"\x1b[?1005l\x1b[?1015l\x1b[?1016l\x1b[?1006h" +
+		"\x1b[?9l\x1b[?1000l\x1b[?1001l\x1b[?1002l\x1b[?1003l\x1b[?1002h"; first != want {
 		t.Errorf("Replay() = %q, want %q", first, want)
+	}
+}
+
+// TestTermModesMouseSurvivesAnEarlierMouseOff is the regression test for
+// sessions that lost the mouse wheel after a reattach. Bubble Tea turns
+// the mouse off with ?1002l?1003l?1006l (a picker with no mouse) and on
+// again with ?1002h?1006h. A tracker that kept each mode number on its own
+// replayed "?1002h ... ?1003l", and a terminal treats a reset of ANY
+// tracking mode as "mouse off" — so the client got no mouse at all.
+func TestTermModesMouseSurvivesAnEarlierMouseOff(t *testing.T) {
+	m := newTermModes()
+	feedString(m, "\x1b[?1002l\x1b[?1003l\x1b[?1006l") // picker: mouse off
+	feedString(m, "\x1b[?1002h\x1b[?1006h")            // main view: mouse on
+
+	replay := string(m.Replay())
+	set := strings.LastIndex(replay, "\x1b[?1002h")
+	if set < 0 {
+		t.Fatalf("replay %q does not turn mouse tracking on", replay)
+	}
+	for _, n := range []string{"9", "1000", "1001", "1002", "1003"} {
+		if i := strings.LastIndex(replay, "\x1b[?"+n+"l"); i > set {
+			t.Errorf("replay %q resets mode %s after it sets 1002, which turns the mouse off", replay, n)
+		}
+	}
+	if strings.LastIndex(replay, "\x1b[?1006h") < strings.LastIndex(replay, "\x1b[?1006l") {
+		t.Errorf("replay %q leaves SGR mouse encoding off", replay)
+	}
+}
+
+// TestTermModesMouseTrackingIsOneSetting covers a child that moves from
+// one tracking mode to another: only the last one set is replayed as on.
+func TestTermModesMouseTrackingIsOneSetting(t *testing.T) {
+	m := newTermModes()
+	feedString(m, "\x1b[?1003h\x1b[?1002h")
+	replay := string(m.Replay())
+	if strings.Contains(replay, "\x1b[?1003h") {
+		t.Errorf("replay %q turns on a tracking mode the child replaced", replay)
+	}
+	if !strings.HasSuffix(replay, "\x1b[?1002h") {
+		t.Errorf("replay %q does not end with the active tracking mode", replay)
 	}
 }
