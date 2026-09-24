@@ -836,6 +836,23 @@ Available options: `WithModel`, `WithSystemPrompt`, `WithStreaming`,
 the helpers (custom MCP config, in-process MCP servers, session backends, MCP
 task tuning) construct an `Options` value explicitly and call `kit.New`.
 
+An embedded Kit discovers `.kit.yml`, `AGENTS.md`, skills, extensions and
+named agents on the host, as the CLI does. It also writes session files and
+enables the core file and shell tools. `kit.NewIsolatedAgent` turns all of
+this off. The opt-in options (`WithConfig`, `WithContextFiles`, `WithSkills`,
+`WithExtensions`, `WithAgents`, `WithSessions`, `WithCoreTools`) turn each
+feature back on:
+
+```go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithCoreTools("read", "grep"), // only these core tools
+)
+```
+
+`kit.Isolated()` is the same preset as an `Option` for `kit.NewAgent`. See
+[Isolated agents](pkg/kit/README.md#isolated-agents-isolated-newisolatedagent).
+
 ### Per-instance config isolation
 
 Each `kit.New` / `kit.NewAgent` call owns an **isolated configuration store**,

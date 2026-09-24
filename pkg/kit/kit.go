@@ -2598,6 +2598,14 @@ func inheritIsolationOptions(child, parent *Options) {
 		return
 	}
 	child.Bare = parent.Bare
+	// The separate switches that Isolated sets. Only propagate "off": a
+	// parent that did not disable a feature must not enable it on a child
+	// that disabled it.
+	child.SkipConfig = child.SkipConfig || parent.SkipConfig
+	child.NoContextFiles = child.NoContextFiles || parent.NoContextFiles
+	child.NoSkills = child.NoSkills || parent.NoSkills
+	child.NoExtensions = child.NoExtensions || parent.NoExtensions
+	child.NoAgents = child.NoAgents || parent.NoAgents
 }
 
 // toolsIncludeMCP reports whether the provided tool set already contains any

@@ -80,10 +80,18 @@ Available options:
 | `WithProviderURL(string)` | `Options.ProviderURL` |
 | `WithProviderWire(string)` | `Options.ProviderWire` (wire protocol for auto-routed providers: `openai`, `openai-compat`, `anthropic`, `google`) |
 | `WithProvider(string, ProviderFactory)` | Adds one entry to `Options.Providers` (see [Custom provider backends](#custom-provider-backends)) |
-| `WithConfigFile(string)` | `Options.ConfigFile` |
+| `WithConfigFile(string)` | `Options.ConfigFile` (also clears `SkipConfig`) |
 | `WithDebug()` | `Options.Debug = true` |
 | `WithDebugLogger(DebugLogger)` | `Options.DebugLogger` (route engine + MCP debug output into a custom logger; overrides `WithDebug` when set) |
 | `Ephemeral()` | `Options.NoSession = true` |
+| `Isolated()` | Turns off ambient discovery and side effects (see [Isolated agents](#isolated-agents)) |
+| `WithConfig()` | `Options.SkipConfig = false` |
+| `WithContextFiles()` | `Options.NoContextFiles = false` |
+| `WithSkills(...string)` | `Options.NoSkills = false`; sets `Options.Skills` when paths are given |
+| `WithExtensions()` | `Options.NoExtensions = false` |
+| `WithAgents()` | `Options.NoAgents = false` |
+| `WithSessions()` | `Options.NoSession = false` |
+| `WithCoreTools(...string)` | `Options.DisableCoreTools = false`; sets `Options.CoreToolList` when names are given |
 
 Options are applied in order, so later options override earlier ones. `Option`
 is a plain `func(*Options)`, so you can define your own. For advanced
@@ -97,6 +105,33 @@ explicitly and call `kit.New`.
 |-------------|----------|
 | `kit.NewAgent(ctx, ...Option)` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
 | `kit.New(ctx, *Options)` | You need fields without a `With*` helper (`MCPConfig`, `InProcessMCPServers`, `SessionManager`, MCP task tuning, etc.), or you already hold an `Options` value. |
+| `kit.NewIsolatedAgent(ctx, ...Option)` | You embed Kit and want nothing from the host (config, AGENTS.md, skills, extensions, sessions, core tools) unless you turn it on. See [Isolated agents](#isolated-agents). |
+
+## Isolated agents
+
+By default the SDK discovers things on the host, as the CLI does: `.kit.yml`
+(and the MCP servers it declares), `AGENTS.md`, skills, extensions and named
+agents. It also writes session files and enables the file and shell tools.
+An application that embeds Kit usually does not want this.
+
+`kit.Isolated()` sets `SkipConfig`, `NoContextFiles`, `NoSkills`,
+`NoExtensions`, `NoAgents`, `NoSession` and `DisableCoreTools`.
+`kit.NewIsolatedAgent(ctx, ...)` is `NewAgent` with `Isolated()` applied
+first. Options apply in order, so the `With*` opt-ins in the table above turn
+features back on one at a time:
+
+```go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithCoreTools("read", "grep"), // only these core tools
+    kit.WithSessions(),                // persist sessions
+)
+```
+
+`KIT_*` environment variables still apply. Subagents of an isolated Kit are
+isolated in the same way. `Isolated()` does not set `Options.Bare`: `Bare` is
+one switch for all discovery, while `Isolated()` uses the separate fields so
+you can turn each one back on.
 
 ## Per-instance config isolation
 

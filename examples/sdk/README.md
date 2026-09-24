@@ -52,4 +52,15 @@ host, err := kit.NewAgent(ctx,
 )
 ```
 
+To embed Kit without loading anything from the host (`.kit.yml`, `AGENTS.md`,
+skills, extensions, session files, core tools), start from the isolated preset
+and turn features back on as needed:
+
+```go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithExtraTools(myTool),
+)
+```
+
 See the [SDK README](../../pkg/kit/README.md) for the full API reference.
