@@ -310,4 +310,13 @@ func TestSubagentDefaultTools_FollowParentCoreTools(t *testing.T) {
 	if got := (&Kit{}).subagentDefaultTools(); len(got) == 0 {
 		t.Error("zero-value Kit: default subagent tools are empty")
 	}
+
+	// Options.Tools replaces the core tools: the child gets the parent's
+	// own tools, not built-in ones the parent does not have.
+	replaced := newIsolatedTestKit(t, WithTools(ReadOnlyTools()...))
+	got = toolNames(replaced.subagentDefaultTools())
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"find", "grep", "ls", "read"}) {
+		t.Errorf("WithTools(ReadOnlyTools()): default subagent tools = %v", got)
+	}
 }

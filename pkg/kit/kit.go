@@ -2490,7 +2490,8 @@ type SubagentConfig struct {
 	// If nil and the subagent is created via the SDK (Kit.Subagent()), the
 	// default set (the parent's enabled core tools except "subagent", built
 	// with the parent's effective shell) is used. A parent with core tools
-	// disabled therefore gives the subagent no core tools.
+	// disabled therefore gives the subagent no core tools, and a parent that
+	// set Options.Tools gives the subagent those tools.
 	// An empty non-nil set gives the subagent no core tools.
 	// When spawned internally by the agent loop, the parent's active tools
 	// minus "subagent" are used instead (see GetToolsForSubagent()).
@@ -2654,8 +2655,19 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // configuration names none: the parent's enabled core tools except subagent,
 // built with the parent's effective shell, so that a child on an image
 // without bash keeps working. A parent that disabled or limited its core
-// tools (DisableCoreTools, CoreToolList) cannot give a child more.
+// tools (DisableCoreTools, CoreToolList) cannot give a child more. When the
+// parent replaced its core tools with Options.Tools, the child gets those
+// same tools (minus subagent), not the built-in ones.
 func (m *Kit) subagentDefaultTools() []Tool {
+	if m.opts != nil && len(m.opts.Tools) > 0 {
+		tools := make([]Tool, 0, len(m.opts.Tools))
+		for _, t := range m.opts.Tools {
+			if t.Info().Name != "subagent" {
+				tools = append(tools, t)
+			}
+		}
+		return tools
+	}
 	tools := SubagentTools(WithShell(m.shell))
 	if m.coreToolList == nil {
 		return tools
