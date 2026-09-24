@@ -50,23 +50,45 @@ func TestGlobalRegistryLazyProbe(t *testing.T) {
 	}
 }
 
-// TestReloadGlobalRegistryPicksUpConfig covers the CLI ordering: config is
-// loaded after package init, then the registry is reloaded, and lookups must
-// see custom models from that config.
+// reloadProbeEnv makes TestReloadGlobalRegistryPicksUpConfig run its
+// assertions; it is set only in the child process that the test spawns.
+const reloadProbeEnv = "KIT_TEST_RELOAD_REGISTRY_PROBE"
+
+// TestReloadGlobalRegistryPicksUpConfig covers the CLI ordering in a cold
+// process: config is loaded after package init, then the registry is
+// reloaded before anything calls GetGlobalRegistry. The first getter call
+// must keep that config-aware registry, and lookups must see custom models
+// from the config. It runs in a child process so the global registry is not
+// yet built and so the Viper override does not leak into other tests.
 func TestReloadGlobalRegistryPicksUpConfig(t *testing.T) {
+	if os.Getenv(reloadProbeEnv) == "" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestReloadGlobalRegistryPicksUpConfig$", "-test.v")
+		cmd.Env = append(os.Environ(), reloadProbeEnv+"=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("probe failed: %v\n%s", err, out)
+		}
+		return
+	}
+
+	if globalRegistry.Load() != nil {
+		t.Fatal("global registry was built before the probe started")
+	}
 	viper.Set("customModels", map[string]any{
 		"lazy-registry-test-model": map[string]any{
 			"name":  "Lazy Registry Test",
 			"limit": map[string]any{"context": 8192, "output": 1024},
 		},
 	})
-	t.Cleanup(func() {
-		viper.Set("customModels", nil)
-		ReloadGlobalRegistry()
-	})
 
 	ReloadGlobalRegistry()
-	if GetGlobalRegistry().LookupModel("custom", "lazy-registry-test-model") == nil {
+	installed := globalRegistry.Load()
+	if installed == nil {
+		t.Fatal("ReloadGlobalRegistry did not install a registry")
+	}
+	if got := GetGlobalRegistry(); got != installed {
+		t.Fatal("first GetGlobalRegistry replaced the registry installed by ReloadGlobalRegistry")
+	}
+	if installed.LookupModel("custom", "lazy-registry-test-model") == nil {
 		t.Fatal("custom model from config not visible after ReloadGlobalRegistry")
 	}
 }
