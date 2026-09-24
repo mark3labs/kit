@@ -115,7 +115,7 @@ host, err := kit.NewIsolatedAgent(ctx,
 | `WithSessions()` | `NoSession = false` |
 | `WithCoreTools(names...)` | `DisableCoreTools = false`; sets `CoreToolList` when names are given |
 
-`KIT_*` environment variables still apply. Subagents inherit the discovery switches (`Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions`, `NoAgents`), so they stay isolated too.
+`KIT_*` environment variables still apply. Subagents inherit the discovery switches (`Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions`, `NoAgents`) and `NoSession`, and a subagent without explicit `Tools` gets only the parent's enabled core tools, so they stay isolated too.
 
 ### Generation & provider Options (cheat sheet)
 

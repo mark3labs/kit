@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -218,5 +219,95 @@ func TestInheritIsolationOptions_Isolated(t *testing.T) {
 	if !child.SkipConfig || !child.NoContextFiles || !child.NoSkills ||
 		!child.NoExtensions || !child.NoAgents {
 		t.Errorf("non-isolated parent re-enabled child features: %+v", child)
+	}
+}
+
+// TestInheritIsolationOptions_NoSession checks that an ephemeral parent
+// gives its subagents an in-memory session, and that a persistent parent
+// does not turn a child's in-memory session off.
+func TestInheritIsolationOptions_NoSession(t *testing.T) {
+	child := &Options{}
+	inheritIsolationOptions(child, applyOptions(Isolated()))
+	if !child.NoSession {
+		t.Error("child of an isolated parent persists its session")
+	}
+
+	child = &Options{NoSession: true}
+	inheritIsolationOptions(child, &Options{})
+	if !child.NoSession {
+		t.Error("persistent parent re-enabled the child's session file")
+	}
+}
+
+// TestSubagent_EphemeralParentRejectsResume checks that a parent with an
+// in-memory session cannot resume a subagent session from disk, because its
+// subagents never persist one.
+func TestSubagent_EphemeralParentRejectsResume(t *testing.T) {
+	m := &Kit{opts: &Options{NoSession: true}}
+	_, err := m.Subagent(context.Background(), SubagentConfig{
+		Prompt:    "task",
+		SessionID: "some-session",
+	})
+	if err == nil || !strings.Contains(err.Error(), "in-memory session") {
+		t.Fatalf("err = %v, want rejection of the resume request", err)
+	}
+}
+
+// TestIsolated_HonorsKITEnv checks that Isolated (SkipConfig) still reads
+// KIT_* environment variables, as its documentation says.
+func TestIsolated_HonorsKITEnv(t *testing.T) {
+	newIsolatedTestEnv(t)
+	t.Setenv("KIT_TEMPERATURE", "0.456")
+	t.Setenv("KIT_MAX_TOKENS", "777")
+	k := newIsolatedTestKit(t)
+
+	if got := k.v.GetFloat64("temperature"); got != 0.456 {
+		t.Errorf("temperature = %v, want 0.456 from KIT_TEMPERATURE", got)
+	}
+	if got := k.v.GetInt("max-tokens"); got != 777 {
+		t.Errorf("max-tokens = %v, want 777 from KIT_MAX_TOKENS", got)
+	}
+}
+
+func toolNames(tools []Tool) []string {
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Info().Name
+	}
+	return names
+}
+
+// TestSubagentDefaultTools_FollowParentCoreTools checks that a subagent
+// started without an explicit tool set gets no core tool that its parent
+// disabled, on the default path and on the named-agent allowlist path.
+func TestSubagentDefaultTools_FollowParentCoreTools(t *testing.T) {
+	newIsolatedTestEnv(t)
+
+	isolated := newIsolatedTestKit(t)
+	if got := isolated.subagentDefaultTools(); len(got) != 0 {
+		t.Errorf("isolated parent: default subagent tools = %v, want none", toolNames(got))
+	}
+
+	limited := newIsolatedTestKit(t, WithCoreTools("read", "grep"))
+	got := toolNames(limited.subagentDefaultTools())
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"grep", "read"}) {
+		t.Errorf("WithCoreTools(read, grep): default subagent tools = %v", got)
+	}
+
+	// Named-agent allowlist: the base is the parent's core tools, so an
+	// allowlist cannot add a tool that the parent disabled.
+	limited.namedAgents = []*AgentDefinition{{Name: "writer", Tools: []string{"read", "write"}}}
+	cfg := SubagentConfig{Agent: "writer"}
+	if _, err := limited.resolveAgentDefinition(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := toolNames(cfg.Tools); !slices.Equal(got, []string{"read"}) {
+		t.Errorf("allowlist tools = %v, want [read]", got)
+	}
+
+	// A Kit that New did not build keeps the full default set.
+	if got := (&Kit{}).subagentDefaultTools(); len(got) == 0 {
+		t.Error("zero-value Kit: default subagent tools are empty")
 	}
 }

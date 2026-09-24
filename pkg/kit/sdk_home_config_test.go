@@ -70,13 +70,16 @@ func TestNew_StillLoadsExistingHomeConfig(t *testing.T) {
 	}
 }
 
-// TestInitConfig_CLICreatesHomeConfig confirms the CLI entry point still
-// gives first-time users a template.
+// TestInitConfig_CLICreatesHomeConfig confirms the CLI entry point
+// (InitConfigWithOptions, used by cmd/root.go) still gives first-time users
+// a template.
 func TestInitConfig_CLICreatesHomeConfig(t *testing.T) {
 	home := isolateHome(t)
+	// InitConfigWithOptions writes to the process-global store.
+	t.Cleanup(viper.Reset)
 
-	if err := initConfig(viper.New(), "", false, false, true); err != nil {
-		t.Fatalf("initConfig: %v", err)
+	if err := InitConfigWithOptions(ConfigInitOptions{}); err != nil {
+		t.Fatalf("InitConfigWithOptions: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".kit.yml")); err != nil {
 		t.Errorf("CLI path did not create ~/.kit.yml: %v", err)

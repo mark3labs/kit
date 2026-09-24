@@ -266,6 +266,8 @@ Children inherit the parent's `Options.Providers`, so `Model` can name an app-su
 
 Children also inherit the parent's discovery switches: `Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions` and `NoAgents`. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an [isolated](/sdk/overview#isolated-agents) Kit therefore does not load `.kit.yml`, `AGENTS.md`, skills, extensions or named agents.
 
+A parent with `NoSession` gives its children an in-memory session too, so a `SessionID` resume request is rejected. When `Tools` is nil, the child gets only the core tools that the parent enabled: a parent with `DisableCoreTools` gives it none, and a parent with `CoreToolList` gives it only those tools.
+
 Inspect the discovered definitions:
 
 ```go

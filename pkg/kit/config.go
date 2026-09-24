@@ -111,6 +111,19 @@ func InitConfigWithOptions(opts ConfigInitOptions) error {
 	return initConfig(viper.GetViper(), opts.ConfigFile, opts.Debug, opts.Bare, true)
 }
 
+// bindEnv registers the KIT_* environment overrides on v. It is separate from
+// initConfig so that a store which skips config-file discovery
+// (Options.SkipConfig) still honours KIT_* variables. Hyphenated config keys
+// (e.g. "max-tokens") map to underscored env var names (e.g.
+// KIT_MAX_TOKENS); without the replacer AutomaticEnv looks for
+// KIT_MAX-TOKENS and silently misses valid overrides. Precedence is resolved
+// at read time, so calling this before ReadConfig is fine. It is idempotent.
+func bindEnv(v *viper.Viper) {
+	v.SetEnvPrefix("KIT")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+}
+
 // initConfig loads configuration into the supplied per-instance store. When v
 // is nil the process-global store is used. When bare is true the working
 // directory is excluded from the config search path. When createDefault is
@@ -124,13 +137,7 @@ func initConfig(v *viper.Viper, configFile string, debug, bare, createDefault bo
 
 	// Configure KIT_* environment overrides unconditionally, before any file
 	// is loaded, so that an explicit config file does not disable env support.
-	// Map hyphenated config keys (e.g. "max-tokens") to underscored env var
-	// names (e.g. KIT_MAX_TOKENS); without this AutomaticEnv looks for
-	// KIT_MAX-TOKENS and silently misses valid overrides. Precedence is
-	// resolved at read time, so calling these before ReadConfig is fine.
-	v.SetEnvPrefix("KIT")
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.AutomaticEnv()
+	bindEnv(v)
 
 	if configFile != "" {
 		return loadConfigWithEnvSubstitution(v, configFile)

@@ -45,7 +45,10 @@ func main() {
 
 The SDK reads configuration the same way as the CLI:
 - Loads configuration from `~/.kit.yml` (and a project `.kit.yml`) when present
-- Never writes a config file; only the `kit` CLI creates a default `~/.kit.yml` on first run
+- `kit.New` and `kit.NewAgent` never write a config file; only the `kit` CLI
+  creates a default `~/.kit.yml` on first run. The exported initializers
+  `kit.InitConfig` and `kit.InitConfigWithOptions` follow the CLI path and can
+  create `~/.kit.yml` when no config file exists
 - Respects all environment variables (`KIT_*`)
 - Uses the same defaults as the CLI
 

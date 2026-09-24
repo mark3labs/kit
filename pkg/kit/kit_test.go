@@ -173,10 +173,10 @@ func TestNewPreservesIsSetSemantics(t *testing.T) {
 		"thinking-level",
 	}
 
-	// With SkipConfig: true, InitConfig() is not invoked, so viper has
-	// no env-var bindings registered. Any IsSet() here would come purely
-	// from SDK-side SetDefault/Set calls — which is exactly what this
-	// test is guarding against.
+	// With SkipConfig: true, no config file is read. KIT_* env lookup is
+	// registered, but no KIT_* variable for these keys is set here, so any
+	// IsSet() would come purely from SDK-side SetDefault/Set calls — which
+	// is exactly what this test is guarding against.
 	for _, k := range checkKeys {
 		if host.ConfigValueIsSetForTest(k) {
 			t.Errorf("instance store reports %q explicitly set when no Options field set it "+

@@ -56,7 +56,12 @@ type Kit struct {
 	// shell is the effective shell of this instance, resolved from the SDK
 	// option and the configuration store at construction. Subagents built
 	// without an explicit tool set inherit it.
-	shell          []string
+	shell []string
+	// coreToolList is the resolved list of core tool names this instance
+	// enabled. New always sets it (empty, not nil, when core tools are
+	// disabled); nil means no limit. Subagents built without an explicit
+	// tool set are limited to it.
+	coreToolList   []string
 	events         *eventBus
 	autoCompact    bool
 	compactionOpts *CompactionOptions
@@ -1688,6 +1693,10 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		// We key off opts.CLI (not a config value) because setSDKDefaults always
 		// seeds "model", which would otherwise mask an empty store.
 		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
+		if opts.SkipConfig && opts.CLI == nil {
+			// initConfig is skipped, so register the KIT_* overrides here.
+			bindEnv(v)
+		}
 		if !opts.SkipConfig && opts.CLI == nil {
 			// createDefault=false: an embedding application must not have
 			// kit drop a ~/.kit.yml into its users' home directories.
@@ -2100,6 +2109,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		modelString:           modelString,
 		endpointProvider:      endpointProviderFor(v, modelString),
 		shell:                 append([]string(nil), shell...),
+		coreToolList:          append([]string{}, toolList...),
 		events:                newEventBus(),
 		autoCompact:           opts.AutoCompact,
 		compactionOpts:        opts.CompactionOptions,
@@ -2478,8 +2488,10 @@ type SubagentConfig struct {
 
 	// Tools overrides the tool set available to the subagent.
 	// If nil and the subagent is created via the SDK (Kit.Subagent()), the
-	// default set (all core tools except "subagent", built with the
-	// parent's effective shell) is used.
+	// default set (the parent's enabled core tools except "subagent", built
+	// with the parent's effective shell) is used. A parent with core tools
+	// disabled therefore gives the subagent no core tools.
+	// An empty non-nil set gives the subagent no core tools.
 	// When spawned internally by the agent loop, the parent's active tools
 	// minus "subagent" are used instead (see GetToolsForSubagent()).
 	// Pass m.GetToolsForSubagent() explicitly to opt into inheritance from
@@ -2493,7 +2505,8 @@ type SubagentConfig struct {
 
 	// NoSession, when true, uses an in-memory ephemeral session. When false
 	// (default), the subagent's session is persisted and can be loaded for
-	// replay/inspection.
+	// replay/inspection. A parent with Options.NoSession always gives its
+	// subagents an in-memory session.
 	NoSession bool
 
 	// SessionID resumes an existing subagent session instead of creating a
@@ -2606,6 +2619,8 @@ func inheritIsolationOptions(child, parent *Options) {
 	child.NoSkills = child.NoSkills || parent.NoSkills
 	child.NoExtensions = child.NoExtensions || parent.NoExtensions
 	child.NoAgents = child.NoAgents || parent.NoAgents
+	// An ephemeral parent must not write session files for its children.
+	child.NoSession = child.NoSession || parent.NoSession
 }
 
 // toolsIncludeMCP reports whether the provided tool set already contains any
@@ -2636,11 +2651,16 @@ func toolsIncludeMCP(tools []Tool, mcpNames []string) bool {
 // This is the recommended way to run subagents in the SDK — no subprocess,
 // no kit binary dependency, native Go types for results.
 // subagentDefaultTools is the tool set a subagent receives when its
-// configuration names none: every core tool except subagent, built with the
-// parent's effective shell, so that a child on an image without bash keeps
-// working.
+// configuration names none: the parent's enabled core tools except subagent,
+// built with the parent's effective shell, so that a child on an image
+// without bash keeps working. A parent that disabled or limited its core
+// tools (DisableCoreTools, CoreToolList) cannot give a child more.
 func (m *Kit) subagentDefaultTools() []Tool {
-	return SubagentTools(WithShell(m.shell))
+	tools := SubagentTools(WithShell(m.shell))
+	if m.coreToolList == nil {
+		return tools
+	}
+	return filterToolsByName(tools, m.coreToolList)
 }
 
 func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult, error) {
@@ -2649,6 +2669,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 	if cfg.SessionID != "" && cfg.NoSession {
 		return nil, fmt.Errorf("subagent SessionID and NoSession are mutually exclusive")
+	}
+	if cfg.SessionID != "" && m.opts != nil && m.opts.NoSession {
+		return nil, fmt.Errorf("cannot resume subagent session: the parent uses an in-memory session (NoSession), so its subagents do too")
 	}
 
 	start := time.Now()
@@ -2779,6 +2802,9 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 		Quiet:        true,
 		Streaming:    &streamOn,
 		MCPConfig:    childMCPConfig,
+		// An empty tool set means no core tools. Without this the child
+		// would fall back to its own default (every core tool).
+		DisableCoreTools: len(tools) == 0,
 	}
 
 	// Inherit the parent's effective provider/runtime configuration. Since #40
