@@ -8,6 +8,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/mark3labs/kit/internal/auth"
 )
@@ -737,16 +739,37 @@ func (r *ModelsRegistry) ValidateModelString(modelString string) error {
 	return nil
 }
 
-// Global registry instance
-var globalRegistry = NewModelsRegistry()
+// The global registry is built lazily on first use rather than at package
+// init: decoding the embedded models.dev snapshot costs tens of milliseconds
+// and tens of megabytes of heap, which every program importing kit would
+// otherwise pay at startup even if it never looks up a model. Building late
+// also means the registry sees config (customModels, providers) that was
+// loaded after init. The pointer is atomic so ReloadGlobalRegistry can swap
+// in a fresh registry while other goroutines are reading the old one.
+var (
+	globalRegistryOnce sync.Once
+	globalRegistry     atomic.Pointer[ModelsRegistry]
+)
 
-// GetGlobalRegistry returns the global models registry instance.
+// GetGlobalRegistry returns the global models registry instance, building it
+// on first use.
 func GetGlobalRegistry() *ModelsRegistry {
-	return globalRegistry
+	if r := globalRegistry.Load(); r != nil {
+		return r
+	}
+	globalRegistryOnce.Do(func() {
+		// CompareAndSwap rather than Store: if ReloadGlobalRegistry already
+		// ran (the CLI reloads right after loading config), keep that
+		// config-aware registry instead of building a second one over it.
+		if globalRegistry.Load() == nil {
+			globalRegistry.CompareAndSwap(nil, NewModelsRegistry())
+		}
+	})
+	return globalRegistry.Load()
 }
 
 // ReloadGlobalRegistry rebuilds the global registry from the current
 // data sources (cache → embedded). Call after updating the cache.
 func ReloadGlobalRegistry() {
-	globalRegistry = NewModelsRegistry()
+	globalRegistry.Store(NewModelsRegistry())
 }
