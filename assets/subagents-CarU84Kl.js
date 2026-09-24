@@ -135,6 +135,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <h3 id="tool-allowlists"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#tool-allowlists"><span class="icon icon-link"></span></a>Tool allowlists</h3>
 <p>An agent without a <code>tools:</code> list gets the default subagent tool set (everything except <code>subagent</code>, preventing recursion). With a <code>tools:</code> allowlist, the subagent is restricted to exactly those tools — a read-only <code>explore</code>-style agent cannot edit files or run commands. Explicit <code>model</code> / <code>system_prompt</code> / <code>timeout_seconds</code> arguments in the tool call override the agent's presets.</p>
 <p>Disable named-agent discovery entirely with <code>--no-agents</code>, the <code>no-agents</code> config key, or <code>KIT_NO_AGENTS=true</code>.</p>
+<p><code>--no-skills</code> and <code>--no-agents</code> also apply to the subagents that the <code>subagent</code> tool starts.</p>
 <h2 id="extension-subagents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#extension-subagents"><span class="icon icon-link"></span></a>Extension subagents</h2>
 <p>Extensions can spawn subagents programmatically:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, result, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> ctx.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SpawnSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#6F42C1;--shiki-dark:#B392F0">ext</span><span style="color:#24292E;--shiki-dark:#E1E4E8">.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">SubagentConfig</span><span style="color:#24292E;--shiki-dark:#E1E4E8">{</span></span>
@@ -245,6 +246,8 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see <a href="#session-linking-and-resuming">Session linking and resuming</a>); set <code>ParentSessionID</code> to override the recorded link.</p>
 <p>Children inherit the parent's <code>Options.Providers</code>, so <code>Model</code> can name an app-supplied <a href="/sdk/overview#custom-provider-backends">custom provider backend</a> (for example <code>"local/qwen3-8b"</code>).</p>
+<p>Children also inherit the parent's discovery switches: <code>Bare</code>, <code>SkipConfig</code>, <code>NoContextFiles</code>, <code>NoSkills</code>, <code>NoExtensions</code> and <code>NoAgents</code>. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an <a href="/sdk/overview#isolated-agents">isolated</a> Kit therefore does not load <code>.kit.yml</code>, <code>AGENTS.md</code>, skills, extensions or named agents.</p>
+<p>A parent with <code>NoSession</code> gives its children an in-memory session too, so a <code>SessionID</code> resume request is rejected. When <code>Tools</code> is nil, the child gets only the core tools that the parent enabled: a parent with <code>DisableCoreTools</code> gives it none, a parent with <code>CoreToolList</code> gives it only those tools, and a parent with <code>Tools</code> gives it those same tools.</p>
 <p>Inspect the discovered definitions:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">def, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// lookup by name</span></span>
@@ -381,6 +384,8 @@ Two built-in agents ship with Kit:
 An agent without a \`tools:\` list gets the default subagent tool set (everything except \`subagent\`, preventing recursion). With a \`tools:\` allowlist, the subagent is restricted to exactly those tools — a read-only \`explore\`-style agent cannot edit files or run commands. Explicit \`model\` / \`system_prompt\` / \`timeout_seconds\` arguments in the tool call override the agent's presets.
 
 Disable named-agent discovery entirely with \`--no-agents\`, the \`no-agents\` config key, or \`KIT_NO_AGENTS=true\`.
+
+\`--no-skills\` and \`--no-agents\` also apply to the subagents that the \`subagent\` tool starts.
 
 ## Extension subagents
 
@@ -527,6 +532,10 @@ followUp, err := host.Subagent(ctx, kit.SubagentConfig{
 New child sessions automatically record the parent's session ID in their header when the parent is session-backed (see [Session linking and resuming](#session-linking-and-resuming)); set \`ParentSessionID\` to override the recorded link.
 
 Children inherit the parent's \`Options.Providers\`, so \`Model\` can name an app-supplied [custom provider backend](/sdk/overview#custom-provider-backends) (for example \`"local/qwen3-8b"\`).
+
+Children also inherit the parent's discovery switches: \`Bare\`, \`SkipConfig\`, \`NoContextFiles\`, \`NoSkills\`, \`NoExtensions\` and \`NoAgents\`. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an [isolated](/sdk/overview#isolated-agents) Kit therefore does not load \`.kit.yml\`, \`AGENTS.md\`, skills, extensions or named agents.
+
+A parent with \`NoSession\` gives its children an in-memory session too, so a \`SessionID\` resume request is rejected. When \`Tools\` is nil, the child gets only the core tools that the parent enabled: a parent with \`DisableCoreTools\` gives it none, a parent with \`CoreToolList\` gives it only those tools, and a parent with \`Tools\` gives it those same tools.
 
 Inspect the discovered definitions:
 

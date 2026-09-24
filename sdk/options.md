@@ -7,6 +7,11 @@ Pass an `Options` struct to `kit.New()` to configure the Kit instance.
 > functional-options helpers (`WithModel`, `WithStreaming`, `Ephemeral`, ...)
 > over the same `Options` struct. See
 > [Functional options](/sdk/overview#functional-options-newagent).
+>
+> To embed Kit with no config, context files, skills, extensions, named
+> agents, session files or core tools from the host, use
+> `kit.NewIsolatedAgent`. It sets the fields below for you. See
+> [Isolated agents](/sdk/overview#isolated-agents).
 
 Each `kit.New` / `kit.NewAgent` call owns an isolated configuration store, so
 these options never leak between Kit instances in the same process. See
@@ -174,7 +179,8 @@ Unless `NoExtensions` is set, an embedded Kit uses the same
 [auto-discovery paths](/extensions/loading#auto-discovery) as the CLI, which
 include the system-wide `/usr/share/kit/extensions` directory. Set
 `NoExtensions: true` for a hermetic embed that must not pick up extensions
-from the host machine.
+from the host machine. [`kit.Isolated()`](/sdk/overview#isolated-agents)
+sets it together with the other discovery switches.
 
 ### Skills & configuration
 

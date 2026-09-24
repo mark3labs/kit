@@ -66,7 +66,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 1547
+      "wordCount": 1670
     },
     {
       "id": "advanced/testing",
@@ -440,7 +440,7 @@
         "Tool configuration"
       ],
       "tags": [],
-      "wordCount": 3423
+      "wordCount": 3469
     },
     {
       "id": "sdk/overview",
@@ -452,6 +452,7 @@
         "Basic usage",
         "Functional options (NewAgent)",
         "When to use which",
+        "Isolated agents",
         "Per-instance config isolation",
         "Multi-turn conversations",
         "Additional prompt methods",
@@ -481,7 +482,7 @@
         "In-process subagents"
       ],
       "tags": [],
-      "wordCount": 4462
+      "wordCount": 4719
     },
     {
       "id": "sdk/sessions",

@@ -100,7 +100,7 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 </tr>
 <tr>
 <td><code>WithConfigFile(string)</code></td>
-<td><code>Options.ConfigFile</code></td>
+<td><code>Options.ConfigFile</code> (also clears <code>SkipConfig</code>)</td>
 </tr>
 <tr>
 <td><code>WithDebug()</code></td>
@@ -113,6 +113,38 @@ default</strong>; pass <code>kit.WithStreaming(false)</code> to opt out.</p>
 <tr>
 <td><code>Ephemeral()</code></td>
 <td><code>Options.NoSession = true</code></td>
+</tr>
+<tr>
+<td><code>Isolated()</code></td>
+<td>Turns off ambient discovery and side effects (see <a href="#isolated-agents">Isolated agents</a>)</td>
+</tr>
+<tr>
+<td><code>WithConfig()</code></td>
+<td><code>Options.SkipConfig = false</code></td>
+</tr>
+<tr>
+<td><code>WithContextFiles()</code></td>
+<td><code>Options.NoContextFiles = false</code></td>
+</tr>
+<tr>
+<td><code>WithSkills(...string)</code></td>
+<td><code>Options.NoSkills = false</code>; sets <code>Options.Skills</code> when paths are given</td>
+</tr>
+<tr>
+<td><code>WithExtensions()</code></td>
+<td><code>Options.NoExtensions = false</code></td>
+</tr>
+<tr>
+<td><code>WithAgents()</code></td>
+<td><code>Options.NoAgents = false</code></td>
+</tr>
+<tr>
+<td><code>WithSessions()</code></td>
+<td><code>Options.NoSession = false</code></td>
+</tr>
+<tr>
+<td><code>WithCoreTools(...string)</code></td>
+<td><code>Options.DisableCoreTools = false</code>; sets <code>Options.CoreToolList</code> when names are given</td>
 </tr>
 </tbody>
 </table>
@@ -138,8 +170,31 @@ explicitly and call <code>kit.New</code>.</p>
 <td><code>kit.New(ctx, *Options)</code></td>
 <td>You need fields without a <code>With*</code> helper (<code>MCPConfig</code>, <code>InProcessMCPServers</code>, <code>SessionManager</code>, MCP task tuning, etc.), or you already hold an <code>Options</code> value.</td>
 </tr>
+<tr>
+<td><code>kit.NewIsolatedAgent(ctx, ...Option)</code></td>
+<td>You embed Kit and want nothing from the host (config, AGENTS.md, skills, extensions, sessions, core tools) unless you turn it on. See <a href="#isolated-agents">Isolated agents</a>.</td>
+</tr>
 </tbody>
 </table>
+<h2 id="isolated-agents"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#isolated-agents"><span class="icon icon-link"></span></a>Isolated agents</h2>
+<p>By default the SDK discovers things on the host, as the CLI does: <code>.kit.yml</code>
+(and the MCP servers it declares), <code>AGENTS.md</code>, skills, extensions and named
+agents. It also writes session files and enables the file and shell tools.
+An application that embeds Kit usually does not want this.</p>
+<p><code>kit.Isolated()</code> sets <code>SkipConfig</code>, <code>NoContextFiles</code>, <code>NoSkills</code>,
+<code>NoExtensions</code>, <code>NoAgents</code>, <code>NoSession</code> and <code>DisableCoreTools</code>.
+<code>kit.NewIsolatedAgent(ctx, ...)</code> is <code>NewAgent</code> with <code>Isolated()</code> applied
+first. Options apply in order, so the <code>With*</code> opt-ins in the table above turn
+features back on one at a time:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">host, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">NewIsolatedAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx,</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithModel</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"anthropic/claude-sonnet-4-5-20250929"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">),</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithCoreTools</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"read"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">, </span><span style="color:#032F62;--shiki-dark:#9ECBFF">"grep"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">), </span><span style="color:#6A737D;--shiki-dark:#6A737D">// only these core tools</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    kit.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">WithSessions</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(),                </span><span style="color:#6A737D;--shiki-dark:#6A737D">// persist sessions</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">)</span></span></code></pre>
+<p><code>KIT_*</code> environment variables still apply. Subagents of an isolated Kit are
+isolated in the same way. <code>Isolated()</code> does not set <code>Options.Bare</code>: <code>Bare</code> is
+one switch for all discovery, while <code>Isolated()</code> uses the separate fields so
+you can turn each one back on.</p>
 <h2 id="per-instance-config-isolation"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#per-instance-config-isolation"><span class="icon icon-link"></span></a>Per-instance config isolation</h2>
 <p>Each <code>kit.New</code> / <code>kit.NewAgent</code> call owns an <strong>isolated configuration store</strong>,
 so constructing multiple Kit instances in the same process is safe: setting the
@@ -900,7 +955,7 @@ as <code>SubagentConfig.SessionID</code> to resume the child session for follow-
 prompts that reuse its accumulated context.</p>
 <p>See <a href="/advanced/subagents#named-agents">Subagents</a> for definition file format
 and discovery precedence.</p>
-<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
+<p>See <a href="/sdk/options">Options</a>, <a href="/sdk/callbacks">Callbacks</a>, and <a href="/sdk/sessions">Sessions</a> for more details.</p>`,headings:[{depth:2,text:`Installation`,id:`installation`},{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Functional options (NewAgent)`,id:`functional-options-newagent`},{depth:3,text:`When to use which`,id:`when-to-use-which`},{depth:2,text:`Isolated agents`,id:`isolated-agents`},{depth:2,text:`Per-instance config isolation`,id:`per-instance-config-isolation`},{depth:2,text:`Multi-turn conversations`,id:`multi-turn-conversations`},{depth:2,text:`Additional prompt methods`,id:`additional-prompt-methods`},{depth:3,text:`Per-call overrides`,id:`per-call-overrides`},{depth:2,text:`Custom tools`,id:`custom-tools`},{depth:3,text:`Schema-driven tools`,id:`schema-driven-tools`},{depth:3,text:`Halting the agent loop`,id:`halting-the-agent-loop`},{depth:2,text:`Generation &amp; provider overrides`,id:`generation--provider-overrides`},{depth:2,text:`Custom provider backends`,id:`custom-provider-backends`},{depth:2,text:`Event system`,id:`event-system`},{depth:2,text:`Model management`,id:`model-management`},{depth:3,text:`Long-context pricing tiers`,id:`long-context-pricing-tiers`},{depth:3,text:`Reasoning support per model`,id:`reasoning-support-per-model`},{depth:3,text:`Deprecation status`,id:`deprecation-status`},{depth:2,text:`One-shot completions`,id:`one-shot-completions`},{depth:2,text:`Mid-turn steering`,id:`mid-turn-steering`},{depth:2,text:`Filtering core tools`,id:`filtering-core-tools`},{depth:2,text:`Dynamic MCP servers`,id:`dynamic-mcp-servers`},{depth:3,text:`In-process MCP servers`,id:`in-process-mcp-servers`},{depth:2,text:`Runtime native tools`,id:`runtime-native-tools`},{depth:2,text:`Runtime skills and context files`,id:`runtime-skills-and-context-files`},{depth:2,text:`MCP prompts and resources`,id:`mcp-prompts-and-resources`},{depth:2,text:`MCP tasks (long-running tools)`,id:`mcp-tasks-long-running-tools`},{depth:2,text:`Context and compaction`,id:`context-and-compaction`},{depth:2,text:`Provider error classification`,id:`provider-error-classification`},{depth:2,text:`Graceful shutdown`,id:`graceful-shutdown`},{depth:2,text:`In-process subagents`,id:`in-process-subagents`}],raw:`
 # Go SDK
 
 The \`pkg/kit\` package lets you embed Kit as a library in your Go applications.
@@ -978,10 +1033,18 @@ Available options:
 | \`WithProviderURL(string)\` | \`Options.ProviderURL\` |
 | \`WithProviderWire(string)\` | \`Options.ProviderWire\` (wire protocol for auto-routed providers: \`openai\`, \`openai-compat\`, \`anthropic\`, \`google\`) |
 | \`WithProvider(string, ProviderFactory)\` | Adds one entry to \`Options.Providers\` (see [Custom provider backends](#custom-provider-backends)) |
-| \`WithConfigFile(string)\` | \`Options.ConfigFile\` |
+| \`WithConfigFile(string)\` | \`Options.ConfigFile\` (also clears \`SkipConfig\`) |
 | \`WithDebug()\` | \`Options.Debug = true\` |
 | \`WithDebugLogger(DebugLogger)\` | \`Options.DebugLogger\` (route engine + MCP debug output into a custom logger; overrides \`WithDebug\` when set) |
 | \`Ephemeral()\` | \`Options.NoSession = true\` |
+| \`Isolated()\` | Turns off ambient discovery and side effects (see [Isolated agents](#isolated-agents)) |
+| \`WithConfig()\` | \`Options.SkipConfig = false\` |
+| \`WithContextFiles()\` | \`Options.NoContextFiles = false\` |
+| \`WithSkills(...string)\` | \`Options.NoSkills = false\`; sets \`Options.Skills\` when paths are given |
+| \`WithExtensions()\` | \`Options.NoExtensions = false\` |
+| \`WithAgents()\` | \`Options.NoAgents = false\` |
+| \`WithSessions()\` | \`Options.NoSession = false\` |
+| \`WithCoreTools(...string)\` | \`Options.DisableCoreTools = false\`; sets \`Options.CoreToolList\` when names are given |
 
 Options are applied in order, so later options override earlier ones. \`Option\`
 is a plain \`func(*Options)\`, so you can define your own. For advanced
@@ -995,6 +1058,33 @@ explicitly and call \`kit.New\`.
 |-------------|----------|
 | \`kit.NewAgent(ctx, ...Option)\` | Quick programmatic setups; you only need the common fields. Streaming defaults on. |
 | \`kit.New(ctx, *Options)\` | You need fields without a \`With*\` helper (\`MCPConfig\`, \`InProcessMCPServers\`, \`SessionManager\`, MCP task tuning, etc.), or you already hold an \`Options\` value. |
+| \`kit.NewIsolatedAgent(ctx, ...Option)\` | You embed Kit and want nothing from the host (config, AGENTS.md, skills, extensions, sessions, core tools) unless you turn it on. See [Isolated agents](#isolated-agents). |
+
+## Isolated agents
+
+By default the SDK discovers things on the host, as the CLI does: \`.kit.yml\`
+(and the MCP servers it declares), \`AGENTS.md\`, skills, extensions and named
+agents. It also writes session files and enables the file and shell tools.
+An application that embeds Kit usually does not want this.
+
+\`kit.Isolated()\` sets \`SkipConfig\`, \`NoContextFiles\`, \`NoSkills\`,
+\`NoExtensions\`, \`NoAgents\`, \`NoSession\` and \`DisableCoreTools\`.
+\`kit.NewIsolatedAgent(ctx, ...)\` is \`NewAgent\` with \`Isolated()\` applied
+first. Options apply in order, so the \`With*\` opt-ins in the table above turn
+features back on one at a time:
+
+\`\`\`go
+host, err := kit.NewIsolatedAgent(ctx,
+    kit.WithModel("anthropic/claude-sonnet-4-5-20250929"),
+    kit.WithCoreTools("read", "grep"), // only these core tools
+    kit.WithSessions(),                // persist sessions
+)
+\`\`\`
+
+\`KIT_*\` environment variables still apply. Subagents of an isolated Kit are
+isolated in the same way. \`Isolated()\` does not set \`Options.Bare\`: \`Bare\` is
+one switch for all discovery, while \`Isolated()\` uses the separate fields so
+you can turn each one back on.
 
 ## Per-instance config isolation
 
