@@ -222,6 +222,10 @@ func TestPreviewModeIgnoresEnvironment(t *testing.T) {
 // Zellij is the terminal that needs a direct placement, so detection must
 // report its placeholders as unusable.
 func TestUnicodePlaceholdersDetection(t *testing.T) {
+	// A daemon session sets the client's multiplexer here, and it wins over
+	// ZELLIJ. Clear it so the test does not depend on where it runs.
+	t.Setenv(RemoteMultiplexerEnv, "")
+
 	t.Setenv("ZELLIJ", "0")
 	if unicodePlaceholdersWork() {
 		t.Error("unicodePlaceholdersWork() = true in zellij, where the marks are stripped")
