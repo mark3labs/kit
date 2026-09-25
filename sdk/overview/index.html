@@ -7,7 +7,7 @@
 <meta name="description" content="Embed Kit in your Go applications.">
 <link rel="canonical" href="/sdk/overview">
 <link rel="stylesheet" href="/assets/index-D6d1s1_d.css">
-<script type="module" src="/assets/index-ShY6m5VX.js"></script>
+<script type="module" src="/assets/index-B4h_ah4p.js"></script>
 </head>
 <body>
 <div id="tome-root"></div>
@@ -567,9 +567,11 @@ _, err = host.ExecuteCompletion(ctx, kit.CompleteRequest{
 
 `InjectSteer` queues a user message that is injected between agent steps while
 a turn is active (after the current tool finishes, before the next LLM call).
-If no turn is running the message is dropped — check `IsGenerating()` first,
-or use `Prompt` / `Steer` for idle-state messaging. Unconsumed messages can be
-reclaimed with `DrainSteer` after the turn ends.
+The injected message stays in the conversation for all later steps of the turn
+and is saved to the session. If no turn is running, the message is kept and
+injected at the first step of the next turn. Use `Prompt` / `Steer` to start a
+new turn from the idle state. Messages that no step consumed (for example, the
+turn ended with a text-only response) can be reclaimed with `DrainSteer`.
 
 ```go
 go func() {

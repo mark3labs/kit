@@ -589,9 +589,11 @@ is closed when the call returns. The model can also name a
 <h2 id="mid-turn-steering"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#mid-turn-steering"><span class="icon icon-link"></span></a>Mid-turn steering</h2>
 <p><code>InjectSteer</code> queues a user message that is injected between agent steps while
 a turn is active (after the current tool finishes, before the next LLM call).
-If no turn is running the message is dropped — check <code>IsGenerating()</code> first,
-or use <code>Prompt</code> / <code>Steer</code> for idle-state messaging. Unconsumed messages can be
-reclaimed with <code>DrainSteer</code> after the turn ends.</p>
+The injected message stays in the conversation for all later steps of the turn
+and is saved to the session. If no turn is running, the message is kept and
+injected at the first step of the next turn. Use <code>Prompt</code> / <code>Steer</code> to start a
+new turn from the idle state. Messages that no step consumed (for example, the
+turn ended with a text-only response) can be reclaimed with <code>DrainSteer</code>.</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">go</span><span style="color:#D73A49;--shiki-dark:#F97583"> func</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // e.g. from a UI cancel/redirect button</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">IsGenerating</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
@@ -1511,9 +1513,11 @@ _, err = host.ExecuteCompletion(ctx, kit.CompleteRequest{
 
 \`InjectSteer\` queues a user message that is injected between agent steps while
 a turn is active (after the current tool finishes, before the next LLM call).
-If no turn is running the message is dropped — check \`IsGenerating()\` first,
-or use \`Prompt\` / \`Steer\` for idle-state messaging. Unconsumed messages can be
-reclaimed with \`DrainSteer\` after the turn ends.
+The injected message stays in the conversation for all later steps of the turn
+and is saved to the session. If no turn is running, the message is kept and
+injected at the first step of the next turn. Use \`Prompt\` / \`Steer\` to start a
+new turn from the idle state. Messages that no step consumed (for example, the
+turn ended with a text-only response) can be reclaimed with \`DrainSteer\`.
 
 \`\`\`go
 go func() {
