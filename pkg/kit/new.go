@@ -283,7 +283,7 @@ func buildSystemPrompt(v *viper.Viper, opts *Options, rc *resolvedConfig) {
 	// Check for per-model system prompt override when no explicit
 	// global system-prompt was configured by the user.
 	if !userSetSystemPrompt {
-		if p := perModelSystemPrompt(v); p != "" {
+		if p, ok := perModelSystemPrompt(v); ok {
 			basePrompt = p
 		}
 	}
@@ -332,16 +332,20 @@ func resolveConfig(opts *Options, providers map[string]ProviderFactory) (*viper.
 }
 
 // perModelSystemPrompt returns the per-model system prompt configured for the
-// store's current model, or "" when there is none. modelSettings takes
-// priority over custom model params.
-func perModelSystemPrompt(v *viper.Viper) string {
+// store's current model. modelSettings takes priority over custom model
+// params. ok is false when no per-model prompt is configured.
+//
+// When one is configured, ok is true even if the resolved value is empty
+// (e.g. it points to an empty file): the caller must still replace the
+// base prompt with it.
+func perModelSystemPrompt(v *viper.Viper) (prompt string, ok bool) {
 	modelStr := v.GetString("model")
 	if modelStr == "" {
-		return ""
+		return "", false
 	}
 	mi := models.LookupModelForSettings(modelStr)
 	if mi == nil {
-		return ""
+		return "", false
 	}
 	var perModelParams *models.GenerationParams
 	if ms := models.LoadModelSettingsFrom(v); ms != nil {
@@ -351,9 +355,9 @@ func perModelSystemPrompt(v *viper.Viper) string {
 		perModelParams = mi.Params
 	}
 	if perModelParams == nil || perModelParams.SystemPrompt == "" {
-		return ""
+		return "", false
 	}
-	return models.LoadSystemPromptValue(perModelParams.SystemPrompt)
+	return models.LoadSystemPromptValue(perModelParams.SystemPrompt), true
 }
 
 // resolveModelConfig snapshots the provider config and the scalar settings
