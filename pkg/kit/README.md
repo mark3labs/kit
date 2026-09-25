@@ -623,9 +623,12 @@ msg  := kit.ConvertFromLLMMessage(lMsg)  // LLMMessage  → SDK Message
   returns the full TurnResult
 - `Steer(ctx, instruction)` - System-level steering
 - `InjectSteer(message)` / `InjectSteerWithFiles(message, files)` - Queue a
-  mid-turn steering message (injected between steps while a turn is active)
+  mid-turn steering message (injected between steps while a turn is active;
+  kept in the conversation for the rest of the turn and saved to the session;
+  held for the next turn when idle)
 - `IsGenerating()` - True while an agent turn is in progress
-- `DrainSteer()` - Drain unconsumed `[]SteerMessage` after a turn completes
+- `DrainSteer()` - Drain unconsumed `[]SteerMessage` (after a turn completes,
+  or messages injected while idle)
 - `FollowUp(ctx, text)` - Continue without new user input
 - `ExecuteCompletion(ctx, CompleteRequest)` - One-shot LLM completion
   independent of the agent loop (optional model override, streaming via OnChunk)

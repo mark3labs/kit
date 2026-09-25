@@ -144,9 +144,15 @@ type Kit struct {
 	// steerCh is a buffered channel used to inject steering messages into
 	// the running agent turn via the LLM library's PrepareStep. Created fresh for
 	// each generate() call and set to nil when idle. Protected by steerMu.
-	steerMu       sync.Mutex
-	steerCh       chan agent.SteerMessage
-	leftoverSteer []agent.SteerMessage // unconsumed steer messages from the last turn
+	// All sends to steerCh happen while steerMu is held, so generate() can
+	// close the turn and collect unconsumed messages without losing any.
+	steerMu sync.Mutex
+	steerCh chan agent.SteerMessage
+	// leftoverSteer holds steer messages that no generation consumed: the
+	// messages left in steerCh when a turn ended, and messages injected
+	// while no turn was active. The next generate() call delivers them at
+	// its first step, unless DrainSteer removes them first.
+	leftoverSteer []agent.SteerMessage
 
 	// promptOptsMu protects shared agent state that can be mutated at runtime
 	// (model, thinking level, provider creds, extra tools). It serializes
@@ -2489,23 +2495,37 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 	collector := streamCollectorFromContext(ctx)
 	// Create a per-turn steer channel and attach it to the context so the
 	// agent's PrepareStep can inject steering messages between steps.
-	steerCh := make(chan agent.SteerMessage, 16)
+	// Messages that were injected while no turn was active (for example
+	// during turn setup or compaction) are moved into the new channel so
+	// the agent sees them at the first step of this turn.
 	m.steerMu.Lock()
+	pending := m.leftoverSteer
+	m.leftoverSteer = nil
+	steerCh := make(chan agent.SteerMessage, steerChBuffer+len(pending))
+	for _, sm := range pending {
+		steerCh <- sm
+	}
 	m.steerCh = steerCh
 	m.steerMu.Unlock()
 	defer func() {
-		// Drain any unconsumed steer messages before nilling the channel.
-		// These are stored in leftoverSteer so DrainSteer() can return them.
-		var leftover []agent.SteerMessage
+		// Close the turn for new steer messages and keep any unconsumed
+		// ones in leftoverSteer so DrainSteer() (or the next turn) can
+		// deliver them. InjectSteerWithFiles sends only while holding
+		// steerMu, so no message can land in steerCh after this point.
+		//
+		// While the turn is active, leftoverSteer only holds messages that
+		// did not fit in the full channel. Those are newer than the channel
+		// contents, so they go after them.
+		m.steerMu.Lock()
+		defer m.steerMu.Unlock()
+		m.steerCh = nil
+		var unconsumed []agent.SteerMessage
 		for {
 			select {
 			case msg := <-steerCh:
-				leftover = append(leftover, msg)
+				unconsumed = append(unconsumed, msg)
 			default:
-				m.steerMu.Lock()
-				m.steerCh = nil
-				m.leftoverSteer = leftover
-				m.steerMu.Unlock()
+				m.leftoverSteer = append(unconsumed, m.leftoverSteer...)
 				return
 			}
 		}
@@ -3058,11 +3078,16 @@ func (m *Kit) FollowUp(ctx context.Context, text string) (string, error) {
 // file attachments) as returned by DrainSteer.
 type SteerMessage = agent.SteerMessage
 
+// steerChBuffer is the base capacity of the per-turn steer channel.
+const steerChBuffer = 16
+
 // InjectSteer sends a steering message into the currently active agent turn.
 // The message will be injected as a user message between steps (after the
-// current tool execution finishes, before the next LLM call). If no turn is
-// active the message is silently dropped — callers should check IsGenerating()
-// or use Prompt()/Steer() for idle-state messaging.
+// current tool execution finishes, before the next LLM call). The injected
+// message stays in the conversation for all later steps and is saved to the
+// session. If no turn is active, the message is kept and delivered at the
+// first step of the next turn, or returned by DrainSteer. Use
+// Prompt()/Steer() to start a new turn from the idle state.
 //
 // InjectSteer is safe to call from any goroutine. Multiple calls queue
 // messages in order; all pending steer messages are drained and injected
@@ -3078,17 +3103,21 @@ func (m *Kit) InjectSteer(message string) {
 // (e.g. pasted images) into the currently active agent turn. Behaves like
 // InjectSteer but includes file parts in the injected user message.
 func (m *Kit) InjectSteerWithFiles(message string, files []LLMFilePart) {
+	msg := agent.SteerMessage{Text: message, Files: files}
 	m.steerMu.Lock()
-	ch := m.steerCh
-	m.steerMu.Unlock()
-	if ch == nil {
-		return
+	defer m.steerMu.Unlock()
+	if m.steerCh != nil {
+		select {
+		case m.steerCh <- msg:
+			return
+		default:
+			// Channel full: keep the message as a leftover so it is
+			// never dropped. It is delivered after this turn.
+		}
 	}
-	select {
-	case ch <- agent.SteerMessage{Text: message, Files: files}:
-	default:
-		// Channel full — extremely unlikely with buffer of 16, but don't block.
-	}
+	// No active turn (or channel full): keep the message so the next
+	// turn or DrainSteer() delivers it.
+	m.leftoverSteer = append(m.leftoverSteer, msg)
 }
 
 // IsGenerating returns true if an agent turn is currently in progress.
@@ -3102,32 +3131,33 @@ func (m *Kit) IsGenerating() bool {
 // DrainSteer removes and returns all unconsumed steer messages. Called after
 // a turn completes so the app layer can process any steer messages that
 // arrived after the last PrepareStep fired (e.g. during a text-only response
-// with no tool calls, or after the agent finished its last step).
+// with no tool calls, or after the agent finished its last step), or that
+// were injected while no turn was active.
 func (m *Kit) DrainSteer() []SteerMessage {
 	m.steerMu.Lock()
 	defer m.steerMu.Unlock()
 
-	// First check leftover messages saved when generate() returned.
-	if len(m.leftoverSteer) > 0 {
-		msgs := m.leftoverSteer
-		m.leftoverSteer = nil
-		return msgs
-	}
-
-	// If a turn is still active, drain from the live channel.
+	// If a turn is still active, drain the live channel first. While a
+	// turn is active, leftoverSteer only holds messages that did not fit
+	// in the full channel, so they are newer than the channel contents.
+	var msgs []agent.SteerMessage
 	if m.steerCh != nil {
-		var msgs []agent.SteerMessage
+	drain:
 		for {
 			select {
 			case msg := <-m.steerCh:
 				msgs = append(msgs, msg)
 			default:
-				return msgs
+				break drain
 			}
 		}
 	}
-
-	return nil
+	msgs = append(msgs, m.leftoverSteer...)
+	m.leftoverSteer = nil
+	if len(msgs) == 0 {
+		return nil
+	}
+	return msgs
 }
 
 // PromptOptions configures a single PromptWithOptions call.

@@ -366,15 +366,21 @@ func (a *App) SteerWithFiles(prompt string, files []kit.LLMFilePart) int {
 		return 0
 	}
 
-	a.mu.Unlock()
-
 	// Agent is busy — inject via the SDK's steer channel. The message
 	// will be picked up by PrepareStep between agent steps (after tool
-	// execution, before next LLM call). If PrepareStep doesn't fire
-	// (text-only response), drainQueue will pick it up after the turn.
+	// execution, before next LLM call). If no generation is running (turn
+	// setup, compaction) the SDK keeps the message for the next step or
+	// turn. If PrepareStep doesn't fire again (text-only response),
+	// drainQueue picks it up after the turn.
+	//
+	// Inject while holding a.mu: drainQueue and releaseBusyAfterCompact
+	// drain the SDK steer messages and clear busy under a.mu, so this
+	// message is either consumed by them or seen by the running turn —
+	// never stranded after the app goes idle.
 	if a.opts.Kit != nil {
 		a.opts.Kit.InjectSteerWithFiles(prompt, files)
 	}
+	a.mu.Unlock()
 	return 1
 }
 
@@ -715,24 +721,12 @@ func (a *App) CompactAsync(customInstructions string, onComplete func(), onError
 // set, splice the steer messages to the front of the queue, and start a
 // fresh drainQueue goroutine to deliver them as a single batched turn.
 func (a *App) releaseBusyAfterCompact() {
-	// Pull steer messages outside the app mutex; DrainSteer takes its own
-	// internal lock and we don't want to nest the two. The test seam
-	// (a.steerDrainFn) takes precedence so unit tests can inject fake
-	// steer items without a real *kit.Kit.
-	var steerItems []queueItem
-	switch {
-	case a.steerDrainFn != nil:
-		steerItems = a.steerDrainFn()
-	case a.opts.Kit != nil:
-		if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
-			steerItems = make([]queueItem, len(leftover))
-			for i, sm := range leftover {
-				steerItems[i] = queueItem{Prompt: sm.Text, Files: sm.Files}
-			}
-		}
-	}
-
 	a.mu.Lock()
+	// Pull steer messages while holding a.mu. SteerWithFiles injects while
+	// holding a.mu too, so no steer message can arrive between this drain
+	// and the busy=false transition below.
+	steerItems := a.drainSteerItemsLocked()
+
 	// If the app was closed while compaction was running, drop everything
 	// and just clear busy. Run/Steer would have rejected new items already
 	// after Close(), but this guards against in-flight items that slipped
@@ -921,50 +915,68 @@ func (a *App) drainQueue(first queueItem) {
 		// Process all collected items as a single batch
 		a.runQueueBatch(items)
 
-		// Drain any unconsumed steer messages from the SDK channel.
-		// These arrive when the user steered during a text-only response
-		// (no tool calls, so PrepareStep didn't fire for a second step).
-		// They go to the front of the queue so they run next.
-		if a.opts.Kit != nil {
-			if leftover := a.opts.Kit.DrainSteer(); len(leftover) > 0 {
-				a.mu.Lock()
-				steerItems := make([]queueItem, len(leftover))
-				for i, sm := range leftover {
-					steerItems[i] = queueItem{Prompt: sm.Text, Files: sm.Files}
-				}
-				a.queue = append(steerItems, a.queue...)
-				a.mu.Unlock()
-				// Notify UI about the consumed steer messages.
-				a.sendEvent(SteerConsumedEvent{})
-			}
-		}
-
-		// Check if more items were queued while we were processing
+		// Collect unconsumed steer messages and newly queued prompts, and
+		// clear busy if there is nothing left, all in one critical
+		// section. Steer messages arrive here when the user steered
+		// during a text-only response (no tool calls, so PrepareStep
+		// didn't fire for a second step) or while no generation was
+		// running. SteerWithFiles injects while holding a.mu, so no steer
+		// message can arrive between this check and the busy=false
+		// transition and then be stranded.
 		a.mu.Lock()
+		steerItems := a.drainSteerItemsLocked()
+		if len(steerItems) > 0 {
+			// Steer messages go to the front of the queue so they run next.
+			a.queue = append(steerItems, a.queue...)
+		}
 		hasMore := len(a.queue) > 0
 		if hasMore {
-			// Start a new batch with the newly queued items
+			// Start a new batch with the newly queued items. Give the
+			// batch its own slice so later Run() appends to a.queue
+			// cannot write into it.
 			items = a.queue
-			a.queue = a.queue[:0]
+			a.queue = nil
+		} else {
+			a.setBusyLocked(false)
 		}
 		a.mu.Unlock()
 
-		if hasMore {
-			// Notify UI: these newly queued messages have been consumed into the next batch.
-			a.sendEvent(QueueUpdatedEvent{Length: 0})
+		if len(steerItems) > 0 {
+			// Notify UI about the consumed steer messages.
+			a.sendEvent(SteerConsumedEvent{})
 		}
 
 		if !hasMore {
 			// No more items, we're done
-			break
+			return
 		}
-		// Process the new batch
-	}
 
-	// Mark as no longer busy
-	a.mu.Lock()
-	a.setBusyLocked(false)
-	a.mu.Unlock()
+		// Notify UI: these newly queued messages have been consumed into the next batch.
+		a.sendEvent(QueueUpdatedEvent{Length: 0})
+	}
+}
+
+// drainSteerItemsLocked removes all unconsumed steer messages from the SDK
+// and returns them as queue items. The test seam (a.steerDrainFn) takes
+// precedence so unit tests can inject fake steer items without a real
+// *kit.Kit. Must be called with a.mu held; the lock order is a.mu, then
+// the SDK's internal steer lock.
+func (a *App) drainSteerItemsLocked() []queueItem {
+	switch {
+	case a.steerDrainFn != nil:
+		return a.steerDrainFn()
+	case a.opts.Kit != nil:
+		leftover := a.opts.Kit.DrainSteer()
+		if len(leftover) == 0 {
+			return nil
+		}
+		items := make([]queueItem, len(leftover))
+		for i, sm := range leftover {
+			items[i] = queueItem{Prompt: sm.Text, Files: sm.Files}
+		}
+		return items
+	}
+	return nil
 }
 
 // runQueueBatch executes multiple queue items as a single agent turn.

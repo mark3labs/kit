@@ -966,12 +966,19 @@ func TestReleaseBusyAfterCompact_splicesSteerAheadOfQueue(t *testing.T) {
 
 	// Inject fake steer items via the test seam. In production the same
 	// items would have been delivered through Kit.InjectSteerWithFiles
-	// during /compact and pulled by DrainSteer here.
+	// during /compact and pulled by DrainSteer here. Like DrainSteer, the
+	// seam returns the items once: drainQueue also calls it after every
+	// batch.
+	var drained sync.Once
 	app.steerDrainFn = func() []queueItem {
-		return []queueItem{
-			{Prompt: "steer-1"},
-			{Prompt: "steer-2"},
-		}
+		var items []queueItem
+		drained.Do(func() {
+			items = []queueItem{
+				{Prompt: "steer-1"},
+				{Prompt: "steer-2"},
+			}
+		})
+		return items
 	}
 
 	// Simulate the state at the end of compaction: busy is set and a couple
@@ -1467,5 +1474,59 @@ func TestBusyTransitionsSignalIdleCh(t *testing.T) {
 	case <-ch2:
 	case <-time.After(3 * time.Second):
 		t.Fatal("idleCh was never closed after drain completed")
+	}
+}
+
+// TestDrainQueue_runsLeftoverSteerAsNextTurn verifies that steer messages the
+// running turn did not consume (text-only response, or injected while no
+// generation was running) are collected by drainQueue before the app goes
+// idle and run as the next turn. The drain and the busy=false transition
+// happen in one critical section, so the message is never stranded.
+func TestDrainQueue_runsLeftoverSteerAsNextTurn(t *testing.T) {
+	var pmu sync.Mutex
+	var prompts []string
+	promptFn := func(_ context.Context, prompt string) (*kit.TurnResult, error) {
+		pmu.Lock()
+		prompts = append(prompts, prompt)
+		pmu.Unlock()
+		return turnResult("ok"), nil
+	}
+	app := New(Options{PromptFunc: promptFn}, nil)
+	defer app.Close()
+
+	// The seam returns one leftover steer message after the first batch,
+	// like DrainSteer does after a turn that ended before PrepareStep
+	// could inject it.
+	var drainCalls int
+	app.steerDrainFn = func() []queueItem {
+		drainCalls++
+		if drainCalls == 1 {
+			return []queueItem{{Prompt: "leftover-steer"}}
+		}
+		return nil
+	}
+
+	app.Run("first")
+
+	ok := waitForCondition(2*time.Second, func() bool {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+		return !app.busy
+	})
+	if !ok {
+		t.Fatal("app did not become idle")
+	}
+	app.wg.Wait()
+
+	pmu.Lock()
+	defer pmu.Unlock()
+	want := []string{"first", "leftover-steer"}
+	if len(prompts) != len(want) {
+		t.Fatalf("expected prompts %v, got %v", want, prompts)
+	}
+	for i := range want {
+		if prompts[i] != want[i] {
+			t.Fatalf("expected prompts %v, got %v", want, prompts)
+		}
 	}
 }
