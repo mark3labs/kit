@@ -996,6 +996,13 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	onConsumed := steerConsumedFromContext(ctx)
 	hasSteering := steerCh != nil
 	hasPrepareStepHook := cb.OnPrepareStep != nil
+	// injectedSteer records every steer message injected during this turn
+	// and where it was injected. The LLM library rebuilds each step's
+	// prompt from the original prompt plus the step responses, so messages
+	// added in PrepareStep apply to one step only. To keep steer messages
+	// in the conversation for all later steps, PrepareStep puts them back
+	// at their recorded positions on every step.
+	var injectedSteer []steerInjection
 
 	streamCall.PrepareStep = func(
 		stepCtx context.Context,
@@ -1003,7 +1010,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	) (context.Context, fantasy.PrepareStepResult, error) {
 		result := fantasy.PrepareStepResult{
 			Model:    opts.Model,
-			Messages: opts.Messages,
+			Messages: withSteerInjections(opts.Messages, injectedSteer),
 			// Re-read the live tool set so mid-turn tool changes are
 			// honored. composeAllTools matches the composition baked
 			// into the fantasy agent, so in the steady state this is
@@ -1024,10 +1031,27 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 		done:
 			if len(steered) > 0 {
+				newMessages := make([]fantasy.Message, 0, len(steered))
 				for _, sm := range steered {
-					result.Messages = append(result.Messages,
-						fantasy.NewUserMessage(sm.Text, sm.Files...))
+					msg := fantasy.NewUserMessage(sm.Text, sm.Files...)
+					newMessages = append(newMessages, msg)
+					injectedSteer = append(injectedSteer, steerInjection{
+						pos: len(opts.Messages),
+						msg: msg,
+					})
 				}
+				result.Messages = append(result.Messages, newMessages...)
+
+				// The previous step's messages were already recorded in
+				// OnStepFinish, so appending here keeps the order of the
+				// conversation. Persist now so the steer message survives
+				// a cancel, an error, and a session reload.
+				completedStepMessages = append(completedStepMessages, newMessages...)
+				if cb.OnStepMessages != nil {
+					cb.OnStepMessages(newMessages)
+					persistedCount += len(newMessages)
+				}
+
 				if onConsumed != nil {
 					onConsumed(len(steered))
 				}
@@ -1100,8 +1124,56 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	}
 
 	r := convertAgentResult(result, messages)
+	if len(injectedSteer) > 0 {
+		// result.Steps does not contain the injected steer messages.
+		// completedStepMessages has every step message plus the steer
+		// messages in conversation order, so build the result from it.
+		// This keeps PersistedMessageCount aligned with
+		// ConversationMessages.
+		r.ConversationMessages = make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
+		r.ConversationMessages = append(r.ConversationMessages, messages...)
+		r.ConversationMessages = append(r.ConversationMessages, completedStepMessages...)
+		r.Messages = make([]message.Message, 0, len(r.ConversationMessages))
+		for _, fm := range r.ConversationMessages {
+			r.Messages = append(r.Messages, message.FromLLMMessage(fm))
+		}
+	}
 	r.PersistedMessageCount = persistedCount
 	return r, nil
+}
+
+// steerInjection is a steer message that PrepareStep injected into the
+// step prompt. pos is the length of the prompt that the LLM library gave
+// to PrepareStep at injection time, which does not include earlier
+// injections.
+type steerInjection struct {
+	pos int
+	msg fantasy.Message
+}
+
+// withSteerInjections returns base with each injected steer message put
+// back at its recorded position. The LLM library builds base as the
+// original prompt plus the step responses and only appends to it, so a
+// position recorded in an earlier step points to the same place in all
+// later steps. injections must be in the order they were recorded. When
+// there are no injections, base is returned as is.
+func withSteerInjections(base []fantasy.Message, injections []steerInjection) []fantasy.Message {
+	if len(injections) == 0 {
+		return base
+	}
+	out := make([]fantasy.Message, 0, len(base)+len(injections))
+	next := 0
+	for i, msg := range base {
+		for next < len(injections) && injections[next].pos <= i {
+			out = append(out, injections[next].msg)
+			next++
+		}
+		out = append(out, msg)
+	}
+	for ; next < len(injections); next++ {
+		out = append(out, injections[next].msg)
+	}
+	return out
 }
 
 // generateSimple runs the agent loop through the non-streaming call. It is
