@@ -121,6 +121,11 @@ type ToolOutput struct {
 	// (model calls a finish(...) tool, the loop ends, the typed value is
 	// returned) no longer need a side-channel.
 	//
+	// After a step that contains a halted call, the loop does not ask the
+	// model for another completion. Other tool calls in the SAME step as the
+	// halted call still run, because the calls of one step execute together;
+	// only later steps are prevented.
+	//
 	// # Supported suspension mechanism
 	//
 	// Halt together with FinalValue is a supported way to suspend an agent
@@ -238,6 +243,9 @@ func toolOutputToResponse(result ToolOutput) fantasy.ToolResponse {
 		IsError:   result.IsError,
 		Data:      result.Data,
 		MediaType: result.MediaType,
+		// Halt must end the agent loop: without StopTurn the loop asks
+		// the model for another step, with every tool still offered.
+		StopTurn: result.Halt,
 	}
 	// Infer response type from binary data so the downstream framework
 	// creates a media content block instead of a plain-text one.
