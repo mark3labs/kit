@@ -50,7 +50,6 @@ claude-4-opus-latest      → claude-opus-4-6
 claude-4-sonnet-latest    → claude-sonnet-4-6
 claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
-claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
 ```
 
 ### OpenAI GPT

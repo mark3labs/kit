@@ -189,9 +189,9 @@ func TestModelAliasNoSelfMapping(t *testing.T) {
 // behaviour: an alias that does not resolve for the requested provider must
 // return the original name so the caller can report "unknown model".
 func TestResolveModelAliasFallsBackWhenTargetMissing(t *testing.T) {
-	// claude-3-5-haiku-latest resolves on some aggregators but not on openai.
-	if got := resolveModelAlias("openai", "claude-3-5-haiku-latest"); got != "claude-3-5-haiku-latest" {
-		t.Errorf("resolveModelAlias(openai, claude-3-5-haiku-latest) = %q, want the input unchanged", got)
+	// claude-3-7-sonnet-latest resolves on some aggregators but not on openai.
+	if got := resolveModelAlias("openai", "claude-3-7-sonnet-latest"); got != "claude-3-7-sonnet-latest" {
+		t.Errorf("resolveModelAlias(openai, claude-3-7-sonnet-latest) = %q, want the input unchanged", got)
 	}
 	// A name that is not an alias at all passes through untouched.
 	if got := resolveModelAlias("anthropic", "some-unknown-model"); got != "some-unknown-model" {
