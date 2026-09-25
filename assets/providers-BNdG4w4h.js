@@ -93,8 +93,7 @@ var e={frontmatter:{title:`Providers`,description:`Supported LLM providers and m
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-opus-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">      →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-opus-4-6</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">    →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-sonnet-4-6</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-4-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">     →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-haiku-4-5</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-7-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-7-sonnet-20250219</span></span>
-<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-5-haiku-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">   →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-5-haiku-20241022</span></span></code></pre>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">claude-3-7-sonnet-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">  →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> claude-3-7-sonnet-20250219</span></span></code></pre>
 <h3 id="openai-gpt"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#openai-gpt"><span class="icon icon-link"></span></a>OpenAI GPT</h3>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o1-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o1</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">o3-latest</span><span style="color:#032F62;--shiki-dark:#9ECBFF">                 →</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> o3</span></span>
@@ -340,7 +339,6 @@ claude-4-opus-latest      → claude-opus-4-6
 claude-4-sonnet-latest    → claude-sonnet-4-6
 claude-4-haiku-latest     → claude-haiku-4-5
 claude-3-7-sonnet-latest  → claude-3-7-sonnet-20250219
-claude-3-5-haiku-latest   → claude-3-5-haiku-20241022
 \`\`\`
 
 ### OpenAI GPT
