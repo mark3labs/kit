@@ -26,7 +26,6 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
-	"github.com/mark3labs/kit/internal/skilltool"
 	"github.com/mark3labs/kit/internal/tools"
 
 	"github.com/spf13/viper"
@@ -1654,437 +1653,25 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, fmt.Errorf("invalid Options.Providers: %w", err)
 	}
 
-	// Construct this Kit's configuration store. SDK callers get a fresh,
-	// isolated *viper.Viper so concurrent constructions never clobber each
-	// other. The CLI (Options.CLI != nil) shares the process-global store so
-	// its cobra flag bindings and pre-loaded config remain visible.
-	var v *viper.Viper
-	if opts.CLI != nil {
-		v = viper.GetViper()
-	} else {
-		v = viper.New()
-	}
-
-	var (
-		providerConfig        *models.ProviderConfig
-		modelString           string
-		cwd                   string
-		contextFiles          []*ContextFile
-		loadedSkills          []*Skill
-		namedAgents           []*AgentDefinition
-		mcpConfig             *config.Config
-		debug                 bool
-		noExtensions          bool
-		toolList              []string
-		maxSteps              int
-		streaming             bool
-		shellTimeout          int
-		shellMaxTimeout       int
-		shell                 []string
-		hasCustomSystemPrompt bool
-		systemPromptSource    string
-		capturedBasePrompt    string
-	)
-
-	if err := func() error {
-		// Set CLI-equivalent defaults on the instance store. When used as an
-		// SDK (without cobra), these defaults are not registered via flag bindings.
-		setSDKDefaults(v)
-
-		// Initialize config (loads config files and env vars) into the instance
-		// store. The CLI shares the process-global store, which cobra.OnInitialize
-		// has already populated, so re-running initConfig there is unnecessary;
-		// SDK callers get a fresh isolated store that must be loaded here.
-		// We key off opts.CLI (not a config value) because setSDKDefaults always
-		// seeds "model", which would otherwise mask an empty store.
-		// SkipConfig bypasses .kit.yml file loading (viper defaults and env vars still apply).
-		if opts.SkipConfig && opts.CLI == nil {
-			// initConfig is skipped, so register the KIT_* overrides here.
-			bindEnv(v)
-		}
-		if !opts.SkipConfig && opts.CLI == nil {
-			// createDefault=false: an embedding application must not have
-			// kit drop a ~/.kit.yml into its users' home directories.
-			if err := initConfig(v, opts.ConfigFile, false, opts.Bare, false); err != nil {
-				return fmt.Errorf("failed to initialize config: %w", err)
-			}
-		}
-
-		// Handle CLI debug mode.
-		if opts.Debug {
-			v.Set("debug", true)
-		}
-
-		// Override instance settings with options.
-		if opts.Model != "" {
-			v.Set("model", opts.Model)
-		}
-		if opts.SystemPrompt != "" {
-			v.Set("system-prompt", opts.SystemPrompt)
-		}
-		if opts.MaxSteps > 0 {
-			v.Set("max-steps", opts.MaxSteps)
-		}
-		// Only override streaming when the caller explicitly set it. Otherwise
-		// leave the precedence chain (env → config → default true) untouched so a
-		// zero-valued Options does not silently force stream=false.
-		if opts.Streaming != nil {
-			v.Set("stream", *opts.Streaming)
-		}
-
-		// Generation parameter overrides. Each Options field, when set,
-		// is pushed into the instance store here so the existing downstream
-		// code (BuildProviderConfig, SetModel, modelSettings lookups) picks
-		// it up uniformly. Pointer-typed sampling params use Set only when
-		// non-nil so that nil means "leave provider/per-model default in
-		// place" (BuildProviderConfig keys off IsSet).
-		if opts.MaxTokens > 0 {
-			v.Set("max-tokens", opts.MaxTokens)
-		}
-		if opts.ThinkingLevel != "" {
-			v.Set("thinking-level", opts.ThinkingLevel)
-		}
-		if opts.Temperature != nil {
-			v.Set("temperature", *opts.Temperature)
-		}
-		if opts.TopP != nil {
-			v.Set("top-p", *opts.TopP)
-		}
-		if opts.TopK != nil {
-			v.Set("top-k", *opts.TopK)
-		}
-		if opts.FrequencyPenalty != nil {
-			v.Set("frequency-penalty", *opts.FrequencyPenalty)
-		}
-		if opts.PresencePenalty != nil {
-			v.Set("presence-penalty", *opts.PresencePenalty)
-		}
-
-		// Provider overrides. TLSSkipVerify only takes effect when true —
-		// callers wanting to force-disable should use the config file or
-		// env var instead.
-		if opts.ProviderAPIKey != "" {
-			v.Set("provider-api-key", opts.ProviderAPIKey)
-		}
-		if opts.ProviderURL != "" {
-			v.Set("provider-url", opts.ProviderURL)
-		}
-		if opts.ProviderWire != "" {
-			v.Set("provider-wire", opts.ProviderWire)
-		}
-		if opts.TLSSkipVerify {
-			v.Set("tls-skip-verify", true)
-		}
-
-		// Resolve working directory for context/skill discovery.
-		cwd = opts.SessionDir
-		if cwd == "" {
-			cwd, _ = os.Getwd()
-		}
-
-		// Load context files (AGENTS.md) from the project root.
-		if !opts.NoContextFiles && !opts.Bare {
-			contextFiles = loadContextFiles(cwd)
-		}
-
-		// Load skills — either from explicit paths or via auto-discovery.
-		// Merge viper config with opts: CLI flag / config file values are
-		// already bound to viper by cmd/root.go, so v.GetBool("no-skills"),
-		// v.GetStringSlice("skill"), and v.GetString("skills-dir") capture
-		// both --flag and .kit.yml keys transparently.
-		noSkills := opts.NoSkills || v.GetBool("no-skills")
-		skillPaths := opts.Skills
-		if len(skillPaths) == 0 {
-			skillPaths = v.GetStringSlice("skill")
-		}
-		skillsDir := opts.SkillsDir
-		if skillsDir == "" {
-			skillsDir = v.GetString("skills-dir")
-		}
-		if !noSkills {
-			mergedOpts := *opts
-			mergedOpts.Skills = skillPaths
-			mergedOpts.SkillsDir = skillsDir
-			var err error
-			loadedSkills, err = loadSkills(&mergedOpts)
-			if err != nil {
-				return fmt.Errorf("failed to load skills: %w", err)
-			}
-
-			// Apply per-skill disable list (--skill-disable / skill-disable
-			// config key). Disabled skills stay loaded (so /<name> still
-			// works) but are hidden from the model-facing catalog.
-			disable := opts.SkillsDisable
-			if len(disable) == 0 {
-				disable = v.GetStringSlice("skill-disable")
-			}
-			applySkillDisableList(loadedSkills, disable)
-		}
-
-		// Discover named agent definitions (built-ins + .agents/agents/,
-		// .kit/agents/, ~/.config/kit/agents/). They are advertised in the
-		// subagent tool description and resolvable via SubagentConfig.Agent.
-		// Per-file parse failures are non-fatal: usable agents still load and
-		// a warning is printed unless quiet.
-		if !opts.NoAgents && !opts.Bare && !v.GetBool("no-agents") {
-			var agErr error
-			namedAgents, agErr = LoadAgentDefinitions(cwd)
-			if agErr != nil && !opts.Quiet {
-				fmt.Fprintf(os.Stderr, "Warning: failed to load some agent definitions: %v\n", agErr)
-			}
-		}
-
-		// Always compose the system prompt with runtime context: base prompt +
-		// AGENTS.md context + skills metadata + date/cwd.
-		//
-		// If the configured model has a per-model system prompt (via
-		// modelSettings or customModels params) and the user hasn't
-		// explicitly set system-prompt, use the per-model prompt as the
-		// base instead of the global default.
-		{
-			rawPromptInput := v.GetString("system-prompt")
-
-			// Resolve a file path to its content so PromptBuilder receives the
-			// actual prompt text rather than a literal path string. Without this,
-			// when system-prompt is set to a file path in the config file or via
-			// --system-prompt, the path itself becomes the effective system prompt
-			// sent to the model (LoadSystemPrompt only ran later, after viper had
-			// been overwritten with the augmented base text).
-			basePrompt, _ := config.LoadSystemPrompt(rawPromptInput)
-			if basePrompt == "" {
-				basePrompt = rawPromptInput
-			}
-
-			// Track whether the user explicitly configured a custom system
-			// prompt. When they haven't (basePrompt is the built-in default
-			// or empty), per-model system prompts can replace it on switch.
-			userSetSystemPrompt := basePrompt != "" && basePrompt != defaultSystemPrompt
-			hasCustomSystemPrompt = userSetSystemPrompt
-			if hasCustomSystemPrompt {
-				systemPromptSource = rawPromptInput
-			}
-
-			// Check for per-model system prompt override when no explicit
-			// global system-prompt was configured by the user.
-			if !userSetSystemPrompt {
-				modelStr := v.GetString("model")
-				if modelStr != "" {
-					if mi := models.LookupModelForSettings(modelStr); mi != nil {
-						var perModelParams *models.GenerationParams
-						// modelSettings takes priority over custom model params.
-						if ms := models.LoadModelSettingsFrom(v); ms != nil {
-							perModelParams = ms[modelStr]
-						}
-						if perModelParams == nil && mi.Params != nil {
-							perModelParams = mi.Params
-						}
-						if perModelParams != nil && perModelParams.SystemPrompt != "" {
-							basePrompt = models.LoadSystemPromptValue(perModelParams.SystemPrompt)
-						}
-					}
-				}
-			}
-
-			pb := skills.NewPromptBuilder(basePrompt)
-
-			// Capture the resolved base prompt so RefreshSystemPrompt can
-			// recompose later after runtime skill/context-file mutations.
-			capturedBasePrompt = basePrompt
-
-			// Inject AGENTS.md content as project context.
-			for _, cf := range contextFiles {
-				pb.WithSection("", fmt.Sprintf("Instructions from: %s\n\n%s", cf.Path, cf.Content))
-			}
-
-			// Inject skills metadata (name + description + location).
-			if len(loadedSkills) > 0 {
-				pb.WithSkills(loadedSkills)
-			}
-
-			// Append current date/time and working directory.
-			pb.WithSection("", environmentSection(cwd, opts.Bare))
-
-			v.Set("system-prompt", pb.Build())
-		}
-
-		// Snapshot all instance-derived values now.
-		// BuildProviderConfig is fast (pure reads).
-		var pcErr error
-		providerConfig, _, pcErr = kitsetup.BuildProviderConfig(v)
-		if pcErr != nil {
-			return fmt.Errorf("failed to build provider config: %w", pcErr)
-		}
-
-		// SDK last-resort max-tokens floor. When nothing — Options, env,
-		// config, nor a per-model default — supplied a value, we land on
-		// zero here (GetInt returns 0 for unset keys). Apply the
-		// SDK default directly on the struct rather than via the store so
-		// IsSet("max-tokens") stays false: downstream right-sizing
-		// can still raise this toward the model's known output ceiling,
-		// and per-model modelSettings[...].maxTokens can still win.
-		if providerConfig.MaxTokens == 0 && opts.MaxTokens == 0 {
-			providerConfig.MaxTokens = sdkDefaultMaxTokens
-		}
-		providerConfig.ProviderFactories = providers
-		modelString = v.GetString("model")
-		debug = v.GetBool("debug")
-		noExtensions = opts.NoExtensions || v.GetBool("no-extensions")
-		toolList = opts.CoreToolList
-		if toolList == nil {
-			var err error
-			toolList, err = FilterCoreToolNames(v.GetStringSlice("include-core-tools"), v.GetStringSlice("exclude-core-tools"))
-			if err != nil {
-				return err
-			}
-		}
-		toolList = handleCoreToolList(toolList, opts.DisableCoreTools || v.GetBool("no-core-tools"))
-		maxSteps = v.GetInt("max-steps")
-		streaming = v.GetBool("stream")
-		// Each of the two timeouts has a shell-named form and the bash-named
-		// form it had before the tool's shell became configurable; see
-		// resolveShellTimeouts for the precedence.
-		shellTimeout, shellMaxTimeout = resolveShellTimeouts(opts, v)
-		shell = opts.Shell
-		if len(shell) == 0 {
-			shell = v.GetStringSlice("shell")
-		}
-
-		return nil
-	}(); err != nil {
+	v, rc, err := resolveConfig(opts, providers)
+	if err != nil {
 		return nil, err
 	}
 	// ---- config snapshot complete — heavy I/O below ----
 
-	// Load MCP configuration. Use pre-loaded config if provided directly,
-	// via CLI options, or load from the instance store as a last resort.
-	if opts.MCPConfig != nil {
-		mcpConfig = opts.MCPConfig
-	} else if opts.CLI != nil && opts.CLI.MCPConfig != nil {
-		mcpConfig = opts.CLI.MCPConfig
-	}
-	if mcpConfig == nil {
-		var err error
-		mcpConfig, err = config.LoadAndValidateConfigFrom(v)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load MCP config: %w", err)
-		}
+	mcpConfig, err := resolveMCPConfig(v, opts)
+	if err != nil {
+		return nil, err
 	}
 
-	// Merge in-process MCP servers from Options into the MCP config.
-	// These are programmatically-provided *server.MCPServer instances that
-	// bypass subprocess spawning and network I/O.
-	if len(opts.InProcessMCPServers) > 0 {
-		if mcpConfig.MCPServers == nil {
-			mcpConfig.MCPServers = make(map[string]config.MCPServerConfig, len(opts.InProcessMCPServers))
-		}
-		for name, srv := range opts.InProcessMCPServers {
-			mcpConfig.MCPServers[name] = config.MCPServerConfig{
-				Type:            "inprocess",
-				InProcessServer: srv,
-			}
-		}
-	}
+	hooks := newHookSet()
 
-	// Pre-create hook registries so the tool wrapper can reference them.
-	// Hooks registered after New() returns are still invoked because the
-	// wrapper captures the registries by pointer.
-	beforeToolCall := newHookRegistry[BeforeToolCallHook, BeforeToolCallResult]()
-	afterToolResult := newHookRegistry[AfterToolResultHook, AfterToolResultResult]()
-	beforeTurn := newHookRegistry[BeforeTurnHook, BeforeTurnResult]()
-	afterTurn := newHookRegistry[AfterTurnHook, AfterTurnResult]()
-	contextPrepare := newHookRegistry[ContextPrepareHook, ContextPrepareResult]()
-	beforeCompact := newHookRegistry[BeforeCompactHook, BeforeCompactResult]()
-	prepareStep := newHookRegistry[PrepareStepHook, PrepareStepResult]()
-
-	// Build agent setup options, pulling CLI-specific fields when available.
-	// Pass the pre-built ProviderConfig and scalar viper snapshots so
-	// SetupAgent doesn't need to re-read viper (which would require the lock).
-
-	// Register the dedicated activate_skill tool when at least one skill is
-	// loaded (issue #65, gaps #13/#14). The provider closure reads the live
-	// skill set from the Kit instance once it exists so runtime additions
-	// resolve; skillToolKit is assigned after construction below.
+	// skillToolKit is assigned once the Kit exists (below) so the
+	// activate_skill provider resolves skills mutated after construction.
 	var skillToolKit *Kit
-	extraTools := opts.ExtraTools
-	if len(loadedSkills) > 0 {
-		names := make([]string, 0, len(loadedSkills))
-		for _, s := range loadedSkills {
-			if !s.DisableModelInvocation {
-				names = append(names, s.Name)
-			}
-		}
-		provider := func() []*skills.Skill {
-			if skillToolKit == nil {
-				return loadedSkills
-			}
-			return skillToolKit.GetSkills()
-		}
-		if t := skilltool.New(names, provider); t != nil {
-			extraTools = append(extraTools, t)
-		}
-	}
+	extraTools := withSkillTool(opts.ExtraTools, rc.loadedSkills, func() *Kit { return skillToolKit })
 
-	setupOpts := kitsetup.AgentSetupOptions{
-		MCPConfig:               mcpConfig,
-		Quiet:                   opts.Quiet,
-		CoreTools:               opts.Tools,
-		CoreToolList:            toolList,
-		ExtraTools:              extraTools,
-		NamedAgents:             namedAgentSpecs(namedAgents),
-		ShellTimeout:            shellTimeout,
-		ShellMaxTimeout:         shellMaxTimeout,
-		Shell:                   shell,
-		ToolWrapper:             hookToolWrapper(beforeToolCall, afterToolResult),
-		ProviderConfig:          providerConfig,
-		Debug:                   debug,
-		DebugLogger:             opts.DebugLogger,
-		NoExtensions:            noExtensions,
-		AllowMissingCredentials: opts.AllowMissingCredentials,
-		Bare:                    opts.Bare,
-		MaxSteps:                maxSteps,
-		StreamingEnabled:        streaming,
-		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
-		MCPTaskConfig: mcpTaskOptions{
-			perServer:       opts.MCPTaskMode,
-			defaultTTL:      opts.MCPTaskTTL,
-			pollInterval:    opts.MCPTaskPollInterval,
-			maxPollInterval: opts.MCPTaskMaxPollInterval,
-			timeout:         opts.MCPTaskTimeout,
-			progress:        opts.MCPTaskProgress,
-		}.toToolsConfig(),
-		Viper: v,
-	}
-
-	// Set up OAuth handler for remote MCP servers. The SDK does not create
-	// a default handler: auto-construction would bind a local TCP port and
-	// (historically) shell out to a browser without the consumer asking,
-	// which is a surprise for library/daemon/web-app embedders. Consumers
-	// that want CLI behavior pass a [CLIMCPAuthHandler] explicitly; other
-	// consumers implement [MCPAuthHandler] themselves. If nil, remote MCP
-	// servers requiring OAuth will fail to connect with the underlying
-	// authorization-required error surfaced to the caller.
-	//
-	// The SDK MCPAuthHandler interface is structurally identical to
-	// tools.MCPAuthHandler, so any implementation satisfies both.
-	if opts.MCPAuthHandler != nil {
-		setupOpts.AuthHandler = opts.MCPAuthHandler
-	}
-
-	// Set up custom token store factory for MCP OAuth tokens.
-	// The SDK MCPTokenStoreFactory is structurally identical to
-	// tools.TokenStoreFactory, so it can be assigned directly.
-	if opts.MCPTokenStoreFactory != nil {
-		setupOpts.TokenStoreFactory = tools.TokenStoreFactory(opts.MCPTokenStoreFactory)
-	}
-
-	if opts.CLI != nil {
-		setupOpts.ShowSpinner = opts.CLI.ShowSpinner
-		setupOpts.SpinnerFunc = agent.SpinnerFunc(opts.CLI.SpinnerFunc)
-		setupOpts.UseBufferedLogger = opts.CLI.UseBufferedLogger
-		if opts.CLI.ProgressReaderFunc != nil {
-			providerConfig.ProgressReaderFunc = opts.CLI.ProgressReaderFunc
-		}
-	}
+	setupOpts := buildAgentSetupOptions(v, opts, rc, mcpConfig, extraTools, hooks)
 
 	// Create agent using shared setup with the hook tool wrapper.
 	agentResult, err := kitsetup.SetupAgent(ctx, setupOpts)
@@ -2092,36 +1679,26 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		return nil, err
 	}
 
-	// Initialize session manager.
-	var sessionManager SessionManager
-	if opts.SessionManager != nil {
-		// Use custom session manager provided by user.
-		sessionManager = opts.SessionManager
-	} else {
-		// DEFAULT: Use built-in TreeManager (existing behavior).
-		treeSession, err := InitTreeSession(opts)
-		if err != nil {
-			_ = agentResult.Agent.Close()
-			return nil, fmt.Errorf("failed to initialize session: %w", err)
-		}
-		// Wrap TreeManager in adapter to satisfy SessionManager interface.
-		sessionManager = NewTreeManagerAdapter(treeSession)
+	sessionManager, err := initSessionManager(opts)
+	if err != nil {
+		_ = agentResult.Agent.Close()
+		return nil, err
 	}
 
 	k := &Kit{
 		agent:                 agentResult.Agent,
 		session:               sessionManager,
-		modelString:           modelString,
-		endpointProvider:      endpointProviderFor(v, modelString),
-		shell:                 append([]string(nil), shell...),
-		coreToolList:          append([]string{}, toolList...),
+		modelString:           rc.modelString,
+		endpointProvider:      endpointProviderFor(v, rc.modelString),
+		shell:                 append([]string(nil), rc.shell...),
+		coreToolList:          append([]string{}, rc.toolList...),
 		customTools:           append([]Tool(nil), opts.Tools...),
 		events:                newEventBus(),
 		autoCompact:           opts.AutoCompact,
 		compactionOpts:        opts.CompactionOptions,
-		contextFiles:          contextFiles,
-		skills:                loadedSkills,
-		namedAgents:           namedAgents,
+		contextFiles:          rc.contextFiles,
+		skills:                rc.loadedSkills,
+		namedAgents:           rc.namedAgents,
 		extRunner:             agentResult.ExtRunner,
 		bufferedLogger:        agentResult.BufferedLogger,
 		authHandler:           setupOpts.AuthHandler,
@@ -2129,49 +1706,36 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		providers:             providers,
 		mcpConfig:             mcpConfig,
 		v:                     v,
-		hasCustomSystemPrompt: hasCustomSystemPrompt,
-		systemPromptSource:    systemPromptSource,
-		basePrompt:            capturedBasePrompt,
-		beforeToolCall:        beforeToolCall,
-		afterToolResult:       afterToolResult,
-		beforeTurn:            beforeTurn,
-		afterTurn:             afterTurn,
-		contextPrepare:        contextPrepare,
-		beforeCompact:         beforeCompact,
-		prepareStep:           prepareStep,
+		hasCustomSystemPrompt: rc.hasCustomSystemPrompt,
+		systemPromptSource:    rc.systemPromptSource,
+		basePrompt:            rc.basePrompt,
+		beforeToolCall:        hooks.beforeToolCall,
+		afterToolResult:       hooks.afterToolResult,
+		beforeTurn:            hooks.beforeTurn,
+		afterTurn:             hooks.afterTurn,
+		contextPrepare:        hooks.contextPrepare,
+		beforeCompact:         hooks.beforeCompact,
+		prepareStep:           hooks.prepareStep,
 		runtimeExtraTools:     append([]Tool(nil), extraTools...),
 	}
 	// The agent setup above built the model with the same factory lookup.
-	k.activeModelFromFactory = k.factoryBacked(modelString)
+	k.activeModelFromFactory = k.factoryBacked(rc.modelString)
 
 	// Late-bind the session ID supplier onto the provider config. The agent
 	// (and its HTTP transport) already hold this same ProviderConfig pointer,
 	// and the transport reads SessionIDFunc per request — so binding here,
 	// after the Kit instance exists, is picked up by every subsequent LLM
 	// call (e.g. the x-opencode-session header for opencode providers).
-	providerConfig.SessionIDFunc = k.GetSessionID
+	rc.providerConfig.SessionIDFunc = k.GetSessionID
 
 	// Ensure the agent's extra-tool list reflects the current extension tools
 	// plus the runtime native tools captured above.
 	k.recomposeExtraTools()
 
-	// Point the activate_skill provider closure at the live Kit instance so it
-	// resolves skills mutated after construction.
+	// Point the activate_skill provider closure at the live Kit instance.
 	skillToolKit = k
 
-	// Bridge extension events to SDK hooks.
-	if agentResult.ExtRunner != nil {
-		k.bridgeExtensions(agentResult.ExtRunner)
-
-		// Initialize extension context with minimal defaults. SDK users can call
-		// Extensions().SetContext to override with richer implementations (TUI callbacks,
-		// prompts, etc.). This ensures extensions never crash on nil function fields.
-		k.Extensions().SetContext(extensions.Context{
-			CWD:         cwd,
-			Model:       k.modelString,
-			Interactive: false, // SDK mode defaults to non-interactive
-		})
-	}
+	k.initExtensions(agentResult.ExtRunner, rc.cwd)
 
 	return k, nil
 }
