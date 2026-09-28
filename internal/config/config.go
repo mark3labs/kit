@@ -320,6 +320,17 @@ type Config struct {
 	// ship bash.
 	Shell []string `json:"shell,omitempty" yaml:"shell,omitempty"`
 
+	// Image budget for the read tool. ImageMaxEdge caps the width and height
+	// in pixels (built-in default 1568). ImageMaxBytes caps the encoded
+	// payload in bytes (built-in default 3500000). An image above either
+	// limit is scaled down, and re-encoded as JPEG when lossless encoding
+	// cannot meet the byte budget. Set ImageNoResize to reject an oversized
+	// image instead of scaling it. Zero values preserve the built-in
+	// defaults.
+	ImageMaxEdge  int  `json:"image-max-edge,omitempty" yaml:"image-max-edge,omitempty"`
+	ImageMaxBytes int  `json:"image-max-bytes,omitempty" yaml:"image-max-bytes,omitempty"`
+	ImageNoResize bool `json:"image-no-resize,omitempty" yaml:"image-no-resize,omitempty"`
+
 	// Per-model generation parameter overrides. Keys are "provider/model" strings
 	// (e.g. "anthropic/claude-sonnet-4-5-20250929", "openai/gpt-4o"). These
 	// settings act as model-level defaults — CLI flags and global config values

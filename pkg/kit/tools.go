@@ -562,6 +562,36 @@ func resolveShellTimeouts(opts *Options, v *viper.Viper) (timeout, maxTimeout in
 	return timeout, maxTimeout
 }
 
+// resolveImageLimits resolves the read tool's image budget across its option,
+// environment, and config-file sources. The first non-zero source wins, in
+// that order; a zero result leaves the built-in default in place.
+func resolveImageLimits(opts *Options, v *viper.Viper) (maxEdge, maxBytes int, noResize bool) {
+	maxEdge = firstNonZero(
+		opts.ImageMaxEdge,
+		envInt("KIT_IMAGE_MAX_EDGE"),
+		v.GetInt("image-max-edge"),
+	)
+	maxBytes = firstNonZero(
+		opts.ImageMaxBytes,
+		envInt("KIT_IMAGE_MAX_BYTES"),
+		v.GetInt("image-max-bytes"),
+	)
+	noResize = opts.ImageNoResize ||
+		envBool("KIT_IMAGE_NO_RESIZE") ||
+		v.GetBool("image-no-resize")
+	return maxEdge, maxBytes, noResize
+}
+
+// envBool reports whether an environment variable is set to a true value. It
+// accepts what strconv.ParseBool accepts; anything else is false.
+func envBool(name string) bool {
+	b, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(name)))
+	if err != nil {
+		return false
+	}
+	return b
+}
+
 // envInt reads an integer environment variable, zero when unset or not an
 // integer.
 func envInt(name string) int {

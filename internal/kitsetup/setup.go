@@ -51,6 +51,15 @@ type AgentSetupOptions struct {
 	// ShellMaxTimeout caps the maximum timeout (seconds) a shell tool call may
 	// request. Zero uses the built-in default (600s).
 	ShellMaxTimeout int
+	// ImageMaxEdge caps the width and height, in pixels, of an image the read
+	// tool attaches to a message. Zero uses the built-in default.
+	ImageMaxEdge int
+	// ImageMaxBytes caps the encoded size, in bytes, of an image the read tool
+	// attaches to a message. Zero uses the built-in default.
+	ImageMaxBytes int
+	// ImageNoResize makes the read tool reject an oversized image instead of
+	// scaling it down.
+	ImageNoResize bool
 	// Shell is the argument vector prefix the shell tool runs a command
 	// string through. Empty uses the built-in default ["bash"].
 	Shell []string
@@ -286,6 +295,9 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		NamedAgents:             opts.NamedAgents,
 		ShellTimeout:            opts.ShellTimeout,
 		ShellMaxTimeout:         opts.ShellMaxTimeout,
+		ImageMaxEdge:            opts.ImageMaxEdge,
+		ImageMaxBytes:           opts.ImageMaxBytes,
+		ImageNoResize:           opts.ImageNoResize,
 		Shell:                   opts.Shell,
 		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig:           opts.MCPTaskConfig,

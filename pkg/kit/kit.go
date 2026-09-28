@@ -1328,6 +1328,25 @@ type Options struct {
 	// not ship bash.
 	Shell []string
 
+	// ImageMaxEdge caps the width and height, in pixels, of an image the
+	// read tool attaches to a message. An image above this size is scaled
+	// down before it is sent. Zero falls back to the "image-max-edge"
+	// config value, then the built-in default (1568 px, which matches the
+	// point above which providers downscale an image themselves).
+	ImageMaxEdge int
+
+	// ImageMaxBytes caps the encoded size, in bytes, of an image the read
+	// tool attaches to a message. An image above this size is scaled down,
+	// and re-encoded as JPEG if lossless encoding cannot meet the budget.
+	// Zero falls back to the "image-max-bytes" config value, then the
+	// built-in default (3500000).
+	ImageMaxBytes int
+
+	// ImageNoResize makes the read tool reject an oversized image instead
+	// of scaling it down. False falls back to the "image-no-resize" config
+	// value, then the built-in default (resize).
+	ImageNoResize bool
+
 	// BashTimeout is the name ShellTimeout had before the tool's shell became
 	// configurable.
 	//

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/media"
 )
 
 // ToolOption configures tool behavior.
@@ -37,6 +39,18 @@ type ToolConfig struct {
 	// on images that do not ship bash (Alpine, distroless and similar). Only
 	// the shell tool consumes this.
 	Shell []string
+	// ImageLimits bounds the pixel size and encoded byte size of an image
+	// the read tool attaches to a message. The zero value applies the
+	// built-in defaults. Only the read tool consumes this.
+	ImageLimits media.Limits
+}
+
+// WithImageLimits bounds the images the read tool attaches to a message. A
+// zero field inside limits keeps the built-in default for that field.
+func WithImageLimits(limits media.Limits) ToolOption {
+	return func(c *ToolConfig) {
+		c.ImageLimits = limits
+	}
 }
 
 // WithWorkDir sets the working directory for file-based tools.

@@ -51,6 +51,9 @@ type resolvedConfig struct {
 	shellTimeout    int
 	shellMaxTimeout int
 	shell           []string
+	imageMaxEdge    int
+	imageMaxBytes   int
+	imageNoResize   bool
 
 	hasCustomSystemPrompt bool
 	systemPromptSource    string
@@ -401,6 +404,7 @@ func resolveModelConfig(v *viper.Viper, opts *Options, providers map[string]Prov
 	// form it had before the tool's shell became configurable; see
 	// resolveShellTimeouts for the precedence.
 	rc.shellTimeout, rc.shellMaxTimeout = resolveShellTimeouts(opts, v)
+	rc.imageMaxEdge, rc.imageMaxBytes, rc.imageNoResize = resolveImageLimits(opts, v)
 	rc.shell = opts.Shell
 	if len(rc.shell) == 0 {
 		rc.shell = v.GetStringSlice("shell")
@@ -482,6 +486,9 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		NamedAgents:             namedAgentSpecs(rc.namedAgents),
 		ShellTimeout:            rc.shellTimeout,
 		ShellMaxTimeout:         rc.shellMaxTimeout,
+		ImageMaxEdge:            rc.imageMaxEdge,
+		ImageMaxBytes:           rc.imageMaxBytes,
+		ImageNoResize:           rc.imageNoResize,
 		Shell:                   rc.shell,
 		ToolWrapper:             hookToolWrapper(hooks.beforeToolCall, hooks.afterToolResult),
 		ProviderConfig:          rc.providerConfig,

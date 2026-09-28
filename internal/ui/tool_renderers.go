@@ -635,6 +635,12 @@ func renderReadBody(toolArgs, toolResult string, width, maxLines int) string {
 		return ""
 	}
 
+	// An image result is a one line summary, not numbered source. Rendering
+	// it through the code path would draw an empty gutter.
+	if body := renderReadImageBody(toolResult, width); body != "" {
+		return body
+	}
+
 	// Extract file path and offset from tool args
 	var fileName string
 	var offset = 1
@@ -770,6 +776,62 @@ func renderReadBody(toolArgs, toolResult string, width, maxLines int) string {
 
 	// Indent entire block to match Write/Edit tools.
 	return indentBlock(result, strings.Repeat(" ", style.ContentOffset))
+}
+
+// readImagePattern matches the summary line the read tool emits for an image:
+//
+//	Read image path/to/a.png (image/png, 900x400, 7551 bytes)
+//
+// The optional tail notes a resize:
+//
+//	[resized from 4000x2600, 17890728 bytes]
+var readImagePattern = regexp.MustCompile(
+	`^Read image (.+) \((image/[a-z]+), (\d+x\d+), (\d+) bytes\)(?: \[resized from (\d+x\d+), (\d+) bytes\])?$`)
+
+// renderReadImageBody renders the read tool's image summary as a compact card.
+// It returns an empty string when toolResult is not an image summary, so the
+// caller falls through to the source-code path.
+func renderReadImageBody(toolResult string, width int) string {
+	m := readImagePattern.FindStringSubmatch(strings.TrimSpace(toolResult))
+	if m == nil {
+		return ""
+	}
+	path, mediaType, dims, sizeBytes := m[1], m[2], m[3], m[4]
+
+	theme := GetTheme()
+	label := lipgloss.NewStyle().Foreground(theme.Muted)
+	value := lipgloss.NewStyle().Foreground(theme.Text)
+
+	size, err := strconv.Atoi(sizeBytes)
+	if err != nil {
+		return ""
+	}
+	detail := fmt.Sprintf("%s · %s · %s", dims, strings.TrimPrefix(mediaType, "image/"), humanBytes(size))
+	if m[5] != "" {
+		original, err := strconv.Atoi(m[6])
+		if err == nil {
+			detail += fmt.Sprintf(" · resized from %s %s", m[5], humanBytes(original))
+		}
+	}
+
+	contentWidth := max(width-style.ContentOffset, style.MinContentWidth)
+	lines := []string{
+		value.Render(truncateLine("🖼 "+filepath.Base(path), contentWidth)),
+		label.Render(truncateLine(detail, contentWidth)),
+	}
+	return indentBlock(strings.Join(lines, "\n"), strings.Repeat(" ", style.ContentOffset))
+}
+
+// humanBytes formats a byte count in the largest unit that keeps it readable.
+func humanBytes(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // ---------------------------------------------------------------------------
