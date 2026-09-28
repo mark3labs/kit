@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,9 +77,11 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("'%s' is a directory, not a file. Use the ls tool to list directory contents.", args.Path)), nil
 	}
 
-	// Reject an oversized file before it is loaded into memory. Text files
-	// are truncated after the read, but a huge binary would be read whole.
-	if media.IsImageExt(absPath) && info.Size() > media.IngestLimitBytes {
+	// Reject an oversized image before it is loaded into memory. Text files
+	// are truncated after the read, but an image would be read whole. The
+	// header is sniffed as well as the extension, because readImage routes
+	// by signature: a renamed PNG must not bypass this gate.
+	if info.Size() > media.IngestLimitBytes && looksLikeImage(absPath) {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf(
 			"'%s' is %d bytes, above the %d byte image limit",
 			args.Path, info.Size(), media.IngestLimitBytes)), nil
@@ -131,6 +135,29 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 	}
 
 	return fantasy.NewTextResponse(tr.Content), nil
+}
+
+// sniffLen is the number of leading bytes read to detect an image signature.
+// It matches what http.DetectContentType inspects.
+const sniffLen = 512
+
+// looksLikeImage reports whether the file at path is a supported image,
+// judged by its first bytes and, as a fallback, its extension. It reads at
+// most sniffLen bytes, so it is safe to call on a file of any size.
+func looksLikeImage(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		// The full read will report the error; judge by name meanwhile.
+		return media.IsImageExt(path)
+	}
+	defer func() { _ = f.Close() }()
+
+	header := make([]byte, sniffLen)
+	n, err := io.ReadFull(f, header)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return media.IsImageExt(path)
+	}
+	return media.DetectMediaType(header[:n], path) != ""
 }
 
 // readImage returns an image tool response for content when content is a

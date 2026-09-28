@@ -2,7 +2,9 @@ package media
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/gif"
@@ -329,5 +331,92 @@ func assertDecodesAt(t *testing.T, data []byte, mediaType string, w, h int) {
 	}
 	if got := img.Bounds(); got.Dx() != w || got.Dy() != h {
 		t.Errorf("decoded size = %dx%d, want %dx%d", got.Dx(), got.Dy(), w, h)
+	}
+}
+
+// pngWithDeclaredSize returns a valid tiny PNG whose IHDR claims w by h
+// pixels. The header is all DecodeConfig reads, so this models a
+// decompression bomb: a few bytes on disk that declare an enormous canvas.
+func pngWithDeclaredSize(t *testing.T, w, h uint32) []byte {
+	t.Helper()
+	data := solidPNG(t, 1, 1)
+	// Layout: 8-byte signature, 4-byte length, "IHDR", 13 bytes of data,
+	// 4-byte CRC. Width and height are the first 8 bytes of the data.
+	const ihdrData = 16
+	binary.BigEndian.PutUint32(data[ihdrData:], w)
+	binary.BigEndian.PutUint32(data[ihdrData+4:], h)
+	crc := crc32.ChecksumIEEE(data[12 : ihdrData+13])
+	binary.BigEndian.PutUint32(data[ihdrData+13:], crc)
+	return data
+}
+
+// TestNormalizeRejectsDecompressionBomb checks that the pixel budget is
+// enforced from the header, before any pixel storage is allocated. Without
+// the check, png.Decode would try to allocate about 14 GB here.
+func TestNormalizeRejectsDecompressionBomb(t *testing.T) {
+	data := pngWithDeclaredSize(t, 60000, 60000)
+	if len(data) > 1024 {
+		t.Fatalf("bomb fixture is %d bytes, want a tiny file", len(data))
+	}
+	_, err := Normalize(data, "bomb.png", Limits{})
+	if !errors.Is(err, ErrTooLarge) {
+		t.Errorf("error = %v, want ErrTooLarge", err)
+	}
+}
+
+// TestNormalizeRejectsUnparseableHeader checks that a header DecodeConfig
+// cannot read is a decode error, not a panic or a pass-through.
+func TestNormalizeRejectsUnparseableHeader(t *testing.T) {
+	data := solidPNG(t, 4, 4)[:20] // signature plus a cut-off IHDR
+	_, err := Normalize(data, "cut.png", Limits{})
+	if !errors.Is(err, ErrDecode) {
+		t.Errorf("error = %v, want ErrDecode", err)
+	}
+}
+
+// TestNormalizeFlattensAlphaForJPEG checks that transparent pixels become
+// white, not black, when the byte budget forces a JPEG. JPEG has no alpha
+// channel, and the encoder reads premultiplied RGB, so a fully transparent
+// pixel would otherwise encode as black.
+func TestNormalizeFlattensAlphaForJPEG(t *testing.T) {
+	const size = 300
+	rng := rand.New(rand.NewSource(5))
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	for y := range size {
+		for x := range size {
+			// Left half: fully transparent. Right half: opaque noise, so
+			// PNG cannot meet the byte budget and JPEG is forced.
+			if x < size/2 {
+				img.Set(x, y, color.NRGBA{})
+				continue
+			}
+			img.Set(x, y, color.NRGBA{
+				R: uint8(rng.Intn(256)), G: uint8(rng.Intn(256)),
+				B: uint8(rng.Intn(256)), A: 255,
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	res, err := Normalize(buf.Bytes(), "alpha.png", Limits{MaxEdge: size, MaxEncodedBytes: 30_000})
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if res.MediaType != MediaTypeJPEG {
+		t.Fatalf("MediaType = %q, want %q; the test needs the JPEG path", res.MediaType, MediaTypeJPEG)
+	}
+	out, err := jpeg.Decode(bytes.NewReader(res.Data))
+	if err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	// Sample well inside the transparent half, away from JPEG block edges
+	// that bleed noise across the boundary.
+	r, g, b, _ := out.At(res.Width/8, res.Height/2).RGBA()
+	const floor = 0xE000 // near white, with room for JPEG error
+	if r < floor || g < floor || b < floor {
+		t.Errorf("transparent area encoded as (%d, %d, %d), want near white", r>>8, g>>8, b>>8)
 	}
 }

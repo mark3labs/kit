@@ -235,3 +235,97 @@ func TestReadToolCarriesImageLimits(t *testing.T) {
 		t.Errorf("Content = %q, want WithImageLimits to apply", resp.Content)
 	}
 }
+
+// writeSparse writes head to dir/name, then extends the file to size bytes
+// without writing the tail, so a test can exceed the ingest limit cheaply.
+func writeSparse(t *testing.T, dir, name string, head []byte, size int64) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(head); err != nil {
+		t.Fatalf("write head: %v", err)
+	}
+	if err := f.Truncate(size); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	return path
+}
+
+// TestReadGateCatchesRenamedImage checks that an oversized image is rejected
+// before the full read even when its extension hides what it is. readImage
+// routes by signature, so the gate must too.
+func TestReadGateCatchesRenamedImage(t *testing.T) {
+	dir := t.TempDir()
+	pngHead, err := os.ReadFile(writePNG(t, dir, "seed.png", 4, 4, false))
+	if err != nil {
+		t.Fatalf("read seed: %v", err)
+	}
+	for _, name := range []string{"shot.bin", "noext", "big.png"} {
+		t.Run(name, func(t *testing.T) {
+			path := writeSparse(t, dir, name, pngHead, media.IngestLimitBytes+1)
+			resp := callRead(t, path, media.Limits{})
+			if !resp.IsError {
+				t.Fatalf("IsError = false, want the gate to reject %s", name)
+			}
+			if !strings.Contains(resp.Content, "byte image limit") {
+				t.Errorf("Content = %q, want the pre-read gate message", resp.Content)
+			}
+		})
+	}
+}
+
+// TestReadGateIgnoresLargeTextFile checks that the gate does not catch a large
+// text file: it must still go down the truncating text path.
+func TestReadGateIgnoresLargeTextFile(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSparse(t, dir, "huge.log", []byte("first line\nsecond line\n"), media.IngestLimitBytes+1)
+	resp := callRead(t, path, media.Limits{})
+	if resp.IsError {
+		t.Fatalf("IsError = true, content = %q", resp.Content)
+	}
+	if !strings.Contains(resp.Content, "1: first line") {
+		t.Errorf("Content = %.80q, want numbered text", resp.Content)
+	}
+}
+
+func TestLooksLikeImage(t *testing.T) {
+	dir := t.TempDir()
+	png := writePNG(t, dir, "real.png", 4, 4, false)
+	pngHead, err := os.ReadFile(png)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	renamed := filepath.Join(dir, "renamed.dat")
+	if err := os.WriteFile(renamed, pngHead, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	text := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(text, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	empty := filepath.Join(dir, "empty.bin")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{png, true},
+		{renamed, true},
+		{text, false},
+		{empty, false},
+		{filepath.Join(dir, "missing.png"), true}, // open fails: judge by name
+		{filepath.Join(dir, "missing.txt"), false},
+	}
+	for _, tc := range tests {
+		if got := looksLikeImage(tc.path); got != tc.want {
+			t.Errorf("looksLikeImage(%s) = %v, want %v", filepath.Base(tc.path), got, tc.want)
+		}
+	}
+}

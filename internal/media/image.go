@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
@@ -46,6 +47,12 @@ const (
 	// this package will even attempt to decode. It guards against a
 	// decompression bomb and against loading a huge file into memory.
 	IngestLimitBytes = 20 * 1024 * 1024
+	// MaxDecodePixels caps the pixel count of an image this package will
+	// decode. The byte limit alone is not enough: a flat image deflates to
+	// almost nothing, so a file far below IngestLimitBytes can declare a
+	// canvas that needs gigabytes of pixel storage. 50 million pixels is
+	// about 200 MB as RGBA, and still holds an 8K screenshot.
+	MaxDecodePixels = 50_000_000
 )
 
 // maxScaleAttempts bounds the downscale loop. Each attempt multiplies the
@@ -167,6 +174,22 @@ func Normalize(data []byte, name string, limits Limits) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %s", ErrNotImage, name)
 	}
 
+	// Read the dimensions from the header before any pixel storage is
+	// allocated, so that a decompression bomb is rejected cheaply.
+	cfg, err := decodeConfig(data, mediaType)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %s: %v", ErrDecode, name, err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return Result{}, fmt.Errorf("%w: %s: invalid dimensions %dx%d",
+			ErrDecode, name, cfg.Width, cfg.Height)
+	}
+	// Divide instead of multiply, so the comparison cannot overflow.
+	if cfg.Width > MaxDecodePixels/cfg.Height {
+		return Result{}, fmt.Errorf("%w: %s is %dx%d pixels, limit is %d pixels",
+			ErrTooLarge, name, cfg.Width, cfg.Height, MaxDecodePixels)
+	}
+
 	img, err := decode(data, mediaType)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %s: %v", ErrDecode, name, err)
@@ -241,6 +264,24 @@ func decode(data []byte, mediaType string) (image.Image, error) {
 	return img, err
 }
 
+// decodeConfig reads the color model and dimensions of encoded image bytes
+// without decoding the pixels.
+func decodeConfig(data []byte, mediaType string) (image.Config, error) {
+	r := bytes.NewReader(data)
+	switch mediaType {
+	case MediaTypePNG:
+		return png.DecodeConfig(r)
+	case MediaTypeJPEG:
+		return jpeg.DecodeConfig(r)
+	case MediaTypeGIF:
+		return gif.DecodeConfig(r)
+	case MediaTypeWebP:
+		return webp.DecodeConfig(r)
+	}
+	cfg, _, err := image.DecodeConfig(r)
+	return cfg, err
+}
+
 // fitWithin returns the largest w,h with the aspect ratio of origW,origH such
 // that neither edge is above maxEdge. It never scales an image up.
 func fitWithin(origW, origH, maxEdge int) (int, int) {
@@ -274,9 +315,10 @@ func encodeWithin(img image.Image, maxBytes int) ([]byte, string, error) {
 	if err := png.Encode(&buf, img); err == nil && buf.Len() <= maxBytes {
 		return buf.Bytes(), MediaTypePNG, nil
 	}
+	opaque := flattenOnWhite(img)
 	for _, q := range jpegQualities {
 		buf.Reset()
-		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: q}); err != nil {
+		if err := jpeg.Encode(&buf, opaque, &jpeg.Options{Quality: q}); err != nil {
 			continue
 		}
 		if buf.Len() <= maxBytes {
@@ -286,4 +328,19 @@ func encodeWithin(img image.Image, maxBytes int) ([]byte, string, error) {
 		}
 	}
 	return nil, "", ErrIrreducible
+}
+
+// flattenOnWhite composites img over an opaque white canvas. JPEG has no
+// alpha channel and its encoder reads premultiplied RGB, so without this a
+// transparent pixel encodes as black. An image that is already opaque is
+// returned as is, to avoid a copy.
+func flattenOnWhite(img image.Image) image.Image {
+	if o, ok := img.(interface{ Opaque() bool }); ok && o.Opaque() {
+		return img
+	}
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, b, img, b.Min, draw.Over)
+	return dst
 }
