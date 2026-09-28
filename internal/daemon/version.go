@@ -89,6 +89,10 @@ const (
 	// output, so the screen is restored without waiting for the child to
 	// repaint.
 	FeatureScrollback Feature = 1 << 7
+	// FeatureSessionSpecParts: the daemon joins FrameSessionSpecPart
+	// frames, so a SessionSpec larger than one frame (a large
+	// environment) arrives complete instead of being trimmed.
+	FeatureSessionSpecParts Feature = 1 << 8
 )
 
 // ProtocolFeatures is everything this build supports.
@@ -99,7 +103,8 @@ const ProtocolFeatures = FeatureTerminalInfo |
 	FeatureSessionRename |
 	FeatureSessionRedraw |
 	FeatureReattach |
-	FeatureScrollback
+	FeatureScrollback |
+	FeatureSessionSpecParts
 
 // Has reports whether every bit in want is present.
 func (f Feature) Has(want Feature) bool { return f&want == want }
@@ -119,6 +124,7 @@ var featureNames = []struct {
 	{FeatureSessionRedraw, "redraw"},
 	{FeatureReattach, "reattach"},
 	{FeatureScrollback, "scrollback"},
+	{FeatureSessionSpecParts, "session-spec-parts"},
 }
 
 // String renders a feature set as a comma-separated list.

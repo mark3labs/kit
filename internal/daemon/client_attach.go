@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -915,10 +916,21 @@ func runClientSession(ctx context.Context, rw io.ReadWriter, opts AttachOptions,
 	// it and starts the session in the home directory behind the picker,
 	// which is what every session did before specs existed.
 	if opts.Spec != nil {
-		if spec, ok := specFits(*opts.Spec); !ok {
+		parts := peer.Features.Has(FeatureSessionSpecParts)
+		frames, dropped, ok := specFrames(*opts.Spec, parts)
+		switch {
+		case !ok:
 			fmt.Fprintln(os.Stderr, "This command line is too long to hand to the daemon; starting with the directory picker instead.")
-		} else if payload, serr := EncodeSessionSpec(spec); serr == nil {
-			_ = conn.write(FrameSessionSpec, payload)
+		case len(dropped) > 0:
+			fmt.Fprintf(os.Stderr,
+				"The environment is too large for this daemon (kit %s); %d variables were not passed to the session: %s\n"+
+					"Restart the daemon with this kit to pass the full environment.\n",
+				peer.Build, len(dropped), strings.Join(dropped, ", "))
+		}
+		for _, f := range frames {
+			if werr := conn.write(f.Type, f.Payload); werr != nil {
+				break
+			}
 		}
 	}
 
