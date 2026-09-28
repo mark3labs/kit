@@ -163,6 +163,14 @@ shell: "bash"             # shell the shell tool runs commands through, plus
 shell-timeout: 120        # default per-call timeout in seconds
 shell-max-timeout: 600    # ceiling a single call may request
 
+# Images read by the read tool. PNG, JPEG, GIF and WebP files are sent to the
+# model as viewable images instead of as text. An image above either limit is
+# scaled down before it is sent, and re-encoded as JPEG when lossless encoding
+# cannot meet the byte budget.
+image-max-edge: 1568      # largest width or height in pixels
+image-max-bytes: 3500000  # largest encoded payload in bytes
+image-no-resize: false    # set to true to reject an oversized image instead
+
 # Skills — all keys are optional
 no-skills: false          # set to true to disable all skill loading
 skill:                    # explicit skill files/dirs (disables auto-discovery)

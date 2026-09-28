@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/media"
 )
 
 type readArgs struct {
@@ -22,7 +24,7 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 	return &coreTool{
 		info: fantasy.ToolInfo{
 			Name:        "read",
-			Description: "Read the contents of a file. Output is truncated to 2000 lines or 50KB. Use offset/limit for large files. Use offset to continue reading until complete.",
+			Description: "Read the contents of a file. Output is truncated to 2000 lines or 50KB. Use offset/limit for large files. Use offset to continue reading until complete. Image files (PNG, JPEG, GIF, WebP) are returned as viewable images; offset and limit do not apply to them.",
 			Parameters: map[string]any{
 				"path": map[string]any{
 					"type":        "string",
@@ -41,12 +43,12 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return executeRead(ctx, call, cfg.WorkDir)
+			return executeRead(ctx, call, cfg.WorkDir, cfg.ImageLimits)
 		},
 	}
 }
 
-func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, imageLimits media.Limits) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
 	}
@@ -73,9 +75,21 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("'%s' is a directory, not a file. Use the ls tool to list directory contents.", args.Path)), nil
 	}
 
+	// Reject an oversized file before it is loaded into memory. Text files
+	// are truncated after the read, but a huge binary would be read whole.
+	if media.IsImageExt(absPath) && info.Size() > media.IngestLimitBytes {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf(
+			"'%s' is %d bytes, above the %d byte image limit",
+			args.Path, info.Size(), media.IngestLimitBytes)), nil
+	}
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %v", err)), nil
+	}
+
+	if resp, ok := readImage(content, absPath, args.Path, imageLimits); ok {
+		return resp, nil
 	}
 
 	lines := strings.Split(string(content), "\n")
@@ -117,6 +131,33 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	return fantasy.NewTextResponse(tr.Content), nil
+}
+
+// readImage returns an image tool response for content when content is a
+// supported image. The second return value reports whether content was an
+// image at all; when it is false the caller should fall back to text.
+//
+// A decode or budget failure still returns ok=true, with an error response,
+// because falling through to the text path would emit binary noise.
+func readImage(content []byte, absPath, displayPath string, limits media.Limits) (fantasy.ToolResponse, bool) {
+	if media.DetectMediaType(content, absPath) == "" {
+		return fantasy.ToolResponse{}, false
+	}
+	res, err := media.Normalize(content, absPath, limits)
+	if err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("cannot read image '%s': %v", displayPath, err)), true
+	}
+
+	summary := fmt.Sprintf("Read image %s (%s, %dx%d, %d bytes)",
+		displayPath, res.MediaType, res.Width, res.Height, len(res.Data))
+	if res.Resized {
+		summary += fmt.Sprintf(" [resized from %dx%d, %d bytes]",
+			res.OriginalWidth, res.OriginalHeight, res.OriginalBytes)
+	}
+
+	resp := fantasy.NewImageResponse(res.Data, res.MediaType)
+	resp.Content = summary
+	return resp, true
 }
 
 // resolvePathWithWorkDir resolves a path to an absolute path relative to the

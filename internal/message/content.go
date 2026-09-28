@@ -87,6 +87,13 @@ type ToolResult struct {
 	Name       string `json:"name"`
 	Content    string `json:"content"`
 	IsError    bool   `json:"is_error"`
+	// MediaData holds the base64 payload of a media tool result, such as an
+	// image returned by the read tool. It is empty for a text result. The
+	// value is base64 so that a resumed session rebuilds the same message
+	// the provider saw before.
+	MediaData string `json:"media_data,omitempty"`
+	// MediaType is the MIME type of MediaData, such as "image/png".
+	MediaType string `json:"media_type,omitempty"`
 }
 
 func (ToolResult) isPart() {}
@@ -342,11 +349,18 @@ func (m *Message) ToLLMMessages() []fantasy.Message {
 		var parts []fantasy.MessagePart
 		for _, result := range m.ToolResults() {
 			var output fantasy.ToolResultOutputContent
-			if result.IsError {
+			switch {
+			case result.IsError:
 				output = fantasy.ToolResultOutputContentError{
 					Error: errors.New(result.Content),
 				}
-			} else {
+			case result.MediaData != "":
+				output = fantasy.ToolResultOutputContentMedia{
+					Data:      result.MediaData,
+					MediaType: result.MediaType,
+					Text:      result.Content,
+				}
+			default:
 				output = fantasy.ToolResultOutputContentText{
 					Text: result.Content,
 				}
@@ -438,6 +452,10 @@ func FromLLMMessage(msg fantasy.Message) Message {
 			case fantasy.ToolResultOutputContentError:
 				result.Content = r.Error.Error()
 				result.IsError = true
+			case fantasy.ToolResultOutputContentMedia:
+				result.Content = r.Text
+				result.MediaData = r.Data
+				result.MediaType = r.MediaType
 			}
 			m.Parts = append(m.Parts, result)
 		case fantasy.ReasoningPart:

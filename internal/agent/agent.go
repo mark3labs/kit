@@ -18,6 +18,7 @@ import (
 	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/core"
+	"github.com/mark3labs/kit/internal/media"
 	"github.com/mark3labs/kit/internal/message"
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/tools"
@@ -87,6 +88,21 @@ type AgentConfig struct {
 	// string through. Empty uses the built-in default ["bash"]. Only
 	// consumed when core tools are built from CoreToolList.
 	Shell []string
+
+	// ImageMaxEdge caps the width and height, in pixels, of an image the
+	// read tool attaches to a message. Zero uses the built-in default.
+	// Only consumed when core tools are built from CoreToolList.
+	ImageMaxEdge int
+
+	// ImageMaxBytes caps the encoded size, in bytes, of an image the read
+	// tool attaches to a message. Zero uses the built-in default. Only
+	// consumed when core tools are built from CoreToolList.
+	ImageMaxBytes int
+
+	// ImageNoResize makes the read tool reject an oversized image instead
+	// of scaling it down. Only consumed when core tools are built from
+	// CoreToolList.
+	ImageNoResize bool
 
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). The callback receives the server
@@ -421,6 +437,13 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		}
 		if len(agentConfig.Shell) > 0 {
 			toolOpts = append(toolOpts, core.WithShell(agentConfig.Shell))
+		}
+		if agentConfig.ImageMaxEdge > 0 || agentConfig.ImageMaxBytes > 0 || agentConfig.ImageNoResize {
+			toolOpts = append(toolOpts, core.WithImageLimits(media.Limits{
+				MaxEdge:         agentConfig.ImageMaxEdge,
+				MaxEncodedBytes: agentConfig.ImageMaxBytes,
+				NoResize:        agentConfig.ImageNoResize,
+			}))
 		}
 		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}
@@ -1289,6 +1312,16 @@ func extractToolResultText(tr fantasy.ToolResultContent) (string, bool) {
 		// Try to unwrap MCP JSON structure (for external MCP tools).
 		// Core tools return plain text, so this is a no-op for them.
 		return extractMCPContentText(textResult.Text), false
+	}
+
+	// Media results carry a base64 payload that must never reach the
+	// display or the session log. Use only the summary text beside it.
+	if mediaResult, ok := tr.Result.(fantasy.ToolResultOutputContentMedia); ok {
+		if mediaResult.Text != "" {
+			return mediaResult.Text, false
+		}
+		return fmt.Sprintf("[%s attachment, %d base64 bytes]",
+			mediaResult.MediaType, len(mediaResult.Data)), false
 	}
 
 	// Fallback: stringify for display.
