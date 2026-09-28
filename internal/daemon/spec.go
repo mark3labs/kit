@@ -3,6 +3,7 @@ package daemon
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -388,9 +389,7 @@ func trimSpec(spec SessionSpec) (SessionSpec, []string, bool) {
 	})
 
 	env := make(map[string]string, len(spec.Env))
-	for key, value := range spec.Env {
-		env[key] = value
-	}
+	maps.Copy(env, spec.Env)
 	spec.Env = env
 
 	// A trimmed environment is no longer complete, so it is layered on
