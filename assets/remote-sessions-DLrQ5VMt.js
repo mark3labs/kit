@@ -192,10 +192,20 @@ environment. A paired remote client never does — a directory from another
 machine names nothing here, and accepting an argument list from a peer
 would make pairing equivalent to arbitrary execution. Remote sessions
 therefore still open the working-directory picker, as they always have.</p>
-<p>The environment a session inherits is an <strong>allowlist</strong>, not a copy:
-<code>PATH</code>, <code>HOME</code>, <code>SHELL</code>, <code>EDITOR</code>, the locale, proxy settings, and the
-provider credential variables (<code>ANTHROPIC_*</code>, <code>OPENAI_*</code>, <code>PROVIDER_*</code>,
-and so on). Variables the daemon owns are never taken from a client.</p>
+<p>A session gets the <strong>full environment</strong> of the terminal you ran <code>kit</code> in,
+as a <code>kit</code> run in that terminal would. This includes API keys for tools,
+and the variables of a <code>direnv</code> or <code>nix develop</code> shell. A variable that you
+unset in the terminal is also unset in the session. The daemon's own
+environment is not used, except for the variables the daemon owns (its
+runtime and cache directories, the terminal description, and the
+per-session files). The daemon never takes these from a client.
+Variables that describe only your shell (<code>PWD</code>, <code>OLDPWD</code>, <code>SHLVL</code>, <code>_</code>,
+<code>SSH_TTY</code>) are not sent.</p>
+<p>A large environment is sent in more than one frame. A daemon from an
+older release cannot join the frames. For that daemon, kit removes the
+largest variables until the environment fits, tells you which variables
+it removed, and uses the daemon's values for them. Restart the daemon with
+the current kit to send the full environment.</p>
 <h2 id="sessions-on-this-machine"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#sessions-on-this-machine"><span class="icon icon-link"></span></a>Sessions on this machine</h2>
 <p><code>kit attach</code> gives you the same detachable sessions without any pairing:
 it talks to a daemon on this machine over a Unix socket in
@@ -676,10 +686,21 @@ machine names nothing here, and accepting an argument list from a peer
 would make pairing equivalent to arbitrary execution. Remote sessions
 therefore still open the working-directory picker, as they always have.
 
-The environment a session inherits is an **allowlist**, not a copy:
-\`PATH\`, \`HOME\`, \`SHELL\`, \`EDITOR\`, the locale, proxy settings, and the
-provider credential variables (\`ANTHROPIC_*\`, \`OPENAI_*\`, \`PROVIDER_*\`,
-and so on). Variables the daemon owns are never taken from a client.
+A session gets the **full environment** of the terminal you ran \`kit\` in,
+as a \`kit\` run in that terminal would. This includes API keys for tools,
+and the variables of a \`direnv\` or \`nix develop\` shell. A variable that you
+unset in the terminal is also unset in the session. The daemon's own
+environment is not used, except for the variables the daemon owns (its
+runtime and cache directories, the terminal description, and the
+per-session files). The daemon never takes these from a client.
+Variables that describe only your shell (\`PWD\`, \`OLDPWD\`, \`SHLVL\`, \`_\`,
+\`SSH_TTY\`) are not sent.
+
+A large environment is sent in more than one frame. A daemon from an
+older release cannot join the frames. For that daemon, kit removes the
+largest variables until the environment fits, tells you which variables
+it removed, and uses the daemon's values for them. Restart the daemon with
+the current kit to send the full environment.
 
 ## Sessions on this machine
 
