@@ -44,39 +44,11 @@ func TestSessionSpecRoundTrip(t *testing.T) {
 	}
 }
 
-// TestForwardableEnvCarriesCredentialsNotTheWholeEnvironment pins the
-// allowlist. A session runs in a process the user cannot see, for as long
-// as the daemon lives, so the environment it is given is chosen rather
-// than copied.
-func TestForwardableEnvCarriesCredentialsNotTheWholeEnvironment(t *testing.T) {
-	env := forwardableEnv([]string{
-		"PATH=/usr/bin",
-		"ANTHROPIC_API_KEY=sk-test",
-		"OPENAI_BASE_URL=http://localhost:1234",
-		"LC_ALL=en_GB.UTF-8",
-		"KIT_SOMETHING=on",
-		"SECRET_COMPANY_TOKEN=nope",
-		"RANDOM_DESKTOP_THING=nope",
-		"EMPTY=",
-	})
-
-	for _, key := range []string{"PATH", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "LC_ALL", "KIT_SOMETHING"} {
-		if _, ok := env[key]; !ok {
-			t.Errorf("%s was dropped: a session needs it to behave like a shell-launched kit", key)
-		}
-	}
-	for _, key := range []string{"SECRET_COMPANY_TOKEN", "RANDOM_DESKTOP_THING", "EMPTY"} {
-		if _, ok := env[key]; ok {
-			t.Errorf("%s was forwarded: the allowlist must not carry the whole environment", key)
-		}
-	}
-}
-
-// TestForwardableEnvNeverCarriesDaemonOwnedKeys is the security half of
-// the allowlist. KIT_ is forwarded by prefix, and the daemon's own
-// per-session variables all start with it — including the ownership
-// marker the crash sweep trusts to decide which processes it may kill.
-func TestForwardableEnvNeverCarriesDaemonOwnedKeys(t *testing.T) {
+// TestClientEnvNeverCarriesDaemonOwnedKeys is the security half of the
+// full environment. The daemon's own per-session variables include the
+// ownership marker the crash sweep trusts to decide which processes it
+// may kill.
+func TestClientEnvNeverCarriesDaemonOwnedKeys(t *testing.T) {
 	reserved := []string{
 		RemoteSessionEnv,
 		RemoteBackgroundEnv,
@@ -95,7 +67,7 @@ func TestForwardableEnvNeverCarriesDaemonOwnedKeys(t *testing.T) {
 	for _, key := range reserved {
 		environ = append(environ, key+"=hijacked")
 	}
-	env := forwardableEnv(environ)
+	env := clientEnv(environ)
 
 	for _, key := range reserved {
 		if _, ok := env[key]; ok {
@@ -292,42 +264,6 @@ func TestInheritedSpecKeepsTheChoiceOfPicker(t *testing.T) {
 	attached := inheritedSpec(&SessionSpec{Cwd: "/p", Pick: true})
 	if attached == nil || !attached.Pick {
 		t.Errorf("kit attach inherited Pick = %+v, want the picker kept", attached)
-	}
-}
-
-// TestSpecFitsTrimsTheEnvironmentBeforeGivingUp keeps an oversized
-// environment from costing the working directory. A session in the wrong
-// directory is a silent error; a session without forwarded credentials
-// merely falls back on the daemon's own.
-func TestSpecFitsTrimsTheEnvironmentBeforeGivingUp(t *testing.T) {
-	huge := map[string]string{}
-	for i := range 40 {
-		huge[string(rune('A'+i))+"_HUGE_VAR"] = strings.Repeat("x", 4096)
-	}
-	spec := SessionSpec{Cwd: "/home/user/project", Args: []string{"-c"}, Env: huge}
-
-	trimmed, ok := specFits(spec)
-
-	if !ok {
-		t.Fatal("specFits gave up on a spec whose arguments and directory fit easily")
-	}
-	if trimmed.Cwd != spec.Cwd || !slices.Equal(trimmed.Args, spec.Args) {
-		t.Fatalf("trimming lost the directory or the arguments: %+v", trimmed)
-	}
-	if trimmed.Env != nil {
-		t.Fatal("the environment was kept despite overflowing the frame")
-	}
-	payload, err := EncodeSessionSpec(trimmed)
-	if err != nil || len(payload) > maxPayload {
-		t.Fatalf("trimmed spec is %d bytes (err %v), want at most %d", len(payload), err, maxPayload)
-	}
-}
-
-func TestSpecFitsLeavesASmallSpecAlone(t *testing.T) {
-	spec := SessionSpec{Cwd: "/tmp", Env: map[string]string{"PATH": "/usr/bin"}}
-	got, ok := specFits(spec)
-	if !ok || got.Env["PATH"] != "/usr/bin" {
-		t.Fatalf("specFits trimmed a spec that fits: %+v (ok %v)", got, ok)
 	}
 }
 

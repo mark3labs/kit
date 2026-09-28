@@ -71,6 +71,17 @@ const (
 	// Sent before SESSION_ATTACH, like TERMINAL; a daemon too old to know
 	// the frame drops it and starts the session the old way.
 	FrameSessionSpec FrameType = 0x0f // client -> daemon: JSON SessionSpec
+	// FrameSessionSpecPart carries one piece of a SessionSpec too large
+	// for a single frame. A full environment (a nix dev shell, a large
+	// direnv) can pass the 64 KiB frame limit, and dropping it would start
+	// the session with the daemon's environment instead of the caller's.
+	//
+	// The first payload byte is specPartMore when more parts follow and
+	// specPartLast on the last one; the rest is the next slice of the JSON
+	// SessionSpec. The daemon joins the parts and handles the result as a
+	// FrameSessionSpec. Sent only to a daemon that advertises
+	// FeatureSessionSpecParts.
+	FrameSessionSpecPart FrameType = 0x19 // client -> daemon: {more u8, JSON slice}
 
 	// FrameHello announces which protocol a peer speaks and what it can
 	// do (JSON, see Hello). Both ends send it first and neither waits for
@@ -107,6 +118,18 @@ const frameHeaderSize = 7 // type byte + u32 session + u16 big-endian length
 
 // maxPayload is the frame size limit: a u16 length field.
 const maxPayload = 65535
+
+// Marker bytes at the start of a FrameSessionSpecPart payload.
+const (
+	specPartLast byte = 0
+	specPartMore byte = 1
+)
+
+// maxSpecSize bounds a SessionSpec joined from parts. It is far above any
+// real environment (Linux refuses to exec with much more than 2 MiB of
+// arguments and environment together) and stops a client from making the
+// daemon buffer without limit.
+const maxSpecSize = 4 << 20
 
 // chunkSize is how much PTY/terminal data we pack into one DATA frame.
 // Small enough to stay well under maxPayload, large enough to keep frame
@@ -245,9 +268,18 @@ type SessionSpec struct {
 	// Args are the arguments to pass to the session's kit process,
 	// without the program name.
 	Args []string `json:"args,omitempty"`
-	// Env holds environment variables to layer on the daemon's own. Keys
-	// the daemon owns are ignored; see reservedSpecEnv.
+	// Env holds the client's environment variables. Keys the daemon owns
+	// are ignored; see reservedSpecEnv.
 	Env map[string]string `json:"env,omitempty"`
+	// FullEnv marks Env as the client's COMPLETE environment. The session
+	// then gets exactly that environment, plus only the variables the
+	// daemon owns, instead of Env layered on the daemon's environment.
+	// This is what makes a hosted session see the same variables as a kit
+	// run in the shell, including a variable the shell has unset.
+	//
+	// A daemon too old to know the field layers Env on its own
+	// environment, which is the previous behaviour.
+	FullEnv bool `json:"full_env,omitempty"`
 	// Pick asks for the working-directory picker, rooted at Cwd, instead
 	// of starting straight away.
 	//

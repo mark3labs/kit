@@ -416,6 +416,7 @@ func (t *sessionTable) logicalFor(wire uint32) *remoteSession {
 // daemon stamps the assigned id on arrival. Replies carry the id back
 // out, and clients ignore it.
 func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uint32) error {
+	var parts specJoiner // joins FrameSessionSpecPart frames on this connection
 	for {
 		frame, err := ReadFrame(r)
 		if err != nil {
@@ -452,6 +453,21 @@ func (t *sessionTable) runFrameSource(ctx context.Context, r io.Reader, wire uin
 				log.Warn("bad session spec frame", "wire", frame.Session, "error", derr)
 			} else if !t.conns.setSpec(frame.Session, spec) {
 				log.Warn("ignored a session spec from a remote client", "wire", frame.Session)
+			}
+		case FrameSessionSpecPart:
+			// One piece of a spec too large for one frame. The joined
+			// payload is handled exactly as a FrameSessionSpec.
+			payload, done, perr := parts.add(frame.Payload)
+			switch {
+			case perr != nil:
+				log.Warn("bad session spec part", "wire", frame.Session, "error", perr)
+			case !done:
+			default:
+				if spec, derr := DecodeSessionSpec(payload); derr != nil {
+					log.Warn("bad session spec parts", "wire", frame.Session, "error", derr)
+				} else if !t.conns.setSpec(frame.Session, spec) {
+					log.Warn("ignored a session spec from a remote client", "wire", frame.Session)
+				}
 			}
 		case FrameSessionList:
 			t.sendSessionList(frame.Session)
