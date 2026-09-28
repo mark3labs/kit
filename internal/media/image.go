@@ -204,7 +204,7 @@ func Normalize(data []byte, name string, limits Limits) (Result, error) {
 	// Start from the largest size that respects the pixel budget, then step
 	// down until the encoded payload respects the byte budget too.
 	w, h := fitWithin(origW, origH, maxEdge)
-	for attempt := 0; attempt < maxScaleAttempts; attempt++ {
+	for range maxScaleAttempts {
 		if w < 1 || h < 1 {
 			break
 		}
