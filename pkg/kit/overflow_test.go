@@ -26,6 +26,10 @@ func TestIsContextOverflow(t *testing.T) {
 		{"pre-wrapped sentinel", fmt.Errorf("%w: upstream detail", ErrContextOverflow), true},
 		{"rate limit", errors.New("HTTP status 429: rate limit exceeded"), false},
 		{"generic", errors.New("connection reset by peer"), false},
+		{"anthropic 413 text", errors.New(`request entity too large: POST "https://api.anthropic.com/v1/messages": 413 Request Entity Too Large {"error":{"type":"request_too_large","message":"Request exceeds the maximum size"}}`), true},
+		{"structured 413", &fantasy.ProviderError{StatusCode: 413, Message: "Request exceeds the maximum size"}, true},
+		{"structured context too large", &fantasy.ProviderError{StatusCode: 400, ContextTooLargeErr: true}, true},
+		{"structured 400", &fantasy.ProviderError{StatusCode: 400, Message: "bad image"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -284,5 +288,43 @@ func TestPrepareOverflowRetry_StripsMediaFromHookResult(t *testing.T) {
 				t.Fatal("media reintroduced by a ContextPrepare hook must be stripped")
 			}
 		}
+	}
+}
+
+func TestStripMediaParts_ReplacesMediaToolResults(t *testing.T) {
+	msgs := []fantasy.Message{{
+		Role: fantasy.MessageRoleTool,
+		Content: []fantasy.MessagePart{
+			fantasy.ToolResultPart{
+				ToolCallID: "c1",
+				Output: fantasy.ToolResultOutputContentMedia{
+					Data: "QUJD", MediaType: "image/png", Text: "Read image shot.png",
+				},
+			},
+			fantasy.ToolResultPart{
+				ToolCallID: "c2",
+				Output:     fantasy.ToolResultOutputContentText{Text: "plain"},
+			},
+		},
+	}}
+
+	out := stripMediaParts(msgs)
+
+	first, ok := out[0].Content[0].(fantasy.ToolResultPart)
+	if !ok {
+		t.Fatalf("part 0 is %T, want ToolResultPart", out[0].Content[0])
+	}
+	if first.ToolCallID != "c1" {
+		t.Errorf("ToolCallID = %q, want c1; the call/result pairing must survive", first.ToolCallID)
+	}
+	text, ok := first.Output.(fantasy.ToolResultOutputContentText)
+	if !ok || !strings.Contains(text.Text, "shot.png") {
+		t.Errorf("media result output = %#v, want a text placeholder naming the file", first.Output)
+	}
+	if second := out[0].Content[1].(fantasy.ToolResultPart); second.Output.(fantasy.ToolResultOutputContentText).Text != "plain" {
+		t.Error("a text tool result was changed")
+	}
+	if _, ok := msgs[0].Content[0].(fantasy.ToolResultPart).Output.(fantasy.ToolResultOutputContentMedia); !ok {
+		t.Error("the input messages were modified")
 	}
 }

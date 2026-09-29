@@ -30,6 +30,10 @@ type modelsDBModel struct {
 	Limit       modelsDBLimit          `json:"limit"`
 	Provider    *modelsDBModelProvider `json:"provider,omitempty"` // Model-specific provider override
 
+	// Modalities lists the input and output types the model accepts and
+	// produces. Nil when the catalog publishes none.
+	Modalities *modelsDBModalities `json:"modalities,omitempty"`
+
 	// Status is the lifecycle marker published by the catalog: "deprecated"
 	// or "beta". Absent for models in normal general availability.
 	Status string `json:"status,omitempty"`
@@ -38,6 +42,13 @@ type modelsDBModel struct {
 	// Absent when the catalog publishes no reasoning metadata, which is
 	// distinct from an empty list ("takes no reasoning options").
 	ReasoningOptions []modelsDBReasoningOption `json:"reasoning_options,omitempty"`
+}
+
+// modelsDBModalities is the modalities block of a models.dev model entry,
+// e.g. {"input": ["text", "image"], "output": ["text"]}.
+type modelsDBModalities struct {
+	Input  []string `json:"input"`
+	Output []string `json:"output"`
 }
 
 // Reasoning option types published by models.dev.

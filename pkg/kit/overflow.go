@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"charm.land/fantasy"
 )
@@ -65,25 +66,33 @@ func (m *Kit) prepareOverflowRetry(ctx context.Context) ([]fantasy.Message, erro
 }
 
 // stripMediaParts returns a copy of messages with file/media attachments
-// replaced by short text placeholders. Message slices and non-file parts are
-// shared, not copied; only messages containing file parts get a new Content
-// slice.
+// replaced by short text placeholders. This covers user file parts and media
+// tool results (for example an image returned by the read tool). Message
+// slices and non-media parts are shared, not copied; only messages
+// containing media get a new Content slice.
 func stripMediaParts(messages []fantasy.Message) []fantasy.Message {
 	out := make([]fantasy.Message, len(messages))
 	for i, msg := range messages {
 		out[i] = msg
-		hasFile := false
-		for _, part := range msg.Content {
-			if _, ok := part.(fantasy.FilePart); ok {
-				hasFile = true
-				break
-			}
-		}
-		if !hasFile {
+		hasMedia := slices.ContainsFunc(msg.Content, isMediaPart)
+		if !hasMedia {
 			continue
 		}
 		replaced := make([]fantasy.MessagePart, 0, len(msg.Content))
 		for _, part := range msg.Content {
+			if trp, ok := part.(fantasy.ToolResultPart); ok {
+				if media, ok := trp.Output.(fantasy.ToolResultOutputContentMedia); ok {
+					desc := media.Text
+					if desc == "" {
+						desc = media.MediaType
+					}
+					trp.Output = fantasy.ToolResultOutputContentText{
+						Text: fmt.Sprintf("[media tool result removed after the request was too large: %s]", desc),
+					}
+				}
+				replaced = append(replaced, trp)
+				continue
+			}
 			fp, ok := part.(fantasy.FilePart)
 			if !ok {
 				replaced = append(replaced, part)
@@ -103,4 +112,17 @@ func stripMediaParts(messages []fantasy.Message) []fantasy.Message {
 		out[i].Content = replaced
 	}
 	return out
+}
+
+// isMediaPart reports whether part is a user file part or a tool result that
+// carries media.
+func isMediaPart(part fantasy.MessagePart) bool {
+	switch p := part.(type) {
+	case fantasy.FilePart:
+		return true
+	case fantasy.ToolResultPart:
+		_, ok := p.Output.(fantasy.ToolResultOutputContentMedia)
+		return ok
+	}
+	return false
 }

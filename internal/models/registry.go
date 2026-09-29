@@ -19,18 +19,22 @@ var embeddedModelsJSON []byte
 
 // ModelInfo represents information about a specific model.
 type ModelInfo struct {
-	ID           string
-	Name         string
-	Family       string // Model family (e.g., "claude", "gpt", "gemini")
-	Attachment   bool
-	Reasoning    bool
-	Temperature  bool
-	Cost         Cost
-	Limit        Limit
-	ProviderNPM  string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
-	BaseURL      string // Per-model base URL override (custom models only)
-	APIKey       string // Per-model API key override (custom models only)
-	APIModelName string // Per-model API model name override (custom models only)
+	ID         string
+	Name       string
+	Family     string // Model family (e.g., "claude", "gpt", "gemini")
+	Attachment bool
+	// InputModalities lists the input types the model accepts, such as
+	// "text", "image", "pdf" or "audio". Nil means the catalog does not
+	// say; use SupportsImageInput to query it.
+	InputModalities []string
+	Reasoning       bool
+	Temperature     bool
+	Cost            Cost
+	Limit           Limit
+	ProviderNPM     string // Model-specific provider npm override (e.g. "@ai-sdk/anthropic")
+	BaseURL         string // Per-model base URL override (custom models only)
+	APIKey          string // Per-model API key override (custom models only)
+	APIModelName    string // Per-model API model name override (custom models only)
 
 	// Params holds per-model generation parameter defaults. These are applied
 	// when the user hasn't explicitly set the corresponding CLI flag or global
@@ -345,14 +349,21 @@ func buildFromModelsDB() map[string]ProviderInfo {
 				providerNPM = dm.Provider.NPM
 			}
 			reasoningLevels, reasoningGraded := reasoningFrom(dm.ReasoningOptions)
+			var inputModalities []string
+			if dm.Modalities != nil {
+				// Keep a non-nil slice even when empty, so "no inputs
+				// listed" stays distinct from "no modalities block".
+				inputModalities = append([]string{}, dm.Modalities.Input...)
+			}
 			modelsMap[modelID] = ModelInfo{
-				ID:          dm.ID,
-				Name:        dm.Name,
-				Family:      dm.Family,
-				Attachment:  dm.Attachment,
-				Reasoning:   dm.Reasoning,
-				Temperature: dm.Temperature,
-				Cost:        costFrom(dm.Cost),
+				ID:              dm.ID,
+				Name:            dm.Name,
+				Family:          dm.Family,
+				Attachment:      dm.Attachment,
+				InputModalities: inputModalities,
+				Reasoning:       dm.Reasoning,
+				Temperature:     dm.Temperature,
+				Cost:            costFrom(dm.Cost),
 				Limit: Limit{
 					Context: dm.Limit.Context,
 					Output:  dm.Limit.Output,
@@ -470,6 +481,17 @@ func (r *ModelsRegistry) LookupModel(provider, modelID string) *ModelInfo {
 	}
 
 	return &modelInfo
+}
+
+// SupportsImageInput reports whether the model accepts image input. known is
+// false when the catalog publishes no modalities for the model (custom
+// models, local models, new models); callers should then assume images are
+// accepted and let the provider decide.
+func (m *ModelInfo) SupportsImageInput() (supported, known bool) {
+	if m == nil || m.InputModalities == nil {
+		return false, false
+	}
+	return slices.Contains(m.InputModalities, "image"), true
 }
 
 // LookupModelForSettings is a convenience function that parses a

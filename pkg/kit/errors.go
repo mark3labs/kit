@@ -2,7 +2,10 @@ package kit
 
 import (
 	"errors"
+	"net/http"
 	"strings"
+
+	"charm.land/fantasy"
 )
 
 // Provider-error sentinels. Provider and turn execution paths wrap these via
@@ -11,9 +14,11 @@ import (
 // arbitrary provider error to one of these sentinels.
 var (
 	// ErrContextOverflow indicates the request exceeded the model's maximum
-	// context window. Kit's turn loop recovers from this automatically:
-	// it compacts the conversation and replays the turn once before
-	// surfacing the error. When this error still reaches the caller,
+	// context window or the provider's maximum request size (HTTP 413,
+	// for example Anthropic "request_too_large"). Kit's turn loop recovers
+	// from this automatically: it compacts the conversation, removes media
+	// attachments from the replayed request, and replays the turn once
+	// before surfacing the error. When this error still reaches the caller,
 	// compaction was impossible or insufficient.
 	ErrContextOverflow = errors.New("context window exceeded")
 
@@ -59,10 +64,23 @@ func ClassifyProviderError(err error) error {
 		}
 	}
 
+	if isRequestTooLarge(err) {
+		return wrapSentinel(ErrContextOverflow, err)
+	}
 	if sentinel := classifyProviderErrorText(err.Error()); sentinel != nil {
 		return wrapSentinel(sentinel, err)
 	}
 	return err
+}
+
+// isRequestTooLarge reports whether err is a structured provider error for a
+// request above the context window or the provider size limit (HTTP 413).
+func isRequestTooLarge(err error) bool {
+	var pe *fantasy.ProviderError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	return pe.IsContextTooLarge() || pe.StatusCode == http.StatusRequestEntityTooLarge
 }
 
 // wrapSentinel returns an error that satisfies errors.Is(_, sentinel) while
@@ -91,7 +109,8 @@ func (e *sentinelError) Unwrap() []error {
 func classifyProviderErrorText(msg string) error {
 	m := strings.ToLower(msg)
 	switch {
-	case containsAny(m, "context_length_exceeded", "context window", "maximum context length", "too many tokens", "prompt is too long"):
+	case containsAny(m, "context_length_exceeded", "context window", "maximum context length", "too many tokens", "prompt is too long",
+		"request_too_large", "request entity too large", "payload too large", "status 413"):
 		return ErrContextOverflow
 	case containsAny(m, "rate limit", "rate_limit", "too many requests", "status 429", "429"):
 		return ErrRateLimit

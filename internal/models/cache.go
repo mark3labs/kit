@@ -29,7 +29,9 @@ const cacheFile = "providers.json"
 //	               and tiered pricing.
 //	1            — adds status, reasoning_options, cost.context_over_200k
 //	               and cost.tiers.
-const cacheSchemaVersion = 1
+//	2            — adds modalities (used to stop images for a model
+//	               without image input).
+const cacheSchemaVersion = 2
 
 // cacheEnvelope wraps the provider data with an ETag for HTTP caching.
 type cacheEnvelope struct {

@@ -329,6 +329,10 @@ type Agent struct {
 	extraTools       []fantasy.AgentTool
 	toolWrapper      func([]fantasy.AgentTool) []fantasy.AgentTool // stored for SetModel rebuild
 
+	// currentModel is the active model string, read by the image gate on
+	// every tool result. See image_gate.go.
+	currentModel *activeModel
+
 	// providerOptions and modelConfig are stored for rebuilding the fantasy
 	// agent when MCP tools arrive asynchronously or on SetModel.
 	providerOptions     fantasy.ProviderOptions
@@ -456,6 +460,11 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		allTools = append(allTools, agentConfig.ExtraTools...)
 	}
 
+	// Stop image results for a model that cannot read images. This is
+	// applied inside the tool wrapper, so extensions see the final result.
+	currentModel := newActiveModel(agentConfig.ModelConfig)
+	allTools = gateImageTools(allTools, currentModel.imageInput)
+
 	// Apply tool wrapper (extension interception layer) if configured.
 	if agentConfig.ToolWrapper != nil {
 		allTools = agentConfig.ToolWrapper(allTools)
@@ -487,6 +496,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		coreTools:           coreTools,
 		extraTools:          agentConfig.ExtraTools,
 		toolWrapper:         agentConfig.ToolWrapper,
+		currentModel:        currentModel,
 		providerOptions:     providerResult.ProviderOptions,
 		skipMaxOutputTokens: providerResult.SkipMaxOutputTokens,
 		modelConfig:         agentConfig.ModelConfig,
@@ -613,6 +623,9 @@ func (a *Agent) composeAllTools() []fantasy.AgentTool {
 	if len(a.extraTools) > 0 {
 		allTools = append(allTools, a.extraTools...)
 	}
+	if a.currentModel != nil {
+		allTools = gateImageTools(allTools, a.currentModel.imageInput)
+	}
 	if a.toolWrapper != nil {
 		allTools = a.toolWrapper(allTools)
 	}
@@ -722,6 +735,16 @@ func (a *Agent) GenerateWithCallbacks(ctx context.Context, messages []fantasy.Me
 	// field so the agent includes them in the API request.
 	prompt, files, history := splitPromptAndHistory(messages)
 
+	// Remove images from the request when the active model cannot read
+	// them. The streaming path does this again per step in PrepareStep;
+	// this covers the non-streaming path. See image_gate.go.
+	if a.currentModel != nil {
+		if supported, model := a.currentModel.imageInput(); !supported {
+			history = withoutImages(history, model)
+			prompt, files = promptWithoutImages(prompt, files, model)
+		}
+	}
+
 	// Apply message-level cache control for Anthropic models.
 	// This avoids type conflicts with provider-level options.
 	history = applyCacheControlToMessages(history)
@@ -764,6 +787,53 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	var persistedCount int
 	// stepCounter tracks the current step number for StepStart/StepFinish events.
 	var stepCounter int
+
+	// pendingMedia holds step messages that are not persisted yet because
+	// they contain a media tool result that the provider has not accepted.
+	// The provider sees a tool result only in the NEXT request, so a step
+	// with an image is held back until a later step completes (proof that
+	// the request carrying the image was accepted). Messages produced after
+	// a held step are held too, to keep the persisted order. See
+	// media_recovery.go.
+	var pendingMedia []fantasy.Message
+	// persistStep persists msgs through cb.OnStepMessages, or holds them in
+	// pendingMedia as described above.
+	persistStep := func(msgs []fantasy.Message) {
+		if len(msgs) == 0 {
+			return
+		}
+		if len(pendingMedia) > 0 || hasMediaToolResult(msgs) {
+			pendingMedia = append(pendingMedia, msgs...)
+			return
+		}
+		if cb.OnStepMessages != nil {
+			cb.OnStepMessages(msgs)
+			persistedCount += len(msgs)
+		}
+	}
+	// flushPending persists the held messages. Call it only when the
+	// provider has accepted the request that carried them.
+	flushPending := func() {
+		if len(pendingMedia) == 0 {
+			return
+		}
+		held := pendingMedia
+		pendingMedia = nil
+		if cb.OnStepMessages != nil {
+			cb.OnStepMessages(held)
+			persistedCount += len(held)
+		}
+	}
+	// mediaRetries counts replays after a provider rejected a media tool
+	// result. It bounds the recovery loop below.
+	var mediaRetries int
+	// canRecoverMedia reports whether err can be recovered by replacing the
+	// held media tool results and replaying the turn.
+	canRecoverMedia := func(err error) bool {
+		return mediaRetries < maxMediaRetries &&
+			hasMediaToolResult(pendingMedia) &&
+			isMediaRejection(err)
+	}
 
 	// Use the streaming agent
 	streamCall := fantasy.AgentStreamCall{
@@ -903,6 +973,11 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 
 		// Error callback
 		OnError: func(err error) {
+			// A rejected media tool result is recovered below and the
+			// model is told about it, so it is not a turn error.
+			if canRecoverMedia(err) {
+				return
+			}
 			if cb.OnError != nil {
 				cb.OnError(err)
 			}
@@ -974,12 +1049,13 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			// persisted even if a later step is cancelled.
 			completedStepMessages = append(completedStepMessages, step.Messages...)
 
+			// This step completed, so the provider accepted the request
+			// that carried any held media tool results. Persist them.
+			flushPending()
+
 			// Persist step messages incrementally so progress is saved
 			// as it happens rather than only at the end of the turn.
-			if cb.OnStepMessages != nil && len(step.Messages) > 0 {
-				cb.OnStepMessages(step.Messages)
-				persistedCount += len(step.Messages)
-			}
+			persistStep(step.Messages)
 
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -1070,10 +1146,7 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 				// conversation. Persist now so the steer message survives
 				// a cancel, an error, and a session reload.
 				completedStepMessages = append(completedStepMessages, newMessages...)
-				if cb.OnStepMessages != nil {
-					cb.OnStepMessages(newMessages)
-					persistedCount += len(newMessages)
-				}
+				persistStep(newMessages)
 
 				if onConsumed != nil {
 					onConsumed(len(steered))
@@ -1101,6 +1174,15 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 			}
 		}
 
+		// Remove images from the request when the active model cannot
+		// read them (for example after a switch to a text-only model).
+		// The session keeps them. See image_gate.go.
+		if a.currentModel != nil {
+			if supported, model := a.currentModel.imageInput(); !supported {
+				result.Messages = withoutImages(result.Messages, model)
+			}
+		}
+
 		// Apply message-level cache control for Anthropic models.
 		result.Messages = applyCacheControlToMessages(result.Messages)
 
@@ -1118,6 +1200,36 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 	}
 
 	result, err := a.fantasyAgent.Stream(ctx, streamCall)
+
+	// Recover from a provider that rejected a media tool result (for
+	// example an image the model cannot accept, or a request above the
+	// provider size limit). Replace the held media results with error
+	// results that give the reason, persist them, and continue the turn
+	// from there, so the model can take another approach.
+	for err != nil && ctx.Err() == nil && canRecoverMedia(err) {
+		mediaRetries++
+		fixed, n := replaceMediaToolResults(pendingMedia, err)
+		// The held messages are always the tail of completedStepMessages.
+		copy(completedStepMessages[len(completedStepMessages)-len(fixed):], fixed)
+		pendingMedia = nil
+		persistStep(fixed)
+		if cb.OnWarnings != nil {
+			cb.OnWarnings([]string{fmt.Sprintf(
+				"provider rejected %d media tool result(s); the model was told and the turn continues: %v", n, err)})
+		}
+
+		// Continue the turn from the full conversation so far. The steer
+		// messages are already in it, so do not inject them again.
+		injectedSteer = nil
+		replay := make([]fantasy.Message, 0, len(messages)+len(completedStepMessages))
+		replay = append(replay, messages...)
+		replay = append(replay, completedStepMessages...)
+		streamCall.Prompt = ""
+		streamCall.Files = nil
+		streamCall.Messages = applyCacheControlToMessages(replay)
+		result, err = a.fantasyAgent.Stream(ctx, streamCall)
+	}
+
 	if err != nil {
 		// On cancellation (or any error), return a partial result
 		// containing messages from completed steps so the caller can
@@ -1146,9 +1258,14 @@ func (a *Agent) generateStreaming(ctx context.Context, cb GenerateCallbacks, mes
 		cb.OnResponse(result.Response.Content.Text())
 	}
 
+	// No request follows the last step, so nothing can reject its media
+	// now. Persist what is still held.
+	flushPending()
+
 	r := convertAgentResult(result, messages)
-	if len(injectedSteer) > 0 {
-		// result.Steps does not contain the injected steer messages.
+	if len(injectedSteer) > 0 || mediaRetries > 0 {
+		// result.Steps does not contain the injected steer messages, and
+		// after a media replay it holds only the steps of the replay.
 		// completedStepMessages has every step message plus the steer
 		// messages in conversation order, so build the result from it.
 		// This keeps PersistedMessageCount aligned with
@@ -1599,6 +1716,9 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 	a.skipMaxOutputTokens = providerResult.SkipMaxOutputTokens
 	a.modelConfig = config
 	a.providerErr = nil
+	if a.currentModel != nil {
+		a.currentModel.set(config.ModelString)
+	}
 
 	// Update system prompt when the config carries one (from per-model
 	// settings or the global config). This allows model-specific system
