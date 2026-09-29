@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -110,5 +111,24 @@ func TestExecuteSubagent_UnsetTimeoutIsZero(t *testing.T) {
 	}
 	if captured.Agent != "" {
 		t.Errorf("Agent = %q, want empty", captured.Agent)
+	}
+}
+
+func TestExecuteSubagent_KilledTellsParent(t *testing.T) {
+	spawner := SubagentSpawnFunc(func(ctx context.Context, req SubagentSpawnRequest) (*SubagentSpawnResult, error) {
+		err := errors.New("subagent killed by the user")
+		return &SubagentSpawnResult{Error: err, Killed: true, Elapsed: 3 * time.Second}, err
+	})
+	ctx := WithSubagentSpawner(context.Background(), spawner)
+
+	resp, err := executeSubagent(ctx, fantasy.ToolCall{ID: "tc1", Input: `{"task":"t"}`})
+	if err != nil {
+		t.Fatalf("executeSubagent failed: %v", err)
+	}
+	if !resp.IsError {
+		t.Error("a killed subagent should give an error tool result")
+	}
+	if !strings.Contains(resp.Content, "Subagent was killed by the user after 3s") {
+		t.Errorf("content = %q, want the kill message", resp.Content)
 	}
 }

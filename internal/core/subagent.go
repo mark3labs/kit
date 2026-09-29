@@ -27,6 +27,9 @@ type SubagentSpawnResult struct {
 	InputTokens  int64
 	OutputTokens int64
 	Elapsed      time.Duration
+	// Killed is true when the user stopped the run (for example with
+	// /kill-subagent) before it completed.
+	Killed bool
 }
 
 // SubagentSpawnRequest carries the parameters of an in-process subagent
@@ -236,6 +239,14 @@ func executeSubagent(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolRe
 		Timeout:      timeout,
 		SessionID:    args.SessionID,
 	})
+	if result != nil && result.Killed {
+		// The user stopped the subagent on purpose. Tell the LLM clearly so
+		// that it does not treat this as a failure to retry.
+		return fantasy.NewTextErrorResponse(fmt.Sprintf(
+			"Subagent was killed by the user after %ds. It did not complete its task. "+
+				"Do not start it again unless the user asks you to.",
+			int(result.Elapsed.Seconds()))), nil
+	}
 	if err != nil || result.Error != nil {
 		spawnErr := err
 		if spawnErr == nil {

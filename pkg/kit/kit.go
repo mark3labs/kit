@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -126,6 +127,10 @@ type Kit struct {
 	// subagentListeners holds per-tool-call event listeners registered via
 	// SubscribeSubagent(). Keyed by toolCallID → *subagentListenerSet.
 	subagentListeners sync.Map
+
+	// subagents tracks the running in-process subagents so that they can be
+	// listed and killed (see RunningSubagents and KillSubagent).
+	subagents subagentRegistry
 
 	// skillCache holds skills discovered for this Kit instance.
 	// Using a per-instance cache avoids cross-contamination when multiple
@@ -2132,6 +2137,10 @@ type SubagentConfig struct {
 	// This enables the parent to stream subagent tool calls, text chunks,
 	// etc. in real time.
 	OnEvent func(Event)
+
+	// runID is the registry ID for this run. The subagent tool sets it to
+	// the tool call ID. Empty means a random ID.
+	runID string
 }
 
 // SubagentResult contains the outcome of an in-process subagent execution.
@@ -2330,6 +2339,17 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// KillSubagent cancels this context with ErrSubagentKilled as the cause.
+	ctx, kill := context.WithCancelCause(ctx)
+	defer kill(nil)
+	// killedErr replaces err with ErrSubagentKilled when the user killed
+	// the run, so callers get a clear reason instead of context.Canceled.
+	killedErr := func(err error) error {
+		if errors.Is(context.Cause(ctx), ErrSubagentKilled) {
+			return ErrSubagentKilled
+		}
+		return err
+	}
 
 	// Resolve model: fall back to parent's model, and inherit the parent's
 	// provider when only a bare model name is given (e.g. "claude-haiku"
@@ -2448,8 +2468,22 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	// Propagate instance provider factories so a child can use the same
 	// application-provided backends as the parent.
 	childOpts.Providers = m.providers
+
+	// Register the run so that it can be listed and killed.
+	_, unregister := m.subagents.add(RunningSubagent{
+		ID:        cfg.runID,
+		Prompt:    cfg.Prompt,
+		Agent:     cfg.Agent,
+		Model:     model,
+		StartedAt: start,
+	}, kill)
+	defer unregister()
+
 	child, err := New(ctx, childOpts)
 	if err != nil {
+		if kerr := killedErr(err); kerr != err {
+			return &SubagentResult{Elapsed: time.Since(start)}, kerr
+		}
 		return &SubagentResult{Elapsed: time.Since(start)}, fmt.Errorf("failed to create subagent: %w", err)
 	}
 	defer func() { _ = child.Close() }()
@@ -2485,7 +2519,7 @@ func (m *Kit) Subagent(ctx context.Context, cfg SubagentConfig) (*SubagentResult
 	elapsed := time.Since(start)
 
 	if err != nil {
-		return &SubagentResult{Elapsed: elapsed}, err
+		return &SubagentResult{Elapsed: elapsed}, killedErr(err)
 	}
 
 	subResult := &SubagentResult{
@@ -2576,14 +2610,17 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 			SessionID:    req.SessionID,
 			OnEvent:      onEvent,
 			Tools:        m.GetToolsForSubagent(),
+			runID:        req.ToolCallID,
 		})
 		m.cleanupSubagentListeners(req.ToolCallID)
+		killed := errors.Is(err, ErrSubagentKilled)
 		if result == nil {
-			return &core.SubagentSpawnResult{Error: err}, err
+			return &core.SubagentSpawnResult{Error: err, Killed: killed}, err
 		}
 		sr := &core.SubagentSpawnResult{
 			Response:  result.Response,
 			Error:     err,
+			Killed:    killed,
 			SessionID: result.SessionID,
 			Elapsed:   result.Elapsed,
 		}

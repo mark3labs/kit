@@ -49,6 +49,16 @@ subagent(
 
 Subagents run as separate in-process Kit instances and inherit the parent's active tools minus `subagent` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
 
+### Killing a running subagent
+
+In the TUI, run `/kill-subagent` (alias `/ks`) while subagents run. A picker shows each running subagent with its agent name, run time, model and task. Select one and press Enter to stop it. The `subagent` tool call then returns this result to the parent agent:
+
+```
+Subagent was killed by the user after 28s. It did not complete its task. Do not start it again unless the user asks you to.
+```
+
+The parent turn continues. Esc closes the picker and does not cancel the turn. The picker lists all in-process subagents, including subagents that extensions start with `SpawnSubagent`.
+
 ## Session linking and resuming
 
 Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:
@@ -267,6 +277,22 @@ Children inherit the parent's `Options.Providers`, so `Model` can name an app-su
 Children also inherit the parent's discovery switches: `Bare`, `SkipConfig`, `NoContextFiles`, `NoSkills`, `NoExtensions` and `NoAgents`. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an [isolated](/sdk/overview#isolated-agents) Kit therefore does not load `.kit.yml`, `AGENTS.md`, skills, extensions or named agents.
 
 A parent with `NoSession` gives its children an in-memory session too, so a `SessionID` resume request is rejected. When `Tools` is nil, the child gets only the core tools that the parent enabled: a parent with `DisableCoreTools` gives it none, a parent with `CoreToolList` gives it only those tools, and a parent with `Tools` gives it those same tools.
+
+List and stop running subagents with `RunningSubagents` and `KillSubagent`. The list includes subagents that the LLM starts through the `subagent` tool (the ID is the tool call ID), subagents that extensions start, and direct `Subagent` calls. A killed run returns `kit.ErrSubagentKilled`:
+
+```go
+for _, sa := range host.RunningSubagents() {
+    fmt.Println(sa.ID, sa.Agent, sa.Model, time.Since(sa.StartedAt), sa.Prompt)
+}
+if !host.KillSubagent(id) {
+    // No subagent with this ID is running (it may have completed).
+}
+
+_, err := host.Subagent(ctx, cfg)
+if errors.Is(err, kit.ErrSubagentKilled) {
+    // Stopped with KillSubagent.
+}
+```
 
 Inspect the discovered definitions:
 

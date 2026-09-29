@@ -474,6 +474,26 @@ func (a *App) SwitchTreeSession(ts *session.TreeManager) {
 	}
 }
 
+// RunningSubagents returns the in-process subagents that are running now,
+// oldest first. It returns nil when no Kit instance is configured.
+// Satisfies ui.AppController.
+func (a *App) RunningSubagents() []kit.RunningSubagent {
+	if a.opts.Kit == nil {
+		return nil
+	}
+	return a.opts.Kit.RunningSubagents()
+}
+
+// KillSubagent stops the running subagent with the given ID. It returns
+// false when no subagent with that ID is running (for example, because it
+// completed first). Satisfies ui.AppController.
+func (a *App) KillSubagent(id string) bool {
+	if a.opts.Kit == nil {
+		return false
+	}
+	return a.opts.Kit.KillSubagent(id)
+}
+
 // PopLastUserMessage truncates the tree session back to the parent of the
 // most recent user message on the current branch, syncs the in-memory
 // message store, and returns the user prompt text plus any image file

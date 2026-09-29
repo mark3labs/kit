@@ -189,6 +189,12 @@ type AppController interface {
 	// message in context. Returns an error if the agent is busy, no tree
 	// session is active, or no user message exists on the current branch.
 	PopLastUserMessage() (string, []kit.LLMFilePart, error)
+	// RunningSubagents returns the in-process subagents that are running
+	// now, oldest first. Used by /kill-subagent.
+	RunningSubagents() []kit.RunningSubagent
+	// KillSubagent stops the running subagent with the given ID. Returns
+	// false when no such subagent is running. Used by /kill-subagent.
+	KillSubagent(id string) bool
 }
 
 // SkillItem holds display metadata about a loaded skill for the startup
@@ -928,6 +934,11 @@ type AppModel struct {
 	// thinkingLevelSelector is the reasoning-effort picker, active in
 	// stateThinkingLevelSelector.
 	thinkingLevelSelector *ThinkingLevelSelectorComponent
+
+	// killSubagentSelector is the /kill-subagent picker. It is not tied to
+	// an appState: subagents run while the agent works, so the state stays
+	// stateWorking and keys are routed here while this is non-nil.
+	killSubagentSelector *KillSubagentSelectorComponent
 
 	// themeSelector is the color-theme picker, active in stateThemeSelector.
 	themeSelector *ThemeSelectorComponent
@@ -1820,6 +1831,17 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 
+	// ── Kill-subagent selector events ───────────────────────────────────
+	// The state is not changed here: the picker does not own an appState.
+	case KillSubagentSelectedMsg:
+		m.killSubagentSelector = nil
+		m.killSubagent(msg.ID, msg.Label)
+		return m, tea.Batch(cmds...)
+
+	case KillSubagentSelectorCancelledMsg:
+		m.killSubagentSelector = nil
+		return m, nil
+
 	// ── Theme selector events ───────────────────────────────────────────────
 	case ThemeSelectedMsg:
 		m.themeSelector = nil
@@ -1903,6 +1925,9 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated, cmd := m.stream.Update(msg)
 			m.stream, _ = updated.(streamComponentIface)
 			cmds = append(cmds, cmd)
+		}
+		if m.killSubagentSelector != nil {
+			m.killSubagentSelector.Update(msg)
 		}
 		// A width change re-wraps every message, so the selected one can end
 		// up outside the viewport. Pull it back into view rather than leaving
@@ -2019,6 +2044,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ctrlCPressedOnce = true
 			// Start reset timer so the flag clears after 3 seconds.
 			return m, ctrlCResetCmd()
+		}
+
+		// Route to the /kill-subagent picker when open. It owns the keyboard
+		// (including esc, which closes it instead of cancelling the turn).
+		if m.killSubagentOpen() {
+			_, cmd := m.killSubagentSelector.Update(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		}
 
 		// Check extension-registered global keyboard shortcuts. These fire
@@ -3495,6 +3528,11 @@ func (m *AppModel) View() tea.View {
 		finalContent = compositeCentered(finalContent, m.thinkingLevelSelector.RenderOverlay(), m.width, m.height)
 	}
 
+	// Kill-subagent selector.
+	if m.killSubagentOpen() {
+		finalContent = compositeCentered(finalContent, m.killSubagentSelector.RenderOverlay(), m.width, m.height)
+	}
+
 	// Theme selector.
 	if m.state == stateThemeSelector && m.themeSelector != nil {
 		finalContent = compositeCentered(finalContent, m.themeSelector.RenderOverlay(), m.width, m.height)
@@ -4453,6 +4491,8 @@ func (m *AppModel) handleSlashCommand(sc *commands.SlashCommand, args string) te
 		return m.handleThemeCommand(args)
 	case "/thinking":
 		return m.handleThinkingCommand(args)
+	case "/kill-subagent":
+		m.handleKillSubagentCommand()
 	case "/compact":
 		return m.handleCompactCommand(args)
 	case "/reload-ext":

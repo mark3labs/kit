@@ -146,6 +146,13 @@ var SlashCommands = []SlashCommand{
 		Aliases:     []string{"/r"},
 	},
 	{
+		Name:        "/kill-subagent",
+		Description: "Pick a running subagent and stop it",
+		Category:    "System",
+		Aliases:     []string{"/ks"},
+		// No Complete function: /kill-subagent opens a modal picker.
+	},
+	{
 		Name:        "/copy",
 		Description: "Copy the last message to the system clipboard",
 		Category:    "System",

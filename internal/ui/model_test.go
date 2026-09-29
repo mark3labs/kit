@@ -26,6 +26,11 @@ type stubAppController struct {
 	clearMsgCalled   int
 	queueLen         int
 
+	// subagents backs RunningSubagents; killed records the IDs passed to
+	// a successful KillSubagent.
+	subagents []kit.RunningSubagent
+	killed    []string
+
 	// hasSession controls whether SessionSnapshot reports an active session,
 	// and sessionHistory is what SessionHistory returns for it.
 	hasSession     bool
@@ -144,6 +149,21 @@ func (s *stubAppController) SteerWithFiles(prompt string, _ []kit.LLMFilePart) i
 
 func (s *stubAppController) PopLastUserMessage() (string, []kit.LLMFilePart, error) {
 	return "", nil, fmt.Errorf("no user message to retry")
+}
+
+func (s *stubAppController) RunningSubagents() []kit.RunningSubagent {
+	return s.subagents
+}
+
+func (s *stubAppController) KillSubagent(id string) bool {
+	for i, sa := range s.subagents {
+		if sa.ID == id {
+			s.killed = append(s.killed, id)
+			s.subagents = append(s.subagents[:i:i], s.subagents[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // --------------------------------------------------------------------------
