@@ -52,6 +52,11 @@ var e={frontmatter:{title:`Subagents`,description:`Multi-agent orchestration wit
 )
 </code></pre>
 <p>Subagents run as separate in-process Kit instances and inherit the parent's active tools minus <code>subagent</code> (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.</p>
+<h3 id="killing-a-running-subagent"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#killing-a-running-subagent"><span class="icon icon-link"></span></a>Killing a running subagent</h3>
+<p>In the TUI, run <code>/kill-subagent</code> (alias <code>/ks</code>) while subagents run. A picker shows each running subagent with its agent name, run time, model and task. Select one and press Enter to stop it. The <code>subagent</code> tool call then returns this result to the parent agent:</p>
+<pre><code>Subagent was killed by the user after 28s. It did not complete its task. Do not start it again unless the user asks you to.
+</code></pre>
+<p>The parent turn continues. Esc closes the picker and does not cancel the turn. The picker lists all in-process subagents, including subagents that extensions start with <code>SpawnSubagent</code>.</p>
 <h2 id="session-linking-and-resuming"><a class="heading-anchor" aria-hidden="" tabindex="-1" href="#session-linking-and-resuming"><span class="icon icon-link"></span></a>Session linking and resuming</h2>
 <p>Subagent runs are session-backed by default, and their sessions are linked to the parent in both directions:</p>
 <ul>
@@ -248,6 +253,18 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <p>Children inherit the parent's <code>Options.Providers</code>, so <code>Model</code> can name an app-supplied <a href="/sdk/overview#custom-provider-backends">custom provider backend</a> (for example <code>"local/qwen3-8b"</code>).</p>
 <p>Children also inherit the parent's discovery switches: <code>Bare</code>, <code>SkipConfig</code>, <code>NoContextFiles</code>, <code>NoSkills</code>, <code>NoExtensions</code> and <code>NoAgents</code>. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an <a href="/sdk/overview#isolated-agents">isolated</a> Kit therefore does not load <code>.kit.yml</code>, <code>AGENTS.md</code>, skills, extensions or named agents.</p>
 <p>A parent with <code>NoSession</code> gives its children an in-memory session too, so a <code>SessionID</code> resume request is rejected. When <code>Tools</code> is nil, the child gets only the core tools that the parent enabled: a parent with <code>DisableCoreTools</code> gives it none, a parent with <code>CoreToolList</code> gives it only those tools, and a parent with <code>Tools</code> gives it those same tools.</p>
+<p>List and stop running subagents with <code>RunningSubagents</code> and <code>KillSubagent</code>. The list includes subagents that the LLM starts through the <code>subagent</code> tool (the ID is the tool call ID), subagents that extensions start, and direct <code>Subagent</code> calls. A killed run returns <code>kit.ErrSubagentKilled</code>:</p>
+<pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">for</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> _, sa </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#D73A49;--shiki-dark:#F97583"> range</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">RunningSubagents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">() {</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    fmt.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Println</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(sa.ID, sa.Agent, sa.Model, time.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Since</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(sa.StartedAt), sa.Prompt)</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#D73A49;--shiki-dark:#F97583"> !</span><span style="color:#24292E;--shiki-dark:#E1E4E8">host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">KillSubagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(id) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // No subagent with this ID is running (it may have completed).</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">_, err </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Subagent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(ctx, cfg)</span></span>
+<span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">if</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> errors.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">Is</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(err, kit.ErrSubagentKilled) {</span></span>
+<span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D">    // Stopped with KillSubagent.</span></span>
+<span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">}</span></span></code></pre>
 <p>Inspect the discovered definitions:</p>
 <pre class="shiki shiki-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8" tabindex="0"><code><span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">defs </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgents</span><span style="color:#24292E;--shiki-dark:#E1E4E8">()             </span><span style="color:#6A737D;--shiki-dark:#6A737D">// snapshot of discovered definitions</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">def, ok </span><span style="color:#D73A49;--shiki-dark:#F97583">:=</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> host.</span><span style="color:#6F42C1;--shiki-dark:#B392F0">GetAgent</span><span style="color:#24292E;--shiki-dark:#E1E4E8">(</span><span style="color:#032F62;--shiki-dark:#9ECBFF">"explore"</span><span style="color:#24292E;--shiki-dark:#E1E4E8">)  </span><span style="color:#6A737D;--shiki-dark:#6A737D">// lookup by name</span></span>
@@ -271,7 +288,7 @@ subagent(task: "Now check how it handles errors", session_id: "abc123...")
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
 <p>The listener receives the same event types as <code>Subscribe()</code> (<code>ToolCallEvent</code>, <code>MessageUpdateEvent</code>, <code>ReasoningDeltaEvent</code>, etc.) but scoped to the child agent's activity. Listeners are cleaned up automatically when the subagent completes.</p>
-<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
+<p>If no listeners are registered for a tool call, no event dispatching overhead is incurred.</p>`,headings:[{depth:2,text:`Subprocess pattern`,id:`subprocess-pattern`},{depth:2,text:`Built-in subagent tool`,id:`built-in-subagent-tool`},{depth:3,text:`Killing a running subagent`,id:`killing-a-running-subagent`},{depth:2,text:`Session linking and resuming`,id:`session-linking-and-resuming`},{depth:2,text:`Named agents`,id:`named-agents`},{depth:3,text:`Definition files`,id:`definition-files`},{depth:3,text:`Discovery and precedence`,id:`discovery-and-precedence`},{depth:3,text:`Tool allowlists`,id:`tool-allowlists`},{depth:2,text:`Extension subagents`,id:`extension-subagents`},{depth:3,text:`Monitoring subagents from extensions`,id:`monitoring-subagents-from-extensions`},{depth:2,text:`Go SDK subagents`,id:`go-sdk-subagents`},{depth:3,text:`Real-time subagent events`,id:`real-time-subagent-events`}],raw:`
 # Subagents
 
 Kit supports multi-agent orchestration through both subprocess spawning and in-process subagents.
@@ -317,6 +334,16 @@ subagent(
 \`\`\`
 
 Subagents run as separate in-process Kit instances and inherit the parent's active tools minus \`subagent\` (to prevent recursion); named-agent presets and tool allowlists can narrow that set further. They can run in parallel.
+
+### Killing a running subagent
+
+In the TUI, run \`/kill-subagent\` (alias \`/ks\`) while subagents run. A picker shows each running subagent with its agent name, run time, model and task. Select one and press Enter to stop it. The \`subagent\` tool call then returns this result to the parent agent:
+
+\`\`\`
+Subagent was killed by the user after 28s. It did not complete its task. Do not start it again unless the user asks you to.
+\`\`\`
+
+The parent turn continues. Esc closes the picker and does not cancel the turn. The picker lists all in-process subagents, including subagents that extensions start with \`SpawnSubagent\`.
 
 ## Session linking and resuming
 
@@ -536,6 +563,22 @@ Children inherit the parent's \`Options.Providers\`, so \`Model\` can name an ap
 Children also inherit the parent's discovery switches: \`Bare\`, \`SkipConfig\`, \`NoContextFiles\`, \`NoSkills\`, \`NoExtensions\` and \`NoAgents\`. A switch only goes from on to off, so a parent never turns a feature back on in a child. A subagent of an [isolated](/sdk/overview#isolated-agents) Kit therefore does not load \`.kit.yml\`, \`AGENTS.md\`, skills, extensions or named agents.
 
 A parent with \`NoSession\` gives its children an in-memory session too, so a \`SessionID\` resume request is rejected. When \`Tools\` is nil, the child gets only the core tools that the parent enabled: a parent with \`DisableCoreTools\` gives it none, a parent with \`CoreToolList\` gives it only those tools, and a parent with \`Tools\` gives it those same tools.
+
+List and stop running subagents with \`RunningSubagents\` and \`KillSubagent\`. The list includes subagents that the LLM starts through the \`subagent\` tool (the ID is the tool call ID), subagents that extensions start, and direct \`Subagent\` calls. A killed run returns \`kit.ErrSubagentKilled\`:
+
+\`\`\`go
+for _, sa := range host.RunningSubagents() {
+    fmt.Println(sa.ID, sa.Agent, sa.Model, time.Since(sa.StartedAt), sa.Prompt)
+}
+if !host.KillSubagent(id) {
+    // No subagent with this ID is running (it may have completed).
+}
+
+_, err := host.Subagent(ctx, cfg)
+if errors.Is(err, kit.ErrSubagentKilled) {
+    // Stopped with KillSubagent.
+}
+\`\`\`
 
 Inspect the discovered definitions:
 

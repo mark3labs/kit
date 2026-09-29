@@ -55,6 +55,7 @@
       "headings": [
         "Subprocess pattern",
         "Built-in subagent tool",
+        "Killing a running subagent",
         "Session linking and resuming",
         "Named agents",
         "Definition files",
@@ -66,7 +67,7 @@
         "Real-time subagent events"
       ],
       "tags": [],
-      "wordCount": 1670
+      "wordCount": 1860
     },
     {
       "id": "advanced/testing",
@@ -113,7 +114,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 3855
+      "wordCount": 3883
     },
     {
       "id": "cli/flags",
