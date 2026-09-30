@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/message"
 )
 
 // textOf returns the text of the first part of msg, or "" if it has none.
@@ -47,6 +49,71 @@ func TestBuildContext_ResultIsIsolatedFromCache(t *testing.T) {
 	if second[0].Role != fantasy.MessageRoleUser {
 		t.Errorf("role after caller mutation = %q, want %q", second[0].Role, fantasy.MessageRoleUser)
 	}
+}
+
+// TestBuildContext_ImageBytesIsolatedFromCache checks that image data is
+// copied too: a ContextPrepare hook that edits image bytes in place (e.g. to
+// redact or downscale) must not change what the next turn sends.
+func TestBuildContext_ImageBytesIsolatedFromCache(t *testing.T) {
+	tm := InMemoryTreeSession("/test")
+	msg := newTestMessage("look at this")
+	msg.Parts = append(msg.Parts, message.ImageContent{Data: []byte{1, 2, 3}, MediaType: "image/png"})
+	if _, err := tm.AppendMessage(msg); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	first, _, _ := tm.BuildContext()
+	file := findFilePart(t, first[0])
+	file.Data[0] = 99
+
+	second, _, _ := tm.BuildContext()
+	if got := findFilePart(t, second[0]).Data; got[0] != 1 {
+		t.Errorf("image bytes after caller edit = %v, want [1 2 3]", got)
+	}
+}
+
+// TestCloneLLMMessage_CopiesProviderOptions checks that every ProviderOptions
+// map is copied, on the message and on each part type that carries one.
+func TestCloneLLMMessage_CopiesProviderOptions(t *testing.T) {
+	opts := func() fantasy.ProviderOptions { return fantasy.ProviderOptions{"a": nil} }
+	orig := fantasy.Message{
+		Role:            fantasy.MessageRoleAssistant,
+		ProviderOptions: opts(),
+		Content: []fantasy.MessagePart{
+			fantasy.TextPart{Text: "t", ProviderOptions: opts()},
+			fantasy.ReasoningPart{Text: "r", ProviderOptions: opts()},
+			fantasy.FilePart{Data: []byte{1}, ProviderOptions: opts()},
+			fantasy.ToolCallPart{ToolCallID: "c", ProviderOptions: opts()},
+			fantasy.ToolResultPart{ToolCallID: "c", ProviderOptions: opts()},
+		},
+	}
+
+	c := cloneLLMMessage(orig)
+	c.ProviderOptions["x"] = nil
+	for _, part := range c.Content {
+		part.Options()["x"] = nil
+	}
+
+	if _, leaked := orig.ProviderOptions["x"]; leaked {
+		t.Error("message ProviderOptions is shared with the clone")
+	}
+	for i, part := range orig.Content {
+		if _, leaked := part.Options()["x"]; leaked {
+			t.Errorf("part %d (%T) ProviderOptions is shared with the clone", i, part)
+		}
+	}
+}
+
+// findFilePart returns the first FilePart in msg.
+func findFilePart(t *testing.T, msg fantasy.Message) fantasy.FilePart {
+	t.Helper()
+	for _, part := range msg.Content {
+		if fp, ok := part.(fantasy.FilePart); ok {
+			return fp
+		}
+	}
+	t.Fatalf("no FilePart in message %+v", msg)
+	return fantasy.FilePart{}
 }
 
 // TestBuildContext_SeesEntriesAppendedAfterCaching checks that the cache

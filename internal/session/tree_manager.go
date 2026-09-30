@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -794,20 +795,56 @@ func (tm *TreeManager) GetTree() []*TreeNode {
 // converted to user messages to provide context from abandoned branches.
 // Also returns the latest model/provider settings encountered on the path.
 //
-// Each returned message is a fresh copy with its own Content slice, so
-// callers (including SDK ContextPrepare hooks) may modify the result freely
-// without corrupting the decoded-message cache behind it.
+// Each returned message is a copy (see cloneLLMMessage), so callers,
+// including SDK ContextPrepare hooks, may modify the result in place without
+// corrupting the decoded-message cache behind it.
 func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider string, modelID string) {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
 	provider, modelID = tm.walkContextLocked(func(_ string, msgs []fantasy.Message) {
 		for _, msg := range msgs {
-			msg.Content = slices.Clone(msg.Content)
-			messages = append(messages, msg)
+			messages = append(messages, cloneLLMMessage(msg))
 		}
 	})
 	return messages, provider, modelID
+}
+
+// cloneLLMMessage returns a copy of msg that shares no mutable memory with
+// it: the Content slice, every ProviderOptions map, and FilePart.Data are
+// copied. All other fields are values or immutable strings.
+//
+// The values inside a ProviderOptions map are copied shallowly. The cache
+// never holds any: ToLLMMessages does not set provider options.
+func cloneLLMMessage(msg fantasy.Message) fantasy.Message {
+	msg.ProviderOptions = maps.Clone(msg.ProviderOptions)
+	if msg.Content == nil {
+		return msg
+	}
+	content := make([]fantasy.MessagePart, len(msg.Content))
+	for i, part := range msg.Content {
+		switch p := part.(type) {
+		case fantasy.TextPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.ReasoningPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.FilePart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.Data = bytes.Clone(p.Data)
+			part = p
+		case fantasy.ToolCallPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.ToolResultPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		}
+		content[i] = part
+	}
+	msg.Content = content
+	return msg
 }
 
 // walkContextLocked is the single definition of which session entries make
