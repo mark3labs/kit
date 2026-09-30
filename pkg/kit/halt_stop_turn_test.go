@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -126,5 +127,52 @@ func TestHaltEndsTheLoop(t *testing.T) {
 	}
 	if n := model.callCount(); n != 1 {
 		t.Fatalf("model called %d time(s), want 1", n)
+	}
+}
+
+// TestBeforeToolCallBlockContinuesTheTurn checks that a tool blocked by a
+// BeforeToolCall hook does not end the turn with an error: the model gets the
+// block reason as the tool result and answers.
+func TestBeforeToolCallBlockContinuesTheTurn(t *testing.T) {
+	var ran atomic.Int32
+	act := NewTool("act", "Side effect.", func(context.Context, struct{}) (ToolOutput, error) {
+		ran.Add(1)
+		return ToolOutput{Content: "done"}, nil
+	})
+	model := &scriptedToolModel{script: []string{"act"}}
+	model.provider, model.model = "script", "m"
+	factory := func(context.Context, *ProviderConfig, string) (*ProviderResult, error) {
+		return &ProviderResult{Model: model}, nil
+	}
+	k := newProviderTestKit(t, &Options{
+		Model:      "script/m",
+		Providers:  map[string]ProviderFactory{"script": factory},
+		ExtraTools: []Tool{act},
+	})
+	k.OnBeforeToolCall(HookPriorityNormal, func(BeforeToolCallHook) *BeforeToolCallResult {
+		return &BeforeToolCallResult{Block: true, Reason: "not allowed"}
+	})
+	var result ToolResultEvent
+	defer k.Subscribe(func(e Event) {
+		if ev, ok := e.(ToolResultEvent); ok {
+			result = ev
+		}
+	})()
+
+	res, err := k.PromptResult(context.Background(), "go")
+	if err != nil {
+		t.Fatalf("PromptResult: %v (a blocked tool must not end the turn)", err)
+	}
+	if res.Response != "ok" {
+		t.Errorf("response = %q, want the model's answer after the block", res.Response)
+	}
+	if n := ran.Load(); n != 0 {
+		t.Errorf("blocked tool ran %d time(s)", n)
+	}
+	if !result.IsError || !strings.Contains(result.Result, "not allowed") {
+		t.Errorf("tool result = %+v, want an error with the reason", result)
+	}
+	if n := model.callCount(); n != 2 {
+		t.Errorf("model called %d time(s), want 2", n)
 	}
 }
