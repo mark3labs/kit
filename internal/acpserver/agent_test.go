@@ -439,3 +439,54 @@ func TestExpandPromptTemplate(t *testing.T) {
 		t.Error("missing argument accepted")
 	}
 }
+
+func TestTrimDriveSlash(t *testing.T) {
+	for _, c := range []struct {
+		in      string
+		windows bool
+		want    string
+	}{
+		{"/C:/work/a.txt", true, "C:/work/a.txt"},
+		{"/c:/a", true, "c:/a"},
+		{"/C:/work/a.txt", false, "/C:/work/a.txt"}, // a valid Unix path
+		{"/home/u/a.txt", true, "/home/u/a.txt"},
+		{"/1:/a", true, "/1:/a"},
+		{"/C", true, "/C"},
+	} {
+		if got := trimDriveSlash(c.in, c.windows); got != c.want {
+			t.Errorf("trimDriveSlash(%q, %v) = %q, want %q", c.in, c.windows, got, c.want)
+		}
+	}
+}
+
+// A provider that sends the same (here: empty) raw ID for every call must
+// not make the replay skip the result of a later call after update_plan.
+func TestHistoryUpdatesPlanIDReused(t *testing.T) {
+	updates := historyUpdates([]kit.StructuredMessage{
+		{Role: kit.RoleAssistant, Parts: []kit.ContentPart{
+			message.ToolCall{ID: "", Name: planToolName, Input: `{"entries":[{"content":"x","status":"pending"}]}`},
+		}},
+		{Role: kit.RoleTool, Parts: []kit.ContentPart{
+			message.ToolResult{ToolCallID: "", Name: planToolName, Content: "Plan updated (1 steps)."},
+		}},
+		{Role: kit.RoleAssistant, Parts: []kit.ContentPart{
+			message.ToolCall{ID: "", Name: "ls", Input: `{}`},
+		}},
+		{Role: kit.RoleTool, Parts: []kit.ContentPart{
+			message.ToolResult{ToolCallID: "", Name: "ls", Content: "a.txt"},
+		}},
+	}, "/w", newToolIDMapper())
+
+	var call, result bool
+	for _, u := range updates {
+		if u.ToolCall != nil {
+			call = true
+		}
+		if u.ToolCallUpdate != nil && u.ToolCallUpdate.Status != nil && *u.ToolCallUpdate.Status == acp.ToolCallStatusCompleted {
+			result = true
+		}
+	}
+	if !call || !result {
+		t.Fatalf("ls call=%v result=%v; the result after a plan call with the same ID was skipped", call, result)
+	}
+}

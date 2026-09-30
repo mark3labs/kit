@@ -215,18 +215,16 @@ func readImage(content []byte, absPath, displayPath string, limits media.Limits)
 }
 
 // resolvePathWithWorkDir resolves a path to an absolute path relative to the
-// given workDir. If workDir is empty, os.Getwd() is used.
+// given workDir. If workDir is empty, os.Getwd() is used. A relative workDir
+// is itself resolved against os.Getwd(), so the result is always absolute
+// (FileSystem backends require absolute paths).
 func resolvePathWithWorkDir(path, workDir string) (string, error) {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path), nil
 	}
-	baseDir := workDir
-	if baseDir == "" {
-		var err error
-		baseDir, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("failed to get working directory: %w", err)
-		}
+	abs, err := filepath.Abs(filepath.Join(workDir, path))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve path: %w", err)
 	}
-	return filepath.Clean(filepath.Join(baseDir, path)), nil
+	return abs, nil
 }

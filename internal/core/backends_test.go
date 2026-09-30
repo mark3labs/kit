@@ -152,3 +152,44 @@ func TestReadFindsFileThatExistsOnlyInFileSystem(t *testing.T) {
 		t.Fatalf("read = %q, %v", resp.Content, err)
 	}
 }
+
+// A write over a file that exists only in the FileSystem must report the
+// previous content in its diff metadata, not a new file.
+func TestWriteDiffUsesFileSystemContent(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "buf.txt")
+	fs := &memFS{files: map[string]string{p: "old line\n"}}
+	resp, err := NewWriteTool(WithWorkDir(dir), WithFileSystem(fs)).Run(context.Background(),
+		call(t, map[string]any{"path": "buf.txt", "content": "new line\n"}))
+	if err != nil || resp.IsError {
+		t.Fatalf("write = %q, %v", resp.Content, err)
+	}
+	meta := resp.Metadata
+	if strings.Contains(meta, `"is_new":true`) || !strings.Contains(meta, "old line") {
+		t.Errorf("metadata = %s; want the previous FileSystem content and is_new false", meta)
+	}
+}
+
+// A relative WorkDir must still give the FileSystem absolute paths.
+func TestRelativeWorkDirGivesAbsolutePaths(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	if err := os.Mkdir("project", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(base, "project", "a.txt")
+	fs := &memFS{files: map[string]string{want: "content"}}
+	resp, err := NewReadTool(WithWorkDir("project"), WithFileSystem(fs)).Run(context.Background(),
+		call(t, map[string]any{"path": "a.txt"}))
+	if err != nil || resp.IsError {
+		t.Fatalf("read = %q, %v", resp.Content, err)
+	}
+	for _, r := range fs.reads {
+		if !filepath.IsAbs(r) {
+			t.Errorf("FileSystem got a relative path %q", r)
+		}
+	}
+	if got, _ := resolvePathWithWorkDir("a.txt", "project"); got != want {
+		t.Errorf("resolvePathWithWorkDir = %q, want %q", got, want)
+	}
+}

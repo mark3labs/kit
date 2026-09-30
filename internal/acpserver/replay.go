@@ -71,6 +71,10 @@ func historyUpdates(msgs []kit.StructuredMessage, cwd string, ids *toolIDMapper)
 					}
 					continue
 				}
+				// The raw ID may be reused (some providers send the same
+				// or an empty ID for every call): this call's result must
+				// not be skipped as a plan result.
+				delete(planCalls, p.ID)
 				args := parseToolArgs(p.Input)
 				opts := []acp.ToolCallStartOpt{
 					acp.WithStartKind(acpToolKind(p.Name)),
@@ -88,6 +92,7 @@ func historyUpdates(msgs []kit.StructuredMessage, cwd string, ids *toolIDMapper)
 
 			case kit.ToolResult:
 				if planCalls[p.ToolCallID] {
+					delete(planCalls, p.ToolCallID)
 					continue
 				}
 				status := acp.ToolCallStatusCompleted

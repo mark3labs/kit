@@ -57,14 +57,17 @@ func executeWriteFS(ctx context.Context, call fantasy.ToolCall, workDir string, 
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}
 
-	// Read existing content before writing (for diff metadata).
+	// Read existing content before writing (for diff metadata). Ask the
+	// backend, not the disk: a FileSystem can hold files that are not on
+	// disk (for example unsaved editor buffers). A file that exists on disk
+	// but cannot be read as text is still not new.
 	var beforeContent string
 	isNew := true
-	if _, statErr := os.Stat(absPath); statErr == nil {
+	if existing, readErr := fs.ReadTextFile(ctx, absPath); readErr == nil {
+		beforeContent = existing
 		isNew = false
-		if existing, readErr := fs.ReadTextFile(ctx, absPath); readErr == nil {
-			beforeContent = existing
-		}
+	} else if _, statErr := os.Stat(absPath); statErr == nil {
+		isNew = false
 	}
 
 	// Create parent directories

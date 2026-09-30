@@ -815,7 +815,27 @@ func readResourceFromURI(uri string) ([]byte, error) {
 	if u.Host != "" && u.Host != "localhost" {
 		return nil, fmt.Errorf("unsupported remote file URI: %s", uri)
 	}
-	return os.ReadFile(filepath.FromSlash(u.Path))
+	return os.ReadFile(fileURIPath(u.Path))
+}
+
+// fileURIPath converts the path of a file URI to a local path. On Windows,
+// "file:///C:/work/a.txt" has the URI path "/C:/work/a.txt" (RFC 8089); the
+// slash before the drive letter must go, or the path is invalid.
+func fileURIPath(p string) string {
+	return filepath.FromSlash(trimDriveSlash(p, filepath.Separator == '\\'))
+}
+
+// trimDriveSlash removes the slash before a drive letter ("/C:/x" -> "C:/x")
+// when windows is true.
+func trimDriveSlash(p string, windows bool) string {
+	if windows && len(p) >= 3 && p[0] == '/' && p[2] == ':' && isASCIILetter(p[1]) {
+		return p[1:]
+	}
+	return p
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // mediaFilename returns a file name for an attachment with no name, using
