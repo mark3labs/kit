@@ -62,21 +62,6 @@ func (t *PromptTemplate) Expand(values map[string]string) string {
 	})
 }
 
-// ExpandStrict replaces all {{variable}} placeholders and returns an error
-// if any variable in the template has no corresponding value.
-func (t *PromptTemplate) ExpandStrict(values map[string]string) (string, error) {
-	var missing []string
-	for _, v := range t.Variables {
-		if _, ok := values[v]; !ok {
-			missing = append(missing, v)
-		}
-	}
-	if len(missing) > 0 {
-		return "", fmt.Errorf("missing template variables: %s", strings.Join(missing, ", "))
-	}
-	return t.Expand(values), nil
-}
-
 // extractVariables returns unique variable names from {{...}} placeholders.
 func extractVariables(content string) []string {
 	matches := variableRe.FindAllStringSubmatch(content, -1)

@@ -34,33 +34,6 @@ func TestFrameRoundTripEmptyPayload(t *testing.T) {
 	}
 }
 
-func TestWriteDataFramesChunksWithSession(t *testing.T) {
-	var buf bytes.Buffer
-	big := bytes.Repeat([]byte{0xAB}, chunkSize*2+5)
-	if err := WriteDataFrames(&buf, 9, big); err != nil {
-		t.Fatalf("WriteDataFrames: %v", err)
-	}
-	var got []byte
-	sessions := map[uint32]bool{}
-	for {
-		frame, err := ReadFrame(&buf)
-		if err != nil {
-			break
-		}
-		if frame.Type != FrameData {
-			t.Fatalf("unexpected frame type %d", frame.Type)
-		}
-		sessions[frame.Session] = true
-		got = append(got, frame.Payload...)
-	}
-	if !bytes.Equal(got, big) {
-		t.Fatalf("chunked payload mismatch: got %d bytes, want %d", len(got), len(big))
-	}
-	if !sessions[9] || len(sessions) != 1 {
-		t.Fatalf("session tagging wrong: %v", sessions)
-	}
-}
-
 func TestFrameRejectsOversizedPayload(t *testing.T) {
 	if err := WriteFrame(&bytes.Buffer{}, FrameData, 0, make([]byte, maxPayload+1)); err == nil {
 		t.Fatal("expected error for oversized payload")

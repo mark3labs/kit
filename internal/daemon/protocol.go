@@ -304,15 +304,3 @@ func DecodeSessionSpec(payload []byte) (SessionSpec, error) {
 	}
 	return spec, nil
 }
-
-// WriteDataFrames splits b into chunkSize DATA frames tagged with session.
-func WriteDataFrames(w io.Writer, session uint32, b []byte) error {
-	for len(b) > 0 {
-		n := min(chunkSize, len(b))
-		if err := WriteFrame(w, FrameData, session, b[:n]); err != nil {
-			return err
-		}
-		b = b[n:]
-	}
-	return nil
-}

@@ -70,32 +70,6 @@ func TestExpand_EmptyValues(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ExpandStrict
-// ---------------------------------------------------------------------------
-
-func TestExpandStrict_AllProvided(t *testing.T) {
-	tpl := NewPromptTemplate("test", "{{greeting}} {{target}}")
-	result, err := tpl.ExpandStrict(map[string]string{
-		"greeting": "Hi",
-		"target":   "World",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != "Hi World" {
-		t.Errorf("ExpandStrict = %q, want %q", result, "Hi World")
-	}
-}
-
-func TestExpandStrict_MissingVariable_Error(t *testing.T) {
-	tpl := NewPromptTemplate("test", "{{a}} {{b}} {{c}}")
-	_, err := tpl.ExpandStrict(map[string]string{"a": "1"})
-	if err == nil {
-		t.Error("expected error for missing variables")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // LoadPromptTemplate
 // ---------------------------------------------------------------------------
 

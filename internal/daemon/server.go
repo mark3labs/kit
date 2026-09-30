@@ -557,14 +557,6 @@ func (t *sessionTable) handleHello(wire uint32, payload []byte) {
 	}
 }
 
-// unbindAll drops every remote connection at once. Logical sessions keep
-// running detached, and local clients stay live.
-func (t *sessionTable) unbindAll() {
-	for _, wire := range t.conns.removeRemotes() {
-		t.detachWire(wire)
-	}
-}
-
 // detachWire unbinds one wire session id from its logical session. The
 // logical session keeps running; with no clients left it is detached.
 func (t *sessionTable) detachWire(wire uint32) {
@@ -1216,11 +1208,4 @@ func (t *sessionTable) reportSessions() {
 	}
 	t.mu.Unlock()
 	t.rt.setSessions(active, hosted)
-}
-
-// sessionCount reports how many logical sessions are live.
-func (t *sessionTable) sessionCount() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.sessions)
 }

@@ -54,12 +54,12 @@ func TestProviderAPIKeyRoundTrip(t *testing.T) {
 		t.Errorf("unexpected file content:\n%s", data)
 	}
 
-	ids, err := cm.StoredProviderIDs()
+	store, err := cm.LoadCredentials()
 	if err != nil {
-		t.Fatalf("StoredProviderIDs: %v", err)
+		t.Fatalf("LoadCredentials: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != "groq" {
-		t.Errorf("StoredProviderIDs = %v, want [groq]", ids)
+	if len(store.Providers) != 1 || store.Providers["groq"] == nil {
+		t.Errorf("stored providers = %v, want only groq", store.Providers)
 	}
 
 	if err := cm.RemoveProviderCredentials("groq"); err != nil {

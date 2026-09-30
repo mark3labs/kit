@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"encoding/binary"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,41 +109,6 @@ func TestDetachWireKeepsTheSessionRunning(t *testing.T) {
 	table.mu.Unlock()
 	if bound {
 		t.Fatal("the wire binding should be gone")
-	}
-}
-
-func TestUnbindAllKeepsLocalClients(t *testing.T) {
-	table := newTestTable(t)
-	table.fakeSession(1)
-	table.fakeSession(2)
-
-	sink := newFrameSink(io.Discard)
-	remote := table.conns.addRemote(3, sink)
-	local := table.conns.addLocal(sink)
-
-	table.mu.Lock()
-	table.wireMap[remote.id] = 1
-	table.wireMap[local.id] = 2
-	table.mu.Unlock()
-
-	// The tunnel died: its clients are gone, but local socket clients are
-	// still connected and their sessions must be untouched.
-	table.unbindAll()
-
-	if table.conns.get(remote.id) != nil {
-		t.Fatal("the remote connection should have been dropped")
-	}
-	if table.conns.get(local.id) == nil {
-		t.Fatal("a local client must survive a tunnel restart")
-	}
-	if table.sessionCount() != 2 {
-		t.Fatal("sessions must survive a tunnel restart")
-	}
-	table.mu.Lock()
-	_, stillBound := table.wireMap[local.id]
-	table.mu.Unlock()
-	if !stillBound {
-		t.Fatal("the local client's session binding should be intact")
 	}
 }
 
@@ -443,4 +407,12 @@ func encodeSessionID(id uint64) []byte {
 	p := make([]byte, 8)
 	binary.BigEndian.PutUint64(p, id)
 	return p
+}
+
+// sessionCount reports how many logical sessions are live. Test-only: the
+// daemon itself tracks sessions through rt.setSessions.
+func (t *sessionTable) sessionCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.sessions)
 }

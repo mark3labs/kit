@@ -28,25 +28,6 @@ func TestConnSetLocalIDsAreReserved(t *testing.T) {
 	}
 }
 
-func TestConnSetRemoveRemotesKeepsLocals(t *testing.T) {
-	cs := newConnSet()
-	sink := newFrameSink(io.Discard)
-	local := cs.addLocal(sink)
-	cs.addRemote(1, sink)
-	cs.addRemote(2, sink)
-
-	dropped := cs.removeRemotes()
-	if len(dropped) != 2 {
-		t.Fatalf("expected 2 dropped remote connections, got %d", len(dropped))
-	}
-	if cs.get(1) != nil || cs.get(2) != nil {
-		t.Fatal("a remote connection survived the teardown")
-	}
-	if cs.get(local.id) == nil {
-		t.Fatal("the local connection was dropped with the remotes")
-	}
-}
-
 func TestFrameSinkSerializesConcurrentWrites(t *testing.T) {
 	var buf bytes.Buffer
 	sink := newFrameSink(&buf)

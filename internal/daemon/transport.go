@@ -200,17 +200,3 @@ func (c *connSet) live(id uint32) bool {
 	_, ok := c.conns[id]
 	return ok
 }
-
-// removeRemotes drops every remote connection, leaving local ones alone.
-func (c *connSet) removeRemotes() []uint32 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var dropped []uint32
-	for id, conn := range c.conns {
-		if !conn.local {
-			dropped = append(dropped, id)
-			delete(c.conns, id)
-		}
-	}
-	return dropped
-}
