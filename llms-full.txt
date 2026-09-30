@@ -1322,7 +1322,29 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 ```bash
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
+kit acp -m anthropic/claude-sonnet-4-5  # Default model for new sessions
+kit acp --approval auto_edit # Edit files without asking; ask before commands
 ```
+
+Kit implements ACP protocol version 1. It supports `session/new`,
+`session/load` (with history replay), `session/resume`, `session/list`,
+`session/close`, and `session/cancel`. Each session uses the `cwd` that the
+client sends as the base directory of the file and shell tools. MCP servers
+that the client sends in `mcpServers` (stdio, HTTP, or SSE) are connected in
+addition to the servers in your config. Clients can change the `approval`,
+`model` and `thinking_level` config options with `session/set_config_option`.
+
+Before a tool that can change something runs (edits, commands, subagents,
+MCP and extension tools), Kit asks the client with
+`session/request_permission`. The `--approval` flag sets the default mode:
+`ask` (default), `auto_edit` (edit files without asking), or `auto` (never
+ask). Read-only tools never ask.
+
+When the client supports them, Kit reads and writes files through the
+client (`fs/*`), so it sees unsaved editor buffers, and runs shell commands
+in client terminals (`terminal/*`). Prompt templates and skills are sent to
+the client as slash commands. The model can show its plan with the
+`update_plan` tool.
 
 ## Detachable sessions
 
@@ -4340,7 +4362,7 @@ kit acp
 kit acp --debug
 ```
 
-The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.
 
 ---
 
@@ -4427,6 +4449,10 @@ host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *ki
     return nil // allow
 })
 ```
+
+A blocked tool does not run. The model receives `Error: <Reason>` as the tool
+result and the turn continues, so the model can react (for example, ask the
+user or try something else). This is the same as a block from an extension.
 
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
@@ -4639,6 +4665,8 @@ host, err := kit.New(ctx, &kit.Options{
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)
     DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
     CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
+    WorkDir:          "/path/to/project",  // Base directory of the file and shell tools (default: process cwd)
+    CoreToolOptions:  []kit.ToolOption{...}, // Extra options for the core tools, e.g. kit.WithFileSystem(fs)
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
@@ -4748,6 +4776,8 @@ when embedding Kit as a library.
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
 | `CoreToolList` | `[]string` | — | Allow-list of core tool names; empty/nil means all. Build with [`FilterCoreToolNames`](/sdk/overview#filtering-core-tools) from include/exclude filters. |
+| `WorkDir` | `string` | process cwd | Directory the core file and shell tools resolve relative paths against and run commands in. Subagents inherit it. |
+| `CoreToolOptions` | `[]ToolOption` | — | Extra options for the core tools, applied last. Use [`WithFileSystem`](#routing-file-access-and-commands) and [`WithCommandRunner`](#routing-file-access-and-commands) here. Subagents inherit them. |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 | `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
@@ -5105,6 +5135,29 @@ host, _ := kit.New(ctx, &kit.Options{
 ```
 
 See [Overview](/sdk/overview#custom-tools) for full custom tool documentation.
+
+### Routing file access and commands
+
+By default the core tools read and write the local disk and run commands as
+local child processes. Two tool options change this, for example to let an
+editor provide unsaved buffers and run commands in its own terminal:
+
+- **`kit.WithFileSystem(fs)`**: the `read`, `write` and `edit` tools read and
+  write text through `fs` (a `kit.FileSystem`). Images are still read from
+  the local disk.
+- **`kit.WithCommandRunner(r)`**: the `shell` tool runs commands through `r`
+  (a `kit.CommandRunner`). The tool still checks the command and the timeout
+  first. Interactive sudo prompts are not available through a runner.
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    WorkDir:         "/path/to/project",
+    CoreToolOptions: []kit.ToolOption{kit.WithFileSystem(myFS), kit.WithCommandRunner(myRunner)},
+})
+```
+
+`kit acp` uses these options to implement the ACP `fs/*` and `terminal/*`
+client methods.
 
 ---
 

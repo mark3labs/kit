@@ -34,7 +34,7 @@ var e={frontmatter:{title:`Quick Start`,description:`Get up and running with Kit
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D;--shiki-dark:#6A737D"># With debug logging to stderr</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">kit</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> acp</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> --debug</span></span></code></pre>
-<p>The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.</p>`,headings:[{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Non-interactive mode`,id:`non-interactive-mode`},{depth:2,text:`Resuming sessions`,id:`resuming-sessions`},{depth:2,text:`ACP server mode`,id:`acp-server-mode`}],raw:`
+<p>The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.</p>`,headings:[{depth:2,text:`Basic usage`,id:`basic-usage`},{depth:2,text:`Non-interactive mode`,id:`non-interactive-mode`},{depth:2,text:`Resuming sessions`,id:`resuming-sessions`},{depth:2,text:`ACP server mode`,id:`acp-server-mode`}],raw:`
 # Quick Start
 
 ## Basic usage
@@ -121,5 +121,5 @@ kit acp
 kit acp --debug
 \`\`\`
 
-The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.
 `};export{e as default};

@@ -81,6 +81,10 @@ host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *ki
 })
 ```
 
+A blocked tool does not run. The model receives `Error: <Reason>` as the tool
+result and the turn continues, so the model can react (for example, ask the
+user or try something else). This is the same as a block from an extension.
+
 `h.ToolArgs` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — `rm -r -f`, a shell expansion, or a
 script file all get past it. Parse the arguments and enforce an allowlist when

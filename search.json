@@ -114,7 +114,7 @@
         "Remote sessions"
       ],
       "tags": [],
-      "wordCount": 3883
+      "wordCount": 4069
     },
     {
       "id": "cli/flags",
@@ -411,7 +411,7 @@
         "Subagent event monitoring"
       ],
       "tags": [],
-      "wordCount": 1106
+      "wordCount": 1149
     },
     {
       "id": "sdk/options",
@@ -438,10 +438,11 @@
         "Inspecting and cancelling tasks",
         "Custom debug logger",
         "Precedence",
-        "Tool configuration"
+        "Tool configuration",
+        "Routing file access and commands"
       ],
       "tags": [],
-      "wordCount": 3469
+      "wordCount": 3671
     },
     {
       "id": "sdk/overview",

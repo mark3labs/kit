@@ -62,6 +62,9 @@ var e={frontmatter:{title:`Callbacks`,description:`Monitor tool calls and stream
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">    }</span></span>
 <span class="line"><span style="color:#D73A49;--shiki-dark:#F97583">    return</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> nil</span><span style="color:#6A737D;--shiki-dark:#6A737D"> // allow</span></span>
 <span class="line"><span style="color:#24292E;--shiki-dark:#E1E4E8">})</span></span></code></pre>
+<p>A blocked tool does not run. The model receives <code>Error: &lt;Reason&gt;</code> as the tool
+result and the turn continues, so the model can react (for example, ask the
+user or try something else). This is the same as a block from an extension.</p>
 <p><code>h.ToolArgs</code> is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — <code>rm -r -f</code>, a shell expansion, or a
 script file all get past it. Parse the arguments and enforce an allowlist when
@@ -384,6 +387,10 @@ host.OnBeforeToolCall(kit.HookPriorityNormal, func(h kit.BeforeToolCallHook) *ki
     return nil // allow
 })
 \`\`\`
+
+A blocked tool does not run. The model receives \`Error: <Reason>\` as the tool
+result and the turn continues, so the model can react (for example, ask the
+user or try something else). This is the same as a block from an extension.
 
 \`h.ToolArgs\` is the raw JSON the model produced. A substring match over it is a
 convenience guard, not a security boundary — \`rm -r -f\`, a shell expansion, or a
