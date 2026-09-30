@@ -66,6 +66,8 @@ type AgentSetupOptions struct {
 	// WorkDir is the base directory for the core file and shell tools.
 	// Empty uses the process working directory.
 	WorkDir string
+	// CoreToolOptions are extra options for the built-in core tools.
+	CoreToolOptions []core.ToolOption
 	// ToolWrapper is an optional function that wraps tools after extension
 	// wrapping. Used by the SDK hook system. Both wrappers compose:
 	// extension wrapper runs first (inner), then this wrapper (outer).
@@ -303,6 +305,7 @@ func SetupAgent(ctx context.Context, opts AgentSetupOptions) (*AgentSetupResult,
 		ImageNoResize:           opts.ImageNoResize,
 		Shell:                   opts.Shell,
 		WorkDir:                 opts.WorkDir,
+		CoreToolOptions:         opts.CoreToolOptions,
 		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig:           opts.MCPTaskConfig,
 	})

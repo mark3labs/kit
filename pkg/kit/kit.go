@@ -60,6 +60,9 @@ type Kit struct {
 	shell []string
 	// workDir is Options.WorkDir, kept so subagents inherit it.
 	workDir string
+	// coreToolOptions is Options.CoreToolOptions, kept so subagents
+	// inherit it.
+	coreToolOptions []ToolOption
 	// coreToolList is the resolved list of core tool names this instance
 	// enabled. New always sets it (empty, not nil, when core tools are
 	// disabled); nil means no limit. Subagents built without an explicit
@@ -1343,6 +1346,13 @@ type Options struct {
 	// effect on tools supplied through Tools.
 	WorkDir string
 
+	// CoreToolOptions are applied to the built-in core tools after the
+	// options Kit derives from its own settings, so they win on conflict.
+	// Use them for tool behavior that has no Options field, such as
+	// [WithFileSystem] or [WithCommandRunner]. Subagents inherit them. They
+	// have no effect on tools supplied through Tools.
+	CoreToolOptions []ToolOption
+
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
 	// read tool attaches to a message. An image above this size is scaled
 	// down before it is sent. Zero falls back to the "image-max-edge"
@@ -1732,6 +1742,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		endpointProvider:      endpointProviderFor(v, rc.modelString),
 		shell:                 append([]string(nil), rc.shell...),
 		workDir:               opts.WorkDir,
+		coreToolOptions:       append([]ToolOption(nil), opts.CoreToolOptions...),
 		coreToolList:          append([]string{}, rc.toolList...),
 		customTools:           append([]Tool(nil), opts.Tools...),
 		events:                newEventBus(),
@@ -2287,6 +2298,7 @@ func (m *Kit) subagentDefaultTools() []Tool {
 	if m.workDir != "" {
 		toolOpts = append(toolOpts, WithWorkDir(m.workDir))
 	}
+	toolOpts = append(toolOpts, m.coreToolOptions...)
 	tools := SubagentTools(toolOpts...)
 	if m.coreToolList == nil {
 		return tools

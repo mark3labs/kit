@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -78,12 +77,16 @@ func NewEditTool(opts ...ToolOption) fantasy.AgentTool {
 			Required: []string{"path", "edits"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return executeEdit(ctx, call, cfg.WorkDir)
+			return executeEditFS(ctx, call, cfg.WorkDir, cfg.fileSystem())
 		},
 	}
 }
 
 func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+	return executeEditFS(ctx, call, workDir, localFS{})
+}
+
+func executeEditFS(ctx context.Context, call fantasy.ToolCall, workDir string, fs FileSystem) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
 	}
@@ -100,12 +103,10 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %v", err)), nil
 	}
 
-	contentBytes, err := os.ReadFile(absPath)
+	content, err := fs.ReadTextFile(ctx, absPath)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %v", err)), nil
 	}
-
-	content := string(contentBytes)
 
 	// Normalize and validate input
 	replacements, err := normalizeEditInput(args)
@@ -120,7 +121,7 @@ func executeEdit(ctx context.Context, call fantasy.ToolCall, workDir string) (fa
 	}
 
 	// Write the file
-	if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
+	if err := fs.WriteTextFile(ctx, absPath, newContent); err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 

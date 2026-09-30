@@ -35,12 +35,12 @@ func NewWriteTool(opts ...ToolOption) fantasy.AgentTool {
 			Required: []string{"path", "content"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return executeWrite(ctx, call, cfg.WorkDir)
+			return executeWriteFS(ctx, call, cfg.WorkDir, cfg.fileSystem())
 		},
 	}
 }
 
-func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (fantasy.ToolResponse, error) {
+func executeWriteFS(ctx context.Context, call fantasy.ToolCall, workDir string, fs FileSystem) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
 	}
@@ -60,9 +60,11 @@ func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (f
 	// Read existing content before writing (for diff metadata).
 	var beforeContent string
 	isNew := true
-	if existing, readErr := os.ReadFile(absPath); readErr == nil {
-		beforeContent = string(existing)
+	if _, statErr := os.Stat(absPath); statErr == nil {
 		isNew = false
+		if existing, readErr := fs.ReadTextFile(ctx, absPath); readErr == nil {
+			beforeContent = existing
+		}
 	}
 
 	// Create parent directories
@@ -71,7 +73,7 @@ func executeWrite(ctx context.Context, call fantasy.ToolCall, workDir string) (f
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create directories: %v", err)), nil
 	}
 
-	if err := os.WriteFile(absPath, []byte(args.Content), 0644); err != nil {
+	if err := fs.WriteTextFile(ctx, absPath, args.Content); err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 

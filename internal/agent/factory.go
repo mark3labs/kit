@@ -81,6 +81,8 @@ type AgentCreationOptions struct {
 	// WorkDir is the base directory for the core file and shell tools.
 	// Empty uses the process working directory.
 	WorkDir string
+	// CoreToolOptions are extra options for the built-in core tools.
+	CoreToolOptions []core.ToolOption
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
@@ -114,6 +116,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		ImageNoResize:           opts.ImageNoResize,
 		Shell:                   opts.Shell,
 		WorkDir:                 opts.WorkDir,
+		CoreToolOptions:         opts.CoreToolOptions,
 		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig:           opts.MCPTaskConfig,
 	}
@@ -133,7 +136,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create agent: %v", err)
+		return nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	return agent, nil

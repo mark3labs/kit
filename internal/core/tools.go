@@ -43,6 +43,12 @@ type ToolConfig struct {
 	// the read tool attaches to a message. The zero value applies the
 	// built-in defaults. Only the read tool consumes this.
 	ImageLimits media.Limits
+	// FileSystem handles the text file access of the read, write and edit
+	// tools. Nil uses the local disk. See WithFileSystem.
+	FileSystem FileSystem
+	// CommandRunner runs the shell tool's commands. Nil runs them as local
+	// child processes. See WithCommandRunner.
+	CommandRunner CommandRunner
 }
 
 // WithImageLimits bounds the images the read tool attaches to a message. A

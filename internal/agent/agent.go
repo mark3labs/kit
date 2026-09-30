@@ -95,6 +95,11 @@ type AgentConfig struct {
 	// CoreToolList.
 	WorkDir string
 
+	// CoreToolOptions are applied to the core tools after the options
+	// derived from the fields above. Only consumed when core tools are
+	// built from CoreToolList.
+	CoreToolOptions []core.ToolOption
+
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
 	// read tool attaches to a message. Zero uses the built-in default.
 	// Only consumed when core tools are built from CoreToolList.
@@ -410,7 +415,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
 	if err != nil {
 		if !agentConfig.AllowMissingCredentials || !auth.IsMissingCredentials(err) {
-			return nil, fmt.Errorf("failed to create model provider: %v", err)
+			return nil, fmt.Errorf("failed to create model provider: %w", err)
 		}
 		// No credentials for the configured provider. Start with a placeholder
 		// model so the caller (the interactive TUI) can come up and let the
@@ -458,6 +463,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 				NoResize:        agentConfig.ImageNoResize,
 			}))
 		}
+		toolOpts = append(toolOpts, agentConfig.CoreToolOptions...)
 		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}
 
@@ -1711,7 +1717,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 
 	providerResult, err := models.CreateProvider(ctx, config)
 	if err != nil {
-		return fmt.Errorf("failed to create model provider: %v", err)
+		return fmt.Errorf("failed to create model provider: %w", err)
 	}
 	// Close old provider.
 	if a.providerCloser != nil {
