@@ -1,17 +1,21 @@
-package extensions
+// Package toolargs decodes raw JSON tool-argument payloads.
+//
+// It is a leaf package shared by the extension runtime, the SDK event bridge
+// and the TUI, so the UI does not need to import internal/extensions for it.
+package toolargs
 
 import (
 	"encoding/json"
 	"strings"
 )
 
-// ParseToolArgs decodes a raw JSON tool-argument payload into a map.
+// Parse decodes a raw JSON tool-argument payload into a map.
 //
 // It returns nil for empty, whitespace-only, or malformed input. Callers treat
 // nil as "no arguments" rather than as an error: this is non-fatal convenience
 // parsing shared by the extension wrapper, the SDK event bridge, and the TUI
 // activity row, none of which may fail because a payload did not decode.
-func ParseToolArgs(raw string) map[string]any {
+func Parse(raw string) map[string]any {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
