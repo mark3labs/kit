@@ -2,8 +2,10 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -181,15 +183,24 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 		Path: path,
 	}
 
-	scanner := bufio.NewScanner(f)
-	// Increase scanner buffer for large lines.
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	// A bufio.Reader, not a bufio.Scanner: a Scanner fails the whole file
+	// with "token too long" on any line past its buffer cap, and a message
+	// carrying an inline image easily runs to several megabytes. Such
+	// sessions used to vanish from the picker.
+	reader := bufio.NewReaderSize(f, 64*1024)
 	lineNum := 0
 	var lastTimestamp time.Time
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "" {
+	// done is set once the final line (which may lack a trailing newline)
+	// has been read, so every `continue` below still terminates the loop.
+	for done := false; !done; {
+		line, readErr := reader.ReadBytes('\n')
+		if readErr == io.EOF {
+			done = true
+		} else if readErr != nil {
+			return nil, fmt.Errorf("failed to read session file: %w", readErr)
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		lineNum++
@@ -197,7 +208,7 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 		if lineNum == 1 {
 			// Parse header.
 			var h SessionHeader
-			if err := json.Unmarshal([]byte(line), &h); err != nil {
+			if err := json.Unmarshal(line, &h); err != nil {
 				return nil, fmt.Errorf("failed to parse header: %w", err)
 			}
 			if h.Type != EntryTypeSession {
@@ -220,7 +231,7 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 			Role      string    `json:"role,omitempty"`
 			Name      string    `json:"name,omitempty"`
 		}
-		if err := json.Unmarshal([]byte(line), &env); err != nil {
+		if err := json.Unmarshal(line, &env); err != nil {
 			continue
 		}
 
@@ -236,7 +247,7 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 				var msgEntry struct {
 					Parts json.RawMessage `json:"parts"`
 				}
-				if err := json.Unmarshal([]byte(line), &msgEntry); err == nil {
+				if err := json.Unmarshal(line, &msgEntry); err == nil {
 					info.FirstMessage = extractTextPreview(msgEntry.Parts)
 				}
 			}
@@ -245,9 +256,6 @@ func extractSessionInfo(path string) (*SessionInfo, error) {
 				info.Name = env.Name
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to scan session file: %w", err)
 	}
 
 	if !lastTimestamp.IsZero() {
