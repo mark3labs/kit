@@ -5,19 +5,14 @@ package render
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
 
+	"github.com/mark3labs/kit/internal/ui/fileutil"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
-
-// fileTokenPattern matches @file references in user text. Supports:
-//   - @"path with spaces.txt" (quoted)
-//   - @path/to/file.txt      (unquoted, no spaces)
-var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 
 // UserBlock-related rendering helpers and herald typography.
 
@@ -25,7 +20,7 @@ var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 // accent color so they stand out visually in rendered user messages.
 func HighlightFileTokens(text string, theme style.Theme) string {
 	accentStyle := style.GetCachedStyles().FileTokenAccent
-	return fileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
+	return fileutil.FileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
 		return accentStyle.Render(token)
 	})
 }

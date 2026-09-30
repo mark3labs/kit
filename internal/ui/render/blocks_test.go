@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mark3labs/kit/internal/ui/fileutil"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -60,7 +61,7 @@ func TestHighlightFileTokens(t *testing.T) {
 
 			// If there were @tokens, the result should contain ANSI escape
 			// sequences (from lipgloss styling).
-			if fileTokenPattern.MatchString(tt.input) && !strings.Contains(result, "\x1b[") {
+			if fileutil.FileTokenPattern.MatchString(tt.input) && !strings.Contains(result, "\x1b[") {
 				t.Errorf("HighlightFileTokens(%q) should contain ANSI escapes for @tokens but got %q", tt.input, result)
 			}
 		})
