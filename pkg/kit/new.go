@@ -490,6 +490,8 @@ func buildAgentSetupOptions(v *viper.Viper, opts *Options, rc *resolvedConfig, m
 		ImageMaxBytes:           rc.imageMaxBytes,
 		ImageNoResize:           rc.imageNoResize,
 		Shell:                   rc.shell,
+		WorkDir:                 opts.WorkDir,
+		CoreToolOptions:         opts.CoreToolOptions,
 		ToolWrapper:             hookToolWrapper(hooks.beforeToolCall, hooks.afterToolResult),
 		ProviderConfig:          rc.providerConfig,
 		Debug:                   rc.debug,

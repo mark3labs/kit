@@ -28,18 +28,36 @@ newline-delimited JSON, compatible with OpenCode and other ACP clients.
 
 The server exposes Kit's LLM execution, tool system, and session
 management via the Agent Client Protocol. Sessions are persisted
-to Kit's standard JSONL session files.`,
+to Kit's standard JSONL session files.
+
+Tool approval (--approval, and the "approval" session config option):
+  ask        ask the client before edits, commands and other tools that
+             can change something (default)
+  auto_edit  edit files without asking; ask before commands and others
+  auto       run every tool without asking`,
 	RunE: runACP,
 }
 
+// acpApproval is the --approval flag of `kit acp`.
+var acpApproval string
+
 func init() {
+	acpCmd.Flags().StringVar(&acpApproval, "approval", "ask", "default tool approval mode for new sessions: ask, auto_edit or auto")
 	rootCmd.AddCommand(acpCmd)
 }
 
 func runACP(cmd *cobra.Command, _ []string) error {
+	// Report the real build version in agentInfo.
+	if v := cmd.Root().Version; v != "" {
+		acpserver.Version = v
+	}
+
 	// Create the ACP agent implementation.
 	agent := acpserver.NewAgent()
 	defer agent.Close()
+	if err := agent.SetDefaultApproval(acpApproval); err != nil {
+		return err
+	}
 
 	// Create the stdio connection. The SDK reads JSON-RPC from stdin and
 	// writes responses to stdout. We wrap stdin with a normalizer that

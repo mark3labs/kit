@@ -66,6 +66,8 @@ host, err := kit.New(ctx, &kit.Options{
     ExtraTools:       []kit.Tool{...},     // Add tools alongside defaults (mutate at runtime via host.AddTools/RemoveTools)
     DisableCoreTools: true,                // Use no core tools (0 tools, for chat-only)
     CoreToolList:     []string,            // List of core tools to include, if empty (default) include all
+    WorkDir:          "/path/to/project",  // Base directory of the file and shell tools (default: process cwd)
+    CoreToolOptions:  []kit.ToolOption{...}, // Extra options for the core tools, e.g. kit.WithFileSystem(fs)
 
     // Configuration
     SkipConfig:   true,                   // Skip .kit.yml files (viper defaults + env vars still apply)
@@ -175,6 +177,8 @@ when embedding Kit as a library.
 | `ExtraTools` | `[]Tool` | — | Additional tools alongside core/MCP/extension tools |
 | `DisableCoreTools` | `bool` | `false` | Use no core tools (0 tools, for chat-only) |
 | `CoreToolList` | `[]string` | — | Allow-list of core tool names; empty/nil means all. Build with [`FilterCoreToolNames`](/sdk/overview#filtering-core-tools) from include/exclude filters. |
+| `WorkDir` | `string` | process cwd | Directory the core file and shell tools resolve relative paths against and run commands in. Subagents inherit it. |
+| `CoreToolOptions` | `[]ToolOption` | — | Extra options for the core tools, applied last. Use [`WithFileSystem`](#routing-file-access-and-commands) and [`WithCommandRunner`](#routing-file-access-and-commands) here. Subagents inherit them. |
 | `NoExtensions` | `bool` | `false` | Disable Yaegi extension loading |
 | `NoContextFiles` | `bool` | `false` | Disable automatic AGENTS.md loading |
 | `NoAgents` | `bool` | `false` | Disable named agent discovery (built-ins and `.agents/agents/` / `.kit/agents/` / `~/.config/kit/agents/` files); see [Subagents](/advanced/subagents#named-agents) |
@@ -532,3 +536,26 @@ host, _ := kit.New(ctx, &kit.Options{
 ```
 
 See [Overview](/sdk/overview#custom-tools) for full custom tool documentation.
+
+### Routing file access and commands
+
+By default the core tools read and write the local disk and run commands as
+local child processes. Two tool options change this, for example to let an
+editor provide unsaved buffers and run commands in its own terminal:
+
+- **`kit.WithFileSystem(fs)`**: the `read`, `write` and `edit` tools read and
+  write text through `fs` (a `kit.FileSystem`). Images are still read from
+  the local disk.
+- **`kit.WithCommandRunner(r)`**: the `shell` tool runs commands through `r`
+  (a `kit.CommandRunner`). The tool still checks the command and the timeout
+  first. Interactive sudo prompts are not available through a runner.
+
+```go
+host, _ := kit.New(ctx, &kit.Options{
+    WorkDir:         "/path/to/project",
+    CoreToolOptions: []kit.ToolOption{kit.WithFileSystem(myFS), kit.WithCommandRunner(myRunner)},
+})
+```
+
+`kit acp` uses these options to implement the ACP `fs/*` and `terminal/*`
+client methods.

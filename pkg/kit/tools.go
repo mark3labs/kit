@@ -42,6 +42,30 @@ var WithShellMaxTimeout = core.WithShellMaxTimeout
 // place. For images that do not ship bash.
 var WithShell = core.WithShell
 
+// FileSystem reads and writes text files for the read, write and edit tools.
+// Pass one with [WithFileSystem] to route file access somewhere other than
+// the local disk, for example to an editor that has unsaved changes.
+type FileSystem = core.FileSystem
+
+// CommandRunner runs the shell tool's commands somewhere other than a local
+// child process, for example in an editor's terminal. Pass one with
+// [WithCommandRunner].
+type CommandRunner = core.CommandRunner
+
+// CommandRequest describes one command the shell tool wants to run.
+type CommandRequest = core.CommandRequest
+
+// CommandResult is the outcome of a command run by a [CommandRunner].
+type CommandResult = core.CommandResult
+
+// WithFileSystem routes the text file access of the read, write and edit
+// tools through a [FileSystem]. Images are still read from the local disk.
+var WithFileSystem = core.WithFileSystem
+
+// WithCommandRunner makes the shell tool run commands through a
+// [CommandRunner] instead of local child processes.
+var WithCommandRunner = core.WithCommandRunner
+
 // WithBashTimeout is the name WithShellTimeout had before the tool's shell
 // became configurable.
 //

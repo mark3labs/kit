@@ -2,7 +2,8 @@ package session
 
 import (
 	"fmt"
-	"log"
+
+	"github.com/charmbracelet/log"
 )
 
 // DetectCycle walks the parent chain from the given entry ID and returns true
@@ -30,14 +31,19 @@ func (tm *TreeManager) LogTreeDiagnostics() {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	log.Printf("[TreeManager] Entry count: %d, Leaf ID: %s", len(tm.entries), tm.leafID)
-
-	// Check for cycles from leaf
+	// A cycle is a real problem, so it is always reported.
 	if tm.leafID != "" {
 		if cycle, entry := tm.detectCycleLocked(tm.leafID); cycle {
-			log.Printf("[TreeManager] WARNING: Cycle detected in tree at entry %s", entry)
+			log.Warn("session tree: cycle detected", "entry", entry)
 		}
 	}
+
+	// The rest is debug output. It used to go to stderr on every session
+	// open, which was noise in the TUI and in ACP mode.
+	if log.GetLevel() > log.DebugLevel {
+		return
+	}
+	log.Debug("session tree", "entries", len(tm.entries), "leaf", tm.leafID)
 
 	// Count entries by type
 	counts := make(map[EntryType]int)
@@ -63,7 +69,7 @@ func (tm *TreeManager) LogTreeDiagnostics() {
 		}
 		counts[et]++
 	}
-	log.Printf("[TreeManager] Entry types: %+v", counts)
+	log.Debug("session tree entry types", "counts", counts)
 }
 
 // detectCycleLocked is the internal version of DetectCycle (must hold read lock)

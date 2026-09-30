@@ -240,8 +240,11 @@ func TestHookedTool_BeforeToolCallBlock(t *testing.T) {
 	ht := &hookedTool{inner: mock, beforeToolCall: before, afterToolResult: after}
 
 	resp, err := ht.Run(context.Background(), LLMToolCall{Input: "{}"})
-	if err == nil {
-		t.Fatal("expected error from blocked tool")
+	if err != nil {
+		t.Fatalf("a blocked tool must return an error result, not a Go error (it would end the turn): %v", err)
+	}
+	if !resp.IsError {
+		t.Error("blocked tool result must be marked as an error")
 	}
 	if toolRan {
 		t.Error("tool should not have run when blocked")
@@ -405,9 +408,9 @@ func TestHookToolWrapper(t *testing.T) {
 		return &BeforeToolCallResult{Block: true, Reason: "late hook"}
 	})
 
-	_, err := wrapped[0].Run(context.Background(), LLMToolCall{})
-	if err == nil {
-		t.Error("expected error from late-registered blocking hook")
+	resp, err := wrapped[0].Run(context.Background(), LLMToolCall{})
+	if err != nil || !resp.IsError {
+		t.Errorf("late-registered blocking hook: resp=%+v err=%v, want an error result", resp, err)
 	}
 	if !blocked {
 		t.Error("late-registered hook should have been called")

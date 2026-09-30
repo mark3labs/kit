@@ -89,4 +89,4 @@ kit acp
 kit acp --debug
 ```
 
-The ACP server exposes Kit's full capabilities — LLM execution, tool calls (bash, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol.

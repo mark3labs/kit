@@ -34,7 +34,9 @@ type BeforeToolCallHook struct {
 	ToolArgs   string
 }
 
-// BeforeToolCallResult controls whether the tool call proceeds.
+// BeforeToolCallResult controls whether the tool call proceeds. A blocked
+// call does not run; the model receives "Error: <Reason>" as the tool result
+// and the turn continues.
 type BeforeToolCallResult struct {
 	Block  bool   // true prevents the tool from running
 	Reason string // human-readable reason for blocking
@@ -342,8 +344,10 @@ func (h *hookedTool) Run(ctx context.Context, call LLMToolCall) (LLMToolResponse
 			if reason == "" {
 				reason = "blocked by hook"
 			}
-			return newLLMTextErrorResponse(fmt.Sprintf("Error: %s", reason)),
-				fmt.Errorf("tool blocked by hook: %s", reason)
+			// Return an error result, not a Go error: a Go error from a tool
+			// ends the whole turn, so the model would never see the reason.
+			// This matches how extensions block tools.
+			return newLLMTextErrorResponse(fmt.Sprintf("Error: %s", reason)), nil
 		}
 	}
 

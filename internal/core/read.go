@@ -45,12 +45,18 @@ func NewReadTool(opts ...ToolOption) fantasy.AgentTool {
 			Parallel: true,
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return executeRead(ctx, call, cfg.WorkDir, cfg.ImageLimits)
+			return executeReadFS(ctx, call, cfg.WorkDir, cfg.ImageLimits, cfg.FileSystem)
 		},
 	}
 }
 
 func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, imageLimits media.Limits) (fantasy.ToolResponse, error) {
+	return executeReadFS(ctx, call, workDir, imageLimits, nil)
+}
+
+// executeReadFS is executeRead with an optional FileSystem for text files.
+// Images are always read from the local disk.
+func executeReadFS(ctx context.Context, call fantasy.ToolCall, workDir string, imageLimits media.Limits, fs FileSystem) (fantasy.ToolResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return fantasy.ToolResponse{}, err
 	}
@@ -70,6 +76,13 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 	// Check if path is a directory
 	info, err := os.Stat(absPath)
 	if err != nil {
+		// A FileSystem can hold files that are not on disk, such as a new
+		// file in an unsaved editor buffer. Ask it before giving up.
+		if fs != nil {
+			if text, fsErr := fs.ReadTextFile(ctx, absPath); fsErr == nil {
+				return formatReadText(text, args), nil
+			}
+		}
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("cannot access '%s': %v", args.Path, err)), nil
 	}
 
@@ -87,16 +100,30 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 			args.Path, info.Size(), media.IngestLimitBytes)), nil
 	}
 
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %v", err)), nil
+	var text string
+	if fs != nil && !looksLikeImage(absPath) {
+		text, err = fs.ReadTextFile(ctx, absPath)
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %v", err)), nil
+		}
+	} else {
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %v", err)), nil
+		}
+		if resp, ok := readImage(content, absPath, args.Path, imageLimits); ok {
+			return resp, nil
+		}
+		text = string(content)
 	}
 
-	if resp, ok := readImage(content, absPath, args.Path, imageLimits); ok {
-		return resp, nil
-	}
+	return formatReadText(text, args), nil
+}
 
-	lines := strings.Split(string(content), "\n")
+// formatReadText numbers the lines of a text file and applies the offset
+// and limit of the read arguments.
+func formatReadText(text string, args readArgs) fantasy.ToolResponse {
+	lines := strings.Split(text, "\n")
 	totalLines := len(lines)
 
 	// Apply offset (1-indexed)
@@ -104,7 +131,7 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 	if args.Offset > 0 {
 		offset = args.Offset - 1
 		if offset >= totalLines {
-			return fantasy.NewTextResponse(fmt.Sprintf("offset %d exceeds file length (%d lines)", args.Offset, totalLines)), nil
+			return fantasy.NewTextResponse(fmt.Sprintf("offset %d exceeds file length (%d lines)", args.Offset, totalLines))
 		}
 		lines = lines[offset:]
 	}
@@ -134,7 +161,7 @@ func executeRead(ctx context.Context, call fantasy.ToolCall, workDir string, ima
 			offset+1, offset+len(lines), totalLines, offset+len(lines)+1)
 	}
 
-	return fantasy.NewTextResponse(tr.Content), nil
+	return fantasy.NewTextResponse(tr.Content)
 }
 
 // sniffLen is the number of leading bytes read to detect an image signature.
@@ -188,18 +215,16 @@ func readImage(content []byte, absPath, displayPath string, limits media.Limits)
 }
 
 // resolvePathWithWorkDir resolves a path to an absolute path relative to the
-// given workDir. If workDir is empty, os.Getwd() is used.
+// given workDir. If workDir is empty, os.Getwd() is used. A relative workDir
+// is itself resolved against os.Getwd(), so the result is always absolute
+// (FileSystem backends require absolute paths).
 func resolvePathWithWorkDir(path, workDir string) (string, error) {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path), nil
 	}
-	baseDir := workDir
-	if baseDir == "" {
-		var err error
-		baseDir, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("failed to get working directory: %w", err)
-		}
+	abs, err := filepath.Abs(filepath.Join(workDir, path))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve path: %w", err)
 	}
-	return filepath.Clean(filepath.Join(baseDir, path)), nil
+	return abs, nil
 }

@@ -89,6 +89,17 @@ type AgentConfig struct {
 	// consumed when core tools are built from CoreToolList.
 	Shell []string
 
+	// WorkDir is the directory the core file and shell tools resolve
+	// relative paths against and run commands in. Empty uses the process
+	// working directory. Only consumed when core tools are built from
+	// CoreToolList.
+	WorkDir string
+
+	// CoreToolOptions are applied to the core tools after the options
+	// derived from the fields above. Only consumed when core tools are
+	// built from CoreToolList.
+	CoreToolOptions []core.ToolOption
+
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
 	// read tool attaches to a message. Zero uses the built-in default.
 	// Only consumed when core tools are built from CoreToolList.
@@ -404,7 +415,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
 	if err != nil {
 		if !agentConfig.AllowMissingCredentials || !auth.IsMissingCredentials(err) {
-			return nil, fmt.Errorf("failed to create model provider: %v", err)
+			return nil, fmt.Errorf("failed to create model provider: %w", err)
 		}
 		// No credentials for the configured provider. Start with a placeholder
 		// model so the caller (the interactive TUI) can come up and let the
@@ -442,6 +453,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		if len(agentConfig.Shell) > 0 {
 			toolOpts = append(toolOpts, core.WithShell(agentConfig.Shell))
 		}
+		if agentConfig.WorkDir != "" {
+			toolOpts = append(toolOpts, core.WithWorkDir(agentConfig.WorkDir))
+		}
 		if agentConfig.ImageMaxEdge > 0 || agentConfig.ImageMaxBytes > 0 || agentConfig.ImageNoResize {
 			toolOpts = append(toolOpts, core.WithImageLimits(media.Limits{
 				MaxEdge:         agentConfig.ImageMaxEdge,
@@ -449,6 +463,7 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 				NoResize:        agentConfig.ImageNoResize,
 			}))
 		}
+		toolOpts = append(toolOpts, agentConfig.CoreToolOptions...)
 		coreTools = core.ListedTools(agentConfig.CoreToolList, toolOpts...)
 	}
 
@@ -1702,7 +1717,7 @@ func (a *Agent) SetModel(ctx context.Context, config *models.ProviderConfig) err
 
 	providerResult, err := models.CreateProvider(ctx, config)
 	if err != nil {
-		return fmt.Errorf("failed to create model provider: %v", err)
+		return fmt.Errorf("failed to create model provider: %w", err)
 	}
 	// Close old provider.
 	if a.providerCloser != nil {

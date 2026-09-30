@@ -273,6 +273,9 @@ func NewShellTool(opts ...ToolOption) fantasy.AgentTool {
 			Required: []string{"command"},
 		},
 		handler: func(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			if cfg.CommandRunner != nil {
+				return executeShellWithRunner(ctx, call, cfg.CommandRunner, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
+			}
 			return executeShell(ctx, call, cfg.WorkDir, cfg.Shell, defTimeout, maxTimeout)
 		},
 	}
@@ -743,4 +746,58 @@ func buildShellResponse(stdout, stderr string, exitCode int) (fantasy.ToolRespon
 		return fantasy.NewTextErrorResponse(tr.Content), nil
 	}
 	return fantasy.NewTextResponse(tr.Content), nil
+}
+
+// executeShellWithRunner runs a shell tool call through a CommandRunner. It
+// applies the same argument checks, timeout rules and output formatting as
+// executeShell. Sudo password prompts are not supported: the runner owns the
+// terminal.
+func executeShellWithRunner(ctx context.Context, call fantasy.ToolCall, runner CommandRunner, workDir string, shell []string, defaultTimeout, maxTimeout time.Duration) (fantasy.ToolResponse, error) {
+	var args shellArgs
+	if err := parseArgs(call.Input, &args); err != nil || args.Command == "" {
+		return fantasy.NewTextErrorResponse("command parameter is required"), nil
+	}
+	if bannedCmdRe.MatchString(args.Command) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("command '%s' is not allowed", args.Command)), nil
+	}
+
+	timeout := defaultTimeout
+	if args.Timeout > 0 {
+		timeout = min(time.Duration(args.Timeout)*time.Second, maxTimeout)
+	}
+
+	resolution, err := resolveShell(shell)
+	if err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid shell configuration: %v", err)), nil
+	}
+
+	res, err := runner.RunCommand(ctx, CommandRequest{
+		ToolCallID: call.ID,
+		Command:    args.Command,
+		Argv:       resolution.commandArgs(args.Command),
+		WorkDir:    workDir,
+		Timeout:    timeout,
+	})
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fantasy.ToolResponse{}, ctxErr
+		}
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to run command: %v", err)), nil
+	}
+	if res.TimedOut {
+		msg := "command timed out"
+		if out := strings.TrimSpace(res.Output); out != "" {
+			msg += "\n" + TruncateTail(out, defaultMaxLines, defaultMaxBytes).Content
+		}
+		return fantasy.NewTextErrorResponse(msg), nil
+	}
+	if res.Signal != "" {
+		out := res.Output
+		if out != "" {
+			out += "\n"
+		}
+		out += "Killed by signal: " + res.Signal
+		return fantasy.NewTextErrorResponse(TruncateTail(out, defaultMaxLines, defaultMaxBytes).Content), nil
+	}
+	return buildShellResponse(res.Output, "", res.ExitCode)
 }
