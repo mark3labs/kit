@@ -31,11 +31,25 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 		return ""
 	}
 
+	return AssistantBlockFromMarkdown(style.ToMarkdown(content, AssistantMarkdownWidth(width)), theme)
+}
+
+// AssistantMarkdownWidth is the width AssistantBlock renders markdown at for
+// a block of the given full width.
+func AssistantMarkdownWidth(width int) int {
+	return width - style.ContentOffset - 1
+}
+
+// AssistantBlockFromMarkdown finishes an assistant block from markdown that
+// was already rendered at AssistantMarkdownWidth(width), e.g. incrementally
+// by a style.StreamingMarkdown. AssistantBlock(content, width, theme) equals
+// AssistantBlockFromMarkdown(style.ToMarkdown(content, AssistantMarkdownWidth(width)), theme)
+// for non-blank content.
+func AssistantBlockFromMarkdown(markdown string, theme style.Theme) string {
 	// Assistant prose carries no marker, so it is indented to the shared
 	// content column rather than starting at the screen edge. Without this it
 	// sits two columns left of every other block and the margin reads ragged.
-	rendered := style.ToMarkdown(content, width-style.ContentOffset-1)
-	rendered = style.Indent(rendered, style.ContentOffset)
+	rendered := style.Indent(markdown, style.ContentOffset)
 	return styleMarginBottom(theme, rendered)
 }
 

@@ -284,6 +284,12 @@ type StreamingMessageItem struct {
 	// message grows. See adaptiveStreamFlushInterval.
 	renderCost time.Duration
 
+	// md renders assistant markdown incrementally while streaming, so a
+	// flush re-renders only the text after the last stable block boundary.
+	// MarkComplete drops it and the final render is a full one, which is
+	// the exact output a non-streamed message would get.
+	md style.StreamingMarkdown
+
 	// Both caches above hold theme-colored output, so a theme change has to
 	// invalidate them even though neither the content nor the width moved.
 	themeStamp
@@ -359,7 +365,16 @@ func (s *StreamingMessageItem) Render(width int) string {
 	} else {
 		// Render as assistant message
 		start := time.Now()
-		rendered = render.AssistantBlock(s.content.String(), width, style.GetTheme())
+		content := s.content.String()
+		switch {
+		case !s.streaming:
+			rendered = render.AssistantBlock(content, width, style.GetTheme())
+		case strings.TrimSpace(content) == "":
+			rendered = ""
+		default:
+			md := s.md.Render(content, render.AssistantMarkdownWidth(width))
+			rendered = render.AssistantBlockFromMarkdown(md, style.GetTheme())
+		}
 		s.renderCost = time.Since(start)
 	}
 
@@ -404,6 +419,14 @@ func (s *StreamingMessageItem) AppendChunk(chunk string) {
 
 // MarkComplete marks the streaming message as complete and freezes the duration.
 func (s *StreamingMessageItem) MarkComplete() {
+	if s.streaming && s.role == "assistant" {
+		// The live render was built incrementally. Render the finished
+		// message once in full, so its final output can never depend on
+		// where the stream happened to be split.
+		s.md.Reset()
+		s.cachedRender = ""
+		s.cachedWidth = -1
+	}
 	s.streaming = false
 	// Freeze the duration for reasoning blocks
 	if s.role == "reasoning" && !s.startTime.IsZero() {

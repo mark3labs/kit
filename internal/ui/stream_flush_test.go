@@ -5,6 +5,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/mark3labs/kit/internal/ui/render"
+	"github.com/mark3labs/kit/internal/ui/style"
 )
 
 func TestAdaptiveStreamFlushInterval(t *testing.T) {
@@ -105,5 +108,32 @@ func TestComposerTyping_LeaderChordFlushes(t *testing.T) {
 	m.leaderKeyActive = true
 	if m.isComposerTextKey(tea.KeyPressMsg{Code: 't', Text: "t"}) {
 		t.Error("key after leader was treated as composer text")
+	}
+}
+
+// TestStreamingMessageItem_IncrementalRenderMatchesFull streams an assistant
+// message in chunks and checks each render against a full AssistantBlock,
+// then checks that completion switches to a full render.
+func TestStreamingMessageItem_IncrementalRenderMatchesFull(t *testing.T) {
+	doc := "# Plan\n\nFirst paragraph with **bold**.\n\n```go\nfunc f() {\n\n\treturn\n}\n```\n\n- a\n- b\n\nClosing words.\n"
+	item := NewStreamingMessageItem("s1", "assistant", "model")
+	for i := 0; i < len(doc); i += 7 {
+		item.AppendChunk(doc[i:min(i+7, len(doc))])
+		got := item.Render(80)
+		want := render.AssistantBlock(item.RawContent(), 80, style.GetTheme())
+		if got != want {
+			t.Fatalf("after %d bytes streaming render differs from full render\n got %q\nwant %q", i+7, got, want)
+		}
+	}
+	if item.md == (style.StreamingMarkdown{}) {
+		t.Fatal("incremental renderer was never used while streaming")
+	}
+
+	item.MarkComplete()
+	if item.md != (style.StreamingMarkdown{}) {
+		t.Error("MarkComplete kept the incremental render state")
+	}
+	if got, want := item.Render(80), render.AssistantBlock(doc, 80, style.GetTheme()); got != want {
+		t.Errorf("final render differs from full render\n got %q\nwant %q", got, want)
 	}
 }
