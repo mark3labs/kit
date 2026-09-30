@@ -37,6 +37,11 @@ func init() {
 }
 
 func runACP(cmd *cobra.Command, _ []string) error {
+	// Report the real build version in agentInfo.
+	if v := cmd.Root().Version; v != "" {
+		acpserver.Version = v
+	}
+
 	// Create the ACP agent implementation.
 	agent := acpserver.NewAgent()
 	defer agent.Close()

@@ -89,6 +89,12 @@ type AgentConfig struct {
 	// consumed when core tools are built from CoreToolList.
 	Shell []string
 
+	// WorkDir is the directory the core file and shell tools resolve
+	// relative paths against and run commands in. Empty uses the process
+	// working directory. Only consumed when core tools are built from
+	// CoreToolList.
+	WorkDir string
+
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
 	// read tool attaches to a message. Zero uses the built-in default.
 	// Only consumed when core tools are built from CoreToolList.
@@ -441,6 +447,9 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 		}
 		if len(agentConfig.Shell) > 0 {
 			toolOpts = append(toolOpts, core.WithShell(agentConfig.Shell))
+		}
+		if agentConfig.WorkDir != "" {
+			toolOpts = append(toolOpts, core.WithWorkDir(agentConfig.WorkDir))
 		}
 		if agentConfig.ImageMaxEdge > 0 || agentConfig.ImageMaxBytes > 0 || agentConfig.ImageNoResize {
 			toolOpts = append(toolOpts, core.WithImageLimits(media.Limits{

@@ -78,6 +78,9 @@ type AgentCreationOptions struct {
 	// Shell is the argument vector prefix the shell tool runs a command
 	// string through. Empty uses the built-in default ["bash"].
 	Shell []string
+	// WorkDir is the base directory for the core file and shell tools.
+	// Empty uses the process working directory.
+	WorkDir string
 	// OnMCPServerLoaded, if non-nil, is called when each MCP server finishes
 	// loading (successfully or with error). Called from the background goroutine.
 	OnMCPServerLoaded func(serverName string, toolCount int, err error)
@@ -110,6 +113,7 @@ func CreateAgent(ctx context.Context, opts *AgentCreationOptions) (*Agent, error
 		ImageMaxBytes:           opts.ImageMaxBytes,
 		ImageNoResize:           opts.ImageNoResize,
 		Shell:                   opts.Shell,
+		WorkDir:                 opts.WorkDir,
 		OnMCPServerLoaded:       opts.OnMCPServerLoaded,
 		MCPTaskConfig:           opts.MCPTaskConfig,
 	}

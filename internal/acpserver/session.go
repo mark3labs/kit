@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/log"
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/spf13/viper"
 
 	"github.com/mark3labs/kit/internal/extbridge"
@@ -21,6 +22,7 @@ type acpSession struct {
 	cancelMu  sync.Mutex
 	cwd       string
 	sessionID string // Kit-generated session ID (from JSONL header)
+	toolIDs   *toolIDMapper
 }
 
 // sessionRegistry is a thread-safe registry of ACP session ID → Kit sessions.
@@ -35,10 +37,29 @@ func newSessionRegistry() *sessionRegistry {
 	}
 }
 
-// create creates a new Kit instance with a persisted tree session for the
-// given working directory. The Kit-generated session ID is used as the ACP
-// session ID so the mapping is 1:1.
-func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, error) {
+// sessionOptions controls how create builds a session.
+type sessionOptions struct {
+	// cwd is the absolute working directory of the session. Kit uses it for
+	// session storage, project discovery (AGENTS.md, skills, .kit.yml) and
+	// as the base directory of the file and shell tools.
+	cwd string
+	// sessionPath opens an existing JSONL session file instead of creating
+	// a new one (session/load and session/resume).
+	sessionPath string
+	// mcpServers are the MCP servers the client asked the agent to connect
+	// to for this session.
+	mcpServers []acp.McpServer
+}
+
+// create creates a Kit instance with a persisted tree session. The
+// Kit-generated session ID is used as the ACP session ID so the mapping is
+// 1:1. When opts.sessionPath is set, the existing session is opened.
+func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acpSession, error) {
+	cwd := opts.cwd
+	// The request context ends when the ACP response is sent, but the Kit
+	// instance and the MCP servers it starts must live as long as the session.
+	ctx = context.WithoutCancel(ctx)
+
 	// Each ACP session gets its own isolated config store (CLI is left nil) so
 	// per-session SetModel / SetThinkingLevel calls cannot race or bleed across
 	// the sessionRegistry. We seed the relevant root-command flag values from
@@ -49,6 +70,8 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
 		SessionDir:     cwd,
+		SessionPath:    opts.sessionPath,
+		WorkDir:        cwd,
 		Quiet:          true,
 		Streaming:      &streamOn,
 		Model:          viper.GetString("model"),
@@ -145,15 +168,42 @@ func (r *sessionRegistry) create(ctx context.Context, cwd string) (*acpSession, 
 		kitInstance.Extensions().EmitSessionStart()
 	}
 
+	// Connect the MCP servers the client supplied. The spec says agents
+	// SHOULD connect to all of them; a server that fails is logged and
+	// skipped so one bad entry does not block the whole session.
+	for _, srv := range opts.mcpServers {
+		name, cfg, err := mcpServerConfig(srv)
+		if err != nil {
+			log.Warn("acp: skipping MCP server", "error", err)
+			continue
+		}
+		n, err := kitInstance.AddMCPServer(ctx, name, cfg)
+		if err != nil {
+			log.Warn("acp: MCP server connection failed", "server", name, "error", err)
+			continue
+		}
+		log.Debug("acp: MCP server connected", "server", name, "tools", n)
+	}
+
 	sess := &acpSession{
 		kit:       kitInstance,
 		cwd:       cwd,
 		sessionID: sessionID,
+		toolIDs:   newToolIDMapper(),
 	}
 
 	r.mu.Lock()
+	old := r.sessions[sessionID]
 	r.sessions[sessionID] = sess
 	r.mu.Unlock()
+
+	// Opening a session that is already active replaces the old instance.
+	if old != nil {
+		old.cancelPrompt()
+		if old.kit != nil {
+			_ = old.kit.Close()
+		}
+	}
 
 	return sess, nil
 }

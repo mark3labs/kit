@@ -132,7 +132,18 @@ kit acp
 kit acp --debug
 ```
 
-The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol. Sessions are persisted to Kit's normal JSONL session files, so they can be resumed later.
+The ACP server exposes Kit's full capabilities — LLM execution, tool calls (shell, read, write, edit, grep, etc.), and session persistence — over the standard ACP protocol (protocol version 1). Sessions are persisted to Kit's normal JSONL session files.
+
+Supported ACP features:
+
+- **Sessions**: `session/new`, `session/load` (replays the history), `session/resume`, `session/list`, `session/close`, `session/cancel`
+- **Working directory**: each session uses the `cwd` the client sends for project discovery (AGENTS.md, skills, `.kit.yml`) and as the base directory of the file and shell tools
+- **MCP servers**: servers the client passes in `mcpServers` (stdio, HTTP, SSE) are connected in addition to the ones in Kit's config
+- **Config options**: `model` and, for reasoning models, `thinking_level`, set with `session/set_config_option`
+- **Prompt content**: text, images, embedded resources, and resource links
+- **Streaming**: agent messages, thoughts, and tool calls (with kind, file locations, and diffs for edits)
+
+To check an ACP build end to end, run `python3 scripts/acp_smoke_test.py` (set `MODEL=provider/model` to pick a model).
 
 ## Configuration
 

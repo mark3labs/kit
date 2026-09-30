@@ -338,7 +338,16 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 ```bash
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
+kit acp -m anthropic/claude-sonnet-4-5  # Default model for new sessions
 ```
+
+Kit implements ACP protocol version 1. It supports `session/new`,
+`session/load` (with history replay), `session/resume`, `session/list`,
+`session/close`, and `session/cancel`. Each session uses the `cwd` that the
+client sends as the base directory of the file and shell tools. MCP servers
+that the client sends in `mcpServers` (stdio, HTTP, or SSE) are connected in
+addition to the servers in your config. Clients can change the `model` and
+`thinking_level` config options with `session/set_config_option`.
 
 ## Detachable sessions
 

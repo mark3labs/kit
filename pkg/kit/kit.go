@@ -58,6 +58,8 @@ type Kit struct {
 	// option and the configuration store at construction. Subagents built
 	// without an explicit tool set inherit it.
 	shell []string
+	// workDir is Options.WorkDir, kept so subagents inherit it.
+	workDir string
 	// coreToolList is the resolved list of core tool names this instance
 	// enabled. New always sets it (empty, not nil, when core tools are
 	// disabled); nil means no limit. Subagents built without an explicit
@@ -1334,6 +1336,13 @@ type Options struct {
 	// not ship bash.
 	Shell []string
 
+	// WorkDir is the directory the built-in file and shell tools resolve
+	// relative paths against and run commands in. "" = the process working
+	// directory. Set it when one process serves several projects, for
+	// example one Kit per client session. Subagents inherit it. It has no
+	// effect on tools supplied through Tools.
+	WorkDir string
+
 	// ImageMaxEdge caps the width and height, in pixels, of an image the
 	// read tool attaches to a message. An image above this size is scaled
 	// down before it is sent. Zero falls back to the "image-max-edge"
@@ -1722,6 +1731,7 @@ func New(ctx context.Context, opts *Options) (*Kit, error) {
 		modelString:           rc.modelString,
 		endpointProvider:      endpointProviderFor(v, rc.modelString),
 		shell:                 append([]string(nil), rc.shell...),
+		workDir:               opts.WorkDir,
 		coreToolList:          append([]string{}, rc.toolList...),
 		customTools:           append([]Tool(nil), opts.Tools...),
 		events:                newEventBus(),
@@ -2273,7 +2283,11 @@ func (m *Kit) subagentDefaultTools() []Tool {
 		}
 		return tools
 	}
-	tools := SubagentTools(WithShell(m.shell))
+	toolOpts := []ToolOption{WithShell(m.shell)}
+	if m.workDir != "" {
+		toolOpts = append(toolOpts, WithWorkDir(m.workDir))
+	}
+	tools := SubagentTools(toolOpts...)
 	if m.coreToolList == nil {
 		return tools
 	}
