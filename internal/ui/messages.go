@@ -446,11 +446,16 @@ func (r *MessageRenderer) RenderToolMessage(toolName, toolArgs, toolResult strin
 	}
 }
 
-// formatToolResult formats tool results based on tool type
+// formatToolResult formats tool results based on tool type. The result is
+// capped in both directions: at most 10 rows (outside debug mode), and each
+// row clipped to the panel width. The row cap alone is not enough — MCP tools
+// often return minified JSON on a single line, and a 600 KB line passes a
+// line-count cap untouched. Nothing downstream wraps it, so the transcript
+// would keep a multi-megabyte row that every frame has to measure and clip.
 func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 	if !r.debug {
 		maxLines := 10
-		lines := strings.Split(result, "\n")
+		lines := strings.SplitN(result, "\n", maxLines+1)
 		if len(lines) > maxLines {
 			result = strings.Join(lines[:maxLines], "\n") + "\n... (truncated)"
 		}
@@ -459,11 +464,20 @@ func (r *MessageRenderer) formatToolResult(toolName, result string) string {
 	if strings.Contains(toolName, "bash") || strings.Contains(toolName, "command") ||
 		strings.Contains(toolName, "shell") {
 		if strings.Contains(result, "<stdout>") || strings.Contains(result, "<stderr>") {
-			return parseBashOutput(result, style.GetTheme())
+			result = parseBashOutput(result, style.GetTheme())
 		}
 	}
 
-	return result
+	return clipLines(result, max(r.width-8, 20))
+}
+
+// clipLines truncates every line of s to maxWidth cells (ANSI-aware).
+func clipLines(s string, maxWidth int) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = truncateLine(line, maxWidth)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // createTypography returns the shared typography instance for the active
