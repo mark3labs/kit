@@ -32,6 +32,7 @@ func (a *Agent) replayHistory(ctx context.Context, sess *acpSession, sessionID a
 // go through ids, so calls made after the replay stay unique.
 func historyUpdates(msgs []kit.StructuredMessage, cwd string, ids *toolIDMapper) []acp.SessionUpdate {
 	var updates []acp.SessionUpdate
+	planCalls := map[string]bool{}
 	for _, msg := range msgs {
 		for _, part := range msg.Parts {
 			switch p := part.(type) {
@@ -60,6 +61,16 @@ func historyUpdates(msgs []kit.StructuredMessage, cwd string, ids *toolIDMapper)
 				}
 
 			case kit.ToolCall:
+				if p.Name == planToolName {
+					// Replay the plan the call showed. The ID is still
+					// registered, so the call's result can be skipped.
+					ids.start(p.ID)
+					planCalls[p.ID] = true
+					if u, ok := planUpdateFromArgs(p.Input); ok {
+						updates = append(updates, u)
+					}
+					continue
+				}
 				args := parseToolArgs(p.Input)
 				opts := []acp.ToolCallStartOpt{
 					acp.WithStartKind(acpToolKind(p.Name)),
@@ -76,6 +87,9 @@ func historyUpdates(msgs []kit.StructuredMessage, cwd string, ids *toolIDMapper)
 				))
 
 			case kit.ToolResult:
+				if planCalls[p.ToolCallID] {
+					continue
+				}
 				status := acp.ToolCallStatusCompleted
 				if p.IsError {
 					status = acp.ToolCallStatusFailed

@@ -339,6 +339,7 @@ Run Kit as an [ACP (Agent Client Protocol)](https://agentclientprotocol.com) age
 kit acp                      # Start as ACP agent
 kit acp --debug              # With debug logging to stderr
 kit acp -m anthropic/claude-sonnet-4-5  # Default model for new sessions
+kit acp --approval auto_edit # Edit files without asking; ask before commands
 ```
 
 Kit implements ACP protocol version 1. It supports `session/new`,
@@ -346,8 +347,20 @@ Kit implements ACP protocol version 1. It supports `session/new`,
 `session/close`, and `session/cancel`. Each session uses the `cwd` that the
 client sends as the base directory of the file and shell tools. MCP servers
 that the client sends in `mcpServers` (stdio, HTTP, or SSE) are connected in
-addition to the servers in your config. Clients can change the `model` and
-`thinking_level` config options with `session/set_config_option`.
+addition to the servers in your config. Clients can change the `approval`,
+`model` and `thinking_level` config options with `session/set_config_option`.
+
+Before a tool that can change something runs (edits, commands, subagents,
+MCP and extension tools), Kit asks the client with
+`session/request_permission`. The `--approval` flag sets the default mode:
+`ask` (default), `auto_edit` (edit files without asking), or `auto` (never
+ask). Read-only tools never ask.
+
+When the client supports them, Kit reads and writes files through the
+client (`fs/*`), so it sees unsaved editor buffers, and runs shell commands
+in client terminals (`terminal/*`). Prompt templates and skills are sent to
+the client as slash commands. The model can show its plan with the
+`update_plan` tool.
 
 ## Detachable sessions
 

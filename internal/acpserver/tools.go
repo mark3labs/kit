@@ -158,6 +158,15 @@ func (m *toolIDMapper) start(raw string) acp.ToolCallId {
 	return acp.ToolCallId(id)
 }
 
+// find returns the ACP ID of the latest tool call with the given provider
+// ID, and whether such a call was started in this session.
+func (m *toolIDMapper) find(raw string) (acp.ToolCallId, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, ok := m.current[raw]
+	return acp.ToolCallId(id), ok
+}
+
 // lookup returns the ACP ID of the latest tool call with the given provider
 // ID.
 func (m *toolIDMapper) lookup(raw string) acp.ToolCallId {

@@ -8,6 +8,7 @@ package acpserver
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -35,6 +37,13 @@ const listPageSize = 100
 type Agent struct {
 	conn     *acp.AgentSideConnection
 	registry *sessionRegistry
+
+	// mu guards the fields below.
+	mu sync.Mutex
+	// clientCaps are the capabilities the client sent in initialize.
+	clientCaps acp.ClientCapabilities
+	// defaultApproval is the approval mode of new sessions.
+	defaultApproval string
 }
 
 // Compile-time checks that Agent implements the stable agent interfaces.
@@ -46,7 +55,48 @@ var (
 // NewAgent creates a new ACP agent backed by Kit.
 func NewAgent() *Agent {
 	return &Agent{
-		registry: newSessionRegistry(),
+		registry:        newSessionRegistry(),
+		defaultApproval: approvalAsk,
+	}
+}
+
+// SetDefaultApproval sets the tool approval mode of new sessions: "ask",
+// "auto_edit" or "auto". Clients can change it per session through the
+// "approval" config option.
+func (a *Agent) SetDefaultApproval(mode string) error {
+	if !validApproval(mode) {
+		return fmt.Errorf("unknown approval mode %q (use %s)", mode, strings.Join(ApprovalModes, ", "))
+	}
+	a.mu.Lock()
+	a.defaultApproval = mode
+	a.mu.Unlock()
+	return nil
+}
+
+// clientCapabilities returns the capabilities the client sent in initialize.
+func (a *Agent) clientCapabilities() acp.ClientCapabilities {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.clientCaps
+}
+
+// sessionOptions returns the options for a new or opened session: the
+// approval mode, the client file system and terminal, the plan tool and the
+// permission hook.
+func (a *Agent) sessionOptions(cwd, sessionPath string, mcpServers []acp.McpServer) sessionOptions {
+	a.mu.Lock()
+	approval := a.defaultApproval
+	a.mu.Unlock()
+	return sessionOptions{
+		cwd:         cwd,
+		sessionPath: sessionPath,
+		mcpServers:  mcpServers,
+		approval:    approval,
+		toolOptions: a.clientToolOptions,
+		extraTools: func(sess *acpSession) []kit.Tool {
+			return []kit.Tool{a.planTool(sess)}
+		},
+		setup: a.installPermissionHook,
 	}
 }
 
@@ -84,7 +134,15 @@ func (a *Agent) Logout(_ context.Context, _ acp.LogoutRequest) (acp.LogoutRespon
 // the spec requires the agent to reply with the requested version when it
 // supports it, and with its latest version otherwise.
 func (a *Agent) Initialize(_ context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
-	log.Debug("acp: initialize", "protocol_version", params.ProtocolVersion)
+	log.Debug("acp: initialize", "protocol_version", params.ProtocolVersion,
+		"fs_read", params.ClientCapabilities.Fs.ReadTextFile,
+		"fs_write", params.ClientCapabilities.Fs.WriteTextFile,
+		"terminal", params.ClientCapabilities.Terminal)
+
+	// Capabilities the client omits are unsupported (the zero value).
+	a.mu.Lock()
+	a.clientCaps = params.ClientCapabilities
+	a.mu.Unlock()
 
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersion(acp.ProtocolVersionNumber),
@@ -121,18 +179,16 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 
 	log.Debug("acp: new_session", "cwd", params.Cwd, "mcp_servers", len(params.McpServers))
 
-	sess, err := a.registry.create(ctx, sessionOptions{
-		cwd:        params.Cwd,
-		mcpServers: params.McpServers,
-	})
+	sess, err := a.registry.create(ctx, a.sessionOptions(params.Cwd, "", params.McpServers))
 	if err != nil {
 		log.Error("acp: session creation failed", "cwd", params.Cwd, "error", err)
-		return acp.NewSessionResponse{}, fmt.Errorf("create session: %w", err)
+		return acp.NewSessionResponse{}, sessionError("create session", err)
 	}
 
+	a.announceCommands(ctx, sess)
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(sess.sessionID),
-		ConfigOptions: configOptions(sess.kit),
+		ConfigOptions: configOptions(sess),
 	}, nil
 }
 
@@ -146,7 +202,8 @@ func (a *Agent) LoadSession(ctx context.Context, params acp.LoadSessionRequest) 
 	if err := a.replayHistory(ctx, sess, params.SessionId); err != nil {
 		return acp.LoadSessionResponse{}, err
 	}
-	return acp.LoadSessionResponse{ConfigOptions: configOptions(sess.kit)}, nil
+	a.announceCommands(ctx, sess)
+	return acp.LoadSessionResponse{ConfigOptions: configOptions(sess)}, nil
 }
 
 // ResumeSession opens a persisted session without replaying its history.
@@ -158,7 +215,8 @@ func (a *Agent) ResumeSession(ctx context.Context, params acp.ResumeSessionReque
 	// The spec forbids a replay here, but the client may still show the old
 	// tool calls, so register their IDs to keep new ones unique.
 	_ = historyUpdates(sess.kit.GetStructuredMessages(), sess.cwd, sess.toolIDs)
-	return acp.ResumeSessionResponse{ConfigOptions: configOptions(sess.kit)}, nil
+	a.announceCommands(ctx, sess)
+	return acp.ResumeSessionResponse{ConfigOptions: configOptions(sess)}, nil
 }
 
 // openSession finds a persisted session by ID and opens it with a new Kit
@@ -185,13 +243,9 @@ func (a *Agent) openSession(ctx context.Context, sessionID acp.SessionId, cwd st
 		a.registry.remove(id)
 	}
 
-	sess, err := a.registry.create(ctx, sessionOptions{
-		cwd:         cwd,
-		sessionPath: path,
-		mcpServers:  mcpServers,
-	})
+	sess, err := a.registry.create(ctx, a.sessionOptions(cwd, path, mcpServers))
 	if err != nil {
-		return nil, fmt.Errorf("open session: %w", err)
+		return nil, sessionError("open session", err)
 	}
 	if sess.sessionID != id {
 		a.registry.remove(sess.sessionID)
@@ -273,6 +327,13 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 		return acp.PromptResponse{}, acp.NewInvalidParams("empty prompt")
 	}
 
+	// Expand a prompt template command ("/name args"). Skill commands are
+	// expanded by Kit itself.
+	promptText, err := expandPromptTemplate(sess.cwd, promptText)
+	if err != nil {
+		return acp.PromptResponse{}, err
+	}
+
 	// The LLM library needs a non-empty text prompt when the conversation
 	// has no previous messages, so add one for file-only prompts.
 	if promptText == "" && len(files) > 0 {
@@ -287,6 +348,8 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 	defer cancel()
 	sess.setCancel(cancel)
 	defer sess.clearCancel()
+	sess.setPromptContext(promptCtx)
+	defer sess.clearPromptContext()
 
 	// Subscribe to Kit events and stream them as ACP session updates. The
 	// subscription ends before this method returns, so no update can follow
@@ -295,10 +358,7 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 	defer unsub()
 
 	// Run the prompt through Kit's full turn lifecycle.
-	var (
-		result *kit.TurnResult
-		err    error
-	)
+	var result *kit.TurnResult
 	if len(files) > 0 {
 		result, err = sess.kit.PromptResultWithFiles(promptCtx, promptText, files)
 	} else {
@@ -352,8 +412,9 @@ func (a *Agent) CloseSession(_ context.Context, params acp.CloseSessionRequest) 
 	return acp.CloseSessionResponse{}, nil
 }
 
-// SetSessionConfigOption changes a session config option ("model" or
-// "thinking_level") and responds with the full, updated option list.
+// SetSessionConfigOption changes a session config option ("approval",
+// "model" or "thinking_level") and responds with the full, updated option
+// list.
 func (a *Agent) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
 	if params.ValueId == nil {
 		// Kit advertises only select options, so boolean values are invalid.
@@ -370,11 +431,11 @@ func (a *Agent) SetSessionConfigOption(ctx context.Context, params acp.SetSessio
 
 	log.Debug("acp: set_session_config_option", "session", sessionID, "config", configID, "value", value)
 
-	if err := applyConfigOption(ctx, sess.kit, configID, value); err != nil {
+	if err := applyConfigOption(ctx, sess, configID, value); err != nil {
 		return acp.SetSessionConfigOptionResponse{}, err
 	}
 
-	return acp.SetSessionConfigOptionResponse{ConfigOptions: configOptions(sess.kit)}, nil
+	return acp.SetSessionConfigOptionResponse{ConfigOptions: configOptions(sess)}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +463,10 @@ func (a *Agent) subscribeEvents(ctx context.Context, sess *acpSession, sessionID
 
 		case kit.ToolCallEvent:
 			tcID := sess.toolIDs.start(ev.ToolCallID)
+			if ev.ToolName == planToolName {
+				// The plan tool shows itself as a plan update.
+				return
+			}
 			args := ev.ParsedArgs
 			if args == nil {
 				args = parseToolArgs(ev.ToolArgs)
@@ -419,22 +484,35 @@ func (a *Agent) subscribeEvents(ctx context.Context, sess *acpSession, sessionID
 			u := acp.StartToolCall(tcID, toolTitle(ev.ToolName, args), opts...)
 			update = &u
 
-		case kit.ToolExecutionStartEvent:
-			u := acp.UpdateToolCall(sess.toolIDs.lookup(ev.ToolCallID),
-				acp.WithUpdateStatus(acp.ToolCallStatusInProgress),
-			)
-			update = &u
+		// kit.ToolExecutionStartEvent is ignored: the permission hook marks
+		// the call in_progress once it may run, which is after the user
+		// approved it.
 
 		case kit.ToolResultEvent:
+			if ev.ToolName == planToolName {
+				return
+			}
 			tcID := sess.toolIDs.lookup(ev.ToolCallID)
 			status := acp.ToolCallStatusCompleted
 			if ev.IsError {
 				status = acp.ToolCallStatusFailed
 			}
-			u := acp.UpdateToolCall(tcID,
-				acp.WithUpdateStatus(status),
-				acp.WithUpdateContent(toolResultContent(ev.Result, ev.Metadata)),
-			)
+			opts := []acp.ToolCallUpdateOpt{acp.WithUpdateStatus(status)}
+			sess.mu.Lock()
+			termID, inTerminal := sess.terminals[tcID]
+			delete(sess.terminals, tcID)
+			sess.mu.Unlock()
+			if inTerminal {
+				// The command ran in a client terminal: keep showing the
+				// terminal, and attach the text result as raw output.
+				opts = append(opts,
+					acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolTerminalRef(termID)}),
+					acp.WithUpdateRawOutput(map[string]any{"output": ev.Result}),
+				)
+			} else {
+				opts = append(opts, acp.WithUpdateContent(toolResultContent(ev.Result, ev.Metadata)))
+			}
+			u := acp.UpdateToolCall(tcID, opts...)
 			update = &u
 
 			// kit.ToolCallContentEvent is ignored on purpose: it repeats text
@@ -481,6 +559,16 @@ func validateCwd(cwd string) error {
 		return acp.NewInvalidParams(fmt.Sprintf("cwd must be an absolute path: %s", cwd))
 	}
 	return nil
+}
+
+// sessionError returns err unchanged when it already is an ACP error (such
+// as "authentication required"), because the SDK sends a wrapped error as an
+// internal error. Other errors get the context prefix.
+func sessionError(context string, err error) error {
+	if re, ok := errors.AsType[*acp.RequestError](err); ok {
+		return re
+	}
+	return fmt.Errorf("%s: %w", context, err)
 }
 
 // resourceNotFound returns the ACP "resource not found" error (-32002).

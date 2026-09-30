@@ -333,3 +333,109 @@ func TestOptionHasValue(t *testing.T) {
 		t.Errorf("marshaled option = %s", b)
 	}
 }
+
+func TestNeedsApproval(t *testing.T) {
+	for _, c := range []struct {
+		mode, tool string
+		want       bool
+	}{
+		{approvalAsk, "read", false},
+		{approvalAsk, "grep", false},
+		{approvalAsk, planToolName, false},
+		{approvalAsk, "edit", true},
+		{approvalAsk, "shell", true},
+		{approvalAsk, "github__create_issue", true},
+		{approvalAutoEdit, "edit", false},
+		{approvalAutoEdit, "write", false},
+		{approvalAutoEdit, "shell", true},
+		{approvalAutoEdit, "subagent", true},
+		{approvalAuto, "shell", false},
+	} {
+		if got := needsApproval(c.mode, c.tool); got != c.want {
+			t.Errorf("needsApproval(%s, %s) = %v, want %v", c.mode, c.tool, got, c.want)
+		}
+	}
+	if err := NewAgent().SetDefaultApproval("sometimes"); err == nil {
+		t.Error("unknown approval mode accepted")
+	}
+}
+
+func TestPlanEntries(t *testing.T) {
+	entries, err := planEntries(planInput{Entries: []planEntryInput{
+		{Content: " a ", Status: "in_progress"},
+		{Content: "b", Priority: "high"},
+		{Content: "c", Status: "completed", Priority: "urgent"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []acp.PlanEntry{
+		{Content: "a", Status: acp.PlanEntryStatusInProgress, Priority: acp.PlanEntryPriorityMedium},
+		{Content: "b", Status: acp.PlanEntryStatusPending, Priority: acp.PlanEntryPriorityHigh},
+		{Content: "c", Status: acp.PlanEntryStatusCompleted, Priority: acp.PlanEntryPriorityMedium},
+	}
+	for i := range want {
+		if entries[i].Content != want[i].Content || entries[i].Status != want[i].Status || entries[i].Priority != want[i].Priority {
+			t.Errorf("entry %d = %+v, want %+v", i, entries[i], want[i])
+		}
+	}
+	if _, err := planEntries(planInput{Entries: []planEntryInput{{Content: ""}}}); err == nil {
+		t.Error("empty step accepted")
+	}
+	if _, err := planEntries(planInput{Entries: []planEntryInput{{Content: "x", Status: "done"}}}); err == nil {
+		t.Error("unknown status accepted")
+	}
+
+	// History replay turns update_plan calls into plan updates.
+	updates := historyUpdates([]kit.StructuredMessage{
+		{Role: kit.RoleAssistant, Parts: []kit.ContentPart{
+			message.ToolCall{ID: "p1", Name: planToolName, Input: `{"entries":[{"content":"x","status":"pending"}]}`},
+		}},
+		{Role: kit.RoleTool, Parts: []kit.ContentPart{
+			message.ToolResult{ToolCallID: "p1", Name: planToolName, Content: "Plan updated (1 steps)."},
+		}},
+	}, "/w", newToolIDMapper())
+	if len(updates) != 1 || updates[0].Plan == nil || updates[0].Plan.Entries[0].Content != "x" {
+		t.Errorf("replayed plan = %+v", updates)
+	}
+}
+
+func TestSessionErrorKeepsACPErrors(t *testing.T) {
+	auth := authRequired(errors.New("no API key for anthropic"))
+	if auth.Code != -32000 {
+		t.Fatalf("auth code = %d", auth.Code)
+	}
+	var re *acp.RequestError
+	if err := sessionError("create session", auth); !errors.As(err, &re) || err != error(auth) {
+		t.Errorf("sessionError wrapped an ACP error: %v", err)
+	}
+	if err := sessionError("create session", errors.New("boom")); err.Error() != "create session: boom" {
+		t.Errorf("sessionError = %v", err)
+	}
+}
+
+func TestExpandPromptTemplate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	dir := filepath.Join(cwd, ".kit", "prompts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "review.md"), []byte("Review $1 carefully."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for in, want := range map[string]string{
+		"/review main.go":     "Review main.go carefully.",
+		"plain text":          "plain text",
+		"/unknown-skill args": "/unknown-skill args",
+		"/":                   "/",
+	} {
+		got, err := expandPromptTemplate(cwd, in)
+		if err != nil || got != want {
+			t.Errorf("expand(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := expandPromptTemplate(cwd, "/review"); err == nil {
+		t.Error("missing argument accepted")
+	}
+}

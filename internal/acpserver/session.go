@@ -3,7 +3,6 @@ package acpserver
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/charmbracelet/log"
@@ -23,6 +22,49 @@ type acpSession struct {
 	cwd       string
 	sessionID string // Kit-generated session ID (from JSONL header)
 	toolIDs   *toolIDMapper
+
+	// mu guards the fields below.
+	mu sync.Mutex
+	// promptCtx is the context of the running prompt turn. Client requests
+	// made during the turn (permissions, files, terminals) use it, so they
+	// end when the turn is cancelled.
+	promptCtx context.Context
+	// approval is the tool approval mode (approvalAsk, approvalAutoEdit or
+	// approvalAuto).
+	approval string
+	// alwaysAllow and alwaysReject hold tool names the user answered with
+	// "always" in this session.
+	alwaysAllow  map[string]bool
+	alwaysReject map[string]bool
+	// terminals maps a tool call to the client terminal it runs in, so the
+	// final tool call update keeps showing the terminal.
+	terminals map[acp.ToolCallId]string
+}
+
+// id returns the ACP session ID.
+func (s *acpSession) id() acp.SessionId { return acp.SessionId(s.sessionID) }
+
+// context returns the context of the running prompt turn, or a background
+// context when no turn runs.
+func (s *acpSession) context() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.promptCtx != nil {
+		return s.promptCtx
+	}
+	return context.Background()
+}
+
+func (s *acpSession) setPromptContext(ctx context.Context) {
+	s.mu.Lock()
+	s.promptCtx = ctx
+	s.mu.Unlock()
+}
+
+func (s *acpSession) clearPromptContext() {
+	s.mu.Lock()
+	s.promptCtx = nil
+	s.mu.Unlock()
 }
 
 // sessionRegistry is a thread-safe registry of ACP session ID → Kit sessions.
@@ -49,6 +91,16 @@ type sessionOptions struct {
 	// mcpServers are the MCP servers the client asked the agent to connect
 	// to for this session.
 	mcpServers []acp.McpServer
+	// approval is the initial tool approval mode.
+	approval string
+	// toolOptions returns extra options for the core tools of the session
+	// (client file system and terminal).
+	toolOptions func(*acpSession) []kit.ToolOption
+	// extraTools returns ACP-only tools for the session.
+	extraTools func(*acpSession) []kit.Tool
+	// setup runs after the Kit instance exists and before the session is
+	// registered, for example to install hooks.
+	setup func(*acpSession)
 }
 
 // create creates a Kit instance with a persisted tree session. The
@@ -60,6 +112,28 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 	// instance and the MCP servers it starts must live as long as the session.
 	ctx = context.WithoutCancel(ctx)
 
+	// The session exists before the Kit instance, so that tools built for
+	// it can reach its state. The session ID is set once Kit made it.
+	sess := &acpSession{
+		cwd:          cwd,
+		toolIDs:      newToolIDMapper(),
+		approval:     opts.approval,
+		alwaysAllow:  map[string]bool{},
+		alwaysReject: map[string]bool{},
+		terminals:    map[acp.ToolCallId]string{},
+	}
+	if sess.approval == "" {
+		sess.approval = approvalAsk
+	}
+	var toolOpts []kit.ToolOption
+	if opts.toolOptions != nil {
+		toolOpts = opts.toolOptions(sess)
+	}
+	var extraTools []kit.Tool
+	if opts.extraTools != nil {
+		extraTools = opts.extraTools(sess)
+	}
+
 	// Each ACP session gets its own isolated config store (CLI is left nil) so
 	// per-session SetModel / SetThinkingLevel calls cannot race or bleed across
 	// the sessionRegistry. We seed the relevant root-command flag values from
@@ -69,23 +143,25 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 	// per session by kit.New.
 	streamOn := true
 	kitInstance, err := kit.New(ctx, &kit.Options{
-		SessionDir:     cwd,
-		SessionPath:    opts.sessionPath,
-		WorkDir:        cwd,
-		Quiet:          true,
-		Streaming:      &streamOn,
-		Model:          viper.GetString("model"),
-		ThinkingLevel:  viper.GetString("thinking-level"),
-		ProviderURL:    viper.GetString("provider-url"),
-		ProviderAPIKey: viper.GetString("provider-api-key"),
-		Shell:          viper.GetStringSlice("shell"),
+		SessionDir:      cwd,
+		SessionPath:     opts.sessionPath,
+		WorkDir:         cwd,
+		CoreToolOptions: toolOpts,
+		ExtraTools:      extraTools,
+		Quiet:           true,
+		Streaming:       &streamOn,
+		Model:           viper.GetString("model"),
+		ThinkingLevel:   viper.GetString("thinking-level"),
+		ProviderURL:     viper.GetString("provider-url"),
+		ProviderAPIKey:  viper.GetString("provider-api-key"),
+		Shell:           viper.GetStringSlice("shell"),
 	})
 	if err != nil {
-		// Provide actionable guidance for provider auth errors, which are
-		// the most common failure mode when running via ACP.
-		msg := err.Error()
-		if strings.Contains(msg, "API key") || strings.Contains(msg, "credentials") || strings.Contains(msg, "OAuth") {
-			return nil, fmt.Errorf("provider authentication failed: %w — run 'kit auth login <provider>' or set the appropriate environment variable before starting 'kit acp'", err)
+		// Missing provider credentials are the most common failure in ACP
+		// mode. Report them with the spec's "authentication required"
+		// error so clients can tell the user what to do.
+		if kit.IsMissingCredentialsError(err) {
+			return nil, authRequired(err)
 		}
 		return nil, fmt.Errorf("create kit instance: %w", err)
 	}
@@ -185,11 +261,10 @@ func (r *sessionRegistry) create(ctx context.Context, opts sessionOptions) (*acp
 		log.Debug("acp: MCP server connected", "server", name, "tools", n)
 	}
 
-	sess := &acpSession{
-		kit:       kitInstance,
-		cwd:       cwd,
-		sessionID: sessionID,
-		toolIDs:   newToolIDMapper(),
+	sess.kit = kitInstance
+	sess.sessionID = sessionID
+	if opts.setup != nil {
+		opts.setup(sess)
 	}
 
 	r.mu.Lock()
@@ -264,4 +339,12 @@ func (s *acpSession) clearCancel() {
 	s.cancelMu.Lock()
 	defer s.cancelMu.Unlock()
 	s.cancelFn = nil
+}
+
+// authRequired returns the ACP "authentication required" error (-32000) for
+// missing provider credentials, with steps to fix it. Kit offers no ACP
+// auth methods: credentials come from Kit's own config.
+func authRequired(err error) *acp.RequestError {
+	msg := fmt.Sprintf("%v. Run 'kit auth login <provider>' or set the provider's API key environment variable, then restart 'kit acp'.", err)
+	return acp.NewAuthRequired(map[string]any{"message": msg})
 }

@@ -15,6 +15,7 @@ import (
 
 // Config option IDs Kit exposes through session config options.
 const (
+	configIDApproval      = "approval"
 	configIDModel         = "model"
 	configIDThinkingLevel = "thinking_level"
 )
@@ -24,12 +25,39 @@ const (
 // and session/resume responses (optional there) and in every
 // session/set_config_option response (required there), so it must never be
 // nil.
-func configOptions(k *kit.Kit) []acp.SessionConfigOption {
-	opts := []acp.SessionConfigOption{modelConfigOption(k)}
-	if opt, ok := thinkingConfigOption(k); ok {
+func configOptions(sess *acpSession) []acp.SessionConfigOption {
+	opts := []acp.SessionConfigOption{
+		approvalConfigOption(sess),
+		modelConfigOption(sess.kit),
+	}
+	if opt, ok := thinkingConfigOption(sess.kit); ok {
 		opts = append(opts, opt)
 	}
 	return opts
+}
+
+// approvalConfigOption is the tool approval mode of the session. Its
+// category is "mode", so clients show it where they show agent modes.
+func approvalConfigOption(sess *acpSession) acp.SessionConfigOption {
+	sess.mu.Lock()
+	current := sess.approval
+	sess.mu.Unlock()
+
+	desc := func(s string) *string { return &s }
+	options := acp.SessionConfigSelectOptionsUngrouped{
+		{Value: approvalAsk, Name: "Ask", Description: desc("Ask before file edits, commands and other tools that change something")},
+		{Value: approvalAutoEdit, Name: "Auto-edit", Description: desc("Edit files without asking; ask before commands and other tools")},
+		{Value: approvalAuto, Name: "Auto", Description: desc("Run all tools without asking")},
+	}
+	category := acp.SessionConfigOptionCategoryMode
+	return acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+		Id:           configIDApproval,
+		Name:         "Approval",
+		Description:  desc("When the agent asks you before it runs a tool"),
+		Category:     &category,
+		CurrentValue: acp.SessionConfigValueId(current),
+		Options:      acp.SessionConfigSelectOptions{Ungrouped: &options},
+	}}
 }
 
 // modelConfigOption lists the models whose provider has credentials, grouped
@@ -167,8 +195,18 @@ func thinkingLevelName(level string) string {
 // applyConfigOption sets one config option on the session. Unknown option
 // IDs and values that are not in the option list are rejected with
 // InvalidParams.
-func applyConfigOption(ctx context.Context, k *kit.Kit, configID, value string) error {
+func applyConfigOption(ctx context.Context, sess *acpSession, configID, value string) error {
+	k := sess.kit
 	switch configID {
+	case configIDApproval:
+		if !validApproval(value) {
+			return acp.NewInvalidParams(fmt.Sprintf("unknown approval mode: %s", value))
+		}
+		sess.mu.Lock()
+		sess.approval = value
+		sess.mu.Unlock()
+		return nil
+
 	case configIDModel:
 		if value == "" {
 			return acp.NewInvalidParams("model value is required")
