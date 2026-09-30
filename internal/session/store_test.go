@@ -2,8 +2,10 @@ package session
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestExtractSessionInfo_LongLine guards against the session picker dropping
@@ -81,4 +83,100 @@ func TestOpenTreeSession_NoTrailingNewlineAndBlankLines(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %d, want 2", len(msgs))
 	}
+}
+
+// writeSessionFile writes a session header plus the given raw lines.
+func writeSessionFile(t *testing.T, lines ...string) string {
+	t.Helper()
+	header := `{"type":"session","id":"s1","timestamp":"2026-01-01T00:00:00Z","cwd":"/x"}`
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	content := header + "\n" + strings.Join(lines, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+// TestExtractSessionInfo_HeadScanEdgeCases covers the paths around the
+// early-stop head scan: fields in an unusual order, torn lines, previews
+// from long lines and a long final line with no trailing newline.
+func TestExtractSessionInfo_HeadScanEdgeCases(t *testing.T) {
+	bigText := strings.Repeat("y", 3*sessionScanBufSize)
+	userMsg := func(ts, text string) string {
+		return `{"type":"message","id":"m","timestamp":"` + ts + `","role":"user","parts":[{"type":"text","data":{"text":"` + text + `"}}]}`
+	}
+
+	t.Run("parts before head fields falls back to a full parse", func(t *testing.T) {
+		path := writeSessionFile(t,
+			`{"parts":[{"type":"text","data":{"text":"`+bigText+`"}}],"role":"user","type":"message","id":"m","timestamp":"2026-01-02T00:00:00Z"}`)
+		info, err := extractSessionInfo(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.MessageCount != 1 || !strings.HasPrefix(info.FirstMessage, "yyy") {
+			t.Errorf("got count=%d preview=%.10q, want 1 and a y... preview", info.MessageCount, info.FirstMessage)
+		}
+		if want := "2026-01-02T00:00:00Z"; info.Modified.UTC().Format(time.RFC3339) != want {
+			t.Errorf("Modified = %v, want %s", info.Modified, want)
+		}
+	})
+
+	t.Run("torn lines are skipped", func(t *testing.T) {
+		path := writeSessionFile(t,
+			userMsg("2026-01-02T00:00:00Z", "ok"),
+			`{"type":"message","id":"m2","timestamp":"2026-01-03T00:00:00Z","role":"assistant","parts":[{"ty`)
+		info, err := extractSessionInfo(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.MessageCount != 1 {
+			t.Errorf("MessageCount = %d, want 1 (torn line must not count)", info.MessageCount)
+		}
+	})
+
+	t.Run("long torn final line is skipped", func(t *testing.T) {
+		path := writeSessionFile(t,
+			userMsg("2026-01-02T00:00:00Z", "ok"),
+			`{"type":"message","id":"m2","timestamp":"2026-01-03T00:00:00Z","role":"assistant","parts":[{"type":"text","data":{"text":"`+bigText)
+		info, err := extractSessionInfo(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.MessageCount != 1 {
+			t.Errorf("MessageCount = %d, want 1", info.MessageCount)
+		}
+	})
+
+	t.Run("preview from a long first user message", func(t *testing.T) {
+		path := writeSessionFile(t,
+			userMsg("2026-01-02T00:00:00Z", bigText),
+			userMsg("2026-01-03T00:00:00Z", "second"))
+		info, err := extractSessionInfo(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.MessageCount != 2 {
+			t.Errorf("MessageCount = %d, want 2", info.MessageCount)
+		}
+		if want := strings.Repeat("y", 100) + "..."; info.FirstMessage != want {
+			t.Errorf("FirstMessage = %.20q..., want 100 y's and ...", info.FirstMessage)
+		}
+	})
+
+	t.Run("long lines without trailing newline, name and latest timestamp", func(t *testing.T) {
+		path := writeSessionFile(t,
+			userMsg("2026-01-02T00:00:00Z", "first"),
+			`{"type":"session_info","id":"i","timestamp":"2026-01-04T00:00:00Z","name":"My session"}`,
+			`{"type":"message","id":"m3","timestamp":"2026-01-03T00:00:00Z","role":"assistant","parts":[{"type":"text","data":{"text":"`+bigText+`"}}]}`)
+		info, err := extractSessionInfo(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.MessageCount != 2 || info.FirstMessage != "first" || info.Name != "My session" {
+			t.Errorf("got count=%d preview=%q name=%q", info.MessageCount, info.FirstMessage, info.Name)
+		}
+		if want := "2026-01-04T00:00:00Z"; info.Modified.UTC().Format(time.RFC3339) != want {
+			t.Errorf("Modified = %v, want %s", info.Modified, want)
+		}
+	})
 }
