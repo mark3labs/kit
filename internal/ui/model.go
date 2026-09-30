@@ -713,7 +713,8 @@ type AppModel struct {
 	// coalescing flush ticks. Applying every chunk immediately forces a full
 	// markdown re-render of the accumulated message per chunk (O(n²) over a
 	// long response); instead chunks are batched and applied at most once
-	// per streamFlushInterval (~60 fps) or before any other event that
+	// per coalescing window (16ms, widened for long messages — see
+	// adaptiveStreamFlushInterval) or before any other event that
 	// depends on the scrollback state. Consecutive same-role chunks are
 	// concatenated in place.
 	pendingStreamChunks []pendingStreamChunk
@@ -1742,6 +1743,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// strand every animation on screen — the wordmark with a highlight
 		// band frozen across it, the activity dot mid-bounce.
 		return m, m.advanceFrame(msg)
+	case tea.KeyPressMsg:
+		// Typing into the composer does not read the scrollback, so it
+		// leaves buffered chunks for the scheduled flush tick. Flushing
+		// here forced a full re-render of the streaming message on every
+		// key press, which on a long response made typing lag.
+		if !m.isComposerTextKey(msg) {
+			m.flushPendingStreamChunks()
+		}
 	default:
 		m.flushPendingStreamChunks()
 	}
@@ -5292,17 +5301,71 @@ type chromeCache struct {
 	input    string
 }
 
+// isComposerTextKey reports whether msg is plain text editing in the
+// composer: a printable key or backspace, with no ctrl/alt/meta/super
+// modifier, while the composer has focus and no leader chord is armed.
+// Such keys never read the scrollback, so they need not flush buffered
+// stream chunks first. Every other key (scrolling, message navigation,
+// esc, enter, shortcuts, chords) still flushes.
+func (m *AppModel) isComposerTextKey(msg tea.KeyPressMsg) bool {
+	if m.state != stateInput && m.state != stateWorking {
+		return false
+	}
+	if m.leaderKeyActive || m.killSubagentOpen() {
+		return false
+	}
+	if msg.Mod&(tea.ModCtrl|tea.ModAlt|tea.ModMeta|tea.ModSuper|tea.ModHyper) != 0 {
+		return false
+	}
+	return msg.Text != "" || msg.Code == tea.KeyBackspace
+}
+
 // streamAppendFlushMsg fires when buffered stream chunks should be applied
 // to the ScrollList. See AppModel.pendingStreamChunks.
 type streamAppendFlushMsg struct{}
 
 // streamAppendFlushTickCmd schedules a coalescing flush of buffered stream
-// chunks after streamFlushInterval (shared with StreamComponent's own
-// coalescing window).
-func streamAppendFlushTickCmd() tea.Cmd {
-	return tea.Tick(streamFlushInterval, func(_ time.Time) tea.Msg {
+// chunks after delay.
+func streamAppendFlushTickCmd(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(_ time.Time) tea.Msg {
 		return streamAppendFlushMsg{}
 	})
+}
+
+const (
+	// streamFlushCostFactor sets how much idle time the event loop gets per
+	// unit of streaming render time. At 2 the stream render occupies at most
+	// about a third of the loop (cost / (2·cost + cost)), leaving the rest
+	// for key presses and animation frames.
+	streamFlushCostFactor = 2
+
+	// maxStreamFlushInterval caps the coalescing window so a very long
+	// response still visibly advances several times per second.
+	maxStreamFlushInterval = 250 * time.Millisecond
+)
+
+// adaptiveStreamFlushInterval returns the coalescing window to use after a
+// streaming render that took cost.
+//
+// Every flush re-renders the whole streaming message (markdown, syntax
+// highlighting, wrapping), which is linear in its length: ~2ms at 2KB but
+// ~50ms at 60KB. With a fixed 16ms window a long response keeps the event
+// loop permanently busy and typing lags behind. Scaling the window with the
+// measured cost keeps short replies at ~60fps while bounding the share of
+// the loop that long ones consume.
+func adaptiveStreamFlushInterval(cost time.Duration) time.Duration {
+	return min(max(streamFlushInterval, streamFlushCostFactor*cost), maxStreamFlushInterval)
+}
+
+// streamFlushDelay picks the coalescing window for the next flush from the
+// render cost of the message currently streaming.
+func (m *AppModel) streamFlushDelay() time.Duration {
+	if n := len(m.messages); n > 0 {
+		if s, ok := m.messages[n-1].(*StreamingMessageItem); ok {
+			return adaptiveStreamFlushInterval(s.RenderCost())
+		}
+	}
+	return streamFlushInterval
 }
 
 // bufferStreamChunk adds a chunk to the pending buffer, concatenating
@@ -5318,7 +5381,7 @@ func (m *AppModel) bufferStreamChunk(role, content string) tea.Cmd {
 		return nil
 	}
 	m.streamFlushPending = true
-	return streamAppendFlushTickCmd()
+	return streamAppendFlushTickCmd(m.streamFlushDelay())
 }
 
 // flushPendingStreamChunks applies all buffered stream chunks to the

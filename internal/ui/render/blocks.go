@@ -5,19 +5,14 @@ package render
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/indaco/herald"
 
+	"github.com/mark3labs/kit/internal/ui/fileutil"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
-
-// fileTokenPattern matches @file references in user text. Supports:
-//   - @"path with spaces.txt" (quoted)
-//   - @path/to/file.txt      (unquoted, no spaces)
-var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 
 // UserBlock-related rendering helpers and herald typography.
 
@@ -25,7 +20,7 @@ var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 // accent color so they stand out visually in rendered user messages.
 func HighlightFileTokens(text string, theme style.Theme) string {
 	accentStyle := style.GetCachedStyles().FileTokenAccent
-	return fileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
+	return fileutil.FileTokenPattern.ReplaceAllStringFunc(text, func(token string) string {
 		return accentStyle.Render(token)
 	})
 }
@@ -36,11 +31,25 @@ func AssistantBlock(content string, width int, theme style.Theme) string {
 		return ""
 	}
 
+	return AssistantBlockFromMarkdown(style.ToMarkdown(content, AssistantMarkdownWidth(width)), theme)
+}
+
+// AssistantMarkdownWidth is the width AssistantBlock renders markdown at for
+// a block of the given full width.
+func AssistantMarkdownWidth(width int) int {
+	return width - style.ContentOffset - 1
+}
+
+// AssistantBlockFromMarkdown finishes an assistant block from markdown that
+// was already rendered at AssistantMarkdownWidth(width), e.g. incrementally
+// by a style.StreamingMarkdown. AssistantBlock(content, width, theme) equals
+// AssistantBlockFromMarkdown(style.ToMarkdown(content, AssistantMarkdownWidth(width)), theme)
+// for non-blank content.
+func AssistantBlockFromMarkdown(markdown string, theme style.Theme) string {
 	// Assistant prose carries no marker, so it is indented to the shared
 	// content column rather than starting at the screen edge. Without this it
 	// sits two columns left of every other block and the margin reads ragged.
-	rendered := style.ToMarkdown(content, width-style.ContentOffset-1)
-	rendered = style.Indent(rendered, style.ContentOffset)
+	rendered := style.Indent(markdown, style.ContentOffset)
 	return styleMarginBottom(theme, rendered)
 }
 

@@ -319,6 +319,17 @@ func reasoningFrom(opts []modelsDBReasoningOption) (levels []string, graded bool
 // precedence. This means newly synced models are available while embedded
 // models that haven't been synced yet are still reachable.
 func buildFromModelsDB() map[string]ProviderInfo {
+	// The embedded snapshot (~5MB) and the on-disk cache are two independent
+	// JSON documents and parsing them is most of the registry build time,
+	// which every kit start pays. Parse the cache in parallel with the
+	// embedded data instead of after it.
+	var cached map[string]modelsDBProvider
+	cachedDone := make(chan struct{})
+	go func() {
+		defer close(cachedDone)
+		cached, _ = LoadCachedProviders()
+	}()
+
 	// Start with compile-time embedded data as the base.
 	dbProviders := loadEmbeddedProviders()
 	if dbProviders == nil {
@@ -326,7 +337,8 @@ func buildFromModelsDB() map[string]ProviderInfo {
 	}
 
 	// Merge on-disk cached data on top (cached takes precedence).
-	if cached, _ := LoadCachedProviders(); len(cached) > 0 {
+	<-cachedDone
+	if len(cached) > 0 {
 		for providerID, cp := range cached {
 			if existing, ok := dbProviders[providerID]; ok {
 				// Merge models: embedded base + cached overrides.

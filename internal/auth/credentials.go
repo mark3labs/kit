@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -763,32 +762,6 @@ func (cm *CredentialManager) RemoveProviderCredentials(providerID string) error 
 		store.Providers = nil
 	}
 	return cm.saveOrRemove(store)
-}
-
-// StoredProviderIDs returns the IDs of every provider with a stored
-// credential (dedicated slots and generic entries), sorted.
-func (cm *CredentialManager) StoredProviderIDs() ([]string, error) {
-	store, err := cm.LoadCredentials()
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	if store.Anthropic != nil {
-		ids = append(ids, "anthropic")
-	}
-	if store.OpenAI != nil {
-		ids = append(ids, "openai")
-	}
-	if store.Copilot != nil {
-		ids = append(ids, "copilot")
-	}
-	for id, creds := range store.Providers {
-		if creds != nil && creds.APIKey != "" {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	return ids, nil
 }
 
 // LookupStoredAPIKey is a best-effort helper for the provider layer: it

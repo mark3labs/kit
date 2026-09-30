@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"charm.land/fantasy"
+
+	"github.com/mark3labs/kit/internal/toolargs"
 )
 
 // WrapToolsWithExtensions wraps each tool so that ToolCall and ToolResult
@@ -71,7 +73,7 @@ func (w *wrappedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.T
 			ToolCallID: call.ID,
 			ToolKind:   kind,
 			Input:      call.Input,
-			ParsedArgs: ParseToolArgs(call.Input),
+			ParsedArgs: toolargs.Parse(call.Input),
 			Source:     "llm",
 		})
 		if r, ok := result.(ToolCallResult); ok && r.Block {

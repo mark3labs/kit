@@ -11,7 +11,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/mark3labs/kit/internal/extensions"
+	"github.com/mark3labs/kit/internal/toolargs"
 	"github.com/mark3labs/kit/internal/ui/style"
 )
 
@@ -38,7 +38,7 @@ const activityMaxTarget = 56
 // toolArgs is the raw JSON argument payload; malformed JSON degrades to the
 // bare tool name rather than erroring.
 func activityVerb(toolName, toolArgs string) string {
-	args := extensions.ParseToolArgs(toolArgs)
+	args := toolargs.Parse(toolArgs)
 
 	// verb is the present-tense action; target is the thing being acted on.
 	// Keeping them separate lets a missing target degrade to a bare verb

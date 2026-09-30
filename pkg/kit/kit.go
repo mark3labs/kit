@@ -27,6 +27,7 @@ import (
 	"github.com/mark3labs/kit/internal/models"
 	"github.com/mark3labs/kit/internal/session"
 	"github.com/mark3labs/kit/internal/skills"
+	"github.com/mark3labs/kit/internal/toolargs"
 	"github.com/mark3labs/kit/internal/tools"
 
 	"github.com/spf13/viper"
@@ -2635,7 +2636,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		OnToolCall: func(toolCallID, toolName, toolArgs string) {
 			m.events.emit(ToolCallEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
-				ToolArgs: toolArgs, ParsedArgs: extensions.ParseToolArgs(toolArgs),
+				ToolArgs: toolArgs, ParsedArgs: toolargs.Parse(toolArgs),
 			})
 		},
 		OnToolExecution: func(toolCallID, toolName, toolArgs string, isStarting bool) {
@@ -2648,7 +2649,7 @@ func (m *Kit) generate(ctx context.Context, messages []fantasy.Message) (*agent.
 		OnToolResult: func(toolCallID, toolName, toolArgs, resultText, metadata string, isError bool) {
 			evt := ToolResultEvent{
 				ToolCallID: toolCallID, ToolName: toolName, ToolKind: toolKindFor(toolName),
-				ToolArgs: toolArgs, ParsedArgs: extensions.ParseToolArgs(toolArgs),
+				ToolArgs: toolArgs, ParsedArgs: toolargs.Parse(toolArgs),
 				Result: resultText, IsError: isError,
 			}
 			if metadata != "" {

@@ -1,11 +1,11 @@
-package extensions
+package toolargs
 
 import (
 	"reflect"
 	"testing"
 )
 
-func TestParseToolArgs(t *testing.T) {
+func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
@@ -30,9 +30,9 @@ func TestParseToolArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ParseToolArgs(tt.raw)
+			got := Parse(tt.raw)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("ParseToolArgs(%q) = %#v, want %#v", tt.raw, got, tt.want)
+				t.Fatalf("Parse(%q) = %#v, want %#v", tt.raw, got, tt.want)
 			}
 		})
 	}

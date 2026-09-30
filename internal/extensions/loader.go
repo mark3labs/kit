@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/log"
 	"github.com/traefik/yaegi/interp"
@@ -41,9 +43,37 @@ func LoadExtensionsScoped(extraPaths []string, bare bool) ([]LoadedExtension, er
 		return nil, nil
 	}
 
+	// Compile every extension in parallel, then run the Init functions one
+	// at a time in discovery order.
+	//
+	// Compiling (a fresh interpreter, its symbol tables and the source) is
+	// the slow part of a load and touches nothing outside its own
+	// interpreter. Init is where an extension acts on the world with the
+	// full stdlib, so it keeps the serial, ordered behavior extensions may
+	// rely on.
+	initFns := make([]func(API), len(paths))
+	errs := make([]error, len(paths))
+	jobs := make(chan int, len(paths))
+	for i := range paths {
+		jobs <- i
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(paths)) {
+		wg.Go(func() {
+			for i := range jobs {
+				initFns[i], errs[i] = compileExtension(paths[i])
+			}
+		})
+	}
+	wg.Wait()
+
 	var loaded []LoadedExtension
-	for _, p := range paths {
-		ext, err := loadSingleExtension(p)
+	for i, p := range paths {
+		if errs[i] != nil {
+			continue
+		}
+		ext, err := initExtension(p, initFns[i])
 		if err != nil {
 			continue
 		}
@@ -501,11 +531,17 @@ func callExtensionInit(initFn func(API), api API) (err error) {
 // loadSingleExtension loads one .go file into a fresh Yaegi interpreter,
 // calls the Init(ext.API) function, and returns the registered handlers.
 func loadSingleExtension(path string) (*LoadedExtension, error) {
-	ext := &LoadedExtension{
-		Path:     path,
-		Handlers: make(map[EventType][]HandlerFunc),
+	initFn, err := compileExtension(path)
+	if err != nil {
+		return nil, err
 	}
+	return initExtension(path, initFn)
+}
 
+// compileExtension evaluates one .go file in a fresh Yaegi interpreter and
+// returns its Init function without calling it. It shares no mutable state
+// with other interpreters, so several files may be compiled concurrently.
+func compileExtension(path string) (func(API), error) {
 	// Create a fresh interpreter. Yaegi runs extensions in restricted mode,
 	// where os.Getenv/os.LookupEnv/os.Environ read from a virtualized
 	// environment rather than the real one. Seed it with the process
@@ -548,6 +584,16 @@ func loadSingleExtension(path string) (*LoadedExtension, error) {
 	initFn, ok := reflect.TypeAssert[func(API)](initVal)
 	if !ok {
 		return nil, fmt.Errorf("init has wrong signature (want func(ext.API), got %T)", initVal.Interface())
+	}
+	return initFn, nil
+}
+
+// initExtension calls an extension's Init function with an API wired to a
+// new LoadedExtension, and returns what it registered.
+func initExtension(path string, initFn func(API)) (*LoadedExtension, error) {
+	ext := &LoadedExtension{
+		Path:     path,
+		Handlers: make(map[EventType][]HandlerFunc),
 	}
 
 	// Build the API object that wires typed registration methods back to

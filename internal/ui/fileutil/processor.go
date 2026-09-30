@@ -41,10 +41,13 @@ type FileAttachmentResult struct {
 	FileParts []FilePart
 }
 
-// fileTokenPattern matches @file references in user text. Supports:
+// FileTokenPattern matches @file references in user text. Supports:
 //   - @"path with spaces.txt" (quoted)
 //   - @path/to/file.txt      (unquoted, no spaces)
-var fileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
+//
+// It is shared with the renderer that highlights these tokens, so what is
+// highlighted is always exactly what gets attached.
+var FileTokenPattern = regexp.MustCompile(`@"[^"]+"|@[^\s]+`)
 
 // ProcessFileAttachments scans the user's input text for @file references,
 // reads each referenced file, and returns a result containing the processed
@@ -75,7 +78,7 @@ func ProcessFileAttachments(text string, cwd string, mcpReader ...MCPResourceRea
 // that is known to be outside fenced code blocks. Returns the processed
 // text and any binary file parts extracted.
 func processFileTokens(text string, cwd string, mcpReader MCPResourceReader) (string, []FilePart) {
-	tokens := fileTokenPattern.FindAllString(text, -1)
+	tokens := FileTokenPattern.FindAllString(text, -1)
 	if len(tokens) == 0 {
 		return text, nil
 	}

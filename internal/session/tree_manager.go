@@ -2,9 +2,10 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,6 +70,12 @@ type TreeManager struct {
 	// buffer and are flushed to disk at explicit sync points (after each
 	// public Append* call, in Close, etc.) to reduce syscall overhead.
 	writer *bufio.Writer
+
+	// llmCache holds the decoded LLM messages of each MessageEntry. It has
+	// its own mutex because it is filled lazily by readers holding only
+	// mu.RLock. See llmMessagesLocked.
+	llmCacheMu sync.Mutex
+	llmCache   map[*MessageEntry][]fantasy.Message
 }
 
 // --- Constructors ---
@@ -406,40 +413,21 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		filePath:   path,
 	}
 
-	reader := bufio.NewReader(strings.NewReader(string(data)))
+	// Split lines straight out of the file buffer. The previous
+	// string(data) + bufio.Reader + []byte(line) path copied every byte up to
+	// three more times, which on a 35MB session with inline images was a
+	// large share of the open time. json.Unmarshal copies what it keeps
+	// (including json.RawMessage), so entries do not pin this buffer.
 	lineNum := 0
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				// Process the last line if it's not empty
-				if strings.TrimSpace(line) != "" {
-					lineNum++
-					entry, err := UnmarshalEntry([]byte(line))
-					if err != nil {
-						return nil, fmt.Errorf("line %d: %w", lineNum, err)
-					}
-					if lineNum == 1 {
-						h, ok := entry.(*SessionHeader)
-						if !ok {
-							return nil, fmt.Errorf("first line must be a session header, got %T", entry)
-						}
-						tm.header = *h
-					} else {
-						tm.addEntryToIndex(entry)
-					}
-				}
-				break
-			}
-			return nil, fmt.Errorf("failed to read session file: %w", err)
-		}
-
-		if strings.TrimSpace(line) == "" {
+	for rest := data; len(rest) > 0; {
+		var line []byte
+		line, rest, _ = bytes.Cut(rest, []byte{'\n'})
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		lineNum++
 
-		entry, err := UnmarshalEntry([]byte(line))
+		entry, err := UnmarshalEntry(line)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
@@ -806,12 +794,85 @@ func (tm *TreeManager) GetTree() []*TreeNode {
 // cause older messages to be replaced by the summary. Branch summaries are
 // converted to user messages to provide context from abandoned branches.
 // Also returns the latest model/provider settings encountered on the path.
+//
+// Each returned message is a copy (see cloneLLMMessage), so callers,
+// including SDK ContextPrepare hooks, may modify the result in place without
+// corrupting the decoded-message cache behind it.
 func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider string, modelID string) {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
+	provider, modelID = tm.walkContextLocked(func(_ string, msgs []fantasy.Message) {
+		for _, msg := range msgs {
+			messages = append(messages, cloneLLMMessage(msg))
+		}
+	})
+	return messages, provider, modelID
+}
+
+// cloneLLMMessage returns a copy of msg that shares no mutable memory with
+// it: the Content slice, every ProviderOptions map, and FilePart.Data are
+// copied. All other fields are values or immutable strings.
+//
+// The values inside a ProviderOptions map are copied shallowly. The cache
+// never holds any: ToLLMMessages does not set provider options.
+func cloneLLMMessage(msg fantasy.Message) fantasy.Message {
+	msg.ProviderOptions = maps.Clone(msg.ProviderOptions)
+	if msg.Content == nil {
+		return msg
+	}
+	content := make([]fantasy.MessagePart, len(msg.Content))
+	for i, part := range msg.Content {
+		switch p := part.(type) {
+		case fantasy.TextPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.ReasoningPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.FilePart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			p.Data = bytes.Clone(p.Data)
+			part = p
+		case fantasy.ToolCallPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		case fantasy.ToolResultPart:
+			p.ProviderOptions = maps.Clone(p.ProviderOptions)
+			part = p
+		}
+		content[i] = part
+	}
+	msg.Content = content
+	return msg
+}
+
+// walkContextLocked is the single definition of which session entries make
+// up the LLM context, and in which order. BuildContext and
+// GetContextEntryIDs both use it, so a compaction cut-point index always
+// maps back to the entry that produced the message at that index.
+//
+// visit is called once per contributing entry, in context order, with the
+// entry ID ("" for the synthetic compaction-summary message) and the
+// messages that entry contributes. The msgs slice may be shared with the
+// decoded-message cache: visit must not modify it or its elements' Content.
+//
+// If there is a compaction, the summary comes first, then the preserved
+// "kept" messages (chronologically before the compaction), then the
+// post-compaction messages (chronologically after).
+//
+// Order matters: the kept messages must come BEFORE the post-compaction
+// branch so the LLM sees the conversation in chronological order. If the
+// kept messages were appended last, the latest user message in the current
+// branch would be followed by an older kept user message, breaking the
+// strict user/assistant alternation that providers expect and causing the
+// model to respond as if the previous turn never happened.
+//
+// Returns the latest model/provider settings encountered. Caller must hold
+// at least tm.mu.RLock.
+func (tm *TreeManager) walkContextLocked(visit func(entryID string, msgs []fantasy.Message)) (provider string, modelID string) {
 	if tm.leafID == "" {
-		return nil, "", ""
+		return "", ""
 	}
 
 	// Walk from leaf to root collecting entries.
@@ -820,7 +881,7 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 	// Find the last compaction entry on this branch — it determines
 	// which older messages are replaced by the summary.
 	var lastCompaction *CompactionEntry
-	var compactionIndex = -1
+	compactionIndex := -1
 	for i, b := range slices.Backward(branch) {
 		if c, ok := b.(*CompactionEntry); ok {
 			lastCompaction = c
@@ -829,149 +890,107 @@ func (tm *TreeManager) BuildContext() (messages []fantasy.Message, provider stri
 		}
 	}
 
-	// If there is a compaction, inject the summary first, then the
-	// preserved "kept" messages (chronologically before the compaction),
-	// then the post-compaction messages (chronologically after).
-	//
-	// Order matters: the kept messages must come BEFORE the post-compaction
-	// branch so the LLM sees the conversation in chronological order. If the
-	// kept messages were appended last, the latest user message in the
-	// current branch would be followed by an older kept user message,
-	// breaking the strict user/assistant alternation that providers expect
-	// and causing the model to respond as if the previous turn never
-	// happened.
-	if lastCompaction != nil {
-		messages = append(messages, fantasy.Message{
-			Role: fantasy.MessageRoleSystem,
-			Content: []fantasy.MessagePart{
-				fantasy.TextPart{
-					Text: fmt.Sprintf("[Conversation summary — earlier messages were compacted]\n\n%s", lastCompaction.Summary),
-				},
-			},
-		})
-
-		// Step 1: collect the kept messages starting from FirstKeptEntryID.
-		// These are not on the current branch (the compaction entry is a
-		// new root with no parent), so we iterate tm.entries in append order
-		// and stop when we reach the compaction entry itself.
-		if lastCompaction.FirstKeptEntryID != "" {
-			found := false
-			for _, entry := range tm.entries {
-				entryID := tm.EntryID(entry)
-
-				// Skip entries until we reach the first kept entry.
-				if !found {
-					if entryID == lastCompaction.FirstKeptEntryID {
-						found = true
-					} else {
-						continue
-					}
-				}
-
-				// Stop when we reach the compaction entry itself; messages
-				// after it are collected from the branch walk below.
-				if entryID == lastCompaction.ID {
-					break
-				}
-
-				switch e := entry.(type) {
-				case *MessageEntry:
-					msg, err := e.ToMessage()
-					if err != nil {
-						continue
-					}
-					msgs := msg.ToLLMMessages()
-					messages = append(messages, msgs...)
-
-				case *BranchSummaryEntry:
-					if e.Summary != "" {
-						messages = append(messages, fantasy.Message{
-							Role: fantasy.MessageRoleUser,
-							Content: []fantasy.MessagePart{
-								fantasy.TextPart{
-									Text: fmt.Sprintf("[Branch context: %s]", e.Summary),
-								},
-							},
-						})
-					}
-
-				case *ModelChangeEntry:
-					provider = e.Provider
-					modelID = e.ModelID
-				}
-			}
-		}
-
-		// Step 2: collect entries on the current branch after the compaction
-		// entry (these are post-compaction messages). The compaction entry
-		// itself is skipped — its summary was already injected above.
-		for i := compactionIndex; i < len(branch); i++ {
-			entry := branch[i]
-			switch e := entry.(type) {
-			case *MessageEntry:
-				msg, err := e.ToMessage()
-				if err != nil {
-					continue
-				}
-				msgs := msg.ToLLMMessages()
-				messages = append(messages, msgs...)
-
-			case *BranchSummaryEntry:
-				if e.Summary != "" {
-					messages = append(messages, fantasy.Message{
-						Role: fantasy.MessageRoleUser,
-						Content: []fantasy.MessagePart{
-							fantasy.TextPart{
-								Text: fmt.Sprintf("[Branch context: %s]", e.Summary),
-							},
-						},
-					})
-				}
-
-			case *ModelChangeEntry:
-				provider = e.Provider
-				modelID = e.ModelID
-
-			case *CompactionEntry:
-				// Summary already injected above.
-				continue
-			}
-		}
-
-		return messages, provider, modelID
-	}
-
-	// No compaction - process the entire branch normally.
-	for _, entry := range branch {
+	visitEntry := func(entry any) {
 		switch e := entry.(type) {
 		case *MessageEntry:
-			msg, err := e.ToMessage()
-			if err != nil {
-				continue // skip malformed entries
+			if msgs := tm.llmMessagesLocked(e); len(msgs) > 0 {
+				visit(e.ID, msgs)
 			}
-			msgs := msg.ToLLMMessages()
-			messages = append(messages, msgs...)
-
 		case *BranchSummaryEntry:
 			// Convert branch summary to a user message for context.
 			if e.Summary != "" {
-				messages = append(messages, fantasy.Message{
+				visit(e.ID, []fantasy.Message{{
 					Role: fantasy.MessageRoleUser,
 					Content: []fantasy.MessagePart{
-						fantasy.TextPart{
-							Text: fmt.Sprintf("[Branch context: %s]", e.Summary),
-						},
+						fantasy.TextPart{Text: fmt.Sprintf("[Branch context: %s]", e.Summary)},
 					},
-				})
+				}})
 			}
-
 		case *ModelChangeEntry:
 			provider = e.Provider
 			modelID = e.ModelID
 		}
+		// CompactionEntry: an older compaction contributes nothing; the
+		// latest one's summary is injected separately below.
 	}
 
-	return messages, provider, modelID
+	// No compaction - process the entire branch normally.
+	if lastCompaction == nil {
+		for _, entry := range branch {
+			visitEntry(entry)
+		}
+		return provider, modelID
+	}
+
+	visit("", []fantasy.Message{{
+		Role: fantasy.MessageRoleSystem,
+		Content: []fantasy.MessagePart{
+			fantasy.TextPart{
+				Text: fmt.Sprintf("[Conversation summary — earlier messages were compacted]\n\n%s", lastCompaction.Summary),
+			},
+		},
+	}})
+
+	// Step 1: the kept messages starting from FirstKeptEntryID. These are
+	// not on the current branch (the compaction entry is a new root with no
+	// parent), so iterate tm.entries in append order and stop at the
+	// compaction entry itself; messages after it come from the branch walk.
+	if lastCompaction.FirstKeptEntryID != "" {
+		found := false
+		for _, entry := range tm.entries {
+			entryID := tm.EntryID(entry)
+			if !found {
+				if entryID != lastCompaction.FirstKeptEntryID {
+					continue
+				}
+				found = true
+			}
+			if entryID == lastCompaction.ID {
+				break
+			}
+			visitEntry(entry)
+		}
+	}
+
+	// Step 2: entries on the current branch after the compaction entry
+	// (post-compaction messages).
+	for _, entry := range branch[compactionIndex+1:] {
+		visitEntry(entry)
+	}
+	return provider, modelID
+}
+
+// llmMessagesLocked returns the LLM messages for a message entry, decoding
+// its stored parts only on first use.
+//
+// Decoding is the dominant cost of building the context (JSON parts, often
+// with base64 image data): ~100ms per call on a 35MB session. Entries are
+// immutable once appended and never removed, so the result is cached for
+// the TreeManager's lifetime, keyed by entry pointer. Entries that fail to
+// decode are cached as nil and skipped, as before.
+//
+// Safe under tm.mu.RLock: concurrent readers are serialised by llmCacheMu.
+// Two readers may decode the same entry at once; both results are equal
+// and the later store wins, which is harmless.
+func (tm *TreeManager) llmMessagesLocked(e *MessageEntry) []fantasy.Message {
+	tm.llmCacheMu.Lock()
+	msgs, ok := tm.llmCache[e]
+	tm.llmCacheMu.Unlock()
+	if ok {
+		return msgs
+	}
+
+	if msg, err := e.ToMessage(); err == nil {
+		msgs = msg.ToLLMMessages()
+	}
+
+	tm.llmCacheMu.Lock()
+	if tm.llmCache == nil {
+		tm.llmCache = make(map[*MessageEntry][]fantasy.Message)
+	}
+	tm.llmCache[e] = msgs
+	tm.llmCacheMu.Unlock()
+	return msgs
 }
 
 // --- Session info ---
@@ -1073,126 +1092,20 @@ func (tm *TreeManager) Close() error {
 // to the session entry that produced the fantasy message at the same index.
 // This is used by compaction to map a cut point index back to an entry ID.
 //
-// Note: A single MessageEntry produces at most one fantasy message. Branch
-// summary entries also produce one message each. The returned slice has the
-// same length as the messages slice from BuildContext (excluding the
-// compaction summary system message, which has no entry ID — it gets the
-// empty string "").
+// A MessageEntry may produce more than one message; each of them gets the
+// entry's ID. The returned slice has the same length as the messages slice
+// from BuildContext. The compaction summary system message has no entry, so
+// its position holds the empty string "".
 func (tm *TreeManager) GetContextEntryIDs() []string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	if tm.leafID == "" {
-		return nil
-	}
-
-	branch := tm.getBranchLocked(tm.leafID)
-
-	// Find the last compaction entry for skip logic.
-	var lastCompaction *CompactionEntry
-	var compactionIndex = -1
-	for i, b := range slices.Backward(branch) {
-		if c, ok := b.(*CompactionEntry); ok {
-			lastCompaction = c
-			compactionIndex = i
-			break
-		}
-	}
-
 	var ids []string
-
-	// If there's a compaction, we collect IDs in the same order as
-	// BuildContext: [summary placeholder, kept messages, post-compaction
-	// messages]. This ordering must stay in sync with BuildContext so a
-	// cut-point index can be mapped back to the correct entry ID.
-	if lastCompaction != nil {
-		// Placeholder for the summary system message (no entry ID).
-		ids = append(ids, "")
-
-		// Step 1: IDs of the kept messages starting at FirstKeptEntryID.
-		// Iterate tm.entries in append order and stop at the compaction
-		// entry to avoid double-counting post-compaction messages.
-		if lastCompaction.FirstKeptEntryID != "" {
-			found := false
-			for _, entry := range tm.entries {
-				entryID := tm.EntryID(entry)
-
-				if !found {
-					if entryID == lastCompaction.FirstKeptEntryID {
-						found = true
-					} else {
-						continue
-					}
-				}
-
-				if entryID == lastCompaction.ID {
-					break
-				}
-
-				switch e := entry.(type) {
-				case *MessageEntry:
-					msg, err := e.ToMessage()
-					if err != nil {
-						continue
-					}
-					msgs := msg.ToLLMMessages()
-					for range msgs {
-						ids = append(ids, e.ID)
-					}
-
-				case *BranchSummaryEntry:
-					if e.Summary != "" {
-						ids = append(ids, e.ID)
-					}
-				}
-			}
+	tm.walkContextLocked(func(entryID string, msgs []fantasy.Message) {
+		for range msgs {
+			ids = append(ids, entryID)
 		}
-
-		// Step 2: IDs of entries after the compaction entry on the current
-		// branch (post-compaction messages).
-		for i := compactionIndex + 1; i < len(branch); i++ {
-			entry := branch[i]
-			switch e := entry.(type) {
-			case *MessageEntry:
-				msg, err := e.ToMessage()
-				if err != nil {
-					continue
-				}
-				msgs := msg.ToLLMMessages()
-				for range msgs {
-					ids = append(ids, e.ID)
-				}
-
-			case *BranchSummaryEntry:
-				if e.Summary != "" {
-					ids = append(ids, e.ID)
-				}
-			}
-		}
-
-		return ids
-	}
-
-	// No compaction - collect IDs from the entire branch.
-	for _, entry := range branch {
-		switch e := entry.(type) {
-		case *MessageEntry:
-			msg, err := e.ToMessage()
-			if err != nil {
-				continue
-			}
-			msgs := msg.ToLLMMessages()
-			for range msgs {
-				ids = append(ids, e.ID)
-			}
-
-		case *BranchSummaryEntry:
-			if e.Summary != "" {
-				ids = append(ids, e.ID)
-			}
-		}
-	}
-
+	})
 	return ids
 }
 
