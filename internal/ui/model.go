@@ -1743,6 +1743,14 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// strand every animation on screen — the wordmark with a highlight
 		// band frozen across it, the activity dot mid-bounce.
 		return m, m.advanceFrame(msg)
+	case tea.KeyPressMsg:
+		// Typing into the composer does not read the scrollback, so it
+		// leaves buffered chunks for the scheduled flush tick. Flushing
+		// here forced a full re-render of the streaming message on every
+		// key press, which on a long response made typing lag.
+		if !m.isComposerTextKey(msg) {
+			m.flushPendingStreamChunks()
+		}
 	default:
 		m.flushPendingStreamChunks()
 	}
@@ -5291,6 +5299,25 @@ type chromeCache struct {
 	queued   string
 	activity string
 	input    string
+}
+
+// isComposerTextKey reports whether msg is plain text editing in the
+// composer: a printable key or backspace, with no ctrl/alt/meta/super
+// modifier, while the composer has focus and no leader chord is armed.
+// Such keys never read the scrollback, so they need not flush buffered
+// stream chunks first. Every other key (scrolling, message navigation,
+// esc, enter, shortcuts, chords) still flushes.
+func (m *AppModel) isComposerTextKey(msg tea.KeyPressMsg) bool {
+	if m.state != stateInput && m.state != stateWorking {
+		return false
+	}
+	if m.leaderKeyActive || m.killSubagentOpen() {
+		return false
+	}
+	if msg.Mod&(tea.ModCtrl|tea.ModAlt|tea.ModMeta|tea.ModSuper|tea.ModHyper) != 0 {
+		return false
+	}
+	return msg.Text != "" || msg.Code == tea.KeyBackspace
 }
 
 // streamAppendFlushMsg fires when buffered stream chunks should be applied

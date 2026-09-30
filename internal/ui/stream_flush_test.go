@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestAdaptiveStreamFlushInterval(t *testing.T) {
@@ -57,5 +59,51 @@ func TestStreamingMessageItem_RecordsRenderCost(t *testing.T) {
 				t.Fatalf("cost after render = %v, want > 0", item.RenderCost())
 			}
 		})
+	}
+}
+
+// TestComposerTyping_DoesNotFlushStreamChunks checks that typing while a
+// response streams leaves buffered chunks for the flush tick, and that keys
+// which can read the scrollback still flush first.
+func TestComposerTyping_DoesNotFlushStreamChunks(t *testing.T) {
+	tests := []struct {
+		name      string
+		key       tea.KeyPressMsg
+		wantFlush bool
+	}{
+		{"printable text", tea.KeyPressMsg{Code: 'a', Text: "a"}, false},
+		{"shifted text", tea.KeyPressMsg{Code: 'a', Text: "A", Mod: tea.ModShift}, false},
+		{"backspace", tea.KeyPressMsg{Code: tea.KeyBackspace}, false},
+		{"ctrl chord", tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}, true},
+		{"alt text", tea.KeyPressMsg{Code: 'b', Text: "b", Mod: tea.ModAlt}, true},
+		{"page up", tea.KeyPressMsg{Code: tea.KeyPgUp}, true},
+		{"enter", tea.KeyPressMsg{Code: tea.KeyEnter}, true},
+		{"escape", tea.KeyPressMsg{Code: tea.KeyEscape}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _, _ := newTestAppModel(&stubAppController{})
+			m.state = stateWorking
+			m.bufferStreamChunk("assistant", "hello")
+
+			updated, _ := m.Update(tt.key)
+			m = updated.(*AppModel)
+
+			flushed := len(m.pendingStreamChunks) == 0
+			if flushed != tt.wantFlush {
+				t.Errorf("flushed = %v, want %v", flushed, tt.wantFlush)
+			}
+		})
+	}
+}
+
+// TestComposerTyping_LeaderChordFlushes checks that a key completing a
+// leader chord is not treated as composer text.
+func TestComposerTyping_LeaderChordFlushes(t *testing.T) {
+	m, _, _ := newTestAppModel(&stubAppController{})
+	m.state = stateWorking
+	m.leaderKeyActive = true
+	if m.isComposerTextKey(tea.KeyPressMsg{Code: 't', Text: "t"}) {
+		t.Error("key after leader was treated as composer text")
 	}
 }
