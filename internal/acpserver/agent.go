@@ -106,7 +106,7 @@ func (a *Agent) Initialize(_ context.Context, params acp.InitializeRequest) (acp
 		},
 		AgentInfo: &acp.Implementation{
 			Name:    "kit",
-			Title:   ptr("Kit"),
+			Title:   new("Kit"),
 			Version: Version,
 		},
 		AuthMethods: []acp.AuthMethod{},
@@ -525,7 +525,7 @@ func decodeCursor(cursor string) (int, error) {
 	return offset, nil
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
 
 // ---------------------------------------------------------------------------
 // Helpers
