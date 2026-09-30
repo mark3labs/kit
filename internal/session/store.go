@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -414,12 +415,12 @@ func scanEntryHead(line []byte) (h entryHead, ok bool) {
 // lastNonSpace returns the last byte of b that is not JSON whitespace, or
 // prev if b is all whitespace.
 func lastNonSpace(b []byte, prev byte) byte {
-	for i := len(b) - 1; i >= 0; i-- {
-		switch b[i] {
+	for _, c := range slices.Backward(b) {
+		switch c {
 		case ' ', '\t', '\r', '\n':
 			continue
 		}
-		return b[i]
+		return c
 	}
 	return prev
 }
