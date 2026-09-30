@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,43 @@ func TestExtractSessionInfo_LongLine(t *testing.T) {
 	}
 	if info.FirstMessage != "first prompt" {
 		t.Errorf("FirstMessage = %q, want %q", info.FirstMessage, "first prompt")
+	}
+}
+
+// TestOpenTreeSession_NoTrailingNewlineAndBlankLines checks the line
+// splitter: blank lines are skipped and a last line without '\n' is still
+// read (it used to need its own code path).
+func TestOpenTreeSession_NoTrailingNewlineAndBlankLines(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tm, err := CreateTreeSession(t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateTreeSession: %v", err)
+	}
+	_, _ = tm.AppendMessage(newTestMessage("one"))
+	_, _ = tm.AppendMessage(newTestMessage("two"))
+	path := tm.GetFilePath()
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// Insert blank lines between entries and drop the final newline.
+	mangled := strings.ReplaceAll(strings.TrimRight(string(data), "\n"), "\n", "\n\n  \r\n")
+	if err := os.WriteFile(path, []byte(mangled), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	reopened, err := OpenTreeSession(path)
+	if err != nil {
+		t.Fatalf("OpenTreeSession: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	msgs, _, _ := reopened.BuildContext()
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
 	}
 }

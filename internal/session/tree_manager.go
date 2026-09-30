@@ -2,9 +2,9 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -412,40 +412,21 @@ func OpenTreeSession(path string) (*TreeManager, error) {
 		filePath:   path,
 	}
 
-	reader := bufio.NewReader(strings.NewReader(string(data)))
+	// Split lines straight out of the file buffer. The previous
+	// string(data) + bufio.Reader + []byte(line) path copied every byte up to
+	// three more times, which on a 35MB session with inline images was a
+	// large share of the open time. json.Unmarshal copies what it keeps
+	// (including json.RawMessage), so entries do not pin this buffer.
 	lineNum := 0
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				// Process the last line if it's not empty
-				if strings.TrimSpace(line) != "" {
-					lineNum++
-					entry, err := UnmarshalEntry([]byte(line))
-					if err != nil {
-						return nil, fmt.Errorf("line %d: %w", lineNum, err)
-					}
-					if lineNum == 1 {
-						h, ok := entry.(*SessionHeader)
-						if !ok {
-							return nil, fmt.Errorf("first line must be a session header, got %T", entry)
-						}
-						tm.header = *h
-					} else {
-						tm.addEntryToIndex(entry)
-					}
-				}
-				break
-			}
-			return nil, fmt.Errorf("failed to read session file: %w", err)
-		}
-
-		if strings.TrimSpace(line) == "" {
+	for rest := data; len(rest) > 0; {
+		var line []byte
+		line, rest, _ = bytes.Cut(rest, []byte{'\n'})
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		lineNum++
 
-		entry, err := UnmarshalEntry([]byte(line))
+		entry, err := UnmarshalEntry(line)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
