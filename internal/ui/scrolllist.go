@@ -58,6 +58,36 @@ type ScrollList struct {
 
 	// Character-level text selection (crush-style).
 	sel selection.State
+
+	// lineCache maps item ID → the item's rendered output and its lines.
+	// View, hit-testing and text selection all need an item as lines;
+	// splitting the full render every frame costs O(item length) even when
+	// only a few lines are on screen. An entry is valid while the item
+	// renders to the same string, which is an O(1) check when the item
+	// returns its cached render (Go compares string data pointers first).
+	// Pruned together with heightCache.
+	lineCache map[string]renderedItemLines
+
+	// frameCache holds the last selection-framed render, so the selected
+	// item is not re-framed on every one of the several renderItem calls
+	// per frame. See renderItem.
+	frameCache selectionFrameCache
+}
+
+// renderedItemLines is a lineCache entry.
+type renderedItemLines struct {
+	content string
+	lines   []string
+}
+
+// selectionFrameCache is a single-entry cache of applySelectionBorder's
+// output. Only one item is selected at a time.
+type selectionFrameCache struct {
+	inner       string
+	width       int
+	label, hint string
+	themeGen    uint64
+	framed      string
 }
 
 // NewScrollList creates a new ScrollList with the given dimensions.
@@ -70,6 +100,7 @@ func NewScrollList(width, height int) *ScrollList {
 		height:      height,
 		autoScroll:  true,
 		heightCache: make(map[string]int, 64),
+		lineCache:   make(map[string]renderedItemLines, 64),
 		selectedIdx: -1,
 		sel:         selection.NewState(),
 	}
@@ -107,7 +138,7 @@ func (s *ScrollList) SetItems(items []MessageItem) {
 // cheap during streaming, pruning only runs when the cache has grown well
 // beyond the current item count (amortized O(1) per call).
 func (s *ScrollList) pruneHeightCache() {
-	if len(s.heightCache) <= 2*len(s.items)+64 {
+	if max(len(s.heightCache), len(s.lineCache)) <= 2*len(s.items)+64 {
 		return
 	}
 	live := make(map[string]struct{}, len(s.items))
@@ -117,6 +148,11 @@ func (s *ScrollList) pruneHeightCache() {
 	for id := range s.heightCache {
 		if _, ok := live[id]; !ok {
 			delete(s.heightCache, id)
+		}
+	}
+	for id := range s.lineCache {
+		if _, ok := live[id]; !ok {
+			delete(s.lineCache, id)
 		}
 	}
 }
@@ -317,10 +353,7 @@ func (s *ScrollList) ExtractSelectedText() string {
 	var sb strings.Builder
 
 	for itemIdx := r.StartItemIdx; itemIdx <= r.EndItemIdx && itemIdx < len(s.items); itemIdx++ {
-		content := s.renderItem(itemIdx)
-		contentLines := strings.Split(content, "\n")
-
-		for lineIdx, line := range contentLines {
+		for lineIdx, line := range s.renderedLines(itemIdx) {
 			inRange, startCol, endCol := selection.IsLineInRange(r, itemIdx, lineIdx)
 			if !inRange {
 				continue
@@ -346,8 +379,7 @@ func (s *ScrollList) selectWord(itemIdx, lineIdx, x int) {
 		return
 	}
 
-	content := s.renderItem(itemIdx)
-	lines := strings.Split(content, "\n")
+	lines := s.renderedLines(itemIdx)
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return
 	}
@@ -384,8 +416,7 @@ func (s *ScrollList) selectLine(itemIdx, lineIdx int) {
 		return
 	}
 
-	content := s.renderItem(itemIdx)
-	lines := strings.Split(content, "\n")
+	lines := s.renderedLines(itemIdx)
 	if lineIdx < 0 || lineIdx >= len(lines) {
 		return
 	}
@@ -665,7 +696,7 @@ func (s *ScrollList) View() string {
 	if len(s.items) > 0 {
 		for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
 			item := s.items[idx]
-			content := s.renderItem(idx)
+			contentLines := s.renderedLines(idx)
 
 			// Items that render to an empty string contribute zero height to
 			// the viewport. This MUST match renderedHeight()'s semantics —
@@ -676,12 +707,10 @@ func (s *ScrollList) View() string {
 			// and the cursor (most visibly streaming-reasoning items before
 			// any reasoning has streamed, which extension widgets surface by
 			// shrinking the scrollback).
-			if content == "" {
+			if len(contentLines) == 0 {
 				s.heightCache[item.ID()] = 0
 				continue
 			}
-
-			contentLines := strings.Split(content, "\n")
 
 			// Refresh height cache from the actual render (authoritative).
 			s.heightCache[item.ID()] = len(contentLines)
@@ -764,12 +793,11 @@ func (s *ScrollList) VisibleItems() []VisibleItem {
 	row := 0
 	remainingHeight := s.height
 	for idx := s.offsetIdx; idx < len(s.items) && remainingHeight > 0; idx++ {
-		content := s.renderItem(idx)
 		// An item that renders to nothing contributes no rows, matching View.
-		if content == "" {
+		lines := len(s.renderedLines(idx))
+		if lines == 0 {
 			continue
 		}
-		lines := strings.Count(content, "\n") + 1
 
 		skip := 0
 		if idx == s.offsetIdx {
@@ -872,11 +900,7 @@ func (s *ScrollList) itemHeight(idx int) int {
 // return stale/zero values for uncached items (e.g. reasoning blocks) and
 // which is unaware of the selection border.
 func (s *ScrollList) renderedHeight(idx int) int {
-	rendered := s.renderItem(idx)
-	if rendered == "" {
-		return 0
-	}
-	return strings.Count(rendered, "\n") + 1
+	return len(s.renderedLines(idx))
 }
 
 // renderItem renders the item at idx exactly as View() paints it, including
@@ -907,10 +931,42 @@ func (s *ScrollList) renderItem(idx int) string {
 	// theme.Border is a near-invisible panel edge on a dark terminal, which is
 	// the wrong weight for a cursor: the status bar announces MESSAGE NAV in
 	// Accent, so the thing the mode is pointing at gets the same colour.
-	return applySelectionBorder(
+	gen := style.ThemeGeneration()
+	fc := &s.frameCache
+	if fc.framed != "" && fc.inner == content && fc.width == s.width &&
+		fc.label == s.selectionLabel && fc.hint == s.selectionHint && fc.themeGen == gen {
+		return fc.framed
+	}
+	framed := applySelectionBorder(
 		content, s.width, style.GetTheme().Accent,
 		s.selectionLabel, s.selectionHint,
 	)
+	*fc = selectionFrameCache{
+		inner: content, width: s.width,
+		label: s.selectionLabel, hint: s.selectionHint,
+		themeGen: gen, framed: framed,
+	}
+	return framed
+}
+
+// renderedLines returns renderItem(idx) split into lines, or nil when the
+// item renders to nothing. The result is shared with lineCache: callers
+// must not modify it.
+func (s *ScrollList) renderedLines(idx int) []string {
+	content := s.renderItem(idx)
+	if content == "" {
+		return nil
+	}
+	id := s.items[idx].ID()
+	if e, ok := s.lineCache[id]; ok && e.content == content {
+		return e.lines
+	}
+	lines := strings.Split(content, "\n")
+	if s.lineCache == nil {
+		s.lineCache = make(map[string]renderedItemLines, 64)
+	}
+	s.lineCache[id] = renderedItemLines{content: content, lines: lines}
+	return lines
 }
 
 // SetSelectionFrame sets the text spliced into the selected item's frame:
