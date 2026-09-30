@@ -277,6 +277,13 @@ type StreamingMessageItem struct {
 	reasoningContent      string
 	reasoningContentWidth int
 
+	// renderCost is how long the most recent full content render took (the
+	// markdown pass for assistant text, the wrap/style pass for reasoning).
+	// That render is O(len(content)) and reruns on every stream flush, so
+	// the flush scheduler reads this to widen its coalescing window as the
+	// message grows. See adaptiveStreamFlushInterval.
+	renderCost time.Duration
+
 	// Both caches above hold theme-colored output, so a theme change has to
 	// invalidate them even though neither the content nor the width moved.
 	themeStamp
@@ -342,14 +349,18 @@ func (s *StreamingMessageItem) Render(width int) string {
 		// duration label: only the label changes per frame while streaming,
 		// so the expensive part renders once per chunk instead of per frame.
 		if s.reasoningContentWidth != width {
+			start := time.Now()
 			s.reasoningContent = render.ReasoningContent(
 				s.content.String(), width, createTypography(style.GetTheme()))
+			s.renderCost = time.Since(start)
 			s.reasoningContentWidth = width
 		}
 		rendered = render.ReasoningBlockFromContent(s.reasoningContent, durationMs, style.GetTheme())
 	} else {
 		// Render as assistant message
+		start := time.Now()
 		rendered = render.AssistantBlock(s.content.String(), width, style.GetTheme())
+		s.renderCost = time.Since(start)
 	}
 
 	// Cache the full render. A streaming reasoning block needs its live
@@ -360,6 +371,12 @@ func (s *StreamingMessageItem) Render(width int) string {
 		s.cachedWidth = width
 	}
 	return rendered
+}
+
+// RenderCost reports how long the most recent full content render took, or
+// zero if the item has not rendered yet.
+func (s *StreamingMessageItem) RenderCost() time.Duration {
+	return s.renderCost
 }
 
 // Height returns the number of lines.

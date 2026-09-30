@@ -713,7 +713,8 @@ type AppModel struct {
 	// coalescing flush ticks. Applying every chunk immediately forces a full
 	// markdown re-render of the accumulated message per chunk (O(n²) over a
 	// long response); instead chunks are batched and applied at most once
-	// per streamFlushInterval (~60 fps) or before any other event that
+	// per coalescing window (16ms, widened for long messages — see
+	// adaptiveStreamFlushInterval) or before any other event that
 	// depends on the scrollback state. Consecutive same-role chunks are
 	// concatenated in place.
 	pendingStreamChunks []pendingStreamChunk
@@ -5297,12 +5298,47 @@ type chromeCache struct {
 type streamAppendFlushMsg struct{}
 
 // streamAppendFlushTickCmd schedules a coalescing flush of buffered stream
-// chunks after streamFlushInterval (shared with StreamComponent's own
-// coalescing window).
-func streamAppendFlushTickCmd() tea.Cmd {
-	return tea.Tick(streamFlushInterval, func(_ time.Time) tea.Msg {
+// chunks after delay.
+func streamAppendFlushTickCmd(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(_ time.Time) tea.Msg {
 		return streamAppendFlushMsg{}
 	})
+}
+
+const (
+	// streamFlushCostFactor sets how much idle time the event loop gets per
+	// unit of streaming render time. At 2 the stream render occupies at most
+	// about a third of the loop (cost / (2·cost + cost)), leaving the rest
+	// for key presses and animation frames.
+	streamFlushCostFactor = 2
+
+	// maxStreamFlushInterval caps the coalescing window so a very long
+	// response still visibly advances several times per second.
+	maxStreamFlushInterval = 250 * time.Millisecond
+)
+
+// adaptiveStreamFlushInterval returns the coalescing window to use after a
+// streaming render that took cost.
+//
+// Every flush re-renders the whole streaming message (markdown, syntax
+// highlighting, wrapping), which is linear in its length: ~2ms at 2KB but
+// ~50ms at 60KB. With a fixed 16ms window a long response keeps the event
+// loop permanently busy and typing lags behind. Scaling the window with the
+// measured cost keeps short replies at ~60fps while bounding the share of
+// the loop that long ones consume.
+func adaptiveStreamFlushInterval(cost time.Duration) time.Duration {
+	return min(max(streamFlushInterval, streamFlushCostFactor*cost), maxStreamFlushInterval)
+}
+
+// streamFlushDelay picks the coalescing window for the next flush from the
+// render cost of the message currently streaming.
+func (m *AppModel) streamFlushDelay() time.Duration {
+	if n := len(m.messages); n > 0 {
+		if s, ok := m.messages[n-1].(*StreamingMessageItem); ok {
+			return adaptiveStreamFlushInterval(s.RenderCost())
+		}
+	}
+	return streamFlushInterval
 }
 
 // bufferStreamChunk adds a chunk to the pending buffer, concatenating
@@ -5318,7 +5354,7 @@ func (m *AppModel) bufferStreamChunk(role, content string) tea.Cmd {
 		return nil
 	}
 	m.streamFlushPending = true
-	return streamAppendFlushTickCmd()
+	return streamAppendFlushTickCmd(m.streamFlushDelay())
 }
 
 // flushPendingStreamChunks applies all buffered stream chunks to the
