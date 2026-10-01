@@ -578,9 +578,11 @@ type AppModelOptions struct {
 	SetModel func(modelString string) error
 
 	// ProviderError is the error that kept the model provider from being
-	// created at startup (typically a missing API key). When non-nil the
-	// TUI greets the user with a notice, refuses to send prompts, and
-	// clears the error once /connect or /model installs a working provider.
+	// created at startup (missing credentials, a failed OAuth token
+	// refresh, an unsupported provider, and so on). When non-nil the TUI
+	// greets the user with a notice, opens the model selector so they can
+	// pick a working model, refuses to send prompts, and clears the error
+	// once /connect or /model installs a working provider.
 	ProviderError error
 
 	// SaveProviderAPIKey stores an API key for a provider (backs /connect).
@@ -1322,6 +1324,16 @@ func NewAppModel(appCtrl AppController, opts AppModelOptions) *AppModel {
 		m.state = stateSessionSelector
 	}
 
+	// The configured provider could not be created at startup (missing
+	// credentials, a failed OAuth token refresh, an unsupported provider,
+	// and so on). Open the model selector immediately so the user can pick
+	// a working model instead of being stuck on a dead one. The session
+	// picker (--resume) takes precedence when both are requested; the
+	// selector opens once that picker closes.
+	if !opts.ShowSessionPicker {
+		m.openModelSelectorForProviderError()
+	}
+
 	// Propagate initial height distribution to children.
 	m.distributeHeight()
 
@@ -1904,11 +1916,15 @@ func (m *AppModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.printSystemMessage("Session switching not available.")
 		}
+		// The provider may still be unusable (e.g. a failed OAuth refresh);
+		// surface the selector now that the session picker is out of the way.
+		m.openModelSelectorForProviderError()
 		return m, tea.Batch(cmds...)
 
 	case SessionSelectorCancelledMsg:
 		m.sessionSelector = nil
 		m.state = stateInput
+		m.openModelSelectorForProviderError()
 		return m, nil
 
 	case SessionDeletedMsg:
@@ -5700,6 +5716,19 @@ func remapKey(name string) (tea.KeyPressMsg, bool) {
 // Model command handler
 // --------------------------------------------------------------------------
 
+// openModelSelectorForProviderError opens the model selector when the active
+// provider is unusable and no selector is already open. It is used at startup
+// and after the session picker closes, so the user is never left on a dead
+// model without a way to switch.
+func (m *AppModel) openModelSelectorForProviderError() {
+	if m.providerError == nil || m.modelSelector != nil {
+		return
+	}
+	currentModel := m.providerName + "/" + m.modelName
+	m.modelSelector = NewModelSelector(currentModel, m.width, m.height)
+	m.state = stateModelSelector
+}
+
 // handleModelCommand handles the /model slash command. With no arguments, it
 // opens an interactive model selector overlay with fuzzy finding. With an
 // argument (e.g. "/model anthropic/claude-haiku-3-5-20241022"), it switches
@@ -5911,8 +5940,9 @@ func sameProviderID(a, b string) bool {
 	return norm(a) == norm(b)
 }
 
-// providerErrorNotice builds the user-facing text for a missing provider
-// credential: what is missing, and the two ways to fix it.
+// providerErrorNotice builds the user-facing text for a provider that could
+// not be created at startup: a missing credential, a failed OAuth token
+// refresh, or any other provider failure, plus the ways to fix it.
 func (m *AppModel) providerErrorNotice() string {
 	if m.providerError == nil {
 		return ""

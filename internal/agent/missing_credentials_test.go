@@ -65,3 +65,37 @@ func TestNewAgentMissingCredentials(t *testing.T) {
 		t.Error("model is still the placeholder after SetModel")
 	}
 }
+
+// TestNewAgentToleratesNonCredentialProviderErrors checks that interactive
+// startup survives any provider creation failure — a failed OAuth token
+// refresh, an unsupported provider, and so on — not just a missing API key.
+// The TUI relies on this to open the model selector instead of exiting.
+func TestNewAgentToleratesNonCredentialProviderErrors(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	// An unsupported provider is a provider-creation failure that is not a
+	// MissingCredentialsError, so it exercises the broadened tolerance.
+	cfg := &models.ProviderConfig{ModelString: "not-a-real-provider/some-model"}
+
+	// Without the opt-in the failure stays fatal.
+	if _, err := NewAgent(context.Background(), &AgentConfig{ModelConfig: cfg}); err == nil {
+		t.Fatal("expected error without AllowMissingCredentials")
+	}
+
+	a, err := NewAgent(context.Background(), &AgentConfig{ModelConfig: cfg, AllowMissingCredentials: true})
+	if err != nil {
+		t.Fatalf("NewAgent with AllowMissingCredentials: %v", err)
+	}
+	defer func() { _ = a.Close() }()
+
+	perr := a.ProviderError()
+	if perr == nil {
+		t.Fatal("ProviderError = nil, want the provider creation error")
+	}
+	if auth.IsMissingCredentials(perr) {
+		t.Errorf("ProviderError = %v, want a non-credential error", perr)
+	}
+	if _, ok := a.GetModel().(*models.UnavailableModel); !ok {
+		t.Errorf("model = %T, want *models.UnavailableModel", a.GetModel())
+	}
+}

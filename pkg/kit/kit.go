@@ -356,7 +356,8 @@ func (m *Kit) GetLoadingMessage() string {
 // ProviderError returns the error that kept the model provider from being
 // created when the instance was built with Options.AllowMissingCredentials.
 // It is nil when the provider is usable. Use IsMissingCredentialsError to
-// check whether the cause is an absent API key. A successful SetModel
+// check whether the cause is an absent API key; other causes include a failed
+// OAuth token refresh or an unsupported provider. A successful SetModel
 // clears it.
 func (m *Kit) ProviderError() error {
 	return m.agent.ProviderError()
@@ -1280,12 +1281,14 @@ type Options struct {
 	ProviderAPIKey string
 
 	// AllowMissingCredentials lets New succeed when the configured provider
-	// has no API key or OAuth token. The instance then reports the problem
-	// through ProviderError, and every prompt fails with that error until
-	// SetModel installs a model whose provider has credentials (for
-	// example after SetProviderAPIKey stored a key). The interactive CLI
-	// uses this so users can add a key from inside the TUI. Off by default
-	// so SDK callers keep failing fast.
+	// cannot be created — no API key or OAuth token, a failed OAuth token
+	// refresh, an unsupported provider, and so on. The instance then reports
+	// the problem through ProviderError, and every prompt fails with that
+	// error until SetModel installs a model whose provider can be created
+	// (for example after SetProviderAPIKey stored a key). A malformed model
+	// string is still fatal. The interactive CLI uses this so users can add
+	// a key or pick another model from inside the TUI. Off by default so SDK
+	// callers keep failing fast.
 	AllowMissingCredentials bool
 
 	// ProviderURL overrides the provider endpoint. "" = use the provider's

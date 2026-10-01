@@ -73,7 +73,8 @@ func WithExtraTools(t ...Tool) Option { return func(o *Options) { o.ExtraTools =
 func WithProviderAPIKey(key string) Option { return func(o *Options) { o.ProviderAPIKey = key } }
 
 // WithAllowMissingCredentials lets New succeed when the configured provider
-// has no credentials. See Options.AllowMissingCredentials and
+// cannot be created (no credentials, a failed OAuth token refresh, an
+// unsupported provider, and so on). See Options.AllowMissingCredentials and
 // Kit.ProviderError.
 func WithAllowMissingCredentials() Option {
 	return func(o *Options) { o.AllowMissingCredentials = true }

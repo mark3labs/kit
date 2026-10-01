@@ -15,7 +15,6 @@ import (
 	"charm.land/fantasy"
 	log "github.com/charmbracelet/log"
 
-	"github.com/mark3labs/kit/internal/auth"
 	"github.com/mark3labs/kit/internal/config"
 	"github.com/mark3labs/kit/internal/core"
 	"github.com/mark3labs/kit/internal/media"
@@ -34,10 +33,13 @@ type AgentConfig struct {
 	DebugLogger      tools.DebugLogger
 
 	// AllowMissingCredentials lets NewAgent succeed when the configured
-	// provider has no API key or OAuth token. The agent then carries a
-	// placeholder model that fails every LLM call with the original error
-	// (see ProviderError) until SetModel installs a working provider. Used
-	// by the interactive TUI so the user can add a key from inside the app.
+	// provider cannot be created — no API key or OAuth token, a failed
+	// OAuth token refresh, an unsupported provider, and so on. The agent
+	// then carries a placeholder model that fails every LLM call with the
+	// original error (see ProviderError) until SetModel installs a working
+	// provider. A malformed model string is still fatal. Used by the
+	// interactive TUI so the user can add a key or pick another model from
+	// inside the app.
 	AllowMissingCredentials bool
 
 	// AuthHandler handles OAuth authorization for remote MCP servers.
@@ -414,17 +416,25 @@ func NewAgent(ctx context.Context, agentConfig *AgentConfig) (*Agent, error) {
 	var providerErr error
 	providerResult, err := models.CreateProvider(ctx, agentConfig.ModelConfig)
 	if err != nil {
-		if !agentConfig.AllowMissingCredentials || !auth.IsMissingCredentials(err) {
+		if !agentConfig.AllowMissingCredentials {
 			return nil, fmt.Errorf("failed to create model provider: %w", err)
 		}
-		// No credentials for the configured provider. Start with a placeholder
-		// model so the caller (the interactive TUI) can come up and let the
-		// user add a key; every LLM call fails with providerErr until then.
-		providerErr = err
+		// The provider could not be created. In interactive mode we tolerate
+		// this so the TUI can start and open the model selector: the agent
+		// carries a placeholder model that fails every LLM call with the
+		// original error (see ProviderError) until SetModel installs a working
+		// provider. A malformed model string is the one exception — it is a
+		// configuration error, not a recoverable provider problem, so it stays
+		// fatal.
 		prov, name := "", ""
 		if agentConfig.ModelConfig != nil {
-			prov, name, _ = models.ParseModelString(agentConfig.ModelConfig.ModelString)
+			var parseErr error
+			prov, name, parseErr = models.ParseModelString(agentConfig.ModelConfig.ModelString)
+			if parseErr != nil {
+				return nil, fmt.Errorf("failed to create model provider: %w", err)
+			}
 		}
+		providerErr = err
 		providerResult = &models.ProviderResult{Model: models.NewUnavailableModel(prov, name, err)}
 	}
 

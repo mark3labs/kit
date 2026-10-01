@@ -90,8 +90,10 @@ type AgentSetupOptions struct {
 	// Only meaningful when ProviderConfig is also set.
 	NoExtensions bool
 	// AllowMissingCredentials lets agent creation succeed when the provider
-	// has no credentials; the agent then reports the error via
-	// ProviderError until a working model is installed with SetModel.
+	// cannot be created (no credentials, a failed OAuth token refresh, an
+	// unsupported provider, and so on); the agent then reports the error via
+	// ProviderError until a working model is installed with SetModel. A
+	// malformed model string is still fatal.
 	AllowMissingCredentials bool
 	// Bare restricts extension loading to paths named explicitly via
 	// --extension / -e. No system, user or project directory is scanned.
